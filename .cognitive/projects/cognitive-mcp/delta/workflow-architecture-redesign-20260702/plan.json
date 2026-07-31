@@ -1,0 +1,229 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "workflow-architecture-redesign-20260702",
+      "generated_at": "2026-07-02T12:00:00-03:00",
+      "version": "2.1",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["workflow", "shared", "project", "cpg"],
+      "tags": ["python", "hexagonal", "cognitive-v2", "workflow", "absorption"]
+    },
+    "g_objetivo": {
+      "description": "Mejorar la arquitectura del workflow para soportar múltiples workflows (absorción + tareas), con un Workflow Registry que exponga los pasos, un dispatch pipeline que inyecte next_step automáticamente, y un onboarding que detecte intención y bifurque al workflow correcto",
+      "predicates": {
+        "must_exist": [
+          "módulo workflow_registry.py en shared/ con WORKFLOWS dict y funciones de consulta",
+          "constante KV_ABSORPTION_STATE en helpers.py para persistir estado de absorción",
+          "función _init_absorption_workflow() que inicializa el workflow de absorción en KV",
+          "función _get_absorption_state() que lee estado actual de absorción",
+          "función _advance_absorption_step() que avanza al siguiente paso del workflow de absorción",
+          "función _detect_absorption_intent() en ops_meta.py que detecta si el usuario quiere absorber un proyecto",
+          "función _attach_workflow_next_step() inyectada en dispatch_pipeline.py después de _delta_phase() que appendea _workflow, _next_step, _next_tool, _next_schema a la respuesta",
+          "tool MCP project_discover registrada en OPS",
+          "tool MCP project_analyze registrada en OPS",
+          "tool MCP project_ask_architect registrada en OPS",
+          "tool MCP project_register registrada en OPS",
+          "tool MCP project_index_cgc registrada en OPS"
+        ],
+        "must_not_exist": [
+          "hardcoded single-workflow assumption en op_onboarding() — solo task workflow sin bifurcación"
+        ],
+        "invariants": [
+          "ops_skill.py WORKFLOW_STEPS = ['goal_definition', 'planning', 'implementation', 'verification', 'validation', 'closed'] sin cambios",
+          "dispatch_pipeline.py gates existentes (rate_limit, state_machine, schema_validation, confidence, workflow) sin cambios",
+          "Phase enum (INIT→REFINE→HARDENING→FINALIZED→IMPLEMENTING→VERIFY→CLOSED) sin cambios",
+          "project_preferences building blocks (ProjectProfileBuilder, StructureAnalyzer, ConfigParser, GitAnalyzer, CodeAnalyzer) sin cambios",
+          "CgcProjectIndexer sin cambios",
+          "set_project_context() / get_project_context() API sin cambios"
+        ]
+      },
+      "signatures": [
+        "def _detect_absorption_intent(task: str) -> dict | None",
+        "def _init_absorption_workflow(path: str) -> dict",
+        "def _get_absorption_state() -> dict | None",
+        "def _advance_absorption_step() -> dict | None",
+        "def _attach_workflow_next_step(op_name: str, result: dict, params: dict) -> None",
+        "WORKFLOWS: dict[str, dict] (workflow_registry.py)",
+        "KV_ABSORPTION_STATE = \"kv:absorption_state\""
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Crear workflow_registry.py en shared/ con WORKFLOWS dict (project_absorption + task_execution), funciones de consulta de pasos, schemas y next_step",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/workflow_registry.py (crear)"
+          ],
+          "apis": ["WORKFLOWS dict", "get_workflow_steps()", "get_step_schema()", "get_next_step()", "list_workflows()"],
+          "data": ["workflow definitions with steps, schemas, next_step mappings"],
+          "config": [],
+          "tests": ["tests/test_workflow_registry.py (crear)"],
+          "docs": []
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.05},
+        "decisions": [
+          {
+            "chosen": "WORKFLOWS como dict de datos puros en módulo separado shared/workflow_registry.py",
+            "alternatives": ["Workflows en config JSON externo", "Workflows en KV store", "Workflows hardcodeados en ops_skill.py"],
+            "rationale": "Datos puros en módulo Python = tipado estático + imports directos + 0 latencia de I/O. SRP: el módulo solo define, no ejecuta. Fácil de testear."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "módulo workflow_registry.py en shared/ con WORKFLOWS dict y funciones de consulta"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Crear absorption state machine en ops_skill.py: KV_ABSORPTION_STATE en helpers.py, _init_absorption_workflow(), _get_absorption_state(), _advance_absorption_step(). State machine separada de kv:workflow_state existente",
+        "domain": "workflow",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/helpers.py (modificar — agregar KV_ABSORPTION_STATE)",
+            "cognitive_v2/shared/ops_skill.py (modificar — agregar 3 funciones de state machine)"
+          ],
+          "apis": ["_init_absorption_workflow()", "_get_absorption_state()", "_advance_absorption_step()", "KV_ABSORPTION_STATE"],
+          "data": ["kv:absorption_state — dict con workflow, current_step, completed_steps, path, status"],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.20, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {
+            "chosen": "State machine separada en kv:absorption_state, no tocar kv:workflow_state existente",
+            "alternatives": ["Reutilizar kv:workflow_state con type field", "Nuevo KV type prefix"],
+            "rationale": "SRP: la absorción tiene su propio lifecycle que no debe mezclarse con el task workflow. Cuando la absorción completa, se limpia kv:absorption_state y el task workflow se inicializa normalmente."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "constante KV_ABSORPTION_STATE en helpers.py para persistir estado de absorción",
+            "función _init_absorption_workflow() que inicializa el workflow de absorción en KV",
+            "función _get_absorption_state() que lee estado actual de absorción",
+            "función _advance_absorption_step() que avanza al siguiente paso del workflow de absorción"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Añadir _attach_workflow_next_step() en dispatch_pipeline.py que consulta el Workflow Registry y la absorption state machine, y appendea _workflow, _next_step, _next_tool, _next_schema al resultado de cada tool call. Llamar después de _delta_phase()",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/dispatch_pipeline.py (modificar — agregar _attach_workflow_next_step + llamada en _engine_dispatch después de _delta_phase)"
+          ],
+          "apis": ["_attach_workflow_next_step()"],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.15, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {
+            "chosen": "Middleware POST puro: consulta registry + state machine, appendea al result. Sin tocar gates existentes",
+            "alternatives": ["Modificar cada tool para devolver next_step", "Middleware separado fuera de dispatch_pipeline"],
+            "rationale": "El dispatch pipeline ya es el punto de middleware POST. SRP: añadir una etapa más en el pipeline existente es mínimo cambio. Las tools no saben de workflows."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "función _attach_workflow_next_step() inyectada en dispatch_pipeline.py después de _delta_phase() que appendea _workflow, _next_step, _next_tool, _next_schema a la respuesta"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "type": "refactor",
+        "work_type": "refactor",
+        "objective": "Modificar op_onboarding() en ops_meta.py para detectar intención de absorción via _detect_absorption_intent(), bifurcar al workflow project_absorption si corresponde, o al task workflow existente si no. Eliminar la asunción hardcodeada de que solo existe el task workflow",
+        "domain": "meta",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/ops_meta.py (modificar — agregar _detect_absorption_intent + bifurcación al inicio de op_onboarding)"
+          ],
+          "apis": ["_detect_absorption_intent()", "op_onboarding() modificada"],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.25, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [
+          {
+            "chosen": "Bifurcación temprana en op_onboarding(): detectar intención ANTES de inicializar task workflow",
+            "alternatives": ["Tool separada op_absorption()", "Parámetro extra en op_onboarding"],
+            "rationale": "El usuario no sabe que existe 'absorción'. Onboarding es el punto de entrada único. El LLM llama onboarding(task='...'), y el MCP decide qué workflow aplicar."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "función _detect_absorption_intent() en ops_meta.py que detecta si el usuario quiere absorber un proyecto",
+            "hardcoded single-workflow assumption en op_onboarding() — solo task workflow sin bifurcación"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Crear absorption_tools.py en features/project/api/ con las 5 tools de absorción: project_discover, project_analyze, project_ask_architect, project_register, project_index_cgc. Cada tool reusa building blocks existentes (StructureAnalyzer, ConfigParser, GitAnalyzer, CodeAnalyzer, set_project_context, CgcProjectIndexer). Registrar en OPS registry",
+        "domain": "project",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/project/api/absorption_tools.py (crear — con 5 handlers)",
+            "cognitive_v2/shared/ops_init.py (modificar — import absorption_tools para registrar en OPS)"
+          ],
+          "apis": [
+            "project_discover() MCP tool",
+            "project_analyze() MCP tool",
+            "project_ask_architect() MCP tool",
+            "project_register() MCP tool",
+            "project_index_cgc() MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": ["tests/test_absorption_tools.py (crear)"],
+          "docs": []
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {
+            "chosen": "Las 5 tools en un solo archivo absorption_tools.py porque comparten el mismo ciclo de vida (absorción) y se reusan datos entre pasos",
+            "alternatives": ["Cada tool en su propio archivo", "Cada tool en su bounded context existente"],
+            "rationale": "Cohesión: todas pertenecen al mismo workflow de absorción. El archivo es pequeño (~200-300 lines total). Si crece, se puede dividir después. SRP se mantiene porque cada tool es una función independiente."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "tool MCP project_discover registrada en OPS",
+            "tool MCP project_analyze registrada en OPS",
+            "tool MCP project_ask_architect registrada en OPS",
+            "tool MCP project_register registrada en OPS",
+            "tool MCP project_index_cgc registrada en OPS"
+          ]
+        }
+      }
+    ]
+  }
+}

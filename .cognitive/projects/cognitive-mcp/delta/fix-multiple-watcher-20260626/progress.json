@@ -1,0 +1,54 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "fix-multiple-watcher-20260626",
+      "generated_at": "2026-06-26T11:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-06-26T11:00:00-03:00",
+        "d": 1.0,
+        "ps": "0/15",
+        "tc": [],
+        "e": "Plan created — 4 tasks pendientes"
+      },
+      {
+        "at": "2026-06-26T11:10:00-03:00",
+        "d": 0.6,
+        "ps": "6/15",
+        "tc": ["TASK-001"],
+        "e": "TASK-001: bloque watcher eliminado de codegraph.py, imports limpiados, 150 tests pasan"
+      },
+      {
+        "at": "2026-06-26T11:20:00-03:00",
+        "d": 0.33,
+        "ps": "10/15",
+        "tc": ["TASK-002"],
+        "e": "TASK-002: FileEventPublisher creado + exportado, 6 tests funcionales pasan"
+      },
+      {
+        "at": "2026-06-26T11:30:00-03:00",
+        "d": 0.0,
+        "ps": "15/15",
+        "tc": ["TASK-003", "TASK-004"],
+        "e": "TASK-003: CgcWatcherAdapter refactorizado con FileEventPublisher, sync_on_start, use_polling, cgcignore, health check. TASK-004: code_watch_status MCP tool registrada. 150 tests pasan, 0 regresiones."
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-001": "completed",
+        "TASK-002": "completed",
+        "TASK-003": "completed",
+        "TASK-004": "completed"
+      },
+      "total_predicates": 15,
+      "satisfied_predicates": 15,
+      "distance": 0.0,
+      "next_action": null
+    }
+  }
+}

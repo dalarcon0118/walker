@@ -1,0 +1,322 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-adr06-scrum-refactoring-20260709",
+      "generated_at": "2026-07-09T21:55:33.833985+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "closed"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-09T21:55:33.833985+00:00",
+        "distance": 1.0,
+        "predicates_satisfied": "0/4",
+        "tasks_completed": [],
+        "event": "Plan creado v1.0 — ADR-06 refactor: SprintStateService"
+      },
+      {
+        "at": "2026-07-09T21:56:06.208193+00:00",
+        "distance": 0.8333,
+        "event": "TASK-ADR06-001 completed",
+        "tasks": [
+          "TASK-ADR06-001"
+        ],
+        "loop": {
+          "result_state": "scrum/SprintStateService.py creado sintácticamente válido con 9 funciones y constantes",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "SprintStateService.py existe",
+              "passed": true
+            },
+            {
+              "criterion": "Exporta get_state_graph, save_state_graph, create_state_graph, compute_distance",
+              "passed": true
+            },
+            {
+              "criterion": "Exporta get_registry, set_registry, ensure_registry, get_project_state",
+              "passed": true
+            },
+            {
+              "criterion": "Exporta SPRINT_COMPLETED y SPRINT_ABANDONED",
+              "passed": true
+            },
+            {
+              "criterion": "create_state_graph acepta goal opcional",
+              "passed": true
+            }
+          ],
+          "quality_gates": []
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T21:56:14.598419+00:00",
+        "distance": 0.6667,
+        "event": "TASK-ADR06-002 completed",
+        "tasks": [
+          "TASK-ADR06-002"
+        ],
+        "loop": {
+          "result_state": "SprintPlanning.py usa SprintStateService, archivo sintácticamente válido",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "SprintPlanning.py no importa de state_graph ni delta_evaluator",
+              "passed": true
+            },
+            {
+              "criterion": "4 métodos usan SprintStateService: create_sprint, delta_plan, get_project_board, _recalculate_sprint_delta, _set_current_sprint_id",
+              "passed": true
+            }
+          ],
+          "quality_gates": []
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T21:56:24.041875+00:00",
+        "distance": 0.5,
+        "event": "TASK-ADR06-003 completed",
+        "tasks": [
+          "TASK-ADR06-003"
+        ],
+        "loop": {
+          "result_state": "ScrumMaster.py usa SprintStateService, archivo sintácticamente válido",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "ScrumMaster.py no importa de cognitive_v2.shared.delta_evaluator",
+              "passed": true
+            },
+            {
+              "criterion": "create_task usa SprintStateService.get_state_graph y save_state_graph",
+              "passed": true
+            },
+            {
+              "criterion": "get_state usa SprintStateService.get_project_state",
+              "passed": true
+            }
+          ],
+          "quality_gates": []
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T21:56:30.475413+00:00",
+        "distance": 0.3333,
+        "event": "TASK-ADR06-004 completed",
+        "tasks": [
+          "TASK-ADR06-004"
+        ],
+        "loop": {
+          "result_state": "scrum/__init__.py exporta SprintStateService, sintácticamente válido",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "__init__.py importa SprintStateService",
+              "passed": true
+            },
+            {
+              "criterion": "__all__ incluye todos los símbolos públicos",
+              "passed": true
+            }
+          ],
+          "quality_gates": []
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T21:56:35.683837+00:00",
+        "distance": 0.0,
+        "event": "plan closed — composicional verification",
+        "tasks": [
+          "TASK-ADR06-001",
+          "TASK-ADR06-002",
+          "TASK-ADR06-003",
+          "TASK-ADR06-004"
+        ],
+        "closure": {
+          "composicion_valida": false,
+          "full_rescan_executed": false,
+          "side_effects_detected": 0,
+          "side_effects": [],
+          "model_corrections": [
+            "El concepto 'estado' del G_objetivo no está cubierto por ningún result_state de tareas completadas"
+          ],
+          "total_tasks": 4,
+          "total_advances": 4,
+          "total_distance_traveled": "1.0 → 0.0",
+          "next_delta_candidates": []
+        }
+      },
+      {
+        "at": "2026-07-09T22:22:19.458383+00:00",
+        "distance": 0.0,
+        "event": "plan closed — composicional verification",
+        "tasks": [
+          "TASK-ADR06-001",
+          "TASK-ADR06-002",
+          "TASK-ADR06-003",
+          "TASK-ADR06-004"
+        ],
+        "closure": {
+          "composicion_valida": false,
+          "full_rescan_executed": true,
+          "side_effects_detected": 0,
+          "side_effects": [],
+          "model_corrections": [
+            "El concepto 'estado' del G_objetivo no está cubierto por ningún result_state de tareas completadas"
+          ],
+          "total_tasks": 4,
+          "total_advances": 5,
+          "total_distance_traveled": "1.0 → 0.0",
+          "next_delta_candidates": []
+        }
+      }
+    ],
+    "current": {
+      "distance": 1.0,
+      "task_states": {
+        "TASK-ADR06-001": "completed",
+        "TASK-ADR06-002": "completed",
+        "TASK-ADR06-003": "completed",
+        "TASK-ADR06-004": "completed"
+      },
+      "next_action": null,
+      "finished": true,
+      "closure": {
+        "composicion_valida": false,
+        "full_rescan_executed": true,
+        "side_effects_detected": 0,
+        "side_effects": [],
+        "model_corrections": [
+          "El concepto 'estado' del G_objetivo no está cubierto por ningún result_state de tareas completadas"
+        ],
+        "total_tasks": 4,
+        "total_advances": 5,
+        "total_distance_traveled": "1.0 → 0.0",
+        "next_delta_candidates": []
+      }
+    }
+  }
+}

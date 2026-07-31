@@ -1,0 +1,65 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-absorcion-delta-20260630",
+      "generated_at": "2026-06-30T00:00:00-00:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-06-30T00:00:00-00:00",
+        "d": 0.85,
+        "ps": "0/20",
+        "tc": [],
+        "e": "Plan creado. 9 tareas para hacer que el MCP absorba el skill delta como pipeline nativo."
+      },
+      {
+        "at": "2026-06-30T13:50:00-00:00",
+        "d": 0.60,
+        "ps": "7/20",
+        "tc": ["A-UNIVERSAL", "A-DISPATCH", "C-TRAIL"],
+        "e": "Implementadas A-UNIVERSAL (git diff en cada tool call), A-DISPATCH (delta phase en dispatch), C-TRAIL (record delta trail en CognitiveTrail). Avanzan 7/20 predicates. Siguiente: D-CACHE (G_actual cache) como prerequisito de B-PHASE."
+      },
+      {
+        "at": "2026-06-30T17:50:00-00:00",
+        "d": 0.40,
+        "ps": "14/20",
+        "tc": ["B-PHASE", "D-CACHE", "E-REUSE"],
+        "e": "Implementadas B-PHASE (distance_threshold + check_distance_gate), D-CACHE (stale flag + _try_load_stale_cache), E-REUSE (find_closest_match con difflib + CGC). Avanzan 14/20 predicates."
+      },
+      {
+        "at": "2026-06-30T18:30:00-00:00",
+        "d": 0.10,
+        "ps": "18/20",
+        "tc": ["F-CALIBRATION"],
+        "e": "Verificada F-CALIBRATION: _calibrate_model() ya integra 4 layers (state, delta, strategy, model) con calibration_store.apply_adjustment(). Avanzan 18/20 predicates."
+      },
+      {
+        "at": "2026-06-30T18:45:00-00:00",
+        "d": 0.0,
+        "ps": "20/20",
+        "tc": ["F-CALIBRATION", "G-RESTORE", "H-GUIDANCE-NATIVE"],
+        "e": "Implementadas G-RESTORE (_load_progress_on_startup() en startup), H-GUIDANCE-NATIVE (cognitive://navigation/guidance resource). Todas las 9 tareas completadas. Plan finalizado."
+      }
+    ],
+    "current": {
+      "task_states": {
+        "A-UNIVERSAL": "completed",
+        "A-DISPATCH": "completed",
+        "B-PHASE": "completed",
+        "C-TRAIL": "completed",
+        "D-CACHE": "completed",
+        "E-REUSE": "completed",
+        "F-CALIBRATION": "completed",
+        "G-RESTORE": "completed",
+        "H-GUIDANCE-NATIVE": "completed"
+      },
+      "next_action": null,
+      "distance": 0.0,
+      "finished": true
+    }
+  }
+}

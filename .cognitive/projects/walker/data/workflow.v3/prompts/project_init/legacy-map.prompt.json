@@ -1,0 +1,7 @@
+{
+  "id": "project_init/legacy-map",
+  "type": "auto",
+  "version": 1,
+  "description": "Auto-map legacy walker project to walker format",
+  "template": "PROJECT_INIT.LEGACY_MAP - Mapping legacy project data...\n\nThis step runs automatically. Results will be shown in the next step."
+}

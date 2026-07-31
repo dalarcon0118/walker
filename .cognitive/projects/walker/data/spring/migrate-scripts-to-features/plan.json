@@ -1,0 +1,711 @@
+{
+  "version": "2.0",
+  "chain_id": "migrate-scripts-to-features",
+  "goal": "Refactor arquitectónico: migrar scripts/_walker/ legacy a features/ con 7 vertical slices",
+  "workflow": "workflow.v3/",
+  "tasks": [
+    {
+      "task_id": "TASK-001",
+      "objective": "Migrar workflow_engine/ a features/engine/",
+      "type": "refactor",
+      "domain": "engine",
+      "result_state": "features/engine/ funcionando con DDD completo, state inmutable (ELM), sin IO en domain/",
+      "task_description": "Refactor completo de scripts/_walker/workflow_engine/ a features/engine/ con DDD+hexagonal. Incluye domain/models.py (WorkflowState @dataclass frozen=True, WorkflowGraph, SubState, Gate, NodeExecution), domain/services.py (ValidationService, AdvanceService, TransitionService todos retornando new state), application/use_cases.py (SubmitDataUseCase, TransitionUseCase con Saga compensation), application/context_resolver.py (promote_provides scoped by node), infrastructure/repositories.py (WorkflowRepository, WorkflowStateRepository). Estado INMUTABLE tipo ELM: cada operacion retorna nueva instancia.",
+      "validation": {
+        "predicates": [
+          "WorkflowState es frozen=True",
+          "promote_provides filtra por nodo",
+          "No hay IO directo en domain/",
+          "No hay fallbacks silenciosos"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "scripts/cpg/domain/graph.py",
+          "scripts/cpg/domain/query.py",
+          "scripts/cpg/domain/analysis.py",
+          "scripts/cpg/domain/metrics.py",
+          "scripts/cpg/application/build_service.py",
+          "scripts/cpg/application/query_service.py",
+          "scripts/cpg/application/bug_service.py",
+          "scripts/cpg/application/query.py",
+          "scripts/cpg/application/review_service.py",
+          "scripts/cpg/infrastructure/repository.py",
+          "scripts/cpg/infrastructure/sg_adapter.py",
+          "scripts/cpg/infrastructure/ast_grep_adapter.py",
+          "scripts/cpg/infrastructure/ast_grep_calls.py",
+          "scripts/cpg/infrastructure/filters.py",
+          "scripts/cpg/infrastructure/metrics.py",
+          "scripts/cpg/__init__.py",
+          "features/code-analysis/"
+        ]
+      },
+      "depends_on": [],
+      "risks": {
+        "curvature": 0.25,
+        "pre_churn": 0.15,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "Arquitectura DDD definida en ADR-ARQ-001",
+        "Workflow debe ser orquestador puro BPMN-like"
+      ],
+      "acceptance_criteria": [
+        "domain/ es puro sin IO (sin open(), sin subprocess)",
+        "application/ orquesta use cases y delega en domain + infrastructure",
+        "infrastructure/ maneja toda la IO (repositorios, side effects)",
+        "WorkflowState @dataclass(frozen=True): cada mutacion retorna new instance",
+        "No hay imports a _walker/ desde features/engine/"
+      ],
+      "quality_gates": [
+        "No hay imports a _walker/ desde features/engine/",
+        "No hay IO directo en domain/",
+        "WorkflowState.from_dict/to_dict mantienen inmutablebilidad"
+      ],
+      "task_context": "{\"observacion\": \"Engine legacy tenia 12+ IO directo\", \"estructura\": \"DDD+hexagonal con domain/application/infrastructure\", \"comportamiento\": \"ELM pattern: estado inmutable, cada operacion retorna nuevo estado\", \"causalidad\": \"Bug promote_provides no filtraba por nodo; fallbacks silenciosos ocultaban errores\", \"finalidad\": \"Workflow puro que no conoce negocios (spring, project, etc.)\", \"principios\": \"BPMN-like orchestrator, SSOT en configuracion nodos, no en codigo\"}",
+      "decisions": [
+        {
+          "chosen": "WorkflowState frozen=True con replace()",
+          "alternatives": [
+            "Dict mutable",
+            "SprintState con copy-on-write"
+          ],
+          "rationale": "ELM pattern garantiza inmutabilidad en tiempo de compilacion, no solo por convencion"
+        },
+        {
+          "chosen": "promote_provides scoped por nodo",
+          "rationale": "Evita contaminacion de datos entre nodos (SPRINT.task_id != ANALYZE.task_id)"
+        }
+      ],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "core",
+      "role": "core",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "WorkflowState es frozen=True, no se puede mutar",
+        "promote_provides filtra por nodo (no contamina entre nodos)",
+        "No hay IO directo en domain/ (solo infrastructure/)",
+        "No hay fallbacks silenciosos: emergency_workflow, presprint_workflow, reconstruct_walker_state eliminados"
+      ],
+      "files": [
+        "features/engine/domain/models.py",
+        "features/engine/domain/services.py",
+        "features/engine/domain/errors.py",
+        "features/engine/application/use_cases.py",
+        "features/engine/application/context_resolver.py",
+        "features/engine/application/orchestrator.py",
+        "features/engine/application/workflow_api.py",
+        "features/engine/infrastructure/repositories.py",
+        "features/engine/infrastructure/task_registry.py",
+        "features/engine/infrastructure/side_effects.py",
+        "features/engine/engine.py",
+        "features/engine/bootstrap.py",
+        "features/engine/context/providers.py",
+        "features/engine/context/composer.py",
+        "features/engine/context/__init__.py",
+        "features/engine/context/resolver.py (context_resolver.py)",
+        "libs/path_resolver/__init__.py"
+      ],
+      "curvature": 0.7,
+      "pre_churn": 0.2,
+      "commit_trust": 0.9
+    },
+    {
+      "task_id": "TASK-002",
+      "objective": "Migrar cpg/ a features/code-analysis/",
+      "type": "refactor",
+      "domain": "cpg",
+      "result_state": "features/code_analysis/ con domain/application/infrastructure completo. CPGBuilder y CpgQueryService funcionando desde features/",
+      "task_description": "Migracion de scripts/_walker/cpg/ a features/code_analysis/. CPGBuilder construye CPG desde codigo fuente. CpgQueryService consulta indice CPG. ReviewUseCase para code review. Ya existe con estructura DDD completa.",
+      "validation": {
+        "predicates": [
+          "CPGBuilder funciona desde features/",
+          "CpgQueryService funciona desde features/"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "features/code_analysis/__init__.py",
+          "features/code_analysis/domain/",
+          "features/code_analysis/application/",
+          "features/code_analysis/infrastructure/",
+          "scripts/_walker/cpg/"
+        ]
+      },
+      "depends_on": [
+        "TASK-001"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "CPG module legacy existe en scripts/_walker/cpg/",
+        "features/engine/ estable para usar WorkflowState"
+      ],
+      "acceptance_criteria": [
+        "CPGBuilder.build() retorna dict con nodos y edges",
+        "CpgQueryService.search() retorta resultados de CPG",
+        "Shim en scripts/cpg/ re-exporta para compatibilidad"
+      ],
+      "quality_gates": [
+        "No imports a _walker/ desde features/code_analysis/",
+        "CPGBuilder usa ProjectService para paths"
+      ],
+      "task_context": "{\"observacion\": \"CPG legacy en scripts/_walker/cpg/\", \"estructura\": \"domain/application/infrastructure ya existe en features/\", \"finalidad\": \"Analisis estatico de codigo fuente estructurado\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "core",
+      "role": "core",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "CPGBuilder.build() escanea y construye grafo",
+        "CpgQueryService.search() retorna resultados de CPG"
+      ],
+      "files": [
+        "features/code_analysis/__init__.py",
+        "features/code_analysis/domain/",
+        "features/code_analysis/application/",
+        "features/code_analysis/infrastructure/",
+        "scripts/_walker/cpg/"
+      ],
+      "curvature": 0.5,
+      "pre_churn": 0.2,
+      "commit_trust": 0.9
+    },
+    {
+      "task_id": "TASK-003",
+      "objective": "Migrar ckg/ a features/cognitive-knowledge/",
+      "type": "refactor",
+      "domain": "ckg",
+      "result_state": "features/cognitive_knowledge/ con domain/application/infrastructure completo. CodeKnowledgeGraph y CkgQueryService funcionando desde features/",
+      "task_description": "Migracion de scripts/_walker/ckg/ a features/cognitive_knowledge/. CodeKnowledgeGraph para almacenar/consultar conocimiento. CkgQueryService para busquedas en CKG. Ya existe con estructura DDD completa.",
+      "validation": {
+        "predicates": [
+          "CKG query funciona desde features/",
+          "CKG save funciona desde features/"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "features/cognitive_knowledge/__init__.py",
+          "features/cognitive_knowledge/domain/",
+          "features/cognitive_knowledge/application/",
+          "features/cognitive_knowledge/infrastructure/",
+          "scripts/_walker/ckg/"
+        ]
+      },
+      "depends_on": [
+        "TASK-001"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "CKG module legacy existe en scripts/_walker/ckg/"
+      ],
+      "acceptance_criteria": [
+        "CkgQueryService retorna resultados de CKG",
+        "CodeKnowledgeGraph guarda nodos en ckg.json.gz"
+      ],
+      "quality_gates": [
+        "No imports a _walker/ desde features/cognitive_knowledge/"
+      ],
+      "task_context": "{\"observacion\": \"CKG legacy en scripts/_walker/ckg/\", \"estructura\": \"DDD completo ya existe en features/\", \"finalidad\": \"Almacen de conocimiento cognitivo del proyecto\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "core",
+      "role": "core",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "CkgQueryService.query() retorna resultados de CKG",
+        "CodeKnowledgeGraph.save_nodes() persiste en ckg.json.gz"
+      ],
+      "files": [
+        "features/cognitive_knowledge/__init__.py",
+        "features/cognitive_knowledge/domain/",
+        "features/cognitive_knowledge/application/",
+        "features/cognitive_knowledge/infrastructure/",
+        "scripts/_walker/ckg/"
+      ],
+      "curvature": 0.5,
+      "pre_churn": 0.2,
+      "commit_trust": 0.9
+    },
+    {
+      "task_id": "TASK-004",
+      "objective": "Migrar deltagraph/ a features/delta-tracking/",
+      "type": "refactor",
+      "domain": "delta",
+      "result_state": "features/delta_tracking/ con domain/application/infrastructure para DeltaGraphService",
+      "task_description": "Migracion de scripts/deltagraph/ a features/delta_tracking/. DeltaGraphService para seguimiento de cambios entre sprints. Tareas completas con shim en scripts/deltagraph/.",
+      "validation": {
+        "predicates": [
+          "DeltaGraphService funciona desde features/"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "features/delta_tracking/",
+          "scripts/deltagraph/"
+        ]
+      },
+      "depends_on": [
+        "TASK-001"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "DeltaGraph legacy existe en scripts/deltagraph/"
+      ],
+      "acceptance_criteria": [
+        "DeltaGraphService.index_sprint() funciona",
+        "Shim en scripts/deltagraph/ re-exporta"
+      ],
+      "quality_gates": [
+        "Shim en scripts/deltagraph/ re-exporta sin errores"
+      ],
+      "task_context": "{\"finalidad\": \"Delta graph para contexto federado de tareas multi-sprint\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "core",
+      "role": "core",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "DeltaGraphService.index_sprint() indexa tareas de un sprint"
+      ],
+      "files": [
+        "features/delta_tracking/",
+        "scripts/deltagraph/"
+      ],
+      "curvature": 0.4,
+      "pre_churn": 0.2,
+      "commit_trust": 0.9
+    },
+    {
+      "task_id": "TASK-005",
+      "objective": "Migrar tracegraph/ a features/event-tracing/",
+      "type": "refactor",
+      "domain": "trace",
+      "result_state": "features/event_tracing/ con 8 archivos DDD cargando 441 eventos reales",
+      "task_description": "Migracion de scripts/tracegraph/ a features/event_tracing/. TraceEvent modelo inmutable. load_traces() carga desde index + NDJSON. 441 eventos reales cargados. Shim en scripts/tracegraph/.",
+      "validation": {
+        "predicates": [
+          "load_traces() funciona",
+          "441 eventos cargados"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "features/event_tracing/",
+          "scripts/tracegraph/"
+        ]
+      },
+      "depends_on": [
+        "TASK-001"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "TraceGraph legacy existe en scripts/tracegraph/"
+      ],
+      "acceptance_criteria": [
+        "load_traces() carga 441 eventos (228 index + 213 NDJSON)",
+        "Shim en scripts/tracegraph/ re-exporta"
+      ],
+      "quality_gates": [
+        "Shim en scripts/tracegraph/ re-exporta sin errores"
+      ],
+      "task_context": "{\"finalidad\": \"Trazabilidad de sesiones con eventos estructurados\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "core",
+      "role": "core",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "load_traces() carga eventos desde data sources"
+      ],
+      "files": [
+        "features/event_tracing/",
+        "scripts/tracegraph/"
+      ],
+      "curvature": 0.4,
+      "pre_churn": 0.2,
+      "commit_trust": 0.9
+    },
+    {
+      "task_id": "TASK-006",
+      "objective": "Migrar tasks/ + side_effects/ + prompt/ a features/",
+      "type": "refactor",
+      "domain": "task-execution",
+      "result_state": "features/task_execution/ (20 tasks + 7 side-effects) + features/prompts/ (4 modulos) con 31 shims",
+      "task_description": "Migracion completa de scripts/tasks/ (20 archivos), scripts/side_effects/ (7 archivos) y scripts/prompt/ (4 archivos) a features/task_execution/ y features/prompts/. Cada task/side_effect tiene un shim en scripts/ que re-exporta desde features/. Tasks: list_projects, planning (plan_sprint, spec_task, advance_task_index, show_dashboard, validate_plan), project_init (detect, build, scan, create_first_sprint, add_tasks, map_legacy), legacy_mapper (detect, map, import), knowledge, kg (schema, search, store, multi), review, verification, transforms, refinement, trace_push, gathering, cpg_unused_functions, cpg_index_ref, project_metrics, query, resolve_project_sprint, implementation. Side-effects: archive, events, planning, delta_updates, ckg_persist, cpg_updates, legacy. Prompts: manager, loader, renderer, collector.",
+      "validation": {
+        "predicates": [
+          "20 tasks migradas + shims verificados",
+          "7 side-effects migrados + shims verificados",
+          "PromptManager funciona desde features/"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "features/task_execution/tasks/ (20 files)",
+          "features/task_execution/side_effects/ (7 files)",
+          "features/prompts/ (4 files)",
+          "scripts/tasks/ (shims)",
+          "scripts/side_effects/ (shims)",
+          "scripts/prompt/ (shims)"
+        ]
+      },
+      "depends_on": [
+        "TASK-001",
+        "TASK-002",
+        "TASK-003"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "scripts/tasks/, scripts/side_effects/, scripts/prompt/ existen"
+      ],
+      "acceptance_criteria": [
+        "Engine sigue descubriendo tasks desde scripts/ (shims)",
+        "No hay imports a _walker/ en los nuevos modulos de features/"
+      ],
+      "quality_gates": [
+        "Todos los shims se importan sin error",
+        "No hay imports a _walker/ desde features/task_execution/ ni features/prompts/"
+      ],
+      "task_context": "{\"observacion\": \"El engine descubre tasks desde scripts/tasks/ via bootstrap\", \"estructura\": \"Shims en scripts/ re-exportan desde features/\", \"comportamiento\": \"Transparente para el engine: no necesita cambios\"}",
+      "decisions": [
+        {
+          "chosen": "Shims en scripts/ re-exportando desde features/",
+          "alternatives": [
+            "Mover discovery del engine a features/"
+          ],
+          "rationale": "Minimo cambio, maxima compatibilidad"
+        }
+      ],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "core",
+      "role": "core",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "20 tasks migradas + shims verificados",
+        "7 side-effects migrados + shims verificados",
+        "PromptManager funciona desde features/prompts/"
+      ],
+      "files": [
+        "features/task_execution/tasks/ (20 files)",
+        "features/task_execution/side_effects/ (7 files)",
+        "features/prompts/ (4 files)",
+        "scripts/tasks/ (shims)",
+        "scripts/side_effects/ (shims)",
+        "scripts/prompt/ (shims)"
+      ],
+      "curvature": 0.6,
+      "pre_churn": 0.2,
+      "commit_trust": 0.95
+    },
+    {
+      "task_id": "TASK-007",
+      "objective": "Migrar _walker/cli/ a features/cli-interface/",
+      "type": "refactor",
+      "domain": "cli",
+      "result_state": "features/cli-interface/ con comandos funcionando y delegando en use cases",
+      "task_description": "Migrar scripts/_walker/cli/ (commands.py, project.py, tracing.py, utils.py) a features/cli-interface/ con DDD. Separar la interfaz de linea de comandos del engine. Los comandos CLI deben usar ProjectService para paths y los use cases del engine para operaciones.",
+      "validation": {
+        "predicates": [
+          "CLI separado en application/handlers.py (use cases) + infrastructure/ (parser + output)",
+          "Handlers no tienen IO directo ni print()",
+          "Entry point wirea parser → handler → output"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "features/cli_interface/",
+          "scripts/_walker/cli/commands.py",
+          "scripts/_walker/cli/project.py",
+          "scripts/_walker/cli/tracing.py",
+          "scripts/_walker/cli/utils.py"
+        ]
+      },
+      "depends_on": [
+        "TASK-001",
+        "TASK-006"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "scripts/_walker/cli/ existe",
+        "features/engine/ estable",
+        "ProjectService funcionando"
+      ],
+      "acceptance_criteria": [
+        "walker3 sigue funcionando despues de la migracion",
+        "No imports a _walker/ desde features/cli_interface/",
+        "Comandos CLI usan ProjectService para paths"
+      ],
+      "quality_gates": [
+        "walker3 entry point funciona via shim"
+      ],
+      "task_context": "{\"observacion\": \"CLI legacy tiene IO directo y paths heuristicos\", \"estructura\": \"Separar interfaz de usuario de logica de negocio\", \"finalidad\": \"CLI puro que solo parcea argumentos y delega\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "core",
+      "role": "core",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "CLI commands delegan en use cases en vez de IO directo"
+      ],
+      "files": [
+        "features/cli_interface/",
+        "scripts/_walker/cli/commands.py",
+        "scripts/_walker/cli/project.py",
+        "scripts/_walker/cli/tracing.py",
+        "scripts/_walker/cli/utils.py"
+      ],
+      "curvature": 0.6,
+      "pre_churn": 0.3,
+      "commit_trust": 0.8
+    },
+    {
+      "task_id": "TASK-008",
+      "objective": "Crear libs/shared-domain/ y libs/infrastructure/",
+      "type": "refactor",
+      "domain": "libs",
+      "result_state": "libs/shared-domain/ con VOs + libs/infrastructure/ con CognitiveGraph wrapper",
+      "task_description": "Extraer VOs compartidos a libs/shared-domain/ (ProjectId, SprintId, SubStateKey, etc.) y utilidades de infraestructura a libs/infrastructure/ (CognitiveGraph wrapper, config loader, etc.). Romper la dependencia directa de features a libs/cognitive_graph.",
+      "validation": {
+        "predicates": [
+          "VOs compartidos no tienen IO",
+          "Infrastructure abstrae CognitiveGraph"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "libs/shared_domain/",
+          "libs/infrastructure/"
+        ]
+      },
+      "depends_on": [
+        "TASK-001",
+        "TASK-002",
+        "TASK-003",
+        "TASK-004",
+        "TASK-005"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "Multiples features usan CognitiveGraph directo (engine, code_analysis, cognitive_knowledge, delta_tracking, event_tracing)"
+      ],
+      "acceptance_criteria": [
+        "Shared VOs usables desde cualquier feature sin dependencia circular",
+        "CognitiveGraph wrapper abstrae acceso a datos indexados"
+      ],
+      "quality_gates": [
+        "libs/shared_domain/ no importa de features/",
+        "libs/infrastructure/ no importa de features/"
+      ],
+      "task_context": "{\"observacion\": \"Actualmente CognitiveGraph se importa directo desde libs/\", \"estructura\": \"Crear capa de abstraccion entre libs y features\", \"finalidad\": \"Desacoplar features de implementacion de infraestructura\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "chore",
+      "role": "infra",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "VOs compartidos no tienen IO",
+        "Infrastructure abstrae CognitiveGraph"
+      ],
+      "files": [
+        "libs/shared_domain/",
+        "libs/infrastructure/"
+      ],
+      "curvature": 0.5,
+      "pre_churn": 0.3,
+      "commit_trust": 0.7
+    },
+    {
+      "task_id": "TASK-009",
+      "objective": "Migrar bootstrap/ y entry points a features/",
+      "type": "refactor",
+      "domain": "bootstrap",
+      "result_state": "Entry points unificados en features/bootstrap/ iniciando todas las features",
+      "task_description": "Migrar scripts/bootstrap/ y los entry points (walker.py, walker3) a la nueva estructura features/. Unificar el bootstrap del engine (features/engine/bootstrap.py) con la inicializacion de todas las features (project, spring, task_execution, etc.).",
+      "validation": {
+        "predicates": [
+          "Entry point walker3 importa directo de features.cli_interface",
+          "ProjectContextProvider usa ProjectService en vez de bootstrap.cli.project",
+          "No hay imports al modulo bootstrap/ legacy desde features/"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "scripts/bootstrap/",
+          "scripts/walker.py",
+          "scripts/walker3"
+        ]
+      },
+      "depends_on": [
+        "TASK-001",
+        "TASK-002",
+        "TASK-003",
+        "TASK-004",
+        "TASK-005",
+        "TASK-006",
+        "TASK-007",
+        "TASK-008"
+      ],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [
+        "TASK-001 a TASK-008 completadas",
+        "Todas las features tienen su bootstrap"
+      ],
+      "acceptance_criteria": [
+        "walker3 iniciado desde features/bootstrap/",
+        "No imports a scripts/_walker/ desde el entry point"
+      ],
+      "quality_gates": [
+        "No imports a bootstrap/ desde features/"
+      ],
+      "task_context": "{\"finalidad\": \"Unificar inicializacion de todas las features desde un solo punto\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "completed",
+      "work_type": "chore",
+      "role": "infra",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "Bootstrap unificado registra todas las features"
+      ],
+      "files": [
+        "scripts/bootstrap/",
+        "scripts/walker.py",
+        "scripts/walker3"
+      ],
+      "curvature": 0.4,
+      "pre_churn": 0.2,
+      "commit_trust": 0.8
+    },
+    {
+      "task_id": "TASK-010",
+      "objective": "Refactor CognitiveGraph como capa de infraestructura ORM-like",
+      "type": "refactor",
+      "domain": "infrastructure",
+      "result_state": "CognitiveGraph como interfaz con adaptadores por feature (CPG, CKG, Delta, Trace)",
+      "task_description": "Refactorizar libs/cognitive_graph como una capa de infraestructura ORM-like. Separar el acceso a datos indexados (CPG, CKG, Delta, Trace) detras de interfaces. Cada feature provee su propio adaptador.",
+      "validation": {
+        "predicates": [
+          "IndexAdapter interface definida en libs/infrastructure/adapters.py",
+          "IndexRegistry implementado como SSOT de adaptadores",
+          "CkgAdapter demo creado para CKG",
+          "CognitiveGraphSearcher/Writer disponibles como wrappers legacy"
+        ]
+      },
+      "impacted_artifacts": {
+        "files": [
+          "libs/cognitive_graph/",
+          "features/code_analysis/infrastructure/",
+          "features/cognitive_knowledge/infrastructure/",
+          "features/delta_tracking/infrastructure/",
+          "features/event_tracing/infrastructure/"
+        ]
+      },
+      "depends_on": [
+        "TASK-008"
+      ],
+      "risks": {
+        "curvature": 0.5,
+        "pre_churn": 0.4,
+        "commit_trust": 0.6
+      },
+      "discussions": [
+        "ADR-WALKER-006"
+      ],
+      "status": "completed",
+      "preconditions": [
+        "Multiples features dependen de CognitiveGraph directamente"
+      ],
+      "acceptance_criteria": [
+        "libs/infrastructure/ adapters.py define IndexAdapter + IndexRegistry",
+        "Cualquier feature puede implementar IndexAdapter y registrarse",
+        "El CognitiveGraph legacy queda en libs/ como implementacion concreta"
+      ],
+      "quality_gates": [
+        "Adaptadores son intercambiables",
+        "CognitiveGraph original queda como implementacion legacy"
+      ],
+      "work_type": "refactor",
+      "role": "infra",
+      "scrum_role": "dev",
+      "importer_files": 0,
+      "predicates": [
+        "Interfaces definidas para CPG, CKG, Delta, Trace",
+        "Adaptadores implementados para cada feature"
+      ],
+      "files": [
+        "libs/cognitive_graph/",
+        "features/code_analysis/infrastructure/",
+        "features/cognitive_knowledge/infrastructure/",
+        "features/delta_tracking/infrastructure/",
+        "features/event_tracing/infrastructure/"
+      ],
+      "curvature": 0.8,
+      "pre_churn": 0.4,
+      "commit_trust": 0.6,
+      "task_context": "{\"observacion\": \"CognitiveGraph actual es un monolito que conoce todos los formatos\", \"estructura\": \"Separar por feature con interfaz comun\", \"finalidad\": \"Cada feature es duena de su formato de datos\"}",
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all"
+    }
+  ],
+  "updated_at": "2026-07-29T22:24:50.963418+00:00"
+}

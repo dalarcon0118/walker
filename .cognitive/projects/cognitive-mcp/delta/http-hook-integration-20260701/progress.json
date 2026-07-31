@@ -1,0 +1,92 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "http-hook-integration-20260701",
+      "generated_at": "2026-07-01T16:30:00-00:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-01T16:30:00-00:00",
+        "d": 0.85,
+        "ps": "0/7",
+        "tc": [],
+        "e": "Plan creado. 5 tareas para implementar HTTP /api/analyze endpoint para PreToolUse hooks."
+      },
+      {
+        "at": "2026-07-01T16:45:00-00:00",
+        "d": 0.0,
+        "ps": "7/7",
+        "tc": ["TASK-ANALYZE-API", "TASK-STARLETTE-ROUTE", "TASK-HOOK-SCRIPT", "TASK-DOCS", "TASK-TOOL-INPUT"],
+        "e": "Todas las 5 tareas completadas en una sesion: analyze_api.py + server.py route + hook script + docs + tool_input passthrough. Plan finalizado.",
+        "calibration": {
+          "state": {
+            "expected_satisfied": 7,
+            "actual_satisfied": 7,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.85,
+            "actual_reduction": 0.85,
+            "error": 0.0,
+            "error_pct": 0.0,
+            "error_type": "accurate",
+            "cause": {"category": "reasoning", "evidence": "all predicates were satisfied by the implementation"},
+            "learnable": true,
+            "contributors": []
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-ANALYZE-API": "completed",
+        "TASK-STARLETTE-ROUTE": "completed",
+        "TASK-HOOK-SCRIPT": "completed",
+        "TASK-DOCS": "completed",
+        "TASK-TOOL-INPUT": "completed"
+      },
+      "next_action": null,
+      "distance": 0.0,
+      "finished": true,
+      "alternatives": [],
+      "risks": [],
+      "model": {
+        "history": [
+          {
+            "task_id": "TASK-ANALYZE-API+ROUTE+HOOK+DOCS+TOOLINPUT",
+            "error_type": "accurate",
+            "error_pct": 0.0,
+            "learnings": [
+              "HTTP endpoint implementation was straightforward with Starlette sub-app mount pattern",
+              "codegraph scan + semgrep is a good local alternative when CGC is not available",
+              "jq --argjson is the correct pattern for safe JSON escaping in bash hooks",
+              "Stripping tool_input from cache prevents memory bloat with large Write/Edit content"
+            ],
+            "adjustments": []
+          }
+        ],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "importer_factor_range_6plus": 0.70,
+          "work_type_multiplier_refactor_code_motion": 1.25,
+          "work_type_multiplier_refactor": 1.0,
+          "work_type_multiplier_feature_new_method": 1.0,
+          "work_type_multiplier_feature_new_file": 0.85,
+          "work_type_multiplier_feature_new_bc": 0.70,
+          "work_type_multiplier_refactor_inline": 0.65,
+          "work_type_multiplier_bugfix": 1.0,
+          "work_type_multiplier_optimization": 0.80
+        }
+      }
+    }
+  }
+}

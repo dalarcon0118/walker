@@ -1,0 +1,1815 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "workflow-engine-v2-20260723",
+      "generated_at": "2026-07-23T11:45:25.597666+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "delta-skill",
+      "project_type": "backend",
+      "domains": [
+        "Transformar",
+        "walker",
+        "engine"
+      ],
+      "tags": [
+        "python"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Transformar walker engine en sistema declarativo v3.1: workflow_engine.py puro + TaskRegistry + 18 tareas namespaced + SideEffectEngine + DESIGN node + REFINE loop detection + SessionManager + bootstrap context detection + step() unificado",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "workflow_engine/domain/models.py con ExecutionType (5 variantes) y SubState v3",
+          "workflow_engine/application/orchestrator.py con step() que evalua ExecutionType",
+          "workflow_engine/infrastructure/catalog.py con 18 tareas namespaced",
+          "workflow_engine/infrastructure/session_store.py con SessionManager lifecycle",
+          "workflow_engine/infrastructure/side_effects.py con execute+compensate",
+          "workflow_engine/infrastructure/trace_log.py con TraceLogger append-only",
+          "schema/workflow.v3.schema.json con execution, action, schemas, side_effects",
+          "commands.py con cmd_step, cmd_submit, cmd_status, cmd_transition, cmd_session",
+          "DESIGN node implementado con 4 sub-estados",
+          "REFINE con loop detection (attempt counter + ESCALATION tras 3 intentos)",
+          "Bootstrap session_init con deteccion de contexto existente",
+          "Context tasks code_context:*, knowledge:*, spring:*, file:* registradas y funcionales",
+          "step() resuelve placeholders {var} en on_entry_message contra context_bag de la sesion antes de devolverlo al agente"
+        ],
+        "must_not_exist": [],
+        "invariants": [
+          "Ninguna tarea del catalogo referencia CPG, CKG o delta-spring por nombre interno (solo via servicios inyectados)",
+          "El LLM solo conoce context tasks namespaced, no los servicios concretos detras de ellas",
+          "context_bag es el unico mecanismo para inyectar contexto dinámico en on_entry_message — no hay template strings hardcodeadas ni concatenacion manual en el engine"
+        ]
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "objective": "Crear workflow_engine.py puro con validate(), transform(), execute(), persist() — core sin IO que recibe workflow.json + state y expone las 4 operaciones fundamentales",
+        "result_state": "workflow_engine.py importable, commands.py delega en el sin duplicar logica (~200 lineas menos)",
+        "type": "feature",
+        "domain": "engine",
+        "work_type": "feature_new_file",
+        "role": "core",
+        "scrum_role": "dev",
+        "task_description": "Engine puro de workflow desacoplado de CLI",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [
+          "workflow_engine.py no importa sys, argparse ni nada de CLI"
+        ],
+        "quality_gates": [],
+        "loop_verification": [
+          "workflow_engine.py importable sin errores"
+        ],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_context": {
+          "observacion": "commands.py 1261 lineas mezcla CLI+estado+logica de workflow",
+          "estructura": "commands.py -> engine.py -> utils.py con dependencia circular",
+          "comportamiento": "submit, transition, goto hablan directo a utils.py",
+          "causalidad": "Sin engine puro, cada nuevo comando duplica logica de estado",
+          "finalidad": "workflow_engine.py sera el SSOT de logica de workflow",
+          "principios": "SRP: engine sin IO. KISS: 4 metodos publicos"
+        },
+        "validation": {
+          "predicates": [
+            "workflow_engine.py existe y es importable",
+            "validate(workflow, state) retorna errores de schema",
+            "transform(state, gate) ejecuta transicion",
+            "execute(workflow, state) corre mode:auto",
+            "persist(state, chain_dir) escribe sprint-state.json"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/__init__.py",
+            "scripts/_walker/engine.py",
+            "scripts/_walker/commands.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.15,
+          "commit_trust": 0.7
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar Event System con triggers declarativos on:{} en workflow.json para task_created, task_approved, qa_failed",
+        "result_state": "events.py funcional, workflow.json extendido con on: blocks, eventos registrados en event_log",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "events.py importable",
+            "workflow.json acepta on: blocks",
+            "event_triggered dispara handler"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/events.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "schema/workflow.schema.json"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.75
+        },
+        "depends_on": [
+          "TASK-001"
+        ],
+        "preconditions": [
+          "TASK-001 completada"
+        ],
+        "acceptance_criteria": [
+          "events.py importable",
+          "workflow.json tiene on: blocks"
+        ],
+        "quality_gates": [
+          "events.py pasa lint",
+          "workflow.json valido contra schema",
+          "test_event_dispatch pasa pytest"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Event system declarativo con handlers configurables",
+        "task_context": {
+          "observacion": "Hoy no hay eventos",
+          "estructura": "workflow.json no tiene triggers",
+          "comportamiento": "sin hooks automaticos",
+          "causalidad": "no event-driven",
+          "finalidad": "emular GitHub Actions",
+          "principios": "Declarativo"
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar capa DDD de dominio: domain/models.py (WorkflowGraph, SprintState, SubState, Gate), domain/services.py (AdvanceService, ValidationService, TransitionService), domain/errors.py (excepciones semanticas del workflow)",
+        "result_state": "workflow_engine/domain/ con models.py, services.py, errors.py puros sin IO; commands.py delega en servicios de dominio",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "domain/models.py importable con WorkflowGraph, SprintState, Gate, SubState",
+            "domain/services.py importable con AdvanceService, ValidationService, TransitionService",
+            "domain/errors.py importable con TransitionBlockedError, GateValidationError, ValidationError",
+            "commands.py usa SubmitDataUseCase, TransitionUseCase en vez de engine.py"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/models.py",
+            "scripts/_walker/workflow_engine/domain/services.py",
+            "scripts/_walker/workflow_engine/domain/errors.py",
+            "scripts/_walker/workflow_engine/application/use_cases.py",
+            "scripts/_walker/workflow_engine/infrastructure/repositories.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "scripts/_walker/commands.py",
+            "scripts/_walker/presenter.py",
+            "scripts/_walker/loader.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-002"
+        ],
+        "preconditions": [
+          "TASK-002 completada"
+        ],
+        "acceptance_criteria": [
+          "domain/models.py define WorkflowGraph, SprintState, SubState, Gate como dataclasses puras",
+          "domain/services.py expone AdvanceService, ValidationService, TransitionService sin IO",
+          "commands.py no importa funciones de engine.py; usa use cases DDD",
+          "engine.py eliminado del codigo",
+          "presenter.py separa toda la logica de display",
+          "loader.py separa toda la logica de IO (find_workflow, ensure_state)"
+        ],
+        "quality_gates": [
+          "domain/models.py pasa lint",
+          "domain/services.py pasa lint",
+          "commands.py no referencia engine.py",
+          "test_import: from _walker.workflow_engine import * funciona"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Migracion DDD: extraer dominio puro, use cases, infraestructura; eliminar engine.py; separar presenter + loader",
+        "task_context": {
+          "observacion": "engine.py (845 lines) mezclaba IO + logica + display",
+          "estructura": "commands.py importaba 18 funciones de engine.py",
+          "comportamiento": "sin capas, todo mezclado",
+          "causalidad": "codigo fragil, sin SRP",
+          "finalidad": "separar dominio puro (sin IO) de infraestructura y presentacion",
+          "principios": "DDD: domain/application/infrastructure, SRP, SSOT"
+        }
+      },
+      {
+        "task_id": "TASK-008",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar ExecutionType enum (bootstrap/auto/llm_task/user_input/manual) y extender SubState con execution, action, input_schema, output_schema, side_effects, on_success, on_failure, retry, timeout_ms",
+        "result_state": "domain/models.py tiene ExecutionType enum con 5 valores, SubState extendido con campos v3, RetryPolicy, SideEffectDef, SelectOption; workflow_engine/domain/reflecta el nuevo modelo",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "ExecutionType definido con 5 variantes (bootstrap, auto, llm_task, user_input, manual)",
+            "SubState tiene campos: execution, action, input_schema, output_schema, side_effects, on_success, on_failure, retry, timeout_ms",
+            "RetryPolicy dataclass con max_attempts, backoff, initial_delay_ms",
+            "SideEffectDef dataclass con type, params, optional, idempotency_key",
+            "SelectOption dataclass con value, label, description, requires",
+            "SubStateMode deprecado a favor de ExecutionType (mantener compatibilidad)"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/models.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "schema/workflow.schema.json",
+            "scripts/_walker/workflow_engine/infrastructure/repositories.py",
+            "scripts/_walker/workflow_engine/domain/services.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-003"
+        ],
+        "preconditions": [
+          "TASK-003 completada"
+        ],
+        "acceptance_criteria": [
+          "ExecutionType enum con 5 valores importable desde workflow_engine",
+          "SubState acepta execution, action, input_schema, output_schema, side_effects, on_success, on_failure",
+          "RetryPolicy, SideEffectDef, SelectOption son dataclasses validas",
+          "Tests: SubState v3 mantiene compatibilidad con v2 (campos legacy siguen funcionando)"
+        ],
+        "quality_gates": [
+          "domain/models.py pasa lint sin errores",
+          "tests/test_execution_type.py pasa",
+          "tests/test_substate_v3.py pasa",
+          "from _walker.workflow_engine import ExecutionType funciona"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "ExecutionType enum y SubState v3 con campos enterprise",
+        "task_context": {
+          "observacion": "Hoy solo hay SubStateMode.MANUAL/AUTO (2 valores)",
+          "estructura": "SubState no tiene execution, action, schemas, side_effects, on_success/on_failure",
+          "comportamiento": "el engine no diferencia entre tarea LLM, input de usuario o bootstrap",
+          "causalidad": "no se puede implementar step() unificado sin ExecutionType",
+          "finalidad": "soportar los 5 modos de ejecucion del diseno v3 enterprise",
+          "principios": "ExecutionType como SSOT de quien ejecuta cada paso"
+        }
+      },
+      {
+        "task_id": "TASK-009",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Implementar TaskResult[T] generico, ExecutionContext, y refactorizar SubmitDataUseCase/TransitionUseCase para operar con ExecutionType en vez de SubStateMode",
+        "result_state": "domain/ tiene TaskResult[T] y ExecutionContext; SubmitDataUseCase usa ExecutionType para decidir comportamiento; use_cases.py recibe ExecutionContext en lugar de parametros sueltos",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "TaskResult[T] dataclass generica con ok, data, error, side_effects, metrics",
+            "ExecutionContext con session_id, trace_id, span_id, chain_dir, baggage",
+            "SubmitDataUseCase.execute() recibe ExecutionContext en vez de parametros individuales",
+            "SubmitDataUseCase delega en ExecutionType para decidir auto/llm_task/user_input/manual",
+            "TransitionUseCase.execute() recibe ExecutionContext",
+            "commands.py usa los use cases refactorizados"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/models.py",
+            "scripts/_walker/workflow_engine/application/use_cases.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "scripts/_walker/commands.py",
+            "_walker/workflow_engine/domain/models.py",
+            "_walker/workflow_engine/application/use_cases.py",
+            "_walker/workflow_engine/__init__.py",
+            "_walker/commands.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.2,
+          "commit_trust": 0.75
+        },
+        "depends_on": [
+          "TASK-008"
+        ],
+        "preconditions": [
+          "TASK-008 completada"
+        ],
+        "acceptance_criteria": [
+          "TaskResult.success() y TaskResult.failure() factory methods funcionan",
+          "ExecutionContext.create() genera trace_id y span_id automaticamente",
+          "SubmitDataUseCase.execute(ctx, data) funciona con la nueva firma",
+          "TransitionUseCase.execute(ctx, gate) funciona con la nueva firma",
+          "commands.py llama a los use cases con ExecutionContext",
+          "Compatibilidad hacia atras: los tests v2 existentes siguen pasando"
+        ],
+        "quality_gates": [
+          "domain/models.py pasa lint",
+          "application/use_cases.py pasa lint",
+          "tests/test_task_result.py pasa",
+          "tests/test_execution_context.py pasa",
+          "tests/test_submit_use_case_v3.py pasa",
+          "tests/test_transition_use_case_v3.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "TaskResult[T] generico, ExecutionContext, refactor use cases",
+        "task_context": {
+          "observacion": "Use cases reciben parametros sueltos (chain_dir, fields, task_id...)",
+          "estructura": "No hay TaskResult, cada metodo retorna dict inconsistente",
+          "comportamiento": "sin ExecutionContext no hay trazabilidad entre operaciones",
+          "causalidad": "no se puede implementar observabilidad sin contexto de ejecucion",
+          "finalidad": "unificar firma de use cases, preparar trazabilidad y Tipado fuerte",
+          "principios": "ExecutionContext como SSOT de metadata de ejecucion"
+        }
+      },
+      {
+        "task_id": "TASK-010",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar TaskRegistry: interfaz con register(), execute(), list_tareas() e InMemoryTaskRegistry concreto",
+        "result_state": "domain/registry.py con interfaz TaskRegistry + InMemoryTaskRegistry; tareas puras registrables por nombre y ejecutables por el engine",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "TaskRegistry interfaz con register(), execute(), list_tasks()",
+            "InMemoryTaskRegistry implementacion concreta",
+            "Tareas puras reciben ExecutionContext + dict -> TaskResult",
+            "TaskRegistry.execute() soporta timeout y retry"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/registry.py",
+            "scripts/_walker/workflow_engine/infrastructure/task_registry.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-009"
+        ],
+        "preconditions": [
+          "TASK-009 completada"
+        ],
+        "acceptance_criteria": [
+          "TaskRegistry.register(name, fn) registra tarea",
+          "TaskRegistry.execute(name, ctx, data) ejecuta tarea",
+          "TaskRegistry.list_tasks() retorna nombres registrados",
+          "InMemoryTaskRegistry implementa la interfaz",
+          "Tests: registrar y ejecutar tarea mock"
+        ],
+        "quality_gates": [
+          "domain/registry.py pasa lint",
+          "infrastructure/task_registry.py pasa lint",
+          "tests/test_task_registry.py pasa",
+          "from _walker.workflow_engine import TaskRegistry funciona"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "TaskRegistry: registro y ejecucion de tareas puras",
+        "task_context": {
+          "observacion": "Todas las acciones estan hardcodeadas en scripts shell",
+          "estructura": "No hay un registro central de tareas disponibles",
+          "comportamiento": "Cada use case ejecuta scripts inline sin abstraccion",
+          "causalidad": "No se puede implementar step() unificado sin TaskRegistry",
+          "finalidad": "Tareas puras registrables por nombre, ejecutables por el engine",
+          "principios": "TaskRegistry como SSOT de acciones disponibles"
+        }
+      },
+      {
+        "task_id": "TASK-011",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar SideEffectEngine con execute() transaccional, compensate() para rollback, retry con politica configurable e idempotency_key",
+        "result_state": "infrastructure/side_effects.py con engine que ejecuta batch de side-effects transaccionalmente, compensa fallos, y soporta retry",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "SideEffectEngine registra handlers por tipo",
+            "execute() ejecuta lista de side-effects transaccionalmente",
+            "compensate() hace rollback de efectos ejecutados",
+            "Soporta retry con politica configurable",
+            "Soporta idempotency_key para evitar duplicados"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/infrastructure/side_effects.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.2,
+          "commit_trust": 0.75
+        },
+        "depends_on": [
+          "TASK-010"
+        ],
+        "preconditions": [
+          "TASK-010 completada"
+        ],
+        "acceptance_criteria": [
+          "SideEffectEngine.register(type, handler, compensator) registra",
+          "SideEffectEngine.execute(effects, ctx) ejecuta batch",
+          "SideEffectEngine.compensate(results, ctx) compensa fallos",
+          "Handlers: update_cpg, save_ckg, emit_event, persist_snapshot, run_script",
+          "Tests: batch execute + compensacion en fallo"
+        ],
+        "quality_gates": [
+          "infrastructure/side_effects.py pasa lint",
+          "tests/test_side_effect_engine.py pasa",
+          "from _walker.workflow_engine import SideEffectEngine funciona"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "SideEffectEngine: ejecucion transaccional con compensacion",
+        "task_context": {
+          "observacion": "Side-effects embebidos en use cases sin transaccionalidad",
+          "estructura": "Si un side-effect falla, no hay rollback de los anteriores",
+          "comportamiento": "Sin idempotencia, mismos efectos ejecutados N veces",
+          "causalidad": "Riesgo de estado inconsistente por efectos parciales",
+          "finalidad": "Side-effects con garantias transaccionales y compensacion",
+          "principios": "Transactional outbox + Saga pattern"
+        }
+      },
+      {
+        "task_id": "TASK-012",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Registrar catalogo de 18 tareas v3 en TaskRegistry: 11 core + 7 context tasks namespaced (code_context:*, knowledge:*, spring:*, file:*)",
+        "result_state": "infrastructure/catalog.py con 18 tareas registradas, cada una con input_schema, output_schema y TaskResult tipado",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "18 acciones del catalogo v3 registradas en TaskRegistry",
+            "11 tareas core: session_init, gather_context, analyze_capas, review_analysis, implement_task, review_code, run_tests, close_task, save_to_ckg, route_refinement, collect_knowledge",
+            "7 context tasks: code_context:query, code_context:read, knowledge:search, knowledge:briefing, spring:search, spring:status, file:search",
+            "Cada tarea tiene input_schema y output_schema definidos"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/infrastructure/catalog.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.85
+        },
+        "depends_on": [
+          "TASK-011"
+        ],
+        "preconditions": [
+          "TASK-011 completada"
+        ],
+        "acceptance_criteria": [
+            "18 tareas del catalogo registradas y funcionales",
+            "Cada tarea retorna TaskResult tipado",
+            "Tareas ejecutables via TaskRegistry.execute(name, ctx, data)",
+            "input_schema y output_schema definidos por tarea",
+            "Context tasks namespaced: el LLM invoca code_context:query sin saber que es CPG",
+            "El engine rutea cada context task al servicio concreto (CpgQueryService, CkgQueryService, SpringService)"
+          ],
+          "quality_gates": [
+            "infrastructure/catalog.py pasa lint",
+            "tests/test_catalog_tasks.py pasa cada tarea de las 18",
+            "TaskRegistry.list_tasks() retorna las 18",
+            "test_context_task_code_query: code_context:query retorna resultados via CPG",
+            "test_context_task_knowledge_search: knowledge:search retorna resultados via CKG",
+            "test_context_task_spring_search: spring:search retorna resultados de sprints anteriores"
+          ],
+          "loop_verification": [],
+          "loop_acceptance": "all",
+          "decisions": [],
+          "refinement": {},
+          "importer_files": 0,
+          "task_description": "Registro del catalogo de 18 tareas v3 (11 core + 7 context tasks namespaced)",
+          "task_context": {
+            "observacion": "No hay tareas registrables, todo son scripts",
+            "estructura": "Catalogo vacio, sin acciones estandar",
+            "comportamiento": "Cada flujo reinventa sus acciones",
+            "causalidad": "Sin catalogo no hay reutilizacion entre workflows",
+            "finalidad": "18 tareas estandar (11 core + 7 context tasks namespaced) para todos los flujos v3. El LLM invoca context tasks sin saber que detras hay CPG/CKG/delta-spring",
+            "principios": "DRY + namespacing: tareas reutilizables, el motor resuelve la implementacion"
+          }
+      },
+      {
+        "task_id": "TASK-016",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar ContractValidator multi-nivel: N1 schema (JSON Schema), N2 pre/post condiciones, N3 invariantes de workflow, N4 edge contracts",
+        "result_state": "domain/contracts.py + infrastructure/validator.py con ContractValidator 4 niveles, ValidationReport, ContractViolation",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "ContractValidator con 4 niveles: schema, pre/post, invariantes, edge contracts",
+            "Nivel 1: Validacion JSON Schema de input_schema/output_schema",
+            "Nivel 2: Pre/post condiciones como expresiones evaluables",
+            "Nivel 3: Invariantes de workflow",
+            "Nivel 4: Contratos de edge con pre/post"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/contracts.py",
+            "scripts/_walker/workflow_engine/infrastructure/validator.py",
+            "schema/workflow.schema.json"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.2,
+          "commit_trust": 0.75
+        },
+        "depends_on": [
+          "TASK-009"
+        ],
+        "preconditions": [
+          "TASK-009 completada"
+        ],
+        "acceptance_criteria": [
+          "ContractValidator.validate_input(sub_state, data) valida contra input_schema",
+          "ContractValidator.validate_output(sub_state, data) valida contra output_schema",
+          "ContractValidator.validate_preconditions(state, graph, gate) evalua pre",
+          "ContractValidator.validate_invariants(state, graph) chequea reglas",
+          "ValidationReport con ok, errors, warnings"
+        ],
+        "quality_gates": [
+          "domain/contracts.py pasa lint",
+          "infrastructure/validator.py pasa lint",
+          "tests/test_contract_validator.py pasa",
+          "from _walker.workflow_engine import ContractValidator funciona"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "ContractValidator multi-nivel: schema, pre/post, invariantes, edge",
+        "task_context": {
+          "observacion": "Solo required_fields como strings, sin validacion formal",
+          "estructura": "No hay JSON Schema ni pre/post conditions",
+          "comportamiento": "Cada use case valida manualmente, sin consistencia",
+          "causalidad": "Errores de contrato se detectan tarde o no se detectan",
+          "finalidad": "Validacion automatica en 4 niveles en submit/transition",
+          "principios": "Design by Contract: pre/post/invariants en todo sub-estado"
+        }
+      },
+      {
+        "task_id": "TASK-017",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar SessionManager con ciclo de vida formal (CREATED->ACTIVE->SUSPENDED->TERMINATED), WorkflowSession, SessionStore y recovery automatico con checkpoint+replay",
+        "result_state": "domain/session.py + infrastructure/session_store.py con SessionManager, WorkflowSession, SessionStore, IdempotencyKey",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "SessionManager con ciclo de vida: CREATED -> ACTIVE -> SUSPENDED -> TERMINATED",
+            "WorkflowSession dataclass con session_id, chain_dir, status, metadata",
+            "SessionStore para persistir sesiones",
+            "Recovery automatico: checkpoint + replay desde event_log",
+            "IdempotencyKey en submit para evitar duplicados"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/session.py",
+            "scripts/_walker/workflow_engine/infrastructure/session_store.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "scripts/_walker/workflow_engine/infrastructure/session.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-009"
+        ],
+        "preconditions": [
+          "TASK-009 completada"
+        ],
+        "acceptance_criteria": [
+          "SessionManager.init(chain_dir) crea sesion ACTIVE",
+          "SessionManager.suspend(session_id) -> SUSPENDED",
+          "SessionManager.resume(session_id) -> ACTIVE",
+          "SessionManager.terminate(session_id) -> TERMINATED",
+          "Recovery: checkpoint + replay automatico en init()"
+        ],
+        "quality_gates": [
+          "domain/session.py pasa lint",
+          "infrastructure/session_store.py pasa lint",
+          "tests/test_session_manager.py pasa",
+          "tests/test_recovery.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "SessionManager: ciclo de vida de sesion + recovery",
+        "task_context": {
+          "observacion": "session_id es un string sin lifecycle ni persistencia",
+          "estructura": "No hay recovery: si el engine muere, se pierde el estado",
+          "comportamiento": "Sin checkpoint, no se puede reanudar sesion",
+          "causalidad": "Riesgo de perdida de estado por fallo del engine",
+          "finalidad": "Sesiones con ciclo de vida formal, persistencia y recovery",
+          "principios": "Session-first: toda operacion requiere sesion valida"
+        }
+      },
+      {
+        "task_id": "TASK-018",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar observabilidad enterprise: StructuredLogger con trace_id, MetricsCollector, Tracer distribuido, AuditTrail con before/after snapshots, HealthCheck",
+        "result_state": "infrastructure/observability.py con StructuredLogger, MetricsCollector, Tracer, Auditor, HealthCheck",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "Logger estructurado con session_id, trace_id, span_id en cada entrada",
+            "Metricas: execution_time, error_rate, throughput por componente",
+            "Tracing distribuido: trace_id propaga entre step/submit/transition",
+            "Audit trail: before/after snapshot en cada operacion",
+            "Health check endpoint"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/infrastructure/observability.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "scripts/_walker/workflow_engine/infrastructure/event_store.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.85
+        },
+        "depends_on": [
+          "TASK-009"
+        ],
+        "preconditions": [
+          "TASK-009 completada"
+        ],
+        "acceptance_criteria": [
+          "StructuredLogger emite JSON con trace_id, operation, duration_ms",
+          "MetricsCollector registra latencia, errores, throughput",
+          "Tracer propaga trace_id entre operaciones",
+          "Auditor registra before/after snapshot en cada cambio de estado",
+          "Health check retorna ok, version, uptime"
+        ],
+        "quality_gates": [
+          "infrastructure/observability.py pasa lint",
+          "tests/test_observability.py pasa",
+          "tests/test_audit_trail.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Observabilidad: logger estructurado, metricas, tracing, audit",
+        "task_context": {
+          "observacion": "Solo prints y logs ad-hoc sin estructura",
+          "estructura": "No hay metricas, no hay tracing, no hay audit trail",
+          "comportamiento": "Imposible diagnosticar problemas de rendimiento o errores",
+          "causalidad": "Sin observabilidad no se puede operar en produccion",
+          "finalidad": "Observabilidad enterprise: saber que paso, cuando y por que",
+          "principios": "Observability-first: toda operacion es trazable"
+        }
+      },
+      {
+        "task_id": "TASK-019",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Implementar jerarquia de errores enterprise (5 familias, 18 subtipos) con codigos, recovery_hints, ErrorClassifier, CircuitBreakerState y RecoveryStrategyRegistry",
+        "result_state": "domain/errors.py extendido con jerarquia completa + infrastructure/circuit_breaker.py con CircuitBreakerState, ErrorClassifier, RecoveryStrategyRegistry",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "Jerarquia de errores: WorkflowError -> 5 familias con subtipos",
+            "Cada error tiene codigo, mensaje, recovery_hint",
+            "CircuitBreakerState por componente (SideEffect, Persistence)",
+            "ErrorClassifier clasifica errores por severidad y accion",
+            "RecoveryStrategyRegistry define que hacer por tipo de error"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/errors.py",
+            "scripts/_walker/workflow_engine/infrastructure/circuit_breaker.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "scripts/_walker/workflow_engine/infrastructure/side_effects.py",
+            "scripts/_walker/workflow_engine/domain/models.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.85
+        },
+        "depends_on": [
+          "TASK-009"
+        ],
+        "preconditions": [
+          "TASK-009 completada"
+        ],
+        "acceptance_criteria": [
+          "5 familias de error con subtipos especificos",
+          "WorkflowError tiene .code, .message, .recovery_hint",
+          "CircuitBreaker con estados: closed/open/half-open",
+          "ErrorClassifier.classify(error) -> severity, action",
+          "RecoveryStrategyRegistry.get(error_type) -> strategy"
+        ],
+        "quality_gates": [
+          "domain/errors.py pasa lint",
+          "infrastructure/circuit_breaker.py pasa lint",
+          "tests/test_error_taxonomy.py pasa",
+          "tests/test_circuit_breaker.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Error taxonomy enterprise + circuit breaker",
+        "task_context": {
+          "observacion": "Hoy solo ValidationError para todo",
+          "estructura": "Sin jerarquia de errores, sin recovery strategies",
+          "comportamiento": "Errores no clasificables, no se puede decidir accion",
+          "causalidad": "Sin taxonomy, el engine no sabe si reintentar o abortar",
+          "finalidad": "Errores tipados con estrategias de recuperacion",
+          "principios": "Fail fast + recover smart"
+        }
+      },
+      {
+        "task_id": "TASK-013",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar OrchestrationService: step() unificado que evalua ExecutionType, submit() con validacion de schema + side-effects, transition() con precondiciones, status() solo lectura",
+        "result_state": "application/orchestrator.py con OrchestrationService que integra TaskRegistry, SideEffectEngine, ContractValidator, SessionManager; step() como unico punto de entrada para el LLM",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "OrchestrationService con step(), submit(), transition(), status()",
+            "step(): evalua ExecutionType, ejecuta auto, devuelve prompt/options",
+            "submit(): valida contra schema, ejecuta side-effects, avanza sub-estado",
+            "transition(): valida precondiciones, aplica transicion, persiste",
+            "Todas las operaciones usan ExecutionContext"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/application/orchestrator.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.35,
+          "pre_churn": 0.25,
+          "commit_trust": 0.7
+        },
+        "depends_on": [
+          "TASK-012",
+          "TASK-016",
+          "TASK-017"
+        ],
+        "preconditions": [
+          "TASK-012 completada",
+          "TASK-016 completada",
+          "TASK-017 completada"
+        ],
+        "acceptance_criteria": [
+          "OrchestrationService.step(ctx) -> StepResult con execution, prompt/options",
+          "OrchestrationService.submit(ctx, data) -> SubmitResult con side_effects",
+          "OrchestrationService.transition(ctx, gate) -> TransitionResult",
+          "OrchestrationService.status(ctx) -> StatusResult solo lectura",
+          "Side-effects ejecutados via SideEffectEngine despues de submit"
+        ],
+        "quality_gates": [
+          "application/orchestrator.py pasa lint",
+          "tests/test_orchestrator_step.py pasa",
+          "tests/test_orchestrator_submit.py pasa",
+          "tests/test_orchestrator_transition.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "OrchestrationService: step/submit/transition/status unificado",
+        "task_context": {
+          "observacion": "Logica de orquestacion distribuida en SubmitDataUseCase y TransitionUseCase",
+          "estructura": "Sin un unico punto de entrada para step()",
+          "comportamiento": "El LLM tiene que saber que use case llamar",
+          "causalidad": "API fragmentada: el LLM necesita conocer detalles internos",
+          "finalidad": "Orquestador unificado que implementa la API surface v3",
+          "principios": "Step() como unico punto de entrada para el LLM"
+        }
+      },
+      {
+        "task_id": "TASK-014",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar WorkflowAPI: 6 endpoints (step/submit/status/transition/session/health) sobre JSON-RPC con StepResult, SubmitResult, ErrorResponse estandar e idempotency_key",
+        "result_state": "api/router.py con WorkflowAPI, StepResult, SubmitResult, ErrorResponse; API layer desacoplada del engine",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "WorkflowAPI con step(), submit(), status(), transition(), session(), health()",
+            "Formato JSON-RPC: request/response estandar",
+            "idempotency_key en submit para evitar duplicados",
+            "StepResult con execution, prompt/options, state_snapshot",
+            "SubmitResult con ok, result, side_effects, next",
+            "ErrorResponse estandar con code, message, recovery_hint"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/api/__init__.py",
+            "scripts/_walker/workflow_engine/api/router.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-013"
+        ],
+        "preconditions": [
+          "TASK-013 completada"
+        ],
+        "acceptance_criteria": [
+          "WorkflowAPI.step(session_id) -> StepResult",
+          "WorkflowAPI.submit(session_id, data, idempotency_key) -> SubmitResult",
+          "WorkflowAPI.status(session_id) -> StatusResult",
+          "WorkflowAPI.transition(session_id, gate, reason) -> TransitionResult",
+          "WorkflowAPI.session(action, params) -> SessionResult",
+          "WorkflowAPI.health() -> {ok, version, uptime}"
+        ],
+        "quality_gates": [
+          "api/router.py pasa lint",
+          "tests/test_workflow_api.py pasa cada endpoint",
+          "API retorna errores en formato estandar"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "WorkflowAPI: 6 endpoints JSON-RPC",
+        "task_context": {
+          "observacion": "commands.py CLI es la unica interfaz disponible",
+          "estructura": "No hay API layer: el LLM llama comandos directamente",
+          "comportamiento": "Sin contrato REST, cada comando tiene su propia firma",
+          "causalidad": "El LLM necesita conocer 15+ comandos en vez de 6 endpoints",
+          "finalidad": "API surface limpia: step/submit/status/transition/session/health",
+          "principios": "6 endpoints, sin exponer engine interno al LLM"
+        }
+      },
+      {
+        "task_id": "TASK-015",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Refactorizar commands.py para consumir WorkflowAPI en vez de Use Cases directamente; solo exponer step/submit/status/transition/session; walker.py CLI usa la nueva API",
+        "result_state": "commands.py consume WorkflowAPI, walker.py CLI usa API v3, comandos legacy funcionan como wrappers",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "commands.py refactorizado: consume WorkflowAPI en vez de Use Cases directamente",
+            "Solo expone: step, submit, status, transition, session",
+            "Comandos legacy mapean a API",
+            "walker.py CLI usa la nueva API"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/commands.py",
+            "scripts/_walker/walker.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.2,
+          "commit_trust": 0.75
+        },
+        "depends_on": [
+          "TASK-014"
+        ],
+        "preconditions": [
+          "TASK-014 completada"
+        ],
+        "acceptance_criteria": [
+          "commands.py importa WorkflowAPI, no usa Use Cases directamente",
+          "cmd_step, cmd_submit, cmd_status, cmd_transition, cmd_session implementados",
+          "Comandos legacy mantenidos como wrappers de API",
+          "walker.py CLI funciona con la nueva API",
+          "Todos los tests de integracion pasan"
+        ],
+        "quality_gates": [
+          "commands.py pasa lint",
+          "walker.py pasa lint",
+          "tests/test_commands_v3.py pasa",
+          "tests/test_integration_e2e.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "commands.py refactor: consume WorkflowAPI v3",
+        "task_context": {
+          "observacion": "commands.py tiene 15+ comandos directamente acoplados a Use Cases",
+          "estructura": "No hay separacion entre CLI y logica de negocio",
+          "comportamiento": "Cada comando expone detalles internos del engine",
+          "causalidad": "Alto acoplamiento: cambios en use cases requieren cambios en CLI",
+          "finalidad": "CLI delgada que consume API, no logica de negocio",
+          "principios": "Thin CLI: commands.py solo traduce argumentos a API calls"
+        }
+      },
+      {
+        "task_id": "TASK-020",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Crear workflow.schema.v3.json con execution, action, input_schema, output_schema, side_effects, on_success, on_failure, retry, timeout_ms; implementar legacy mapper v2->v3 en loader",
+        "result_state": "schema/workflow.v3.schema.json + loader.py con mapper v2->v3 que transforma mode/auto_complete/data_contract a execution/action/schemas",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "workflow.schema.v3.json con execution, action, input_schema, output_schema, side_effects, on_success, on_failure, retry, timeout_ms",
+            "Legacy mapper v2->v3: mode->execution, auto_complete->action+side_effects",
+            "data_contract.fields -> required_fields + input_schema basico",
+            "Schema versioning: cada version tiene su propio schema",
+            "Loader detecta version y aplica mapper correspondiente"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "schema/workflow.v3.schema.json",
+            "scripts/_walker/workflow_engine/infrastructure/loader.py",
+            "scripts/_walker/workflow_engine/infrastructure/persistence.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-008"
+        ],
+        "preconditions": [
+          "TASK-008 completada"
+        ],
+        "acceptance_criteria": [
+          "workflow.v3.schema.json define sub-estados con campos v3",
+          "Loader.build_graph() mapea workflow v2 a v3 automaticamente",
+          "Loader reconoce version del workflow.json y aplica mapper",
+          "Compatibilidad hacia atras: workflow.json v2 existente funciona"
+        ],
+        "quality_gates": [
+          "schema/workflow.v3.schema.json es valido contra draft-07",
+          "loader.py pasa lint",
+          "tests/test_loader_v3.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Schema v3 + legacy mapper v2->v3",
+        "task_context": {
+          "observacion": "workflow.schema.json v2 no soporta execution, action, schemas",
+          "estructura": "Un solo schema sin versioning ni migracion",
+          "comportamiento": "workflow.json no puede expresar los 5 execution types",
+          "causalidad": "Sin schema v3 no se puede definir flujos enterprise",
+          "finalidad": "Schema v3 con migracion automatica desde v2",
+          "principios": "Backward compatibility: v2 sigue funcionando sin cambios"
+        }
+      },
+      {
+        "task_id": "TASK-021",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Migrar workflow.json actual a schema v3: todos los sub-estados con execution types, side-effects declarativos en vez de auto_complete, on_success/on_failure explicitos",
+        "result_state": ".cognitive/projects/delta-skill/workflow.json migrado a v3 con execution/action/schemas/side_effects/on_success/on_failure; valida contra schema v3",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "workflow.json actual migrado a v3 con execution types",
+            "Todos los sub-estados tienen execution, action (si auto), y schemas",
+            "Side-effects declarativos en lugar de auto_complete scripts",
+            "on_success/on_failure explicitos en cada sub-estado",
+            "Nodos de workflow: SPRINT, ANALYZE, IMPLEMENT, VERIFY, REFINE, SPRINT_PLANNING"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".cognitive/projects/delta-skill/workflow.json",
+            "scripts/_walker/workflow_engine/scheduler.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-020"
+        ],
+        "preconditions": [
+          "TASK-020 completada"
+        ],
+        "acceptance_criteria": [
+          "workflow.json usa execution, action, schemas en lugar de mode/auto_complete",
+          "Cada sub-estado tiene on_success/on_failure definido",
+          "auto_complete scripts migrados a action + side_effects",
+          "workflow.json valida contra schema v3",
+          "Loader.build_graph() produce WorkflowGraph correcto desde v3"
+        ],
+        "quality_gates": [
+          "workflow.json valida contra workflow.v3.schema.json",
+          "tests/test_workflow_v3_integration.py pasa",
+          "El engine carga y ejecuta workflow.json v3 correctamente"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Migrar workflow.json actual a schema v3",
+        "task_context": {
+          "observacion": "workflow.json actual usa mode/auto_complete/data_contract legacy",
+          "estructura": "No hay on_success/on_failure, side_effects, ni schemas formales",
+          "comportamiento": "Solo 2 modos de ejecucion, no aprovecha ExecutionType",
+          "causalidad": "Sin migracion, el engine no puede ejecutar flujos enterprise",
+          "finalidad": "workflow.json v3 con execution types y contratos formales",
+          "principios": "workflow.json como SSOT del flujo v3"
+        }
+      },
+      {
+        "task_id": "TASK-022",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "test",
+        "work_type": "refactor",
+        "objective": "Implementar suite completa de tests: unitarios por ExecutionType, TaskRegistry, SideEffectEngine, ContractValidator; integracion e2e flujo completo; recovery desde event_log; observabilidad",
+        "result_state": "tests/ con 12+ archivos de test, cobertura >80% domain, >70% application, >60% infrastructure; test e2e cubre ciclo step()->submit()->transition() completo",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "Test unitario por ExecutionType (bootstrap, auto, llm_task, user_input, manual)",
+            "Test de TaskRegistry con 11 tareas del catalogo",
+            "Test de SideEffectEngine con execute + compensate",
+            "Test de integracion e2e: flujo completo SPRINT->ANALYZE->IMPLEMENT->VERIFY",
+            "Test de recovery: checkpoint + replay desde event_log",
+            "Test de observabilidad: logger, metrics, audit trail",
+            "100% de los tests unitarios pasan",
+            "Test de integracion e2e cubre flujo completo",
+            "Cobertura minima: 80% domain, 70% application, 60% infrastructure"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "tests/test_execution_type.py",
+            "tests/test_task_registry.py",
+            "tests/test_side_effect_engine.py",
+            "tests/test_contract_validator.py",
+            "tests/test_session_manager.py",
+            "tests/test_orchestrator_step.py",
+            "tests/test_orchestrator_submit.py",
+            "tests/test_orchestrator_transition.py",
+            "tests/test_workflow_api.py",
+            "tests/test_integration_e2e.py",
+            "tests/test_recovery.py",
+            "tests/test_observability.py",
+            "scripts/_walker/workflow_engine/infrastructure/trace_log.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.05,
+          "commit_trust": 0.9
+        },
+        "depends_on": [
+          "TASK-015",
+          "TASK-021",
+          "TASK-012"
+        ],
+        "preconditions": [
+          "TASK-015 completada",
+          "TASK-021 completada",
+          "TASK-012 completada"
+        ],
+        "acceptance_criteria": [
+          "Todos los tests unitarios pasan (pytest -x -q)",
+          "Test e2e: step() -> submit() -> transition() ciclo completo",
+          "Test recovery: simular fallo, reiniciar, verificar estado correcto",
+          "Cobertura minima de codigo alcanzada"
+        ],
+        "quality_gates": [
+          "pytest tests/ -x -q exit 0",
+          "coverage report muestra >80% domain, >70% application",
+          "test_integration_e2e.py pasa sin errores"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Tests e2e: flujo completo v3 enterprise",
+        "task_context": {
+          "observacion": "Tests actuales cubren solo v2 legacy",
+          "estructura": "No hay tests de integracion e2e, ni de recovery, ni de observabilidad",
+          "comportamiento": "Sin tests no se puede garantizar que v3 funciona",
+          "causalidad": "Riesgo de regresion al migrar de v2 a v3",
+          "finalidad": "Suite completa de tests: unitarios + integracion + recovery",
+          "principios": "Test-first: toda funcionalidad nueva tiene test"
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar ContractValidator multi-nivel: input_schema/output_schema (JSON Schema), pre/post condiciones en edges, invariantes de workflow",
+        "result_state": "ContractValidator con 4 niveles: schema, pre/post, invariantes, edge contracts; validacion automatica en submit/transition",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "contracts.py importable",
+            "verify_pre() evalua condiciones",
+            "verify_post() evalua estado resultante",
+            "verify_invariant() chequea invariantes",
+            "reporte enumera fallos"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/contracts.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "schema/contracts.schema.json"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-009",
+          "TASK-007"
+        ],
+        "preconditions": [
+          "TASK-009 completada",
+          "TASK-007 completada"
+        ],
+        "acceptance_criteria": [
+          "contracts.py importable",
+          "verify_pre() rechaza si precondition falsa",
+          "verify_post() valida postcondition",
+          "verify_invariant() detecta violacion"
+        ],
+        "quality_gates": [
+          "contracts.py pasa lint",
+          "test_contracts_pre_post pasa pytest",
+          "test_contracts_invariant pasa pytest"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Contracts formales con validacion automatica en todas las transiciones de workflow_engine.py",
+        "task_context": {
+          "observacion": "No hay contratos formales",
+          "estructura": "transiciones sin validacion",
+          "comportamiento": "cualquier transicion es permitida",
+          "causalidad": "sin garantias",
+          "finalidad": "garantizar estado valido en cada paso",
+          "principios": "Design by Contract"
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar Persistence layer idempotente con snapshot/restore del estado de workflow_engine, validacion de integridad y recuperacion ante fallos",
+        "result_state": "persistence.py funcional con save_snapshot(), restore(), list_snapshots(); integridad via checksum SHA-256; escritura atomica con .tmp + rename",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "persistence.py importable",
+            "save_snapshot() crea .json valido",
+            "restore() = estado original",
+            "checksum SHA-256 presente",
+            ".tmp no queda tras exito"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/persistence.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "scripts/_walker/events.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.05,
+          "commit_trust": 0.9
+        },
+        "depends_on": [
+          "TASK-004"
+        ],
+        "preconditions": [
+          "TASK-004 completada"
+        ],
+        "acceptance_criteria": [
+          "persistence.py importable",
+          "save_snapshot() escribe archivo valido",
+          "restore() recupera estado exacto",
+          "escritura atomica sin corrupcion",
+          "checksum detecta manipulacion"
+        ],
+        "quality_gates": [
+          "persistence.py pasa lint",
+          "test_save_restore pasa pytest",
+          "test_checksum_integrity pasa pytest",
+          "test_atomic_write pasa pytest"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Persistencia idempotente con snapshots, checksum y escritura atomica",
+        "task_context": {
+          "observacion": "Sin persistencia",
+          "estructura": "estado solo en memoria",
+          "comportamiento": "perdida de estado al reiniciar",
+          "causalidad": "no durable",
+          "finalidad": "mantener estado entre reinicios",
+          "principios": "Idempotencia, Atomicidad"
+        }
+      },
+      {
+        "task_id": "TASK-006",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar Event Sourcing: event_log[] replayable en event_store.py, con append_event(), replay(state_id) que reconstruye estado, query por tipo/timestamp, y versionado semantico de workflow",
+        "result_state": "event_store.py funcional con append_event(), replay(), query_events(); event_log.json append-only; reconstruccion exacta de estado desde cualquier punto",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "event_store.py importable",
+            "append_event() persiste evento",
+            "replay(state_id) = estado historico",
+            "query_events() filtra correctamente",
+            "log inmutable sin modificacion posterior"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/event_store.py",
+            "scripts/_walker/events.py",
+            "scripts/_walker/persistence.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.85
+        },
+        "depends_on": [
+          "TASK-005"
+        ],
+        "preconditions": [
+          "TASK-005 completada"
+        ],
+        "acceptance_criteria": [
+          "event_store.py importable",
+          "append_event() agrega al log",
+          "replay(state_id) reconstruye estado exacto",
+          "query_events() filtra por tipo y timestamp",
+          "log es append-only inmutable"
+        ],
+        "quality_gates": [
+          "event_store.py pasa lint",
+          "test_append_replay pasa pytest",
+          "test_query_events pasa pytest",
+          "test_log_immutable pasa pytest"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Event sourcing append-only con replay para reconstruccion de estado y auditoria",
+        "task_context": {
+          "observacion": "Sin event log",
+          "estructura": "no hay registro de eventos",
+          "comportamiento": "sin trazabilidad",
+          "causalidad": "no se puede reconstruir",
+          "finalidad": "auditoria completa y reconstruccion de estado",
+          "principios": "Append-only, Inmutabilidad, Replay"
+        }
+      },
+      {
+        "task_id": "TASK-007",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar Job Scheduler con DAG-based parallelism entre tareas independientes del sprint: build_dag(), execute_parallel(), get_ready_tasks()",
+        "result_state": "scheduler.py funcional con DAG, tasks independientes ejecutan en paralelo, reporte de ejecucion",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "scheduler.py importable",
+            "build_dag() usa depends_on",
+            "execute_parallel() corre en paralelo",
+            "get_ready_tasks() excluye bloqueadas"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/scheduler.py",
+            "scripts/_walker/workflow_engine/__init__.py",
+            "schema/workflow.schema.json"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.15,
+          "commit_trust": 0.7
+        },
+        "depends_on": [
+          "TASK-002"
+        ],
+        "preconditions": [
+          "TASK-002 completada"
+        ],
+        "acceptance_criteria": [
+          "scheduler.py importable",
+          "build_dag() construye grafo",
+          "execute_parallel() ejecuta sin dependencias",
+          "get_ready_tasks() identifica tasks listas"
+        ],
+        "quality_gates": [
+          "scheduler.py pasa lint",
+          "test_dag_build pasa pytest",
+          "test_parallel_exec pasa pytest"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Job Scheduler con paralelismo DAG entre tareas independientes",
+        "task_context": {
+          "observacion": "Sin scheduler de paralelismo, tareas secuenciales siempre",
+          "estructura": "Una tarea por vez, sin grafo de dependencias",
+          "comportamiento": "Ejecucion secuencial bloqueante",
+          "causalidad": "Falta diseno DAG para paralelismo",
+          "finalidad": "Ejecutar tareas independientes en paralelo para acelerar el sprint",
+          "principios": "DAG-based scheduling con concurrencia controlada"
+        }
+      },
+      {
+        "task_id": "TASK-023",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar TraceLog inmutable: registro append-only de evidencia de ejecucion del workflow para verificar que el LLM ejecuta realmente lo que declara",
+        "result_state": "infrastructure/trace_log.py con TraceLogger (engine escribe, append-only JSONL), TraceEntry (7 tipos), TraceReporter (reporte post-sprint con arbol de estados y gaps de evidencia); integrado en ScriptRunner y OrchestrationService",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "TraceLogger.append() escribe a trace.log en formato JSONL append-only",
+            "TraceEntry con 7 tipos: NODE_ENTRY, SUB_STATE, AUTO_EXECUTE, SUBMIT, TRANSITION, SESSION, ERROR",
+            "TraceReporter.generate(chain) produce reporte Markdown con arbol de ejecucion y gaps de evidencia",
+            "ScriptRunner.run() captura stdout/stderr/exit_code y escribe AUTO_EXECUTE al TraceLog",
+            "El LLM NO puede escribir al TraceLog directamente (solo el engine escribe)"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/infrastructure/trace_log.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2
+        },
+        "depends_on": [
+          "TASK-018"
+        ],
+        "preconditions": [
+          "TASK-018 completada"
+        ],
+        "acceptance_criteria": [
+          "TraceLogger.append() escribe JSON valido a trace.log",
+          "TraceLogger integrado en ScriptRunner y OrchestrationService",
+          "AUTO_EXECUTE traces incluyen stdout, stderr, exit_code, duration_ms",
+          "TraceReporter.generate() produce reporte con arbol de estados",
+          "TraceReporter.evidence_gaps() identifica sub-estados sin evidencia"
+        ],
+        "quality_gates": [
+          "infrastructure/trace_log.py pasa lint",
+          "tests/test_trace_log.py pasa",
+          "tests/test_trace_reporter.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "TraceLog: evidencia inmutable de ejecucion del workflow",
+        "task_context": {
+          "observacion": "El LLM dice que ejecuto tareas pero no hay evidencia verificable",
+          "estructura": "No hay registro inmutable de lo que realmente paso en el workflow",
+          "comportamiento": "Actividades silenciosas sin traza, imposible auditar post-sprint",
+          "causalidad": "No se puede verificar que el agente respeto el workflow",
+          "finalidad": "TraceLog inmutable que el engine escribe, el LLM no puede manipular",
+          "principios": "Non-repudiation: toda operacion deja evidencia tecnica verificable"
+        }
+      },
+      {
+        "task_id": "TASK-024",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar Bootstrap context detection: la accion session_init debe detectar proyectos/sprints existentes en .cognitive/projects/, asignar session_id, y registrar catalogo de tareas namespaced",
+        "result_state": "session_init handler detecta automáticamente proyectos existentes, asigna session_id, registra catalogo de 18 tareas, inicia trace log. Si hay contexto -> reanuda. Si no -> guía creación.",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "session_init() detecta proyectos en .cognitive/projects/",
+            "session_init() detecta sprints activos dentro de proyectos",
+            "session_init() asigna session_id auto-generado si no existe",
+            "session_init() registra catalogo de 18 tareas en TaskRegistry",
+            "session_init() inicia trace log para la sesión",
+            "session_init() output incluye has_existing_context, existing_sprints, message"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/infrastructure/catalog.py",
+            "scripts/_walker/workflow_engine/infrastructure/session_store.py",
+            "scripts/_walker/workflow_engine/domain/session.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-012",
+          "TASK-017"
+        ],
+        "preconditions": [
+          "TASK-012 completada",
+          "TASK-017 completada"
+        ],
+        "acceptance_criteria": [
+          "session_init() sin argumentos -> detecta contexto existente -> session_id + has_existing_context",
+          "session_init(project_id='delta-skill') -> reanuda proyecto existente",
+          "session_init() sin contexto -> session_id nuevo + has_existing_context=false",
+          "output incluye existing_sprints con lista de sprints activos si existen",
+          "Catalogo de 18 tareas registrado post-init",
+          "Trace log iniciado post-init"
+        ],
+        "quality_gates": [
+          "catalog.py pasa lint",
+          "session_store.py pasa lint",
+          "tests/test_session_init_bootstrap.py pasa",
+          "tests/test_context_detection.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Bootstrap context detection: session_init detecta proyectos/sprints",
+        "task_context": {
+          "observacion": "Hoy INIT solo registra catalogo sin detectar contexto existente",
+          "estructura": "No hay deteccion de proyectos/sprints activos en session_init",
+          "comportamiento": "Cada llamada empieza desde cero sin saber que proyectos existen",
+          "causalidad": "El LLM no puede reanudar sesiones ni saber que contexto hay",
+          "finalidad": "Bootstrap inteligente: detecta contexto existente o guia creacion",
+          "principios": "Session-first: toda operacion requiere deteccion de contexto"
+        }
+      },
+      {
+        "task_id": "TASK-025",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar REFINE loop detection con contador de intentos (max 3), escalacion automatica al sprint al alcanzar el limite, y captura de lecciones aprendidas pre-ruteo",
+        "result_state": "REFINE.DIAGNOSE inyecta attempt counter; tras 3 intentos engine rutea a ESCALATION en vez de ROUTE; ESCALATION emite evento + guarda en CKG; ciclo DIAGNOSE -> KNOWLEDGE_CAPTURE -> ROUTE funcional",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "DIAGNOSE input_schema incluye source_node, attempt, error_context (readonly, engine-inyectados)",
+            "Engine incrementa attempt counter por cada ciclo REFINE",
+            "Si attempt < 3: DIAGNOSE.on_success -> KNOWLEDGE_CAPTURE -> ROUTE",
+            "Si attempt >= 3: engine rutea a ESCALATION en vez de KNOWLEDGE_CAPTURE",
+            "ESCALATION emite evento refine_escalated y guarda en CKG",
+            "ESCALATION on_success -> SPRINT.ACTIVE con mensaje de alerta"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/application/orchestrator.py",
+            "scripts/_walker/workflow_engine/domain/services.py",
+            "scripts/_walker/workflow_engine/infrastructure/catalog.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-013"
+        ],
+        "preconditions": [
+          "TASK-013 completada"
+        ],
+        "acceptance_criteria": [
+          "Orchestrator.step() inyecta attempt counter al entrar a REFINE.DIAGNOSE",
+          "INPUT_SCHEMA de DIAGNOSE incluye source_node, attempt, error_context como readonly",
+          "Tras 3 intentos fallidos, step() rutea a ESCALATION en vez de KNOWLEDGE_CAPTURE",
+          "ESCALATION ejecuta route_to_target con target=sprint y emite alerta",
+          "CONTADOR se resetea al salir de REFINE hacia otro nodo (analyze/implement/verify)"
+        ],
+        "quality_gates": [
+          "orchestrator.py pasa lint",
+          "services.py pasa lint",
+          "tests/test_refine_loop_detection.py pasa",
+          "tests/test_refine_escalation.py pasa",
+          "tests/test_refine_attempt_counter.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "REFINE loop detection: contador de 3 intentos + escalacion",
+        "task_context": {
+          "observacion": "REFINE actual no tiene contador, puede rebotar infinitamente",
+          "estructura": "DIAGNOSE -> ROUTE sin control de iteraciones",
+          "comportamiento": "Tareas pueden ciclar entre WORK -> CODE_REVIEW -> REFINE -> WORK sin limite",
+          "causalidad": "Sin loop detection, el workflow puede entrar en bucle infinito",
+          "finalidad": "Max 3 intentos de refine, luego escalacion automatica al sprint para revision manual",
+          "principios": "Fail-fast con escalation: 3 strikes y se escala al PO"
+        }
+      },
+      {
+        "task_id": "TASK-026",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Implementar DESIGN node completo en el engine: DESIGN_GATHER (gather_context con side-effects update_code_index + build_project_graph), DESIGN_ANALYZE (llm_task 6->3), DESIGN_REVIEW (user_input), CKG_SAVE (auto con side-effects save_ckg + update_delta_graph)",
+        "result_state": "DESIGN node funcional con 4 sub-estados, integrado en OrchestrationService y WorkflowGraph",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "DESIGN.GATHER ejecuta gather_context con side-effects update_code_index + build_project_graph",
+            "DESIGN.ANALYZE es llm_task con submit --q1/--a1 (analisis 6->3 capas)",
+            "DESIGN.REVIEW es user_input con opciones approve/reject/refine",
+            "CKG_SAVE ejecuta save_to_ckg con side-effects save_ckg + update_delta_graph",
+            "Transiciones: SPRINT -> DESIGN (start_design), DESIGN -> ANALYZE (design_approved), DESIGN -> REFINE (design_needs_refine)"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/workflow_engine/domain/models.py",
+            "scripts/_walker/workflow_engine/application/orchestrator.py",
+            "scripts/_walker/workflow_engine/domain/services.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.15,
+          "commit_trust": 0.8
+        },
+        "depends_on": [
+          "TASK-013"
+        ],
+        "preconditions": [
+          "TASK-013 completada"
+        ],
+        "acceptance_criteria": [
+          "WorkflowGraph carga DESIGN node con 4 sub-estados desde workflow.json",
+          "step() desde SPRINT con gate=start_design -> DESIGN.DESIGN_GATHER",
+          "DESIGN_GATHER ejecuta gather_context + update_code_index + build_project_graph",
+          "DESIGN_ANALYZE acepta submit con q1/a1/q2/a2/q3/a3 y valida output_schema",
+          "DESIGN_REVIEW acepta submit con decision approve|reject|refine",
+          "Transiciones: design_approved -> ANALYZE.GATHER, design_needs_refine -> REFINE.DIAGNOSE"
+        ],
+        "quality_gates": [
+          "orchestrator.py pasa lint",
+          "services.py pasa lint",
+          "tests/test_design_node.py pasa",
+          "tests/test_design_transitions.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "DESIGN node: gather, analyze, review, ckg_save",
+        "task_context": {
+          "observacion": "DESIGN node definido en workflow.v3.json pero no implementado en el engine",
+          "estructura": "Faltan sub-estados DESIGN_GATHER, DESIGN_ANALYZE, DESIGN_REVIEW, CKG_SAVE en el engine",
+          "comportamiento": "El LLM no puede ejecutar la fase de diseno arquitectonico",
+          "causalidad": "Sin DESIGN, el flujo salta directo de SPRINT a ANALYZE sin diseno previo",
+          "finalidad": "Fase de diseno arquitectonico completa: gather -> analyze -> review -> ckg_save",
+          "principios": "Design-first: antes de analizar tareas, disenar arquitectura"
+        }
+      },
+      {
+        "task_id": "TASK-027",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Implementar walker step command como unico punto de entrada: step() reemplaza a status+submit para flujo principal; step() evalua ExecutionType, si es auto/bootstrap ejecuta automaticamente, si es llm_task/user_input/manual devuelve instrucciones",
+        "result_state": "walker.py CLI expone `walker step [chain_id]` como comando principal; step() en OrchestrationService evalua ExecutionType y decide auto-ejecutar o devolver prompt/options; commands.py tiene cmd_step como wrapper",
+        "domain": "engine",
+        "validation": {
+          "predicates": [
+            "walker step [chain_id] funciona como unico punto de entrada",
+            "step() evalua ExecutionType del sub-estado actual",
+            "Si execution=auto o bootstrap: engine ejecuta automaticamente y devuelve nuevo estado",
+            "Si execution=llm_task: devuelve prompt + required_fields + input_schema",
+            "Si execution=user_input: devuelve options disponibles",
+            "Si execution=manual: devuelve required_fields + input_schema",
+            "step() sin session_id: engine auto-genera session_id y ejecuta bootstrap INIT"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "scripts/_walker/walker.py",
+            "scripts/_walker/commands.py",
+            "scripts/_walker/workflow_engine/application/orchestrator.py",
+            "scripts/_walker/workflow_engine/__init__.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.2,
+          "commit_trust": 0.75
+        },
+        "depends_on": [
+          "TASK-013",
+          "TASK-024"
+        ],
+        "preconditions": [
+          "TASK-013 completada",
+          "TASK-024 completada"
+        ],
+        "acceptance_criteria": [
+          "walker step -> engine auto-genera session_id, ejecuta INIT bootstrap, devuelve estado",
+          "walker step sess-123 -> engine reanuda sesion, evalua sub-estado actual",
+          "Si sub-estado es auto -> engine ejecuta y devuelve siguiente estado",
+          "Si sub-estado es llm_task -> devuelve prompt + output_schema",
+          "Si sub-estado es user_input -> devuelve opciones",
+          "walker status sigue funcionando como solo-lectura",
+          "walker submit sigue funcionando para enviar datos"
+        ],
+        "quality_gates": [
+          "walker.py pasa lint",
+          "commands.py pasa lint",
+          "orchestrator.py pasa lint",
+          "tests/test_walker_step.py pasa",
+          "tests/test_step_execution_type.py pasa",
+          "tests/test_step_no_session.py pasa"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "Walker step command: unico punto de entrada con auto-ejecucion segun ExecutionType",
+        "task_context": {
+          "observacion": "Hoy walker.py no tiene step(); el LLM llama status + submit + transition por separado",
+          "estructura": "No hay un unico comando que avance el workflow automaticamente",
+          "comportamiento": "El LLM necesita saber que comando llamar en cada situacion",
+          "causalidad": "Experiencia fragmentada: el LLM orquesta manualmente cada paso",
+          "finalidad": "step() como unico punto de entrada: el engine decide que hacer segun ExecutionType",
+          "principios": "Step-first: el LLM solo llama step(), el engine decide auto-ejecutar o pedir input"
+        }
+      }
+    ],
+    "parameters": {}
+  }
+}

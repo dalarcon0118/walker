@@ -1,0 +1,105 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "backend-microservices-player-landing-v2-20260701",
+      "generated_at": "2026-07-01T00:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "supersedes": "backend-microservices-player-landing-squid-game-20260701"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-01T00:00:00-03:00",
+        "d": 1.0,
+        "ps": "0/27",
+        "tc": [],
+        "e": "Plan v2 creado (supersede v1). Refinamiento crítico: landing es render-time, no event-driven. Se eliminaron SSE/signals/Redis pubsub. 8 tareas (vs 10 en v1). 23 must_exist + 4 must_not_exist + 8 invariants. Score cognitiva del proposal: 0.86 (más simple = más explicable)."
+      }
+    ],
+    "current": {
+      "task_states": {
+        "PLAYER-APP-SKELETON": "pending",
+        "PLAYER-PRIZE-POOL": "pending",
+        "PLAYER-LANDING-SERVICE": "pending",
+        "PLAYER-LANDING-VIEW": "pending",
+        "PLAYER-SEARCH-VIEW": "pending",
+        "PLAYER-LANDING-TEMPLATE": "pending",
+        "PLAYER-URL-ROUTING": "pending",
+        "PLAYER-INVARIANTS-AND-TESTS": "pending"
+      },
+      "next_action": {
+        "task_id": "PLAYER-APP-SKELETON",
+        "candidate": "Crear nueva app Django player/ con 4 capas (domain/application/infrastructure/presentation) + register en INSTALLED_APPS",
+        "type": "feature",
+        "work_type": "feature_new_bc",
+        "target": "projects/backend-microservices/player/{__init__.py, apps.py, domain/, application/, infrastructure/, presentation/, urls.py, tests/}",
+        "delta": "Satisface 5/27 predicates: apps.py + 4 directorios",
+        "confidence": 0.85,
+        "risk": 0.10,
+        "score": 0.36,
+        "rationale": "Topological order: ninguna otra tarea puede iniciar sin el bounded context. Score más alto del lote.",
+        "importer_files": 1,
+        "importer_factor": 1.0,
+        "dfg_verified": false,
+        "score_breakdown": {
+          "delta_base": 0.143,
+          "delta_ajustado": 0.143,
+          "delta_ponderado": 0.100,
+          "confidence": 0.85,
+          "risk_curvature": 0.10,
+          "coverage_bonus": 0.05,
+          "formula": "min(0.6·0.100 + 0.3·0.85 − 0.1·0.10 + 0.05, 1.0) = 0.36"
+        }
+      },
+      "model": {
+        "history": [
+          {
+            "chain_ref": "backend-microservices-player-landing-squid-game-20260701.SUPERSEDED",
+            "calibration_state": {
+              "error_type": "over_engineered",
+              "cause": {
+                "category": "reasoning",
+                "evidence": "LLM asumió event-driven por defecto al ver 'contador en vivo'; usuario corrigió: landing = render-time"
+              },
+              "learnable": true,
+              "contributors": [
+                "no se cuestionó el 'live' en el goal — se interpretó como stream, no como snapshot al render"
+              ],
+              "learnings": [
+                "Cuando el usuario dice 'contador' en una landing, NO asumir SSE — landing es render-time por definición",
+                "Diferenciar explícitamente: landing (snapshot al render) vs dashboard (event-driven)",
+                "Validar siempre con el usuario si la página será estática o interactiva antes de proponer infra de eventos"
+              ],
+              "adjustments": [
+                {
+                  "parameter": "default_to_event_driven",
+                  "old": true,
+                  "new": false,
+                  "rationale": "Por defecto, una 'página' = render-time. Solo promover a event-driven si el usuario dice 'tiempo real' explícitamente Y el contexto es dashboard/admin/monitoring",
+                  "source_causes": ["reasoning"]
+                }
+              ]
+            }
+          }
+        ],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "importer_factor_range_6_plus": 0.70,
+          "work_type_multiplier_refactor_code_motion": 1.25,
+          "work_type_multiplier_refactor": 1.0,
+          "work_type_multiplier_feature_new_method": 1.0,
+          "work_type_multiplier_feature_new_file": 0.85,
+          "work_type_multiplier_feature_new_bc": 0.70,
+          "work_type_multiplier_refactor_inline": 0.65,
+          "work_type_multiplier_bugfix": 1.0,
+          "work_type_multiplier_optimization": 0.80,
+          "default_to_event_driven": false,
+          "landing_page_assumed_render_time": true
+        }
+      }
+    }
+  }
+}

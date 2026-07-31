@@ -1,0 +1,380 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "adr-purpose-validation-20260629",
+      "generated_at": "2026-06-29T12:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["cognitive", "guidance", "context", "decisions", "navigation", "session", "messages", "workflow"],
+      "tags": ["python", "fastmcp", "cognitive-v2", "adr-validation", "hexagonal"]
+    },
+    "g_objetivo": {
+      "description": "Validar que el Cognitive GPS MCP v2 cumple con su propósito definido en el ADR (adr-gps.cognitive.md): ser un Runtime Cognitivo que navega espacios de estados persistentes con transiciones verificables, calibración y pipeline controlado.",
+      "predicates": {
+        "must_exist": [
+          "P1.1: MCP expone tool cell(topic) que retorna files, symbols, domain, fingerprint (Estado Cognitivo)",
+          "P1.2: cell().data.files representa archivos relevantes del proyecto",
+          "P1.3: cell().data.symbols incluye funciones y clases definidas",
+          "P1.4: cell().data.fingerprint es único y no vacío",
+          "P1.5: cell() funciona como R(D)→S reduciendo datos heterogéneos a estado cognitivo",
+
+          "P2.1: MCP expone tool set_goal(description, criteria) que crea TargetSpec con spec_hash",
+          "P2.2: TargetSpec contiene predicates (must_exist, must_not_exist, invariants)",
+          "P2.3: TargetSpec contiene signatures de funciones relevantes",
+          "P2.4: TargetSpec persiste en KV y es recuperable post-reconexión",
+
+          "P3.1: GraphDistance.compute_distance() calcula distancia entre G_actual y G_objetivo",
+          "P3.2: compute_distance() retorna total, risk, confidence (vector delta completo)",
+          "P3.3: evaluate_predicate() verifica predicates contra el codegraph real",
+          "P3.4: signature_present() verifica firmas de funciones en el código indexado",
+          "P3.5: invariant_term() verifica invariantes contra el grafo",
+
+          "P4.1: guidance(mode='suggest_next') retorna suggestion con próxima acción",
+          "P4.2: guidance retorna _distance.total entre 0 y 1 (función de navegación N(S_i,G_i,C))",
+          "P4.3: guidance retorna risk_score evaluando riesgo de la transición propuesta",
+
+          "P5.1: MCP expone tool create_task(description) para descomponer objetivos en subdeltas",
+          "P5.2: MCP expone tool load_task(task_id) para recuperar especificación de tarea",
+          "P5.3: MCP expone recurso cognitive://project/tasks listando tareas del proyecto activo",
+          "P5.4: MCP expone recurso cognitive://project/state con estado completo del proyecto (active_task, completed_steps)",
+
+          "P6.1: MCP expone tool fact(type='decisions', domain, content) para registrar decisiones arquitectónicas",
+          "P6.2: Decisión contiene choice, why, alternatives en su schema",
+          "P6.3: Decisiones persisten en KV y son recuperables vía cognitive://facts",
+
+          "P7.1: MCP expone tool record_message(role, content, project_id, agent_id) con message_id",
+          "P7.2: MCP expone tool get_messages_by_session() recuperando historial de la sesión",
+          "P7.3: MCP expone tool get_messages_by_project(project_id) recuperando mensajes de un proyecto",
+          "P7.4: Mensajes contienen version y schema en metadata (provenance completo)",
+
+          "P8.1: MCP expone tool snapshot(session, has_diff) que crea snapshot con snapshot_id",
+          "P8.2: MCP expone recurso cognitive://snapshots listando snapshots persistidos",
+          "P8.3: MCP expone tool session_close() que finaliza sesión con persistencia completa",
+          "P8.4: session_close() ejecuta secuencia: commit → snapshot → cog-commit (pipeline de persistencia)",
+
+          "P9.1: MCP implementa CPG completo con cfg_builder, cpg_builder, dfg_builder, cgc_builder (AST/CFG/DataFlow/CallGraph)",
+          "P9.2: CodeGraphAdapter expone métodos de consulta sobre el grafo semántico",
+          "P9.3: tree_sitter_parser indexa código fuente en múltiples lenguajes",
+
+          "P10.1: MCP expone tool code_build(force) que indexa archivos del proyecto",
+          "P10.2: MCP expone tool code_lookup(symbol) que busca símbolos en el índice",
+          "P10.3: MCP expone tool code_scan(path) que lista archivos del proyecto",
+
+          "P11.1: Cognitive Trail registra cada tool call como nodo en un DAG de navegación",
+          "P11.2: MCP expone recurso cognitive://navigation/state con grafo de navegación de la sesión",
+          "P11.3: MCP expone recurso cognitive://navigation/patterns con patrones detectados",
+          "P11.4: MCP expone recurso cognitive://navigation/guidance con sugerencia GPS proactiva",
+
+          "P12.1: MCP implementa sistema de calibración que compara delta esperado vs observado",
+          "P12.2: Calibración ajusta modelo de navegación basado en errores de estimación",
+          "P12.3: MCP mantiene historial de calibración entre sesiones",
+
+          "P13.1: MCP expone health() que retorna ok=True y ops contados",
+          "P13.2: MCP expone tools/list con ≥ 100 tools registradas",
+          "P13.3: MCP expone activate_project(project_id) que configura workspace",
+          "P13.4: Workspace detecta preferencias del proyecto (stack, code_style, git, profile)",
+
+          "P14.1: MCP implementa gates de workflow (verify_response, proposal_required, close_checklist)",
+          "P14.2: Gates NO bloquean operaciones exentas (lectura, snapshot, session-close)",
+          "P14.3: MCP permite cierre de sesión limpio sin falsos positivos en gates",
+
+          "P15.1: MCP registra trail de navegación por sesión (breadcrumbs con op, ms, timestamp)",
+          "P15.2: get_trail_for_task(task_id) retorna trail con 1+ nodos"
+        ],
+        "must_not_exist": [
+          "N1: El LLM no debe necesitar scripts externos para validar el MCP (todo es LLM→MCP tool directo)",
+          "N2: El servidor no debe crashear durante operaciones normales de simulación"
+        ],
+        "invariants": [
+          "I1: Cada paso del flujo usuario→LLM→MCP usa al menos una tool del engine (ninguna operación queda fuera del MCP)",
+          "I2: Los gates de workflow protegen sin bloquear operaciones de lectura/consulta",
+          "I3: El pipeline cognitivo (Data→Estado→Delta→Transición→Ejecución→Estado→Calibración→Persistencia) es verificable end-to-end",
+          "I4: La persistencia (snapshots, decisions, messages) sobrevive a reinicio del servidor",
+          "I5: El estado cognitivo es la abstracción central sobre la cual razona el LLM (no archivos sueltos)"
+        ]
+      },
+      "signatures": [
+        "cell(topic) -> {ok, data: {files, symbols, domain, fingerprint}}",
+        "set_goal(description, criteria) -> {ok, spec_hash}",
+        "create_task(description) -> {ok, task_id}",
+        "load_task(task_id) -> {ok, data: {description, status}}",
+        "fact(type, domain, content) -> {ok}",
+        "record_message(role, content, project_id, agent_id) -> {ok, message_id}",
+        "get_messages_by_session() -> {ok, messages}",
+        "get_messages_by_project(project_id) -> {ok, messages}",
+        "snapshot(session, has_diff) -> {ok, snapshot_id}",
+        "session_close() -> {ok}",
+        "health() -> {ok, ops}",
+        "guidance(mode) -> {suggestion, _distance: {total}, risk}",
+        "code_build(force) -> {ok, files_indexed}",
+        "code_lookup(symbol) -> {ok, matches}",
+        "compute_distance(spec) -> {total, risk, confidence}",
+        "evaluate_predicate(pred) -> bool"
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Estado Cognitivo: cell() tool, set_goal() con TargetSpec, y reduction function R(D)→S",
+        "domain": "cognitive",
+        "artefactos_impactados": {
+          "files": [
+            "features/context/api/mcp_tools.py (leer — cell tool definition)",
+            "features/context/api/cell.py (leer — cell_handler, cell_resource)",
+            "features/context/application/build_cell.py (leer — build_cell implementation)",
+            "features/context/domain/cell.py (leer — CellResult, CellQuery, CellFingerprint)",
+            "features/guidance/domain/target_spec.py (leer — TargetSpec, Predicate, NodeSig)"
+          ],
+          "apis": ["cell() MCP tool", "set_goal() MCP tool", "cognitive://project/state"],
+          "data": ["CellResult con files, symbols, domain, fingerprint", "TargetSpec con predicates, signatures, spec_hash"]
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.05},
+        "decisions": [{"chosen": "Validación directa sobre código actual del MCP", "alternatives": [], "rationale": "Evaluar el código existente contra los requisitos del ADR"}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P1.1: MCP expone tool cell(topic) que retorna files, symbols, domain, fingerprint (Estado Cognitivo)",
+            "P1.2: cell().data.files representa archivos relevantes del proyecto",
+            "P1.3: cell().data.symbols incluye funciones y clases definidas",
+            "P1.4: cell().data.fingerprint es único y no vacío",
+            "P1.5: cell() funciona como R(D)→S reduciendo datos heterogéneos a estado cognitivo",
+            "P2.1: MCP expone tool set_goal(description, criteria) que crea TargetSpec con spec_hash",
+            "P2.2: TargetSpec contiene predicates (must_exist, must_not_exist, invariants)",
+            "P2.3: TargetSpec contiene signatures de funciones relevantes",
+            "P2.4: TargetSpec persiste en KV y es recuperable post-reconexión"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Delta: compute_distance(), evaluate_predicate(), signature_present(), invariant_term() como componentes del vector de transición",
+        "domain": "guidance",
+        "artefactos_impactados": {
+          "files": [
+            "features/guidance/domain/graph_distance.py (leer — compute_distance, evaluate_predicate)",
+            "features/guidance/domain/target_spec.py (leer — Predicate, NodeSig)",
+            "features/guidance/domain/suggestion.py (leer — Suggestion)",
+            "features/guidance/domain/risk_score.py (leer — RiskScore)"
+          ],
+          "apis": ["compute_distance()", "evaluate_predicate()", "signature_present()", "invariant_term()"],
+          "data": ["GraphDistance con total, risk, confidence", "Predicate evaluation results"]
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.05},
+        "decisions": [{"chosen": "Validación directa de las funciones delta en guidance/domain", "alternatives": [], "rationale": "El delta es el corazón del GPS cognitivo"}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P3.1: GraphDistance.compute_distance() calcula distancia entre G_actual y G_objetivo",
+            "P3.2: compute_distance() retorna total, risk, confidence (vector delta completo)",
+            "P3.3: evaluate_predicate() verifica predicates contra el codegraph real",
+            "P3.4: signature_present() verifica firmas de funciones en el código indexado",
+            "P3.5: invariant_term() verifica invariantes contra el grafo"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Función de Navegación: guidance() con suggestion, _distance.total, risk_score como implementación de N(S_i, G_i, C)",
+        "domain": "navigation",
+        "artefactos_impactados": {
+          "files": [
+            "features/navigation/application/navigation_service.py (leer — _get_navigation_guidance)",
+            "features/guidance/api/mcp_tools.py (leer — guidance tool)",
+            "features/guidance/domain/graph_distance.py (leer — compute_and_cache)",
+            "features/guidance/domain/suggestion.py (leer — Suggestion)"
+          ],
+          "apis": ["guidance() MCP tool", "cognitive://navigation/guidance resource"],
+          "data": ["Suggestion con next_action", "GraphDistance con total y risk"]
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [{"chosen": "Validar guidance tool + navigation guidance resource", "alternatives": [], "rationale": "La función de navegación N() es el elemento central del ADR sección 9"}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P4.1: guidance(mode='suggest_next') retorna suggestion con próxima acción",
+            "P4.2: guidance retorna _distance.total entre 0 y 1 (función de navegación N(S_i,G_i,C))",
+            "P4.3: guidance retorna risk_score evaluando riesgo de la transición propuesta",
+            "P11.1: Cognitive Trail registra cada tool call como nodo en un DAG de navegación",
+            "P11.2: MCP expone recurso cognitive://navigation/state con grafo de navegación de la sesión",
+            "P11.3: MCP expone recurso cognitive://navigation/patterns con patrones detectados",
+            "P11.4: MCP expone recurso cognitive://navigation/guidance con sugerencia GPS proactiva"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Descomposición en Tareas + Decisiones: create_task, load_task, fact(), recursos de proyecto",
+        "domain": "workflow",
+        "artefactos_impactados": {
+          "files": [
+            "features/project/api/mcp_tools.py (leer — create_task, load_task)",
+            "features/project/application/project_service.py (leer — project management)",
+            "features/project/application/project_state_service.py (leer — state management)",
+            "features/decisions/api/fact.py (leer — fact handler)",
+            "features/decisions/api/mcp_tools.py (leer — fact tool)"
+          ],
+          "apis": ["create_task()", "load_task()", "fact()", "cognitive://project/tasks", "cognitive://facts"],
+          "data": ["TaskSpecs", "Decision facts con choice, why, alternatives"]
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [{"chosen": "Validar tools de tareas y decisiones directamente", "alternatives": [], "rationale": "ADR sección 4 especifica gestión de tareas y decisiones como responsabilidades del MCP"}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P5.1: MCP expone tool create_task(description) para descomponer objetivos en subdeltas",
+            "P5.2: MCP expone tool load_task(task_id) para recuperar especificación de tarea",
+            "P5.3: MCP expone recurso cognitive://project/tasks listando tareas del proyecto activo",
+            "P5.4: MCP expone recurso cognitive://project/state con estado completo del proyecto (active_task, completed_steps)",
+            "P6.1: MCP expone tool fact(type='decisions', domain, content) para registrar decisiones arquitectónicas",
+            "P6.2: Decisión contiene choice, why, alternatives en su schema",
+            "P6.3: Decisiones persisten en KV y son recuperables vía cognitive://facts"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Mensajería: record_message, get_messages_by_session, get_messages_by_project con proveniencia completa",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/api/mcp_tools.py (leer — record_message, get_messages tools)",
+            "features/messages/application/message_service.py (leer — MessageService)",
+            "features/messages/domain/message_record.py (leer — MessageRecord domain)"
+          ],
+          "apis": ["record_message()", "get_messages_by_session()", "get_messages_by_project()"],
+          "data": ["MessageRecord con version, schema, metadata"]
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [{"chosen": "Validar tools de mensajería directamente", "alternatives": [], "rationale": "ADR sección 14 especifica conversación como fuente de datos convergente al estado cognitivo"}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P7.1: MCP expone tool record_message(role, content, project_id, agent_id) con message_id",
+            "P7.2: MCP expone tool get_messages_by_session() recuperando historial de la sesión",
+            "P7.3: MCP expone tool get_messages_by_project(project_id) recuperando mensajes de un proyecto",
+            "P7.4: Mensajes contienen version y schema en metadata (provenance completo)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-006",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Pipeline de Persistencia: snapshot(), session_close(), recursos de snapshot, y trail de navegación",
+        "domain": "session",
+        "artefactos_impactados": {
+          "files": [
+            "features/decisions/api/snapshot.py (leer — snapshot_handler)",
+            "features/session/application/session_service.py (leer — op_session_close)",
+            "server.py (leer — cognitive://snapshots resource)"
+          ],
+          "apis": ["snapshot()", "session_close()", "cognitive://snapshots", "get_trail_for_task()"],
+          "data": ["Snapshot YAML files", "Session close result", "Navigation trail nodes"]
+        },
+        "risks": {"curvature": 0.25, "pre_churn": 0.15, "commit_trust": 0.20},
+        "decisions": [{"chosen": "Validación crítica — el pipeline de persistencia es el mayor bloqueador identificado", "alternatives": [], "rationale": "ADR sección 10 exige que el pipeline termine con persistencia. Sin snapshot+session_close funcionando, el pipeline está roto."}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P8.1: MCP expone tool snapshot(session, has_diff) que crea snapshot con snapshot_id",
+            "P8.2: MCP expone recurso cognitive://snapshots listando snapshots persistidos",
+            "P8.3: MCP expone tool session_close() que finaliza sesión con persistencia completa",
+            "P8.4: session_close() ejecuta secuencia: commit → snapshot → cog-commit (pipeline de persistencia)",
+            "P15.1: MCP registra trail de navegación por sesión (breadcrumbs con op, ms, timestamp)",
+            "P15.2: get_trail_for_task(task_id) retorna trail con 1+ nodos"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-007",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Indexación de Código: code_build, code_lookup, code_scan y CPG (Code Property Graph) completo",
+        "domain": "cpg",
+        "artefactos_impactados": {
+          "files": [
+            "features/cpg/application/cfg_builder.py (leer — CFG builder)",
+            "features/cpg/application/cpg_builder.py (leer — CPG builder)",
+            "features/cpg/application/dfg_builder.py (leer — DFG builder)",
+            "features/cpg/application/cgc_builder.py (leer — CGC builder)",
+            "features/cpg/infrastructure/codegraph_adapter.py (leer — adapter methods)",
+            "features/cpg/infrastructure/tree_sitter_parser.py (leer — parser)",
+            "features/engine/api/code_tools.py (leer — code_build, code_lookup, code_scan)"
+          ],
+          "apis": ["code_build()", "code_lookup()", "code_scan()", "CodeGraphAdapter"],
+          "data": ["CGC index (nodes, edges)", "Symbol matches", "File listing"]
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.05},
+        "decisions": [{"chosen": "Validar arquitectura de CPG completa", "alternatives": [], "rationale": "ADR sección 14 especifica AST, CFG, Data Flow, Call Graph, Semantic Graph como fuentes del estado cognitivo"}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P9.1: MCP implementa CPG completo con cfg_builder, cpg_builder, dfg_builder, cgc_builder (AST/CFG/DataFlow/CallGraph)",
+            "P9.2: CodeGraphAdapter expone métodos de consulta sobre el grafo semántico",
+            "P9.3: tree_sitter_parser indexa código fuente en múltiples lenguajes",
+            "P10.1: MCP expone tool code_build(force) que indexa archivos del proyecto",
+            "P10.2: MCP expone tool code_lookup(symbol) que busca símbolos en el índice",
+            "P10.3: MCP expone tool code_scan(path) que lista archivos del proyecto"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-008",
+        "type": "validation",
+        "work_type": "validation",
+        "importer_files": 0,
+        "objective": "Validar Calibración y Gates de Workflow: sistema de calibración esperado vs observado, gates de workflow, health/infra",
+        "domain": "infra",
+        "artefactos_impactados": {
+          "files": [
+            "features/session/application/session_service.py (leer — _adjust_estimate, op_harden_proposal)",
+            "features/workflow/application/check_gate.py (leer — gate checking)",
+            "features/workflow/domain/gate.py (leer — Gate domain)",
+            "features/workflow/domain/phase.py (leer — Phase domain)"
+          ],
+          "apis": ["health()", "activate_project()", "tools/list"],
+          "data": ["Calibration history", "Gate states", "Workspace metadata"]
+        },
+        "risks": {"curvature": 0.30, "pre_churn": 0.10, "commit_trust": 0.25},
+        "decisions": [{"chosen": "Validación crítica — calibración puede no existir como pipeline explícito", "alternatives": [], "rationale": "ADR sección 11 y 12 exigen calibración. Puede ser el gap más grande."}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "P12.1: MCP implementa sistema de calibración que compara delta esperado vs observado",
+            "P12.2: Calibración ajusta modelo de navegación basado en errores de estimación",
+            "P12.3: MCP mantiene historial de calibración entre sesiones",
+            "P13.1: MCP expone health() que retorna ok=True y ops contados",
+            "P13.2: MCP expone tools/list con ≥ 100 tools registradas",
+            "P13.3: MCP expone activate_project(project_id) que configura workspace",
+            "P13.4: Workspace detecta preferencias del proyecto (stack, code_style, git, profile)",
+            "P14.1: MCP implementa gates de workflow (verify_response, proposal_required, close_checklist)",
+            "P14.2: Gates NO bloquean operaciones exentas (lectura, snapshot, session-close)",
+            "P14.3: MCP permite cierre de sesión limpio sin falsos positivos en gates"
+          ]
+        }
+      }
+    ]
+  }
+}

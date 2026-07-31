@@ -1,0 +1,64 @@
+{
+  "version": "2.0",
+  "chain_id": "sprint-20260728-141811",
+  "goal": "Test sprint",
+  "workflow": "workflow.v3/",
+  "specifications": [
+    {
+      "spec_id": "SPEC-001",
+      "objective": "Task 1",
+      "type": "feature",
+      "domain": "",
+      "result_state": "",
+      "task_description": "",
+      "validation": {
+        "predicates": []
+      },
+      "impacted_artifacts": {
+        "files": []
+      },
+      "depends_on": [],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [],
+      "acceptance_criteria": [],
+      "quality_gates": [],
+      "task_context": {},
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "draft"
+    },
+    {
+      "spec_id": "SPEC-002",
+      "objective": "Task 2",
+      "type": "feature",
+      "domain": "",
+      "result_state": "",
+      "task_description": "",
+      "validation": {
+        "predicates": []
+      },
+      "impacted_artifacts": {
+        "files": []
+      },
+      "depends_on": [],
+      "risks": {
+        "curvature": 0.3,
+        "pre_churn": 0.3,
+        "commit_trust": 0.8
+      },
+      "preconditions": [],
+      "acceptance_criteria": [],
+      "quality_gates": [],
+      "task_context": {},
+      "decisions": [],
+      "loop_verification": [],
+      "loop_acceptance": "all",
+      "status": "draft"
+    }
+  ]
+}

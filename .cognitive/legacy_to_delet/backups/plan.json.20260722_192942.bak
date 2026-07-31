@@ -1,0 +1,35 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "test-spring-planning-2",
+      "generated_at": "2026-07-22T22:29:18.209229+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "delta-skill",
+      "project_type": "backend",
+      "domains": [
+        "Validar",
+        "flujo",
+        "spring-planning"
+      ],
+      "tags": [
+        "python"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Validar flujo spring-planning 1 a 1 con templates",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [],
+        "must_not_exist": [],
+        "invariants": []
+      },
+      "signatures": []
+    },
+    "tasks": [],
+    "parameters": {}
+  }
+}

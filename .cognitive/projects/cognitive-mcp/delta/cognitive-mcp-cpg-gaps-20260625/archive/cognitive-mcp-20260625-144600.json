@@ -1,0 +1,242 @@
+{
+  "delta": {
+    "meta": {
+      "generated_at": "2026-06-25T14:46:00-03:00",
+      "version": "1.0",
+      "source": "delta-skill"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["cpg", "shared"],
+      "tags": ["python", "hexagonal", "cognitive-v2", "codegraph"]
+    },
+    "g_objetivo": {
+      "description": "Cerrar los 3 gaps de alta prioridad entre el módulo CPG de cognitive_v2 y CGC (CodeGraphContext): migrar validación CPG al BC, agregar métodos faltantes al adapter, y crear MCP tools para dead code/complexity",
+      "state": "defined",
+      "predicates": {
+        "must_exist": [
+          "function get_dead_code en CodeGraphAdapter",
+          "function get_complexity en CodeGraphAdapter",
+          "function get_call_chain en CodeGraphAdapter",
+          "function get_class_hierarchy en CodeGraphAdapter",
+          "function validate_cpg en features/cpg/application/cpg_validation.py",
+          "function _detect_cpg_regressions en features/cpg/application/cpg_validation.py",
+          "function derive_cgc_hypotheses en features/cpg/application/cpg_validation.py",
+          "function _cgc_cypher_query en features/cpg/infrastructure/codegraph_adapter.py",
+          "MCP tool code_complexity",
+          "MCP tool code_dead_code",
+          "MCP tool code_call_chain",
+          "MCP tool code_class_hierarchy",
+          "re-export validate_cpg en shared/codegraph.py (bridge)"
+        ],
+        "must_not_exist": [],
+        "invariants": [
+          "preservar patrón _timeout_wrapper en nuevos métodos del adapter",
+          "preservar cache LRU _cgc_cached en nuevos métodos del adapter",
+          "shared/codegraph.py debe re-exportar funciones migradas (bridge pattern)",
+          "no tocar CFG/DFG builders",
+          "todos los archivos pasan syntax check"
+        ]
+      },
+      "signatures": [
+        "CodeGraphAdapter.get_dead_code(paths: list[str], branch: str | None = None) -> list[DeadCodeEntry]",
+        "CodeGraphAdapter.get_complexity(paths: list[str] | None = None) -> list[ComplexityEntry]",
+        "CodeGraphAdapter.get_call_chain(func_name: str, max_depth: int = 3) -> list[CallChainEntry]",
+        "CodeGraphAdapter.get_class_hierarchy(class_name: str) -> list[ClassHierarchyEntry]"
+      ]
+    },
+    "g_actual": {
+      "existing_nodes": [
+        {"type": "function", "name": "validate_cpg", "file": "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py:2100", "exists": true, "location_correct": false, "deberia_estar_en": "features/cpg/application/cpg_validation.py"},
+        {"type": "function", "name": "_detect_cpg_regressions", "file": "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py:2238", "exists": true, "location_correct": false, "deberia_estar_en": "features/cpg/application/cpg_validation.py"},
+        {"type": "function", "name": "derive_cgc_hypotheses", "file": "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py:2279", "exists": true, "location_correct": false, "deberia_estar_en": "features/cpg/application/cpg_validation.py"},
+        {"type": "function", "name": "_cgc_cypher_query", "file": "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py:2055", "exists": true, "location_correct": false, "deberia_estar_en": "features/cpg/infrastructure/codegraph_adapter.py"},
+        {"type": "function", "name": "_cgc_cached", "file": "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py:1989", "exists": true, "location_correct": true},
+        {"type": "function", "name": "_timeout_wrapper", "file": "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py", "exists": true, "location_correct": true}
+      ],
+      "dependencies": [
+        {"from": "shared/codegraph.py:validate_cpg", "to": "features/cpg/infrastructure/codegraph_adapter.py", "type": "call"},
+        {"from": "shared/codegraph.py:validate_cpg", "to": "shared/codegraph.py:_cgc_cypher_query", "type": "call"},
+        {"from": "shared/codegraph.py:_detect_cpg_regressions", "to": "shared/codegraph.py:validate_cpg", "type": "call"},
+        {"from": "shared/codegraph.py:derive_cgc_hypotheses", "to": "shared/codegraph.py:_cgc_cypher_query", "type": "call"}
+      ],
+      "total_distance": 0.88,
+      "predicates": [
+        {"name": "function get_dead_code en CodeGraphAdapter", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "function get_complexity en CodeGraphAdapter", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "function get_call_chain en CodeGraphAdapter", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "function get_class_hierarchy en CodeGraphAdapter", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "function validate_cpg en features/cpg/application/cpg_validation.py", "type": "must_exist", "satisfied": false, "gap": 0.5},
+        {"name": "function _detect_cpg_regressions en features/cpg/application/cpg_validation.py", "type": "must_exist", "satisfied": false, "gap": 0.5},
+        {"name": "function derive_cgc_hypotheses en features/cpg/application/cpg_validation.py", "type": "must_exist", "satisfied": false, "gap": 0.5},
+        {"name": "function _cgc_cypher_query en features/cpg/infrastructure/codegraph_adapter.py", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "MCP tool code_complexity", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "MCP tool code_dead_code", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "MCP tool code_call_chain", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "MCP tool code_class_hierarchy", "type": "must_exist", "satisfied": false, "gap": 1.0},
+        {"name": "re-export validate_cpg en shared/codegraph.py (bridge)", "type": "must_exist", "satisfied": false, "gap": 1.0}
+      ]
+    },
+    "delta": {
+      "total_tasks": 4,
+      "completed": 0,
+      "tareas": [
+        {
+          "task_id": "TASK-001",
+          "type": "feature",
+          "state": "pending",
+          "objective": "Agregar get_dead_code(), get_complexity(), get_call_chain(), get_class_hierarchy() a CodeGraphAdapter en features/cpg/infrastructure/codegraph_adapter.py",
+          "domain": "cpg",
+          "artefactos_impactados": {
+            "files": [
+              "projects/cognitive-mcp/cognitive_v2/features/cpg/infrastructure/codegraph_adapter.py (modificar — agregar 4 métodos: get_dead_code, get_complexity, get_call_chain, get_class_hierarchy)"
+            ],
+            "apis": ["CodeGraphAdapter — preservando _timeout_wrapper y _cgc_cached existentes en shared/codegraph.py"],
+            "data": ["nodos/edges del code graph vía CGC (Neo4j) queries Cypher"],
+            "config": [],
+            "tests": ["tests/test_codegraph_adapter.py (ampliar)"],
+            "docs": []
+          },
+          "risks": {"curvature": 0.30, "pre_churn": 0.0, "commit_trust": 0.15},
+          "decisions": [
+            {"chosen": "Agregar métodos a CodeGraphAdapter existente",
+             "alternatives": ["Crear adapter separado CgcAdapter", "Herramientas standalone sin adapter"],
+             "rationale": "Preserva patrón existente de _timeout_wrapper y cache LRU _cgc_cached. Un solo adapter evita duplicación de conexión CGC."}
+          ],
+          "refinement": {"attempts": 0, "dead_ends": []},
+          "validation": {
+            "predicates": [
+              "function get_dead_code en CodeGraphAdapter",
+              "function get_complexity en CodeGraphAdapter",
+              "function get_call_chain en CodeGraphAdapter",
+              "function get_class_hierarchy en CodeGraphAdapter"
+            ],
+            "verified": false,
+            "verified_at": null
+          }
+        },
+        {
+          "task_id": "TASK-002",
+          "type": "refactor",
+          "state": "pending",
+          "objective": "Migrar _cgc_cypher_query() de shared/codegraph.py a features/cpg/infrastructure/codegraph_adapter.py como método privado del adapter",
+          "domain": "cpg",
+          "artefactos_impactados": {
+            "files": [
+              "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py (leer: función _cgc_cypher_query línea 2055 con lógica de conexión CGC y manejo de parámetros)",
+              "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py (modificar — remover función _cgc_cypher_query)",
+              "projects/cognitive-mcp/cognitive_v2/features/cpg/infrastructure/codegraph_adapter.py (modificar — agregar _cgc_cypher_query como método del adapter)"
+            ],
+            "apis": ["CodeGraphAdapter", "Cypher query execution via CGC (Neo4j) — conexión, ejecución, parámetros, resultados"],
+            "data": ["lógica de conexión CGC: _init_cgc(), ejecución de queries Cypher, manejo de errores de conexión"],
+            "config": [],
+            "tests": ["tests/test_codegraph_adapter.py (ampliar para cubrir _cgc_cypher_query como método del adapter)"],
+            "docs": []
+          },
+          "risks": {"curvature": 0.30, "pre_churn": 0.0, "commit_trust": 0.15},
+          "decisions": [
+            {"chosen": "Mover a infrastructure/codegraph_adapter.py como método del adapter",
+             "alternatives": ["Crear infrastructure/cypher_client.py separado", "Dejar en shared/codegraph.py"],
+             "rationale": "_cgc_cypher_query es infraestructura pura (conexión CGC). Pertenece a infrastructure layer con el adapter."}
+          ],
+          "refinement": {"attempts": 0, "dead_ends": []},
+          "validation": {
+            "predicates": ["function _cgc_cypher_query en features/cpg/infrastructure/codegraph_adapter.py"],
+            "verified": false,
+            "verified_at": null
+          }
+        },
+        {
+          "task_id": "TASK-003",
+          "type": "refactor",
+          "state": "pending",
+          "objective": "Migrar validate_cpg(), _detect_cpg_regressions(), derive_cgc_hypotheses() de shared/codegraph.py a features/cpg/application/cpg_validation.py + dejar re-exports bridge en shared/codegraph.py",
+          "domain": "cpg",
+          "artefactos_impactados": {
+            "files": [
+              "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py (leer: funciones validate_cpg línea 2100, _detect_cpg_regressions línea 2238, derive_cgc_hypotheses línea 2279, más funciones auxiliares _add_finding línea 2079 y _init_cgc línea 2537 que validate_cpg usa)",
+              "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py (modificar — remover validate_cpg, _detect_cpg_regressions, derive_cgc_hypotheses, y _add_finding si solo es usado por validate_cpg)",
+              "projects/cognitive-mcp/cognitive_v2/shared/codegraph.py (modificar — agregar re-exports: from cognitive_v2.features.cpg.application.cpg_validation import validate_cpg, _detect_cpg_regressions, derive_cgc_hypotheses)",
+              "projects/cognitive-mcp/cognitive_v2/features/cpg/application/cpg_validation.py (crear)"
+            ],
+            "apis": ["CodeGraphAdapter"],
+            "data": ["funciones validate_cpg, _detect_cpg_regressions, derive_cgc_hypotheses, _add_finding y sus imports asociados (json, typing, etc.)"],
+            "config": [],
+            "tests": [
+              "tests/test_cpg_validation.py (crear)",
+              "tests/test_codegraph_bridge.py (crear — verificar que from codegraph import validate_cpg funciona)"
+            ],
+            "docs": []
+          },
+          "risks": {"curvature": 0.35, "pre_churn": 0.0, "commit_trust": 0.15},
+          "decisions": [
+            {"chosen": "Migrar a features/cpg/application/cpg_validation.py + re-export bridge en shared/codegraph.py en un solo cambio atómico",
+             "alternatives": ["Dejar todo en shared/codegraph.py", "Mover a features/cpg/domain/"],
+             "rationale": "Application layer es el lugar correcto para lógica de validación. Bridge pattern en shared mantiene compatibilidad. Hacerlo en un solo cambio evita dejar shared/codegraph.py roto entre tareas."}
+          ],
+          "refinement": {"attempts": 0, "dead_ends": []},
+          "validation": {
+            "predicates": [
+              "function validate_cpg en features/cpg/application/cpg_validation.py",
+              "function _detect_cpg_regressions en features/cpg/application/cpg_validation.py",
+              "function derive_cgc_hypotheses en features/cpg/application/cpg_validation.py",
+              "re-export validate_cpg en shared/codegraph.py (bridge)"
+            ],
+            "verified": false,
+            "verified_at": null
+          }
+        },
+        {
+          "task_id": "TASK-004",
+          "type": "feature",
+          "state": "pending",
+          "objective": "Crear MCP tools code_complexity, code_dead_code, code_call_chain, code_class_hierarchy en features/cpg/api/mcp_tools.py",
+          "domain": "cpg",
+          "artefactos_impactados": {
+            "files": [
+              "projects/cognitive-mcp/cognitive_v2/features/cpg/api/mcp_tools.py (modificar — agregar 4 herramientas MCP que delegan en CodeGraphAdapter)"
+            ],
+            "apis": [
+              "CodeGraphAdapter.get_complexity",
+              "CodeGraphAdapter.get_dead_code",
+              "CodeGraphAdapter.get_call_chain",
+              "CodeGraphAdapter.get_class_hierarchy",
+              "registro MCP del módulo cpg para exponer las nuevas tools"
+            ],
+            "data": ["wrappers MCP para cada nuevo método del adapter, siguiendo patrón de tools existentes en mcp_tools.py"],
+            "config": ["registro MCP del módulo cpg"],
+            "tests": [],
+            "docs": []
+          },
+          "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.15},
+          "decisions": [
+            {"chosen": "Agregar tools en mcp_tools.py existente del bounded context cpg",
+             "alternatives": ["Crear api/cpg_mcp_tools.py separado", "Tools standalone en shared/"],
+             "rationale": "Cada bounded context expone sus propias MCP tools. Sigue el patrón existente de la arquitectura."}
+          ],
+          "refinement": {"attempts": 0, "dead_ends": []},
+          "validation": {
+            "predicates": [
+              "MCP tool code_complexity",
+              "MCP tool code_dead_code",
+              "MCP tool code_call_chain",
+              "MCP tool code_class_hierarchy"
+            ],
+            "verified": false,
+            "verified_at": null
+          }
+        }
+      ]
+    },
+    "execution": {
+      "current_task": "TASK-001",
+      "next_action": {
+        "task_id": "TASK-001",
+        "objective": "Agregar get_dead_code(), get_complexity(), get_call_chain(), get_class_hierarchy() a CodeGraphAdapter",
+        "rationale": "TASK-001 es prerequisito directo de TASK-004 (MCP tools envuelven métodos del adapter) y recomendado antes de TASK-002 (ambos modifican codegraph_adapter.py, conviene hacer TASK-001 primero para evitar conflictos de merge). Sin TASK-001, TASK-004 no tiene métodos que envolver.",
+        "score": 0.37
+      }
+    }
+  }
+}

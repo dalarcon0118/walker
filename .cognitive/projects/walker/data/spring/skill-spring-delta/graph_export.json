@@ -1,0 +1,2920 @@
+{
+  "nodes": [
+    {
+      "type": "sprint",
+      "label": "skill-spring-delta",
+      "project_id": "delta-skill",
+      "id": "sprint:skill-spring-delta"
+    },
+    {
+      "type": "task",
+      "label": "TASK-001",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar cmd_create() en spring.py para que, después de escribir plan.json y pr",
+      "id": "task:TASK-001"
+    },
+    {
+      "type": "pred",
+      "label": "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scrip",
+      "pred_type": "string",
+      "id": "pred:TASK-001:0"
+    },
+    {
+      "type": "symbol",
+      "label": "claude/skills/delta/scripts/spring.py",
+      "id": "symbol:claude/skills/delta/scripts/spring.py"
+    },
+    {
+      "type": "symbol",
+      "label": "claude/skills/delta/scripts/verify_symbol.py",
+      "id": "symbol:claude/skills/delta/scripts/verify_symbol.py"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"import ast; tree=ast.parse(open('.claude/skills/delta/scripts/spring",
+      "pred_type": "string",
+      "id": "pred:TASK-001:1"
+    },
+    {
+      "type": "symbol",
+      "label": "read",
+      "id": "symbol:read"
+    },
+    {
+      "type": "symbol",
+      "label": "FunctionDef",
+      "id": "symbol:FunctionDef"
+    },
+    {
+      "type": "symbol",
+      "label": "OK",
+      "id": "symbol:OK"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"import re; content=open('.claude/skills/delta/scripts/spring.py').re",
+      "pred_type": "string",
+      "id": "pred:TASK-001:2"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/spring.py",
+      "id": "file:.claude/skills/delta/scripts/spring.py"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.3",
+      "value": 0.3,
+      "id": "risk:TASK-001:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.15",
+      "value": 0.15,
+      "id": "risk:TASK-001:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.85",
+      "value": 0.85,
+      "id": "risk:TASK-001:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-002",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar cmd_close() para que, además de calcular distance_at_close, genere: 1)",
+      "id": "task:TASK-002"
+    },
+    {
+      "type": "pred",
+      "label": "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scrip",
+      "pred_type": "string",
+      "id": "pred:TASK-002:0"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"import json; d=json.load(open('.cognitive/projects/cognitive-mcp/del",
+      "pred_type": "string",
+      "id": "pred:TASK-002:1"
+    },
+    {
+      "type": "symbol",
+      "label": "cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/progress.json",
+      "id": "symbol:cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/progress.json"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"import os; assert os.path.exists('.cognitive/projects/cognitive-mcp/",
+      "pred_type": "string",
+      "id": "pred:TASK-002:2"
+    },
+    {
+      "type": "symbol",
+      "label": "cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/trail.json",
+      "id": "symbol:cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/trail.json"
+    },
+    {
+      "type": "symbol",
+      "label": "trail.json",
+      "id": "symbol:trail.json"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/schema/progress.schema.json",
+      "id": "file:.claude/skills/delta/schema/progress.schema.json"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.3",
+      "value": 0.3,
+      "id": "risk:TASK-002:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.15",
+      "value": 0.15,
+      "id": "risk:TASK-002:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.85",
+      "value": 0.85,
+      "id": "risk:TASK-002:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-003",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar cmd_reopen() para aceptar --chain-id, buscar sprint en .cognitive/proj",
+      "id": "task:TASK-003"
+    },
+    {
+      "type": "pred",
+      "label": "python3 /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/d",
+      "pred_type": "string",
+      "id": "pred:TASK-003:0"
+    },
+    {
+      "type": "symbol",
+      "label": "Users",
+      "id": "symbol:Users"
+    },
+    {
+      "type": "symbol",
+      "label": "Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py",
+      "id": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py"
+    },
+    {
+      "type": "symbol",
+      "label": "Active",
+      "id": "symbol:Active"
+    },
+    {
+      "type": "symbol",
+      "label": "Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py",
+      "id": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py"
+    },
+    {
+      "type": "pred",
+      "label": "python3 /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/d",
+      "pred_type": "string",
+      "id": "pred:TASK-003:1"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.4",
+      "value": 0.4,
+      "id": "risk:TASK-003:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-003:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.8",
+      "value": 0.8,
+      "id": "risk:TASK-003:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-004",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar cmd_update_task() y cmd_update_goal() en spring.py para que, después d",
+      "id": "task:TASK-004"
+    },
+    {
+      "type": "pred",
+      "label": "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scrip",
+      "pred_type": "string",
+      "id": "pred:TASK-004:0"
+    },
+    {
+      "type": "pred",
+      "label": "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scrip",
+      "pred_type": "string",
+      "id": "pred:TASK-004:1"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"import subprocess; r=subprocess.run(['python3', '.claude/skills/delt",
+      "pred_type": "string",
+      "id": "pred:TASK-004:2"
+    },
+    {
+      "type": "symbol",
+      "label": "True",
+      "id": "symbol:True"
+    },
+    {
+      "type": "symbol",
+      "label": "claude/skills/delta/scripts/validate-schema.py",
+      "id": "symbol:claude/skills/delta/scripts/validate-schema.py"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.3",
+      "value": 0.3,
+      "id": "risk:TASK-004:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-004:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-004:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-005",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar write_json() o agregar _git_commit() en spring.py para que, después de",
+      "id": "task:TASK-005"
+    },
+    {
+      "type": "pred",
+      "label": "python3 /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/d",
+      "pred_type": "string",
+      "id": "pred:TASK-005:0"
+    },
+    {
+      "type": "pred",
+      "label": "git -C /Users/davidmartinez/develop/Active-projects/game_reset --version",
+      "pred_type": "string",
+      "id": "pred:TASK-005:1"
+    },
+    {
+      "type": "pred",
+      "label": "git -C /Users/davidmartinez/develop/Active-projects/game_reset log --oneline -1",
+      "pred_type": "string",
+      "id": "pred:TASK-005:2"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.4",
+      "value": 0.4,
+      "id": "risk:TASK-005:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-005:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.85",
+      "value": 0.85,
+      "id": "risk:TASK-005:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-006",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar _verify_symbols_in_files() para que sea invocable desde CLI: python3 v",
+      "id": "task:TASK-006"
+    },
+    {
+      "type": "pred",
+      "label": "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scrip",
+      "pred_type": "string",
+      "id": "pred:TASK-006:0"
+    },
+    {
+      "type": "symbol",
+      "label": "claude/skills/delta/scripts/task.py",
+      "id": "symbol:claude/skills/delta/scripts/task.py"
+    },
+    {
+      "type": "pred",
+      "label": "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scrip",
+      "pred_type": "string",
+      "id": "pred:TASK-006:1"
+    },
+    {
+      "type": "pred",
+      "label": "test -f .claude/skills/delta/scripts/verify_symbol.py",
+      "pred_type": "string",
+      "id": "pred:TASK-006:2"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/task.py",
+      "id": "file:.claude/skills/delta/scripts/task.py"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/verify_symbol.py",
+      "id": "file:.claude/skills/delta/scripts/verify_symbol.py"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-006:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-006:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-006:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-007",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar cmd_status() para que, además de mostrar estado de tasks, muestre: 1) ",
+      "id": "task:TASK-007"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'cmd_status', 'file': '.claude/skills/delta/",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-007:0"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_output', 'command': 'python3 .claude/skills/delta/scripts/spri",
+      "pred_type": "command_output",
+      "id": "pred:TASK-007:1"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_output', 'command': 'python3 .claude/skills/delta/scripts/spri",
+      "pred_type": "command_output",
+      "id": "pred:TASK-007:2"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_output', 'command': 'python3 .claude/skills/delta/scripts/spri",
+      "pred_type": "command_output",
+      "id": "pred:TASK-007:3"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-007:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-007:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-007:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-008",
+      "status": "completed",
+      "task_type": "feature",
+      "objective": "Crear delta-advance.py como entry point único que implementa el patrón Evidence ",
+      "id": "task:TASK-008"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'main', 'file': '.claude/skills/delta/script",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-008:0"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/delta-advance.py",
+      "id": "file:.claude/skills/delta/scripts/delta-advance.py"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'test -f .claude/skills/delta/scripts/delta-",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-008:1"
+    },
+    {
+      "type": "symbol",
+      "label": "claude/skills/delta/scripts/delta-advance.py",
+      "id": "symbol:claude/skills/delta/scripts/delta-advance.py"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_output', 'command': 'python3 .claude/skills/delta/scripts/spri",
+      "pred_type": "command_output",
+      "id": "pred:TASK-008:2"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.3",
+      "value": 0.3,
+      "id": "risk:TASK-008:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.15",
+      "value": 0.15,
+      "id": "risk:TASK-008:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.85",
+      "value": 0.85,
+      "id": "risk:TASK-008:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-009",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Agregar cmd_rebase() en spring.py que: 1) lee plan.json y progress.json, 2) dete",
+      "id": "task:TASK-009"
+    },
+    {
+      "type": "pred",
+      "label": "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scrip",
+      "pred_type": "string",
+      "id": "pred:TASK-009:0"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"import json; p=json.load(open('.cognitive/projects/delta-skill/delta",
+      "pred_type": "string",
+      "id": "pred:TASK-009:1"
+    },
+    {
+      "type": "symbol",
+      "label": "cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json",
+      "id": "symbol:cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json"
+    },
+    {
+      "type": "symbol",
+      "label": "Plan",
+      "id": "symbol:Plan"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.4",
+      "value": 0.4,
+      "id": "risk:TASK-009:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-009:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.8",
+      "value": 0.8,
+      "id": "risk:TASK-009:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-010",
+      "status": "completed",
+      "task_type": "docs",
+      "objective": "Agregar a SKILL.md: 1) Protocolo de confirmación (exit 3) con resumen ejecutivo,",
+      "id": "task:TASK-010"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"md=open('.claude/skills/delta/SKILL.md').read(); assert 'ready_for_r",
+      "pred_type": "string",
+      "id": "pred:TASK-010:0"
+    },
+    {
+      "type": "symbol",
+      "label": "claude/skills/delta/SKILL.md",
+      "id": "symbol:claude/skills/delta/SKILL.md"
+    },
+    {
+      "type": "symbol",
+      "label": "verify_symbol.py",
+      "id": "symbol:verify_symbol.py"
+    },
+    {
+      "type": "symbol",
+      "label": "SKILL.md",
+      "id": "symbol:SKILL.md"
+    },
+    {
+      "type": "symbol",
+      "label": "Ejecutables",
+      "id": "symbol:Ejecutables"
+    },
+    {
+      "type": "symbol",
+      "label": "Workflow",
+      "id": "symbol:Workflow"
+    },
+    {
+      "type": "symbol",
+      "label": "Resumen",
+      "id": "symbol:Resumen"
+    },
+    {
+      "type": "symbol",
+      "label": "SKILL",
+      "id": "symbol:SKILL"
+    },
+    {
+      "type": "symbol",
+      "label": "Predicates",
+      "id": "symbol:Predicates"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"md=open('.claude/skills/delta/SKILL.md').read(); sections=['Resumen ",
+      "pred_type": "string",
+      "id": "pred:TASK-010:1"
+    },
+    {
+      "type": "symbol",
+      "label": "Faltan",
+      "id": "symbol:Faltan"
+    },
+    {
+      "type": "symbol",
+      "label": "Resultado",
+      "id": "symbol:Resultado"
+    },
+    {
+      "type": "symbol",
+      "label": "Protocolo",
+      "id": "symbol:Protocolo"
+    },
+    {
+      "type": "symbol",
+      "label": "Preguntar",
+      "id": "symbol:Preguntar"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/SKILL.md",
+      "id": "file:.claude/skills/delta/SKILL.md"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-010:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.05",
+      "value": 0.05,
+      "id": "risk:TASK-010:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.95",
+      "value": 0.95,
+      "id": "risk:TASK-010:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-011",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Extraer build_review_prompt a _internal/prompt_engine.py como motor de prompts b",
+      "id": "task:TASK-011"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'build_review_prompt', 'file': '.claude/skil",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-011:0"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/_internal/prompt_engine.py",
+      "id": "file:.claude/skills/delta/scripts/_internal/prompt_engine.py"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'verify_predicate', 'file': '.claude/skills/",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-011:1"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/_internal/verification.py",
+      "id": "file:.claude/skills/delta/scripts/_internal/verification.py"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_output', 'command': 'python3 -c \\'from _internal.prompt_engine",
+      "pred_type": "command_output",
+      "id": "pred:TASK-011:2"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/_internal/advance.py",
+      "id": "file:.claude/skills/delta/scripts/_internal/advance.py"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.3",
+      "value": 0.3,
+      "id": "risk:TASK-011:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.15",
+      "value": 0.15,
+      "id": "risk:TASK-011:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.85",
+      "value": 0.85,
+      "id": "risk:TASK-011:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-012",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Modificar cmd_close() en spring.py para que el closure dashboard muestre por cad",
+      "id": "task:TASK-012"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'cmd_close', 'file': '.claude/skills/delta/s",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-012:0"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_output', 'command': 'python3 .claude/skills/delta/scripts/spri",
+      "pred_type": "command_output",
+      "id": "pred:TASK-012:1"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-012:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-012:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-012:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-013",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Refinar cmd_status() en spring.py para que la tabla de predicates por task inclu",
+      "id": "task:TASK-013"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'cmd_status', 'file': '.claude/skills/delta/",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-013:0"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_output', 'command': 'python3 .claude/skills/delta/scripts/spri",
+      "pred_type": "command_output",
+      "id": "pred:TASK-013:1"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-013:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-013:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-013:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-014",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Refactorizar verify_predicate para batch execution de ast-grep: 1 comando sg con",
+      "id": "task:TASK-014"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'verify_predicate', 'file': '.claude/skills/",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-014:0"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'verify_predicates_batch', 'file': '.claude/",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-014:1"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'invalidate_verify_cache', 'file': '.claude/",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-014:2"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': '_batch_verify_symbols', 'file': '.claude/sk",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-014:3"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"from _internal.verification import verify_predicates_batch; r=verify",
+      "pred_type": "string",
+      "id": "pred:TASK-014:4"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"from _internal.prompt_engine import build_status_evidence; print('OK",
+      "pred_type": "string",
+      "id": "pred:TASK-014:5"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.3",
+      "value": 0.3,
+      "id": "risk:TASK-014:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-014:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-014:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-015",
+      "status": "completed",
+      "task_type": "refactor",
+      "objective": "Refactorizar task.py advance para output <200 líneas: 6 capas de task_context ba",
+      "id": "task:TASK-015"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': 'cmd_advance', 'file': '.claude/skills/delta",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-015:0"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'symbol_exists', 'symbol': '_context_discovery', 'file': '.claude/skill",
+      "pred_type": "symbol_exists",
+      "id": "pred:TASK-015:1"
+    },
+    {
+      "type": "pred",
+      "label": "python3 -c \"import sys; sys.path.insert(0, '.claude/skills/delta/scripts'); from",
+      "pred_type": "string",
+      "id": "pred:TASK-015:2"
+    },
+    {
+      "type": "file",
+      "label": ".cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json",
+      "id": "file:.cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-015:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-015:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-015:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-016",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Crear flag --confirm único en task.py y delta-advance.py que reemplaza --act-as ",
+      "id": "task:TASK-016"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-016:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-016:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-016:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-016:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-017",
+      "status": "pending",
+      "task_type": "refactor",
+      "objective": "Refactorizar spring.py reopen para aceptar --chain-id. Si el directorio no exist",
+      "id": "task:TASK-017"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-017:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-017:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-017:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-017:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-018",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Crear comandos en spring.py: update-task <chain> <task_id> --status done|pending",
+      "id": "task:TASK-018"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-018:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-018:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-018:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-018:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-019",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Después de cada task.py advance exitoso, hacer git add/commit automático de plan",
+      "id": "task:TASK-019"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-019:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-019:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-019:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-019:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-020",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Después de cualquier escritura a plan.json o progress.json, ejecutar validate-sc",
+      "id": "task:TASK-020"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-020:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-020:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-020:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-020:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-021",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Implementar spring.py diff <chain> (plan vs progress), spring.py blockers <chain",
+      "id": "task:TASK-021"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-021:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-021:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-021:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-021:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-022",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Agregar a SKILL.md: sección \"Troubleshooting\" con 5+ escenarios reales (task fal",
+      "id": "task:TASK-022"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-022:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-022:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-022:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-022:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-023",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Reemplazar task.py advance + --act-as por 3 comandos de modo: 1) task.py impleme",
+      "id": "task:TASK-023"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'true'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-023:0"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.4",
+      "value": 0.4,
+      "id": "risk:TASK-023:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.2",
+      "value": 0.2,
+      "id": "risk:TASK-023:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.8",
+      "value": 0.8,
+      "id": "risk:TASK-023:commit_trust"
+    },
+    {
+      "type": "task",
+      "label": "TASK-024",
+      "status": "pending",
+      "task_type": "feature",
+      "objective": "Crear _internal/graph.py con DeltaGraph que construye networkx.DiGraph desde pla",
+      "id": "task:TASK-024"
+    },
+    {
+      "type": "pred",
+      "label": "{'type': 'command_exit', 'command': 'python3 -c \"import networkx; print(1)\"'}",
+      "pred_type": "command_exit",
+      "id": "pred:TASK-024:0"
+    },
+    {
+      "type": "file",
+      "label": ".claude/skills/delta/scripts/_internal/graph.py",
+      "id": "file:.claude/skills/delta/scripts/_internal/graph.py"
+    },
+    {
+      "type": "risk",
+      "label": "curvature:0.3",
+      "value": 0.3,
+      "id": "risk:TASK-024:curvature"
+    },
+    {
+      "type": "risk",
+      "label": "pre_churn:0.1",
+      "value": 0.1,
+      "id": "risk:TASK-024:pre_churn"
+    },
+    {
+      "type": "risk",
+      "label": "commit_trust:0.9",
+      "value": 0.9,
+      "id": "risk:TASK-024:commit_trust"
+    },
+    {
+      "type": "event",
+      "label": "TASK-003 added to sprint: spring.py reopen debe aceptar --ch",
+      "distance": 0.0,
+      "id": "event:0:2026-07-19T01:50:19"
+    },
+    {
+      "type": "event",
+      "label": "TASK-004 added to sprint: Proveer comandos de edición semánt",
+      "distance": 0.0,
+      "id": "event:1:2026-07-19T01:50:19"
+    },
+    {
+      "type": "event",
+      "label": "TASK-005 added to sprint: Mover plan.json y progress.json de",
+      "distance": 0.0,
+      "id": "event:2:2026-07-19T01:50:20"
+    },
+    {
+      "type": "event",
+      "label": "TASK-006 added to sprint: Después de cualquier edición de pl",
+      "distance": 0.0,
+      "id": "event:3:2026-07-19T01:50:20"
+    },
+    {
+      "type": "event",
+      "label": "TASK-007 added to sprint: Agregar comandos: spring.py diff <",
+      "distance": 0.0,
+      "id": "event:4:2026-07-19T01:50:20"
+    },
+    {
+      "type": "event",
+      "label": "TASK-008 added to sprint: task.py advance debería ser la úni",
+      "distance": 0.0,
+      "id": "event:5:2026-07-19T01:50:20"
+    },
+    {
+      "type": "event",
+      "label": "TASK-009 added to sprint: Si el plan cambia mientras hay tas",
+      "distance": 0.0,
+      "id": "event:6:2026-07-19T01:50:21"
+    },
+    {
+      "type": "event",
+      "label": "TASK-010 added to sprint: Agregar secciones a SKILL.md con e",
+      "distance": 0.0,
+      "id": "event:7:2026-07-19T01:50:21"
+    },
+    {
+      "type": "event",
+      "label": "TASK-001 completed",
+      "distance": 0.88,
+      "id": "event:8:2026-07-19T14:30:15"
+    },
+    {
+      "type": "event",
+      "label": "TASK-002 completed",
+      "distance": 0.76,
+      "id": "event:9:2026-07-19T14:31:43"
+    },
+    {
+      "type": "event",
+      "label": "TASK-003 completed",
+      "distance": 0.68,
+      "id": "event:10:2026-07-19T14:37:29"
+    },
+    {
+      "type": "event",
+      "label": "TASK-004 completed",
+      "distance": 0.56,
+      "id": "event:11:2026-07-19T14:39:08"
+    },
+    {
+      "type": "event",
+      "label": "TASK-005 completed",
+      "distance": 0.44,
+      "id": "event:12:2026-07-19T14:45:19"
+    },
+    {
+      "type": "event",
+      "label": "TASK-006 completed",
+      "distance": 0.32,
+      "id": "event:13:2026-07-19T14:59:29"
+    },
+    {
+      "type": "event",
+      "label": "TASK-010 completed: SKILL.md with confirmation protocol, pre",
+      "distance": 0.44,
+      "id": "event:14:2026-07-18T21:26:47"
+    },
+    {
+      "type": "event",
+      "label": "TASK-007 completed",
+      "distance": 0.08,
+      "id": "event:15:2026-07-19T15:58:19"
+    },
+    {
+      "type": "event",
+      "label": "TASK-011 added to sprint: prompt_engine.py: Evidence + Meta-",
+      "distance": 0.08,
+      "id": "event:16:2026-07-19T15:59:39"
+    },
+    {
+      "type": "event",
+      "label": "TASK-012 added to sprint: Evidence blocks en close",
+      "distance": 0.08,
+      "id": "event:17:2026-07-19T15:59:39"
+    },
+    {
+      "type": "event",
+      "label": "TASK-013 added to sprint: Evidence en status refinement",
+      "distance": 0.08,
+      "id": "event:18:2026-07-19T15:59:39"
+    },
+    {
+      "type": "event",
+      "label": "TASK-008 completed",
+      "distance": 0.1034,
+      "id": "event:19:2026-07-19T16:06:03"
+    },
+    {
+      "type": "event",
+      "label": "REBASE: 0 orphaned → cancelled, 0 new → pending",
+      "distance": 0.0,
+      "id": "event:20:2026-07-19T16:10:26"
+    },
+    {
+      "type": "event",
+      "label": "TASK-009 completed",
+      "distance": 0.0345,
+      "id": "event:21:2026-07-19T16:23:16"
+    },
+    {
+      "type": "event",
+      "label": "TASK-011 completed",
+      "distance": 0.0,
+      "id": "event:22:2026-07-19T16:29:09"
+    },
+    {
+      "type": "event",
+      "label": "TASK-012 completed",
+      "distance": 0.0,
+      "id": "event:23:2026-07-19T18:05:31"
+    },
+    {
+      "type": "event",
+      "label": "TASK-013 completed",
+      "distance": 0.0,
+      "id": "event:24:2026-07-19T18:21:07"
+    },
+    {
+      "type": "event",
+      "label": "REBASE: 0 orphaned → cancelled, 9 new → pending",
+      "distance": 0.0,
+      "id": "event:25:2026-07-19T18:43:33"
+    },
+    {
+      "type": "event",
+      "label": "REBASE: 0 orphaned → cancelled, 1 new → pending",
+      "distance": 0.0,
+      "id": "event:26:2026-07-19T18:47:51"
+    },
+    {
+      "type": "event",
+      "label": "REBASE: 0 orphaned → cancelled, 0 new → pending",
+      "distance": 0.0,
+      "id": "event:27:2026-07-19T19:10:47"
+    },
+    {
+      "type": "event",
+      "label": "TASK-024 added to sprint: Crear DeltaGraph (_internal/graph.",
+      "distance": 0.0,
+      "id": "event:28:2026-07-19T20:40:16"
+    },
+    {
+      "type": "event",
+      "label": "TASK-024 added to sprint: Crear _internal/graph.py con Delta",
+      "distance": 0.0,
+      "id": "event:29:2026-07-19T20:41:12"
+    },
+    {
+      "type": "event",
+      "label": "REBASE: 0 orphaned → cancelled, 1 new → pending",
+      "distance": 0.0,
+      "id": "event:30:2026-07-19T20:41:55"
+    }
+  ],
+  "edges": [
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-001",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-002",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-003",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-004",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-005",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-006",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-007",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-008",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-009",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-010",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-011",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-012",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-013",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-014",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-015",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-016",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-017",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-018",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-019",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-020",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-021",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-022",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-023",
+      "type": "has_task"
+    },
+    {
+      "source": "sprint:skill-spring-delta",
+      "target": "task:TASK-024",
+      "type": "has_task"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "pred:TASK-001:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "pred:TASK-001:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "pred:TASK-001:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "risk:TASK-001:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "risk:TASK-001:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "risk:TASK-001:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-001",
+      "target": "event:8:2026-07-19T14:30:15",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-001:0",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:0",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:1",
+      "target": "symbol:read",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:1",
+      "target": "symbol:FunctionDef",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:1",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:1",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:2",
+      "target": "symbol:read",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:2",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-001:2",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "pred:TASK-002:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "pred:TASK-002:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "pred:TASK-002:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "file:.claude/skills/delta/schema/progress.schema.json",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "risk:TASK-002:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "risk:TASK-002:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "risk:TASK-002:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-002",
+      "target": "event:9:2026-07-19T14:31:43",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-002:0",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-002:0",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-002:1",
+      "target": "symbol:cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/progress.json",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-002:2",
+      "target": "symbol:cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/trail.json",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-002:2",
+      "target": "symbol:trail.json",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "pred:TASK-003:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "pred:TASK-003:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "risk:TASK-003:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "risk:TASK-003:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "risk:TASK-003:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "event:0:2026-07-19T01:50:19",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-003",
+      "target": "event:10:2026-07-19T14:37:29",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-003:0",
+      "target": "symbol:Users",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-003:0",
+      "target": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-003:0",
+      "target": "symbol:Active",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-003:0",
+      "target": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-003:1",
+      "target": "symbol:Users",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-003:1",
+      "target": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-003:1",
+      "target": "symbol:Active",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-003:1",
+      "target": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "pred:TASK-004:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "pred:TASK-004:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "pred:TASK-004:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "risk:TASK-004:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "risk:TASK-004:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "risk:TASK-004:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "event:1:2026-07-19T01:50:19",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-004",
+      "target": "event:11:2026-07-19T14:39:08",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-004:0",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-004:0",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-004:1",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-004:1",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-004:2",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-004:2",
+      "target": "symbol:True",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-004:2",
+      "target": "symbol:claude/skills/delta/scripts/validate-schema.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "pred:TASK-005:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "pred:TASK-005:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "pred:TASK-005:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "risk:TASK-005:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "risk:TASK-005:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "risk:TASK-005:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "event:2:2026-07-19T01:50:20",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-005",
+      "target": "event:12:2026-07-19T14:45:19",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-005:0",
+      "target": "symbol:Users",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-005:0",
+      "target": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-005:0",
+      "target": "symbol:Active",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-005:0",
+      "target": "symbol:Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-005:1",
+      "target": "symbol:Users",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-005:1",
+      "target": "symbol:Active",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-005:2",
+      "target": "symbol:Users",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-005:2",
+      "target": "symbol:Active",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "pred:TASK-006:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "pred:TASK-006:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "pred:TASK-006:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "file:.claude/skills/delta/scripts/task.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "file:.claude/skills/delta/scripts/verify_symbol.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "risk:TASK-006:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "risk:TASK-006:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "risk:TASK-006:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "event:3:2026-07-19T01:50:20",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-006",
+      "target": "event:13:2026-07-19T14:59:29",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-006:0",
+      "target": "symbol:claude/skills/delta/scripts/task.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-006:0",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-006:1",
+      "target": "symbol:claude/skills/delta/scripts/task.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-006:1",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-006:2",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "pred:TASK-007:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "pred:TASK-007:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "pred:TASK-007:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "pred:TASK-007:3",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "risk:TASK-007:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "risk:TASK-007:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "risk:TASK-007:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "event:4:2026-07-19T01:50:20",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-007",
+      "target": "event:15:2026-07-19T15:58:19",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-007:0",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-007:1",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-007:2",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-007:3",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "pred:TASK-008:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "pred:TASK-008:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "pred:TASK-008:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "file:.claude/skills/delta/scripts/delta-advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "file:.claude/skills/delta/scripts/task.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "risk:TASK-008:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "risk:TASK-008:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "risk:TASK-008:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "event:5:2026-07-19T01:50:20",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-008",
+      "target": "event:19:2026-07-19T16:06:03",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-008:0",
+      "target": "file:.claude/skills/delta/scripts/delta-advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-008:1",
+      "target": "symbol:claude/skills/delta/scripts/delta-advance.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-008:2",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "pred:TASK-009:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "pred:TASK-009:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "risk:TASK-009:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "risk:TASK-009:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "risk:TASK-009:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "event:6:2026-07-19T01:50:21",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-009",
+      "target": "event:21:2026-07-19T16:23:16",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-009:0",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-009:0",
+      "target": "symbol:claude/skills/delta/scripts/verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-009:1",
+      "target": "symbol:cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-009:1",
+      "target": "symbol:Plan",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "pred:TASK-010:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "pred:TASK-010:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "risk:TASK-010:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "risk:TASK-010:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "risk:TASK-010:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "event:7:2026-07-19T01:50:21",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-010",
+      "target": "event:14:2026-07-18T21:26:47",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:claude/skills/delta/SKILL.md",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:verify_symbol.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:SKILL.md",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:read",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:Ejecutables",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:Workflow",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:Resumen",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:SKILL",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:0",
+      "target": "symbol:Predicates",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:claude/skills/delta/SKILL.md",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:Faltan",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:Resultado",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:read",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:Resumen",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:Protocolo",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:SKILL",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-010:1",
+      "target": "symbol:Preguntar",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "pred:TASK-011:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "pred:TASK-011:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "pred:TASK-011:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "file:.claude/skills/delta/scripts/_internal/prompt_engine.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "file:.claude/skills/delta/scripts/_internal/verification.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "risk:TASK-011:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "risk:TASK-011:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "risk:TASK-011:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "event:16:2026-07-19T15:59:39",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-011",
+      "target": "event:22:2026-07-19T16:29:09",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-011:0",
+      "target": "file:.claude/skills/delta/scripts/_internal/prompt_engine.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-011:1",
+      "target": "file:.claude/skills/delta/scripts/_internal/verification.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-011:2",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "pred:TASK-012:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "pred:TASK-012:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "risk:TASK-012:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "risk:TASK-012:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "risk:TASK-012:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "event:17:2026-07-19T15:59:39",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-012",
+      "target": "event:23:2026-07-19T18:05:31",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-012:0",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-012:1",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "pred:TASK-013:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "pred:TASK-013:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "risk:TASK-013:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "risk:TASK-013:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "risk:TASK-013:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "event:18:2026-07-19T15:59:39",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-013",
+      "target": "event:24:2026-07-19T18:21:07",
+      "type": "has_event"
+    },
+    {
+      "source": "pred:TASK-013:0",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-013:1",
+      "target": "symbol:claude/skills/delta/scripts/spring.py",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "pred:TASK-014:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "pred:TASK-014:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "pred:TASK-014:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "pred:TASK-014:3",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "pred:TASK-014:4",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "pred:TASK-014:5",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "file:.claude/skills/delta/scripts/_internal/verification.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "file:.claude/skills/delta/scripts/_internal/prompt_engine.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "risk:TASK-014:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "risk:TASK-014:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "risk:TASK-014:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-014",
+      "target": "task:TASK-023",
+      "type": "depends_on"
+    },
+    {
+      "source": "pred:TASK-014:0",
+      "target": "file:.claude/skills/delta/scripts/_internal/verification.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-014:1",
+      "target": "file:.claude/skills/delta/scripts/_internal/verification.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-014:2",
+      "target": "file:.claude/skills/delta/scripts/_internal/verification.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-014:3",
+      "target": "file:.claude/skills/delta/scripts/_internal/verification.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-014:4",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "pred:TASK-014:5",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "pred:TASK-015:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "pred:TASK-015:1",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "pred:TASK-015:2",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "file:.claude/skills/delta/scripts/task.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "file:.cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "risk:TASK-015:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "risk:TASK-015:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-015",
+      "target": "risk:TASK-015:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "pred:TASK-015:0",
+      "target": "file:.claude/skills/delta/scripts/task.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-015:1",
+      "target": "file:.claude/skills/delta/scripts/task.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "pred:TASK-015:2",
+      "target": "symbol:OK",
+      "type": "verifies_symbol"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "pred:TASK-016:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "risk:TASK-016:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "risk:TASK-016:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "risk:TASK-016:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-016",
+      "target": "task:TASK-023",
+      "type": "depends_on"
+    },
+    {
+      "source": "task:TASK-017",
+      "target": "pred:TASK-017:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-017",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-017",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-017",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-017",
+      "target": "risk:TASK-017:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-017",
+      "target": "risk:TASK-017:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-017",
+      "target": "risk:TASK-017:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-018",
+      "target": "pred:TASK-018:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-018",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-018",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-018",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-018",
+      "target": "risk:TASK-018:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-018",
+      "target": "risk:TASK-018:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-018",
+      "target": "risk:TASK-018:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-019",
+      "target": "pred:TASK-019:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-019",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-019",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-019",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-019",
+      "target": "risk:TASK-019:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-019",
+      "target": "risk:TASK-019:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-019",
+      "target": "risk:TASK-019:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-020",
+      "target": "pred:TASK-020:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-020",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-020",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-020",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-020",
+      "target": "risk:TASK-020:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-020",
+      "target": "risk:TASK-020:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-020",
+      "target": "risk:TASK-020:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-021",
+      "target": "pred:TASK-021:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-021",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-021",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-021",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-021",
+      "target": "risk:TASK-021:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-021",
+      "target": "risk:TASK-021:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-021",
+      "target": "risk:TASK-021:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-022",
+      "target": "pred:TASK-022:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-022",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-022",
+      "target": "file:.claude/skills/delta/scripts/_internal/advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-022",
+      "target": "file:.claude/skills/delta/SKILL.md",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-022",
+      "target": "risk:TASK-022:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-022",
+      "target": "risk:TASK-022:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-022",
+      "target": "risk:TASK-022:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-023",
+      "target": "pred:TASK-023:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-023",
+      "target": "file:.claude/skills/delta/scripts/task.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-023",
+      "target": "file:.claude/skills/delta/scripts/delta-advance.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-023",
+      "target": "file:.claude/skills/delta/scripts/_internal/prompt_engine.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-023",
+      "target": "risk:TASK-023:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-023",
+      "target": "risk:TASK-023:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-023",
+      "target": "risk:TASK-023:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "pred:TASK-024:0",
+      "type": "has_predicate"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "file:.claude/skills/delta/scripts/_internal/graph.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "file:.claude/skills/delta/scripts/spring.py",
+      "type": "impacts_file"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "risk:TASK-024:curvature",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "risk:TASK-024:pre_churn",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "risk:TASK-024:commit_trust",
+      "type": "has_risk"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "event:28:2026-07-19T20:40:16",
+      "type": "has_event"
+    },
+    {
+      "source": "task:TASK-024",
+      "target": "event:29:2026-07-19T20:41:12",
+      "type": "has_event"
+    }
+  ],
+  "chain_id": "skill-spring-delta",
+  "stats": {
+    "nodes": 222,
+    "edges": 314
+  }
+}

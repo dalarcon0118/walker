@@ -1,0 +1,174 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-gps-push-state-aware-20260704",
+      "generated_at": "2026-07-04T15:30:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-04T15:00:00-03:00",
+        "distance": 0.85,
+        "predicates_satisfied": "0/22",
+        "tasks_completed": [],
+        "event": "plan created — GPS push state-aware"
+      },
+      {
+        "at": "2026-07-04T15:10:00-03:00",
+        "distance": 0.50,
+        "predicates_satisfied": "11/22",
+        "tasks_completed": [
+          "TASK-PUSH-001"
+        ],
+        "event": "TASK-PUSH-001 completed: CognitiveState extendido con status/instruction/options + _determine_state() con 5 modos. to_dict() serializa nuevos campos.",
+        "calibration": {
+          "state": {
+            "expected_satisfied": 16,
+            "actual_satisfied": 16,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.40,
+            "actual_reduction": 0.35,
+            "error": 0.05,
+            "error_pct": 12.5,
+            "error_type": "over_estimated",
+            "cause": {
+              "category": "reasoning",
+              "evidence": "se sobrestimó la reducción porque algunos predicates como los 'modo X: instruction...' son derivados de _determine_state, no independientes",
+              "learnable": true,
+              "contributors": [
+                "predicates duplicados (modo + instruction) inflan la cuenta"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-04T15:20:00-03:00",
+        "distance": 0.15,
+        "predicates_satisfied": "20/22",
+        "tasks_completed": [
+          "TASK-PUSH-002"
+        ],
+        "event": "TASK-PUSH-002 completed: GPS Phase inyecta _instruction y _options al TOP-LEVEL de result en cache hit y cache miss.",
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.14,
+            "actual_reduction": 0.35,
+            "error": -0.21,
+            "error_pct": 150,
+            "error_type": "under_estimated",
+            "cause": {
+              "category": "reasoning",
+              "evidence": "la tarea TASK-PUSH-002 satisface predicates que NO estaban en su validation.predicates — específicamente los modos navigating/completed que _determine_state ya había implementado",
+              "learnable": true,
+              "contributors": [
+                "solapamiento entre predicates de TASK-PUSH-001 y TASK-PUSH-002",
+                "modo navigating y completed quedaron satisfechos por la inyección de instruction"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-04T15:30:00-03:00",
+        "distance": 0.0,
+        "predicates_satisfied": "22/22",
+        "tasks_completed": [
+          "TASK-PUSH-003"
+        ],
+        "event": "TASK-PUSH-003 completed: _gps_pipeline_trace eliminado de respuestas MCP. _reorder_gps_response y _build_navigation_action deprecadas (mantenidas para tests). Syntax check OK en ambos archivos modificados.",
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.14,
+            "actual_reduction": 0.15,
+            "error": -0.01,
+            "error_pct": 7.1,
+            "error_type": "under_estimated",
+            "cause": {
+              "category": "reasoning",
+              "evidence": "la eliminación de _gps_pipeline_trace es solo remover 3 líneas de código, pero el predicate es binario (existe/no existe)",
+              "learnable": false
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-PUSH-001": "completed",
+        "TASK-PUSH-002": "completed",
+        "TASK-PUSH-003": "completed"
+      },
+      "next_action": null,
+      "finished": true,
+      "alternatives": [],
+      "risks": [],
+      "model": {
+        "history": [
+          {
+            "task_id": "TASK-PUSH-001",
+            "error_type": "over_estimated",
+            "error_pct": 12.5,
+            "learnings": [
+              "predicates duplicados (modo + instruction por modo) inflan el conteo real de trabajo independiente",
+              "para planes futuros, agrupar predicates de modo+instruction en un solo predicate compuesto"
+            ],
+            "adjustments": []
+          },
+          {
+            "task_id": "TASK-PUSH-002",
+            "error_type": "under_estimated",
+            "error_pct": 150,
+            "learnings": [
+              "solapamiento entre predicates de distintas tareas: TASK-PUSH-002 satisfizo predicates que TASK-PUSH-001 ya había habilitado",
+              "separar mejor los predicates entre tareas para evitar doble conteo"
+            ],
+            "adjustments": []
+          },
+          {
+            "task_id": "TASK-PUSH-003",
+            "error_type": "under_estimated",
+            "error_pct": 7.1,
+            "learnings": [
+              "la eliminación de _gps_pipeline_trace es trivial pero el predicate es binario — cualquier desviación es técnicamente 100% de error"
+            ],
+            "adjustments": []
+          }
+        ],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "work_type_multiplier_refactor": 1.0,
+          "work_type_multiplier_feature_new_method": 1.0
+        }
+      }
+    }
+  }
+}

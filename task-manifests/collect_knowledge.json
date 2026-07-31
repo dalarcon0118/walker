@@ -1,0 +1,69 @@
+{
+  "description": "Collect and persist knowledge generated during task execution",
+  "usage": "walker <project>/collect_knowledge [--task_id <id>] [--artefactos <list>] [--reglas <list>] [--decisiones <list>]",
+  "tags": [
+    "workflow",
+    "knowledge"
+  ],
+  "input_schema": {
+    "required": [],
+    "optional": [
+      "task_id",
+      "artefactos",
+      "reglas",
+      "decisiones",
+      "advertencias",
+      "fuera_scope"
+    ],
+    "task_id": {
+      "type": "string",
+      "description": "Task ID",
+      "example": "TASK-001"
+    },
+    "artefactos": {
+      "type": "array",
+      "description": "Artefacts generated during task"
+    },
+    "reglas": {
+      "type": "array",
+      "description": "Rules/patterns discovered"
+    },
+    "decisiones": {
+      "type": "array",
+      "description": "Design decisions made"
+    },
+    "advertencias": {
+      "type": "array",
+      "description": "Warnings/issues found"
+    },
+    "fuera_scope": {
+      "type": "array",
+      "description": "Items explicitly out of scope"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "captured": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "integer"
+          },
+          "nodes_created": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

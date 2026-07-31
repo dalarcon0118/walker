@@ -1,0 +1,350 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "fix-multiple-watcher-20260626",
+      "generated_at": "2026-06-26T11:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["monitoring", "cpg", "shared", "cqrs"],
+      "tags": ["python", "cognitive-v2", "codegraph", "watchdog", "event-sourcing", "sse", "hexagonal"]
+    },
+    "g_objetivo": {
+      "description": "Fix-multiple-watcher: unificar los dos watchers CGC (shared/codegraph.py y features/monitoring/cgc_watcher_adapter.py) en uno solo, crear FileEventPublisher como event bus que publique cambios de archivos en CQRS EventStore y shared/helpers.EventStore (SSE), y mejorar CgcWatcherAdapter con sync-on-start, cgcignore, polling mode y health check.",
+      "predicates": {
+        "must_exist": [
+          "Bloque watcher en shared/codegraph.py:2619-2654 eliminado de _init_cgc()",
+          "Global _CGC_WATCHER eliminado de shared/codegraph.py:1969",
+          "imports CodeWatcher/GraphBuilder/JobManager eliminados de shared/codegraph.py:2621-2623",
+          "Clase FileEventPublisher en features/monitoring/file_event_publisher.py",
+          "FileEventPublisher.publish(file_path, event_type, timestamp, is_mcp_write) existe",
+          "FileEventPublisher.publish() publica en CQRS EventStore como event_type file.changed",
+          "FileEventPublisher.publish() publica en shared/helpers.EventStore como file/changed",
+          "CgcWatcherAdapter usa FileEventPublisher en vez de _enqueue_event directo",
+          "CgcWatcherAdapter acepta parametro sync_on_start en __init__",
+          "CgcWatcherAdapter acepta parametro use_polling en __init__",
+          "CgcWatcherAdapter integra .cgcignore en vez de SKIP_DIRS/SOURCE_EXTS hardcodeados en modo CGC",
+          "CgcWatcherAdapter tiene health_check() que verifica conexion CGC cada 30s",
+          "CgcWatcherAdapter reconecta automaticamente si CGC se cae (fallback watchdog) y vuelve a CGC al recuperarse",
+          "MCP tool code_watch_status existe y retorna mode, watched_paths, uptime"
+        ],
+        "must_not_exist": [
+          "No hay dos CodeWatcher simultaneos sobre el mismo directorio",
+          "_CGC_WATCHER no aparece en shared/codegraph.py despues de la limpieza"
+        ],
+        "invariants": [
+          "shared/codegraph.py no importa CodeWatcher/GraphBuilder/JobManager de codegraphcontext",
+          "MCP tools existentes (code_lookup, code_trace, code_scan, etc.) no se rompen",
+          "Conexion CGC existente (CodeFinder) se mantiene funcional en codegraph.py y codegraph_adapter.py",
+          "cognitive_v2 server arranca sin errores de import",
+          "El _init_cgc() en shared/codegraph.py sigue retornando CodeFinder (no se rompe la interfaz)",
+          "Configuracion actual via env vars CGC_WATCH_* se respeta"
+        ]
+      },
+      "existing_nodes": {
+        "must_exist": [
+          {
+            "type": "function",
+            "name": "_init_cgc",
+            "file": "shared/codegraph.py",
+            "line": 2537,
+            "lines": 125,
+            "importers": 1,
+            "status": "partial",
+            "note": "Existe pero contiene el bloque watcher a eliminar (lines 2619-2654, 36 lines)"
+          },
+          {
+            "type": "variable",
+            "name": "_CGC_WATCHER",
+            "file": "shared/codegraph.py",
+            "line": 1969,
+            "status": "exists",
+            "note": "Global que solo se usa en el bloque watcher a eliminar"
+          },
+          {
+            "type": "function",
+            "name": "_build_cgc_watcher",
+            "file": "features/monitoring/cgc_watcher_adapter.py",
+            "line": 180,
+            "lines": 98,
+            "importers": 1,
+            "status": "exists"
+          },
+          {
+            "type": "class",
+            "name": "CgcWatcherAdapter",
+            "file": "features/monitoring/cgc_watcher_adapter.py",
+            "line": 284,
+            "lines": 129,
+            "importers": 2,
+            "status": "exists",
+            "methods": ["__init__", "start", "stop", "is_running", "is_cgc_mode", "stats"]
+          },
+          {
+            "type": "class",
+            "name": "_CognitiveEventHandlerMixin",
+            "file": "features/monitoring/cgc_watcher_adapter.py",
+            "line": 73,
+            "lines": 58,
+            "status": "exists",
+            "note": "Se reemplazara por FileEventPublisher"
+          },
+          {
+            "type": "function",
+            "name": "_init_file_watcher",
+            "file": "features/monitoring/file_watcher_service.py",
+            "line": 40,
+            "lines": 25,
+            "importers": 2,
+            "status": "exists"
+          },
+          {
+            "type": "function",
+            "name": "_collect_file_watcher_events",
+            "file": "features/monitoring/file_watcher_service.py",
+            "line": 68,
+            "lines": 8,
+            "importers": 2,
+            "status": "exists",
+            "note": "Se mantiene igual, FileEventPublisher alimenta _FILE_WATCHER_EVENTS igual"
+          },
+          {
+            "type": "function",
+            "name": "_background_git_monitor",
+            "file": "features/monitoring/file_watcher_service.py",
+            "line": 78,
+            "lines": 67,
+            "importers": 2,
+            "status": "exists",
+            "note": "No se modifica en este delta (separado del alcance)"
+          }
+        ],
+        "must_not_exist": [
+          {
+            "type": "function_call",
+            "description": "CodeWatcher creado dentro de _init_cgc en codegraph.py",
+            "file": "shared/codegraph.py",
+            "line": 2638,
+            "status": "exists",
+            "note": "Debe eliminarse para que no haya dos watchers"
+          }
+        ],
+        "invariants": [
+          {
+            "type": "import",
+            "description": "imports de CodeWatcher/GraphBuilder/JobManager en codegraph.py",
+            "file": "shared/codegraph.py",
+            "lines": "2621-2623",
+            "status": "exists",
+            "note": "Deben eliminarse junto con el bloque watcher"
+          }
+        ]
+      }
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 1,
+        "objective": "Eliminar watcher duplicado de shared/codegraph.py _init_cgc() y limpiar dependencias",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "shared/codegraph.py (modificar — remover bloque watcher lines 2619-2654)",
+            "shared/codegraph.py (modificar — remover _CGC_WATCHER global line 1969)",
+            "shared/codegraph.py (modificar — remover imports CodeWatcher/GraphBuilder/JobManager lines 2621-2623)",
+            "shared/codegraph.py (modificar — remover global _CGC_WATCHER declaration line 2648)"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [
+          {
+            "chosen": "Eliminar el bloque watcher de shared/codegraph.py completamente",
+            "alternatives": [
+              "Dejarlo pero deshabilitado con flag (agrega complejidad muerta)",
+              "Reemplazarlo con llamada al CgcWatcherAdapter (crea dependencia circular)"
+            ],
+            "rationale": "El watcher en codegraph.py es legacy y no aporta nada que cgc_watcher_adapter.py no haga mejor. La dependencia circular (shared importando monitoring) se evita eliminando en vez de redirigir."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "Bloque watcher en shared/codegraph.py:2619-2654 eliminado de _init_cgc()",
+            "Global _CGC_WATCHER eliminado de shared/codegraph.py:1969",
+            "imports CodeWatcher/GraphBuilder/JobManager eliminados de shared/codegraph.py:2621-2623",
+            "_CGC_WATCHER no aparece en shared/codegraph.py despues de la limpieza",
+            "shared/codegraph.py no importa CodeWatcher/GraphBuilder/JobManager de codegraphcontext",
+            "El _init_cgc() en shared/codegraph.py sigue retornando CodeFinder (no se rompe la interfaz)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 0,
+        "objective": "Crear FileEventPublisher en features/monitoring/ como event bus para cambios de archivos",
+        "domain": "monitoring",
+        "artefactos_impactados": {
+          "files": [
+            "features/monitoring/file_event_publisher.py (crear)",
+            "features/monitoring/__init__.py (modificar — agregar export)"
+          ],
+          "apis": ["FileEventPublisher", "CQRS EventStore", "shared/helpers.EventStore"],
+          "data": ["eventos file.changed publicados en CQRS EventStore + shared/helpers.EventStore"],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.10
+        },
+        "decisions": [
+          {
+            "chosen": "Clase independiente FileEventPublisher que recibe eventos y los publica en ambos EventStores",
+            "alternatives": [
+              "Método estático en CgcWatcherAdapter (acopla publisher al watcher)",
+              "Fusión con EventStore existente (demasiado específico para dominio de cambios de archivos)"
+            ],
+            "rationale": "Publisher separado = testable, reemplazable, y cada watcher (CGC o watchdog) puede usarlo sin acoplamiento. Sigue el patrón Observer puro."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "Clase FileEventPublisher en features/monitoring/file_event_publisher.py",
+            "FileEventPublisher.publish(file_path, event_type, timestamp, is_mcp_write) existe",
+            "FileEventPublisher.publish() publica en CQRS EventStore como event_type file.changed",
+            "FileEventPublisher.publish() publica en shared/helpers.EventStore como file/changed"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "type": "refactor",
+        "work_type": "refactor",
+        "importer_files": 1,
+        "objective": "Refactorizar CgcWatcherAdapter para usar FileEventPublisher y agregar sync_on_start, use_polling, .cgcignore, health check",
+        "domain": "monitoring",
+        "artefactos_impactados": {
+          "files": [
+            "features/monitoring/cgc_watcher_adapter.py (modificar — reemplazar _enqueue_event por FileEventPublisher)",
+            "features/monitoring/cgc_watcher_adapter.py (modificar — agregar sync_on_start, use_polling, cgcignore)",
+            "features/monitoring/cgc_watcher_adapter.py (modificar — agregar health check thread)",
+            "features/monitoring/cgc_watcher_adapter.py (modificar — refactor _CognitiveEventHandlerMixin)",
+            "features/monitoring/file_watcher_service.py (modificar — pasar sync_on_start a CgcWatcherAdapter)",
+            "features/monitoring/__init__.py (modificar — agregar export de FileEventPublisher)"
+          ],
+          "apis": ["CgcWatcherAdapter"],
+          "data": [],
+          "config": ["CGC_WATCH_POLLING env var", ".cgcignore file"],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.30,
+          "pre_churn": 0.05,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "CgcWatcherAdapter recibe FileEventPublisher como dependencia (inyeccion) o lo crea internamente",
+            "alternatives": [
+              "FileEventPublisher como singleton global (dificil de testear)",
+              "Acoplar directamente a EventStore (el adapter no deberia conocer EventStore)"
+            ],
+            "rationale": "Inyeccion de dependencia: el adapter recibe un publisher opcional. Si no se provee, crea uno por defecto. Esto permite tests sin eventos reales."
+          },
+          {
+            "chosen": "health_check como thread daemon separado en CgcWatcherAdapter",
+            "alternatives": [
+              "Health check inline en cada evento (agrega latencia)",
+              "Timer con asyncio (complejo en contexto sync de watchdog)"
+            ],
+            "rationale": "Thread daemon cada 30s es simple, no bloquea, y permite transicion CGC↔watchdog sin modificar el loop principal."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "CgcWatcherAdapter usa FileEventPublisher en vez de _enqueue_event directo",
+            "CgcWatcherAdapter acepta parametro sync_on_start en __init__",
+            "CgcWatcherAdapter acepta parametro use_polling en __init__",
+            "CgcWatcherAdapter integra .cgcignore en vez de SKIP_DIRS/SOURCE_EXTS hardcodeados en modo CGC",
+            "CgcWatcherAdapter tiene health_check() que verifica conexion CGC cada 30s",
+            "CgcWatcherAdapter reconecta automaticamente si CGC se cae (fallback watchdog) y vuelve a CGC al recuperarse"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "importer_files": 0,
+        "objective": "Agregar MCP tool code_watch_status para monitorear estado del watcher desde LLM",
+        "domain": "monitoring",
+        "artefactos_impactados": {
+          "files": [
+            "features/monitoring/mcp_tools_watcher.py (crear)",
+            "server.py (modificar — registrar tools del watcher)"
+          ],
+          "apis": ["code_watch_status (MCP tool)"],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.10,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [
+          {
+            "chosen": "Modulo separado features/monitoring/mcp_tools_watcher.py con funcion register_tools()",
+            "alternatives": [
+              "Meter en features/cpg/api/mcp_tools.py (no pertenece al BC cpg)",
+              "Meter en features/monitoring/file_watcher_service.py (mezcla concerns)"
+            ],
+            "rationale": "Sigue el patron de los otros bounded contexts (cada BC registra sus tools). El BC monitoring es dueno del watcher."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "MCP tool code_watch_status existe y retorna mode, watched_paths, uptime"
+          ]
+        }
+      }
+    ]
+  }
+}

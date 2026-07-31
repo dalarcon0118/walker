@@ -1,0 +1,628 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-agent-messages-workflow-scrum-integration-20260710",
+      "generated_at": "2026-07-10T19:15:00Z",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "closed"
+    },
+    "plan_ref": ".cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-messages-workflow-scrum-integration-20260710/plan.json",
+    "trail": [
+      {
+        "at": "2026-07-10T19:15:00Z",
+        "distance": 1.0,
+        "event": "Plan creado (8 tareas). DELTA INICIAL (estimación general): distance=1.0 — estado actual lejos del goal objetivo del sprint. Se auto-corrige por cada tarea completada como 1 - completadas(g_objetivo)/total(g_objetivo).",
+        "delta_definition": "distance = distancia desde G_actual (implementado) hacia G_objetivo del sprint = 1 - predicates_satisfechos(g_objetivo) / total_predicates(g_objetivo). Mide impacto de los cambios en la implementación."
+      },
+      {
+        "at": "2026-07-10T22:31:46.872161+00:00",
+        "distance": 0.6667,
+        "event": "TASK-AGT-101 completed",
+        "tasks": [
+          "TASK-AGT-101"
+        ],
+        "loop": {
+          "result_state": "features/agent/application/classification_schema.py existe con ClassificationSchema(@dataclass(frozen=True)) y validate_classification(). NO importa de Messages ni Workflow.",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como Agent (driving adapter), quiero un esquema validado que el LLM complete por cada mensaje, para decidir FREE vs SCRUM de forma determinista.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "class ClassificationSchema en cognitive_v2/features/agent/application/classification_schema.py",
+              "passed": true
+            },
+            {
+              "gate": "def validate_classification en cognitive_v2/features/agent/application/classification_schema.py",
+              "passed": true
+            },
+            {
+              "gate": "frozen=True en cognitive_v2/features/agent/application/classification_schema.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 5,
+            "actual_satisfied": 5,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.3333,
+            "actual_reduction": 0.3333,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:34:42.875632+00:00",
+        "distance": 0.3333,
+        "event": "TASK-MSG-101 completed",
+        "tasks": [
+          "TASK-MSG-101"
+        ],
+        "loop": {
+          "result_state": "features/messages/application/ports/message_port.py existe con MessagePort(Protocol) definiendo record_message() y classify_context(). features/messages/infrastructure/message_adapter.py implementa MessagePort. NO hay MessagePort en features/workflow/application/ports/.",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como Messages BC, quiero ser dueno de MessagePort (es la abstraccion que otros consumen), para que Agent y Workflow dependan de mi contrato y no al reves.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "class MessagePort en cognitive_v2/features/messages/application/ports/message_port.py",
+              "passed": true
+            },
+            {
+              "gate": "class MessageServiceAdapter en cognitive_v2/features/messages/infrastructure/message_adapter.py",
+              "passed": true
+            },
+            {
+              "gate": "def record_message en cognitive_v2/features/messages/infrastructure/message_adapter.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 5,
+            "actual_satisfied": 5,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.3333,
+            "actual_reduction": 0.3333,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:38:25.674469+00:00",
+        "distance": 0.1333,
+        "event": "TASK-MSG-102 completed",
+        "tasks": [
+          "TASK-MSG-102"
+        ],
+        "loop": {
+          "result_state": "MessageClassifier.classify() retorna dict con is_development. MessagePort.classify_context() incluye is_development. WorkflowClassifier queda como implementacion interna de respaldo.",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 1,
+            "passed": 1,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como Messages BC, quiero que classify_context() retorne is_development de forma unificada, para que Agent y Workflow consulten la misma senal de enrutamiento.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "is_development en cognitive_v2/features/messages/application/message_classifier.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2,
+            "actual_reduction": 0.2,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:39:48.941873+00:00",
+        "distance": 0.0,
+        "event": "TASK-WF-101 completed",
+        "tasks": [
+          "TASK-WF-101"
+        ],
+        "loop": {
+          "result_state": "features/workflow/application/orchestrator.py importa MessagePort de features/messages/application/ports/message_port.py, y en handle() graba user y result por sessionID via self._messages.record_message().",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como Workflow, quiero grabar ambos mensajes por sessionID para tener contexto completo antes de orquestar ScrumMaster.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "features.messages.application.ports.message_port en cognitive_v2/features/workflow/application/orchestrator.py",
+              "passed": true
+            },
+            {
+              "gate": "self._messages.record_message en cognitive_v2/features/workflow/application/orchestrator.py",
+              "passed": true
+            },
+            {
+              "gate": "tool_result en cognitive_v2/features/workflow/application/orchestrator.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2667,
+            "actual_reduction": 0.2667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:40:29.804764+00:00",
+        "distance": 0.0,
+        "event": "TASK-AGT-102 completed",
+        "tasks": [
+          "TASK-AGT-102"
+        ],
+        "loop": {
+          "result_state": "features/agent/application/session_router.py existe con SessionRouter. mark_scrum() conserva el sessionID. resolve() retorna 'SCRUM' si is_development=true o ya estaba SCRUM.",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como Agent, quiero enrutar por sessionID sin re-clasificar sesiones ya SCRUM, para mantener continuidad de conversacion.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "class SessionRouter en cognitive_v2/features/agent/application/session_router.py",
+              "passed": true
+            },
+            {
+              "gate": "def resolve en cognitive_v2/features/agent/application/session_router.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2667,
+            "actual_reduction": 0.2667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:41:17.353267+00:00",
+        "distance": 0.0,
+        "event": "TASK-SCR-101 completed",
+        "tasks": [
+          "TASK-SCR-101"
+        ],
+        "loop": {
+          "result_state": "features/workflow/application/orchestrator.py delega a ScrumMaster unica y exclusivamente via ScrumIntegrator en rama SCRUM. Sin imports directos de features/scrum/application (salvo el integrator).",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como Workflow, quiero orquestar ScrumMaster en SCRUM via un integrador READ-ONLY, sin acoplarme a los detalles de implementacion de scrum.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "ScrumIntegrator en cognitive_v2/features/workflow/application/orchestrator.py",
+              "passed": true
+            },
+            {
+              "gate": "get_active_sprint en cognitive_v2/features/workflow/application/orchestrator.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2667,
+            "actual_reduction": 0.2667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:43:41.878062+00:00",
+        "distance": 0.0,
+        "event": "TASK-AGT-103 completed",
+        "tasks": [
+          "TASK-AGT-103"
+        ],
+        "loop": {
+          "result_state": "features/agent/application/message_gate.py y llm_response_hook.py graban via MessagePort y escalan a Workflow solo si is_development=true. 0 imports directos de messages.application o workflow.application.",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como Agent (front-door), quiero ser el unico que decide si un mensaje escala a Workflow, grabando todo en Messages y usando el esquema validado.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "MessagePort en cognitive_v2/features/agent/application/message_gate.py",
+              "passed": true
+            },
+            {
+              "gate": "SessionRouter en cognitive_v2/features/agent/application/message_gate.py",
+              "passed": true
+            },
+            {
+              "gate": "validate_classification en cognitive_v2/features/agent/application/message_gate.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 5,
+            "actual_satisfied": 5,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.3333,
+            "actual_reduction": 0.3333,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:44:39.593172+00:00",
+        "distance": 0.0,
+        "event": "TASK-DOC-101 completed",
+        "tasks": [
+          "TASK-DOC-101"
+        ],
+        "loop": {
+          "result_state": "use-cases.md contiene UC-09 con flujo completo FREE->SCRUM y la matriz de responsabilidades. Referenciado desde progress.json uso use_cases_doc.",
+          "acceptance": true,
+          "acceptance_mode": "critical_only",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Como equipo, quiero documentar el caso de uso de promocion FREE->SCRUM y el contrato de clasificacion, para que el comportamiento del sistema sea legible.",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "is_development en cognitive_v2/features/messages/application/message_classifier.py",
+              "passed": true
+            },
+            {
+              "gate": "mark_scrum en cognitive_v2/features/agent/application/session_router.py",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2,
+            "actual_reduction": 0.2,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "ALL PASS",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-10T22:44:49.424147+00:00",
+        "distance": 0.0,
+        "event": "plan closed — composicional verification",
+        "tasks": [
+          "TASK-AGT-101",
+          "TASK-MSG-101",
+          "TASK-MSG-102",
+          "TASK-WF-101",
+          "TASK-AGT-102",
+          "TASK-AGT-103",
+          "TASK-SCR-101",
+          "TASK-DOC-101"
+        ],
+        "closure": {
+          "composicion_valida": true,
+          "full_rescan_executed": false,
+          "side_effects_detected": 0,
+          "side_effects": [],
+          "model_corrections": [],
+          "total_tasks": 8,
+          "total_advances": 8,
+          "total_distance_traveled": "1.0 → 0.0",
+          "next_delta_candidates": []
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-AGT-101": "completed",
+        "TASK-MSG-101": "completed",
+        "TASK-MSG-102": "completed",
+        "TASK-WF-101": "completed",
+        "TASK-AGT-102": "completed",
+        "TASK-AGT-103": "completed",
+        "TASK-SCR-101": "completed",
+        "TASK-DOC-101": "completed"
+      },
+      "finished": true,
+      "next_action": null,
+      "closure": {
+        "composicion_valida": true,
+        "full_rescan_executed": false,
+        "side_effects_detected": 0,
+        "side_effects": [],
+        "model_corrections": [],
+        "total_tasks": 8,
+        "total_advances": 8,
+        "total_distance_traveled": "1.0 → 0.0",
+        "next_delta_candidates": []
+      }
+    }
+  }
+}

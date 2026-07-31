@@ -1,0 +1,267 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "agent-frontdoor-stabilization-20260714",
+      "generated_at": "2026-07-14T00:00:00Z",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["agent", "session", "decisions", "guidance", "context", "messages", "navigation", "acl", "workflow", "scrum", "tools"],
+      "tags": ["python", "hexagonal", "cognitive-v2", "ddd", "mcp", "llm-front-door"]
+    },
+    "g_objetivo": {
+      "description": "Estabilizar el módulo agent como front door del LLM — mapear mensajes, clasificarlos y enrutarlos hacia herramientas internas (workflow, scrum, tools) respetando que el LLM solo interactúa a través de agent y que el MCP es una herramienta de análisis de datos sin inteligencia. Reemplazar ~40 imports directos desde agent a BCs externos con ports/adapters.",
+      "predicates": {
+        "must_exist": [
+          "ports/cpg_port.py existe en agent/application/ports/",
+          "ports/scrum_port.py existe en agent/application/ports/",
+          "ports/git_port.py existe en agent/application/ports/",
+          "ports/messages_port.py existe en agent/application/ports/",
+          "ports/database_port.py existe en agent/application/ports/",
+          "review_loop.py no importa de features.cpg.* (pasa a features.tools.cpg.* o via port)",
+          "session_service.op_session_close tiene _advice actualizado con closed como fase válida",
+          "composition.py usa ports/adapter en vez de imports directos para instanciar dependencias"
+        ],
+        "must_not_exist": [
+          "agent/guidance/domain/ no importa directo de features.tools.cpg.*",
+          "agent/guidance/application/ no importa directo de features.scrum.* ni features.tools.cpg.*",
+          "agent/session/* no importa directo de features.scrum.*",
+          "agent/context/* no importa directo de features.scrum.*",
+          "agent/decisions/infrastructure/ no importa directo de features.scrum.*"
+        ],
+        "invariants": [
+          "todos los ports siguen el patrón Protocol de Python (typing.Protocol)",
+          "los adapters concretos viven en agent/infrastructure/",
+          "agent/composition.py es el único punto de wiring de implementaciones concretas",
+          "EHR-20: ningún cambio rompe funcionalidad existente (cambios son aditivos)",
+          "MCP es herramienta de análisis de datos, no de inteligencia — agent solo enruta y clasifica"
+        ]
+      },
+      "signatures": [
+        "CpgPort.find_symbol(name: str) -> list[CPGNode]",
+        "CpgPort.get_complexity(file_path: str) -> list[ComplexityEntry]",
+        "CpgPort.get_call_chain(symbol: str, max_depth: int) -> list[CallChainEntry]",
+        "ScrumPort.get_task(task_id: str) -> Task | None",
+        "ScrumPort.resolve_project_tasks(project_id: str) -> list[Task]",
+        "GitPort.run_git(args: list[str], cwd: str | None) -> str",
+        "GitPort.load_repos(project_root: str) -> list[dict]",
+        "MessagesPort.record_message(...) -> dict",
+        "MessagesPort.classify_context(...) -> dict",
+        "DatabasePort.query(sql: str, params: dict | None) -> list[dict]",
+        "DatabasePort.execute(sql: str, params: dict | None) -> int"
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "type": "bugfix",
+        "work_type": "refactor_inline",
+        "importer_files": 1,
+        "objective": "Corregir 6 imports stale en review_loop.py que referencian features.cpg.* (directorio eliminado) → redirigir a features.tools.cpg.*",
+        "domain": "agent",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/application/review_loop.py (modificar — 6 imports: CodeGraphAdapter, _code_scan, CgcProjectIndexer, FeatureTraversalHandler)"
+          ],
+          "apis": ["CodeGraphAdapter", "_code_scan", "CgcProjectIndexer", "FeatureTraversalHandler"],
+          "data": ["ruta de imports stale que causarían RuntimeError en producción"],
+          "config": [],
+          "tests": ["features/agent/tests/ (verificar que imports resueltos no rompen nada)"],
+          "docs": []
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {"chosen": "Redirigir imports directamente a features.tools.cpg.* (sin port todavía)",
+           "alternatives": ["Crear CpgPort primero y migrar", "Dejar imports rotos (status quo)"],
+           "rationale": "Es una corrección urgente de bug crítico. El port se crea en TASK-002. Hacerlo en dos pasos evita mezclar la corrección con la creación de ports."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "review_loop.py no importa de features.cpg.* (pasa a features.tools.cpg.* o via port)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 7,
+        "objective": "Crear CpgPort (agent/application/ports/cpg_port.py) + adapter (agent/infrastructure/cpg_adapter.py) + migrar ~12 imports directos a features.tools.cpg.* desde guidance/domain y guidance/application",
+        "domain": "agent",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/application/ports/cpg_port.py (crear — Protocol con find_symbol, get_complexity, get_call_chain, get_dead_code, get_class_hierarchy)",
+            "features/agent/infrastructure/cpg_adapter.py (crear — implementación delegando a features.tools.cpg)",
+            "features/agent/guidance/domain/semantic_term.py (modificar — usar CpgPort via inyección)",
+            "features/agent/guidance/domain/graph_distance.py (modificar — usar CpgPort via inyección)",
+            "features/agent/guidance/application/guidance_handler.py (modificar — 2 imports)",
+            "features/agent/guidance/application/delta_evaluator.py (modificar — 7 imports de tools.cpg)",
+            "features/agent/guidance/application/_risk_distance.py (modificar — 1 import)",
+            "features/agent/composition.py (modificar — agregar factory de CpgAdapter)"
+          ],
+          "apis": ["CpgPort (Protocol)", "CpgAdapter (concrete)", "CodeGraphAdapter (tools.cpg)"],
+          "data": ["CPG/CodeGraph queries para análisis de código"],
+          "config": [],
+          "tests": ["features/agent/tests/test_cpg_port.py (crear — testear port con mock)"],
+          "docs": []
+        },
+        "risks": {"curvature": 0.25, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [
+          {"chosen": "Protocol-driven port en agent/application/ports/ + adapter en agent/infrastructure/",
+           "alternatives": ["ACL formal como agent/acl/ (sobreingeniería)", "ServiceFactory existente (mezcla concern)", "Import directo sin abstracción (status quo)"],
+           "rationale": "CpgPort es un Port de dominio de agent, no de infraestructura compartida como ACL. El patrón Protocol es más liviano que ABC y permite testear guidance sin CPG real."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "ports/cpg_port.py existe en agent/application/ports/",
+            "agent/guidance/domain/ no importa directo de features.tools.cpg.*",
+            "agent/guidance/application/ no importa directo de features.scrum.* ni features.tools.cpg.*"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 10,
+        "objective": "Crear ScrumPort + GitPort (agent/application/ports/) + adapters + migrar ~20 imports directos desde agent/session, agent/context, agent/guidance/application, agent/decisions hacia features.scrum.*",
+        "domain": "agent",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/application/ports/scrum_port.py (crear — Protocol: get_task, resolve_project_tasks, get_predicate_satisfaction, get_state_graph, get_dod_contract)",
+            "features/agent/application/ports/git_port.py (crear — Protocol: run_git, load_repos)",
+            "features/agent/infrastructure/scrum_adapter.py (crear — delegar a features.scrum.*)",
+            "features/agent/infrastructure/git_adapter.py (crear o refactorizar el existente — delegar a features.scrum.git_adapter)",
+            "features/agent/session/domain/session.py (modificar — 3 imports de scrum)",
+            "features/agent/session/domain/session_summary.py (modificar — 1 import de scrum.git_adapter)",
+            "features/agent/session/application/session_service.py (modificar — 2 imports de scrum)",
+            "features/agent/context/application/ops_context.py (modificar — 1 import de scrum.git_adapter)",
+            "features/agent/guidance/application/delta_evaluator.py (modificar — ~10 imports de scrum.*)",
+            "features/agent/guidance/application/navigation_service.py (modificar — 1 import de scrum.git_adapter)",
+            "features/agent/decisions/infrastructure/git_adapter.py (modificar — usar GitPort en vez de import directo)",
+            "features/agent/decisions/application/learning_service.py (modificar — 1 import de scrum.git_adapter)",
+            "features/agent/composition.py (modificar — agregar factories de ScrumAdapter y GitAdapter)"
+          ],
+          "apis": ["ScrumPort (Protocol)", "GitPort (Protocol)", "ScrumAdapter", "GitAdapter"],
+          "data": ["tareas SCM, git diff/log/repos, definiciones de tareas y sprints"],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_scrum_port.py (crear)",
+            "features/agent/tests/test_git_port.py (crear)"
+          ],
+          "docs": []
+        },
+        "risks": {"curvature": 0.35, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [
+          {"chosen": "Separar ScrumPort y GitPort como dos ports distintos, aunque ambos deleguen a features.scrum.*",
+           "alternatives": ["Un solo ScrumPort que incluya git (acopla responsabilidades)", "Todo via ServiceFactory ACL (demasiado centralizado)"],
+           "rationale": "GitPort es transversal (lo usan session, context, decisions, guidance). ScrumPort es específico de tareas y sprints. Separarlos evita que cambios en git afecten el port de scrum."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "ports/scrum_port.py existe en agent/application/ports/",
+            "ports/git_port.py existe en agent/application/ports/",
+            "agent/session/* no importa directo de features.scrum.*",
+            "agent/context/* no importa directo de features.scrum.*",
+            "agent/decisions/infrastructure/ no importa directo de features.scrum.*"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 8,
+        "objective": "Crear MessagesPort + DatabasePort + adapters + migrar imports directos de features.messages y features.workflow + refactorizar composition.py + actualizar op_session_close._advice",
+        "domain": "agent",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/application/ports/messages_port.py (crear — Protocol: record_message, classify_context)",
+            "features/agent/application/ports/database_port.py (crear — Protocol: query, execute)",
+            "features/agent/infrastructure/messages_adapter.py (crear — delegar a features.messages)",
+            "features/agent/infrastructure/database_adapter.py (crear — delegar a features.workflow.database)",
+            "features/agent/composition.py (modificar — refactorizar para usar todos los ports creados)",
+            "features/agent/application/llm_response_hook.py (modificar — ya soporta MessagesPort, refactorizar fallback)",
+            "features/agent/session/domain/session_summary.py (modificar — imports de workflow.database → DatabasePort)",
+            "features/agent/session/application/session_service.py (modificar — op_session_close._advice + import de _cg_db)",
+            "features/agent/context/application/ops_context.py (modificar — imports de _cg_db → DatabasePort)",
+            "features/agent/context/api/mcp_tools.py (modificar — import de _dispatch → via port)",
+            "features/agent/context/api/context_tools.py (modificar — import de _dispatch → via port)",
+            "features/agent/decisions/application/migration_service.py (modificar — imports de workflow.persistence)",
+            "features/agent/decisions/application/health_service.py (modificar — imports de workflow.persistence)",
+            "features/agent/navigation/application/navigation_service.py (modificar — imports de _cg_db → DatabasePort)",
+            "features/agent/messages/api/mcp_tools.py (modificar — import de workflow.pipeline)",
+            "features/agent/acl/api/mcp_tools.py (modificar — import de workflow.pipeline)",
+            "features/agent/decisions/api/mcp_tools.py (modificar — import de workflow.pipeline)",
+            "features/agent/application/onboarding_contextual.py (modificar — import de _cg_db)"
+          ],
+          "apis": ["MessagesPort (Protocol)", "DatabasePort (Protocol)", "MessagesAdapter", "DatabaseAdapter"],
+          "data": ["mensajes de sesión (record/classify), queries SQL a _cg_db, snapshots de workflow"],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_messages_port.py (crear)",
+            "features/agent/tests/test_database_port.py (crear)",
+            "features/agent/tests/test_composition.py (ampliar)"
+          ],
+          "docs": []
+        },
+        "risks": {"curvature": 0.30, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [
+          {"chosen": "Unificar MessagesPort y DatabasePort como ports independientes + refactor composition.py como único punto de wiring",
+           "alternatives": ["Solo MessagesPort (dejar database sin port)", "Un solo port 'PersistencePort' (demasiado genérico)"],
+           "rationale": "Messages y Database son dominios distintos. El composition.py debe ser el único lugar que conozca implementaciones concretas, siguiendo el patrón de composition root de hexagonal."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "ports/messages_port.py existe en agent/application/ports/",
+            "ports/database_port.py existe en agent/application/ports/",
+            "session_service.op_session_close tiene _advice actualizado con closed como fase válida",
+            "composition.py usa ports/adapter en vez de imports directos para instanciar dependencias"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "importer_files": 4,
+        "objective": "Ampliar CpgPort + CpgAdapter con 4 nuevos métodos (traverse_feature, derive_hypotheses, build_cfg, persist_cfg) y migrar 4 imports operacionales stale de features.tools.cpg.* en delta_evaluator.py",
+        "domain": "agent",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/application/ports/cpg_port.py (modificar — agregar traverse_feature, derive_hypotheses, build_cfg, persist_cfg)",
+            "features/agent/infrastructure/cpg_adapter.py (modificar — implementaciones de los 4 nuevos métodos)",
+            "features/agent/guidance/application/delta_evaluator.py (modificar — 4 imports reemplazados por get_cpg_adapter())"
+          ],
+          "apis": ["CpgPort (Protocol)", "CpgAdapter"],
+          "data": ["FeatureTraversalHandler, derive_cgc_hypotheses, CfgBuilder"],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {"chosen": "Ampliar CpgPort existente con 4 nuevos métodos en vez de crear ports separados",
+           "alternatives": ["Crear FeaturePort y CfgPort separados", "No migrar (dejar imports directos)"],
+           "rationale": "Las 3 funcionalidades son extensiones del mismo dominio (CPG/CGC code analysis). Un solo port evita proliferación de abstracciones."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "delta_evaluator.py no importa operacionalmente de features.tools.cpg.*",
+            "CpgPort tiene los 4 métodos nuevos",
+            "CpgAdapter implementa los 4 métodos delegando a tools.cpg"
+          ]
+        }
+      }
+    ]
+  }
+}

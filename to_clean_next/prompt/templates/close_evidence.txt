@@ -1,0 +1,10 @@
+──────────────────────────────────────────────────────────────────────
+📋 Evidence — $total predicates del G_objetivo
+──────────────────────────────────────────────────────────────────────
+$predicate_rows
+──────────────────────────────────────────────────────────────────────
+📊 $passed/$total predicates cumplen ($pct%)
+$assessment
+
+🧠 Meta-instruction: evidencia real contra código en disco.
+   Presenta esta tabla al usuario antes de confirmar el cierre.

@@ -1,0 +1,71 @@
+# .walkerignore — archivos/directorios que walker ignora
+# Similar a .gitignore. Usa patrones glob simples.
+# Walker no escanea, indexa ni observa estos archivos.
+
+# Directorios (terminan con /)
+node_modules/
+__pycache__/
+.venv/
+venv/
+env/
+dist/
+build/
+.next/
+.expo/
+.android/
+android/
+.ios/
+ios/
+.gradle/
+logs/
+builds/
+coverage/
+.cache/
+tmp/
+.git/
+
+# Archivos por extensión
+*.pyc
+*.pyo
+*.so
+*.dll
+*.dylib
+*.class
+*.min.js
+*.map
+*.log
+*.lock
+*.gzip
+*.gz
+*.tar
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.svg
+*.ttf
+*.woff
+*.woff2
+*.eot
+*.mp4
+*.mp3
+*.mov
+*.avi
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.DS_Store
+*.exe
+
+# Archivos específicos
+package-lock.json
+yarn.lock
+Gemfile.lock
+Podfile.lock
+.DS_Store
+.env*
+*.local

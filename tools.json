@@ -1,0 +1,498 @@
+{
+  "_sync_rule": "⚠️  TODO script nuevo en scripts/ DEBE agregarse aquí con task_types, usage, exit_codes. Validar con: python3 scripts/validate-schema.py tools.json schema/tools.schema.json",
+  "_dispatcher": "API pública: python3 scripts/spring.py <command> [args...] (sprint) | python3 scripts/task.py <command> [args...] (tareas). NO usar scripts delta-*.py directamente.",
+  "tools": [
+    {
+      "name": "spring",
+      "path": "scripts/spring.py",
+      "description": "Sprint lifecycle controller: create, add-task, update-task, update-goal, close, list, status",
+      "full_description": "API PÚBLICA — Encapsula TODO el ciclo de vida de un sprint delta. create: construye plan.json + progress.json desde un goal con validación enforcement (datos sucios son bloqueados). add-task: agrega una tarea a un sprint activo, auto-genera task_id, refina predicates del goal automáticamente. update-task: modifica metadata de una tarea existente. update-goal: refina descripción o predicates del goal. close: verificación composicional + trail + KV save + post-write validation. list: escanea todos los sprints (legacy y multi-project). status: dashboard con progreso, predicates, distancia, siguiente acción. Es el punto de entrada para todo el pipeline delta — el LLM nunca corre scripts delta-*.py directamente.",
+      "task_types": [
+        "all"
+      ],
+      "pipeline_phase": "FASE 6-8: Ejecutar",
+      "usage": "python3 scripts/spring.py <command> [args...]",
+      "examples": [
+        "python3 scripts/spring.py create /tmp/test-chain --project-id my-project --goal 'Implementar X' --predicates '{}' --tasks '[]'",
+        "python3 scripts/spring.py add-task .cognitive/delta/mi-chain/ --task '{\"objective\":\"nueva tarea\",\"type\":\"feature\",\"domain\":\"core\",\"result_state\":\"funciona\",\"validation\":{\"predicates\":[\"algo\"]},\"impacted_artifacts\":{\"files\":[\"x.py\"]},\"risks\":{\"curvature\":0.1}}'",
+        "python3 scripts/spring.py update-task .cognitive/delta/mi-chain/ TASK-001 --domain security",
+        "python3 scripts/spring.py update-goal .cognitive/delta/mi-chain/ --goal 'Nuevo objetivo refinado'",
+        "python3 scripts/spring.py close .cognitive/delta/mi-chain/",
+        "python3 scripts/spring.py list",
+        "python3 scripts/spring.py status .cognitive/delta/mi-chain/"
+      ],
+      "exit_codes": {
+        "0": "Operación exitosa",
+        "1": "Advertencia (tareas pendientes en close, composición parcial)",
+        "2": "Error de uso o ENFORCEMENT BLOCKED (schema validation falló, datos sucios)"
+      },
+      "when_to_run": "Al inicio de un sprint (create), para agregar/refinar tareas (add-task, update-task, update-goal), al final (close), o para monitorear (list, status). Es el entry point principal para la gestión de sprints.",
+      "depends_on": "scripts/_internal/projects.py, scripts/_internal/score.py, scripts/validate-schema.py (enforcement gate)",
+      "input_from": "Argumentos CLI (goal, predicates, tasks en create; task JSON en add-task; flags en update-*)",
+      "output": "Crea/actualiza plan.json + progress.json. Tablas en list/status. DECISION PROTOCOL auto-suficiente en todo output.",
+      "self_sufficient": true
+    },
+    {
+      "name": "task",
+      "path": "scripts/task.py",
+      "description": "Task operations controller: advance (integrated + enforcement), score, qlty-check",
+      "full_description": "API PÚBLICA — Encapsula operaciones a nivel de tarea con enforcement. advance: corre enforcemente + score + TASK LOOP + Qlty + confirm en un solo comando + valida progress.json post-escritura (si falla, bloquea el avance). score: calcula FASE 5 score. qlty-check: ejecuta Qlty metrics (útil para code review con --dir). Delega en los scripts especializados delta-*.py para toda la lógica interna.",
+      "task_types": [
+        "feature",
+        "bugfix",
+        "refactor",
+        "test",
+        "docs",
+        "optimization"
+      ],
+      "work_types": [
+        "refactor_code_motion",
+        "refactor",
+        "feature_new_method",
+        "feature_new_file",
+        "feature_new_bc",
+        "refactor_inline",
+        "bugfix",
+        "optimization",
+        "docs"
+      ],
+      "pipeline_phase": "ADVANCE: TASK LOOP",
+      "usage": "python3 scripts/task.py <command> [args...]",
+      "examples": [
+        "python3 scripts/task.py advance .cognitive/delta/mi-chain/ TASK-001",
+        "python3 scripts/task.py advance .cognitive/delta/mi-chain/ TASK-001 --force",
+        "python3 scripts/task.py score .cognitive/delta/mi-chain/ TASK-001",
+        "python3 scripts/task.py qlty-check .cognitive/delta/mi-chain/ TASK-001 --verbose",
+        "python3 scripts/task.py qlty-check --dir src/game/ --verbose"
+      ],
+      "exit_codes": {
+        "0": "Task avanzada exitosamente (achieved + confirmed) / Score calculado / Qlty gates pass",
+        "1": "Task partial (necesita REFINE) / Qlty gates fail",
+        "2": "Error de uso"
+      },
+      "when_to_run": "Cuando el LLM necesita avanzar una tarea, calcular su score, o hacer code review con Qlty.",
+      "depends_on": "scripts/_internal/enforce.py, scripts/_internal/score.py, scripts/_internal/advance.py, scripts/_internal/qlty_check.py (absorbido como direct import)",
+      "input_from": "plan.json + progress.json del sprint (vía scripts delegados)",
+      "output": "Self-sufficient: unified decision protocol al finalizar cada comando",
+      "self_sufficient": true
+    },
+    {
+      "name": "delta-init-project",
+      "path": "scripts/delta-init-project.py",
+      "description": "Inicializa un nuevo proyecto: crea project.json + registra en projects.json",
+      "full_description": "🔒 INTERNAL — PI PÚBLICA — Crea el directorio projects/<project_id>/ con project.json (perfil completo con preferencias de diseño, arquitectura y codificación) y registra el proyecto en projects.json. Soporta modo interactivo y no-interactivo. Es el punto de entrada para el sistema multi-proyecto del skill delta.",
+      "task_types": [
+        "all"
+      ],
+      "pipeline_phase": "FASE 0: Setup",
+      "usage": "python3 scripts/delta-init-project.py [--project-id <id> --repo-path <ruta>] [--interactive]",
+      "examples": [
+        "python3 scripts/delta-init-project.py --interactive",
+        "python3 scripts/delta-init-project.py --project-id cognitive-mcp --repo-path /Users/me/project --language python --patterns 'hexagonal, ddd'"
+      ],
+      "exit_codes": {
+        "0": "Proyecto inicializado exitosamente",
+        "2": "Error (no se encontró .cognitive/, cancelado por usuario)"
+      },
+      "when_to_run": "Antes de crear el primer delta de un proyecto. Solo una vez por proyecto.",
+      "depends_on": "scripts/_internal/projects.py (utility para projects.json y project.json)",
+      "input_from": "Interactivo (usuario) o argumentos CLI",
+      "output": "Crea .cognitive/projects/<project_id>/project.json, registra en projects.json, imprime resumen",
+      "self_sufficient": false
+    },
+    {
+      "name": "validate-schema",
+      "path": "scripts/validate-schema.py",
+      "description": "Valida un archivo JSON contra un JSON Schema",
+      "full_description": "API PÚBLICA (uso diagnóstico/CI) — Usa la librería jsonschema para validar que plan.json o progress.json cumplan con sus respectivos schemas. Se ejecuta después de escribir/modificar estos archivos. Para uso normal, la validación está integrada en spring.py y task.py como enforcement gate.",
+      "task_types": [
+        "all"
+      ],
+      "pipeline_phase": "FASE 3: Plan",
+      "usage": "python3 scripts/validate-schema.py <json_file> <schema_file>",
+      "examples": [
+        "python3 scripts/validate-schema.py .cognitive/delta/mi-chain/plan.json schema/plan.schema.json",
+        "python3 scripts/validate-schema.py .cognitive/delta/mi-chain/progress.json schema/progress.schema.json"
+      ],
+      "exit_codes": {
+        "0": "Validación exitosa (JSON válido contra schema)",
+        "1": "Error de validación (JSON no cumple el schema)",
+        "2": "Error de uso (argumentos faltantes, archivo no encontrado)"
+      },
+      "when_to_run": "Siempre después de crear o modificar plan.json o progress.json, antes de cualquier operación que los consuma.",
+      "input_from": "Archivo JSON a validar + archivo de schema",
+      "output": "Mensaje en stdout indicando válido/inválido con protocolo de recuperación",
+      "self_sufficient": true
+    },
+    {
+      "name": "delta-score",
+      "path": "scripts/_internal/score.py",
+      "description": "Calcula el score FASE 5 de una tarea usando la fórmula Δ",
+      "full_description": "🔒 INTERNAL — lamado por task.py score y task.py advance. No invocar directamente. Evalúa cada tarea pendiente usando: score = min(0.6·Δ_ponderado + 0.3·confidence − 0.1·risk + coverage_bonus, 1.0). El score determina prioridad de ejecución. Considera work_type_multiplier, importer_factor y riesgo.",
+      "task_types": [
+        "feature",
+        "bugfix",
+        "refactor",
+        "test",
+        "docs",
+        "optimization"
+      ],
+      "work_types": [
+        "refactor_code_motion",
+        "refactor",
+        "feature_new_method",
+        "feature_new_file",
+        "feature_new_bc",
+        "refactor_inline",
+        "bugfix",
+        "optimization",
+        "docs"
+      ],
+      "pipeline_phase": "FASE 4-5: Riesgos + Score",
+      "usage": "python3 scripts/delta-score.py <chain_dir> [task_id]",
+      "examples": [
+        "python3 scripts/delta-score.py .cognitive/delta/mi-chain/",
+        "python3 scripts/delta-score.py .cognitive/delta/mi-chain/ TASK-001"
+      ],
+      "exit_codes": {
+        "0": "Cálculo exitoso",
+        "2": "Error (archivo no encontrado, JSON inválido, total_predicates == 0)"
+      },
+      "when_to_run": "En FASE 4-5 para priorizar tareas, o antes de ADVANCE para actualizar score en next_action.",
+      "input_from": "plan.json (tasks, goal.predicates), progress.json (task_states)",
+      "output": "Tabla de scores en stdout, actualiza progress.json si se especifica task_id",
+      "self_sufficient": false
+    },
+    {
+      "name": "delta-qlty-check",
+      "path": "scripts/_internal/qlty_check.py",
+      "description": "Ejecuta Qlty metrics sobre archivos modificados por una tarea delta y evalúa quality gates",
+      "full_description": "🔒 INTERNAL — lamado por task.py qlty-check y task.py advance. No invocar directamente. Lee impacted_artifacts.files de la tarea en plan.json, ejecuta analyze_refactored.py --json sobre esos archivos, y evalúa 8 quality gates: (1) production_bugs — eval, pickle, unwrap, (2) bug_probability — cruces de datos (exception swallow + cyclo), (3) security_high — inyecciones B6xx, (4) dead_code — F401/F841, (5) spaghetti_complexity — CC por función > 15, (6) unnecessary_code — f-strings, debug leftovers, (7) hallucinated_imports — imports LLM que no existen, (8) code_duplication — identical/similar code desde qlty smells. Es la tool principal para verificar calidad en cualquier tarea que modifique código. Multi-proyecto: find_project_root() busca también .cognitive/projects/*/delta/ como marcador.",
+      "task_types": [
+        "refactor",
+        "optimization",
+        "feature",
+        "bugfix"
+      ],
+      "work_types": [
+        "refactor_code_motion",
+        "refactor",
+        "refactor_inline",
+        "feature_new_method",
+        "feature_new_file",
+        "bugfix"
+      ],
+      "pipeline_phase": "ADVANCE: TASK LOOP",
+      "usage": "python3 scripts/delta-qlty-check.py <chain_dir> <task_id> [--verbose]",
+      "examples": [
+        "python3 scripts/delta-qlty-check.py .cognitive/delta/mi-chain/ TASK-001",
+        "python3 scripts/delta-qlty-check.py .cognitive/delta/mi-chain/ TASK-001 --verbose"
+      ],
+      "exit_codes": {
+        "0": "Todos los quality gates pasan",
+        "1": "Algunos quality gates FALLAN — 8 gates: production_bugs (eval/pickle/unwrap), bug_probability (cross-findings), security_high (B6xx), dead_code (F401/F841), spaghetti_complexity (CC por función), unnecessary_code (debug leftovers), hallucinated_imports (LLM alucinaciones), code_duplication (identical/similar code)",
+        "2": "Error (analyze_refactored.py no encontrado, argumentos faltantes)"
+      },
+      "when_to_run": "Automáticamente en delta-advance --confirm para todas las tareas (feature, bugfix, refactor, optimization). También manualmente con --dir para code review de directorios completos. Si hay fails, refinar antes de avanzar.",
+      "depends_on": "scripts/analyze_refactored.py (core Qlty integration, dentro del skill)",
+      "input_from": "plan.json → task.impacted_artifacts.files; fallback: git diff --name-only",
+      "output": "JSON con métricas por archivo (cyclo, LCOM, Ce, CC por función, advertencias, production_bugs, bug_probability, security_high, dead_code, spaghetti_complexity, unnecessary_code, hallucinated_imports, code_duplication) y resultado de los 8 quality gates con per-item fixes",
+      "self_sufficient": false
+    },
+    {
+      "name": "delta-advance",
+      "path": "scripts/_internal/advance.py",
+      "description": "Ejecuta TASK LOOP + loop prompting + calibración 4-capas para avanzar una tarea",
+      "full_description": "🔒 INTERNAL — lamado por task.py advance. No invocar directamente. El core del pipeline delta. Verifica 3 capas: (1) loop_verification con grep/pytest contra código real, (2) acceptance_criteria de alto nivel, (3) quality_gates no negociables. Ejecuta delta-qlty-check.py automáticamente al confirmar. Sin --confirm queda en ready_for_review (exit 3). Con --confirm avanza la tarea y genera calibración 4-capas (state, delta, strategy, model). Multi-proyecto: lee project_id de plan.json → project-scoped KV keys (kv:sprint:{project_id}:{chain_id}:...) y escribe current.json en la ruta correcta según el chain_dir.",
+      "task_types": [
+        "feature",
+        "bugfix",
+        "refactor",
+        "test",
+        "docs",
+        "optimization"
+      ],
+      "work_types": [
+        "refactor_code_motion",
+        "refactor",
+        "feature_new_method",
+        "feature_new_file",
+        "feature_new_bc",
+        "refactor_inline",
+        "bugfix",
+        "optimization",
+        "docs"
+      ],
+      "pipeline_phase": "ADVANCE: TASK LOOP",
+      "usage": "python3 scripts/delta-advance.py <chain_dir> <task_id> [--confirm]",
+      "examples": [
+        "python3 scripts/delta-advance.py .cognitive/delta/mi-chain/ TASK-001",
+        "python3 scripts/delta-advance.py .cognitive/delta/mi-chain/ TASK-001 --confirm"
+      ],
+      "exit_codes": {
+        "0": "TASK LOOP achieved + confirmado (tarea completada, trail actualizado)",
+        "1": "TASK LOOP partial (result_state no alcanzado, REFINE necesario)",
+        "2": "Error de uso (directorio no encontrado, task_id inválido)",
+        "3": "ready_for_review (achieved sin --confirm, revisar y ejecutar con --confirm)"
+      },
+      "when_to_run": "Cuando una tarea está implementada y lista para verificación. Sin --confirm primero para revisar, luego con --confirm para avanzar.",
+      "depends_on": "delta-qlty-check.py (se invoca automáticamente al confirmar)",
+      "input_from": "plan.json (task. loop_verification, acceptance_criteria, quality_gates), progress.json (task_states, trail)",
+      "output": "Actualiza progress.json: task_states, trail entry con loop_data + calibration + qlty results, next_action",
+      "self_sufficient": false
+    },
+    {
+      "name": "delta-enforce",
+      "path": "scripts/_internal/enforce.py",
+      "description": "Gate de coerción del skill: bloquea avances que se alejan del goal del sprint",
+      "full_description": "🔒 INTERNAL — lamado por task.py advance y spring.py close. No invocar directamente. Capa de enforcement que convierte el protocolo del skill (advisory) en coerción dura. Verifica 4 reglas antes de avanzar una tarea: (1) next_action — la tarea debe ser la next_action de progress.json; (2) curvature_budget — curvature_risk no debe exceder DELTA_CURVATURE_BUDGET (default 0.50); (3) distance_guard — la tarea debe tener predicates de validación (reduce distancia al G_objetivo); (4) backlog_required — tareas fuera de plan.json deben estar en backlog.jsonl (resuelve backlog per-project si plan.json tiene project_id, o backlog global legacy). Es invocado automáticamente por delta-advance.py; --force omite el gate (override explícito).",
+      "task_types": [
+        "all"
+      ],
+      "pipeline_phase": "ADVANCE: ENFORCEMENT",
+      "usage": "python3 scripts/delta-enforce.py <chain_dir> <task_id> [--force] [--json]",
+      "examples": [
+        "python3 scripts/delta-enforce.py .cognitive/delta/mi-chain/ TASK-001",
+        "python3 scripts/delta-enforce.py .cognitive/delta/mi-chain/ TASK-002 --force"
+      ],
+      "exit_codes": {
+        "0": "Tarea alineada con el goal (o override con --force)",
+        "1": "Avance bloqueado por desviación del goal (usar --force para override)",
+        "2": "Error de uso (argumentos faltantes, directorio no encontrado)"
+      },
+      "when_to_run": "Automáticamente al inicio de delta-advance.py. Manualmente para pre-validar antes de implementar.",
+      "input_from": "plan.json (tasks[].risks.curvature, validation.predicates), progress.json (current.next_action, task_states), .cognitive/delta/backlog.jsonl",
+      "output": "Mensaje [ENFORCEMENT] indicando bloqueo/alineación; exit 0/1",
+      "self_sufficient": false
+    },
+    {
+      "name": "delta-close",
+      "path": "scripts/_internal/close.py",
+      "description": "Ejecuta CLOSURE composicional: verifica que la suma de result_states == G_objetivo",
+      "full_description": "🔒 INTERNAL — lamado por spring.py close. No invocar directamente. Cuando todas las tareas están completadas, verifica que colectivamente cubren el G_objetivo del plan. Opcionalmente ejecuta full re-scan de predicates contra código real (--full-rescan) para detectar side-effects. Genera semilla para el próximo ciclo delta y escribe al backlog. Multi-proyecto: lee project_id de plan.json → KV keys y backlog per-project.",
+      "task_types": [
+        "feature",
+        "bugfix",
+        "refactor",
+        "test",
+        "docs",
+        "optimization"
+      ],
+      "pipeline_phase": "CLOSURE: Verificación",
+      "usage": "python3 scripts/delta-close.py <chain_dir> [--full-rescan]",
+      "examples": [
+        "python3 scripts/delta-close.py .cognitive/delta/mi-chain/",
+        "python3 scripts/delta-close.py .cognitive/delta/mi-chain/ --full-rescan"
+      ],
+      "exit_codes": {
+        "0": "Closure exitoso (composición válida)",
+        "1": "Closure con advertencias (composición parcial o side-effects)",
+        "2": "Error (directorio no encontrado, archivos faltantes)"
+      },
+      "when_to_run": "Cuando progress.json indica que no quedan tareas pendientes (next_action == null, finished == true).",
+      "input_from": "plan.json (goal, tasks), progress.json (trail, task_states)",
+      "output": "Actualiza progress.json con closure_data (composicion_valida, side_effects, next_delta_candidates). Actualiza current.json.",
+      "self_sufficient": false
+    },
+    {
+      "name": "projects",
+      "path": "scripts/_internal/projects.py",
+      "description": "⚠️ INTERNAL — Multi-project registry utility. Importado por spring.py, delta-init-project.py.",
+      "full_description": "🔒 INTERNAL — o invocar directamente. Librería compartida importada por spring.py, delta-init-project.py y scripts delta-*.py. Proporciona ProjectRegistry (resolve_active_project, CRUD projects) y utilidades de path resolution para multi-project. También tiene CLI directa (register, show, init-profile) para tareas administrativas.",
+      "task_types": [
+        "all"
+      ],
+      "pipeline_phase": "FASE 0: Setup",
+      "usage": "Usado como librería importada. CLI: python3 scripts/projects.py <register|show|init-profile> [args...]",
+      "examples": [
+        "python3 scripts/projects.py register my-project /path/to/repo",
+        "python3 scripts/projects.py show my-project"
+      ],
+      "exit_codes": {
+        "0": "Operación exitosa",
+        "2": "Error de uso"
+      },
+      "when_to_run": "No invocar directamente a menos que sea para administración manual de proyectos. Normalmente spring.py lo importa automáticamente.",
+      "input_from": "projects.json + .cognitive/ directorios",
+      "output": "Información de registro de proyectos",
+      "self_sufficient": false
+    },
+    {
+      "name": "analyze_refactored",
+      "path": "scripts/analyze_refactored.py",
+      "description": "Core Qlty multi-language analysis: metrics, smells, check, ast-grep deep",
+      "full_description": "🔒 INTERNAL — lamado por delta-qlty-check.py. No invocar directamente. Motor de análisis de calidad que ejecuta qlty metrics (CC, NLOC, LCOM), qlty smells (duplicación), qlty check (ruff, eslint, bandit) y ast-grep deep analysis con 6 categorías: production-bugs (eval, pickle, unwrap, ...), unnecessary-code (f-strings vacíos, debug leftovers, funciones vacías, ...), high-cyclo patterns, danger patterns, security patterns, y TS/JS patterns.",
+      "task_types": [
+        "refactor",
+        "optimization"
+      ],
+      "work_types": [
+        "refactor_code_motion",
+        "refactor",
+        "refactor_inline"
+      ],
+      "pipeline_phase": "ADVANCE: TASK LOOP",
+      "usage": "Usado internamente por delta-qlty-check.py. No invocar directamente.",
+      "exit_codes": {
+        "0": "Análisis completado",
+        "1": "Error"
+      },
+      "when_to_run": "No invocar directamente. Es llamado por delta-qlty-check.py.",
+      "depends_on": "qlty CLI + ast-grep (sg) instalados en el sistema",
+      "input_from": "Archivos a analizar (pasados por delta-qlty-check.py)",
+      "output": "JSON con métricas por archivo + quality gates",
+      "self_sufficient": false
+    },
+    {
+      "name": "hallucination-scanner",
+      "path": "scripts/_internal/hallucination.py",
+      "description": "Detecta LLM hallucinated imports: módulos, clases o funciones que no existen",
+      "full_description": "🔒 INTERNAL — lamado por delta-qlty-check.py. No invocar directamente. Analiza imports en archivos Python/TS/JS y verifica que cada módulo y símbolo exista en el proyecto, la stdlib o paquetes instalados. Resuelve en 3 pasos: (1) project-local (AST del proyecto), (2) stdlib (sys.stdlib_module_names), (3) third-party (importlib.util.find_spec). Reporta cada import que no resuelve como HALLUCINATION.",
+      "task_types": [
+        "feature",
+        "bugfix",
+        "refactor",
+        "optimization"
+      ],
+      "work_types": [
+        "refactor_code_motion",
+        "refactor",
+        "refactor_inline",
+        "feature_new_method",
+        "feature_new_file",
+        "bugfix",
+        "optimization"
+      ],
+      "pipeline_phase": "ADVANCE: TASK LOOP",
+      "usage": "python3 scripts/hallucination-scanner.py <file1.py> [file2.ts ...]",
+      "examples": [
+        "python3 scripts/hallucination-scanner.py --dir projects/cognitive-mcp/cognitive_v2",
+        "python3 scripts/hallucination-scanner.py --json features/agent/composition.py",
+        "python3 scripts/hallucination-scanner.py --self-test"
+      ],
+      "exit_codes": {
+        "0": "No se detectaron alucinaciones (todos los imports resuelven)",
+        "1": "Alucinaciones detectadas (algunos imports no resuelven)",
+        "2": "Error de uso (argumentos faltantes)"
+      },
+      "when_to_run": "Automáticamente como Gate 7 dentro de delta-qlty-check.py. Manualmente con --dir para auditar un directorio completo.",
+      "depends_on": "ninguna (stdlib only — AST + importlib)",
+      "input_from": "Archivos a analizar (pasados por delta-qlty-check.py o directamente por el usuario)",
+      "output": "JSON con lista de alucinaciones por archivo, total_hallucinations, hallucination_free (bool)",
+      "self_sufficient": false
+    }
+  ],
+  "task_type_tool_map": {
+    "feature": [
+      "task",
+      "hallucination-scanner",
+      "delta-score",
+      "delta-qlty-check",
+      "delta-advance",
+      "delta-close"
+    ],
+    "bugfix": [
+      "task",
+      "hallucination-scanner",
+      "delta-score",
+      "delta-qlty-check",
+      "delta-advance",
+      "delta-close"
+    ],
+    "refactor": [
+      "task",
+      "hallucination-scanner",
+      "delta-score",
+      "delta-qlty-check",
+      "delta-advance",
+      "delta-close"
+    ],
+    "test": [
+      "task",
+      "delta-score",
+      "delta-advance",
+      "delta-close"
+    ],
+    "docs": [
+      "task",
+      "delta-score",
+      "delta-advance",
+      "delta-close"
+    ],
+    "optimization": [
+      "task",
+      "delta-score",
+      "delta-qlty-check",
+      "delta-advance",
+      "delta-close"
+    ],
+    "all": [
+      "spring",
+      "task",
+      "delta-init-project",
+      "validate-schema",
+      "delta-enforce"
+    ]
+  },
+  "work_type_tool_map": {
+    "refactor_code_motion": [
+      "task",
+      "hallucination-scanner",
+      "delta-qlty-check",
+      "delta-score",
+      "delta-advance"
+    ],
+    "refactor": [
+      "task",
+      "hallucination-scanner",
+      "delta-qlty-check",
+      "delta-score",
+      "delta-advance"
+    ],
+    "refactor_inline": [
+      "task",
+      "hallucination-scanner",
+      "delta-qlty-check",
+      "delta-score",
+      "delta-advance"
+    ],
+    "feature_new_method": [
+      "task",
+      "hallucination-scanner",
+      "delta-qlty-check",
+      "delta-score",
+      "delta-advance"
+    ],
+    "feature_new_file": [
+      "task",
+      "hallucination-scanner",
+      "delta-qlty-check",
+      "delta-score",
+      "delta-advance"
+    ],
+    "feature_new_bc": [
+      "task",
+      "delta-score",
+      "delta-advance"
+    ],
+    "bugfix": [
+      "task",
+      "hallucination-scanner",
+      "delta-qlty-check",
+      "delta-score",
+      "delta-advance"
+    ],
+    "optimization": [
+      "task",
+      "hallucination-scanner",
+      "delta-qlty-check",
+      "delta-score",
+      "delta-advance"
+    ],
+    "docs": [
+      "task",
+      "delta-score",
+      "delta-advance"
+    ]
+  }
+}

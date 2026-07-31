@@ -1,0 +1,7 @@
+{
+  "id": "project_init/build-ckg",
+  "type": "auto",
+  "version": 1,
+  "description": "Build initial knowledge graph from specs or code patterns",
+  "template": "PROJECT_INIT.BUILD_CKG - Building knowledge graph...\n\nCreating initial CKG nodes from project specs and code analysis.\nThis runs automatically - no action needed."
+}

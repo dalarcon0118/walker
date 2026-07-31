@@ -1,0 +1,502 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-mcp-llm-workflow-gaps-20260706",
+      "generated_at": "2026-07-06T17:00:00-03:00",
+      "version": "2.1",
+      "source": "delta-skill",
+      "type": "plan",
+      "inherits": "cognitive-mcp-message-capture-classification-20260706"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "messages",
+        "cognitive",
+        "shared",
+        "guidance"
+      ],
+      "tags": [
+        "python",
+        "hexagonal",
+        "cognitive-v2",
+        "mcp-server",
+        "message-store",
+        "gps",
+        "navigation",
+        "classification",
+        "memora",
+        "feedback-loop"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Cerrar los 5 gaps del flujo MCP-LLM identificados en el análisis: (1) captura de mensajes con contenido semántico y trazabilidad, (2) clasificación persistente con GPS context, (3) propagation de message_id a tools hijas para trazabilidad, (4) feedback loop de mensajes capturados a Memora para que el sistema aprenda de la conversación, (5) GPS conversation window con mensajes reales (role=user, role=assistant) en vez de solo tool_calls serializados.",
+      "done_when": [
+        {
+          "criterio": "MessageStoreGate captura texto semántico del usuario desde params de onboarding.task, context.infer.message, cell.topic, session.init.topic con role=user y message_type=input",
+          "predicates": [
+            "must_exist_1"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "LLM response hook captura output del LLM y lo persiste como message(role=assistant, message_type=output) con parent_id del user message previo",
+          "predicates": [
+            "must_exist_2",
+            "must_exist_3"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "MessageClassifier persiste domain+type+task_id del GPS context en cada mensaje capturado, y la clasificación no se pierde (se guarda en metadata del mensaje)",
+          "predicates": [
+            "must_exist_4",
+            "must_not_exist_1"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "message_id del user message se propaga como source_message_id a delta_plan, create_task, project desde dispatch_pipeline.py",
+          "predicates": [
+            "must_exist_5"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "Mensajes con task_id se persisten automáticamente en Memora.store_ref() para que el sistema aprenda de la conversación, sin bloquear la operación principal",
+          "predicates": [
+            "must_exist_10",
+            "invariant_2"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "GPS conversation.window[] incluye mensajes reales con role=user y role=assistant desde KVMessageRepository, con un máximo de 10 mensajes",
+          "predicates": [
+            "must_exist_11",
+            "invariant_3"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "Tests de integración y script msg-stats.py verifican el flujo completo: captura, clasificación, propagación, feedback loop y conversation window",
+          "predicates": [
+            "must_exist_6",
+            "must_exist_7",
+            "must_exist_8",
+            "must_exist_9"
+          ],
+          "satisfied": false
+        }
+      ],
+      "predicates": {
+        "must_exist": [
+          "function _capture_user_message de MessageStoreGate que extrae texto de tool params (onboarding.task, context.infer.message, cell.topic, session.init.topic) y registra message(role=user, message_type=input, content=<texto_semantico>)",
+          "function _capture_llm_response en features/messages/agent/llm_response_hook.py que captura output del LLM y registra message(role=assistant, message_type=output)",
+          "module features/messages/agent/llm_response_hook.py con hook post-response para capturar LLM output y asociarlo con parent_id del user message previo",
+          "class MessageClassifier en features/messages/application/message_classifier.py que hereda domain+type+task_id del CognitiveState GPS activo y los persiste en el metadata del mensaje registrado",
+          "function propagate_message_id en dispatch_pipeline.py que hereda el message_id del user message como source_message_id en params de tools hijas (delta_plan, create_task, project)",
+          "test_user_message_capture en tests/test_message_gate.py que verifica que MessageStoreGate.before() registra role=user y message_type=input con el texto semantico correcto",
+          "test_llm_response_capture en tests/test_message_gate.py que verifica que llm_response_hook registra role=assistant y message_type=output con parent_id correcto",
+          "test_message_traceability en tests/test_message_gate.py que verifica propagacion de parent_id/source_message_id a tools hijas",
+          "script .cognitive/delta/scripts/msg-stats.py que reporta stats de messages: total, por role, por message_type, con/sin task_id, con/sin parent_id, y por domain",
+          "function _feed_message_to_memora en memora_feedback.py que persiste mensajes con task_id en Memora.store_ref() para que el sistema aprenda de la conversacion",
+          "function _load_real_conversation en cognitive_state.py que lee mensajes con role=user y role=assistant desde KVMessageRepository y los incluye en CognitiveState.conversation.window[]"
+        ],
+        "must_not_exist": [
+          "clasificacion_aislada — cada prediccion de type y domain de context(infer) debe persistirse en el metadata del mensaje, no perderse despues de la llamada"
+        ],
+        "invariants": [
+          "task_id solo se vincula a mensajes cuando hay tarea activa en el GPS context — nunca se genera un task_id artificial",
+          "memora_bridge.store_ref() llamado desde _feed_message_to_memora nunca bloquea la operacion principal (EHR-20) — falla silenciosamente si Memora no esta disponible",
+          "CognitiveState.conversation.window[] nunca incluye mas de 10 mensajes (limite configurable) para evitar inflar la respuesta del MCP"
+        ]
+      },
+      "signatures": [
+        "MessageStoreGate._capture_user_message(self, op_name: str, params: dict) -> str | None",
+        "llm_response_hook.capture_llm_response(agent_output: str, parent_message_id: str | None = None) -> dict",
+        "MessageClassifier.__init__(self, gps_context_provider: Callable) -> None",
+        "MessageClassifier.classify(message_record: MessageRecord) -> MessageRecord (with metadata enriched: domain, type, task_id)",
+        "dispatch_pipeline._propagate_message_id(op_name: str, params: dict, source_message_id: str) -> None",
+        "memora_feedback._feed_message_to_memora(record: MessageRecord) -> bool",
+        "cognitive_state._load_real_conversation(state: CognitiveState) -> None"
+      ],
+      "state": "defined"
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-MSG-001",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "importer_files": 1,
+        "objective": "En MessageStoreGate.before(), detectar tools con texto del usuario (onboarding.task, context.infer.message, cell.topic, session.init.topic) y registrar message(role=user, message_type=input, content=<texto_semantico>) antes del tool_call actual, preservando el tool_call original y evitando duplicacion de codigo",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/application/message_gate.py (modificar — agregar metodo _capture_user_message y modificar before())",
+            "tests/test_message_gate.py (ampliar — test_user_message_capture)"
+          ],
+          "apis": [
+            "MessageStoreGate.before()"
+          ],
+          "data": [
+            "params de tools entrantes (onboarding, context, cell, session) para extraer texto del usuario"
+          ],
+          "config": [],
+          "tests": [
+            "tests/test_message_gate.py: test_user_message_capture"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Interceptar en MessageStoreGate.before() (ya existe el hook en dispatch_pipeline)",
+            "alternatives": [
+              "server.py _patched_received_request (mas temprano pero sin contexto de session)",
+              "Nuevo gate dedicado (mas limpio pero duplica estructura)"
+            ],
+            "rationale": "MessageStoreGate.before() ya se ejecuta en cada tool call y tiene acceso a op_name + params. Agregar la deteccion ahi evita crear otro punto de integracion y mantiene toda la captura de mensajes en un solo gate."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "must_exist_1"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-002",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 1,
+        "objective": "Crear features/messages/agent/llm_response_hook.py con una funcion capture_llm_response() que registra message(role=assistant, message_type=output) con el texto de la respuesta del LLM, asociandolo via parent_id al user message mas reciente obtenido del MessageStoreGate o del contexto de sesion",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/agent/__init__.py (crear — package init)",
+            "features/messages/agent/llm_response_hook.py (crear — hook de captura de LLM output)",
+            "features/messages/application/message_gate.py (modificar — exponer get_last_message_id() para que el agente pueda usarlo)"
+          ],
+          "apis": [
+            "llm_response_hook.capture_llm_response()"
+          ],
+          "data": [
+            "output del LLM (texto de la respuesta) para persistir como mensaje"
+          ],
+          "config": [],
+          "tests": [
+            "tests/test_message_gate.py: test_llm_response_capture"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.1,
+          "commit_trust": 0.2
+        },
+        "decisions": [
+          {
+            "chosen": "Hook en el lado del agente (opencode) que llama message(action='record') via MCP tool",
+            "alternatives": [
+              "MCP server polling (ineficiente y fragil)",
+              "LLM voluntario (fragil, el LLM puede olvidar)"
+            ],
+            "rationale": "El agente es el unico que tiene acceso al output del LLM despues de generar la respuesta. Si el agente llama message(action='record') como parte de su pipeline post-response, la captura es determinista."
+          },
+          {
+            "chosen": "Hook en el agente (opencode) como implementacion primaria",
+            "alternatives": [
+              "Auto-registro voluntario del LLM via message() (fallback si no hay hook)"
+            ],
+            "rationale": "El hook del agente es la unica forma determinista de capturar el output del LLM. Como fallback, el LLM puede auto-registrarse al final de cada respuesta llamando message(action=\"record\", role=\"assistant\", ...). El auto-registro es fragil (el LLM puede olvidar) pero funciona sin cambios en opencode."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": [],
+          "fallback_plan": "Si el hook del agente no esta disponible: (1) El LLM se auto-registra al terminar cada respuesta, (2) Se activa via config flag auto_register_llm=true en kv:config:messages"
+        },
+        "validation": {
+          "predicates": [
+            "must_exist_2",
+            "must_exist_3"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-003",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 2,
+        "objective": "Crear MessageClassifier en features/messages/application/message_classifier.py que lee el CognitiveState GPS activo (domain, type, task_id del next_action o del estado actual) y los persiste en el metadata del MessageRecord al momento de capturarlo, ademas de registrar cada clasificacion en kv:classification:log para verificacion posterior",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/application/message_classifier.py (crear — MessageClassifier con persistencia de clasificacion)",
+            "features/messages/application/message_gate.py (modificar — integrar MessageClassifier en before() para clasificar en captura)",
+            "tests/test_message_classifier.py (crear)"
+          ],
+          "apis": [
+            "MessageClassifier.classify()",
+            "CognitiveState (GPS context)"
+          ],
+          "data": [
+            "CognitiveState del GPS activo para obtener domain, type, task_id",
+            "kv:classification:log para historial de predicciones"
+          ],
+          "config": [],
+          "tests": [
+            "tests/test_message_classifier.py (crear)"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Clasificar en el momento de captura (en MessageStoreGate.before()), no post-captura como proceso batch",
+            "alternatives": [
+              "Post-clasificacion batch (mas complejo, requiere estado pendiente)",
+              "Clasificacion bajo demanda (inconsistente)"
+            ],
+            "rationale": "En el momento de captura, el GPS context tiene domain+type+task_id correctos porque el LLM acaba de decidir que tool llamar. Clasificar en ese momento es determinista."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "must_exist_4",
+            "must_not_exist_1",
+            "invariant_1"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-004",
+        "type": "refactor",
+        "work_type": "refactor",
+        "importer_files": 3,
+        "objective": "En dispatch_pipeline.py, despues de ejecutar MessageStoreGate.before() (que ahora devuelve message_id del user message si se capturo), propagar ese message_id como source_message_id en el params de tools hijas (delta_plan, create_task, project) para trazabilidad completa de que mensaje genero que tarea",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "shared/dispatch_pipeline.py (modificar — agregar _propagate_message_id() y llamarlo en tools hijas)",
+            "features/messages/application/message_gate.py (modificar — before() expone ultimo message_id capturado)",
+            "tests/test_message_gate.py (ampliar — test_message_traceability)"
+          ],
+          "apis": [
+            "dispatch_pipeline._propagate_message_id()"
+          ],
+          "data": [
+            "message_id del user message para propagar como source_message_id en tools hijas"
+          ],
+          "config": [],
+          "tests": [
+            "tests/test_message_gate.py: test_message_traceability"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.35,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Doble persistencia: en MessageStoreGate (memoria) + kv:session:{session_id}:last_message_id (persistente)",
+            "alternatives": [
+              "Solo en memoria (se pierde al reiniciar server)",
+              "Solo KV (escritura en cada tool call, mas lento pero seguro)"
+            ],
+            "rationale": "La memoria da acceso rapido durante la sesion. KV da persistencia si el server se reinicia. La escritura KV es una operacion barata en SQLite y solo ocurre cuando hay texto de usuario (no en todos los tool calls)."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "must_exist_5"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-FBK-001",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 0,
+        "objective": "Crear features/messages/application/memora_feedback.py con la funcion _feed_message_to_memora() que, cuando se registra un mensaje con task_id, persiste su contenido en Memora.store_ref() automaticamente para que el sistema aprenda de la conversacion y pueda recuperar contexto relevante en futuras sesiones. EHR-20: falla silenciosamente si Memora no esta disponible",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/application/memora_feedback.py (crear — _feed_message_to_memora con EHR-20)",
+            "features/messages/application/message_gate.py (modificar — integrar _feed_message_to_memora en after() cuando task_id esta presente)"
+          ],
+          "apis": [
+            "memora_feedback._feed_message_to_memora()",
+            "memora_bridge.store_ref()"
+          ],
+          "data": [
+            "contenido del mensaje + task_id + domain + type para persistir en Memora"
+          ],
+          "config": [],
+          "tests": [
+            "tests/test_message_gate.py (ampliar — test_feedback_memora)"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Feedback en MessageStoreGate.after(), solo cuando task_id esta presente en el mensaje",
+            "alternatives": [
+              "Feedback en el MessageClassifier (mezcla responsabilidades)",
+              "Feedback batch cada N mensajes (complejidad innecesaria)"
+            ],
+            "rationale": "El momento natural es despues de que el mensaje se persiste (en after()), y solo cuando hay task_id (el mensaje pertenece a una tarea, por lo tanto es contexto relevante). Memora.store_ref() ya existe y es EHR-20 compliant."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "must_exist_10",
+            "invariant_2"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-FBK-002",
+        "type": "refactor",
+        "work_type": "refactor",
+        "importer_files": 2,
+        "objective": "Modificar cognitive_state.py: reemplazar _load_conversation() para que lea mensajes reales con role=user y role=assistant desde KVMessageRepository en vez de solo tool_calls, e incluirlos en CognitiveState.conversation.window[] para que el LLM vea el historial real de la conversacion. Limitar a 10 mensajes para no inflar la respuesta del MCP",
+        "domain": "guidance",
+        "artefactos_impactados": {
+          "files": [
+            "features/guidance/domain/cognitive_state.py (modificar — _load_real_conversation reemplaza _load_conversation)",
+            "features/guidance/domain/cognitive_state.py (modificar — agregar max_window_size=10 configurable)"
+          ],
+          "apis": [
+            "KVMessageRepository.list_by_session()",
+            "CognitiveState.conversation.window[]"
+          ],
+          "data": [
+            "mensajes reales con role=user y role=assistant desde KVMessageRepository para poblar el conversation window"
+          ],
+          "config": [],
+          "tests": [
+            "tests/test_cognitive_state.py (ampliar — test_gps_conversation_window)"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Leer desde KVMessageRepository.list_by_session() en el momento de construir el CognitiveState",
+            "alternatives": [
+              "Cache de mensajes en memoria (inconsistente entre sesiones)",
+              "Leer desde engine.db directamente (acoplamiento a implementacion)"
+            ],
+            "rationale": "KVMessageRepository ya tiene list_by_session() implementado y es la unica fuente de verdad. Leer desde ahi en el momento de build_cognitive_state() garantiza consistencia y respeta EHR-20."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "must_exist_11",
+            "invariant_3"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-005",
+        "type": "test",
+        "work_type": "test",
+        "importer_files": 0,
+        "objective": "Tests de integracion que verifican el flujo completo: test_user_message_capture (MSG-001), test_llm_response_capture (MSG-002), test_message_classifier (MSG-003), test_message_traceability (MSG-004), test_feedback_memora (FBK-001), test_gps_conversation_window (FBK-002). Ademas crear script msg-stats.py que lee kv:msg:* y reporta stats de la message store",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "tests/test_message_gate.py (ampliar — 4 tests: user_capture, llm_capture, traceability, feedback_memora)",
+            "tests/test_message_classifier.py (crear — 2 tests: classification_persistence, classification_log)",
+            "tests/test_cognitive_state.py (ampliar — test_gps_conversation_window)",
+            ".cognitive/delta/scripts/msg-stats.py (crear — script de diagnostico CLI)"
+          ],
+          "apis": [],
+          "data": [
+            "kv:msg:* y kv:msg_idx:* para diagnostico de la message store"
+          ],
+          "config": [],
+          "tests": [
+            "tests/test_message_gate.py: test_user_message_capture",
+            "tests/test_message_gate.py: test_llm_response_capture",
+            "tests/test_message_gate.py: test_message_traceability",
+            "tests/test_message_gate.py: test_feedback_memora",
+            "tests/test_message_classifier.py: test_classification_persistence",
+            "tests/test_message_classifier.py: test_classification_log",
+            "tests/test_cognitive_state.py: test_gps_conversation_window"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [
+          {
+            "chosen": "Tests de integracion end-to-end que mockean el dispatch pipeline, mockean Memora, y verifican cada gap por separado",
+            "alternatives": [
+              "Tests unitarios puros (no verifican el flujo real)",
+              "Solo tests manuales (no automatizables)"
+            ],
+            "rationale": "El valor esta en que el flujo completo funcione: desde que el LLM llama una tool hasta que el mensaje queda persistido con task_id y el conversation window lo refleja."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "must_exist_6",
+            "must_exist_7",
+            "must_exist_8",
+            "must_exist_9"
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "implement/code-review-result",
+  "type": "user_input",
+  "version": 1,
+  "description": "Code review results - user reviews metrics and decides next step",
+  "tags": [
+    "implement",
+    "review",
+    "quality-gate"
+  ],
+  "template": "IMPLEMENT.CODE_REVIEW_RESULT - Code Review Results\n\n🧑‍💻 You are the **Developer**.\nYour job is to review the code quality metrics and present them to the user,\nrecommending the appropriate next action based on the results.\n\nInstruction:\n  The automatic code review has completed. Present the metrics\n  to the user and let them decide the next step.\n\n  CODE REVIEW REPORT\n  -------------------------------------------\n  Files scanned: <files_scanned>\n\n  METRICS\n  . Errors:   <errors>  (threshold: 0)\n  . Warnings: <warnings> (threshold: 10)\n  . Security: <security> (threshold: 0)\n  . Smells:   <smells>\n\n  ISSUES FOUND\n  . <issue 1>\n  . <issue 2>\n  . ...\n\n  SUMMARY\n  <summary>\n\nAsk the user:\n\n  Options:\n    . approve -> continue with knowledge update and report (KNOWLEDGE_UPDATE)\n    . refine  -> fix issues directly (return to WORK)\n    . analyze -> escalate to root cause diagnosis (DIAGNOSE)\n    . cancel  -> cancel task, return to sprint (SPRINT.ACTIVE)\n\nCommand:\n  walker <project>/submit '{\"decision\":\"approve\",\"evidence\":\"<comment>\"}'\n  walker <project>/submit '{\"decision\":\"refine\",\"evidence\":\"<what to fix>\"}'\n  walker <project>/submit '{\"decision\":\"analyze\",\"evidence\":\"<what needs diagnosis>\"}'\n  walker <project>/submit '{\"decision\":\"cancel\",\"evidence\":\"<reason>\"}'"
+}

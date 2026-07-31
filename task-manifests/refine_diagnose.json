@@ -1,0 +1,60 @@
+{
+  "description": "Diagnose root cause and determine refinement target node",
+  "usage": "walker <project>/refine_diagnose [--task_id <id>] [--target <node>]",
+  "tags": [
+    "workflow",
+    "refine"
+  ],
+  "input_schema": {
+    "required": [],
+    "optional": [
+      "task_id",
+      "target",
+      "reason",
+      "knowledge_items"
+    ],
+    "task_id": {
+      "type": "string",
+      "description": "Task ID to diagnose",
+      "example": "TASK-001"
+    },
+    "target": {
+      "type": "string",
+      "description": "Target node: analyze, implement, verify, design",
+      "example": "analyze"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Root cause description"
+    },
+    "knowledge_items": {
+      "type": "array",
+      "description": "Knowledge items from the failed execution"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "knowledge_items": {
+            "type": "array"
+          }
+        }
+      }
+    }
+  }
+}

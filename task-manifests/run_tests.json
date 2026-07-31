@@ -1,0 +1,22 @@
+{
+  "description": "Run test suite for a task or project",
+  "usage": "walker <project>/run_tests [--task_id <id>]",
+  "tags": ["workflow", "verification"],
+  "input_schema": {
+    "required": [],
+    "optional": ["task_id"],
+    "task_id": {"type": "string", "description": "Task ID to run tests for", "example": "TASK-001"}
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "data": {"type": "object", "properties": {
+        "task_id": {"type": "string"},
+        "passed": {"type": "boolean"},
+        "total": {"type": "integer"},
+        "failures": {"type": "integer"}
+      }}
+    }
+  }
+}

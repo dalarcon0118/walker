@@ -1,0 +1,291 @@
+"""CLI entry point for code review."""
+
+from __future__ import annotations
+
+import json as _json
+import sys
+from pathlib import Path
+
+from .config import QLTY_AVAILABLE, AST_GREP_AVAILABLE
+from .analysis import run_analysis
+from .quality import c_lower_better, format_rating
+from .cache import MetricsCache
+
+
+def _format_check_issue(issue: dict) -> str:
+    level_icon = {"note": "💡", "warning": "⚠️", "error": "❌"}.get(issue["level"], "💡")
+    fix_badge = " \033[36m[auto-fix]\033[0m" if issue["has_fix"] else ""
+    tax_badge = ""
+    if issue.get("taxonomy"):
+        tags = [t for t in issue["taxonomy"] if t]
+        if tags:
+            tax_badge = f" \033[90m({', '.join(tags)})\033[0m"
+    return (
+        f"  {level_icon} \033[1m{issue['rule_id']}\033[0m"
+        f" L{issue['line']}:{issue['col']}{fix_badge}{tax_badge}\n"
+        f"    {issue['message'][:120]}"
+    )
+
+
+def _format_fast_metrics(data: dict) -> str:
+    lines = ["📊 Métricas (fast mode):"]
+    for f in data.get("files", []):
+        name = f.get("file", "?")
+        loc = f.get("loc", 0)
+        cyclo = f.get("cyclo", 0)
+        complexity = f.get("complexity", 0)
+        lcom = f.get("lcom", 0)
+        funcs = f.get("funcs", 0)
+        if loc or cyclo or funcs:
+            lines.append(
+                f"   {name}: LOC={loc}, cyclo={cyclo}, complexity={complexity}, LCOM={lcom}, funcs={funcs}"
+            )
+    total_loc = sum(f.get("loc", 0) for f in data.get("files", []))
+    total_cyclo = sum(f.get("cyclo", 0) for f in data.get("files", []))
+    lines.append(
+        f"   TOTAL: LOC={total_loc}, cyclo={total_cyclo}, files={data.get('files_analyzed', 0)}"
+    )
+    return "\n".join(lines)
+
+
+def _update_progress(msg: str) -> None:
+    """Write progress to stderr for JSON mode, stdout otherwise."""
+    if "--json" in sys.argv:
+        print(msg, file=sys.stderr)
+    else:
+        print(msg)
+
+
+def main() -> int:
+    """CLI entry point."""
+    json_mode = False
+    fix_mode = False
+    deep_mode = False
+    fast_mode = False
+
+    args = sys.argv[1:]
+    if "--json" in args:
+        json_mode = True
+        args.remove("--json")
+    if "--fix" in args:
+        fix_mode = True
+        args.remove("--fix")
+    if "--deep" in args:
+        deep_mode = True
+        args.remove("--deep")
+    if "--fast" in args:
+        fast_mode = True
+        args.remove("--fast")
+    if deep_mode and fast_mode:
+        print("❌ --fast y --deep son mutuamente excluyentes", file=sys.stderr)
+        return 2
+
+    files_to_analyze = [Path(a) for a in args if not a.startswith("-")]
+    mode = "deep" if deep_mode or not fast_mode else "fast"
+
+    if not files_to_analyze:
+        print(
+            "Uso: python3 -m codereview [--json] [--fast|--deep] [--fix] <file1> [file2 ...]",
+            file=sys.stderr,
+        )
+        return 1
+
+    files_to_analyze = [f for f in files_to_analyze if f.exists()]
+    if not files_to_analyze:
+        print("❌ Ningún archivo válido encontrado.", file=sys.stderr)
+        return 1
+
+    # ── Auto-fix mode ──
+    if fix_mode:
+        from .qlty import run_fix
+
+        _update_progress(
+            f"  🔧 Aplicando auto-fixes en {len(files_to_analyze)} archivos..."
+        )
+        ok = run_fix(files_to_analyze)
+        status = "✅" if ok else "⚠️"
+        _update_progress(
+            f"  {status} Auto-fixes {'aplicados' if ok else 'fallaron (puede no haber herramientas instaladas)'}."
+        )
+
+    # ── Cache de métricas qlty (evita re-ejecutar en --deep si ya se hizo --fast) ──
+    cache = MetricsCache()
+
+    # ── JSON mode ──
+    if json_mode:
+        output = run_analysis(files_to_analyze, mode=mode, cache=cache)
+        print(_json.dumps(output, indent=2, ensure_ascii=False))
+        return 0
+
+    # ── Terminal display mode ──
+    print("=" * 88)
+    print("  \033[1m📊 Code Review — ANÁLISIS MULTILENGUAJE\033[0m")
+    print(
+        f"  Modo: {mode}  |  Qlty: {'\033[32m✓\033[0m' if QLTY_AVAILABLE else '\033[31m✗\033[0m'}  |  "
+        f"ast-grep: {'\033[32m✓\033[0m' if AST_GREP_AVAILABLE else '\033[31m✗\033[0m'}  |  "
+        f"Archivos: {len(files_to_analyze)}  |  "
+        f"Lenguajes: {len({f.suffix for f in files_to_analyze})} detectados"
+    )
+    print("=" * 88)
+
+    # Run analysis
+    output = run_analysis(files_to_analyze, mode=mode, cache=cache)
+    results = output.get("files", [])
+    all_checks = []  # Filled during display
+
+    total_loc = 0
+    for fp in files_to_analyze:
+        if not fp.exists():
+            continue
+        entry = next((r for r in results if fp.name in r.get("file", "")), None)
+        if not entry:
+            continue
+
+        cyclo = entry.get("cyclo", 0)
+        complexity = entry.get("complexity", 0)
+        lcom = entry.get("lcom", 0)
+        loc = entry.get("loc", 0)
+        func_count = entry.get("funcs", 0)
+        raw_loc = loc or len([l for l in fp.read_text().splitlines() if l.strip()])
+        total_loc += raw_loc
+
+        lang_tag = f"\033[90m{fp.suffix or '?'}\033[0m"
+        print(f"\n{'─' * 88}")
+        print(f"  \033[1m📄 {fp.name}\033[0m  {lang_tag}")
+        print(f"{'─' * 88}")
+        print(
+            f"  Qlty NLOC: {loc}  |  {c_lower_better('Cyclo', cyclo, 30, 60)}  |  "
+            f"{c_lower_better('Cog Cpx', complexity, 20, 50)}  |  "
+            f"Funcs: {func_count}  |  {c_lower_better('LCOM', lcom, 5, 20)}"
+        )
+
+        # Functions
+        funcs_data = entry.get("functions", [])
+        if funcs_data:
+            print(f"  Functions ({len(funcs_data)}):")
+            for f in funcs_data[:6]:
+                cc_s = c_lower_better("CC", f["cyclo"], 5, 10)
+                print(
+                    f"    {f['name']:<42} NLOC={f['loc']:<3}  {cc_s}  cog={f['cognitive']}  lines={f['lines']}"
+                )
+            if len(funcs_data) > 6:
+                print(f"    ... +{len(funcs_data) - 6} more")
+            for f in funcs_data:
+                if f["cyclo"] > 15:
+                    print(
+                        f"    \033[33m⚠️  HIGH CC: {f['name']} — CC={f['cyclo']} > 15\033[0m"
+                    )
+
+        # Coupling
+        print(f"  Coupling: Ce={entry.get('ce', 0)}, Ca={entry.get('ca', 0)}")
+
+        # Smells
+        file_smells = entry.get("smells", [])
+        if file_smells:
+            for s in file_smells[:5]:
+                rid = s["rule_id"].replace("qlty:", "")
+                print(f"  \033[33m🔍 {rid}\033[0m L{s['line']}: {s['message'][:100]}")
+            if len(file_smells) > 5:
+                print(f"    ... +{len(file_smells) - 5} more")
+
+        # Checks
+        file_checks = entry.get("checks", [])
+        if file_checks:
+            warnings = [c for c in file_checks if c["level"] == "warning"]
+            errors = [c for c in file_checks if c["level"] == "error"]
+            others = [c for c in file_checks if c["level"] not in ("warning", "error")]
+            if errors:
+                print(f"  \033[31m❌ Errors ({len(errors)}):\033[0m")
+                for c in errors[:3]:
+                    print(_format_check_issue(c))
+            if warnings:
+                print(f"  \033[33m⚠️  Warnings ({len(warnings)}):\033[0m")
+                for c in warnings[:5]:
+                    print(_format_check_issue(c))
+            if others:
+                print(f"  \033[90m💡 Notes ({len(others)}):\033[0m")
+                for c in others[:3]:
+                    print(_format_check_issue(c))
+
+        # Deep analysis findings
+        deep = entry.get("deep_analysis", {})
+        if deep.get("deep_findings"):
+            print(
+                f"  \033[1m🔬 Análisis profundo ({deep['total_deep']} hallazgos):\033[0m"
+            )
+            for df in deep["deep_findings"][:5]:
+                severity_color = {
+                    "critical": "\033[31m",
+                    "high": "\033[33m",
+                    "medium": "\033[33m",
+                    "low": "\033[90m",
+                }.get(df.get("severity", ""), "\033[90m")
+                print(
+                    f"    {severity_color}[{df.get('severity', '?')}]\033[0m {df['label']}"
+                )
+                for m in df.get("matches", [])[:2]:
+                    print(f"      L{m['line']}: {m['text'][:80]}")
+                if df.get("count", 0) > 2:
+                    print(f"      ... +{df['count'] - 2} more")
+
+        # Quality metrics
+        qm = entry.get("quality", {})
+        if qm:
+            qm_lines = qm.get("lines", 0)
+            qm_nloc = qm.get("nloc", 0)
+            qm_cyclo = qm.get("cyclomatic_complexity", 0)
+            qm_debt = qm.get("tech_debt_hours", 0)
+            qm_rating = qm.get("maintainability_rating", "?")
+            qm_sec = qm.get("security_rating", "?")
+            print(
+                f"  \033[1m📊 Quality:\033[0m Lines: {qm_lines}  |  NLOC: {qm_nloc}  |  "
+                f"Cyclo: {qm_cyclo}  |  Debt: {qm_debt}h  |  "
+                f"Maint: {format_rating(qm_rating)}  |  Security: {format_rating(qm_sec)}"
+            )
+            if qm.get("dup_blocks", 0) > 0:
+                print(
+                    f"    Duplication: {qm['dup_blocks']} blocks, {qm['dup_lines']} lines ({qm['dup_density']:.1%})"
+                )
+
+    # ── Summary ──
+    print()
+    print("=" * 88)
+    print("  \033[1m📊 RESUMEN\033[0m")
+    print(
+        f"  Archivos: {output.get('files_analyzed', 0)}  |  "
+        f"LOC total: {total_loc}  |  "
+        f"Smells: {output.get('total_smells', 0)}  |  "
+        f"Checks: {output.get('total_checks', 0)}"
+    )
+    print(
+        f"  Qlty: {'✅ disponible' if QLTY_AVAILABLE else '❌ no disponible'}  |  "
+        f"ast-grep: {'✅ disponible' if AST_GREP_AVAILABLE else '❌ no disponible'}"
+    )
+
+    # Summary rows
+    if results:
+        agg_loc = sum(r.get("loc", 0) for r in results)
+        agg_cyclo = sum(r.get("cyclo", 0) for r in results)
+        agg_complexity = sum(r.get("complexity", 0) for r in results)
+        agg_smells = sum(r.get("smells_count", 0) for r in results)
+        print(
+            f"  Aggregated: LOC={agg_loc}, Cyclo={agg_cyclo}, "
+            f"Complexity={agg_complexity}, Smells={agg_smells}"
+        )
+        if agg_cyclo > 0:
+            print(f"  Average CC per file: {agg_cyclo / max(len(results), 1):.1f}")
+        if agg_smells > 0:
+            all_checks = [c for r in results for c in r.get("checks", [])]
+            warnings = sum(1 for c in all_checks if c.get("level") == "warning")
+            errors = sum(1 for c in all_checks if c.get("level") == "error")
+            print(
+                f"  Issues: {errors} errors, {warnings} warnings, "
+                f"{sum(1 for c in all_checks if c.get('level') not in ('warning', 'error'))} notes"
+            )
+
+    print("=" * 88)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

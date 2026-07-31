@@ -1,0 +1,32 @@
+{
+  "description": "Review completed analysis",
+  "usage": "walker <project>/review_analysis",
+  "tags": [
+    "workflow",
+    "analysis"
+  ],
+  "input_schema": {
+    "type": "object",
+    "properties": {},
+    "description": "No input required."
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "revisado": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

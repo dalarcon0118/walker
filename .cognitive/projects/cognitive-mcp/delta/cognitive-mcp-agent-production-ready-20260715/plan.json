@@ -1,0 +1,2156 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-agent-production-ready-20260715",
+      "generated_at": "2026-07-15T02:00:00Z",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan",
+      "supersedes": "cognitive-mcp-agent-startup-fix-20260715"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "agent",
+        "engine",
+        "session",
+        "decisions",
+        "mcp"
+      ],
+      "tags": [
+        "python",
+        "cognitive-v2",
+        "ddd",
+        "mcp",
+        "production-readiness"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Dejar el modulo agent listo para produccion. El LLM debe poder usar el MCP en un flujo usuario -> LLM -> MCP donde cada tool retorna datos reales y estructurados. El sprint cubre 10 escenarios reales del LLM: (1) mensajes no relacionados con desarrollo, (2) desarrollo sin contexto, (3) desarrollo con contexto completo, (4) rol/fase incorrectos, (5) workflow activo, (6) analisis y discovery, (7) planificacion y hechos, (8) trazabilidad y decisiones, (9) identidad y sesiones, (10) sistema de decisiones.",
+      "predicates": {
+        "must_exist": [
+          "El LLM puede responder mensajes no relacionados con desarrollo sin usar herramientas del MCP",
+          "set_project_context(name, goal) persiste contexto del proyecto en KV",
+          "project_create(name, project_type, goal) crea un proyecto nuevo",
+          "delta_plan(goal, criteria, tasks) crea un sprint con tasks en KV",
+          "project_create_task(description) crea tareas en el sprint",
+          "project_next_action() retorna la siguiente tarea a ejecutar",
+          "project_advance(task_id) avanza el estado de una tarea",
+          "cognitive_state() retorna el estado cognitivo completo del LLM",
+          "cell(topic) retorna CognitiveState con goal, proposal, distance, risk, next_action",
+          "guidance(query, mode) retorna recomendaciones del GuidanceService",
+          "memory_search(query) busca en Memora, CGC y KV",
+          "activate_role(role) cambia el rol del ActorIdentity",
+          "set_phase(phase) cambia la fase del AgentOrchestrator",
+          "workflow() retorna el estado actual del workflow",
+          "advance_phase() avanza a la siguiente fase del workflow",
+          "project_discover() descubre la estructura del proyecto",
+          "project_analyze() analiza el proyecto",
+          "project_ask_architect(query) consulta al arquitecto",
+          "plan_ingest(plan) ingiere un plan en el sistema",
+          "fact_ops(operation, fact) opera con hechos del dominio",
+          "project_get_guidance(query) retorna guidance para el proyecto",
+          "project_get_trail_for_task(task_id) retorna la traza de una tarea",
+          "project_link_trail_node(node_id, task_id) vincula un nodo a una tarea",
+          "project_link_risk(task_id, risk) vincula un riesgo a una tarea",
+          "project_link_decision(task_id, decision) vincula una decisión a una tarea",
+          "set_agent_id(agent_id) configura el agent_id del LLM",
+          "capture_llm_response(response) captura la respuesta del LLM",
+          "session() retorna información de la sesión actual",
+          "calibration_history() retorna el historial de calibración",
+          "calibration_reset() reinicia la calibración",
+          "decisions() retorna las decisiones del sistema",
+          "facts() retorna los hechos del dominio",
+          "stale() retorna el estado de staleness",
+          "theory() retorna las teorías del sistema",
+          "challenge(decision_id) desafía una decisión",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestMessageRouting::test_classify_non_development pasa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestDevelopmentWithoutContext::test_user_confirms_project pasa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestDevelopmentWithContext::test_validate_context pasa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestMessagePersistence::test_persist_before_classify pasa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestSemanticEnrichment::test_enrich_project pasa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestScenarios pasa",
+          "test E2E ejecuta en menos de 10 segundos"
+        ],
+        "must_not_exist": [
+          "ningun import roto impide el arranque del servidor",
+          "ningun stub retorna ok true sin logica real",
+          "ningun tool call crashea el servidor por AttributeError/KeyError/ImportError"
+        ],
+        "invariants": [
+          "server.py mantiene su estructura de registro de tools sin modificar",
+          "las tools existentes de otros bounded contexts siguen funcionando",
+          "el test E2E se ejecuta en menos de 10 segundos sin depender de red externa",
+          "los roles y phases implementados en arquitectura de roles siguen funcionando"
+        ]
+      },
+      "signatures": [
+        {
+          "function": "health(context)",
+          "file": "features/engine/api/mcp_tools.py",
+          "params": "context: Context",
+          "returns": "dict con status real del engine"
+        },
+        {
+          "function": "onboarding(context, topic)",
+          "file": "features/engine/api/mcp_tools.py",
+          "params": "context: Context, topic: str",
+          "returns": "dict con resultado de onboarding real"
+        },
+        {
+          "function": "skill(context, name)",
+          "file": "features/engine/api/mcp_tools.py",
+          "params": "context: Context, name: str",
+          "returns": "dict con skill cargada o error descriptivo"
+        },
+        {
+          "function": "resolve_conflict(context, conflict)",
+          "file": "features/engine/api/mcp_tools.py",
+          "params": "context: Context, conflict: str",
+          "returns": "dict con resolucion de conflicto"
+        }
+      ],
+      "contexto_chat": {
+        "marco_6_niveles": {
+          "observacion": "El LLM necesita 10 herramientas MCP para desarrollar software: crear proyectos, sprints, tareas, avanzar trabajo, activar roles, recibir guidance, buscar código, analizar proyectos, ingerir planes y registrar decisiones.",
+          "estructura": "3 módulos: Agent (front-face), Workflow (orquestación de fases), Tools+Scrum (gestión de proyectos/sprints/tareas).",
+          "comportamiento": "Flujo usuario -> LLM -> MCP. El MCP es responsable de forzar confirmación del usuario y no permitir que el LLM asuma.",
+          "causalidad": "Roles/fases controlan acceso. Workflow engine garantiza transiciones válidas. KV store persiste estado. Agent orchestrator coordina identidad/roles/fases.",
+          "finalidad": "Agent: interfaz única LLM-sistema. Workflow: orquestar fases. Tools: capacidades específicas. Scrum: gestionar proyectos/sprints/tareas.",
+          "principios": "DDD bounded contexts, MCP tools como interfaz estándar, role-based access, event-driven, KV-first."
+        },
+        "escenarios_mapeados": {
+          "escenario_1": {
+            "nombre": "Mensaje no relacionado con desarrollo",
+            "flujo": "message -> classify_message -> route_message -> respuesta directa",
+            "capa_seguridad": "No expone herramientas internas, solo guarda mensaje",
+            "tareas": [
+              "TASK-017",
+              "TASK-104"
+            ]
+          },
+          "escenario_2": {
+            "nombre": "Desarrollo sin contexto",
+            "flujo": "message -> project_discover -> confirmación usuario -> project_create -> delta_plan -> project_create_task",
+            "capa_seguridad": "Confirmación OBLIGATORIA del usuario. LLM NUNCA asume.",
+            "tareas": [
+              "TASK-018",
+              "TASK-021",
+              "TASK-001",
+              "TASK-019"
+            ]
+          },
+          "escenario_3": {
+            "nombre": "Desarrollo con contexto",
+            "flujo": "message -> validate_project_context -> cognitive_state -> guidance -> code_* -> project_advance -> message",
+            "capa_seguridad": "Valida que proyecto/sprint/tarea existan antes de ejecutar tools",
+            "tareas": [
+              "TASK-019",
+              "TASK-020",
+              "TASK-005",
+              "TASK-008",
+              "TASK-003"
+            ]
+          }
+        },
+        "mecanismos_seguridad": [
+          "classify_message: clasifica mensajes como desarrollo/no-desarrollo",
+          "route_message: enruta según clasificación",
+          "confirm_project_selection: requiere confirmación explícita del usuario",
+          "validate_project_context: valida que proyecto/sprint/tarea existan",
+          "Persistencia obligatoria: TODO mensaje se guarda en KV:session:{id}:messages",
+          "Enriquecimiento semántico: project_discover usa Memora para mostrar dominios/configuraciones/features"
+        ]
+      }
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-017",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar classify_message(message) y route_message(message) como MCP tools en features/agent/guidance/api/mcp_tools.py o un nuevo modulo. Escenario 1: Mensaje NO relacionado con desarrollo. El MCP clasifica el mensaje y, si no es de desarrollo, NO expone herramientas internas. Solo guarda el mensaje y permite respuesta directa.",
+        "result_state": "classify_message y route_message están registrados como MCP tools. Escenario 1 funciona: mensajes no relacionados no exponen herramientas internas.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "El LLM puede responder mensajes no relacionados con desarrollo sin usar herramientas del MCP",
+            "pytest features/agent/tests/test_e2e_agent_tools.py::TestMessageRouting::test_classify_non_development pasa"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/guidance/api/mcp_tools.py",
+            "features/agent/messages/api/mcp_tools.py"
+          ],
+          "apis": [
+            "classify_message MCP tool",
+            "route_message MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "def classify_message en features/agent/messages/api/mcp_tools.py",
+          "def route_message en features/agent/messages/api/mcp_tools.py",
+          "classify_message retorna classification",
+          "route_message retorna route: development o route: direct",
+          "route_message retorna tools_exposed: False cuando no es desarrollo"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.agent.guidance.api.mcp_tools import classify_message, route_message",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def classify_message' features/agent",
+          "grep 'def route_message' features/agent"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita clasificar mensajes como desarrollo/no-desarrollo para decidir si exponer herramientas internas.",
+          "prerequisites": [
+            "cognitive_v2.features.agent.messages.api.mcp_tools.message existe y funciona",
+            "KV:session:{id}:messages está disponible",
+            "El servidor MCP está corriendo"
+          ],
+          "dependencies": [],
+          "definition_of_done": "classify_message y route_message están registradas como MCP tools. El MCP clasifica correctamente mensajes de desarrollo vs no-desarrollo. Mensajes no relacionados NO exponen herramientas internas."
+        }
+      },
+      {
+        "task_id": "TASK-018",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar el flujo de confirmación obligatoria para desarrollo SIN contexto. Escenario 2: el LLM clasifica el mensaje como desarrollo, busca proyectos existentes, presenta opciones al usuario, y ESPERA confirmación. Solo después de confirmación crea el proyecto o selecciona el existente. El MCP NUNCA permite que el LLM asuma.",
+        "result_state": "Escenario 2 funciona con confirmación obligatoria. El LLM descubre proyectos, presenta opciones, y el usuario confirma antes de crear/seleccionar.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "pytest features/agent/tests/test_e2e_agent_tools.py::TestDevelopmentWithoutContext::test_user_confirms_project pasa"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/acl/api/mcp_tools.py",
+            "features/scrum/api/mcp_tools.py"
+          ],
+          "apis": [
+            "confirm_project_selection MCP tool",
+            "project_discover MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "project_discover retorna lista de proyectos candidatos con dominios/configuraciones/features",
+          "confirm_project_selection requiere confirmación explícita del usuario",
+          "Si no hay confirmación, NO se crea proyecto",
+          "El LLM no puede llamar project_create sin confirmación previa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestDevelopmentWithoutContext::test_user_confirms_project pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import project_discover",
+          "from cognitive_v2.features.agent.acl.api.mcp_tools import confirm_project_selection",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def confirm_project_selection' features/agent",
+          "grep 'def project_discover' features/scrum/api/mcp_tools.py",
+          "grep 'user_confirmed' features/agent"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita un flujo de confirmación obligatoria para desarrollo sin contexto. El MCP presenta opciones y espera confirmación del usuario.",
+          "prerequisites": [
+            "TASK-017 completada (classify_message/route_message)",
+            "TASK-021 completada (enriquecimiento semántico)",
+            "project_discover existe y retorna proyectos",
+            "confirm_project_selection existe y requiere confirmación"
+          ],
+          "dependencies": [
+            "TASK-017",
+            "TASK-021"
+          ],
+          "definition_of_done": "El flujo de confirmación obligatoria funciona: (1) LLM clasifica como desarrollo, (2) MCP descubre proyectos, (3) MCP presenta opciones al usuario, (4) usuario confirma, (5) solo entonces se crea/selecciona proyecto. El LLM NUNCA puede crear un proyecto sin confirmación."
+        }
+      },
+      {
+        "task_id": "TASK-021",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar enriquecimiento semántico de proyectos con dominios, configuraciones y features en Memora. Escenario 2: cuando el LLM necesita descubrir proyectos, el MCP usa Memora para mostrar información semántica que ayuda al usuario a seleccionar el proyecto correcto. El LLM NUNCA asume.",
+        "result_state": "project_discover muestra información semántica desde Memora. El usuario puede seleccionar el proyecto correcto con contexto enriquecido.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "cell(topic) retorna CognitiveState con goal, proposal, distance, risk, next_action",
+            "cognitive_state() retorna el estado cognitivo completo del LLM",
+            "memory_search(query) busca en Memora, CGC y KV",
+            "pytest features/agent/tests/test_e2e_agent_tools.py::TestSemanticEnrichment::test_enrich_project pasa"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/acl/api/mcp_tools.py",
+            "features/scrum/api/mcp_tools.py"
+          ],
+          "apis": [
+            "enrich_project_with_semantics MCP tool",
+            "project_discover MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "def project_discover en features/scrum/api/mcp_tools.py",
+          "def project_discover en features/tools/api/mcp_tools/absorption.py",
+          "project_discover retorna proyectos con dominios, configuraciones y features",
+          "La información semántica se obtiene de Memora",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestSemanticEnrichment::test_enrich_project pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import project_discover",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def enrich_project_with_semantics' features/agent",
+          "grep 'Memora' features/scrum/api/mcp_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita información semántica de proyectos (dominios, configuraciones, features) para ayudar al usuario a seleccionar el proyecto correcto.",
+          "prerequisites": [
+            "TASK-017 completada (classify_message/route_message)",
+            "Memora está disponible y contiene información semántica de proyectos",
+            "project_discover existe"
+          ],
+          "dependencies": [
+            "TASK-017"
+          ],
+          "definition_of_done": "project_discover retorna proyectos con dominios, configuraciones y features obtenidas de Memora. El usuario VE esta información antes de confirmar."
+        }
+      },
+      {
+        "task_id": "TASK-001",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer project_create(name, project_type, goal, project_goal) como MCP tool en features/scrum/api/mcp_tools.py. Actualmente _project_create existe pero no tiene @mcp.tool(). El LLM necesita crear proyectos para iniciar el flujo de desarrollo.",
+        "result_state": "project_create(name, project_type, goal) está registrado como MCP tool y el LLM puede crear proyectos.",
+        "domain": "scrum",
+        "validation": {
+          "predicates": [
+            "project_create(name, project_type, goal) crea un proyecto nuevo",
+            "set_project_context(name, goal) persiste contexto del proyecto en KV"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/scrum/api/mcp_tools.py"
+          ],
+          "apis": [
+            "project_create MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "project_create en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestProjectManagement::test_project_create pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import project_create"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep '@mcp.tool' features/scrum/api/mcp_tools.py | grep project_create"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita configurar el contexto del proyecto para poder trabajar.",
+          "prerequisites": [
+            "TASK-017 completada (classify_message/route_message)",
+            "set_project_context existe en features/agent/acl/api/mcp_tools.py",
+            "KV:project:{project_id}:context está disponible"
+          ],
+          "dependencies": [
+            "TASK-017"
+          ],
+          "definition_of_done": "set_project_context está registrada como MCP tool. Persiste el contexto del proyecto en KV y retorna el contexto guardado."
+        }
+      },
+      {
+        "task_id": "TASK-019",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar validación de contexto para desarrollo CON proyecto/sprint/tarea. Escenario 3: el MCP valida que el proyecto/sprint/tarea existan en KV antes de ejecutar cualquier tool. Si no existen, redirige al escenario 2 (flujo de confirmación).",
+        "result_state": "Escenario 3 funciona con validación de contexto. El MCP valida proyecto/sprint/tarea antes de ejecutar tools. Si no existen, redirige a escenario 2.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "pytest features/agent/tests/test_e2e_agent_tools.py::TestDevelopmentWithContext::test_validate_context pasa"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/guidance/api/guidance_tools.py",
+            "features/agent/acl/api/mcp_tools.py"
+          ],
+          "apis": [
+            "validate_project_context MCP tool",
+            "validate_sprint_context MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "def validate_project_context en features/agent/guidance/api/guidance_tools.py",
+          "def validate_sprint_context en features/agent/guidance/api/guidance_tools.py",
+          "validate_project_context retorna ok",
+          "validate_sprint_context retorna ok",
+          "from cognitive_v2.features.agent.guidance.api.guidance_tools import validate_project_context validate_sprint_context no falla"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.agent.guidance.api.guidance_tools import validate_project_context",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def validate_project_context' features/agent",
+          "grep 'def validate_sprint_context' features/agent"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita validar que el proyecto/sprint/tarea existan antes de ejecutar cualquier tool.",
+          "prerequisites": [
+            "TASK-001 completada (set_project_context)",
+            "KV store está disponible",
+            "Los proyectos/sprints/tareas se persisten en KV"
+          ],
+          "dependencies": [
+            "TASK-001"
+          ],
+          "definition_of_done": "validate_project_context y validate_sprint_context están registradas como MCP tools. Retornan ok=true si existe, ok=false si no. Si el contexto no existe, redirigen al flujo de confirmación (escenario 2)."
+        }
+      },
+      {
+        "task_id": "TASK-020",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar persistencia obligatoria de mensajes como primera capa del flujo. Escenario 1, 2 y 3: TODO mensaje del usuario y TODO mensaje del LLM se persisten en KV:session:{id}:messages ANTES de cualquier otra operación. El MCP usa este historial para enriquecer el contexto del LLM.",
+        "result_state": "Todos los mensajes se persisten como primera capa. El MCP usa el historial para enriquecer el contexto del LLM en todos los escenarios.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "pytest features/agent/tests/test_e2e_agent_tools.py::TestMessagePersistence::test_persist_before_classify pasa"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/messages/api/mcp_tools.py",
+            "features/agent/guidance/api/mcp_tools.py"
+          ],
+          "apis": [
+            "message MCP tool",
+            "persist_message MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "message(text, role) persiste el mensaje en KV:session:{id}:messages",
+          "TODO mensaje del usuario se persiste antes de clasificar",
+          "TODO mensaje del LLM se persiste antes de responder",
+          "El historial se usa para enriquecer cognitive_state",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestMessagePersistence::test_persist_before_classify pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.agent.messages.api.mcp_tools import message",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def message' features/agent/messages/api/mcp_tools.py",
+          "grep 'def persist_message' features/agent",
+          "grep 'KV:session' features/agent/messages/api/mcp_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita persistir TODOS los mensajes como primera capa del flujo.",
+          "prerequisites": [
+            "TASK-017 completada (classify_message/route_message)",
+            "message existe en features/agent/messages/api/mcp_tools.py",
+            "KV:session:{id}:messages está disponible"
+          ],
+          "dependencies": [
+            "TASK-017"
+          ],
+          "definition_of_done": "TODO mensaje del usuario y del LLM se persiste en KV:session:{id}:messages ANTES de cualquier otra operación. El historial se usa para enriquecer cognitive_state."
+        }
+      },
+      {
+        "task_id": "TASK-022",
+        "role": "core",
+        "type": "test",
+        "work_type": "refactor_inline",
+        "objective": "Crear test E2E que valide los 3 escenarios principales del LLM con sus capas de seguridad: (1) mensaje no relacionado NO expone herramientas, (2) desarrollo sin contexto REQUIERE confirmación del usuario, (3) desarrollo con contexto valida proyecto/sprint/tarea. Test debe ejecutarse en <10s.",
+        "result_state": "Test E2E valida los 3 escenarios principales con sus capas de seguridad. El MCP garantiza que el LLM no asume y que el usuario confirma.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "pytest features/agent/tests/test_e2e_agent_tools.py::TestScenarios pasa",
+            "test E2E ejecuta en menos de 10 segundos"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0,
+          "commit_trust": 0.15
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "test_scenario_1_non_development pasa",
+          "test_scenario_2_development_without_context pasa",
+          "test_scenario_3_development_with_context pasa",
+          "test E2E ejecuta en menos de 10 segundos"
+        ],
+        "quality_gates": [
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestScenarios -v",
+          "0 fallos",
+          "test E2E ejecuta en menos de 10 segundos"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "def test_scenario_1_non_development en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_scenario_2_development_without_context en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_scenario_3_development_with_context en features/agent/tests/test_e2e_agent_tools.py"
+        ],
+        "context": {
+          "descripcion": "Test E2E que valida los 3 escenarios principales del LLM con sus capas de seguridad.",
+          "prerequisites": [
+            "TASK-017 completada (classify_message/route_message)",
+            "TASK-018 completada (confirmación obligatoria)",
+            "TASK-019 completada (validación de contexto)",
+            "TASK-020 completada (persistencia de mensajes)",
+            "TASK-021 completada (enriquecimiento semántico)"
+          ],
+          "dependencies": [
+            "TASK-017",
+            "TASK-018",
+            "TASK-019",
+            "TASK-020",
+            "TASK-021"
+          ],
+          "definition_of_done": "Test E2E ejecuta en <10s y valida: (1) mensaje no relacionado NO expone herramientas, (2) desarrollo sin contexto REQUIERE confirmación, (3) desarrollo con contexto valida proyecto/sprint/tarea."
+        }
+      },
+      {
+        "task_id": "TASK-R01",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "importer_files": 6,
+        "objective": "Refactorizar features/engine/api/mcp_tools.py para que health, onboarding, skill, resolve_conflict deleguen a servicios reales existentes CADA UNO con @requires(role, phase) aplicado: health → público (sin restricción), onboarding → scrum_master+REFINE, skill → público, resolve_conflict → scrum_master+any_phase. health debe reportar estado real del engine, onboarding debe inicializar contexto real, skill debe cargar skills del sistema de archivos, resolve_conflict debe usar lógica de resolución real.",
+        "domain": "engine",
+        "artefactos_impactados": {
+          "files": [
+            "features/engine/api/mcp_tools.py"
+          ],
+          "apis": [
+            "FastMCP tool registration",
+            "health endpoint",
+            "onboarding endpoint",
+            "skill loader",
+            "conflict resolver"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Delegar a servicios existentes (onboarding_contextual, skill loader, conflict resolution) en vez de stubs hardcodeados",
+            "alternatives": [
+              "Mantener stubs",
+              "Reescribir servicios desde cero"
+            ],
+            "rationale": "Los servicios ya existen en cognitive_v2.features.agent. Solo hay que conectarlos a las tools MCP."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep '@requires' features/engine/api/mcp_tools.py",
+          "grep 'get_health_service' features/engine/api/mcp_tools.py",
+          "grep 'enrich_onboarding_result' features/engine/api/mcp_tools.py",
+          "grep '_load_skill_from_fs' features/engine/api/mcp_tools.py",
+          "grep 'op_resolve_conflict' features/engine/api/mcp_tools.py"
+        ],
+        "acceptance_criteria": [
+          "def register_tools en features/engine/api/mcp_tools.py",
+          "def health en features/engine/api/mcp_tools.py",
+          "def onboarding en features/engine/api/mcp_tools.py",
+          "def skill en features/engine/api/mcp_tools.py",
+          "def resolve_conflict en features/engine/api/mcp_tools.py",
+          "@requires en features/engine/api/mcp_tools.py",
+          "get_health_service en features/engine/api/mcp_tools.py",
+          "enrich_onboarding_result en features/engine/api/mcp_tools.py",
+          "_load_skill_from_fs en features/engine/api/mcp_tools.py",
+          "op_resolve_conflict en features/engine/api/mcp_tools.py"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.server import mcp",
+          "python3 -c 'from cognitive_v2.server import mcp'",
+          "delta-qlty-check features/engine/api/mcp_tools.py 0 fails"
+        ],
+        "validation": {
+          "predicates": [
+            "server.py mantiene su estructura de registro de tools sin modificar"
+          ]
+        },
+        "result_state": "health, onboarding, skill, resolve_conflict en features/engine/api/mcp_tools.py tienen @requires aplicado y delegan a servicios reales (HealthService.check(), enrich_onboarding_result(), _load_skill_from_fs(), op_resolve_conflict).",
+        "context": {
+          "descripcion": "Tareas base del sprint: refactor de engine/api y tests.",
+          "prerequisites": [
+            "El servidor MCP está corriendo",
+            "Los imports de engine/api funcionan"
+          ],
+          "dependencies": [],
+          "definition_of_done": "Las tareas R01-R04 están completadas y todos los imports funcionan."
+        }
+      },
+      {
+        "task_id": "TASK-R02",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "importer_files": 5,
+        "objective": "Refactorizar los 5 módulos restantes de engine/api/ (skill_tools, trace_tools, metrics_tools, age_decay_tools, code_tools) para que sus register_* deleguen a servicios reales CADA TOOL con @requires(role, phase) aplicado según el bounded context. skill_tools: @requires(scrum_master, REFINE), trace_tools: @requires(developer, IMPLEMENTING), metrics_tools: público, age_decay_tools: público, code_tools: @requires(developer, IMPLEMENTING). Las tools deben tener lógica funcional mínima pero real, no stubs vacíos. Imports circulares resueltos, 0 errores de sintaxis.",
+        "domain": "engine",
+        "artefactos_impactados": {
+          "files": [
+            "features/engine/api/skill_tools.py",
+            "features/engine/api/trace_tools.py",
+            "features/engine/api/metrics_tools.py",
+            "features/engine/api/age_decay_tools.py",
+            "features/engine/api/code_tools.py"
+          ],
+          "apis": [
+            "FastMCP tool registration",
+            "skill management",
+            "tracing",
+            "metrics",
+            "age/decay",
+            "code analysis"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Delegar a servicios existentes donde existan, implementar logica real minima donde no",
+            "alternatives": [
+              "Dejar stubs vacios",
+              "Implementar todo desde cero"
+            ],
+            "rationale": "Balance entre funcionalidad real y scope controlado."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "def register_skill_tools en features/engine/api/skill_tools.py",
+          "def register_trace_tools en features/engine/api/trace_tools.py",
+          "def register_metrics_tools en features/engine/api/metrics_tools.py",
+          "def register_age_decay_tools en features/engine/api/age_decay_tools.py",
+          "def register_code_tools en features/engine/api/code_tools.py",
+          "NO return ok True hardcodeado sin logica en features/engine/api/skill_tools.py",
+          "NO return ok True hardcodeado sin logica en features/engine/api/trace_tools.py"
+        ],
+        "acceptance_criteria": [
+          "def register_skill_tools en features/engine/api/skill_tools.py",
+          "def list_skills en features/engine/api/skill_tools.py",
+          "def get_skill en features/engine/api/skill_tools.py",
+          "SKILLS_DIR en features/engine/api/skill_tools.py",
+          "def register_trace_tools en features/engine/api/trace_tools.py",
+          "def get_trace en features/engine/api/trace_tools.py",
+          "def list_traces en features/engine/api/trace_tools.py",
+          "TracePort en features/engine/api/trace_tools.py",
+          "def register_metrics_tools en features/engine/api/metrics_tools.py",
+          "def get_metrics en features/engine/api/metrics_tools.py",
+          "def get_performance en features/engine/api/metrics_tools.py",
+          "HealthService en features/engine/api/metrics_tools.py",
+          "def register_age_decay_tools en features/engine/api/age_decay_tools.py",
+          "def get_decay_status en features/engine/api/age_decay_tools.py",
+          "def apply_decay en features/engine/api/age_decay_tools.py",
+          "def register_code_tools en features/engine/api/code_tools.py",
+          "def analyze_code en features/engine/api/code_tools.py",
+          "def get_code_context en features/engine/api/code_tools.py",
+          "CodeGraph en features/engine/api/code_tools.py"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.engine.api import register_skill_tools register_trace_tools register_metrics_tools register_age_decay_tools register_code_tools",
+          "python3 -c 'from cognitive_v2.server import mcp'",
+          "delta-qlty-check features/engine/api/ 0 fails"
+        ],
+        "validation": {
+          "predicates": [
+            "las tools existentes de otros bounded contexts siguen funcionando",
+            "ningun stub retorna ok true sin logica real"
+          ]
+        },
+        "result_state": "Los 5 modulos restantes de engine/api/ (skill_tools, trace_tools, metrics_tools, age_decay_tools, code_tools) tienen register_* que delegan a servicios reales con @requires aplicado. Cada tool retorna logica real, no stubs vacios.",
+        "context": {
+          "descripcion": "Tareas base del sprint: refactor de engine/api y tests.",
+          "prerequisites": [
+            "El servidor MCP está corriendo",
+            "Los imports de engine/api funcionan"
+          ],
+          "dependencies": [],
+          "definition_of_done": "Las tareas R01-R04 están completadas y todos los imports funcionan."
+        }
+      },
+      {
+        "task_id": "TASK-R03",
+        "type": "bugfix",
+        "work_type": "bugfix",
+        "importer_files": 1,
+        "objective": "Resolver los errores pre-existentes en la cadena de imports que bloquean mcp.run: PHASE_LABELS no existe en shared/config.py, verificar que el shim de mcp_state_recovery funciona, y cualquier otro import roto que impida que el servidor arranque.",
+        "domain": "infrastructure",
+        "artefactos_impactados": {
+          "files": [
+            "shared/config.py",
+            "shared/mcp_state_recovery.py",
+            "features/workflow/infrastructure/persistence/infrastructure/composition.py",
+            "features/workflow/infrastructure/persistence/infrastructure/database.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [
+            "shared/config.py"
+          ],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [
+          {
+            "chosen": "Agregar PHASE_LABELS a shared/config.py y verificar que todos los imports funcionan",
+            "alternatives": [
+              "Eliminar el import de PHASE_LABELS en scrum",
+              "Ignorar el problema"
+            ],
+            "rationale": "PHASE_LABELS es una constante de configuracion legitima. Agregarla resuelve el import sin romper nada."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "PHASE_LABELS definido en shared/config.py",
+          "from cognitive_v2.shared.config import PHASE_LABELS no falla",
+          "from cognitive_v2.shared.mcp_state_recovery import save_mcp_initialized no falla",
+          "from cognitive_v2.server import mcp no falla"
+        ],
+        "acceptance_criteria": [
+          "python3 -c 'from cognitive_v2.server import mcp' ejecuta sin error (criterio 1)",
+          "PHASE_LABELS definido en shared/config.py y accesible desde scrum/decisions/tools",
+          "from cognitive_v2.shared.mcp_state_recovery import save_mcp_initialized no falla",
+          "0 errores de sintaxis en features/workflow/infrastructure/persistence/infrastructure/"
+        ],
+        "quality_gates": [
+          "python3 -c 'from cognitive_v2.server import mcp' exit 0",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::test_server_imports_cleanly pasa",
+          "0 nuevos imports rotos introducidos"
+        ],
+        "validation": {
+          "predicates": [
+            "ningun import roto impide el arranque del servidor"
+          ]
+        },
+        "result_state": "Todos los errores pre-existentes en la cadena de imports que bloquean mcp.run estan resueltos: PHASE_LABELS en shared/config.py, mcp_state_recovery accesible, composition.py y database.py sin errores de sintaxis.",
+        "context": {
+          "descripcion": "Tareas base del sprint: refactor de engine/api y tests.",
+          "prerequisites": [
+            "El servidor MCP está corriendo",
+            "Los imports de engine/api funcionan"
+          ],
+          "dependencies": [],
+          "definition_of_done": "Las tareas R01-R04 están completadas y todos los imports funcionan."
+        }
+      },
+      {
+        "task_id": "TASK-R04",
+        "type": "test",
+        "work_type": "refactor_inline",
+        "importer_files": 1,
+        "objective": "Crear y ejecutar test de integracion end-to-end que valide los 10 criterios especificos del modulo agent: (1) set_project_context persiste en KV, (2) cell(topic) retorna CognitiveState completo, (3) memory_search(query) busca en 3 layers, (4) delta_plan(goal) crea sprint en KV, (5) health_check retorna engine/memory/project status, (6) onboarding(topic) inicializa sesion, (7) skill(name) carga skill desde filesystem, (8) resolve_conflict resuelve bloqueos, (9) message(text) persiste mensaje, (10) verify_response(response) valida contrato. El test arranca el MCP en modo test stdio y ejecuta todas las validaciones.",
+        "domain": "agent",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "apis": [
+            "FastMCP stdio client",
+            "MCP tool protocol"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Test E2E con FastMCP en modo test stdio sin depender de red ni de un servidor externo",
+            "alternatives": [
+              "Test con SSE y puerto real",
+              "Mock del cliente MCP"
+            ],
+            "rationale": "FastMCP soporta modo test. Es rapido menos de 10s no depende de red y valida el protocolo real."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "def test_health_responds en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_onboarding_responds en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_skill_responds en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_resolve_conflict_responds en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_all_engine_modules_register en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_server_imports_cleanly en features/agent/tests/test_e2e_agent_tools.py"
+        ],
+        "acceptance_criteria": [
+          "pytest features/agent/tests/test_e2e_agent_tools.py pasa",
+          "test_server_imports_cleanly pasa",
+          "test_health_returns_status pasa",
+          "test_onboarding_returns_context pasa",
+          "test_skill_loads_existing pasa",
+          "test_skill_not_found pasa",
+          "test_resolve_conflict_returns_result pasa",
+          "test_list_skills pasa",
+          "test_get_trace pasa",
+          "test_get_metrics pasa",
+          "test_apply_decay pasa",
+          "test_analyze_code pasa"
+        ],
+        "quality_gates": [
+          "pytest features/agent/tests/test_e2e_agent_tools.py -v",
+          "0 fallos en test_e2e_agent_tools.py"
+        ],
+        "validation": {
+          "predicates": [
+            "el test E2E se ejecuta en menos de 10 segundos sin depender de red externa",
+            "ningun tool call crashea el servidor por AttributeError/KeyError/ImportError"
+          ]
+        },
+        "result_state": "Test E2E en features/agent/tests/test_e2e_agent_tools.py valida los 10 criterios especificos del modulo agent. El MCP arranca en modo test stdio, todas las tools retornan datos reales, y el flujo usuario->LLM->MCP funciona end-to-end.",
+        "context": {
+          "descripcion": "Tareas base del sprint: refactor de engine/api y tests.",
+          "prerequisites": [
+            "El servidor MCP está corriendo",
+            "Los imports de engine/api funcionan"
+          ],
+          "dependencies": [],
+          "definition_of_done": "Las tareas R01-R04 están completadas y todos los imports funcionan."
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer delta_create_sprint(goal, tasks) y delta_plan(goal, criteria, tasks) como MCP tools. El LLM necesita crear sprints dentro de proyectos para planificar el trabajo.",
+        "result_state": "delta_create_sprint y delta_plan están registrados como MCP tools y el LLM puede crear sprints.",
+        "domain": "scrum",
+        "validation": {
+          "predicates": [
+            "delta_plan(goal, criteria, tasks) crea un sprint con tasks en KV"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/scrum/api/mcp_tools.py"
+          ],
+          "apis": [
+            "delta_create_sprint MCP tool",
+            "delta_plan MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "delta_create_sprint en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "delta_plan en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestSprintManagement::test_delta_create_sprint pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import delta_create_sprint, delta_plan"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep '@mcp.tool' features/scrum/api/mcp_tools.py | grep delta_create_sprint",
+          "grep '@mcp.tool' features/scrum/api/mcp_tools.py | grep delta_plan"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita crear sprints para planificar el trabajo.",
+          "prerequisites": [
+            "TASK-01 completada (project_create)",
+            "delta_create_sprint y delta_plan existen en features/scrum/api/mcp_tools.py"
+          ],
+          "dependencies": [
+            "TASK-01"
+          ],
+          "definition_of_done": "delta_create_sprint y delta_plan están registradas como MCP tools. Crean un sprint con tasks en KV y retornan plan_id."
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer project_advance(task_id) y project_next_action() como MCP tools. El LLM necesita avanzar tareas y obtener la siguiente acción dentro de un sprint.",
+        "result_state": "project_advance y project_next_action están registrados como MCP tools y el LLM puede avanzar tareas.",
+        "domain": "scrum",
+        "validation": {
+          "predicates": [
+            "project_advance(task_id) avanza el estado de una tarea",
+            "project_next_action() retorna la siguiente tarea a ejecutar"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/scrum/api/mcp_tools.py"
+          ],
+          "apis": [
+            "project_advance MCP tool",
+            "project_next_action MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "project_advance en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_next_action en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestTaskManagement::test_project_advance pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import project_advance, project_next_action"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep '@mcp.tool' features/scrum/api/mcp_tools.py | grep project_advance",
+          "grep '@mcp.tool' features/scrum/api/mcp_tools.py | grep project_next_action"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita avanzar tareas y obtener la siguiente acción.",
+          "prerequisites": [
+            "TASK-11 completada (task CRUD)",
+            "project_advance y project_next_action existen"
+          ],
+          "dependencies": [
+            "TASK-11"
+          ],
+          "definition_of_done": "project_advance y project_next_action están registradas como MCP tools. Avanzan tareas y retornan la siguiente acción."
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar activate_role(role) y set_phase(phase) como MCP tools en features/agent/domain/roles.py o un nuevo archivo. El LLM necesita activar roles y cambiar fases para ejecutar tools permitidas en cada contexto.",
+        "result_state": "activate_role y set_phase están registrados como MCP tools y el LLM puede activar roles y cambiar fases.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "activate_role(role) cambia el rol del ActorIdentity",
+            "los roles y phases implementados en arquitectura de roles siguen funcionando",
+            "set_phase(phase) cambia la fase del AgentOrchestrator"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/domain/roles.py",
+            "features/agent/api/__init__.py"
+          ],
+          "apis": [
+            "activate_role MCP tool",
+            "set_phase MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "activate_role en features/agent/api/__init__.py tiene @mcp.tool()",
+          "set_phase en features/agent/api/__init__.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestRoleActivation::test_activate_role pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.agent.api import activate_role, set_phase"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def activate_role' cognitive_v2/features/agent",
+          "grep 'def set_phase' cognitive_v2/features/agent"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita activar roles y cambiar fases para acceder a diferentes tools.",
+          "prerequisites": [
+            "TASK-003 completada (project_advance)",
+            "activate_role y set_phase existen o se implementan",
+            "AgentOrchestrator soporta cambio de rol/fase"
+          ],
+          "dependencies": [
+            "TASK-003"
+          ],
+          "definition_of_done": "activate_role y set_phase están registradas como MCP tools. Cambian el rol/fase del ActorIdentity y el AgentOrchestrator respectivamente."
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar guidance(query, mode) como MCP tool que usa el GuidanceService para dar recomendaciones al LLM. El LLM necesita orientación sobre qué hacer a continuación basado en el estado del proyecto.",
+        "result_state": "guidance(query, mode) está registrado como MCP tool y el LLM recibe recomendaciones sobre qué hacer a continuación.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "guidance(query, mode) retorna recomendaciones del GuidanceService"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/guidance/api/guidance_tools.py"
+          ],
+          "apis": [
+            "guidance MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "guidance en features/agent/guidance/api/guidance_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestGuidance::test_guidance pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.agent.guidance.api.guidance_tools import guidance"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def guidance' features/agent/guidance/api/guidance_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita recibir recomendaciones sobre qué hacer a continuación.",
+          "prerequisites": [
+            "TASK-003 completada (project_advance)",
+            "TASK-004 completada (activate_role/set_phase)",
+            "GuidanceService existe y funciona"
+          ],
+          "dependencies": [
+            "TASK-003",
+            "TASK-004"
+          ],
+          "definition_of_done": "guidance está registrada como MCP tool. Retorna recomendaciones basadas en el estado del proyecto/sprint/tarea."
+        }
+      },
+      {
+        "task_id": "TASK-006",
+        "role": "core",
+        "type": "test",
+        "work_type": "refactor_inline",
+        "objective": "Crear test E2E que valide el flujo completo LLM → MCP para desarrollo de software: (1) LLM crea un proyecto, (2) LLM crea un sprint, (3) LLM avanza tareas, (4) LLM activa roles y cambia fases, (5) LLM recibe guidance. El test debe ejecutarse en menos de 10 segundos.",
+        "result_state": "Test E2E valida el flujo completo LLM → MCP para desarrollo de software: crear proyecto, crear sprint, avanzar tareas, activar roles, recibir guidance.",
+        "domain": "agent",
+        "validation": {
+          "predicates": []
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0,
+          "commit_trust": 0.15
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestLLMFlow::test_llm_creates_project pasa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestLLMFlow::test_llm_creates_sprint pasa",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestLLMFlow::test_llm_advances_task pasa"
+        ],
+        "quality_gates": [
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestLLMFlow -v",
+          "test E2E ejecuta en menos de 10 segundos"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "def test_llm_creates_project en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_llm_creates_sprint en features/agent/tests/test_e2e_agent_tools.py",
+          "def test_llm_advances_task en features/agent/tests/test_e2e_agent_tools.py"
+        ],
+        "context": {
+          "descripcion": "Test E2E del flujo completo LLM -> MCP para desarrollo de software.",
+          "prerequisites": [
+            "TASK-001 a TASK-005 completadas",
+            "TODAS las tools del escenario 3 funcionan"
+          ],
+          "dependencies": [
+            "TASK-001",
+            "TASK-002",
+            "TASK-003",
+            "TASK-004",
+            "TASK-005",
+            "TASK-011"
+          ],
+          "definition_of_done": "Test E2E ejecuta en <10s y valida el flujo completo: crear proyecto -> crear sprint -> crear tarea -> avanzar -> activar rol -> pedir guidance."
+        }
+      },
+      {
+        "task_id": "TASK-007",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer workflow y advance_phase como MCP tools. El LLM necesita controlar el flujo de trabajo a través de fases (SCRUM_INIT, REFINE, IMPLEMENTING, VERIFY, FINALIZED).",
+        "result_state": "workflow y advance_phase están registrados como MCP tools y el LLM puede controlar el flujo de trabajo.",
+        "domain": "workflow",
+        "validation": {
+          "predicates": [
+            "advance_phase() avanza a la siguiente fase del workflow",
+            "workflow() retorna el estado actual del workflow"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/workflow/api/mcp_tools.py",
+            "features/workflow/api/workflow.py"
+          ],
+          "apis": [
+            "workflow MCP tool",
+            "advance_phase MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "workflow en features/workflow/api/mcp_tools.py tiene @mcp.tool()",
+          "advance_phase en features/workflow/api/workflow.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestWorkflow::test_workflow pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.workflow.api.mcp_tools import workflow",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def workflow' features/workflow/api",
+          "grep 'def advance_phase' features/workflow/api"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita controlar el flujo de trabajo a través de fases.",
+          "prerequisites": [
+            "TASK-005 completada (guidance)",
+            "workflow y advance_phase existen en features/workflow/api/"
+          ],
+          "dependencies": [
+            "TASK-005"
+          ],
+          "definition_of_done": "workflow y advance_phase están registradas como MCP tools. Retornan/avanzan el estado del workflow."
+        }
+      },
+      {
+        "task_id": "TASK-008",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer code_lookup, code_analyze, code_edit como MCP tools. El LLM necesita buscar símbolos, analizar código y editarlo durante el desarrollo.",
+        "result_state": "code_lookup, code_analyze, code_edit están registrados como MCP tools y el LLM puede buscar y editar código.",
+        "domain": "tools",
+        "validation": {
+          "predicates": []
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/tools/cpg/api/mcp_tools.py"
+          ],
+          "apis": [
+            "code_lookup MCP tool",
+            "code_analyze MCP tool",
+            "code_edit MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "code_lookup en features/tools/cpg/api/mcp_tools.py tiene @mcp.tool()",
+          "code_analyze en features/tools/cpg/api/mcp_tools.py tiene @mcp.tool()",
+          "code_edit en features/tools/cpg/api/mcp_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestCodeTools::test_code_lookup pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.tools.cpg.api.mcp_tools import code_lookup, code_analyze, code_edit",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def code_lookup' features/tools/cpg/api/mcp_tools.py",
+          "grep 'def code_analyze' features/tools/cpg/api/mcp_tools.py",
+          "grep 'def code_edit' features/tools/cpg/api/mcp_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita buscar símbolos, analizar código y editarlo.",
+          "prerequisites": [
+            "TASK-007 completada (workflow)",
+            "code_lookup, code_analyze, code_edit existen en features/tools/cpg/api/mcp_tools.py"
+          ],
+          "dependencies": [
+            "TASK-007"
+          ],
+          "definition_of_done": "code_lookup, code_analyze, code_edit están registradas como MCP tools. Retornan símbolos, análisis y resultado de edición."
+        }
+      },
+      {
+        "task_id": "TASK-009",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer project_discover, project_analyze, project_ask_architect como MCP tools. El LLM necesita descubrir la estructura del proyecto, analizarlo y consultar al arquitecto.",
+        "result_state": "project_discover, project_analyze, project_ask_architect están registrados como MCP tools y el LLM puede descubrir y analizar proyectos.",
+        "domain": "tools",
+        "validation": {
+          "predicates": [
+            "project_analyze() analiza el proyecto",
+            "project_ask_architect(query) consulta al arquitecto",
+            "project_discover() descubre la estructura del proyecto"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/tools/api/mcp_tools/absorption.py"
+          ],
+          "apis": [
+            "project_discover MCP tool",
+            "project_analyze MCP tool",
+            "project_ask_architect MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "project_discover en features/tools/api/mcp_tools/absorption.py tiene @mcp.tool()",
+          "project_analyze en features/tools/api/mcp_tools/absorption.py tiene @mcp.tool()",
+          "project_ask_architect en features/tools/api/mcp_tools/absorption.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestProjectDiscovery::test_project_discover pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.tools.api.mcp_tools.absorption import project_discover, project_analyze, project_ask_architect",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def project_discover' features/tools/api/mcp_tools/absorption.py",
+          "grep 'def project_analyze' features/tools/api/mcp_tools/absorption.py",
+          "grep 'def project_ask_architect' features/tools/api/mcp_tools/absorption.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita descubrir y analizar la estructura del proyecto.",
+          "prerequisites": [
+            "TASK-008 completada (code tools)",
+            "project_discover, project_analyze, project_ask_architect existen"
+          ],
+          "dependencies": [
+            "TASK-008"
+          ],
+          "definition_of_done": "project_discover, project_analyze, project_ask_architect están registradas como MCP tools. Retornan estructura, análisis y recomendaciones del arquitecto."
+        }
+      },
+      {
+        "task_id": "TASK-010",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer plan_ingest y fact_ops como MCP tools. El LLM necesita ingerir planes y operar con hechos del dominio.",
+        "result_state": "plan_ingest y fact_ops están registrados como MCP tools y el LLM puede ingerir planes y operar con hechos.",
+        "domain": "tools",
+        "validation": {
+          "predicates": [
+            "fact_ops(operation, fact) opera con hechos del dominio",
+            "plan_ingest(plan) ingiere un plan en el sistema"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/tools/api/mcp_tools/plan_ingest.py",
+            "features/tools/api/fact_tools.py"
+          ],
+          "apis": [
+            "plan_ingest MCP tool",
+            "fact_ops MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "plan_ingest en features/tools/api/mcp_tools/plan_ingest.py tiene @mcp.tool()",
+          "fact_ops en features/tools/api/fact_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestPlanIngest::test_plan_ingest pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.tools.api.mcp_tools.plan_ingest import plan_ingest",
+          "from cognitive_v2.features.tools.api.fact_tools import fact_ops",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def plan_ingest' features/tools/api/mcp_tools/plan_ingest.py",
+          "grep 'def fact_ops' features/tools/api/fact_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita ingerir planes y operar con hechos del dominio.",
+          "prerequisites": [
+            "TASK-009 completada (project discovery)",
+            "plan_ingest y fact_ops existen"
+          ],
+          "dependencies": [
+            "TASK-009"
+          ],
+          "definition_of_done": "plan_ingest y fact_ops están registradas como MCP tools. Ingeren planes y operan con hechos."
+        }
+      },
+      {
+        "task_id": "TASK-011",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer project_create_task, project_load_task, project_close_task, project_set_active_task como MCP tools. El LLM necesita crear, cargar, cerrar y activar tareas dentro de un sprint.",
+        "result_state": "project_create_task, project_load_task, project_close_task, project_set_active_task están registrados como MCP tools y el LLM puede gestionar tareas.",
+        "domain": "scrum",
+        "validation": {
+          "predicates": [
+            "project_create_task(description) crea tareas en el sprint"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/scrum/api/mcp_tools.py"
+          ],
+          "apis": [
+            "project_create_task MCP tool",
+            "project_load_task MCP tool",
+            "project_close_task MCP tool",
+            "project_set_active_task MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "project_create_task en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_load_task en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_close_task en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_set_active_task en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestTaskManagement::test_project_create_task pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import project_create_task, project_load_task, project_close_task, project_set_active_task",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def project_create_task' features/scrum/api/mcp_tools.py",
+          "grep 'def project_load_task' features/scrum/api/mcp_tools.py",
+          "grep 'def project_close_task' features/scrum/api/mcp_tools.py",
+          "grep 'def project_set_active_task' features/scrum/api/mcp_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita crear, cargar, cerrar y activar tareas dentro de un sprint.",
+          "prerequisites": [
+            "TASK-010 completada (plan_ingest/fact_ops)",
+            "project_create_task, project_load_task, project_close_task, project_set_active_task existen"
+          ],
+          "dependencies": [
+            "TASK-010"
+          ],
+          "definition_of_done": "Las 4 tools están registradas como MCP tools. Crean/cargan/cierran/activan tareas correctamente."
+        }
+      },
+      {
+        "task_id": "TASK-012",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer project_get_guidance, project_get_trail_for_task, project_link_trail_node, project_link_risk, project_link_decision como MCP tools. El LLM necesita obtener guidance, trazas y vincular eventos a tareas.",
+        "result_state": "project_get_guidance, project_get_trail_for_task, project_link_trail_node, project_link_risk, project_link_decision están registrados como MCP tools y el LLM puede gestionar guidance y trazas.",
+        "domain": "scrum",
+        "validation": {
+          "predicates": [
+            "project_get_guidance(query) retorna guidance para el proyecto",
+            "project_get_trail_for_task(task_id) retorna la traza de una tarea",
+            "project_link_decision(task_id, decision) vincula una decisión a una tarea",
+            "project_link_risk(task_id, risk) vincula un riesgo a una tarea",
+            "project_link_trail_node(node_id, task_id) vincula un nodo a una tarea"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/scrum/api/mcp_tools.py"
+          ],
+          "apis": [
+            "project_get_guidance MCP tool",
+            "project_get_trail_for_task MCP tool",
+            "project_link_trail_node MCP tool",
+            "project_link_risk MCP tool",
+            "project_link_decision MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "project_get_guidance en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_get_trail_for_task en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_link_trail_node en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_link_risk en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "project_link_decision en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestTrailManagement::test_project_get_guidance pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import project_get_guidance, project_get_trail_for_task, project_link_trail_node, project_link_risk, project_link_decision",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def project_get_guidance' features/scrum/api/mcp_tools.py",
+          "grep 'def project_get_trail_for_task' features/scrum/api/mcp_tools.py",
+          "grep 'def project_link_trail_node' features/scrum/api/mcp_tools.py",
+          "grep 'def project_link_risk' features/scrum/api/mcp_tools.py",
+          "grep 'def project_link_decision' features/scrum/api/mcp_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita obtener guidance, trazas y vincular eventos a tareas.",
+          "prerequisites": [
+            "TASK-011 completada (task CRUD)",
+            "project_get_guidance, project_get_trail_for_task, project_link_trail_node, project_link_risk, project_link_decision existen"
+          ],
+          "dependencies": [
+            "TASK-011"
+          ],
+          "definition_of_done": "Las 5 tools están registradas como MCP tools. Retornan guidance, trazas y permiten vincular nodos/riesgos/decisiones."
+        }
+      },
+      {
+        "task_id": "TASK-013",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer set_agent_id, capture_llm_response como MCP tools. El LLM necesita configurar su identidad y capturar sus propias respuestas para el sistema cognitivo.",
+        "result_state": "set_agent_id y capture_llm_response están registrados como MCP tools y el LLM puede configurar su identidad y capturar respuestas.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "capture_llm_response(response) captura la respuesta del LLM",
+            "set_agent_id(agent_id) configura el agent_id del LLM"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/scrum/api/mcp_tools.py",
+            "features/agent/messages/api/mcp_tools.py"
+          ],
+          "apis": [
+            "set_agent_id MCP tool",
+            "capture_llm_response MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "set_agent_id en features/scrum/api/mcp_tools.py tiene @mcp.tool()",
+          "capture_llm_response en features/agent/messages/api/mcp_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestAgentIdentity::test_set_agent_id pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.scrum.api.mcp_tools import set_agent_id",
+          "from cognitive_v2.features.agent.messages.api.mcp_tools import capture_llm_response",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def set_agent_id' features/scrum/api/mcp_tools.py",
+          "grep 'def capture_llm_response' features/agent/messages/api/mcp_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita configurar su identidad y capturar sus respuestas.",
+          "prerequisites": [
+            "TASK-012 completada (trail management)",
+            "set_agent_id y capture_llm_response existen"
+          ],
+          "dependencies": [
+            "TASK-012"
+          ],
+          "definition_of_done": "set_agent_id y capture_llm_response están registradas como MCP tools. Configuran identidad y capturan respuestas."
+        }
+      },
+      {
+        "task_id": "TASK-014",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer decisions, facts, stale, theory, challenge como MCP tools. El LLM necesita operar con el sistema de decisiones, hechos, teorías y challenges del bounded context decisions.",
+        "result_state": "decisions, facts, stale, theory, challenge están registrados como MCP tools y el LLM puede operar con el sistema de decisiones.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "challenge(decision_id) desafía una decisión",
+            "decisions() retorna las decisiones del sistema",
+            "facts() retorna los hechos del dominio",
+            "stale() retorna el estado de staleness",
+            "theory() retorna las teorías del sistema"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/decisions/api/mcp_tools.py",
+            "features/agent/decisions/api/facts_tools.py",
+            "features/agent/decisions/api/stale_tools.py",
+            "features/agent/decisions/api/theory_tools.py",
+            "features/agent/decisions/api/challenge_tools.py"
+          ],
+          "apis": [
+            "decisions MCP tool",
+            "facts MCP tool",
+            "stale MCP tool",
+            "theory MCP tool",
+            "challenge MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "decisions en features/agent/decisions/api/mcp_tools.py tiene @mcp.tool()",
+          "facts en features/agent/decisions/api/facts_tools.py tiene @mcp.tool()",
+          "stale en features/agent/decisions/api/stale_tools.py tiene @mcp.tool()",
+          "theory en features/agent/decisions/api/theory_tools.py tiene @mcp.tool()",
+          "challenge en features/agent/decisions/api/challenge_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestDecisions::test_decisions pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.agent.decisions.api.mcp_tools import decisions",
+          "from cognitive_v2.features.agent.decisions.api.facts_tools import facts",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def decisions' features/agent/decisions/api/mcp_tools.py",
+          "grep 'def facts' features/agent/decisions/api/facts_tools.py",
+          "grep 'def stale' features/agent/decisions/api/stale_tools.py",
+          "grep 'def theory' features/agent/decisions/api/theory_tools.py",
+          "grep 'def challenge' features/agent/decisions/api/challenge_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita operar con el sistema de decisiones, hechos, teorías y challenges.",
+          "prerequisites": [
+            "TASK-013 completada (identity)",
+            "decisions, facts, stale, theory, challenge existen"
+          ],
+          "dependencies": [
+            "TASK-013"
+          ],
+          "definition_of_done": "Las 5 tools están registradas como MCP tools. Retornan decisiones, hechos, staleness, teorías y challenges."
+        }
+      },
+      {
+        "task_id": "TASK-015",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer session tools y calibration_history, calibration_reset como MCP tools. El LLM necesita gestionar sesiones y calibrar su comportamiento.",
+        "result_state": "Session tools, calibration_history y calibration_reset están registrados como MCP tools y el LLM puede gestionar sesiones y calibrarse.",
+        "domain": "agent",
+        "validation": {
+          "predicates": [
+            "calibration_history() retorna el historial de calibración",
+            "calibration_reset() reinicia la calibración",
+            "session() retorna información de la sesión actual"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/session/api/session_tools.py",
+            "features/agent/guidance/api/mcp_calibration_tools.py"
+          ],
+          "apis": [
+            "session MCP tool",
+            "calibration_history MCP tool",
+            "calibration_reset MCP tool"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0,
+          "commit_trust": 0.1
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "register_session_tools en features/agent/session/api/session_tools.py registra session tool",
+          "calibration_history en features/agent/guidance/api/mcp_calibration_tools.py tiene @mcp.tool()",
+          "calibration_reset en features/agent/guidance/api/mcp_calibration_tools.py tiene @mcp.tool()",
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestSession::test_session_tools pasa"
+        ],
+        "quality_gates": [
+          "from cognitive_v2.features.agent.session.api.session_tools import register_session_tools",
+          "from cognitive_v2.features.agent.guidance.api.mcp_calibration_tools import calibration_history, calibration_reset",
+          "python3 -c 'from cognitive_v2.server import mcp'"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'def register_session_tools' features/agent/session/api/session_tools.py",
+          "grep 'def calibration_history' features/agent/guidance/api/mcp_calibration_tools.py",
+          "grep 'def calibration_reset' features/agent/guidance/api/mcp_calibration_tools.py"
+        ],
+        "context": {
+          "descripcion": "El LLM necesita gestionar sesiones y calibrar su comportamiento.",
+          "prerequisites": [
+            "TASK-014 completada (decisions)",
+            "session tools, calibration_history, calibration_reset existen"
+          ],
+          "dependencies": [
+            "TASK-014"
+          ],
+          "definition_of_done": "Session tools, calibration_history y calibration_reset están registradas como MCP tools. Gestionan sesiones y calibración."
+        }
+      },
+      {
+        "task_id": "TASK-016",
+        "role": "core",
+        "type": "test",
+        "work_type": "refactor_inline",
+        "objective": "Crear test E2E completo que valide los 10 criterios de uso real por LLM: (1) crear proyecto, (2) crear sprint, (3) avanzar tarea, (4) activar rol, (5) pedir guidance, (6) buscar código, (7) analizar proyecto, (8) ingerir plan, (9) registrar decisión, (10) capturar respuesta. Test debe ejecutarse en <10s.",
+        "result_state": "Test E2E completo valida los 10 criterios de uso real por LLM. El flujo usuario→LLM→MCP funciona end-to-end.",
+        "domain": "agent",
+        "validation": {
+          "predicates": []
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [
+            "features/agent/tests/test_e2e_agent_tools.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0,
+          "commit_trust": 0.15
+        },
+        "depends_on": [],
+        "acceptance_criteria": [
+          "test_llm_full_flow en features/agent/tests/test_e2e_agent_tools.py pasa",
+          "test E2E ejecuta en menos de 10 segundos"
+        ],
+        "quality_gates": [
+          "pytest features/agent/tests/test_e2e_agent_tools.py::TestLLMFullFlow -v",
+          "0 fallos"
+        ],
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "def test_llm_full_flow en features/agent/tests/test_e2e_agent_tools.py"
+        ],
+        "context": {
+          "descripcion": "Test E2E completo que valida los 10 criterios de uso real por LLM.",
+          "prerequisites": [
+            "TASK-001 a TASK-015 completadas",
+            "TODAS las tools del escenario 3 funcionan"
+          ],
+          "dependencies": [
+            "TASK-001",
+            "TASK-002",
+            "TASK-003",
+            "TASK-004",
+            "TASK-005",
+            "TASK-006",
+            "TASK-007",
+            "TASK-008",
+            "TASK-009",
+            "TASK-010",
+            "TASK-011",
+            "TASK-012",
+            "TASK-013",
+            "TASK-014",
+            "TASK-015"
+          ],
+          "definition_of_done": "Test E2E ejecuta en <10s y valida los 10 criterios de uso real por LLM. El flujo usuario->LLM->MCP funciona end-to-end."
+        }
+      }
+    ],
+    "scenarios": {
+      "escenario_1": {
+        "nombre": "Mensaje no relacionado con desarrollo",
+        "descripcion": "El usuario pregunta algo que no requiere herramientas del MCP",
+        "tools_requeridas": [],
+        "tareas": []
+      },
+      "escenario_2": {
+        "nombre": "Desarrollo sin contexto (sin proyecto/sprint/tarea)",
+        "descripcion": "El usuario pide ayuda para desarrollar pero no hay contexto en el session_id",
+        "tools_requeridas": [
+          "set_project_context",
+          "project_create",
+          "delta_plan",
+          "project_create_task",
+          "project_next_action",
+          "project_advance"
+        ],
+        "tareas": [
+          "TASK-001",
+          "TASK-01",
+          "TASK-02",
+          "TASK-11",
+          "TASK-03"
+        ]
+      },
+      "escenario_3": {
+        "nombre": "Desarrollo con contexto completo",
+        "descripcion": "El usuario pide ayuda para desarrollar y hay proyecto/sprint/tarea asociados",
+        "tools_requeridas": [
+          "cognitive_state",
+          "cell",
+          "guidance",
+          "code_lookup",
+          "code_analyze",
+          "code_edit",
+          "project_advance",
+          "message"
+        ],
+        "tareas": [
+          "TASK-001",
+          "TASK-05",
+          "TASK-08",
+          "TASK-03"
+        ]
+      },
+      "escenario_4": {
+        "nombre": "Rol/fase incorrectos",
+        "descripcion": "El LLM intenta ejecutar una tool pero no tiene el rol/fase correctos",
+        "tools_requeridas": [
+          "activate_role",
+          "set_phase"
+        ],
+        "tareas": [
+          "TASK-04"
+        ]
+      },
+      "escenario_5": {
+        "nombre": "Workflow activo",
+        "descripcion": "El LLM está en medio de un sprint y necesita avanzar fases",
+        "tools_requeridas": [
+          "workflow",
+          "advance_phase"
+        ],
+        "tareas": [
+          "TASK-07"
+        ]
+      },
+      "escenario_6": {
+        "nombre": "Análisis y discovery",
+        "descripcion": "El usuario pide analizar la estructura del proyecto",
+        "tools_requeridas": [
+          "project_discover",
+          "project_analyze",
+          "project_ask_architect"
+        ],
+        "tareas": [
+          "TASK-09"
+        ]
+      },
+      "escenario_7": {
+        "nombre": "Planificación y hechos",
+        "descripcion": "El usuario pide ingerir un plan o registrar hechos",
+        "tools_requeridas": [
+          "plan_ingest",
+          "fact_ops"
+        ],
+        "tareas": [
+          "TASK-10"
+        ]
+      },
+      "escenario_8": {
+        "nombre": "Trazabilidad y decisiones",
+        "descripcion": "El usuario pide registrar decisiones o ver trazas",
+        "tools_requeridas": [
+          "project_link_decision",
+          "project_get_trail_for_task",
+          "project_link_risk",
+          "project_link_trail_node",
+          "project_get_guidance"
+        ],
+        "tareas": [
+          "TASK-12"
+        ]
+      },
+      "escenario_9": {
+        "nombre": "Identidad y sesiones",
+        "descripcion": "El usuario configura identidad o consulta calibración",
+        "tools_requeridas": [
+          "set_agent_id",
+          "capture_llm_response",
+          "calibration_history",
+          "calibration_reset"
+        ],
+        "tareas": [
+          "TASK-13",
+          "TASK-15"
+        ]
+      },
+      "escenario_10": {
+        "nombre": "Sistema de decisiones",
+        "descripcion": "El usuario opera con el sistema de decisiones, hechos, teorías",
+        "tools_requeridas": [
+          "decisions",
+          "facts",
+          "stale",
+          "theory",
+          "challenge"
+        ],
+        "tareas": [
+          "TASK-14"
+        ]
+      }
+    }
+  }
+}

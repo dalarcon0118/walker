@@ -1,0 +1,44 @@
+{
+  "projects": {
+    "cognitive-mcp": {
+      "project_id": "cognitive-mcp",
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/cognitive-mcp",
+      "active": true,
+      "registered_at": "2026-07-15T21:15:08Z",
+      "last_accessed": "2026-07-15T22:00:00Z"
+    },
+    "backend-microservices": {
+      "project_id": "backend-microservices",
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/backend-microservices",
+      "active": true,
+      "registered_at": "2026-07-15T21:15:08Z",
+      "last_accessed": "2026-07-15T22:00:00Z"
+    },
+    "game-reset-page": {
+      "project_id": "game-reset-page",
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/game-reset-page",
+      "active": true,
+      "registered_at": "2026-07-15T21:15:08Z",
+      "last_accessed": "2026-07-15T22:00:00Z"
+    },
+    "react-native-frontend": {
+      "project_id": "react-native-frontend",
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset",
+      "active": true,
+      "registered_at": "2026-07-15T21:24:03Z",
+      "last_accessed": "2026-07-20T16:52:17Z",
+      "name": "React Native Frontend",
+      "cognitive_subdir": ""
+    },
+    "delta-skill": {
+      "name": "delta-skill",
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset",
+      "cognitive_subdir": "",
+      "active": true,
+      "registered_at": "2026-07-18T21:25:55Z",
+      "last_accessed": "2026-07-18T21:25:55Z"
+    }
+  },
+  "created_at": "2026-07-15T19:55:11Z",
+  "updated_at": "2026-07-20T16:52:17Z"
+}

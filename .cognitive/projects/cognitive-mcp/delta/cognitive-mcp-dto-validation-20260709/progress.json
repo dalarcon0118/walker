@@ -1,0 +1,885 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-dto-validation-20260709",
+      "generated_at": "2026-07-09T17:05:00-03:00",
+      "version": "1.3",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "completed"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-09T15:30:00-03:00",
+        "distance": 0.0,
+        "predicates_satisfied": "0/8",
+        "tasks_completed": [],
+        "event": "plan created v1.0 — 9 tareas para fortalecer la capa de DTO del dominio con validación pydantic, TypedKvPort, y guardrails de CI. 1 prerequisite (paquete dto_schemas/), 7 core (2 migraciones de dataclass, TypedKvPort interface, SqliteTypedKvAdapter, idx_store_quarantine, linter, ADR), 1 optional (migración de Decision). Conexión con análisis previo: los 9 gaps identificados (G1: _kv opaco, G2: dict literal, G3: to_dict manual, G4: schemas incompletos, G5: exception swallowing, G6: kv:last_reason sin tipo, G7: doble persistencia, G8: pydantic opcional, G9: soft-failure) están mapeados a tareas concretas. Las firmas nuevas son TypedKvPort.get_typed[T: BaseModel] y SqliteTypedKvAdapter — el dominio no conoce sqlite3, solo BaseModel."
+      },
+      {
+        "at": "2026-07-09T15:42:13.000000+00:00",
+        "distance": 0.2,
+        "event": "TASK-DTO-001 completed",
+        "tasks": [
+          "TASK-DTO-001"
+        ],
+        "loop": {
+          "result_state": "cognitive_v2/shared/dto_schemas/ con 9 DTOs pydantic (ActorIdentity, ValidationResult, LastReason, TaskItem, TaskDecomposition, SessionRecord, DecisionRecord, RuleRecord, CalibrationParams) + dispatcher (parse_kv_value, detect_namespace, dump_kv_value) + registry (NAMESPACES, UNMAPPED_PREFIXES) + 71 tests pasando.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 3,
+            "passed": 3,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Paquete dto_schemas/ con __init__.py exportando 9 DTOs",
+              "passed": true
+            },
+            {
+              "criterion": "_BaseDTO con extra='forbid' y frozen=True en domain.py",
+              "passed": true
+            },
+            {
+              "criterion": "parse_kv_value retorna 3 reasons posibles (UNKNOWN_NAMESPACE, VALIDATION_ERROR, MALFORMED_JSON)",
+              "passed": true
+            },
+            {
+              "criterion": "71 tests pasan en dto_schemas/tests/ (49 domain + 22 persistence)",
+              "passed": true
+            },
+            {
+              "criterion": "Pydantic 2.13.4 detectado y usado (no soft-fail)",
+              "passed": true
+            },
+            {
+              "criterion": "shared/schemas.py (MCP params) sigue funcionando sin cambios — paquete aditivo",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "pydantic>=2.0 detectado y usado",
+              "passed": true
+            },
+            {
+              "gate": "shared.schemas.py (MCP params) sigue funcionando",
+              "passed": true
+            },
+            {
+              "gate": "ningún dataclass existente del dominio fue reemplazado (cambio aditivo)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.111,
+            "actual_reduction": 0.2,
+            "error": 0.089,
+            "error_pct": 8.9,
+            "error_type": "over_estimate",
+            "cause": {
+              "category": "calibration",
+              "evidence": "Distance jumped from 0.0 to 0.20 (expected ~0.111) — la tarea entregó más valor del estimado porque cubrió 9 DTOs en lugar de los 4-5 que se anticiparon inicialmente",
+              "learnable": true,
+              "contributors": [
+                "Estimación inicial conservadora de cuántos DTOs harían falta",
+                "Hallazgo de que la 'whitelist de UNMAPPED_PREFIXES' añade valor por sí misma"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T16:25:00-03:00",
+        "distance": 0.32,
+        "event": "TASK-DTO-006 completed",
+        "tasks": [
+          "TASK-DTO-006"
+        ],
+        "loop": {
+          "result_state": "scripts/check_kv_typing.py (linter CLI) + 17 tests (scripts/tests/test_check_kv_typing.py) + UNMAPPED_PREFIXES extendido a 138 entradas (47 manuales + 89+2 bootstrapped). El linter escanea 439 archivos, encuentra 0 violaciones en código actual, exit 1 ante clave huérfana sintética. Output soporta --json y --include/--exclude.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "scripts/check_kv_typing.py ejecutable con --help",
+              "passed": true
+            },
+            {
+              "criterion": "Escanea cognitive_v2/**/*.py buscando kv:xxx literales",
+              "passed": true
+            },
+            {
+              "criterion": "Cruza contra NAMESPACES + UNMAPPED_PREFIXES",
+              "passed": true
+            },
+            {
+              "criterion": "Exit 0 limpio, exit 1 con violaciones",
+              "passed": true
+            },
+            {
+              "criterion": "17 tests pasan en scripts/tests/test_check_kv_typing.py",
+              "passed": true
+            },
+            {
+              "criterion": "Cero violaciones en código actual (439 archivos escaneados)",
+              "passed": true
+            },
+            {
+              "criterion": "Soporta --json, --include, --exclude",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "El linter corre en <2s para todo cognitive_v2/ (sub-second medido)",
+              "passed": true
+            },
+            {
+              "gate": "Cero falsos positivos en el código actual (todos los kv:xxx whitelisted)",
+              "passed": true
+            },
+            {
+              "gate": "El script no rompe tests existentes (71 dto_schemas tests siguen pasando)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.05,
+            "actual_reduction": 0.12,
+            "error": 0.07,
+            "error_pct": 7.0,
+            "error_type": "over_estimate",
+            "cause": {
+              "category": "discovery",
+              "evidence": "El bootstrap añadió 89 claves que no estaban en el inventario original — el linter ahora protege 138 namespaces en lugar de los 47 estimados",
+              "learnable": true,
+              "contributors": [
+                "El kv_audit_report.txt original era subestimado: solo cubría 47 prefijos",
+                "El script _bootstrap_kv_whitelist.py descubrió 89 más escaneando el código real"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T17:05:00-03:00",
+        "distance": 0.44,
+        "event": "TASK-DTO-002 completed",
+        "tasks": [
+          "TASK-DTO-002"
+        ],
+        "loop": {
+          "result_state": "features/decisions/domain/schema.py: eliminado @dataclass(frozen=True) class ValidationResult (24 lineas), reemplazado por alias importado desde dto_schemas. 17 tests nuevos en test_schema_validation_migration.py validan: alias preserva identidad, validaciones pydantic activas (extra=forbid, frozen, model_validator enforcement!=ok cuando valid=False), unwrap del EnforcementLevel Enum a Literal, field rename schema->expected_schema, roundtrip model_dump.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "features/decisions/domain/schema.py importa ValidationResult desde dto_schemas",
+              "passed": true
+            },
+            {
+              "criterion": "Cero usos de @dataclass(frozen=True) class ValidationResult en codigo de dominio",
+              "passed": true
+            },
+            {
+              "criterion": "17 nuevos tests en test_schema_validation_migration.py pasan",
+              "passed": true
+            },
+            {
+              "criterion": "Tests existentes de SchemaValidator siguen pasando (fact_type, content, enforcement, warnings)",
+              "passed": true
+            },
+            {
+              "criterion": "El linter check_kv_typing.py sigue pasando (439 archivos, 0 violaciones)",
+              "passed": true
+            },
+            {
+              "criterion": "Los 71 tests de dto_schemas siguen pasando",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "El rename schema->expected_schema en dto_schemas se aplica sin romper call sites (hasattr mantiene compat con RegisterResult)",
+              "passed": true
+            },
+            {
+              "gate": "El modelo_validator que rechaza enforcement='ok' cuando valid=False sigue activo",
+              "passed": true
+            },
+            {
+              "gate": "El patron sirve de plantilla para TASK-DTO-003 (ActorIdentity) y TASK-DTO-008 (Decision)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1,
+            "actual_reduction": 0.12,
+            "error": 0.02,
+            "error_pct": 2.0,
+            "error_type": "over_estimate",
+            "cause": {
+              "category": "calibration",
+              "evidence": "La migracion entrego 12% de distance (de 0.32 a 0.44) - ligeramente mas de lo estimado (10%) por el valor de plantilla que deja para TASK-DTO-003 y TASK-DTO-008",
+              "learnable": true,
+              "contributors": [
+                "El test_extra_forbid detecta regresiones futuras en la boundary de ValidationResult",
+                "El patron schema->expected_schema se valida en 2 lugares (DTO + call site)"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T17:35:00-03:00",
+        "distance": 0.55,
+        "event": "TASK-DTO-004 completed",
+        "tasks": [
+          "TASK-DTO-004"
+        ],
+        "loop": {
+          "result_state": "features/persistence/domain/{__init__.py,ports.py} + features/persistence/__init__.py + features/persistence/tests/test_typed_kv_port.py. TypedKvPort (Protocol runtime_checkable) declarado con 4 metodos (get_typed, set_typed, delete, list_keys) + QuarantineError (RuntimeError subclass con key/reason/raw/source). 26 tests pasando en test_typed_kv_port.py: 4 protocol (runtime_checkable, isinstance, non-conforming, attrs), 7 get_typed (missing, valid_session, valid_last_reason, unknown_namespace, malformed_json, validation_error, extra_forbidden), 4 set_typed, 3 delete, 4 list_keys, 3 QuarantineError, 1 recovery_pattern. FakeTypedKvAdapter in-memory valida contrato end-to-end con parse_kv_value del dispatcher y QuarantineReason codes (UNKNOWN_NAMESPACE, VALIDATION_ERROR, MALFORMED_JSON).",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "features/persistence/domain/ports.py declara TypedKvPort(Protocol) con runtime_checkable",
+              "passed": true
+            },
+            {
+              "criterion": "4 metodos: get_typed(key, model)->BaseModel|None, set_typed(key, model)->bool, delete(key)->bool, list_keys(prefix)->list[str]",
+              "passed": true
+            },
+            {
+              "criterion": "QuarantineError expone key, reason, raw, source y es RuntimeError subclass",
+              "passed": true
+            },
+            {
+              "criterion": "26 tests pasan en test_typed_kv_port.py con FakeAdapter in-memory",
+              "passed": true
+            },
+            {
+              "criterion": "isinstance(adapter, TypedKvPort) funciona con FakeAdapter sin herencia",
+              "passed": true
+            },
+            {
+              "criterion": "get_typed dispara QuarantineError para unknown_namespace, malformed_json, validation_error",
+              "passed": true
+            },
+            {
+              "criterion": "ports.py NO importa sqlite3 (puro contrato, sin infraestructura)",
+              "passed": true
+            },
+            {
+              "criterion": "Helper is_known_namespace(prefix) exportado para adapters",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "Protocol runtime_checkable con isinstance funcional (Duck-typing estructural)",
+              "passed": true
+            },
+            {
+              "gate": "Cero firmas Any en el contrato (model: type[BaseModel])",
+              "passed": true
+            },
+            {
+              "gate": "QuarantineError preserva raw value para forensics",
+              "passed": true
+            },
+            {
+              "gate": "El puerto es el único punto de contacto dominio→persistence (no _kv opaco)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1,
+            "actual_reduction": 0.11,
+            "error": 0.01,
+            "error_pct": 1.0,
+            "error_type": "over_estimate",
+            "cause": {
+              "category": "calibration",
+              "evidence": "TASK-DTO-004 entrego 11% de distance (0.44->0.55) ligeramente mas del 10% estimado, porque el FakeTypedKvAdapter resulto ser patron reutilizable para tests downstream (TASK-DTO-005, TASK-DTO-007)",
+              "learnable": true,
+              "contributors": [
+                "El FakeAdapter cubre 7 escenarios de get_typed (missing, valid, unknown_namespace, malformed_json, validation_error, extra_forbidden, recovery)",
+                "QuarantineError subclass de RuntimeError asegura catch-all en cualquier call site"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T18:00:00-03:00",
+        "distance": 0.7,
+        "event": "TASK-DTO-005 completed",
+        "tasks": [
+          "TASK-DTO-005"
+        ],
+        "loop": {
+          "result_state": "features/persistence/infrastructure/{__init__.py,sqlite_typed_kv_adapter.py} + features/persistence/tests/test_sqlite_typed_kv_adapter.py. SqliteTypedKvAdapter implementa TypedKvPort: abre SQLite con check_same_thread=False, RLock para serializar writes concurrentes, crea idx_store (existente) + idx_store_quarantine (nueva) con (key, value_json, reason, quarantined_at, source). get_typed detecta 3 razones de cuarentena (unknown_namespace, malformed_json, validation_error) y mueve el raw a idx_store_quarantine + raise QuarantineError fail-loud. set_typed valida key (no control chars), usa dump_kv_value para serializar, loggea error + retorna False ante sqlite3.Error. 25 tests end-to-end (in-memory + on-disk) cubren Protocol conformance, schema init idempotente, round-trip con 3 DTOs (SessionRecord, LastReason, CalibrationParams), 6 escenarios de quarantine, delete (3), list_keys (4), concurrencia (20 threads × 50 writes = 1000 keys), close idempotente.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "SqliteTypedKvAdapter implementa TypedKvPort (isinstance funcional con runtime_checkable)",
+              "passed": true
+            },
+            {
+              "criterion": "Adapter es thread-safe: RLock en todas las ops de BD, 20 threads × 50 writes pasan sin corrupcion",
+              "passed": true
+            },
+            {
+              "criterion": "set_typed valida key (ValueError ante control chars) y serializa via dump_kv_value",
+              "passed": true
+            },
+            {
+              "criterion": "Errores de validacion NO se silencian: log estructurado + idx_store_quarantine + raise QuarantineError",
+              "passed": true
+            },
+            {
+              "criterion": "Tabla idx_store_quarantine creada con (key, value_json, reason, quarantined_at, source) en _initialise_schema",
+              "passed": true
+            },
+            {
+              "criterion": "25 tests pasan en test_sqlite_typed_kv_adapter.py + 26 typed_kv_port = 51/51 en BC persistence",
+              "passed": true
+            },
+            {
+              "criterion": "Quarantine captura metadata completa (reason, source='SqliteTypedKvAdapter', value_json raw, timestamp)",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "domain/ports.py NO importa sqlite3 (puro contrato)",
+              "passed": true
+            },
+            {
+              "gate": "El adapter es el UNICO punto de contacto del BC persistence con el engine (sin shim a _cg_db)",
+              "passed": true
+            },
+            {
+              "gate": "Cero try/except Exception sin loggear en el adapter (_log_error cubre todos los sqlite3.Error)",
+              "passed": true
+            },
+            {
+              "gate": "Quarantine es best-effort: un fallo al escribirla no enmascara el QuarantineError original",
+              "passed": true
+            },
+            {
+              "gate": "Tests corren en <1s (0.88s para 51 tests) — sub-second feedback",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.15,
+            "actual_reduction": 0.15,
+            "error": 0.0,
+            "error_pct": 0.0,
+            "error_type": "exact",
+            "cause": {
+              "category": "calibration",
+              "evidence": "Estimacion del 15% (0.55->0.70) exacta — la implementacion del adapter entrego exactamente el valor predicho",
+              "learnable": true,
+              "contributors": [
+                "El patron de puertos en proyectos previos (KeyValuePort) sirvio de plantilla precisa",
+                "El uso de parse_kv_value/dump_kv_value de TASK-DTO-001 hizo el adapter muy delgado (< 200 lineas)"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T18:25:00-03:00",
+        "distance": 0.8,
+        "event": "TASK-DTO-003 completed",
+        "tasks": [
+          "TASK-DTO-003"
+        ],
+        "loop": {
+          "result_state": "features/session/domain/session.py: eliminado @dataclass(frozen=True) class ActorIdentity (58 lineas, incluyendo __post_init__ + identity_key + project_key + to_dict). Reemplazado por alias importado de cognitive_v2.shared.dto_schemas.ActorIdentity (mismo objeto: `ActorIdentity is ActorIdentityDTO` == True). 21 tests en test_actor_identity_migration.py validan: re-export identity (2), construction (4: minimal, full, empty agent_id, missing), identity_key (5: full, default tenant, project_key, empty user_id/session_id), pydantic guarantees (8: frozen, extra=forbid, max_length, control chars en los 4 campos), round-trip (2). Se agregaron 7 claves kv:xxx preexistentes a UNMAPPED_PREFIXES (kv:breadcrumbs:list, kv:health_check, kv:last_auto_state, kv:last_tool_use, kv:memora_pending, kv:session_gate, kv:session_gate:prechurn_tracker, kv:tracking:expand) para dejar el linter con 0 violaciones.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "features/session/domain/session.py importa ActorIdentity desde dto_schemas",
+              "passed": true
+            },
+            {
+              "criterion": "Cero usos de @dataclass(frozen=True) class ActorIdentity en codigo de dominio",
+              "passed": true
+            },
+            {
+              "criterion": "La property identity_key produce la misma key string que antes (test_identity_key_preserved)",
+              "passed": true
+            },
+            {
+              "criterion": "21 tests en test_actor_identity_migration.py pasan",
+              "passed": true
+            },
+            {
+              "criterion": "El validador _no_control_chars rechaza newlines en los 4 campos de identidad",
+              "passed": true
+            },
+            {
+              "criterion": "Los call sites que pasan agent_id='' siguen fallando (regla de negocio) — ValidationError",
+              "passed": true
+            },
+            {
+              "criterion": "El linter check_kv_typing.py sigue pasando (451 archivos, 0 violaciones) — 7 claves preexistentes agregadas a UNMAPPED_PREFIXES",
+              "passed": true
+            },
+            {
+              "criterion": "173 tests del delta chain pasan sin regresiones (dto_schemas + persistence + session + decisions)",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "Re-export preserva identidad: `from session import ActorIdentity is from dto_schemas import ActorIdentity`",
+              "passed": true
+            },
+            {
+              "gate": "Pydantic guarantees activos: frozen=True, extra='forbid', min_length/max_length en campos",
+              "passed": true
+            },
+            {
+              "gate": "El field_validator _no_control_chars previene newlines que corromperian KV keys",
+              "passed": true
+            },
+            {
+              "gate": "Limpieza colateral: 7 claves kv:xxx preexistentes que el linter detecto se agregaron a UNMAPPED_PREFIXES con owner declarado",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1,
+            "actual_reduction": 0.1,
+            "error": 0.0,
+            "error_pct": 0.0,
+            "error_type": "exact",
+            "cause": {
+              "category": "calibration",
+              "evidence": "Estimacion del 10% (0.70->0.80) exacta — la migracion del ActorIdentity fue el mismo patron que ValidationResult (TASK-DTO-002), con el bonus inesperado de descubrir 7 claves kv:xxx preexistentes que el linter habia pasado por alto",
+              "learnable": true,
+              "contributors": [
+                "Patron de migracion (dataclass -> pydantic via alias import) reusado directamente de TASK-DTO-002",
+                "El linter que se construyo en TASK-DTO-006 esta funcionando como guardrail: detecto 7 claves huerfanas que deberian estar en UNMAPPED_PREFIXES"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T19:10:00-03:00",
+        "distance": 0.92,
+        "event": "TASK-DTO-007 completed",
+        "tasks": [
+          "TASK-DTO-007"
+        ],
+        "loop": {
+          "result_state": "TASK-DTO-007 entregada — 1 sola implementacion canonica de _kv/_kv_set/_kv_delete/_kv_scoped/_kv_set_scoped en features/kv/infrastructure/kv_repository.py. El cuerpo del facade ahora delega en TypedKvPort via composition root (get_default_kv_port). 4 implementaciones duplicadas eliminadas: (a) cgc_project_indexer.py: def _kv/_kv_set reemplazadas por re-exports del canonico; (b) calibration_store.py: def _kv/_kv_set reemplazadas por re-exports; (c) KVTaskRepository: _resolve_kv/_resolve_db/_kv_set/_kv_delete eliminados, todos los metodos (save/load/delete/list_by_project/count_pending) usan port.list_keys + port.get_raw + port.set_raw + port.delete; (d) KVMessageRepository: misma reescritura con secondary indexes (kv:msg_idx:). Composition root en features/persistence/infrastructure/composition.py provee get_default_kv_port (lazy singleton thread-safe) + set_default_kv_port (test injection). Protocol extendido con get_raw(key, default) y set_raw(key, value) — fail-soft, JSON serialization. SqliteTypedKvAdapter implementa ambos. FakeAdapter del test_typed_kv_port.py extendido para mantener runtime_checkable conformance. 15 tests nuevos en test_kv_repository_port.py: 2 SSOT (cpg_kv is _kv, cal_kv is _kv), 5 round-trip facade, 4 scoped helpers, 2 cross-site visibility, 2 composition root lifecycle.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 5,
+            "passed": 5,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "1 sola definicion de 'def _kv'/'def _kv_set'/'def _kv_delete' en codigo de produccion (kv_repository.py)",
+              "passed": true
+            },
+            {
+              "criterion": "cpg_kv is _kv y cal_kv is _kv (mismo objeto — identidad, no equality)",
+              "passed": true
+            },
+            {
+              "criterion": "KVTaskRepository usa port.set_raw / port.get_raw / port.delete / port.list_keys (no _cg_db)",
+              "passed": true
+            },
+            {
+              "criterion": "KVMessageRepository usa port.set_raw / port.get_raw / port.delete / port.list_keys",
+              "passed": true
+            },
+            {
+              "criterion": "get_default_kv_port() retorna singleton thread-safe con RLock",
+              "passed": true
+            },
+            {
+              "criterion": "set_default_kv_port() permite inyeccion de FakeAdapter en tests",
+              "passed": true
+            },
+            {
+              "criterion": "15 tests pasan en test_kv_repository_port.py (5 round-trip + 2 SSOT + 4 scoped + 2 cross-site + 2 composition)",
+              "passed": true
+            },
+            {
+              "criterion": "188/188 tests del delta chain pasan (173 previos + 15 nuevos)",
+              "passed": true
+            },
+            {
+              "criterion": "Linter check_kv_typing.py: 452 archivos, 0 violaciones",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "SSOT: una sola implementacion canonica de _kv/_kv_set/_kv_delete, las demas son re-exports o port-based",
+              "passed": true
+            },
+            {
+              "gate": "El port es el UNICO punto de contacto con SQLite idx_store (no _cg_db() en codigo refactorizado)",
+              "passed": true
+            },
+            {
+              "gate": "Compositio root centraliza la creacion del port — production usa SqliteTypedKvAdapter, tests usan FakeAdapter",
+              "passed": true
+            },
+            {
+              "gate": "Protocol con runtime_checkable mantiene conformance tras extension (FakeAdapter pasa isinstance check)",
+              "passed": true
+            },
+            {
+              "gate": "Thread-safety preservada: RLock en set_raw/get_raw/delete dentro de SqliteTypedKvAdapter",
+              "passed": true
+            },
+            {
+              "gate": "Cero regresiones: 188/188 tests pasan; linter 0 violaciones",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2,
+            "actual_reduction": 0.12,
+            "error": 0.08,
+            "error_pct": 8.0,
+            "error_type": "under_estimate",
+            "cause": {
+              "category": "scope",
+              "evidence": "Estimacion original 20% (0.80->1.0) → entrega 12% (0.80->0.92). Razon: aunque el refactor SSOT se logro completamente, el delta chain mantiene distancia < 1.0 porque queda trabajo opcional (TASK-DTO-008: migrar Decision, TASK-DTO-009: ADR-002). El refactor tecnico completo de las 4 implementaciones duplicadas + composition root + extension del Protocol ENTREGO exactamente la cantidad de valor tecnico esperado — el gap es porque quedan tareas pendientes en el chain.",
+              "learnable": true,
+              "contributors": [
+                "Patron 'composition root + thin facade' resulto ser ~100 lineas de codigo (composition.py + extension del Protocol + tests) que son estructurales, no nuevas features",
+                "El test del FakeAdapter extendido fallo la primera vez (runtime_checkable) — bug detectado y corregido antes de mergear"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T19:45:00-03:00",
+        "distance": 0.96,
+        "event": "TASK-DTO-008 completed",
+        "tasks": [
+          "TASK-DTO-008"
+        ],
+        "loop": {
+          "result_state": "TASK-DTO-008 entregada — features/decisions/domain/decision.py: eliminado @dataclass(frozen=True) class Decision (79 lineas, incluyendo __post_init__, to_dict, from_dict, _source field) y @dataclass class Alternative (5 lineas, unused). Reemplazado por alias importado de cognitive_v2.shared.dto_schemas.DecisionRecord (mismo objeto: `Decision is DecisionRecord` == True). Bridge explicito: decision_from_dict() mapea _source legacy -> source pydantic; decision_to_dict() incluye _source en output para back-compat. Decision.from_dict y Decision.to_dict expuestos como staticmethod aliases para el unico call site en session.py:1601. Constraint, Issue, RuleCandidate, TaskResult se quedan como @dataclass (no tienen DTO pydantic canonico — migracion deferida a futuro delta). features/decisions/domain/__init__.py actualizado: eliminado 'Alternative' del import y __all__, agregado decision_from_dict/decision_to_dict. 29 tests nuevos en test_decision_migration.py validan: 2 re-export identity, 6 construction (minimal, full, required, too short, min length, why rejection), 5 pydantic guarantees (frozen, extra=forbid, _source rejected, source field, source default), 7 legacy bridge (from_dict basic, _source migration, both keys priority, to_dict shape, default source, classmethod aliases), 8 other dataclasses intact (Constraint, Issue, RuleCandidate, TaskResult), 1 Alternative removed.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "features/decisions/domain/decision.py importa Decision desde dto_schemas (alias)",
+              "passed": true
+            },
+            {
+              "criterion": "Cero usos de @dataclass class Decision en codigo de dominio",
+              "passed": true
+            },
+            {
+              "criterion": "Cero usos de @dataclass class Alternative (unused, eliminado)",
+              "passed": true
+            },
+            {
+              "criterion": "Decision is DecisionRecord (identidad, no equality)",
+              "passed": true
+            },
+            {
+              "criterion": "decision_from_dict() migra _source legacy a source pydantic",
+              "passed": true
+            },
+            {
+              "criterion": "Decision.from_dict() y Decision.to_dict() funcionan como staticmethod aliases",
+              "passed": true
+            },
+            {
+              "criterion": "29 tests pasan en test_decision_migration.py",
+              "passed": true
+            },
+            {
+              "criterion": "217/217 tests del delta chain pasan (188 previos + 29 nuevos)",
+              "passed": true
+            },
+            {
+              "criterion": "Linter check_kv_typing.py: 452 archivos, 0 violaciones",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "SSOT: Decision = DecisionRecord (alias, mismo objeto)",
+              "passed": true
+            },
+            {
+              "gate": "Pydantic guarantees activos: frozen=True, extra='forbid', min_length en choice y why",
+              "passed": true
+            },
+            {
+              "gate": "Bridge explicito para schema delta (_source -> source) sin shim oculto",
+              "passed": true
+            },
+            {
+              "gate": "El unico call site externo (session.py:1601) sigue funcionando via classmethod alias",
+              "passed": true
+            },
+            {
+              "gate": "Constraint/Issue/RuleCandidate/TaskResult preservados como @dataclass (no hay DTO pydantic canonico para ellos aun)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.04,
+            "actual_reduction": 0.04,
+            "error": 0.0,
+            "error_pct": 0.0,
+            "error_type": "exact",
+            "cause": {
+              "category": "calibration",
+              "evidence": "Estimacion del 4% (0.92->0.96) exacta — la migracion de Decision fue predecible porque TASK-DTO-002 (ValidationResult) y TASK-DTO-003 (ActorIdentity) ya habian establecido el patron. El unico delta fue el _source -> source rename, manejado con bridge explicito.",
+              "learnable": true,
+              "contributors": [
+                "El patron de alias + bridge explcito se replica facilmente",
+                "Los 4 @dataclass restantes (Constraint, Issue, RuleCandidate, TaskResult) no fueron migrados porque no tienen DTO pydantic canonico — esto esta documentado como future work"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T15:43:00-03:00",
+        "distance": 1.0,
+        "event": "TASK-DTO-009 completed — delta chain closed",
+        "tasks": [
+          "TASK-DTO-009"
+        ],
+        "loop": {
+          "result_state": "ADR-002-dto-validation-typed-kv-port.md creado en .cognitive/adr/. 7 secciones: Context (9 gaps), Decision (7 sub-decisiones: dto_schemas, migración dataclass→pydantic via alias+bridge, TypedKvPort Protocol, SqliteTypedKvAdapter, Composition Root, Guardrail CI, SSOT _kv), Migration Strategy (7 fases con estados), Consequences (7 positives, 4 negatives), Alternatives Considered (6 opciones rechazadas con rationale), Related (gaps cerrados + ADR-001). Formato consistente con ADR-001.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "ADR-002 presente en .cognitive/adr/",
+              "passed": true
+            },
+            {
+              "criterion": "5+ secciones: Context, Decision, Consequences, Alternatives, Related",
+              "passed": true
+            },
+            {
+              "criterion": "Menciona la jerarquía SSOT y por qué los DTOs viven en shared/",
+              "passed": true
+            },
+            {
+              "criterion": "Lista los gaps cerrados (1-9) y los explícitamente no cerrados (future work)",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "Formato consistente con ADR-001 (encabezados, tablas, secciones)",
+              "passed": true
+            },
+            {
+              "gate": "Decisiones referencian tareas del delta chain como evidencia",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.04,
+            "actual_reduction": 0.04,
+            "error": 0.0,
+            "error_pct": 0.0,
+            "error_type": "exact",
+            "cause": {
+              "category": "calibration",
+              "evidence": "Estimacion del 4% (0.96->1.0) exacta — ADR redactado en una sola pasada. El contenido estaba en el plan.json y en los trail entries previos; solo hubo que estructurarlo al formato ADR-001.",
+              "learnable": true,
+              "contributors": [
+                "El plan.json contiene suficiente contexto para escribir el ADR sin tener que re-explorar el código",
+                "Los trail entries de las 8 tareas previas documentan cada decision con su rationale"
+              ]
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-DTO-001": "completed",
+        "TASK-DTO-006": "completed",
+        "TASK-DTO-002": "completed",
+        "TASK-DTO-003": "completed",
+        "TASK-DTO-004": "completed",
+        "TASK-DTO-005": "completed",
+        "TASK-DTO-007": "completed",
+        "TASK-DTO-008": "completed",
+        "TASK-DTO-009": "completed"
+      },
+      "next_ready": []
+    },
+    "metrics": {
+      "total_tasks": 9,
+      "completed_tasks": 9,
+      "pending_tasks": 0,
+      "distance": 1.0,
+      "done_when_satisfied": 0,
+      "predicates_total": 8,
+      "predicates_satisfied": 8,
+      "tests_added": 221,
+      "files_added": 23,
+      "calibration_error": 0.011
+    }
+  }
+}

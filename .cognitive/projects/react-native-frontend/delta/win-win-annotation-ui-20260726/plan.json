@@ -1,0 +1,279 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "win-win-annotation-ui-20260726",
+      "generated_at": "2026-07-26T19:51:28.612140+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "react-native-frontend",
+      "project_type": "react-native",
+      "domains": [
+        "listero-win-win",
+        "shared-components"
+      ],
+      "tags": [
+        "react-native",
+        "typescript"
+      ]
+    },
+    "goal": {
+      "description": "Redisenar flujo de anotacion Win-Win: bottom drawer con 4 animales (Perro/Caballo/Tiburon/Leon) y montos, generacion automatica de 10x7 digitos con progreso visual, opcion de regenerar ciclicamente, y confirmacion de apuesta",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "BottomDrawer con 4 opciones de animal+monto y boton Comenzar",
+          "Indicador de progreso con mensajes por fila generada",
+          "10 numeros generados en lista con formato X-XX-XX-XX",
+          "Boton Volver a generar en cabecera que reabre drawer",
+          "Confirmacion visual de apuesta antes de enviar"
+        ],
+        "must_not_exist": [],
+        "invariants": []
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_description": "Redisenar ProductSelector como bottom drawer con 4 animales + boton Comenzar",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "role": "core",
+        "work_type": "feature_new_method",
+        "task_id": "TASK-001",
+        "type": "feature",
+        "objective": "Redisenar ProductSelector como bottom drawer con 4 animales: Perro($100), Caballo($150), Tiburon($250), Leon($500). Cada opcion con icono del animal + monto. Al seleccionar, mostrar boton Comenzar en el mismo drawer",
+        "result_state": "ProductSelector transformado en bottom drawer con animacion slide-up. 4 tarjetas horizontales con emoji animal grande y monto destacado. Al tocar una, se resalta con borde dorado y aparece boton 'Comenzar' con animacion fade-in",
+        "domain": "listero-win-win",
+        "impacted_artifacts": {
+          "files": [
+            "features/listero/bet-win-win/components/ProductSelector.tsx",
+            "features/listero/bet-win-win/domain.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observation": "ProductSelector actual es un modal central con 4 tarjetas (Caballo=$100, Aguila=$150, Tiburon=$250, Leon=$500) que se cierra al seleccionar, sin boton Comenzar",
+          "structure": "Modal con overlay oscuro, panel centrado con grid 2x2 de tarjetas, cada una con emoji+label+precio",
+          "behavior": "Usuario ve 4 opciones, toca una, se dispara onSelect, modal se cierra y se genera numeros",
+          "causality": "El flujo actual no permite al usuario ver su seleccion antes de empezar la generacion",
+          "purpose": "Dar al usuario control explicito: seleccionar monto, ver confirmacion visual, y luego iniciar generacion",
+          "principles": "Bottom sheets (iOS/Android nativo), micro-interacciones, feedback inmediato"
+        },
+        "validation": {
+          "predicates": [
+            "ProductSelector.tsx es un bottom drawer con slide-up animation",
+            "Muestra 4 opciones: Perro($100), Caballo($150), Tiburon($250), Leon($500)",
+            "Cada opcion tiene emoji/icono del animal + monto en formato moneda",
+            "Al seleccionar una opcion, aparece boton 'Comenzar' con fade-in",
+            "Boton Comenzar esta deshabilitado hasta que se seleccione un monto"
+          ]
+        },
+        "scrum_role": "po"
+      },
+      {
+        "task_description": "Implementar generacion progresiva con indicador de progreso",
+        "importer_files": 0,
+        "depends_on": ["TASK-001"],
+        "preconditions": ["ProductSelector como bottom drawer existe y tiene boton Comenzar"],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "role": "core",
+        "work_type": "feature_new_method",
+        "task_id": "TASK-002",
+        "type": "feature",
+        "objective": "Implementar generacion progresiva de 10 numeros con indicador de progreso. Al presionar Comenzar, mostrar overlay con mensajes secuenciales: 'Generando fila 1 de 10...', 'Generando fila 2 de 10...', hasta completar 10 filas con delay de ~300ms entre cada una",
+        "result_state": "Al presionar Comenzar: drawer se mantiene abierto, aparece overlay de progreso con barra y mensajes de generacion secuencial. Cada ~300ms se genera una fila y se actualiza el mensaje. Al completar 10 filas, drawer se oculta con animacion slide-down y se muestran los numeros generados",
+        "domain": "listero-win-win",
+        "impacted_artifacts": {
+          "files": [
+            "features/listero/bet-win-win/screens/WinWinEntryScreen.tsx",
+            "features/listero/bet-win-win/components/GenerationProgress.tsx",
+            "features/listero/bet-win-win/update.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "commit_trust": 0.8
+        },
+        "task_context": {
+          "observation": "Actualmente generateNumbers() genera todos los numeros instantaneamente sin feedback visual ni progreso",
+          "structure": "WinWinEntryScreen tiene generateNumbers que llama a generateAllRandom() y dispatch a NUMBER_INPUT para los 10 slots",
+          "behavior": "La generacion es instantanea: presiona boton y aparecen los 10 numeros de golpe",
+          "causality": "El usuario no percibe el proceso de generacion, lo que reduce la sensacion de juego y anticipacion",
+          "purpose": "Crear experiencia envolvente donde el usuario ve como se generan los numeros uno por uno, aumentando la expectativa",
+          "principles": "Animaciones secuenciales con Reanimated, feedback progresivo, UX de anticipacion"
+        },
+        "validation": {
+          "predicates": [
+            "GenerationProgress.tsx existe como componente de overlay",
+            "Muestra mensaje 'Generando fila X de 10...' que se actualiza cada ~300ms",
+            "Al completar 10 filas, el drawer se oculta con animacion slide-down",
+            "Los numeros se muestran en la pantalla principal tras ocultar el drawer",
+            "Feedback haptico o sonoro opcional al completar cada fila"
+          ]
+        },
+        "scrum_role": "po"
+      },
+      {
+        "task_description": "Mostrar numeros generados en lista + boton Volver a generar",
+        "importer_files": 0,
+        "depends_on": ["TASK-002"],
+        "preconditions": ["Generacion progresiva funciona y muestra numeros tras completarse"],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "role": "core",
+        "work_type": "feature_new_method",
+        "task_id": "TASK-003",
+        "type": "feature",
+        "objective": "Mostrar los 10 numeros generados en formato X-XX-XX-XX dentro de un ScrollView. En la cabecera, agregar boton 'Volver a generar' que reabre el drawer ProductSelector con el monto ya preseleccionado, permitiendo al usuario regenerar cuantas veces quiera",
+        "result_state": "10 numeros formateados X-XX-XX-XX en lista vertical con indice numerado. Cabecera con boton 'Volver a generar' que al presionarlo reabre el bottom drawer con el monto ya seleccionado y el boton Comenzar listo. El ciclo puede repetirse ilimitadamente hasta que el usuario decida enviar",
+        "domain": "listero-win-win",
+        "impacted_artifacts": {
+          "files": [
+            "features/listero/bet-win-win/screens/WinWinEntryScreen.tsx",
+            "features/listero/bet-win-win/components/ProductSelector.tsx",
+            "features/listero/bet-win-win/domain.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observation": "Actualmente los numeros se muestran en slots editables. No hay opcion dedicada de regenerar en la cabecera (solo en Alert.alert)",
+          "structure": "WinWinEntryScreen tiene header con icono tigre, titulo, badge de conteo, y hint text. Slots grid usa AnimatedNumberSlot",
+          "behavior": "Usuario ve slots, puede editarlos manualmente. Para regenerar, debe presionar boton Anotar y elegir 'Regenerar' en Alert",
+          "causality": "El flujo actual es confuso: el boton Anotar hace diferentes cosas segun el estado, y regenerar requiere 2-3 taps",
+          "purpose": "Simplificar: mostrar numeros claramente, con un boton dedicado 'Volver a generar' siempre visible en la cabecera",
+          "principles": "UX clara y predecible, menos clicks para accion principal, visibilidad del estado actual"
+        },
+        "validation": {
+          "predicates": [
+            "10 numeros se muestran en formato X-XX-XX-XX con indice numerado",
+            "Boton 'Volver a generar' existe en la cabecera de la pantalla",
+            "Al presionar 'Volver a generar', se reabre ProductSelector con el monto ya seleccionado",
+            "En ProductSelector, el boton Comenzar aparece directamente (sin necesidad de reseleccionar)",
+            "El usuario puede repetir el ciclo de regeneracion ilimitadamente"
+          ]
+        },
+        "scrum_role": "po"
+      },
+      {
+        "task_description": "Conectar flujo con confirmacion y envio al backend",
+        "importer_files": 0,
+        "depends_on": ["TASK-003"],
+        "preconditions": ["Numeros generados se muestran en pantalla con opcion de regenerar"],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "role": "core",
+        "work_type": "feature_new_method",
+        "task_id": "TASK-004",
+        "type": "feature",
+        "objective": "Agregar boton 'Enviar apuesta' visible cuando hay numeros generados. Reemplazar Alert.alert nativo por un ConfirmationSheet con resumen visual: producto seleccionado (emoji+monto), 10 numeros listados, total calculado, botones Confirmar y Volver a generar",
+        "result_state": "Boton 'Enviar apuesta' en bottom bar. Al presionar, slide-up ConfirmationSheet con: header 'Resumen de apuesta', producto con emoji+monto+cantidad de numeros, lista de 10 numeros formateados, total (monto x 10), boton primario 'Confirmar y enviar' y boton secundario 'Volver a generar'. Al confirmar, se envia al backend via anotarJugada()",
+        "domain": "listero-win-win",
+        "impacted_artifacts": {
+          "files": [
+            "features/listero/bet-win-win/components/ConfirmationSheet.tsx",
+            "features/listero/bet-win-win/screens/WinWinEntryScreen.tsx",
+            "features/listero/bet-win-win/update.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25,
+          "commit_trust": 0.75
+        },
+        "task_context": {
+          "observation": "Actualmente la confirmacion usa Alert.alert nativo con texto plano y opciones Regenerar/Enviar/Cancelar. No hay resumen visual de la apuesta",
+          "structure": "update.ts tiene featureFlows.requestSubmit que usa Cmd.alert con titulo y mensaje de texto. No hay componente visual de confirmacion",
+          "behavior": "Usuario presiona Anotar/Enviar -> Alert nativo con 3 opciones -> selecciona Enviar -> dispatch a CONFIRM_SUBMIT",
+          "causality": "El Alert nativo es funcional pero no muestra claramente lo que se esta enviando, aumentando riesgo de errores",
+          "purpose": "Dar al usuario una vista clara y completa de su apuesta antes de confirmar, reduciendo errores y mejorando confianza",
+          "principles": "Confirmacion visual, reduccion de errores, transparencia en la informacion"
+        },
+        "validation": {
+          "predicates": [
+            "ConfirmationSheet.tsx existe como bottom sheet con slide-up animation",
+            "Muestra: producto (emoji + monto), 10 numeros formateados, total calculado",
+            "Botones: 'Confirmar y enviar' (primario) y 'Volver a generar' (secundario)",
+            "Al confirmar, dispatch a CONFIRM_SUBMIT que ejecuta anotarJugada()",
+            "Al presionar Volver a generar, se reabre ProductSelector drawer"
+          ]
+        },
+        "scrum_role": "po"
+      },
+      {
+        "task_description": "Pantalla de exito post-anotacion con confetti y resumen",
+        "importer_files": 0,
+        "depends_on": ["TASK-004"],
+        "preconditions": ["Flujo de envio funciona y recibe receiptCode del backend"],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "role": "core",
+        "work_type": "feature_new_method",
+        "task_id": "TASK-005",
+        "type": "feature",
+        "objective": "Mejorar pantalla bet_success con animacion de confetti Lottie/Reanimated, codigo de recibo destacado con efecto brillo, resumen de la jugada (producto+monto total), y boton para volver al dashboard del listero",
+        "result_state": "Pantalla bet_success con: animacion de confetti dorado al entrar, icono de check animado, texto 'Apuesta registrada exitosamente', codigo de recibo en formato grande con efecto shimmer/brillo, resumen con emoji del producto + monto total, y boton 'Volver al inicio' que navega al dashboard del listero",
+        "domain": "listero-win-win",
+        "impacted_artifacts": {
+          "files": [
+            "app/lister/bet_success.tsx"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "commit_trust": 0.8
+        },
+        "task_context": {
+          "observation": "bet_success existe como pantalla simple que muestra receiptCode y drawId. Sin animaciones ni resumen visual",
+          "structure": "Pantalla que recibe receiptCode y drawId como params de navegacion via expo-router",
+          "behavior": "Despues de submit exitoso, navega a bet_success mostrando el codigo de recibo. Usuario puede volver atras",
+          "causality": "La pantalla de exito actual es funcional pero no genera sensacion de logro ni celebraciÃ³n",
+          "purpose": "Crear una experiencia de cierre memorable que celebre la accion del usuario y le de confianza",
+          "principles": "Animaciones de celebracion, informacion clara, navegacion intuitiva de regreso"
+        },
+        "validation": {
+          "predicates": [
+            "bet_success.tsx tiene animacion de confetti al cargar la pantalla",
+            "Codigo de recibo se muestra en formato grande con efecto shimmer/brillo",
+            "Resumen incluye emoji del producto seleccionado y monto total",
+            "Boton 'Volver al inicio' navega al dashboard del listero",
+            "Animaciones usan Reanimated (no librerias externas pesadas)"
+          ]
+        },
+        "scrum_role": "po"
+      }
+    ],
+    "parameters": {}
+  }
+}

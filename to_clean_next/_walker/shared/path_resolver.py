@@ -1,0 +1,471 @@
+"""
+path_resolver.py — Resolucion de paths del Walker v3.
+
+UNICO modulo responsable de traducir identificadores (project_id, chain_dir)
+a rutas del sistema de archivos. NADIE debe construir paths con .cognitive/
+directamente —TODO pasa por aquí.
+
+Fuentes de config (desde config/config.json):
+  - projects_dir       → override de .cognitive/projects/
+  - sessions_dir       → override de .cognitive/sessions/
+  - data_dir           → nombre del subdirectorio data (default: "data")
+  - workflow_dir       → nombre del subdirectorio workflow (default: "workflow.v3")
+
+Jerarquía de resolución:
+  walker_root/                    ← detectado desde ubicación de este archivo
+  └── .cognitive/                 ← cognitive_dir (base de datos persistente)
+      ├── projects/               ← projects_dir
+      │   └── {project_id}/
+      │       ├── delta/          ← sprints del proyecto
+      │       │   └── {sprint_id}/
+      │       ├── data/           ← cpg.json.gz, ckg.json.gz, etc.
+      │       ├── traces/         ← trace logs
+      │       └── project.json    → manifiesto del proyecto
+      └── sessions/               ← sesiones del agente
+          └── agents/{agent_id}/
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+
+# ── Acceso a config sin pasar por config.get() (evita recursion circular) ──
+
+def _read_config_file() -> dict:
+    """Lee config en cascada: .cognitive/config.json del proyecto + walker/config.json.
+    
+    El orden de precedencia (de mayor a menor):
+    1. .cognitive/config.json del proyecto activo (detectado desde CWD)
+    2. config/config.json del walker (base)
+    
+    Esto permite que cada proyecto tenga sus propios overrides.
+    """
+    result: dict = {}
+    
+    # Base: config del walker
+    walker_cfg = get_walker_root() / "config" / "config.json"
+    if walker_cfg.is_file():
+        try:
+            result.update(json.loads(walker_cfg.read_text()))
+        except Exception:
+            pass
+    
+    # Override: .cognitive/config.json del proyecto activo (desde CWD)
+    active_cog = find_cognitive_root()
+    if active_cog is not None:
+        project_cfg = active_cog / "config.json"
+        if project_cfg.is_file():
+            try:
+                result.update(json.loads(project_cfg.read_text()))
+            except Exception:
+                pass
+    
+    return result
+
+
+def _get_cfg(key: str, default: Any = None) -> Any:
+    """Valor de config con override directo del archivo + fallback a config.get.
+    
+    Para keys que CAUSAN recursion (projects_dir, sessions_dir) se usa solo
+    el override directo del archivo. Para el resto delega en config.get().
+    """
+    # Leer override directo del archivo (evita recursion con config.get)
+    cfg = _read_config_file()
+    if key in cfg:
+        return cfg[key]
+    
+    # Para keys no-path, delegar en config.get() (no causan recursion)
+    if key not in ("projects_dir", "sessions_dir", "scripts_dir"):
+        from _walker.workflow_engine.infrastructure.config import get as cfg_get
+        return cfg_get(key, default)
+    
+    return None  # Sin override → quien llama usa su default
+
+
+# ═══════════════════════════════════════════════════════════════
+# 1. Raíz del proyecto walker
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_walker_root() -> Path:
+    """Raíz del proyecto walker.
+    
+    Camina hacia arriba desde scripts/_walker/shared/path_resolver.py
+    hasta encontrar config/config.json.
+    """
+    this_dir = Path(os.path.dirname(os.path.abspath(__file__)))  # .../scripts/_walker/shared/
+    candidate = this_dir
+    for _ in range(8):
+        if (candidate / "config" / "config.json").is_file():
+            return candidate.resolve()
+        parent = candidate.parent
+        if parent == candidate:
+            break
+        candidate = parent
+    return Path.cwd().resolve()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 2. Detección del proyecto activo (CWD → .cognitive/)
+# ═══════════════════════════════════════════════════════════════
+
+
+def find_cognitive_root(start: str | None = None) -> Path | None:
+    """Busca el .cognitive/ más cercano caminando hacia arriba desde CWD.
+    
+    Como git encuentra .git/, el walker encuentra .cognitive/.
+    
+    Args:
+        start: Directorio donde empezar la búsqueda (default: os.getcwd()).
+    
+    Returns:
+        Path al directorio .cognitive/ si se encuentra, None si no.
+    """
+    candidate = Path(start or os.getcwd()).resolve()
+    for _ in range(10):
+        cognitive = candidate / ".cognitive"
+        if cognitive.is_dir():
+            return cognitive
+        parent = candidate.parent
+        if parent == candidate:
+            break
+        candidate = parent
+    return None
+
+
+def get_active_cognitive_dir() -> Path:
+    """Retorna el .cognitive/ del walker (registro central de proyectos).
+    
+    El walker tiene su propio .cognitive/ con:
+      - config.json          → configuración del walker
+      - projects/{pid}/      → manifests con repo_path al código real
+      - sessions/            → sesiones de agentes
+    
+    Si CWD tiene un .cognitive/ propio, se usa como override
+    (para proyectos autocontenidos con walker prepare).
+    """
+    walker_cognitive = get_cognitive_dir()
+    project_cognitive = find_cognitive_root()
+    
+    # Si CWD tiene .cognitive/ propio, usarlo como override
+    if project_cognitive is not None and project_cognitive != walker_cognitive:
+        return project_cognitive
+    
+    return walker_cognitive
+
+
+# ═══════════════════════════════════════════════════════════════
+# 3. Directorios base del sistema cognitivo
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_cognitive_dir() -> Path:
+    """Directorio .cognitive/ del walker, desde su raíz detectada por __file__.
+    
+    Es el registro central: contiene config.json, projects/{pid}, sessions/.
+    """
+    return get_walker_root() / ".cognitive"
+
+
+def get_projects_dir() -> Path:
+    """Directorio de proyectos: <cognitive>/projects/ (o override).
+    
+    cognitive = .cognitive/ detectado desde CWD o fallback al del walker.
+    """
+    cfg = _get_cfg("projects_dir")
+    if cfg:
+        return Path(cfg).expanduser().resolve()
+    return get_active_cognitive_dir() / "projects"
+
+
+def get_sessions_dir() -> Path:
+    """Directorio de sesiones: <cognitive>/sessions/ (o override).
+    
+    cognitive = .cognitive/ detectado desde CWD o fallback al del walker.
+    Si hay WALKER_AGENT_ID, retorna .../agents/{agent_id}/
+    """
+    cfg = _get_cfg("sessions_dir")
+    if cfg:
+        base = Path(cfg).expanduser().resolve()
+    else:
+        base = get_active_cognitive_dir() / "sessions"
+    agent = os.environ.get("WALKER_AGENT_ID", "")
+    return (base / "agents" / agent) if agent else base
+
+
+# ═══════════════════════════════════════════════════════════════
+# 3. Proyectos: project_id → paths específicos
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_project_dir(project_id: str) -> Path:
+    """Directorio de un proyecto: <projects_dir>/<project_id>/"""
+    return get_projects_dir() / project_id
+
+
+def get_delta_dir(project_id: str) -> Path:
+    """Sprints de un proyecto: <project_dir>/<sprint_dir>/.
+
+    sprint_dir se configura en config.json (clave "sprint_dir").
+    - "spring" → <project_dir>/data/spring/
+    - "data/spring" → <project_dir>/data/spring/
+    - "delta" → <project_dir>/delta/
+    """
+    sprint_dir_cfg = _get_cfg("sprint_dir")
+    if sprint_dir_cfg is None:
+        raise FileNotFoundError(
+            f"sprint_dir no configurado para proyecto '{project_id}'. "
+            "Define 'sprint_dir' en config.json"
+        )
+    # Si es relativo simple, resolver bajo data/
+    if "/" not in sprint_dir_cfg:
+        return get_data_dir(project_id) / sprint_dir_cfg
+    return get_project_dir(project_id) / sprint_dir_cfg
+
+
+def get_sprint_dir(project_id: str, sprint_id: str) -> Path:
+    """Directorio de un sprint: <project_dir>/<sprint_dir>/<sprint_id>/"""
+    return get_delta_dir(project_id) / sprint_id
+
+
+def get_data_dir(project_id: str) -> Path:
+    """Data de un proyecto: <project_dir>/data/"""
+    return get_project_dir(project_id) / _get_cfg("data_dir", "data")
+
+
+def get_data_path(project_id: str, filename: str) -> Path:
+    """Archivo en data/: <project_dir>/data/<filename>"""
+    return get_data_dir(project_id) / filename
+
+
+def get_state_path(project_id: str) -> Path:
+    """Estado del workflow de un proyecto: <project_dir>/state"""
+    return get_project_dir(project_id) / "state"
+
+
+def get_workflow_dir(project_id: str) -> Path:
+    """Directorio workflow de un proyecto: <project_dir>/<workflow_dir>/"""
+    return get_project_dir(project_id) / _get_cfg("workflow_dir", "workflow.v3")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 4. Archivos de datos específicos (CPG, CKG, etc.)
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_cpg_path(project_id: str) -> Path:
+    """Ruta a cpg.json.gz dentro de data/ del proyecto."""
+    return get_data_path(project_id, "cpg.json.gz")
+
+
+def get_ckg_path(project_id: str) -> Path:
+    """Ruta a ckg.json.gz dentro de data/ del proyecto."""
+    return get_data_path(project_id, "ckg.json.gz")
+
+
+def get_trace_dir(project_id: str) -> Path:
+    """Directorio de traces: <project_dir>/data/traces/"""
+    return get_data_dir(project_id) / "traces"
+
+
+def get_trace_path(project_id: str, sprint_id: str) -> Path:
+    """Ruta a un trace: <project_dir>/data/traces/<sprint_id>.json.gz"""
+    return get_trace_dir(project_id) / f"{sprint_id}.json.gz"
+
+
+# ═══════════════════════════════════════════════════════════════
+# 5. Manifiesto del proyecto (project.json)
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_manifest_path(project_id: str) -> Path:
+    """Ruta a project.json de un proyecto.
+
+    Busca en: <project_dir>/data/project.json (canónico).
+    Si no existe, raise FileNotFoundError.
+    """
+    path = get_data_dir(project_id) / "project.json"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"project.json no encontrado en '{path}'. "
+            "El manifiesto del proyecto debe estar en <project_dir>/data/project.json"
+        )
+    return path
+
+
+def read_project_manifest(project_id: str) -> dict:
+    """Lee y retorna project.json. Dict vacío si no existe."""
+    try:
+        path = get_data_dir(project_id) / "project.json"
+    except Exception:
+        return {}
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def get_repo_path(project_id: str) -> str:
+    """Obtiene repo_path desde project.json."""
+    manifest = read_project_manifest(project_id)
+    loc = manifest.get("project", manifest).get("location", {})
+    return loc.get("repo_path", "")
+
+
+def get_code_paths(project_id: str) -> list[str]:
+    """Obtiene code_paths desde project.json."""
+    manifest = read_project_manifest(project_id)
+    loc = manifest.get("project", manifest).get("location", {})
+    return loc.get("code_paths", [])
+
+
+def resolve_source_code_dirs(project_id: str) -> list[Path]:
+    """Paths absolutos al código fuente desde project.json."""
+    repo = get_repo_path(project_id)
+    paths = get_code_paths(project_id)
+    if repo and os.path.isdir(repo):
+        base = Path(repo).resolve()
+        if paths:
+            return [(base / p).resolve() for p in paths]
+        return [base]
+    return [get_project_dir(project_id)]
+
+
+# ═══════════════════════════════════════════════════════════════
+# 6. Resolución desde chain_dir (sprint → project)
+# ═══════════════════════════════════════════════════════════════
+
+
+def resolve_project_root(chain_dir: str) -> str:
+    """Deriva el directorio del proyecto desde un chain_dir.
+    
+    Camina hacia arriba desde chain_dir buscando project.json.
+    El directorio que contiene project.json es el project root.
+    
+    Busca en dos ubicaciones en cada nivel:
+    1. <candidate>/project.json (legacy, project root)
+    2. <candidate>/data/project.json (canónico, todo en data/)
+    
+    Raises:
+        FileNotFoundError: si no encuentra project.json en ningún nivel.
+    """
+    if not chain_dir:
+        raise FileNotFoundError("chain_dir vacío — no se puede resolver project root")
+    cd = str(chain_dir)
+    candidate = cd
+    for _ in range(10):
+        # Buscar project.json directo (legacy)
+        if os.path.isfile(os.path.join(candidate, "project.json")):
+            return candidate
+        # Buscar project.json en data/ (canónico)
+        if os.path.isfile(os.path.join(candidate, "data", "project.json")):
+            return candidate
+        parent = os.path.dirname(candidate)
+        if parent == candidate:
+            break
+        candidate = parent
+    raise FileNotFoundError(
+        f"No se pudo resolver project root desde chain_dir='{chain_dir}'. "
+        "Ningún directorio en la jerarquía contiene project.json ni data/project.json."
+    )
+
+
+def resolve_project_id(chain_dir: str) -> str:
+    """Deriva project_id desde chain_dir."""
+    root = resolve_project_root(chain_dir)
+    return os.path.basename(root) if root else ""
+
+
+def resolve_real_project_dir(chain_dir: str) -> str:
+    """Resuelve el directorio REAL del código fuente desde chain_dir.
+
+    Lee project.json del cognitive_dir para obtener repo_path y construye:
+    <repo_path>/projects/<project_id>/
+
+    Busca project.json en data/ primero (canónico), luego directo (legacy).
+
+    Raises:
+        FileNotFoundError: si no encuentra project.json o repo_path.
+    """
+    cognitive_dir = resolve_project_root(chain_dir)
+    # Buscar en data/ primero (canónico), luego directo (legacy)
+    manifest_path = os.path.join(cognitive_dir, "data", "project.json")
+    if not os.path.exists(manifest_path):
+        manifest_path = os.path.join(cognitive_dir, "project.json")
+        if not os.path.exists(manifest_path):
+            raise FileNotFoundError(
+                f"project.json no encontrado en '{cognitive_dir}/data/' ni en '{cognitive_dir}'"
+            )
+    try:
+        with open(manifest_path) as f:
+            data = json.load(f)
+        loc = data.get("project", data).get("location", {})
+        repo_path = loc.get("repo_path", "")
+        project_id = data.get("project", data).get("meta", {}).get("project_id", "")
+        if not repo_path or not project_id:
+            raise FileNotFoundError(
+                f"project.json en '{manifest_path}' no contiene 'location.repo_path' o 'meta.project_id'"
+            )
+        return os.path.join(repo_path, "projects", project_id)
+    except (json.JSONDecodeError, KeyError, OSError) as e:
+        raise FileNotFoundError(
+            f"Error leyendo project.json en '{manifest_path}': {e}"
+        )
+
+
+def resolve_data_path(chain_dir: str, filename: str) -> str:
+    """Resuelve ruta a un archivo de datos desde chain_dir.
+    
+    Busca SOLO en: <project_root>/data/<filename>.gz
+    Si no existe, ERROR.
+    """
+    project_root = resolve_project_root(chain_dir)
+    data_dir = os.path.join(project_root, _get_cfg("data_dir", "data"))
+    data_file = os.path.join(data_dir, filename + ".gz")
+    if os.path.exists(data_file):
+        return data_file
+    # Intentar sin .gz
+    data_file_plain = os.path.join(data_dir, filename)
+    if os.path.exists(data_file_plain):
+        return data_file_plain
+    raise FileNotFoundError(
+        f"Archivo de datos '{filename}' no encontrado en '{data_dir}'. "
+        "Debe estar en <project_root>/data/<filename>[.gz]."
+    )
+
+
+def resolve_trace_path(chain_dir: str) -> str:
+    """Resuelve ruta al trace del sprint desde chain_dir."""
+    if not chain_dir:
+        raise FileNotFoundError("chain_dir vacío — no se puede resolver trace path")
+    sprint_id = os.path.basename(chain_dir)
+    project_root = resolve_project_root(chain_dir)
+    return os.path.join(
+        project_root, _get_cfg("data_dir", "data"), "traces", f"{sprint_id}.json.gz"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# 7. Manifests de tareas (task-manifests/)
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_task_manifest_path(task_name: str) -> Path:
+    """Ruta al manifest JSON de una tarea en task-manifests/."""
+    return get_walker_root() / "task-manifests" / f"{task_name}.json"
+
+
+def load_task_manifest(task_name: str) -> dict:
+    """Carga el manifest JSON de una tarea. Dict vacío si no existe."""
+    path = get_task_manifest_path(task_name)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}

@@ -1,0 +1,2274 @@
+{
+  "version": "3.1",
+  "description": "Workflow v3.1 Enterprise. TaskRegistry actions como unica interfaz del LLM (sin exponer CPG/CKG/delta-spring). REFINE con contexto, loop detection y knowledge capture. Bootstrap con deteccion de contexto, asignacion de sesion y guia de creacion de proyecto/sprint.",
+  "context_bag": {
+    "description": "Catalogo de placeholders que el engine resuelve en on_entry_message antes de presentarlo al agente. Cada placeholder se reemplaza con el valor actual del context_bag en step(). Si no existe en el context_bag, se deja literal.",
+    "placeholders": {
+      "session_id": {
+        "source": "session_init action (SPRINT.INIT)",
+        "description": "ID de sesion auto-generado",
+        "available_in": ["SPRINT.*", "DESIGN.*", "ANALYZE.*", "IMPLEMENT.*", "VERIFY.*", "REFINE.*", "SPRINT_PLANNING.*"]
+      },
+      "project_id": {
+        "source": "session_init + detect_context (SPRINT.INIT)",
+        "description": "ID del proyecto activo detectado o proporcionado por el usuario",
+        "available_in": ["SPRINT.*", "DESIGN.*", "ANALYZE.*", "IMPLEMENT.*", "VERIFY.*", "REFINE.*", "SPRINT_PLANNING.*"]
+      },
+      "existing_sprints_msg": {
+        "source": "list_sprints action (SPRINT.CHECK)",
+        "description": "Mensaje sobre sprints existentes: 'No hay sprints activos' o 'Hay N sprints disponibles'",
+        "available_in": ["SPRINT.CREATE"]
+      },
+      "task_count": {
+        "source": "show_dashboard action (SPRINT.ACTIVE) o edit_plan action",
+        "description": "Numero de tareas en el plan del sprint activo",
+        "available_in": ["SPRINT.ACTIVE", "SPRINT.EDIT", "SPRINT.CREATE"]
+      },
+      "source_node": {
+        "source": "Engine inyecta al hacer transicion a REFINE",
+        "description": "Nodo que origino el refine: DESIGN, ANALYZE, IMPLEMENT o VERIFY",
+        "available_in": ["REFINE.DIAGNOSE"]
+      },
+      "attempt": {
+        "source": "Engine lee contador del sprint-state al entrar a REFINE",
+        "description": "Numero de intento actual de refinamiento (1, 2, 3)",
+        "available_in": ["REFINE.DIAGNOSE", "REFINE.ESCALATION"]
+      },
+      "error_context": {
+        "source": "Engine inyecta desde el resultado de la accion que fallo",
+        "description": "Contexto del fallo: quality gate, error, mensaje",
+        "available_in": ["REFINE.DIAGNOSE"]
+      },
+      "task_id": {
+        "source": "Engine inyecta desde el sprint-state al entrar a REFINE",
+        "description": "ID de la tarea siendo refinada (TASK-XXX)",
+        "available_in": ["REFINE.DIAGNOSE"]
+      },
+      "max_attempts": {
+        "source": "Configuracion del workflow (default: 3)",
+        "description": "Numero maximo de intentos de refine antes de escalar",
+        "available_in": ["REFINE.ESCALATION"]
+      }
+    }
+  },
+  "initial_state": "SPRINT",
+  "nodes": {
+    "SPRINT": {
+      "label": "Sprint Lifecycle",
+      "description": "Gestiona el ciclo de vida completo del sprint: bootstrap, dashboard, edicion y cierre.",
+      "sub_states": [
+        {
+          "key": "INIT",
+          "label": "System initialization",
+          "execution": "bootstrap",
+          "action": "session_init",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "string",
+                "description": "Opcional. Para reanudar un proyecto existente. Si se omite, el engine detecta automáticamente o guía la creación.",
+                "examples": [
+                  "delta-skill",
+                  "cognitive-mcp"
+                ]
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ID de sesión auto-generado por el engine"
+              },
+              "project_id": {
+                "type": "string",
+                "description": "ID del proyecto activo (existente o recién creado)"
+              },
+              "system_ready": {
+                "type": "boolean",
+                "description": "Indica si el sistema está listo para operar"
+              },
+              "has_existing_context": {
+                "type": "boolean",
+                "description": "True si se detectó un proyecto/sprint existente"
+              },
+              "existing_sprints": {
+                "type": "array",
+                "description": "Lista de sprints activos si se detectó contexto existente"
+              },
+              "message": {
+                "type": "string",
+                "description": "Mensaje informativo sobre el resultado de la inicialización"
+              }
+            },
+            "required": [
+              "session_id",
+              "system_ready",
+              "has_existing_context"
+            ]
+          },
+          "on_success": "CHECK",
+          "on_failure": "",
+          "side_effects": [
+            {
+              "type": "assign_session",
+              "params": {}
+            },
+            {
+              "type": "detect_context",
+              "params": {}
+            },
+            {
+              "type": "register_catalog",
+              "params": {}
+            },
+            {
+              "type": "init_trace_log",
+              "params": {}
+            },
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "system_initialized"
+              }
+            }
+          ],
+          "retry": {
+            "max_attempts": 1,
+            "backoff": "fixed",
+            "initial_delay_ms": 1000
+          },
+          "timeout_ms": 300000,
+          "on_entry_message": "📌 SPRINT.INIT — Inicialización del sistema\n\nEl engine está iniciando la sesión. Proceso automático:\n\n  1️⃣ Asigna session_id auto-generado\n  2️⃣ Detecta proyecto/sprint/tarea existente\n  3️⃣ Si hay contexto → lo reanuda\n  4️⃣ Si no hay contexto → guía la creación\n\nPuedes proporcionar un project_id opcional:\n  submit --project_id 'delta-skill'\n  (si omites, el engine detecta automáticamente)\n\nOutput esperado:\n  session_id, project_id, system_ready, has_existing_context, existing_sprints, message\n  → Transición automática a SPRINT.CHECK"
+        },
+        {
+          "key": "CHECK",
+          "label": "Check available sprints",
+          "execution": "auto",
+          "action": "list_sprints",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "sprints": {
+                "type": "array"
+              }
+            }
+          },
+          "on_success": "CREATE",
+          "on_failure": "INIT",
+          "side_effects": [],
+          "retry": {
+            "max_attempts": 1,
+            "backoff": "fixed",
+            "initial_delay_ms": 1000
+          },
+          "timeout_ms": 30000,
+          "on_entry_message": "Verificando sprints disponibles..."
+        },
+        {
+          "key": "CREATE",
+          "label": "Create sprint",
+          "execution": "llm_task",
+          "action": "create_sprint",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "ID del proyecto. Usa el detectado por INIT o propón uno nuevo.",
+                "examples": [
+                  "delta-skill",
+                  "cognitive-mcp"
+                ]
+              },
+              "goal": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Objetivo principal del sprint. Describe qué se quiere lograr.",
+                "examples": [
+                  "Implementar TaskRegistry con 18 tareas namespaced"
+                ]
+              },
+              "tasks": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Lista de tareas del sprint. Cada tarea es un objeto con objective, type, domain.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "objective": {
+                      "type": "string",
+                      "description": "Descripción clara de la tarea",
+                      "examples": [
+                        "Crear el modelo ExecutionType con 5 variantes"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "feature",
+                        "refactor",
+                        "bugfix",
+                        "docs",
+                        "chore"
+                      ],
+                      "description": "Tipo de tarea"
+                    },
+                    "domain": {
+                      "type": "string",
+                      "description": "Dominio del proyecto (engine, cli, infrastructure)"
+                    },
+                    "result_state": {
+                      "type": "string",
+                      "description": "Opcional. Estado esperado al completar la tarea"
+                    }
+                  },
+                  "required": [
+                    "objective",
+                    "type",
+                    "domain"
+                  ]
+                },
+                "examples": [
+                  [
+                    {
+                      "objective": "Implementar ExecutionType enum",
+                      "type": "feature",
+                      "domain": "engine",
+                      "result_state": "5 variantes funcionales"
+                    }
+                  ]
+                ]
+              }
+            },
+            "required": [
+              "project_id",
+              "goal",
+              "tasks"
+            ]
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "created"
+                ],
+                "description": "Estado del sprint tras la creación"
+              },
+              "sprint_id": {
+                "type": "string",
+                "description": "ID del sprint creado"
+              },
+              "project_id": {
+                "type": "string",
+                "description": "ID del proyecto"
+              },
+              "task_count": {
+                "type": "integer",
+                "description": "Número de tareas registradas"
+              }
+            },
+            "description": "Sprint creado correctamente. Transición automática a SPRINT.ACTIVE. Usa 'transition start_task' para iniciar una tarea."
+          },
+          "on_success": "ACTIVE",
+          "on_failure": "INIT",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "sprint_created"
+              }
+            },
+            {
+              "type": "update_cpg",
+              "params": {},
+              "optional": true
+            }
+          ],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 SPRINT.CREATE — Crear nuevo sprint\n\nContexto:\n  Proyecto activo: {project_id}\n  {existing_sprints_msg}\n\nInstrucción:\n  Crea un sprint para el proyecto '{project_id}'. Define el goal y desglosa\n  las tareas necesarias como un array de objetos.\n\nComando:\n  submit --project_id '{project_id}' --goal '<objetivo>' --tasks '<json>'\n\nCampos requeridos:\n  • project_id : string — ID del proyecto (ej: \"delta-skill\")\n  • goal       : string, mínimo 10 caracteres — qué se quiere lograr\n  • tasks      : array de TaskObject — lista de tareas\n\n  TaskObject:\n    • objective    : string (requerido) — qué hace la tarea\n    • type         : \"feature\" | \"refactor\" | \"bugfix\" | \"docs\" | \"chore\" (requerido)\n    • domain       : string (requerido) — dominio del proyecto\n    • result_state : string (opcional) — estado esperado\n\nEjemplo:\n  submit --project_id 'delta-skill' \\\n         --goal 'Implementar TaskRegistry con 18 tareas' \\\n         --tasks '[{\"objective\":\"Crear modelo\",\"type\":\"feature\",\"domain\":\"engine\"}]'\n\nOutput esperado:\n  { status: \"created\", sprint_id: \"sprint-xxx\", task_count: {task_count} }\n  → Transición automática a SPRINT.ACTIVE\n  → Siguiente: usa 'transition start_task' para iniciar una tarea"
+        },
+        {
+          "key": "ACTIVE",
+          "label": "Sprint dashboard",
+          "execution": "auto",
+          "action": "show_dashboard",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "tasks": {
+                "type": "array"
+              }
+            }
+          },
+          "on_success": "",
+          "on_failure": "INIT",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 30000,
+          "on_entry_message": "📌 SPRINT.ACTIVE — Sprint activo\n\nProyecto: {project_id}\nTareas: {task_count} en el plan\n\nComandos disponibles:\n  • transition start_task   → iniciar análisis de tarea\n  • transition start_design → iniciar fase de diseño\n  • transition edit_plan    → editar plan del sprint\n  • transition close_sprint → cerrar sprint\n  • transition plan_tasks   → agregar tareas al plan"
+        },
+        {
+          "key": "EDIT",
+          "label": "Edit sprint plan",
+          "execution": "llm_task",
+          "action": "edit_plan",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "add-task",
+                  "remove-task",
+                  "update-task"
+                ],
+                "description": "Operación a realizar sobre el plan del sprint",
+                "examples": [
+                  "add-task"
+                ]
+              },
+              "task": {
+                "type": "object",
+                "description": "Datos de la tarea según la acción. Para add-task: {objective, type, domain}. Para remove-task: {task_id}. Para update-task: {task_id, ...campos_a_actualizar}.",
+                "properties": {
+                  "task_id": {
+                    "type": "string",
+                    "description": "ID de la tarea (requerido para remove-task y update-task)",
+                    "examples": [
+                      "TASK-013"
+                    ]
+                  },
+                  "objective": {
+                    "type": "string",
+                    "description": "Descripción de la tarea (para add-task)",
+                    "examples": [
+                      "Implementar nuevo endpoint"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "feature",
+                      "refactor",
+                      "bugfix",
+                      "docs",
+                      "chore"
+                    ],
+                    "description": "Tipo de tarea (para add-task)"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "description": "Dominio del proyecto (para add-task)",
+                    "examples": [
+                      "engine"
+                    ]
+                  },
+                  "result_state": {
+                    "type": "string",
+                    "description": "Estado esperado (opcional, para add-task o update-task)"
+                  }
+                },
+                "examples": [
+                  {
+                    "objective": "Implementar X",
+                    "type": "feature",
+                    "domain": "engine"
+                  },
+                  {
+                    "task_id": "TASK-013"
+                  },
+                  {
+                    "task_id": "TASK-013",
+                    "objective": "Nueva descripción",
+                    "domain": "cli"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "edited"
+                ],
+                "description": "Resultado de la edición"
+              },
+              "action": {
+                "type": "string",
+                "description": "Acción ejecutada"
+              },
+              "task_id": {
+                "type": "string",
+                "description": "ID de la tarea afectada"
+              },
+              "task_count": {
+                "type": "integer",
+                "description": "Total de tareas en el plan tras la edición"
+              }
+            },
+            "description": "Plan editado correctamente. Transición automática a SPRINT.ACTIVE."
+          },
+          "on_success": "ACTIVE",
+          "on_failure": "ACTIVE",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "plan_edited"
+              }
+            }
+          ],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 SPRINT.EDIT — Editar plan del sprint\n\nContexto:\n  Plan activo con {task_count} tareas\n\nInstrucción:\n  Selecciona una acción y proporciona los datos de la tarea.\n\nComando:\n  submit --action add-task --task '{\"objective\":\"...\",\"type\":\"feature\",\"domain\":\"engine\"}'\n  submit --action remove-task --task '{\"task_id\":\"TASK-013\"}'\n  submit --action update-task --task '{\"task_id\":\"TASK-013\",\"domain\":\"cli\"}'\n\nCampos requeridos:\n  • action : \"add-task\" | \"remove-task\" | \"update-task\" (requerido)\n  • task   : objeto con datos según la acción:\n      add-task → {objective, type, domain, result_state?}\n      remove-task → {task_id}\n      update-task → {task_id, ...campos_a_cambiar}\n\n    TaskObject:\n      • task_id      : string — ID de la tarea (para remove/update)\n      • objective    : string — descripción (para add)\n      • type         : \"feature\"|\"refactor\"|\"bugfix\"|\"docs\"|\"chore\" (para add)\n      • domain       : string — dominio (para add)\n      • result_state : string — estado esperado (opcional)\n\nEjemplo:\n  submit --action add-task --task '{\"objective\":\"Nueva tarea\",\"type\":\"feature\",\"domain\":\"engine\"}'\n\nOutput esperado:\n  { status: \"edited\", action: \"add-task\", task_id: \"TASK-014\", task_count: {task_count} }\n  → Transición automática a SPRINT.ACTIVE"
+        },
+        {
+          "key": "CLOSE_CHECK",
+          "label": "Close validation",
+          "execution": "auto",
+          "action": "validate_close",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "pending_tasks": {
+                "type": "array"
+              },
+              "health_score": {
+                "type": "number"
+              }
+            }
+          },
+          "on_success": "HANDLE_PENDING",
+          "on_failure": "ACTIVE",
+          "side_effects": [],
+          "retry": {
+            "max_attempts": 1,
+            "backoff": "fixed",
+            "initial_delay_ms": 1000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "Verificando condiciones de cierre..."
+        },
+        {
+          "key": "HANDLE_PENDING",
+          "label": "Handle pending tasks",
+          "execution": "user_input",
+          "action": "",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "backlog",
+                  "cancel_pending",
+                  "defer"
+                ],
+                "description": "Qué hacer con las tareas pendientes",
+                "examples": [
+                  "backlog"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "description": "Tareas pendientes gestionadas. Transición a CLOSE."
+          },
+          "on_success": "CLOSE",
+          "on_failure": "ACTIVE",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "pending_handled"
+              }
+            }
+          ],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 SPRINT.HANDLE_PENDING — Tareas pendientes\n\nHay tareas sin completar antes de cerrar el sprint. Decide:\n\n  • backlog       → mover tareas pendientes al backlog del proyecto\n  • cancel_pending→ cancelar tareas pendientes\n  • defer         → diferir tareas para el próximo sprint\n\nComando:\n  submit --decision backlog\n  submit --decision cancel_pending\n  submit --decision defer"
+        },
+        {
+          "key": "CLOSE",
+          "label": "Close sprint",
+          "execution": "auto",
+          "action": "close_sprint",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {"type": "string", "enum": ["closed"], "description": "Estado del sprint tras cierre"},
+              "archived": {"type": "boolean", "description": "True si el sprint fue archivado"}
+            },
+            "description": "Sprint cerrado y archivado correctamente."
+          },
+          "on_success": "",
+          "on_failure": "ACTIVE",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "sprint_closed"
+              }
+            },
+            {
+              "type": "archive_sprint",
+              "params": {},
+              "optional": true
+            }
+          ],
+          "retry": null,
+          "timeout_ms": 60000,
+          "on_entry_message": "Cerrando sprint..."
+        }
+      ]
+    },
+    "DESIGN": {
+      "label": "Design Phase",
+      "description": "Fase de diseno arquitectonico: analisis 6->3 capas, revision y captura de conocimiento.",
+      "sub_states": [
+        {
+          "key": "DESIGN_GATHER",
+          "label": "Gather context",
+          "execution": "auto",
+          "action": "gather_context",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "code_context": {
+                "type": "object"
+              },
+              "knowledge_context": {
+                "type": "object"
+              },
+              "spring_context": {
+                "type": "object"
+              }
+            }
+          },
+          "on_success": "DESIGN_ANALYZE",
+          "on_failure": "",
+          "side_effects": [
+            {
+              "type": "update_code_index",
+              "params": {},
+              "optional": true
+            },
+            {
+              "type": "build_project_graph",
+              "params": {},
+              "optional": true
+            }
+          ],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "exponential",
+            "initial_delay_ms": 2000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "Recopilando contexto automatico: tareas de contexto ejecutadas por el motor."
+        },
+        {
+          "key": "DESIGN_ANALYZE",
+          "label": "6->3 analysis",
+          "execution": "llm_task",
+          "action": "",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "cpg_context": {
+                "type": "object",
+                "readOnly": true,
+                "description": "🔒 Contexto del codebase. Inyectado por el engine. No enviar."
+              },
+              "ckg_context": {
+                "type": "object",
+                "readOnly": true,
+                "description": "🔒 Contexto del conocimiento. Inyectado por el engine. No enviar."
+              },
+              "q1": {
+                "type": "string",
+                "description": "Pregunta 1 del análisis 6→3",
+                "examples": [
+                  "¿Qué capas del sistema se verán afectadas?"
+                ]
+              },
+              "a1": {
+                "type": "string",
+                "description": "Respuesta a la pregunta 1",
+                "examples": [
+                  "Las capas de dominio y aplicación se verán afectadas porque..."
+                ],
+                "minLength": 10
+              },
+              "q2": {
+                "type": "string",
+                "description": "Pregunta 2 del análisis 6→3",
+                "examples": [
+                  "¿Qué dependencias existen entre los componentes?"
+                ]
+              },
+              "a2": {
+                "type": "string",
+                "description": "Respuesta a la pregunta 2",
+                "examples": [
+                  "El componente X depende de Y a través de la interfaz Z..."
+                ],
+                "minLength": 10
+              },
+              "q3": {
+                "type": "string",
+                "description": "Pregunta 3 del análisis 6→3",
+                "examples": [
+                  "¿Cuál es el riesgo principal de la implementación?"
+                ]
+              },
+              "a3": {
+                "type": "string",
+                "description": "Respuesta a la pregunta 3",
+                "examples": [
+                  "El riesgo principal es la regresión en el módulo de persistencia..."
+                ],
+                "minLength": 10
+              }
+            },
+            "required": [
+              "q1",
+              "a1",
+              "q2",
+              "a2",
+              "q3",
+              "a3"
+            ]
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "analyzed"
+                ],
+                "description": "Análisis completado"
+              },
+              "summary": {
+                "type": "string",
+                "description": "Resumen del análisis 6→3"
+              }
+            },
+            "description": "Análisis 6→3 completado. Transición a DESIGN_REVIEW para revisión."
+          },
+          "on_success": "DESIGN_REVIEW",
+          "on_failure": "DESIGN_GATHER",
+          "side_effects": [],
+          "retry": {
+            "max_attempts": 3,
+            "backoff": "exponential",
+            "initial_delay_ms": 5000
+          },
+          "timeout_ms": 300000,
+          "on_entry_message": "📌 DESIGN.DESIGN_ANALYZE — Análisis 6→3 capas\n\nInstrucción:\n  Responde las 3 preguntas del análisis arquitectónico 6→3.\n  Cada pregunta (q) debe tener su respuesta (a) correspondiente.\n\nComando:\n  submit --q1 '<pregunta>' --a1 '<respuesta>' --q2 '<pregunta>' --a2 '<respuesta>' --q3 '<pregunta>' --a3 '<respuesta>'\n\nCampos requeridos:\n  • q1 : string — pregunta 1\n  • a1 : string, mínimo 10 caracteres — respuesta 1\n  • q2 : string — pregunta 2\n  • a2 : string, mínimo 10 caracteres — respuesta 2\n  • q3 : string — pregunta 3\n  • a3 : string, mínimo 10 caracteres — respuesta 3\n\nEjemplo:\n  submit --q1 '¿Qué capas se ven afectadas?' --a1 'Dominio y aplicación porque...' \\\n         --q2 '¿Qué dependencias existen?'   --a2 'X depende de Y vía interfaz Z...' \\\n         --q3 '¿Cuál es el riesgo?'           --a3 'Riesgo de regresión en persistencia...'\n\nOutput:\n  { status: \"analyzed\", summary: \"...\" }\n  → Transición a DESIGN_REVIEW"
+        },
+        {
+          "key": "DESIGN_REVIEW",
+          "label": "Design review",
+          "execution": "user_input",
+          "action": "",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "reject",
+                  "refine"
+                ]
+              },
+              "evidence": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "on_success": "CKG_SAVE",
+          "on_failure": "DESIGN_GATHER",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 DESIGN.DESIGN_REVIEW — Revisar diseño\n\nEl análisis 6→3 está completo. Tu decisión:\n\n  • approve → diseño aprobado, continuar a CKG_SAVE\n  • reject  → diseño rechazado, volver a DESIGN_GATHER\n  • refine  → necesita refinamiento, ir a REFINE.DIAGNOSE\n\nComando:\n  submit --decision approve --evidence '<razón>'\n  submit --decision reject  --evidence '<por qué>'\n  submit --decision refine  --evidence '<qué falta>'"
+        },
+        {
+          "key": "CKG_SAVE",
+          "label": "Save to CKG",
+          "execution": "auto",
+          "action": "save_to_ckg",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {"type": "string", "enum": ["saved"], "description": "Conocimiento guardado en CKG"}
+            },
+            "description": "Diseño guardado en el knowledge graph. Transición al nodo que sigue según edges."
+          },
+          "on_success": "",
+          "on_failure": "DESIGN_REVIEW",
+          "side_effects": [
+            {
+              "type": "save_ckg",
+              "params": {}
+            },
+            {
+              "type": "update_delta_graph",
+              "params": {},
+              "optional": true
+            }
+          ],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "fixed",
+            "initial_delay_ms": 1000
+          },
+          "timeout_ms": 30000,
+          "on_entry_message": "Guardando conocimiento en el CKG..."
+        }
+      ]
+    },
+    "ANALYZE": {
+      "label": "Task Analysis",
+      "description": "Investigacion, analisis y aprobacion del contexto de la tarea antes de implementar.",
+      "sub_states": [
+        {
+          "key": "GATHER",
+          "label": "Gather task context",
+          "execution": "auto",
+          "action": "gather_task_context",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "context": {
+                "type": "object"
+              }
+            }
+          },
+          "on_success": "ANALYZE",
+          "on_failure": "",
+          "side_effects": [
+            {
+              "type": "update_code_index",
+              "params": {},
+              "optional": true
+            }
+          ],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "exponential",
+            "initial_delay_ms": 2000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "Recopilando contexto de la tarea..."
+        },
+        {
+          "key": "ANALYZE",
+          "label": "6->3 analysis",
+          "execution": "llm_task",
+          "action": "",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "q1": {
+                "type": "string",
+                "description": "Pregunta 1 del análisis 6→3 sobre la tarea",
+                "examples": [
+                  "¿Qué componentes existen actualmente en el código?"
+                ]
+              },
+              "a1": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Respuesta a la pregunta 1",
+                "examples": [
+                  "Actualmente existen 3 componentes principales: A, B y C"
+                ]
+              },
+              "q2": {
+                "type": "string",
+                "description": "Pregunta 2 del análisis 6→3",
+                "examples": [
+                  "¿Qué impacto tiene la tarea en cada componente?"
+                ]
+              },
+              "a2": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Respuesta a la pregunta 2",
+                "examples": [
+                  "La tarea afecta al componente A porque introduce un nuevo flujo"
+                ]
+              },
+              "q3": {
+                "type": "string",
+                "description": "Pregunta 3 del análisis 6→3",
+                "examples": [
+                  "¿Cuál es el enfoque de implementación recomendado?"
+                ]
+              },
+              "a3": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Respuesta a la pregunta 3",
+                "examples": [
+                  "Se recomienda implementar siguiendo el patrón Strategy en la capa de dominio"
+                ]
+              }
+            },
+            "required": [
+              "q1",
+              "a1",
+              "q2",
+              "a2",
+              "q3",
+              "a3"
+            ]
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "analyzed"
+                ],
+                "description": "Análisis completado"
+              },
+              "summary": {
+                "type": "string",
+                "description": "Resumen del análisis"
+              }
+            },
+            "description": "Análisis 6→3 completado. Transición a REVIEW para aprobación."
+          },
+          "on_success": "REVIEW",
+          "on_failure": "GATHER",
+          "side_effects": [],
+          "retry": {
+            "max_attempts": 3,
+            "backoff": "exponential",
+            "initial_delay_ms": 5000
+          },
+          "timeout_ms": 300000,
+          "on_entry_message": "📌 ANALYZE.ANALYZE — Análisis 6→3 de la tarea\n\nInstrucción:\n  Analiza la tarea respondiendo 3 preguntas clave sobre el estado actual,\n  el impacto y el enfoque de implementación.\n\nComando:\n  submit --q1 '<pregunta>' --a1 '<respuesta>' --q2 '<pregunta>' --a2 '<respuesta>' --q3 '<pregunta>' --a3 '<respuesta>'\n\nCampos requeridos:\n  • q1, a1 : string — Pregunta y respuesta 1 (a1 mínimo 10 caracteres)\n  • q2, a2 : string — Pregunta y respuesta 2\n  • q3, a3 : string — Pregunta y respuesta 3\n\nEjemplo:\n  submit --q1 '¿Qué componentes existen?' --a1 'Componentes A, B y C...' \\\n         --q2 '¿Qué impacto tiene?'       --a2 'Afecta componente A...' \\\n         --q3 '¿Enfoque recomendado?'     --a3 'Patrón Strategy en dominio...'\n\nOutput:\n  { status: \"analyzed\", summary: \"...\" }\n  → Transición a REVIEW"
+        },
+        {
+          "key": "REVIEW",
+          "label": "Review analysis",
+          "execution": "user_input",
+          "action": "",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "reject"
+                ],
+                "description": "Decisión sobre el análisis",
+                "examples": [
+                  "approve"
+                ]
+              },
+              "evidence": {
+                "type": "string",
+                "description": "Evidencia o razón de la decisión",
+                "examples": [
+                  "El análisis cubre todos los componentes y el enfoque es correcto"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "description": "Análisis revisado. Si approve → KNOWLEDGE_CAPTURE. Si reject → GATHER."
+          },
+          "on_success": "KNOWLEDGE_CAPTURE",
+          "on_failure": "GATHER",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 ANALYZE.REVIEW — Revisar análisis\n\nEl análisis 6→3 está completo. Tu decisión:\n\n  • approve → análisis aprobado, continuar a KNOWLEDGE_CAPTURE\n  • reject  → análisis rechazado, volver a GATHER\n\nComando:\n  submit --decision approve --evidence '<razón>'\n  submit --decision reject  --evidence '<por qué>'"
+        },
+        {
+          "key": "KNOWLEDGE_CAPTURE",
+          "label": "Capture knowledge",
+          "execution": "llm_task",
+          "action": "",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "artefactos": {
+                "type": "array",
+                "description": "Artefactos generados durante el análisis (diagramas, documentos, archivos)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "nombre": {
+                      "type": "string",
+                      "description": "Nombre del artefacto"
+                    },
+                    "tipo": {
+                      "type": "string",
+                      "description": "Tipo: diagrama, doc, código"
+                    },
+                    "descripcion": {
+                      "type": "string",
+                      "description": "Descripción del artefacto"
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "nombre": "Diagrama de componentes",
+                      "tipo": "diagrama",
+                      "descripcion": "Diagrama mostrando la relación entre módulos"
+                    }
+                  ]
+                ]
+              },
+              "reglas": {
+                "type": "array",
+                "description": "Reglas extraídas del análisis (convenciones, patrones, constraints)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "regla": {
+                      "type": "string",
+                      "description": "Descripción de la regla"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "description": "Alcance: proyecto, módulo, equipo"
+                    },
+                    "severidad": {
+                      "type": "string",
+                      "enum": [
+                        "obligatoria",
+                        "recomendada",
+                        "informativa"
+                      ]
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "regla": "Usar siempre dataclasses para modelos de dominio",
+                      "scope": "proyecto",
+                      "severidad": "obligatoria"
+                    }
+                  ]
+                ]
+              },
+              "decisiones": {
+                "type": "array",
+                "description": "Decisiones de diseño tomadas durante el análisis",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "type": "string",
+                      "description": "Descripción de la decisión"
+                    },
+                    "alternativas": {
+                      "type": "array",
+                      "description": "Alternativas consideradas"
+                    },
+                    "razon": {
+                      "type": "string",
+                      "description": "Por qué se tomó esta decisión"
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "decision": "Usar TaskRegistry en vez de switch-case",
+                      "alternativas": [
+                        "switch-case",
+                        "strategy pattern"
+                      ],
+                      "razon": "DRY + extensibilidad"
+                    }
+                  ]
+                ]
+              },
+              "advertencias": {
+                "type": "array",
+                "description": "Advertencias o riesgos identificados",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "advertencia": {
+                      "type": "string",
+                      "description": "Descripción de la advertencia"
+                    },
+                    "impacto": {
+                      "type": "string",
+                      "description": "Impacto potencial"
+                    },
+                    "mitigacion": {
+                      "type": "string",
+                      "description": "Cómo mitigar el riesgo"
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "advertencia": "La migración puede romper compatibilidad hacia atrás",
+                      "impacto": "alto",
+                      "mitigacion": "Implementar mapper v2→v3"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "captured"
+                ],
+                "description": "Conocimiento capturado"
+              },
+              "total_items": {
+                "type": "integer",
+                "description": "Total de ítems capturados"
+              }
+            },
+            "description": "Conocimiento capturado en CKG. Transición a IMPLEMENT.USER_GATE o siguiente fase."
+          },
+          "on_success": "",
+          "on_failure": "REVIEW",
+          "side_effects": [
+            {
+              "type": "save_to_ckg",
+              "params": {}
+            },
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "knowledge_captured"
+              }
+            }
+          ],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "exponential",
+            "initial_delay_ms": 3000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "📌 ANALYZE.KNOWLEDGE_CAPTURE — Capturar conocimiento\n\nInstrucción:\n  Registra el conocimiento generado durante el análisis: artefactos, reglas,\n  decisiones de diseño y advertencias.\n\nComando:\n  submit --artefactos '<json>' --reglas '<json>' --decisiones '<json>' --advertencias '<json>'\n\nCampos:\n  • artefactos  : array de objetos — diagramas, docs, código generado\n    └─ { nombre, tipo (diagrama|doc|código), descripcion }\n  • reglas      : array de objetos — convenciones y patrones\n    └─ { regla, scope, severidad (obligatoria|recomendada|informativa) }\n  • decisiones  : array de objetos — decisiones de diseño\n    └─ { decision, alternativas[], razon }\n  • advertencias: array de objetos — riesgos identificados\n    └─ { advertencia, impacto, mitigacion }\n\nOutput:\n  { status: \"captured\", total_items: N }\n  → Transición a IMPLEMENT.USER_GATE"
+        }
+      ]
+    },
+    "IMPLEMENT": {
+      "label": "Implementation phase",
+      "description": "Implementacion de la tarea con gates de usuario obligatorios y quality gates automatizados.",
+      "sub_states": [
+        {
+          "key": "USER_GATE",
+          "label": "User approval gate",
+          "execution": "user_input",
+          "action": "",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "proceed",
+                  "refine",
+                  "cancel"
+                ],
+                "description": "Decisión del usuario",
+                "examples": [
+                  "proceed"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "description": "Gate de usuario. proceed → WORK. refine → REFINE. cancel → SPRINT.ACTIVE."
+          },
+          "on_success": "WORK",
+          "on_failure": "",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 IMPLEMENT.USER_GATE — Aprobación del usuario\n\nInstrucción:\n  Presenta un resumen del análisis al usuario y espera decisión.\n\nOpciones:\n  • proceed → continuar a implementación (WORK)\n  • refine  → necesita refinamiento (REFINE.DIAGNOSE)\n  • cancel  → cancelar tarea y volver al sprint (SPRINT.ACTIVE)\n\nComando:\n  submit --decision proceed\n  submit --decision refine\n  submit --decision cancel"
+        },
+        {
+          "key": "WORK",
+          "label": "Implementation",
+          "execution": "auto",
+          "action": "implement_task",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object"
+              }
+            }
+          },
+          "on_success": "CODE_REVIEW_SCAN",
+          "on_failure": "USER_GATE",
+          "side_effects": [
+            {
+              "type": "update_cpg",
+              "params": {},
+              "optional": true
+            }
+          ],
+          "retry": {
+            "max_attempts": 1,
+            "backoff": "fixed",
+            "initial_delay_ms": 1000
+          },
+          "timeout_ms": 600000,
+          "on_entry_message": "Ejecutando implementacion de la tarea..."
+        },
+        {
+          "key": "CODE_REVIEW_SCAN",
+          "label": "Automatic code review",
+          "execution": "auto",
+          "action": "review_code",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "passed": {
+                "type": "boolean"
+              },
+              "findings": {
+                "type": "array"
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          },
+          "on_success": "KNOWLEDGE_UPDATE",
+          "on_failure": "WORK",
+          "side_effects": [
+            {
+              "type": "update_cpg",
+              "params": {
+                "scope": "code_review"
+              },
+              "optional": true
+            }
+          ],
+          "retry": {
+            "max_attempts": 3,
+            "backoff": "exponential",
+            "initial_delay_ms": 2000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "Ejecutando analisis estatico sobre archivos impactados..."
+        },
+        {
+          "key": "KNOWLEDGE_UPDATE",
+          "label": "Update knowledge",
+          "execution": "llm_task",
+          "action": "",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "actualizaciones": {
+                "type": "array",
+                "description": "Actualizaciones al conocimiento existente",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "elemento": {
+                      "type": "string",
+                      "description": "Qué se actualiza"
+                    },
+                    "cambio": {
+                      "type": "string",
+                      "description": "Descripción del cambio"
+                    },
+                    "razon": {
+                      "type": "string",
+                      "description": "Por qué se actualiza"
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "elemento": "Regla de validación de schemas",
+                      "cambio": "Añadir validación de tipos anidados",
+                      "razon": "Se detectaron objetos sin properties en input_schema"
+                    }
+                  ]
+                ]
+              },
+              "nuevas_reglas": {
+                "type": "array",
+                "description": "Nuevas reglas detectadas durante la implementación",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "regla": {
+                      "type": "string",
+                      "description": "Descripción de la regla"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "description": "Alcance"
+                    },
+                    "severidad": {
+                      "type": "string",
+                      "enum": [
+                        "obligatoria",
+                        "recomendada",
+                        "informativa"
+                      ]
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "regla": "Todo input_schema debe tener examples",
+                      "scope": "proyecto",
+                      "severidad": "obligatoria"
+                    }
+                  ]
+                ]
+              },
+              "nuevas_advertencias": {
+                "type": "array",
+                "description": "Nuevas advertencias o riesgos identificados",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "advertencia": {
+                      "type": "string",
+                      "description": "Descripción"
+                    },
+                    "impacto": {
+                      "type": "string",
+                      "description": "Impacto"
+                    },
+                    "mitigacion": {
+                      "type": "string",
+                      "description": "Mitigación"
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "advertencia": "El nuevo flujo puede causar timeouts",
+                      "impacto": "medio",
+                      "mitigacion": "Añadir timeout_ms configurable"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "updated"
+                ],
+                "description": "Conocimiento actualizado"
+              },
+              "total": {
+                "type": "integer",
+                "description": "Total de cambios registrados"
+              }
+            },
+            "description": "Conocimiento actualizado en CKG. Transición a REPORT_GATE."
+          },
+          "on_success": "REPORT_GATE",
+          "on_failure": "WORK",
+          "side_effects": [
+            {
+              "type": "save_to_ckg",
+              "params": {}
+            }
+          ],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "exponential",
+            "initial_delay_ms": 3000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "📌 IMPLEMENT.KNOWLEDGE_UPDATE — Actualizar conocimiento\n\nInstrucción:\n  Registra actualizaciones, nuevas reglas y advertencias descubiertas\n  durante la implementación.\n\nComando:\n  submit --actualizaciones '<json>' --nuevas_reglas '<json>' --nuevas_advertencias '<json>'\n\nCampos:\n  • actualizaciones   : array — cambios a conocimiento existente\n    └─ { elemento, cambio, razon }\n  • nuevas_reglas     : array — nuevas reglas\n    └─ { regla, scope, severidad }\n  • nuevas_advertencias : array — nuevos riesgos\n    └─ { advertencia, impacto, mitigacion }\n\nOutput:\n  { status: \"updated\", total: N }\n  → Transición a REPORT_GATE"
+        },
+        {
+          "key": "REPORT_GATE",
+          "label": "Post-implementation report",
+          "execution": "user_input",
+          "action": "",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "proceed",
+                  "refine",
+                  "cancel"
+                ],
+                "description": "Decisión post-implementación",
+                "examples": [
+                  "proceed"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "description": "Reporte post-implementación. proceed → VERIFY. refine → REFINE. cancel → SPRINT."
+          },
+          "on_success": "",
+          "on_failure": "",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 IMPLEMENT.REPORT_GATE — Reporte post-implementación\n\nInstrucción:\n  Presenta el reporte de implementación al usuario.\n\nOpciones:\n  • proceed → continuar a verificación (VERIFY.QA_RUN)\n  • refine  → necesita refinamiento (REFINE.DIAGNOSE)\n  • cancel  → cancelar y volver al sprint (SPRINT.ACTIVE)\n\nComando:\n  submit --decision proceed\n  submit --decision refine\n  submit --decision cancel"
+        }
+      ]
+    },
+    "VERIFY": {
+      "label": "Verification phase",
+      "description": "QA y aceptacion del Product Owner antes de dar la tarea por completada.",
+      "sub_states": [
+        {
+          "key": "QA_RUN",
+          "label": "Run tests",
+          "execution": "auto",
+          "action": "run_tests",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "exit_code": {
+                "type": "integer"
+              },
+              "stdout": {
+                "type": "string"
+              },
+              "stderr": {
+                "type": "string"
+              }
+            }
+          },
+          "on_success": "QA",
+          "on_failure": "WORK",
+          "side_effects": [],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "fixed",
+            "initial_delay_ms": 5000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "Ejecutando tests..."
+        },
+        {
+          "key": "QA",
+          "label": "QA review",
+          "execution": "user_input",
+          "action": "",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "reject"
+                ],
+                "description": "Resultado de QA",
+                "examples": [
+                  "approve"
+                ]
+              },
+              "evidence": {
+                "type": "string",
+                "description": "Evidencia del resultado (logs, capturas, razones)",
+                "examples": [
+                  "Todos los tests pasan, código revisado sin issues"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "description": "QA completado. approve → PO_ACCEPT. reject → IMPLEMENT.WORK."
+          },
+          "on_success": "PO_ACCEPT",
+          "on_failure": "WORK",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 VERIFY.QA — Revisión QA\n\nLos tests han sido ejecutados. Tu decisión:\n\n  • approve → calidad aceptada, continuar a aceptación PO\n  • reject  → calidad insuficiente, volver a implementación\n\nComando:\n  submit --decision approve --evidence '<razón>'\n  submit --decision reject  --evidence '<fallos encontrados>'"
+        },
+        {
+          "key": "PO_ACCEPT",
+          "label": "PO acceptance",
+          "execution": "user_input",
+          "action": "",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "accept",
+                  "reject"
+                ],
+                "description": "Decisión del Product Owner",
+                "examples": [
+                  "accept"
+                ]
+              },
+              "feedback": {
+                "type": "string",
+                "description": "Feedback del PO sobre la tarea completada",
+                "examples": [
+                  "Funcionalidad correcta, tests pasando, código limpio"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "description": "Aceptación PO. accept → tarea completada, vuelta a SPRINT. reject → IMPLEMENT.WORK."
+          },
+          "on_success": "",
+          "on_failure": "WORK",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "task_completed"
+              }
+            }
+          ],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 VERIFY.PO_ACCEPT — Aceptación del Product Owner\n\nQA ha aprobado. Ahora el PO debe aceptar la tarea:\n\n  • accept → tarea completada, vuelta al sprint (SPRINT.ACTIVE)\n  • reject → rechazada, volver a implementación (IMPLEMENT.WORK)\n\nComando:\n  submit --decision accept --feedback '<comentario>'\n  submit --decision reject --feedback '<qué corregir>'"
+        }
+      ]
+    },
+    "REFINE": {
+      "label": "Refinement Cycle",
+      "description": "Diagnostico de causa raiz, captura de conocimiento y ruteo a la fase correcta. Incluye loop detection (3 intentos maximo) y escalacion al sprint.",
+      "sub_states": [
+        {
+          "key": "DIAGNOSE",
+          "label": "Diagnose root cause & target",
+          "execution": "llm_task",
+          "action": "refine_diagnose",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "source_node": {
+                "type": "string",
+                "enum": [
+                  "DESIGN",
+                  "ANALYZE",
+                  "IMPLEMENT",
+                  "VERIFY"
+                ],
+                "readOnly": true,
+                "description": "🔒 Nodo que originó el refine. Inyectado por el engine. No enviar."
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1,
+                "readOnly": true,
+                "description": "🔒 Número de intento de refine. Inyectado por el engine. No enviar."
+              },
+              "error_context": {
+                "type": "string",
+                "readOnly": true,
+                "description": "🔒 Contexto del fallo que trigger el refine. Inyectado por el engine. No enviar."
+              },
+              "task_id": {
+                "type": "string",
+                "readOnly": true,
+                "description": "🔒 ID de la tarea siendo refinada. Inyectado por el engine. No enviar."
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "analyze",
+                  "implement",
+                  "verify",
+                  "sprint"
+                ],
+                "description": "Destino del refinamiento tras diagnosticar la causa raíz",
+                "examples": [
+                  "analyze",
+                  "implement"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Razón detallada del refinamiento. Explica qué falló y por qué se elige este destino.",
+                "examples": [
+                  "El análisis 6->3 no consideró la capa de infraestructura, causando un diseño incompleto",
+                  "La implementación no pasó el quality gate de seguridad: se detectó una vulnerabilidad XSS"
+                ]
+              }
+            },
+            "required": [
+              "target",
+              "reason"
+            ]
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "description": "Destino del refinamiento confirmado"
+              },
+              "reason": {
+                "type": "string",
+                "description": "Razón del refinamiento"
+              },
+              "knowledge_items": {
+                "type": "array",
+                "description": "Lecciones aprendidas detectadas durante el diagnóstico (se capturarán en el siguiente paso)"
+              }
+            },
+            "required": [
+              "target"
+            ],
+            "description": "Diagnóstico completado. Transición a KNOWLEDGE_CAPTURE para registrar lecciones."
+          },
+          "on_success": "KNOWLEDGE_CAPTURE",
+          "on_failure": "",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "refine_diagnosed"
+              }
+            }
+          ],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "exponential",
+            "initial_delay_ms": 2000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "📌 REFINE.DIAGNOSE — Diagnosticar causa raíz\n\nContexto:\n  Nodo origen: {source_node}\n  Intento: {attempt}/3\n  Error: {error_context}\n  Tarea: {task_id}\n\nInstrucción:\n  Investiga la causa raíz usando las tareas de contexto disponibles.\n  NO invoques CPG, CKG ni delta-spring directamente.\n\nTareas de contexto disponibles:\n  📌 code_context:query    — buscar símbolos, funciones, clases\n  📌 code_context:read     — leer estructura de archivos\n  📌 knowledge:search      — buscar convenciones y decisiones\n  📌 knowledge:briefing    — briefing completo de una tarea\n  📌 spring:search         — tareas similares en sprints anteriores\n  📌 spring:status         — estado de un sprint anterior\n  📌 file:search           — buscar archivos por patrón\n\nDestinos de refinamiento:\n  analyze   → el análisis fue incorrecto o incompleto\n  implement → la implementación no pasó quality gates\n  verify    → los tests fallaron o QA rechazó\n  sprint    → volver al sprint (tarea cancelada o no refineable)\n\nComando:\n  submit --target <destino> --reason '<razón detallada>'\n\nCampos requeridos (solo estos dos, el resto los inyecta el engine):\n  • target : \"analyze\" | \"implement\" | \"verify\" | \"sprint\"\n  • reason : string, mínimo 10 caracteres\n\nEjemplo:\n  submit --target 'analyze' --reason 'El análisis omitió la capa de infraestructura, causando un diseño incompleto. Se necesita reevaluar los componentes.'\n\nOutput:\n  { target: \"analyze\", reason: \"...\", knowledge_items: [...] }\n  → Transición a KNOWLEDGE_CAPTURE"
+        },
+        {
+          "key": "KNOWLEDGE_CAPTURE",
+          "label": "Capture lessons learned",
+          "execution": "llm_task",
+          "action": "collect_knowledge",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "task_id": {
+                "type": "string",
+                "readOnly": true,
+                "description": "🔒 ID de la tarea. Inyectado por el engine."
+              },
+              "lecciones": {
+                "type": "array",
+                "description": "Lecciones aprendidas del refinamiento",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "leccion": {
+                      "type": "string",
+                      "description": "Descripción de la lección"
+                    },
+                    "causa": {
+                      "type": "string",
+                      "description": "Qué causó el problema"
+                    },
+                    "solucion": {
+                      "type": "string",
+                      "description": "Cómo se solucionó"
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "leccion": "Validar input_schema antes de ejecutar acciones",
+                      "causa": "Schema sin items permitió datos inválidos",
+                      "solucion": "Añadir items a todos los arrays en schemas"
+                    }
+                  ]
+                ]
+              },
+              "reglas": {
+                "type": "array",
+                "description": "Nuevas reglas para evitar el mismo fallo",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "regla": {
+                      "type": "string",
+                      "description": "Descripción de la regla"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "description": "Alcance"
+                    },
+                    "severidad": {
+                      "type": "string",
+                      "enum": [
+                        "obligatoria",
+                        "recomendada"
+                      ]
+                    }
+                  }
+                },
+                "examples": [
+                  [
+                    {
+                      "regla": "Todo input_schema de llm_task debe tener examples",
+                      "scope": "proyecto",
+                      "severidad": "obligatoria"
+                    }
+                  ]
+                ]
+              },
+              "decisiones": {
+                "type": "array",
+                "description": "Decisiones tomadas durante el refinamiento",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "type": "string"
+                    },
+                    "alternativas": {
+                      "type": "array"
+                    },
+                    "razon": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "advertencias": {
+                "type": "array",
+                "description": "Advertencias para futuros sprints",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "advertencia": {
+                      "type": "string"
+                    },
+                    "impacto": {
+                      "type": "string"
+                    },
+                    "mitigacion": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "captured": {
+                "type": "boolean",
+                "description": "true si el conocimiento fue capturado"
+              },
+              "items": {
+                "type": "integer",
+                "description": "Total de ítems capturados"
+              }
+            },
+            "required": [
+              "captured"
+            ],
+            "description": "Lecciones capturadas en CKG. Transición a ROUTE."
+          },
+          "on_success": "ROUTE",
+          "on_failure": "DIAGNOSE",
+          "side_effects": [
+            {
+              "type": "save_to_ckg",
+              "params": {}
+            },
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "refine_knowledge_captured"
+              }
+            }
+          ],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "exponential",
+            "initial_delay_ms": 3000
+          },
+          "timeout_ms": 60000,
+          "on_entry_message": "📌 REFINE.KNOWLEDGE_CAPTURE — Capturar lecciones aprendidas\n\nInstrucción:\n  Registra las lecciones aprendidas durante el refinamiento para evitar\n  el mismo fallo en el futuro.\n\nComando:\n  submit --lecciones '<json>' --reglas '<json>'\n\nCampos:\n  • lecciones   : array de objetos — qué se aprendió\n    └─ { leccion, causa, solucion }\n  • reglas      : array de objetos — nuevas reglas\n    └─ { regla, scope, severidad }\n  • decisiones  : array de objetos — decisiones tomadas\n    └─ { decision, alternativas[], razon }\n  • advertencias : array de objetos — riesgos futuros\n    └─ { advertencia, impacto, mitigacion }\n\nOutput:\n  { captured: true, items: N }\n  → Transición a ROUTE"
+        },
+        {
+          "key": "ROUTE",
+          "label": "Route to target",
+          "execution": "auto",
+          "action": "route_to_target",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "target": {"type": "string", "description": "Nodo destino del refinamiento"},
+              "ok": {"type": "boolean", "description": "Ruteo exitoso"}
+            },
+            "description": "Ruteo completado. Transición al nodo destino del refinamiento."
+          },
+          "on_success": "",
+          "on_failure": "DIAGNOSE",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 30000,
+          "on_entry_message": "Redirigiendo a la fase correcta..."
+        },
+        {
+          "key": "ESCALATION",
+          "label": "Escalation to sprint",
+          "execution": "auto",
+          "action": "escalate_refine",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "previous_attempts": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ok"
+            ]
+          },
+          "on_success": "",
+          "on_failure": "",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "refine_escalated"
+              }
+            },
+            {
+              "type": "save_to_ckg",
+              "params": {},
+              "optional": true
+            }
+          ],
+          "retry": null,
+          "timeout_ms": 30000,
+          "on_entry_message": "📌 REFINE.ESCALATION — Límite de refinamiento alcanzado\n\nSe alcanzó el límite de {attempt}/{max_attempts} intentos de refinamiento.\nEscalando al sprint para revisión manual del PO."
+        }
+      ]
+    },
+    "SPRINT_PLANNING": {
+      "label": "Sprint planning",
+      "description": "Planificacion de sprints: definicion de goal, tareas y validacion.",
+      "sub_states": [
+        {
+          "key": "GOAL",
+          "label": "Define sprint goal",
+          "execution": "llm_task",
+          "action": "",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "goal": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Objetivo principal del sprint",
+                "examples": [
+                  "Completar la migración del workflow engine a DDD"
+                ]
+              },
+              "expected_result": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Resultado esperado al finalizar el sprint",
+                "examples": [
+                  "Workflow engine con capas domain/application/infrastructure, tests pasando"
+                ]
+              },
+              "roles": {
+                "type": "object",
+                "description": "Roles del equipo para este sprint",
+                "properties": {
+                  "dev": {
+                    "type": "string",
+                    "description": "Desarrollador asignado",
+                    "examples": [
+                      "agente"
+                    ]
+                  },
+                  "qa": {
+                    "type": "string",
+                    "description": "QA asignado",
+                    "examples": [
+                      "engine"
+                    ]
+                  },
+                  "po": {
+                    "type": "string",
+                    "description": "Product Owner",
+                    "examples": [
+                      "usuario"
+                    ]
+                  }
+                },
+                "examples": [
+                  {
+                    "dev": "agente",
+                    "qa": "engine",
+                    "po": "usuario"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "goal"
+            ]
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "goal_defined"
+                ],
+                "description": "Goal definido"
+              },
+              "goal": {
+                "type": "string",
+                "description": "Goal confirmado"
+              }
+            },
+            "description": "Goal del sprint definido. Transición a ADD_TASKS para agregar tareas."
+          },
+          "on_success": "ADD_TASKS",
+          "on_failure": "",
+          "side_effects": [],
+          "retry": {
+            "max_attempts": 3,
+            "backoff": "exponential",
+            "initial_delay_ms": 3000
+          },
+          "timeout_ms": 300000,
+          "on_entry_message": "📌 SPRINT_PLANNING.GOAL — Definir goal del sprint\n\nInstrucción:\n  Define el objetivo del sprint, el resultado esperado y los roles.\n\nComando:\n  submit --goal '<objetivo>' --expected_result '<resultado>' --roles '<json>'\n\nCampos requeridos:\n  • goal            : string, mínimo 10 caracteres — objetivo del sprint\n  • expected_result : string (opcional) — resultado esperado\n  • roles           : objeto (opcional) — roles del equipo\n    └─ { dev, qa, po }\n\nEjemplo:\n  submit --goal 'Migrar workflow engine a DDD' \\\n         --expected_result 'Capas separadas, tests pasando' \\\n         --roles '{\"dev\":\"agente\",\"qa\":\"engine\",\"po\":\"usuario\"}'\n\nOutput:\n  { status: \"goal_defined\", goal: \"...\" }\n  → Transición a ADD_TASKS"
+        },
+        {
+          "key": "ADD_TASKS",
+          "label": "Add tasks",
+          "execution": "llm_task",
+          "action": "add_tasks",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "object",
+                "description": "Tarea a agregar al plan del sprint",
+                "properties": {
+                  "objective": {
+                    "type": "string",
+                    "description": "Descripción de la tarea",
+                    "examples": [
+                      "Implementar autenticación OAuth2"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "feature",
+                      "refactor",
+                      "bugfix",
+                      "docs",
+                      "chore"
+                    ],
+                    "description": "Tipo de tarea"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "description": "Dominio del proyecto",
+                    "examples": [
+                      "engine"
+                    ]
+                  },
+                  "result_state": {
+                    "type": "string",
+                    "description": "Estado esperado al completar (opcional)",
+                    "examples": [
+                      "Endpoint funcional con tests"
+                    ]
+                  }
+                },
+                "required": [
+                  "objective",
+                  "type",
+                  "domain"
+                ],
+                "examples": [
+                  {
+                    "objective": "Implementar autenticación",
+                    "type": "feature",
+                    "domain": "engine"
+                  }
+                ]
+              },
+              "done": {
+                "type": "boolean",
+                "description": "true si no hay más tareas que agregar. Envía done: true para finalizar.",
+                "examples": [
+                  false,
+                  true
+                ]
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "added",
+                  "completed"
+                ],
+                "description": "added si se agregó la tarea, completed si se finalizó con done:true"
+              },
+              "task_id": {
+                "type": "string",
+                "description": "ID de la tarea agregada (si status=added)"
+              },
+              "task_count": {
+                "type": "integer",
+                "description": "Total de tareas en el plan"
+              }
+            },
+            "description": "Tarea agregada o plan completado. Si status=completed → transición a VALIDATE."
+          },
+          "on_success": "VALIDATE",
+          "on_failure": "",
+          "side_effects": [],
+          "retry": null,
+          "timeout_ms": 600000,
+          "on_entry_message": "📌 SPRINT_PLANNING.ADD_TASKS — Agregar tareas al plan\n\nInstrucción:\n  Agrega tareas una por una. Cuando termines, envía done: true.\n\nComando:\n  submit --task '{\"objective\":\"...\",\"type\":\"feature\",\"domain\":\"engine\"}'\n  submit --done true   ← cuando ya no hay más tareas\n\nCampos:\n  • task : objeto TaskObject (opcional si envías done:true)\n    • objective    : string (requerido) — descripción\n    • type         : \"feature\"|\"refactor\"|\"bugfix\"|\"docs\"|\"chore\" (requerido)\n    • domain       : string (requerido) — dominio\n    • result_state : string (opcional) — estado esperado\n  • done  : boolean — true para finalizar\n\nEjemplo:\n  submit --task '{\"objective\":\"Implementar X\",\"type\":\"feature\",\"domain\":\"engine\"}'\n  submit --task '{\"objective\":\"Agregar tests\",\"type\":\"feature\",\"domain\":\"engine\"}'\n  submit --done true\n\nOutput:\n  { status: \"added\", task_id: \"TASK-00N\", task_count: N }\n  { status: \"completed\", task_count: N } → VALIDATE automático"
+        },
+        {
+          "key": "VALIDATE",
+          "label": "Validate plan",
+          "execution": "auto",
+          "action": "validate_plan",
+          "input_schema": {},
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "errors": {
+                "type": "array"
+              }
+            }
+          },
+          "on_success": "REVIEW",
+          "on_failure": "ADD_TASKS",
+          "side_effects": [],
+          "retry": {
+            "max_attempts": 2,
+            "backoff": "fixed",
+            "initial_delay_ms": 1000
+          },
+          "timeout_ms": 30000,
+          "on_entry_message": "Validando plan..."
+        },
+        {
+          "key": "REVIEW",
+          "label": "Review plan",
+          "execution": "llm_task",
+          "action": "",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "revise"
+                ],
+                "description": "Decisión sobre el plan: approve si está correcto, revise si necesita cambios",
+                "examples": [
+                  "approve",
+                  "revise"
+                ]
+              },
+              "notes": {
+                "type": "string",
+                "description": "Notas sobre la revisión (obligatorio si decision=revise)",
+                "examples": [
+                  "Falta desglosar la tarea de testing en subtareas",
+                  "El plan está completo y bien estructurado"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "approved",
+                  "revised"
+                ],
+                "description": "Resultado de la revisión"
+              },
+              "notes": {
+                "type": "string",
+                "description": "Notas registradas"
+              }
+            },
+            "description": "Plan revisado. Si approved → transición a SPRINT.ACTIVE. Si revised → vuelve a ADD_TASKS."
+          },
+          "on_success": "",
+          "on_failure": "ADD_TASKS",
+          "side_effects": [
+            {
+              "type": "emit_event",
+              "params": {
+                "event": "plan_reviewed"
+              }
+            }
+          ],
+          "retry": {
+            "max_attempts": 3,
+            "backoff": "exponential",
+            "initial_delay_ms": 3000
+          },
+          "timeout_ms": 120000,
+          "on_entry_message": "📌 SPRINT_PLANNING.REVIEW — Revisar plan\n\nInstrucción:\n  Revisa el plan completo. Si está bien, aprueba. Si necesita cambios,\n  selecciona revise y explica qué ajustar.\n\nComando:\n  submit --decision approve --notes '<comentario>'\n  submit --decision revise --notes '<qué cambiar>'\n\nCampos requeridos:\n  • decision : \"approve\" | \"revise\" — ¿el plan está correcto?\n  • notes    : string (opcional) — notas de la revisión\n\nSi decision=revise → vuelve a ADD_TASKS para hacer cambios\nSi decision=approve → transición a SPRINT.ACTIVE"
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "SPRINT",
+      "to": "ANALYZE",
+      "gate": "start_task",
+      "description": "Iniciar analisis de la tarea pendiente."
+    },
+    {
+      "from": "SPRINT",
+      "to": "DESIGN",
+      "gate": "start_design",
+      "description": "Iniciar fase de diseno arquitectonico."
+    },
+    {
+      "from": "SPRINT",
+      "to": "SPRINT",
+      "gate": "edit_plan",
+      "description": "Ir a edicion del plan."
+    },
+    {
+      "from": "SPRINT",
+      "to": "SPRINT",
+      "gate": "close_sprint",
+      "description": "Iniciar cierre del sprint."
+    },
+    {
+      "from": "SPRINT",
+      "to": "SPRINT",
+      "gate": "back_to_active",
+      "description": "Volver al dashboard."
+    },
+    {
+      "from": "DESIGN",
+      "to": "ANALYZE",
+      "gate": "design_approved",
+      "description": "Diseno aprobado, pasar a analisis de tarea."
+    },
+    {
+      "from": "DESIGN",
+      "to": "REFINE",
+      "gate": "design_needs_refine",
+      "description": "Diseno necesita refinamiento."
+    },
+    {
+      "from": "ANALYZE",
+      "to": "IMPLEMENT",
+      "gate": "analysis_approved",
+      "description": "Analisis aprobado, pasar a implementacion."
+    },
+    {
+      "from": "ANALYZE",
+      "to": "REFINE",
+      "gate": "needs_refine",
+      "description": "Analisis necesita refinamiento."
+    },
+    {
+      "from": "IMPLEMENT",
+      "to": "VERIFY",
+      "gate": "implementation_done",
+      "description": "Implementacion completada, pasar a verificacion."
+    },
+    {
+      "from": "IMPLEMENT",
+      "to": "REFINE",
+      "gate": "needs_refine",
+      "description": "Implementacion necesita refinamiento."
+    },
+    {
+      "from": "IMPLEMENT",
+      "to": "SPRINT",
+      "gate": "cancel",
+      "description": "Tarea cancelada."
+    },
+    {
+      "from": "VERIFY",
+      "to": "SPRINT",
+      "gate": "task_complete",
+      "description": "Tarea completada, volver al sprint."
+    },
+    {
+      "from": "VERIFY",
+      "to": "REFINE",
+      "gate": "needs_refine",
+      "description": "Verificacion necesita refinamiento."
+    },
+    {
+      "from": "REFINE",
+      "to": "DESIGN",
+      "gate": "reroute_design",
+      "description": "Refinar desde la fase de diseno."
+    },
+    {
+      "from": "REFINE",
+      "to": "ANALYZE",
+      "gate": "reroute_analyze",
+      "description": "Refinar desde la fase de analisis."
+    },
+    {
+      "from": "REFINE",
+      "to": "IMPLEMENT",
+      "gate": "reroute_implement",
+      "description": "Refinar desde la fase de implementacion."
+    },
+    {
+      "from": "REFINE",
+      "to": "VERIFY",
+      "gate": "reroute_verify",
+      "description": "Refinar desde la fase de verificacion."
+    },
+    {
+      "from": "REFINE",
+      "to": "SPRINT",
+      "gate": "reroute_sprint",
+      "description": "Volver al sprint sin refinar."
+    },
+    {
+      "from": "REFINE",
+      "to": "SPRINT",
+      "gate": "escalation",
+      "description": "Limite de refinamiento alcanzado (3 intentos). Escalar al sprint para revision manual del PO."
+    },
+    {
+      "from": "SPRINT",
+      "to": "SPRINT_PLANNING",
+      "gate": "start_planning",
+      "description": "Iniciar planificacion de sprint."
+    },
+    {
+      "from": "SPRINT",
+      "to": "SPRINT_PLANNING",
+      "gate": "plan_tasks",
+      "description": "Agregar tareas al plan."
+    },
+    {
+      "from": "SPRINT_PLANNING",
+      "to": "SPRINT",
+      "gate": "plan_complete",
+      "description": "Plan completado, volver al sprint."
+    },
+    {
+      "from": "SPRINT_PLANNING",
+      "to": "SPRINT",
+      "gate": "cancel_planning",
+      "description": "Planificacion cancelada, volver al sprint."
+    }
+  ]
+}

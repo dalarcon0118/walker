@@ -1,0 +1,201 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-agent-startup-fix-20260715",
+      "generated_at": "2026-07-15T01:03:25Z",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["agent", "session", "decisions", "engine"],
+      "tags": ["python", "cognitive-v2", "ddd", "mcp", "bugfix", "startup"]
+    },
+    "g_objetivo": {
+      "description": "Reparar los 3 bugs bloqueantes que impiden que el módulo agent del MCP pueda ser llamado por el LLM: (1) `features/engine/` no existe → 6 imports rotos en agent/api/__init__.py, (2) syntax error en session/domain/session.py (línea `from` faltante), (3) `_build_provenance_section` referenciada en __init__.py pero no implementada en facts_service.py. Al final, verificar que `python3 -c \"from cognitive_v2.server import mcp\"` funcione sin errores de import.",
+      "predicates": {
+        "must_exist": [
+          "features/engine/ existe con api/mcp_tools.py, skill_tools.py, trace_tools.py, metrics_tools.py, age_decay_tools.py, code_tools.py",
+          "features/engine/api/mcp_tools.py exporta register_tools, health, onboarding, skill, resolve_conflict",
+          "features/engine/api/*.py exportan register_* functions para los 5 módulos restantes",
+          "agent/api/__init__.py importa de features.engine.* sin errores",
+          "session/domain/session.py tiene sintaxis válida en líneas 24-28 (import completo)",
+          "_build_provenance_section existe en decisions/application/facts_service.py o se elimina de __init__.py",
+          "server.py importa sin errores con python3 -c \"from cognitive_v2.server import mcp\""
+        ],
+        "must_not_exist": [
+          "ningún import a features.engine falla en agent/api/__init__.py",
+          "ningún SyntaxError en session/domain/session.py",
+          "ningún ImportError por _build_provenance_section al importar decisions"
+        ],
+        "invariants": [
+          "server.py no modifica su estructura de imports (solo agent/api/__init__.py cambia)",
+          "los módulos engine/ stubs delegan a implementaciones reales existentes donde sea posible",
+          "ningún cambio rompe funcionalidad existente",
+          "el MCP arranca sin errores de import (validado con test de integración)"
+        ]
+      },
+      "signatures": [
+        {"function": "register_tools(mcp)", "file": "features/engine/api/mcp_tools.py", "params": "mcp: FastMCP", "returns": "None"},
+        {"function": "health(context)", "file": "features/engine/api/mcp_tools.py", "params": "context: Context", "returns": "dict"},
+        {"function": "onboarding(context, topic)", "file": "features/engine/api/mcp_tools.py", "params": "context: Context, topic: str", "returns": "dict"},
+        {"function": "skill(context, name)", "file": "features/engine/api/mcp_tools.py", "params": "context: Context, name: str", "returns": "dict"},
+        {"function": "resolve_conflict(context, conflict)", "file": "features/engine/api/mcp_tools.py", "params": "context: Context, conflict: str", "returns": "dict"},
+        {"function": "register_skill_tools(mcp)", "file": "features/engine/api/skill_tools.py", "params": "mcp: FastMCP", "returns": "None"},
+        {"function": "register_trace_tools(mcp)", "file": "features/engine/api/trace_tools.py", "params": "mcp: FastMCP", "returns": "None"},
+        {"function": "register_metrics_tools(mcp)", "file": "features/engine/api/metrics_tools.py", "params": "mcp: FastMCP", "returns": "None"},
+        {"function": "register_age_decay_tools(mcp)", "file": "features/engine/api/age_decay_tools.py", "params": "mcp: FastMCP", "returns": "None"},
+        {"function": "register_code_tools(mcp)", "file": "features/engine/api/code_tools.py", "params": "mcp: FastMCP", "returns": "None"},
+        {"function": "from cognitive_v2.server import mcp", "file": "cognitive_v2/server.py", "params": "N/A", "returns": "sin ImportError ni SyntaxError"}
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "type": "bugfix",
+        "work_type": "feature_new_file",
+        "importer_files": 6,
+        "objective": "Crear features/engine/api/ con 6 módulos stub que agent/api/__init__.py necesita: mcp_tools.py (register_tools, health, onboarding, skill, resolve_conflict), skill_tools.py, trace_tools.py, metrics_tools.py, age_decay_tools.py, code_tools.py — cada uno con register_* que registra tools funcionales delegando a servicios existentes",
+        "domain": "engine",
+        "artefactos_impactados": {
+          "files": [
+            "features/engine/api/__init__.py (crear)",
+            "features/engine/api/mcp_tools.py (crear — register_tools, health, onboarding, skill, resolve_conflict)",
+            "features/engine/api/skill_tools.py (crear — register_skill_tools)",
+            "features/engine/api/trace_tools.py (crear — register_trace_tools)",
+            "features/engine/api/metrics_tools.py (crear — register_metrics_tools)",
+            "features/engine/api/age_decay_tools.py (crear — register_age_decay_tools)",
+            "features/engine/api/code_tools.py (crear — register_code_tools)"
+          ],
+          "apis": ["FastMCP tool registration pattern (register_*(mcp))"],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.2, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {"chosen": "Crear módulo engine/ con implementaciones mínimas funcionales",
+           "alternatives": [
+             "Eliminar imports de agent/api/__init__.py y re-implementar en server.py (más cambios)",
+             "Dejar agent/api/__init__.py como está y modificar server.py (más acoplamiento)"
+           ],
+           "rationale": "Crear engine/ es la solución que respeta la arquitectura original (los imports existen intencionalmente). Las implementaciones son stubs funcionales que pueden expandirse después."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "features/engine/api/mcp_tools.py existe con register_tools, health, onboarding, skill, resolve_conflict",
+            "features/engine/api/skill_tools.py existe con register_skill_tools",
+            "features/engine/api/trace_tools.py existe con register_trace_tools",
+            "features/engine/api/metrics_tools.py existe con register_metrics_tools",
+            "features/engine/api/age_decay_tools.py existe con register_age_decay_tools",
+            "features/engine/api/code_tools.py existe con register_code_tools",
+            "from cognitive_v2.features.engine.api.mcp_tools import * no falla"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "type": "bugfix",
+        "work_type": "refactor_inline",
+        "importer_files": 1,
+        "objective": "Reparar syntax error en session/domain/session.py líneas 24-28: agregar la línea `from cognitive_v2.shared.logger import (` que falta antes de `_engine_log, _kv, ...`",
+        "domain": "session",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/session/domain/session.py (modificar — agregar from faltante en líneas 24-28)"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.01},
+        "decisions": [
+          {"chosen": "Agregar el from faltante: from cognitive_v2.shared.logger import (",
+           "alternatives": ["Eliminar las líneas rotas (pérdida de funcionalidad)", "Mantener status quo (SyntaxError)"],
+           "rationale": "Es el único fix posible. El contexto muestra que _engine_log se usa en el archivo y el patrón de import coincide con otros archivos del proyecto."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "python3 -c \"from cognitive_v2.features.agent.session.domain.session import Session\" no lanza SyntaxError",
+            "El archivo tiene sintaxis Python válida"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "type": "bugfix",
+        "work_type": "refactor_inline",
+        "importer_files": 2,
+        "objective": "Reparar _build_provenance_section: la función es referenciada en decisions/__init__.py y decisions/application/__init__.py pero no existe en facts_service.py. Implementarla como función auxiliar que extrae metadata de fact/snapshot para pruebas de verificación.",
+        "domain": "decisions",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/decisions/application/facts_service.py (modificar — agregar función _build_provenance_section)"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.1, "pre_churn": 0.0, "commit_trust": 0.05},
+        "decisions": [
+          {"chosen": "Implementar _build_provenance_section en facts_service.py",
+           "alternatives": [
+             "Eliminar la referencia de ambos __init__.py (pérdida de metadata)",
+             "Mover la función a otro módulo (cambios adicionales)"
+           ],
+           "rationale": "facts_service.py es el lugar natural ya que los __init__.py que la referencian importan desde facts_service. Es una función pequeña que extrae proveniencia de facts/snapshots."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "from cognitive_v2.features.agent.decisions.application.facts_service import _build_provenance_section no falla",
+            "from cognitive_v2.features.agent.decisions import _build_provenance_section no falla"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "type": "test",
+        "work_type": "refactor_inline",
+        "importer_files": 1,
+        "objective": "Crear test de integración que verifique que el módulo agent completo importa sin errores: python3 -c \"from cognitive_v2.server import mcp\" debe funcionar sin ImportError ni SyntaxError",
+        "domain": "agent",
+        "artefactos_impactados": {
+          "files": [
+            "features/agent/tests/test_startup_integration.py (crear)"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": ["features/agent/tests/test_startup_integration.py"],
+          "docs": []
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {"chosen": "Test de integración simple que importa server.py y verifica que no hay errores de import",
+           "alternatives": [
+             "No hacer test (riesgo de regresión)",
+             "Test unitario por módulo (más lento)"
+           ],
+           "rationale": "Un test de integración que importa server.py cubre todos los imports del módulo agent en una sola ejecución. Es rápido y detecta cualquier regresión futura."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "def test_mcp_tools_imports en cognitive_v2/features/agent/tests/test_startup_integration.py",
+            "pytest projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_startup_integration.py pasa sin errores"
+          ]
+        }
+      }
+    ]
+  }
+}

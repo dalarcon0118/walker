@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schema/workflow.v3.schema.json",
+  "title": "Workflow v3 Enterprise Schema",
+  "description": "Schema for workflow.v3.json — 5 execution types, TaskRegistry actions, side-effects, contracts, traceability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "initial_state", "nodes", "edges"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Schema version. v3 adds execution, action, schemas, side_effects, on_success/on_failure, retry, timeout_ms."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 1000
+    },
+    "context_bag": {
+      "type": "object",
+      "description": "Catalogo de placeholders que el engine resuelve en on_entry_message antes de presentarlo al agente.",
+      "properties": {
+        "description": {"type": "string"},
+        "placeholders": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z_]+$": {
+              "type": "object",
+              "properties": {
+                "source": {"type": "string"},
+                "description": {"type": "string"},
+                "available_in": {"type": "array", "items": {"type": "string"}}
+              },
+              "required": ["source", "description"]
+            }
+          }
+        }
+      },
+      "required": ["placeholders"]
+    },
+    "initial_state": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Z][A-Z_]*$"
+    },
+    "nodes": {
+      "type": "object",
+      "minProperties": 2,
+      "propertyNames": {"pattern": "^[A-Z][A-Z_]*$"},
+      "patternProperties": {
+        "^[A-Z][A-Z_]*$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "description", "sub_states"],
+          "properties": {
+            "label": {"type": "string", "minLength": 2, "maxLength": 80},
+            "description": {"type": "string", "minLength": 10, "maxLength": 1000},
+            "sub_states": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/definitions/sub_state"}
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "gate", "description"],
+        "properties": {
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "gate": {"type": "string", "pattern": "^[a-z_]+$"},
+          "description": {"type": "string", "minLength": 5, "maxLength": 500},
+          "sub_state_gate": {"type": "string"},
+          "contract": {
+            "type": "object",
+            "properties": {
+              "pre": {"type": "string"},
+              "post": {"type": "string"},
+              "note": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "sub_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "execution", "input_schema", "output_schema", "on_success", "on_failure"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[A-Z][A-Z_]*$"},
+        "label": {"type": "string", "maxLength": 80},
+        "execution": {
+          "type": "string",
+          "enum": ["bootstrap", "auto", "llm_task", "user_input", "manual"],
+          "description": "bootstrap=engine inits session, auto=TaskRegistry runs action, llm_task=LLM receives prompt, user_input=user chooses option, manual=agent does external work"
+        },
+        "action": {
+          "type": "string",
+          "description": "Name of the registered task in TaskRegistry (for auto/bootstrap/llm_task execution). Empty for user_input/manual."
+        },
+        "input_schema": {
+          "type": "object",
+          "description": "JSON Schema for input validation on submit. Empty object = no validation."
+        },
+        "output_schema": {
+          "type": "object",
+          "description": "JSON Schema for output validation after execution."
+        },
+        "on_success": {
+          "type": "string",
+          "description": "Next sub-state key on success. Empty = node complete / check edges."
+        },
+        "on_failure": {
+          "type": "string",
+          "description": "Next sub-state key on failure. Empty = error propagated."
+        },
+        "side_effects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["update_cpg", "save_ckg", "save_to_ckg", "update_delta_graph", "emit_event", "persist_snapshot", "run_script", "assign_session", "detect_context", "register_catalog", "init_trace_log", "archive_sprint", "update_code_index", "build_project_graph"]
+              },
+              "params": {"type": "object"},
+              "optional": {"type": "boolean", "default": false}
+            }
+          }
+        },
+        "retry": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "properties": {
+                "max_attempts": {"type": "integer", "minimum": 1, "default": 3},
+                "backoff": {"type": "string", "enum": ["fixed", "linear", "exponential", "jitter"], "default": "exponential"},
+                "initial_delay_ms": {"type": "integer", "minimum": 100, "default": 1000}
+              },
+              "required": ["max_attempts"]
+            }
+          ]
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 120000,
+          "description": "Execution timeout in milliseconds."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Prompt template for llm_task execution. Supports {placeholders}."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value"],
+            "properties": {
+              "value": {"type": "string"},
+              "label": {"type": "string"},
+              "description": {"type": "string"},
+              "requires": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "description": "Available options for user_input execution."
+        },
+        "on_entry_message": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Message shown to the agent when entering this sub-state."
+        },
+        "required_tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {"type": "string"},
+              "command_hint": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,393 @@
+{
+  "label": "Project Initialization",
+  "description": "Initialize a new project from existing code, greenfield, or specification file. Builds CPG, CKG, project.json, and first sprint.",
+  "sub_states": [
+    {
+      "key": "DETECT",
+      "label": "Detect project context",
+      "execution": "auto",
+      "action": "detect_project_context",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "has_code": {
+            "type": "boolean"
+          },
+          "has_git": {
+            "type": "boolean"
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "framework": {
+            "type": "string"
+          },
+          "code_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_legacy": {
+            "type": "boolean"
+          },
+          "legacy_info": {
+            "type": "object"
+          }
+        }
+      },
+      "on_success": "LEGACY_MAP",
+      "on_failure": "",
+      "side_effects": [],
+      "timeout_ms": 30000,
+      "prompt_id": "project_init/detect"
+    },
+    {
+      "key": "LEGACY_MAP",
+      "label": "Map legacy walker data",
+      "description": "Auto-detect legacy walker format. If found, map workflow/prompts/history to walker3. If not found, NO-OP and continue.",
+      "execution": "auto",
+      "action": "map_legacy",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "legacy_mapped": {
+            "type": "boolean"
+          },
+          "prompts_created": {
+            "type": "integer"
+          },
+          "events_imported": {
+            "type": "integer"
+          },
+          "tasks_converted": {
+            "type": "integer"
+          },
+          "chains_processed": {
+            "type": "array"
+          }
+        }
+      },
+      "on_success": "SCENARIO",
+      "on_failure": "SCENARIO",
+      "side_effects": [
+        {
+          "type": "import_legacy_trail",
+          "params": {},
+          "description": "Import legacy trail events as TraceGraph entries"
+        },
+        {
+          "type": "save_converted_tasks",
+          "params": {},
+          "description": "Save converted tasks in new format"
+        }
+      ],
+      "timeout_ms": 60000,
+      "prompt_id": "project_init/legacy-map"
+    },
+    {
+      "key": "SCENARIO",
+      "label": "Choose initialization scenario",
+      "execution": "user_input",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "scenario": {
+            "type": "string",
+            "enum": [
+              "from_code",
+              "greenfield",
+              "from_spec"
+            ],
+            "description": "from_code: existing codebase. greenfield: no code yet. from_spec: import from spec file."
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "project_path": {
+            "type": "string"
+          },
+          "spec_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario"
+        ]
+      },
+      "on_success": "",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "capture_decision",
+          "params": {}
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "project_init/scenario"
+    },
+    {
+      "key": "GATHER_SPECS",
+      "label": "Gather project specifications",
+      "execution": "llm_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "language": {
+            "type": "string",
+            "description": "Primary language"
+          },
+          "framework": {
+            "type": "string",
+            "description": "Framework"
+          },
+          "description": {
+            "type": "string",
+            "description": "Project description"
+          },
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Design patterns (DDD, hexagonal, MVC...)"
+          },
+          "bounded_contexts": {
+            "type": "array",
+            "description": "Bounded contexts"
+          },
+          "test_framework": {
+            "type": "string"
+          },
+          "code_extensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "naming_convention": {
+            "type": "string"
+          },
+          "formatter": {
+            "type": "string"
+          },
+          "linter": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "specs": {
+            "type": "object",
+            "description": "Gathered specifications"
+          }
+        }
+      },
+      "on_success": "BUILD_PROJECT",
+      "on_failure": "SCENARIO",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "fixed",
+        "initial_delay_ms": 1000
+      },
+      "timeout_ms": 600000,
+      "prompt_id": "project_init/gather-specs",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "gathering project specifications for initialization",
+          "constraints": [
+            "Use the PROJECT layer if available (project already initialized) or the STATE layer for detection results",
+            "Ask targeted questions about project specs based on available context"
+          ],
+          "context_priority": "project → state"
+        }
+      }
+    },
+    {
+      "key": "BUILD_PROJECT",
+      "label": "Build project.json",
+      "execution": "auto",
+      "action": "build_project_config",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        }
+      },
+      "on_success": "SCAN_CODE",
+      "on_failure": "GATHER_SPECS",
+      "side_effects": [],
+      "timeout_ms": 30000,
+      "prompt_id": "project_init/build-project"
+    },
+    {
+      "key": "SCAN_CODE",
+      "label": "Scan code and build CPG",
+      "execution": "auto",
+      "action": "scan_code_and_build_cpg",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "integer"
+          },
+          "edges": {
+            "type": "integer"
+          },
+          "files_scanned": {
+            "type": "integer"
+          }
+        }
+      },
+      "on_success": "BUILD_CKG",
+      "on_failure": "BUILD_CKG",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "project_init/scan-code"
+    },
+    {
+      "key": "BUILD_CKG",
+      "label": "Build initial knowledge graph",
+      "execution": "auto",
+      "action": "build_initial_ckg",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "nodes_created": {
+            "type": "integer"
+          },
+          "conventions": {
+            "type": "integer"
+          }
+        }
+      },
+      "on_success": "REVIEW",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "save_to_ckg",
+          "params": {},
+          "description": "Save initial CKG nodes"
+        }
+      ],
+      "timeout_ms": 60000,
+      "prompt_id": "project_init/build-ckg"
+    },
+    {
+      "key": "REVIEW",
+      "label": "Review project configuration",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "project_ready",
+              "revise_specs",
+              "back_to_start"
+            ]
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "revise"
+            ],
+            "description": "approve: create sprint and start working. revise: go back to GATHER_SPECS."
+          },
+          "feedback": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "on_success": "FIRST_SPRINT",
+      "on_failure": "GATHER_SPECS",
+      "side_effects": [
+        {
+          "type": "capture_decision",
+          "params": {}
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "project_init/review"
+    },
+    {
+      "key": "FIRST_SPRINT",
+      "label": "Create first sprint",
+      "execution": "auto",
+      "action": "create_first_sprint",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "sprint_id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        }
+      },
+      "on_success": "",
+      "on_failure": "REVIEW",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "fixed",
+        "initial_delay_ms": 1000
+      },
+      "timeout_ms": 30000,
+      "prompt_id": "project_init/first-sprint"
+    }
+  ]
+}

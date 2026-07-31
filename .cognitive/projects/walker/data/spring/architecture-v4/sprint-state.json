@@ -1,0 +1,546 @@
+{
+  "version": "1.0",
+  "sprint": {
+    "chain_id": "architecture-v4",
+    "goal": "",
+    "status": "closed"
+  },
+  "tasks": {
+    "TASK-001": {
+      "status": "completed",
+      "po_approved": true,
+      "result_state": "workflow.json con estructura de sub-estados, sin edges internos entre nodos de tarea",
+      "predicates": {
+        "ok": 0,
+        "total": 3
+      }
+    },
+    "TASK-002": {
+      "status": "completed",
+      "po_approved": true,
+      "result_state": "walker.py submit funcional, transition eliminado de API publica",
+      "predicates": {
+        "ok": 0,
+        "total": 4
+      }
+    },
+    "TASK-003": {
+      "status": "completed",
+      "result_state": "walker.py resume funcional, goto eliminado de API publica",
+      "predicates": {
+        "ok": 0,
+        "total": 4
+      }
+    },
+    "TASK-004": {
+      "status": "completed",
+      "result_state": "sub-estados mode:auto avanzan automaticamente con exit 0, error explicito si exit != 0",
+      "predicates": {
+        "ok": 0,
+        "total": 4
+      }
+    },
+    "TASK-005": {
+      "status": "completed",
+      "result_state": "proyectos v3 migran automaticamente a sub-estados al ejecutar status",
+      "predicates": {
+        "ok": 0,
+        "total": 4
+      }
+    },
+    "TASK-006": {
+      "status": "completed",
+      "result_state": "proyectos nuevos usan workflow de sub-estados desde creacion",
+      "predicates": {
+        "ok": 0,
+        "total": 3
+      }
+    },
+    "TASK-007": {
+      "status": "completed",
+      "result_state": "SKILL.md con API v4 sin referencias a transition/goto",
+      "predicates": {
+        "ok": 0,
+        "total": 4
+      }
+    },
+    "TASK-008": {
+      "status": "completed",
+      "result_state": "delta-spring.md con diagrama de 5 nodos y sub-estados, comparativa v3 vs v4",
+      "predicates": {
+        "ok": 0,
+        "total": 3
+      }
+    },
+    "TASK-009": {
+      "status": "completed",
+      "result_state": "flujo v4 verificado: enforcement funciona, todos los gates se respetan",
+      "predicates": {
+        "ok": 0,
+        "total": 4
+      }
+    },
+    "TASK-010": {
+      "status": "completed",
+      "result_state": "walker.py sin silent fails, cada error produce mensaje explicito con causa y sugerencia",
+      "predicates": {
+        "ok": 0,
+        "total": 4
+      }
+    },
+    "TASK-011": {
+      "status": "completed",
+      "result_state": "Validacion: errores agrupados por campo, tipo+required en una pasada, max 50 lineas para 10 tareas",
+      "predicates": {
+        "ok": 0,
+        "total": 3
+      }
+    },
+    "TASK-012": {
+      "status": "completed",
+      "result_state": "spring.py create acepta --tasks-file <path> como alternativa a --tasks JSON inline",
+      "predicates": {
+        "ok": 0,
+        "total": 3
+      }
+    }
+  },
+  "task_order": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006",
+    "TASK-007",
+    "TASK-008",
+    "TASK-009",
+    "TASK-010",
+    "TASK-011",
+    "TASK-012"
+  ],
+  "walker": {
+    "current_node": "SPRINT",
+    "current_sub_state": "INIT",
+    "sub_state_index": 0,
+    "history": [
+      "SPRINT.INIT",
+      "SPRINT.CHECK",
+      "SPRINT.CREATE",
+      "SPRINT.ACTIVE",
+      "SPRINT.EDIT",
+      "SPRINT.CLOSE_CHECK",
+      "SPRINT.HANDLE_PENDING",
+      "ANALYZE.GATHER",
+      "ANALYZE.ANALYZE",
+      "ANALYZE.REVIEW",
+      "IMPLEMENT.USER_GATE",
+      "IMPLEMENT.WORK",
+      "IMPLEMENT.CODE_REVIEW",
+      "IMPLEMENT.REPORT_GATE",
+      "VERIFY.QA",
+      "VERIFY.PO_ACCEPT",
+      "SPRINT.INIT",
+      "SPRINT.CHECK",
+      "SPRINT.CREATE",
+      "SPRINT.ACTIVE",
+      "SPRINT.EDIT",
+      "ANALYZE.GATHER",
+      "ANALYZE.ANALYZE",
+      "ANALYZE.REVIEW",
+      "IMPLEMENT.USER_GATE",
+      "IMPLEMENT.WORK",
+      "RESUME->IMPLEMENT.USER_GATE",
+      "RESUME->VERIFY.QA",
+      "RESUME->REFINE.DIAGNOSE",
+      "REFINE.ROUTE",
+      "SPRINT.INIT",
+      "SPRINT.CHECK",
+      "SPRINT.CREATE",
+      "SPRINT.ACTIVE",
+      "SPRINT.EDIT",
+      "SPRINT.CLOSE_CHECK",
+      "SPRINT.HANDLE_PENDING",
+      "SPRINT.CLOSE",
+      "ANALYZE.GATHER",
+      "ANALYZE.ANALYZE",
+      "ANALYZE.REVIEW",
+      "IMPLEMENT.USER_GATE",
+      "IMPLEMENT.WORK",
+      "IMPLEMENT.CODE_REVIEW_SCAN",
+      "IMPLEMENT.REPORT_GATE",
+      "VERIFY.QA_RUN",
+      "VERIFY.QA",
+      "VERIFY.PO_ACCEPT",
+      "SPRINT.INIT",
+      "SPRINT.CHECK",
+      "SPRINT.CREATE",
+      "SPRINT.ACTIVE",
+      "SPRINT.EDIT",
+      "ANALYZE.GATHER",
+      "ANALYZE.ANALYZE",
+      "ANALYZE.REVIEW",
+      "IMPLEMENT.USER_GATE",
+      "IMPLEMENT.WORK",
+      "IMPLEMENT.CODE_REVIEW_SCAN",
+      "IMPLEMENT.CODE_REVIEW_SCAN",
+      "IMPLEMENT.REPORT_GATE",
+      "VERIFY.QA_RUN",
+      "VERIFY.QA",
+      "VERIFY.PO_ACCEPT",
+      "SPRINT.INIT",
+      "SPRINT.CHECK",
+      "SPRINT.CREATE",
+      "ANALYZE.GATHER",
+      "ANALYZE.ANALYZE",
+      "ANALYZE.REVIEW",
+      "IMPLEMENT.USER_GATE",
+      "IMPLEMENT.WORK",
+      "IMPLEMENT.CODE_REVIEW_SCAN",
+      "IMPLEMENT.CODE_REVIEW_SCAN",
+      "VERIFY.QA_RUN",
+      "VERIFY.QA",
+      "VERIFY.PO_ACCEPT",
+      "SPRINT.INIT"
+    ],
+    "sub_state_data": {
+      "SPRINT.CREATE": {
+        "project_id": "delta-skill",
+        "goal": "architecture-v4",
+        "tasks": "[]"
+      },
+      "SPRINT.EDIT": {
+        "action": "update-task"
+      },
+      "ANALYZE.ANALYZE": {
+        "q1": "Agrupar errores de validacion de schema por campo en vez de por tarea×campo",
+        "a1": "validate-schema.py: cambiar iteracion anidada (tareas×campos) por agrupacion: campo→[tareas]. Output: 'campo X falta en tareas: TASK-001..TASK-010'",
+        "q2": "validate-schema.py, spring.py",
+        "a2": "Dos archivos: validate-schema.py (logica de agrupacion) y spring.py (formato de output)",
+        "q3": "Riesgo minimo: solo cambia formato de output, no logica de validacion",
+        "a3": "curvature=0.1. El cambio es puramente cosmetico en el reporte de errores"
+      },
+      "ANALYZE.REVIEW": {
+        "decision": "approve",
+        "evidence": "3/3 preguntas respondidas. Bug claro: 120 errores → agrupados por campo. Artefactos: validate-schema.py, spring.py. Riesgo minimo."
+      },
+      "IMPLEMENT.USER_GATE": {
+        "decision": "proceed"
+      },
+      "IMPLEMENT.CODE_REVIEW": {
+        "decision": "approve"
+      },
+      "IMPLEMENT.REPORT_GATE": {
+        "decision": "proceed"
+      },
+      "VERIFY.QA": {
+        "decision": "approve",
+        "evidence": "TASK-011: validate-schema.py ahora agrupa errores. 28 errores → 2 bloques. Commit: 45a1380"
+      },
+      "VERIFY.PO_ACCEPT": {
+        "decision": "accept",
+        "feedback": "TASK-011 completada. Errores de schema validation agrupados. Output < 50 lineas."
+      },
+      "REFINE.DIAGNOSE": {
+        "target": "sprint",
+        "reason": "Reconciliar workflow del sprint, retomar tareas completadas"
+      },
+      "SPRINT.HANDLE_PENDING": {
+        "decision": "defer"
+      }
+    },
+    "decision_log": [
+      {
+        "from": "VERIFY.PO_ACCEPT",
+        "gate": "task_complete",
+        "task_id": "TASK-001",
+        "reason": "",
+        "at": "2026-07-21T14:43:10.886239+00:00"
+      },
+      {
+        "from": "SPRINT.HANDLE_PENDING",
+        "gate": "start_task",
+        "task_id": "TASK-001",
+        "reason": "",
+        "at": "2026-07-21T14:58:16.747338+00:00"
+      },
+      {
+        "from": "ANALYZE.REVIEW",
+        "gate": "analysis_approved",
+        "task_id": "TASK-001",
+        "reason": "",
+        "at": "2026-07-21T14:58:40.915749+00:00"
+      },
+      {
+        "from": "IMPLEMENT.REPORT_GATE",
+        "gate": "implementation_done",
+        "task_id": "TASK-001",
+        "reason": "",
+        "at": "2026-07-21T15:00:09.018447+00:00"
+      },
+      {
+        "from": "VERIFY.PO_ACCEPT",
+        "gate": "task_complete",
+        "task_id": "TASK-001",
+        "reason": "",
+        "at": "2026-07-21T15:00:31.347025+00:00"
+      },
+      {
+        "from": "SPRINT.EDIT",
+        "gate": "start_task",
+        "task_id": "TASK-002",
+        "reason": "",
+        "at": "2026-07-21T15:08:52.033072+00:00"
+      },
+      {
+        "from": "ANALYZE.REVIEW",
+        "gate": "analysis_approved",
+        "task_id": "TASK-001",
+        "reason": "",
+        "at": "2026-07-21T15:09:23.744825+00:00"
+      },
+      {
+        "from": "REFINE.ROUTE",
+        "gate": "reroute_sprint",
+        "task_id": "TASK-005",
+        "reason": "Reconciliar workflow",
+        "at": "2026-07-21T17:06:50.211617+00:00"
+      },
+      {
+        "from": "SPRINT.CLOSE",
+        "gate": "start_task",
+        "task_id": "TASK-007",
+        "reason": "",
+        "at": "2026-07-21T18:18:34.890555+00:00"
+      },
+      {
+        "from": "ANALYZE.REVIEW",
+        "gate": "analysis_approved",
+        "task_id": "TASK-007",
+        "reason": "",
+        "at": "2026-07-21T18:21:34.154464+00:00"
+      },
+      {
+        "from": "IMPLEMENT.REPORT_GATE",
+        "gate": "implementation_done",
+        "task_id": "TASK-007",
+        "reason": "",
+        "at": "2026-07-21T18:29:07.990842+00:00"
+      },
+      {
+        "from": "VERIFY.PO_ACCEPT",
+        "gate": "task_complete",
+        "task_id": "TASK-007",
+        "reason": "",
+        "at": "2026-07-21T18:38:53.255006+00:00"
+      },
+      {
+        "from": "SPRINT.EDIT",
+        "gate": "start_task",
+        "task_id": "TASK-010",
+        "reason": "",
+        "at": "2026-07-21T18:39:38.892539+00:00"
+      },
+      {
+        "from": "ANALYZE.REVIEW",
+        "gate": "analysis_approved",
+        "task_id": "TASK-010",
+        "reason": "",
+        "at": "2026-07-21T19:32:57.299120+00:00"
+      },
+      {
+        "from": "IMPLEMENT.REPORT_GATE",
+        "gate": "implementation_done",
+        "task_id": "TASK-010",
+        "reason": "",
+        "at": "2026-07-21T19:39:49.607527+00:00"
+      },
+      {
+        "from": "VERIFY.PO_ACCEPT",
+        "gate": "task_complete",
+        "task_id": "TASK-010",
+        "reason": "",
+        "at": "2026-07-21T19:43:25.546317+00:00"
+      },
+      {
+        "from": "SPRINT.CREATE",
+        "gate": "start_task",
+        "task_id": "TASK-011",
+        "reason": "",
+        "at": "2026-07-21T19:50:00.783004+00:00"
+      },
+      {
+        "from": "ANALYZE.REVIEW",
+        "gate": "analysis_approved",
+        "task_id": "TASK-011",
+        "reason": "",
+        "at": "2026-07-21T19:51:31.021022+00:00"
+      },
+      {
+        "from": "IMPLEMENT.WORK",
+        "gate": "implementation_done",
+        "task_id": "TASK-011",
+        "reason": "",
+        "at": "2026-07-21T19:58:15.285938+00:00"
+      },
+      {
+        "from": "VERIFY.PO_ACCEPT",
+        "gate": "task_complete",
+        "task_id": "TASK-011",
+        "reason": "",
+        "at": "2026-07-21T19:58:49.017291+00:00"
+      }
+    ],
+    "context": {
+      "chain_dir": "/Users/davidmartinez/develop/Active-projects/game_reset/.cognitive/projects/delta-skill/delta/architecture-v4",
+      "task_id": "TASK-011"
+    },
+    "contract_data": {
+      "ANALYZE": {
+        "TASK-002": {
+          "task_id": "TASK-002"
+        },
+        "TASK-010": {
+          "task_id": "TASK-010"
+        }
+      }
+    }
+  },
+  "audit": {
+    "trail": [
+      {
+        "at": "2026-07-21T13:50:09.680733+00:00",
+        "distance": 0.0,
+        "event": "TASK-001 updated: objective"
+      },
+      {
+        "at": "2026-07-21T13:50:10.223644+00:00",
+        "distance": 0.0,
+        "event": "TASK-003 updated: objective"
+      },
+      {
+        "at": "2026-07-21T13:50:10.785661+00:00",
+        "distance": 0.0,
+        "event": "TASK-005 updated: objective"
+      },
+      {
+        "at": "2026-07-21T13:50:11.326086+00:00",
+        "distance": 0.0,
+        "event": "TASK-010 updated: objective"
+      },
+      {
+        "at": "2026-07-21T13:51:37.630934+00:00",
+        "distance": 0.0,
+        "event": "TASK-011 added to sprint: BUG/GAP: Validacion de schema muestra 120 errores progresivos. Debe agrupar por "
+      },
+      {
+        "at": "2026-07-21T13:51:38.361692+00:00",
+        "distance": 0.0,
+        "event": "TASK-012 added to sprint: GAP: spring.py create no acepta --tasks-file. Agregar --tasks-file <path> para p"
+      },
+      {
+        "at": "2026-07-21T14:37:47.162858+00:00",
+        "distance": 0.0,
+        "event": "TASK-001 updated: task_context"
+      },
+      {
+        "at": "2026-07-21T14:58:17.460900+00:00",
+        "distance": 0.0,
+        "event": "TASK-001 updated: task_context"
+      },
+      {
+        "at": "2026-07-21T15:08:52.852648+00:00",
+        "distance": 0.0,
+        "event": "TASK-002 updated: task_context"
+      },
+      {
+        "timestamp": "2026-07-21T12:11:45.897431",
+        "event": "TASK-001 completed (workflow v4 + walker v4)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T12:11:45.897431",
+        "event": "TASK-002 completed (submit + auto-transition)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T12:11:45.897431",
+        "event": "TASK-003 started (resume command)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T12:14:42.367327",
+        "event": "TASK-003 completed (resume command)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T12:14:42.367327",
+        "event": "TASK-004 started (auto-advance)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T15:31:00.000000",
+        "event": "TASK-004 completed (absorbida por TASK-002: while loop auto-advance chain ya implementado)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T15:31:00.000000",
+        "event": "TASK-005 started (auto-migracion v3->v4)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T16:00:00.000000",
+        "event": "TASK-005 completed (_build_v4_workflow SSOT + code review fixes)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T16:00:00.000000",
+        "event": "TASK-006 started (actualizar delta-init-project.py)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T16:30:00.000000",
+        "event": "TASK-006 completed (init genera v4 con sub-estados desde creacion)",
+        "actor": "dev"
+      },
+      {
+        "timestamp": "2026-07-21T17:22:30.729327+00:00",
+        "event": "TASK-005 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T17:22:38.974994+00:00",
+        "event": "TASK-006 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T19:43:36.508143+00:00",
+        "event": "TASK-010 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T19:48:27.718981+00:00",
+        "event": "TASK-007 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T19:58:49.063463+00:00",
+        "event": "TASK-011 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T20:00:57.195250+00:00",
+        "event": "TASK-012 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T20:02:31.711036+00:00",
+        "event": "TASK-009 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T20:02:41.739414+00:00",
+        "event": "TASK-008 marcada completed via resolve --apply"
+      },
+      {
+        "timestamp": "2026-07-21T18:00:00Z",
+        "event": "Sprint architecture-v4 cerrado: 12/12 tareas completadas, 43/43 predicates"
+      }
+    ],
+    "updated_at": "2026-07-21T23:29:48.795548+00:00"
+  },
+  "unregistered_work": []
+}

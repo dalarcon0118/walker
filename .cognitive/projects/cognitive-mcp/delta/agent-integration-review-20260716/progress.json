@@ -1,0 +1,101 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "agent-integration-review-20260716",
+      "generated_at": "2026-07-19T01:05:42.043411+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "active"
+    },
+    "plan_ref": "agent-integration-review-20260716",
+    "trail": [
+      {
+        "at": "2026-07-19T01:47:07.927307+00:00",
+        "distance": 0.0,
+        "event": "TASK-001 added to sprint: spring.py reopen debe aceptar --chain-id y reconstruir plan.json + progress.json"
+      },
+      {
+        "at": "2026-07-19T01:47:08.232604+00:00",
+        "distance": 0.0,
+        "event": "TASK-002 added to sprint: Proveer comandos de edición semántica: spring.py update-task <chain> <task_id> -"
+      },
+      {
+        "at": "2026-07-19T01:47:08.477015+00:00",
+        "distance": 0.0,
+        "event": "TASK-003 added to sprint: Mover plan.json y progress.json dentro del repo del proyecto (o al menos generar"
+      },
+      {
+        "at": "2026-07-19T01:47:08.721575+00:00",
+        "distance": 0.0,
+        "event": "TASK-004 added to sprint: Después de cualquier edición de plan o progress (add-task, update-task, update-g"
+      },
+      {
+        "at": "2026-07-19T01:47:08.967257+00:00",
+        "distance": 0.0,
+        "event": "TASK-005 added to sprint: Agregar comandos: spring.py diff <chain> (plan vs progreso), spring.py blockers "
+      },
+      {
+        "at": "2026-07-19T01:47:09.211983+00:00",
+        "distance": 0.0,
+        "event": "TASK-006 added to sprint: task.py advance debería ser la única vía de progreso. El skill delta debeinyecta"
+      },
+      {
+        "at": "2026-07-19T01:47:09.455164+00:00",
+        "distance": 0.0,
+        "event": "TASK-007 added to sprint: Si el plan cambia mientras hay tasks en progreso, detectar el desvío y ofrecer s"
+      },
+      {
+        "at": "2026-07-19T01:47:09.698769+00:00",
+        "distance": 0.0,
+        "event": "TASK-008 added to sprint: Agregar secciones a SKILL.md con ejemplos concretos: qué hacer cuando un task fa"
+      },
+      {
+        "at": "2026-07-19T01:47:20.495095+00:00",
+        "distance": 0.0,
+        "event": "TASK-008 added to sprint: Agregar secciones a SKILL.md con ejemplos concretos: qué hacer cuando un task fa"
+      },
+      {
+        "at": "2026-07-19T01:47:57.320625+00:00",
+        "distance": 0.0,
+        "event": "TASK-009 added to sprint: Agregar secciones a SKILL.md con ejemplos concretos: qué hacer cuando un task fa"
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-INT-001": "pending",
+        "TASK-INT-002": "pending",
+        "TASK-INT-003": "pending",
+        "TASK-INT-004": "pending",
+        "TASK-INT-005": "pending",
+        "TASK-INT-006": "pending",
+        "TASK-INT-007": "pending",
+        "TASK-001": "pending",
+        "TASK-002": "pending",
+        "TASK-003": "pending",
+        "TASK-004": "pending",
+        "TASK-005": "pending",
+        "TASK-006": "pending",
+        "TASK-007": "pending",
+        "TASK-008": "pending",
+        "TASK-009": "pending"
+      },
+      "next_action": {
+        "task_id": "TASK-INT-001",
+        "type": "refactor",
+        "work_type": "refactor",
+        "target": "",
+        "delta": 0.0,
+        "confidence": 0.8,
+        "risk": 0.5,
+        "score": 0.0,
+        "candidate": "Implementar arquitectura objetivo: mover identity/session a agent, eliminar dependencias circulares.",
+        "rationale": "Primera tarea del sprint: Implementar arquitectura objetivo: mover identity/session a ..."
+      },
+      "alternatives": [],
+      "risks": [],
+      "delta_metrics": {}
+    }
+  },
+  "_checksum": "8af5e97ef03cba03ea44c063ca526a12b3d6d79e32e75b4862b76ec45e252253"
+}

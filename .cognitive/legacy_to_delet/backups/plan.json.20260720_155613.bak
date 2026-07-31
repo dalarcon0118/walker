@@ -1,0 +1,407 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "win-win-game-type-20260715",
+      "generated_at": "2026-07-15T21:31:27.812425+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "react-native-frontend",
+      "project_type": "backend",
+      "domains": [
+        "Implementar",
+        "nuevo",
+        "tipo"
+      ],
+      "tags": [
+        "python"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Implementar el juego Win-Win (10 números x 7 dígitos) en React Native registrándolo en el sistema dinámico existente: BET_TYPE_KEYS, GameRegistry (strategy con isValidInput de 7 dígitos), BET_TYPE_SCHEMA. Pantalla con flujo Anotar: bottom bar con botón que genera 10 números aleatorios, display en formato X-XX-XX-XX, edición vía teclado con formatInput personalizado, opciones de regenerar o enviar. La feature se registra en game_registry.tsx con draw type code 'WW' y se integra en el bet-workspace. Incluye modelo de dominio (domain.ts) con helpers de generación aleatoria y formato, store TEA (update.ts), pantalla de entrada, conexión API via anotarJugada con bet_type=WIN_WIN_10x7, y ruta expo-router.",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "model WinWinGame con 10 numeros de 7 digitos en domain.ts",
+          "pantalla de entrada Win-Win con BetDrawerKeyboard betFormat=XXXXXXX",
+          "logica de validacion de numeros (7 digitos, 10 numeros, unicos)",
+          "store TEA con createTEAModule en update.ts",
+          "WIN_WIN_10x7 registrado en BET_TYPE_KEYS y BET_TYPE_SCHEMA",
+          "WIN_WIN_STRATEGY en game_registry.ts con isValidInput 7 digitos",
+          "game_registry.tsx registra WW -> WinWinEntryScreen",
+          "ruta expo-router app/lister/bets/win-win/anotate.tsx",
+          "API llama con bet_type=WIN_WIN_10x7 via anotarJugada",
+          "vista de resultados del sorteo Win-Win"
+        ],
+        "must_not_exist": [
+          "NO componentes custom NumberInput/NumberGrid en bet-win-win/components/"
+        ],
+        "invariants": [
+          "cada numero debe tener exactamente 7 digitos",
+          "deben seleccionarse exactamente 10 numeros",
+          "los numeros deben ser unicos",
+          "validacion de numeros replica las reglas del backend",
+          "pantalla usa BetDrawerKeyboard existente (no TextInput custom)",
+          "feature se integra en expo-router y game_registry"
+        ]
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "objective": "Crear domain.ts con WinWinModel (interface), initialModel y validation helpers en features/listero/bet-win-win/ siguiendo el patron de bet-loteria/domain.ts",
+        "type": "feature",
+        "domain": "game",
+        "result_state": "features/listero/bet-win-win/domain.ts con WinWinModel (numbers: string[10]), initialModel, validateNumber() de 7 digitos, validateAll() de 10 unicos. index.ts exporta API publica.",
+        "validation": {
+          "predicates": [
+            "WinWinModel tiene campo numbers: string[10]",
+            "initialModel con 10 strings vacios",
+            "validateNumber(val) rechaza <7 o >7 digitos",
+            "validateNumber(val) rechaza no-digitos",
+            "validateAll(numbers) rechaza duplicados",
+            "validateAll(numbers) valida exactamente 10",
+            "index.ts exporta WinWinModel y helpers"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/listero/bet-win-win/domain.ts",
+            "features/listero/bet-win-win/index.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.08
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "objective": "Crear update.ts siguiendo bet-loteria/update.ts: mensajes TEA (WinWinMsg), update function con state transitions, createTEAModule, API call a POST /api/bets/ via RemoteDataHttp, export de Provider y hooks",
+        "type": "feature",
+        "domain": "data",
+        "result_state": "features/listero/bet-win-win/update.ts con WinWinMsg types, update function, createTEAModule con Provider, hooks useWinWinStore/useWinWinDispatch, API integration con RemoteDataHttp.fetch a backend-microservices /api/bets/",
+        "validation": {
+          "predicates": [
+            "WinWinMsg incluye NUMBER_INPUT, SUBMIT_REQUEST, BET_RESPONSE, ERROR, RESET, NAVIGATE",
+            "update function maneja todos los WinWinMsg",
+            "API call POST /api/bets/ con bet_type=WIN_WIN_10x7 y numbers",
+            "RemoteDataHttp.fetch maneja success y error",
+            "createTEAModule definido y exporta Provider",
+            "useWinWinStore y useWinWinDispatch exportados"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/listero/bet-win-win/update.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.12
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "objective": "Registrar Win-Win en el sistema dinámico de validación: BET_TYPE_KEYS, BET_TYPE_SCHEMA, BACKEND_BET_CODES, BET_TYPE_KEYWORDS en bet_types.ts; WIN_WIN_STRATEGY, identifyBetTypes(), transformAllBets() en game_registry.ts; extender union type BetType en bet_numeric_keyboard.tsx y bet_drawer_keyboard.tsx para aceptar WIN_WIN; agregar labels/limits en constants/bet.ts",
+        "type": "feature",
+        "domain": "data",
+        "result_state": "WIN_WIN registrado en todos los puntos de registro del sistema: BET_TYPE_KEYS, BET_TYPE_SCHEMA ([7]), BACKEND_BET_CODES, BET_TYPE_KEYWORDS, UI_CONSTANTS en bet_types.ts; WIN_WIN_STRATEGY (isValidInput=/^\\d{7}$/, getMaxLength=7) en game_registry.ts BET_TYPE_STRATEGIES + identifyBetTypes() + transformAllBets(); BetType union extendida en bet_numeric_keyboard.tsx y bet_drawer_keyboard.tsx; constants/bet.ts con labels/limits",
+        "validation": {
+          "predicates": [
+            "BET_TYPE_KEYS incluye WIN_WIN",
+            "BET_TYPE_SCHEMA incluye [7] para WIN_WIN",
+            "BACKEND_BET_CODES incluye WIN_WIN",
+            "game_registry.ts BET_TYPE_STRATEGIES incluye WIN_WIN con isValidInput 7 digitos",
+            "game_registry.ts identifyBetTypes() mapea WIN_WIN",
+            "game_registry.ts transformAllBets() maneja WIN_WIN",
+            "bet_numeric_keyboard.tsx BetType union incluye WIN_WIN",
+            "bet_drawer_keyboard.tsx BetType union incluye WIN_WIN",
+            "constants/bet.ts incluye WIN_WIN en GameTypes, labels y limits"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "shared/types/bet_types.ts",
+            "shared/core/registry/game_registry.ts",
+            "shared/components/bets/bet_numeric_keyboard.tsx",
+            "shared/components/bets/bet_drawer_keyboard.tsx",
+            "constants/bet.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15
+        },
+        "task_context": {
+          "observacion": "Sistema dinamico existente: BET_TYPE_KEYS, BET_TYPE_SCHEMA, BACKEND_BET_CODES en bet_types.ts. GameRegistry con BET_TYPE_STRATEGIES, DEFAULT_DRAW_TYPE_STRATEGIES, identifyBetTypes(), transformAllBets() en game_registry.ts. keyboard type unions (BetType) en bet_numeric_keyboard.tsx y bet_drawer_keyboard.tsx. constants/bet.ts con GameTypes, labels, limits. Ya se identificaron los 5 archivos a modificar.",
+          "estructura": "bet_types.ts contiene registros de tipos de apuesta. game_registry.ts centraliza estrategias por codigo de backend. bet_numeric_keyboard.tsx usa BetType union para tipado. bet_drawer_keyboard.tsx re-exporta BetNumericKeyboard con misma union. constants/bet.ts define constantes de UI para game types.",
+          "comportamiento": "Flujo: App carga draw types del backend -> GameRegistry.syncWithBackend() mapea codigos desconocidos. Keyboard recibe betType prop -> type union restringe valores permitidos. identifyBetTypes() escanea GameType[] y construye mapa de IDs. transformAllBets() clasifica bets entrantes por betTypeCode.",
+          "causalidad": "5 archivos deben modificarse en conjunto porque el tipado de TypeScript atraviesa todos ellos. Si falta uno, falla compilacion. La union BetType en los keyboards es el gatekeeper - sin extenderla, no se puede pasar WIN_WIN como prop. identifyBetTypes() debe incluir winWin para que el workspace pueda mapear el ID del backend. transformAllBets() procesa bets por categoria - WIN_WIN cae en loteria.",
+          "finalidad": "Registrar WIN_WIN como un bet type de primera clase en el sistema. Sin esto, el teclado no acepta WIN_WIN como tipo valido, el workspace no puede mapear IDs del backend, y los bets existentes no se transforman correctamente.",
+          "principios": "Explicit registration (no auto-descubrimiento). Type safety (la union BetType es el contrato compile-time). SSOT (GameRegistry centraliza estrategias). Separation of concerns (bet_types.ts = tipos, game_registry.ts = estrategias, keyboards = UI)."
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "objective": "Crear WinWinEntryScreen que usa BetDrawerKeyboard con betFormat=XXXXXXX para capturar 10 numeros de 7 digitos, registrar en game_registry.tsx con draw type code WW, y crear ruta expo-router app/lister/bets/win-win/anotate.tsx",
+        "type": "feature",
+        "domain": "ui",
+        "result_state": "WinWinEntryScreen en features/listero/bet-win-win/screens/ usando BetDrawerKeyboard con betFormat=XXXXXXX para entrada secuencial de 10 numeros. Registrado en game_registry.tsx con codigo WW. Ruta app/lister/bets/win-win/anotate.tsx funcionando con expo-router.",
+        "validation": {
+          "predicates": [
+            "WinWinEntryScreen usa BetDrawerKeyboard con betFormat=XXXXXXX",
+            "WinWinEntryScreen recolecta 10 numeros secuencialmente uno a la vez",
+            "slot muestra check verde al completar 7 digitos",
+            "auto-avance al siguiente slot al confirmar 7 digitos",
+            "contador X/10 visible en pantalla",
+            "boton submit habilitado solo si model.isComplete",
+            "Alert confirmacion antes de dispatch CONFIRM_SUBMIT",
+            "submit ejecuta anotarJugada con bet_type=WIN_WIN_10x7",
+            "exito navega a /lister/bet_success con receiptCode y drawId",
+            "error muestra alerta con mensaje del backend",
+            "NO componentes custom NumberInput/NumberGrid",
+            "WinWinStoreProvider wrappea la screen en anotate.tsx",
+            "game_registry.tsx registra WW -> WinWinEntryScreen",
+            "ruta app/lister/bets/win-win/anotate.tsx existe",
+            "renderGameComponent incluye case 'WW'",
+            "getGameComponent('WW') retorna WinWinEntryScreen"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/listero/bet-win-win/screens/WinWinEntryScreen.tsx",
+            "features/listero/bet-workspace/ui/components/game_registry.tsx",
+            "app/lister/bets/win-win/anotate.tsx"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15
+        },
+        "task_context": {
+          "observacion": "Ya existe domain.ts con WinWinModel (numbers, errors, globalError, isComplete), validateNumber() de 7 digitos, validateAll() de 10 unicos. update.ts con WinWinMsg, updateFeature, createTEAModule, hooks (useWinWinStore, useWinWinDispatch). WIN_WIN registrado en bet_types.ts, game_registry.ts, keyboard type unions, constants/bet.ts. BetDrawerKeyboard y BetNumericKeyboard con soporte para betFormat=XXXXXXX. game_registry.tsx mapea BL->BolitaEntryScreen, LS_WEEKLY->LoteriaEntryScreen. Rutas existentes: app/lister/bets/bolita/anotate.tsx, app/lister/bets/loteria/anotate.tsx. app/lister/bet_success.tsx destino post-envio.",
+          "estructura": "Screens/WinWinEntryScreen.tsx -> depende de update.ts (useWinWinStore/useWinWinDispatch) y BetDrawerKeyboard (shared component). game_registry.tsx importa WinWinEntryScreen y lo mapea con codigo WW. anotate.tsx wrappea WinWinStoreProvider + WinWinEntryScreen. La screen contiene: header (titulo + contador X/10), lista de 10 slots, BetDrawerKeyboard (betFormat=XXXXXXX), submit footer.",
+          "comportamiento": "Flujo: App abre /lister/bets/win-win/anotate.tsx?id=X -> WinWinStoreProvider.init() -> initialModel. Usuario toca slot vacio -> se abre BetDrawerKeyboard. Usuario teclea 7 digitos -> presiona Confirmar -> dispatch NUMBER_INPUT -> se cierra teclado -> slot muestra numero + check -> auto-avance al siguiente slot. Al completar 10 numeros validos y unicos -> model.isComplete=true -> boton Revisar y Enviar habilitado. Usuario presiona -> dispatch SUBMIT_REQUEST -> alert confirmacion -> dispatch CONFIRM_SUBMIT -> anotarJugada() -> exito navega a /lister/bet_success, error muestra alerta.",
+          "causalidad": "Restricciones: 1) No custom inputs - BetDrawerKeyboard es el unico mecanismo de entrada. 2) Un numero a la vez - el teclado captura 1 numero de 7 digitos por vez, no 10 simultaneamente. UX secuencial. 3) Validacion en domain.ts - teclado solo valida digitos y <=7, unicidad y cantidad exacta en validateAll(). 4) isComplete controla el submit. 5) BetDrawerKeyboard NO maneja indices - eso lo maneja la screen. Causa raiz del error anterior: crear NumberInput/NumberGrid custom cuando el sistema ya tiene BetDrawerKeyboard con betFormat para configuracion dinamica.",
+          "finalidad": "Objetivo: permitir al listero ingresar una jugada Win-Win (10 numeros x 7 digitos) usando la misma UX que bolita/loteria. Criterios de exito (6 predicates): WinWinEntryScreen usa BetDrawerKeyboard con betFormat=XXXXXXX, recolecta 10 numeros secuencialmente, game_registry.tsx registra WW, ruta anotate.tsx existe, renderGameComponent incluye case WW, getGameComponent(WW) retorna WinWinEntryScreen. Trade-off: consistencia UX vs grid visual de 10 campos simultaneos. Aceptamos consistencia.",
+          "principios": "TEA (Model-View-Update): WinWinModel en store, dispatch para acciones. Game Registry: WW->WinWinEntryScreen. Keyboard as a Service: BetDrawerKeyboard es el unico mecanismo de entrada numerica. BetFormat override: betFormat=XXXXXXX configura el teclado sin modificar su codigo. Separation of Concerns: domain.ts (reglas) != update.ts (orquestacion) != screens/ (UI). Draw type code contract: WW es el codigo backend. Minimal new code: reutilizar BetDrawerKeyboard, WinWinModule, game_registry. Explicit registration: no auto-descubrimiento."
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "objective": "Rediseñar WinWinEntryScreen con flujo Anotar: bottom bar con botón Anotar que genera 10 números aleatorios de 7 dígitos, formato display X-XX-XX-XX, edición vía teclado con formatInput personalizado, y opción de regenerar números o enviar apuesta desde el mismo botón",
+        "type": "feature",
+        "domain": "ui",
+        "result_state": "WinWinEntryScreen con bottom bar fijo (botón Anotar grande), generateAllRandom() en domain.ts, display en formato X-XX-XX-XX, teclado con formatInput={formatKeyboardInput}, flujo: vacío→Anotar genera→tocar slot edita→Anotar de nuevo muestra opciones (Regenerar/Enviar). BetDrawerKeyboard con prop formatInput passthrough.",
+        "validation": {
+          "predicates": [
+            "WinWinEntryScreen tiene bottom bar con botón Anotar grande",
+            "Botón Anotar genera 10 números aleatorios únicos de 7 dígitos",
+            "generateAllRandom() en domain.ts produce 10 números únicos",
+            "formatDisplayNumber(num) convierte 1234567 a 1-23-45-67",
+            "formatKeyboardInput() formatea en tiempo real para display del teclado",
+            "Slots muestran números en formato X-XX-XX-XX",
+            "Tocar slot abre BetDrawerKeyboard con formatInput={formatKeyboardInput}",
+            "Botón Anotar con números existentes muestra Alert: Regenerar / Enviar / Cancelar",
+            "Regenerar reemplaza todos los números con nuevos aleatorios",
+            "Enviar inicia flujo SUBMIT_REQUEST (confirmación TEA existente)",
+            "BetDrawerKeyboard acepta prop formatInput y la pasa a BetNumericKeyboard"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/listero/bet-win-win/screens/WinWinEntryScreen.tsx",
+            "features/listero/bet-win-win/domain.ts",
+            "shared/components/bets/bet_drawer_keyboard.tsx"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-006",
+        "objective": "Implementar Feed de la Suerte: pantalla full-screen vertical con FlatList de micro-sorteos, auto-play al 80% visibility, skeleton loading, y swipe gestures nativos sin librerías externas",
+        "type": "feature",
+        "domain": "ui",
+        "result_state": "app/lister/screens/LuckFeedScreen.tsx con FlatList vertical, snap-to-next, auto-play de animaciones, skeleton loading, y detección de visibility via onViewableItemsChanged",
+        "validation": {
+          "predicates": [
+            "LuckFeedScreen usa FlatList con pagingEnabled y snapToInterval",
+            "Auto-play trigger al 80% visibility via onViewableItemsChanged",
+            "Skeleton loader mientras carga el contenido del sorteo",
+            "Swipe gesture nativo sin dependencies externas",
+            "Cards ocupan full-screen height y width"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "app/lister/screens/LuckFeedScreen.tsx",
+            "features/feed/components/LuckCard.tsx",
+            "features/feed/hooks/useFeedVisibility.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2
+        }
+      },
+      {
+        "task_id": "TASK-007",
+        "objective": "Implementar motor de Recompensa Variable: algoritmo de distribución de premios con weighted random (90% micro-prizes, 9% near-miss, 1% major), configuración por sorteo, y persistencia local de rachas",
+        "type": "feature",
+        "domain": "data",
+        "result_state": "lib/rewards/variableRewardEngine.ts con weightedRandom(), PrizeDistribution configurable, NearMissCalculator, StreakTracker con AsyncStorage, y hooks useRewardEngine/useStreak",
+        "validation": {
+          "predicates": [
+            "PrizeDistribution soporta weights configurables por tipo de premio",
+            "weightedRandom() retorna premio según distribución (90/9/1)",
+            "NearMissCalculator detecta cuándo faltó 1 número/símbolo",
+            "StreakTracker persiste rachas en AsyncStorage",
+            "Hooks exponen currentPrize, isNearMiss, streakCount"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "lib/rewards/variableRewardEngine.ts",
+            "lib/rewards/prizeDistribution.ts",
+            "lib/rewards/nearMissCalculator.ts",
+            "lib/rewards/streakTracker.ts",
+            "hooks/useRewardEngine.ts",
+            "hooks/useStreak.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25
+        }
+      },
+      {
+        "task_id": "TASK-008",
+        "objective": "Implementar sistema de Revelación Sensorial: animaciones Lottie/Reanimated de 2-3s (caja temblando, sobre abriéndose, rueda girando), feedback háptico con expo-haptics, y sonidos contextuales con expo-av/Audio",
+        "type": "feature",
+        "domain": "ui",
+        "result_state": "features/reveal/components/RevealAnimation.tsx con Reanimated + Lottie, lib/haptics/revealHaptics.ts con patrones de vibración por resultado, lib/sounds/revealSounds.ts con Audio.Sound, y hook useRevealSequence()",
+        "validation": {
+          "predicates": [
+            "RevealAnimation soporta 3 variantes: boxShake, envelopeOpen, wheelSpin",
+            "Duración de animación entre 2-3 segundos",
+            "expo-haptics con patrones distintos: gentle (micro-prize), heavy (major win), medium (near miss)",
+            "Audio.Sound carga sonidos async con prefetch",
+            "useRevealSequence() orquesta animación -> haptic -> sonido -> resultado"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/reveal/components/RevealAnimation.tsx",
+            "lib/haptics/revealHaptics.ts",
+            "lib/sounds/revealSounds.ts",
+            "hooks/useRevealSequence.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3
+        }
+      },
+      {
+        "task_id": "TASK-009",
+        "objective": "Implementar motor de Personalización Algorítmica: perfil de usuario de riesgo (conservador/equilibrado/arriesgado), ajuste de feed según historial, y configuración de preferencias de tipo de sorteo",
+        "type": "feature",
+        "domain": "data",
+        "result_state": "lib/profile/userRiskProfile.ts con RiskProfile enum y calculateRiskProfile(), lib/feed/feedAlgorithm.ts con personalizeFeed(), hooks/useUserProfile.ts, y pantalla app/lister/screens/PreferencesScreen.tsx",
+        "validation": {
+          "predicates": [
+            "RiskProfile enum: conservative, balanced, risk_taker",
+            "calculateRiskProfile() determina perfil según historial de participación",
+            "personalizeFeed() reordena cards del feed según perfil",
+            "PreferencesScreen permite ajustar preferencias manualmente",
+            "Profile persistido en AsyncStorage con TTL 24h"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "lib/profile/userRiskProfile.ts",
+            "lib/feed/feedAlgorithm.ts",
+            "hooks/useUserProfile.ts",
+            "app/lister/screens/PreferencesScreen.tsx"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2
+        }
+      },
+      {
+        "task_id": "TASK-010",
+        "objective": "Implementar sistema de Prueba Social y FOMO: live activity indicators (participantes en vivo), feed de ganadores con confetti Lottie, notificaciones push de sorteos destacados, y contador de participantes en cards",
+        "type": "feature",
+        "domain": "ui",
+        "result_state": "features/social/components/LiveActivityIndicator.tsx, features/social/components/WinnerFeed.tsx con confetti Lottie, lib/social/liveCounter.ts con polling cada 5s, y notificaciones push con expo-notifications",
+        "validation": {
+          "predicates": [
+            "LiveActivityIndicator muestra contador animado de participantes",
+            "WinnerFeed muestra tarjetas de ganadores recientes con confetti",
+            "Polling cada 5s para actualizar contadores en vivo",
+            "expo-notifications registra canal para sorteos destacados",
+            "Cards del feed muestran X personas participando ahora"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "features/social/components/LiveActivityIndicator.tsx",
+            "features/social/components/WinnerFeed.tsx",
+            "lib/social/liveCounter.ts",
+            "lib/social/winnerNotifier.ts",
+            "hooks/useLiveActivity.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.25
+        }
+      },
+      {
+        "task_id": "TASK-011",
+        "objective": "Implementar economía de atención y loops de retorno: sistema de rachas diarias con recompensas progresivas, entradas gratis por watch-to-earn (video ads), referral system con deep links, y achievement badges",
+        "type": "feature",
+        "domain": "data",
+        "result_state": "lib/economy/streakRewards.ts con StreakTier configurable, lib/economy/watchToEarn.ts integrando Google AdMob rewarded ads, lib/economy/referralSystem.ts con deep links y tracking, lib/economy/achievements.ts con AchievementBadge types",
+        "validation": {
+          "predicates": [
+            "StreakTier: dia 1=1 entrada, dia 3=3 entradas + multiplicador x1.5, dia 7=7 entradas + badge",
+            "watchToEarn() reproduce rewarded ad y otorga entrada al completar",
+            "referralSystem genera deep link único y tracking de conversión",
+            "AchievementBadge types: early_adopter, streak_master, whale",
+            "Persistencia en AsyncStorage con timestamp de última recompensa"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "lib/economy/streakRewards.ts",
+            "lib/economy/watchToEarn.ts",
+            "lib/economy/referralSystem.ts",
+            "lib/economy/achievements.ts",
+            "hooks/useStreakRewards.ts",
+            "hooks/useWatchToEarn.ts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2
+        }
+      }
+    ],
+    "parameters": {}
+  }
+}

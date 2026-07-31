@@ -1,0 +1,28 @@
+{
+  "description": "Specify task details: title, type, domain, acceptance criteria",
+  "usage": "walker <project>/spec_task --task_id <id> --title <title> --type <type> --domain <domain>",
+  "tags": ["workflow", "sprint", "planning"],
+  "input_schema": {
+    "required": ["task_id", "title", "type", "domain"],
+    "optional": ["description", "objective", "result_state", "depends_on", "risks", "acceptance_criteria", "predicates"],
+    "task_id": {"type": "string", "description": "Task ID (TASK-001, TASK-002, etc.)", "example": "TASK-001"},
+    "title": {"type": "string", "description": "Short title for the task", "example": "Implement JWT authentication"},
+    "type": {"type": "string", "description": "Task type: feature | bugfix | refactor | test | docs | chore", "example": "feature"},
+    "domain": {"type": "string", "description": "Domain: core | engine | security | ui | api", "example": "security"},
+    "description": {"type": "string", "description": "Detailed description of the task"},
+    "objective": {"type": "string", "description": "What the task should achieve"},
+    "result_state": {"type": "string", "description": "Expected result state after completion"},
+    "depends_on": {"type": "array", "description": "Task IDs this depends on", "example": ["TASK-000"]},
+    "acceptance_criteria": {"type": "array", "description": "List of acceptance criteria", "example": ["User can login", "Token expires in 24h"]}
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "data": {"type": "object", "properties": {
+        "task_id": {"type": "string"},
+        "saved": {"type": "boolean"}
+      }}
+    }
+  }
+}

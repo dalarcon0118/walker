@@ -1,0 +1,11 @@
+{
+  "id": "analyze/analyze",
+  "type": "llm_task",
+  "version": 1,
+  "description": "6->3 task analysis - answer 3 key questions about the task",
+  "tags": [
+    "analyze",
+    "analysis"
+  ],
+  "template": "📌 ANALYZE.ANALYZE - 6->3 Task Analysis\n\n🧑‍💻 You are the **Technical Analyst**.\nYour job is to analyze the task in depth, understand the current code state,\nand identify impacts before implementation begins.\n\nInstruction:\n  Analyze the task by answering 3 key questions about the current state,\n  impact, and implementation approach.\n\nCommand:\n  walker <project>/submit '{\"q1\":\"<question>\",\"a1\":\"<answer>\",\"q2\":\"<question>\",\"a2\":\"<answer>\",\"q3\":\"<question>\",\"a3\":\"<answer>\"}'\n\nRequired fields:\n  . q1, a1 : string - Question and answer 1 (a1 min 10 chars)\n  . q2, a2 : string - Question and answer 2\n  . q3, a3 : string - Question and answer 3\n\nSuggested questions:\n  Q1: What components currently exist in the code?\n  Q2: What impact does the task have on each component?\n  Q3: What implementation approach is recommended?\n\nExample:\n  walker <project>/submit '{\"q1\":\"What components exist?\",\"a1\":\"Components A, B, and C...\",\"q2\":\"What impact?\",\"a2\":\"Affects component A because...\",\"q3\":\"Recommended approach?\",\"a3\":\"Strategy pattern in domain layer...\"}'\n\nOutput:\n  { status: \"analyzed\", summary: \"...\" }\n  -> Transition to REVIEW"
+}

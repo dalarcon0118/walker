@@ -1,0 +1,30 @@
+{
+  "sprint_id": "test-spring-planning-2",
+  "project_id": "delta-skill",
+  "state": "closed",
+  "current_task_id": null,
+  "planning_phase": "task_definition",
+  "goal": "Validar flujo spring-planning 1 a 1 con templates",
+  "workflow_state": {
+    "current_node": "SPRINT_PLANNING",
+    "current_sub_state": "TASK_DEFINITION",
+    "sub_state_index": 0
+  },
+  "tasks": [],
+  "created_at": "2026-07-22T22:29:42.360154+00:00",
+  "updated_at": "2026-07-22T22:29:42.360154+00:00",
+  "sprint": {
+    "status": "closed"
+  },
+  "meta": {
+    "status": "closed"
+  },
+  "audit": {
+    "trail": [
+      {
+        "timestamp": "2026-07-23T01:58:20.918024+00:00",
+        "event": "Sprint test-spring-planning-2 closed (prototype)"
+      }
+    ]
+  }
+}

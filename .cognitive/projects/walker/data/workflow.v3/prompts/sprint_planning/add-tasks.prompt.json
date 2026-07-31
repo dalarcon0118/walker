@@ -1,0 +1,11 @@
+{
+  "id": "sprint_planning/add-tasks",
+  "type": "llm_task",
+  "version": 1,
+  "description": "Add tasks to the sprint plan one by one",
+  "tags": [
+    "sprint_planning",
+    "tasks"
+  ],
+  "template": "📌 SPRINT_PLANNING.ADD_TASKS — Agregar tareas al plan\n\nContext layers available:\n  • STATE   (layer above) — current sprint plan state, tasks already added, sprint goal\n  • DELTA   (layer above) — gap between current and desired state\n    Shows what work remains to achieve the goal\n  • CKG     (layer above) — project patterns and conventions for task breakdown\n  • CPG     (layer above) — current code structure to inform impacted files\n  • TRACE   (layer above) — lessons from previous sprints to avoid past mistakes\n  • PROJECT (layer above) — project conventions\n\nInstrucción:\n  Agrega tareas una por una. Cuando termines, envía done: true.\n  Usa STATE para ver qué tareas ya se agregaron. Consulta CKG para\n  convenciones, CPG para estructura de código, y TRACE para lecciones\n  de sprints anteriores.\n\nComando:\n  walker <project>/submit '{\"task\":{\"objective\": \"...\", \"type\": \"feature\", \"domain\": \"engine\"}}'\n  walker <project>/submit '{\"done\":true}'   ← cuando ya no hay más tareas\n\nCampos:\n  • task : objeto TaskObject (opcional si envías done:true)\n    • objective    : string (requerido) — descripción\n    • type         : \"feature\"|\"refactor\"|\"bugfix\"|\"docs\"|\"chore\" (requerido)\n    • domain       : string (requerido) — dominio\n    • result_state : string (opcional) — estado esperado\n  • done  : boolean — true para finalizar\n\nEjemplo:\n  walker <project>/submit '{\"task\":{\"objective\": \"Implementar X\", \"type\": \"feature\", \"domain\": \"engine\"}}'\n  walker <project>/submit '{\"task\":{\"objective\": \"Agregar tests\", \"type\": \"feature\", \"domain\": \"engine\"}}'\n  walker <project>/submit '{\"done\":true}'\n\nOutput:\n  { status: \"added\", task_id: \"TASK-00N\", task_count: N }\n  { status: \"completed\", task_count: N } → VALIDATE automático"
+}

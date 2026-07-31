@@ -1,0 +1,300 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-agent-quality-20260713",
+      "generated_at": "2026-07-20T13:37:50.091530+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "active"
+    },
+    "plan_ref": "cognitive-mcp-agent-quality-20260713",
+    "trail": [
+      {
+        "at": "2026-07-20T13:41:39.488949+00:00",
+        "distance": 0.8947,
+        "event": "TASK-AG-001 completed",
+        "tasks": [
+          "TASK-AG-001"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "qlty fmt ejecutado, 0 ruff:fmt, 0 ruff:F401 en agent/. workflow_adapter.py tiene import limpio de WorkflowPort.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1053,
+            "actual_reduction": 0.1053,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-20T13:42:19.071317+00:00",
+        "distance": 0.8421,
+        "event": "TASK-AG-002 completed",
+        "tasks": [
+          "TASK-AG-002"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "0 bandit:B101 en reports de qlty para tests/. assert warnings eliminadas del reporte de seguridad.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0526,
+            "actual_reduction": 0.0526,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-20T13:42:44.614542+00:00",
+        "distance": 0.7895,
+        "event": "TASK-AG-003 completed",
+        "tasks": [
+          "TASK-AG-003"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "0 bandit:B110 en llm_response_hook.py. Excepción silenciosa eliminada o logueada con contexto.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0526,
+            "actual_reduction": 0.0526,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-20T13:43:08.806067+00:00",
+        "distance": 0.7368,
+        "event": "TASK-AG-004 completed",
+        "tasks": [
+          "TASK-AG-004"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "_extract_user_text removida de MessageGate. extract_user_text en message_parser.py con CC <= 8. MessageGate delega a parser.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0526,
+            "actual_reduction": 0.0526,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-20T13:43:27.884048+00:00",
+        "distance": 0.7368,
+        "event": "TASK-AG-005 completed",
+        "tasks": [
+          "TASK-AG-005"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "_capture_user_message removida de MessageGate. UserMessageCapturer en message_capture.py con CC <= 8. MessageGate delega captura.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0526,
+            "actual_reduction": 0.0526,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-AG-001": "completed",
+        "TASK-AG-002": "completed",
+        "TASK-AG-003": "completed",
+        "TASK-AG-004": "completed",
+        "TASK-AG-005": "completed",
+        "TASK-AG-006": "pending",
+        "TASK-AG-007": "pending",
+        "TASK-AG-008": "pending"
+      },
+      "next_action": {
+        "task_id": "TASK-AG-006",
+        "role": "core",
+        "candidate": "Reducir complejidad en identity.py: dividir _get_actor_identity (CC=15) y _init_session (CC=19) en f",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "target": "",
+        "delta": 0.0526,
+        "confidence": 0.8,
+        "risk": 0.2,
+        "score": 0.5,
+        "rationale": "Siguiente tarea: Reducir complejidad en identity.py: dividir _get_actor_ident..."
+      },
+      "alternatives": [],
+      "risks": [],
+      "delta_metrics": {},
+      "project_root": "/Users/davidmartinez/develop/Active-projects/game_reset"
+    }
+  },
+  "_checksum": "6d3a832c1c57e1dab86779bbb11416d4c472367eed554052b5080314fc15f546"
+}

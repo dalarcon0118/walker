@@ -1,0 +1,29 @@
+{
+  "description": "Detects functions and methods defined but never called (dead code)",
+  "usage": "walker <project>/cpg_unused_functions [--file <path>]",
+  "example": "walker3 delta-skill/task/cpg_unused_functions --file cpg.py",
+  "tags": ["cpg", "dead-code", "maintenance"],
+  "input_schema": {
+    "optional": ["file"],
+    "file": {
+      "type": "string",
+      "description": "Filter by file path (partial match). If omitted, scans all files.",
+      "example": "cpg/application/query.py"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "data": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "total": {"type": "integer", "description": "Total unused functions found"},
+          "matches": {"type": "array", "description": "List of unused functions with function name, file, line, is_private, incoming_calls"}
+        }
+      }
+    }
+  },
+  "query_instructions": "The task returns a JSON with:\n  - query: the query type executed\n  - total: total number of unused functions found\n  - matches: list of unused functions, each with:\n      - function: function name\n      - file: file where defined\n      - line: definition line\n      - detail: finding description\n  - truncated: true if more results exist\n\nHow to consume the result:\n  1. Review each match and decide if the function is truly unused\n  2. Public/exported functions (no _ prefix) may be API\n  3. Functions with _ prefix are strong candidates for removal\n  4. To confirm, use: walker <project>/query --query '{\"cpg\":{\"function\":\"<name>\"}}'"
+}

@@ -1,0 +1,47 @@
+{
+  "description": "Gather context from CPG and CKG for a task or design decision",
+  "usage": "walker <project>/gather_context --task_id <id> --files <list>",
+  "tags": [
+    "workflow",
+    "context"
+  ],
+  "input_schema": {
+    "required": [
+      "task_id"
+    ],
+    "optional": [
+      "files",
+      "depth",
+      "query"
+    ],
+    "task_id": {
+      "type": "string",
+      "description": "Task ID to gather context for",
+      "example": "TASK-001"
+    },
+    "files": {
+      "type": "array",
+      "description": "File paths to analyze",
+      "example": [
+        "src/module.py"
+      ]
+    },
+    "depth": {
+      "type": "integer",
+      "description": "Context depth (1-3)",
+      "example": 2
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "description": "Context with observations, structure, behavior from CPG and CKG"
+      }
+    }
+  }
+}

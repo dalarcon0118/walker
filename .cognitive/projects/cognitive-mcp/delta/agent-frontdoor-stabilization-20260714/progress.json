@@ -1,0 +1,112 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "agent-frontdoor-stabilization-20260714",
+      "generated_at": "2026-07-14T00:00:00Z",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-14T00:00:00Z",
+        "distance": 0.83,
+        "predicates_satisfied": "0/18",
+        "tasks_completed": [],
+        "event": "plan created — estabilizar módulo agent como front door del LLM"
+      },
+      {
+        "at": "2026-07-14T12:00:00Z",
+        "distance": 0.72,
+        "predicates_satisfied": "1/18",
+        "tasks_completed": ["TASK-001"],
+        "event": "TASK-001 completada: 6 imports stale corregidos en review_loop.py (features.cpg.* → features.tools.cpg.*)"
+      },
+      {
+        "at": "2026-07-14T12:30:00Z",
+        "distance": 0.72,
+        "predicates_satisfied": "2/18",
+        "tasks_completed": [],
+        "event": "TASK-002 en progreso: CpgPort + CpgAdapter creados, guidance/domain migrado"
+      },
+      {
+        "at": "2026-07-14T15:00:00Z",
+        "distance": 0.65,
+        "predicates_satisfied": "4/18",
+        "tasks_completed": ["TASK-002"],
+        "event": "TASK-002 completada: CpgPort + CpgAdapter + migration completa de guidance (domain y application)"
+      },
+      {
+        "at": "2026-07-14T16:00:00Z",
+        "distance": 0.37,
+        "predicates_satisfied": "11/18",
+        "tasks_completed": ["TASK-003"],
+        "event": "TASK-003 completada: ScrumPort + GitPort creados, 8 client files migrados, ~20 imports de features.scrum.* reemplazados"
+      },
+      {
+        "at": "2026-07-14T18:00:00Z",
+        "distance": 0.0,
+        "predicates_satisfied": "18/18",
+        "tasks_completed": ["TASK-004"],
+        "event": "TASK-004 completada: 3 new ports (MessagePort, DispatchPort, PersistencePort) + 3 adapters + ~15 client files migrados"
+      },
+      {
+        "at": "2026-07-14T19:00:00Z",
+        "distance": 0.078,
+        "predicates_satisfied": "14/18",
+        "tasks_completed": [],
+        "event": "FASE 2: Ciclo formal delta ejecutado — escaneo de G_actual reveló 4 imports stale en delta_evaluator.py (FeatureTraversalHandler, derive_cgc_hypotheses, CfgBuilder×2)"
+      },
+      {
+        "at": "2026-07-14T19:15:00Z",
+        "distance": 0.0,
+        "predicates_satisfied": "18/18",
+        "tasks_completed": ["TASK-005"],
+        "event": "TASK-005: CpgPort ampliado con 4 nuevos métodos + CpgAdapter + migración de delta_evaluator.py. Sprint COMPLETADO — distancia real 0.0"
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-001": "completed",
+        "TASK-002": "completed",
+        "TASK-003": "completed",
+        "TASK-004": "completed",
+        "TASK-005": "completed"
+      },
+      "next_action": null,
+      "risks": [],
+      "finished": true,
+      "delta_metrics": {
+        "total_predicates": 18,
+        "satisfied_total": 18,
+        "distance": 0.0,
+        "score": 0.0,
+        "calibration": {
+          "total_new_code_lines": 957,
+          "ports_lines": 404,
+          "adapters_lines": 553,
+          "composition_lines": 158,
+          "importer_counts": {
+            "get_cpg_adapter": 4,
+            "get_scrum_adapter": 2,
+            "get_git_adapter": 9,
+            "get_messages_adapter": 3,
+            "get_dispatch_adapter": 5,
+            "get_persistence_adapter": 9
+          },
+          "real_gaps_found": {
+            "delta_evaluator_tools_cpg_operational": "TASK-005 closed",
+            "type_imports_remaining": 6
+          },
+          "distance_estimated_vs_real": {
+            "estimated_initial": 0.83,
+            "estimated_post_task4": 0.0,
+            "real_post_fase2_scan": 0.078,
+            "real_post_task5": 0.0
+          }
+        }
+      }
+    }
+  }
+}

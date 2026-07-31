@@ -1,0 +1,410 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-fix-memora-codegraph-separation-20260707",
+      "generated_at": "2026-07-07T01:30:00-03:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan",
+      "supersedes": ""
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "guidance",
+        "shared",
+        "cpg",
+        "context"
+      ],
+      "tags": [
+        "python",
+        "hexagonal",
+        "cognitive-v2",
+        "memora",
+        "codegraph",
+        "semantic-term",
+        "bugfix",
+        "architecture"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Corregir errores de diseño en la separación de responsabilidades entre Memora (memoria semántica de PROPÓSITO) y CodeGraph (estructura del código), eliminando la duplicación de datos que causa latencia 23min, loop CPU 98%, y NameError en ops_cell",
+      "path_summary": "Para alcanzar esto se corrigen 4 bugs: (1) NameError _memora_parse_results en ops_cell.py sección 7c sin import, (2) _ensure_codegraph_indexed() que copia 400 nodos del CodeGraph a Memora innecesariamente, (3) compute_semantic_term() que depende del indexado masivo, (4) loop CPU-bound en delta_create_sprint() consecuencia del bug #2. Las tareas FIX-* son correcciones directas. La tarea REDESIGN-* rediseña el flujo semántico según la arquitectura correcta: Memora busca propósito, CodeGraph busca estructura.",
+      "predicates": {
+        "must_exist": [
+          "import _memora_parse_results en top-level de cognitive_v2/shared/ops_cell.py",
+          "funcion _ensure_codegraph_indexed ELIMINADA o reemplazada por no-op en cognitive_v2/features/guidance/domain/semantic_term.py",
+          "funcion compute_semantic_term NO llama _ensure_codegraph_indexed ni copia nodos CodeGraph a Memora",
+          "funcion compute_semantic_term retorna (0.0, False) como EHR-20 fallback sin indexado masivo",
+          "delta_create_sprint responde en menos de 5 segundos sin loop CPU",
+          "funcion _index_target_spec_in_memora preservada (esa SI guarda propósito del spec en Memora)",
+          "funcion _build_spec_query preservada (construye query de propósito, no de estructura)"
+        ],
+        "must_not_exist": [
+          "adapter.query_cypher('MATCH (n:Function)') en semantic_term.py copiando nodos a Memora",
+          "adapter.query_cypher('MATCH (n:Class)') en semantic_term.py copiando nodos a Memora",
+          "_memora_create con tag codegraph-snapshot para nodos individuales del CodeGraph",
+          "threading.Lock en semantic_term.py para serializar escrituras a Memora",
+          "comentario 'el indexado completo toma ~23 min' en semantic_term.py"
+        ],
+        "invariants": [
+          "Memora y CodeGraph nunca almacenan los mismos datos — Memora tiene propósito/decisiones, CodeGraph tiene estructura",
+          "compute_semantic_term nunca copia nodos del CodeGraph a Memora bajo ninguna circunstancia",
+          "El término semántico se calcula contra Memora (propósito) o retorna EHR-20 fallback (0.0, False) — nunca contra CodeGraph duplicado"
+        ]
+      },
+      "signatures": [
+        {
+          "function": "_ensure_codegraph_indexed",
+          "file": "cognitive_v2/features/guidance/domain/semantic_term.py",
+          "change": "ELIMINAR o reemplazar por return True (no-op). El indexado masivo de CodeGraph en Memora es un error arquitectónico.",
+          "replaces": "loop de 400 _memora_create() secuenciales con threading.Lock"
+        },
+        {
+          "function": "compute_semantic_term",
+          "file": "cognitive_v2/features/guidance/domain/semantic_term.py",
+          "change": "Remover llamada a _ensure_codegraph_indexed. Si no hay cache semántico, retornar (0.0, False) como EHR-20. El término semántico se calcula luego contra Memora (propósito) NO contra CodeGraph copiado.",
+          "params": "(spec, adapter, cgc_rev, project_id) -> (float, bool)"
+        },
+        {
+          "function": "op_cell",
+          "file": "cognitive_v2/shared/ops_cell.py",
+          "change": "Sección 7c _synthesize_context usa _memora_parse_results sin import local — ya corregido agregando al import top-level.",
+          "params": "(params: dict) -> dict"
+        }
+      ],
+      "done_when": [
+        {
+          "criterio": "Memora y CodeGraph tienen roles separados: Memora guarda propósito/decisiones, CodeGraph guarda estructura. No hay duplicación.",
+          "predicates": [
+            "funcion _ensure_codegraph_indexed ELIMINADA o reemplazada por no-op en semantic_term.py",
+            "funcion compute_semantic_term NO llama _ensure_codegraph_indexed ni copia nodos CodeGraph a Memora",
+            "delta_create_sprint responde en menos de 5 segundos sin loop CPU"
+          ]
+        },
+        {
+          "criterio": "Bug NameError _memora_parse_results corregido y verificado",
+          "predicates": [
+            "import _memora_parse_results en top-level de cognitive_v2/shared/ops_cell.py",
+            "python -c 'import cognitive_v2.shared.ops_cell' sin NameError"
+          ]
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-FIX-001",
+        "role": "prerequisite",
+        "type": "bugfix",
+        "work_type": "bugfix",
+        "importer_files": 1,
+        "objective": "Corregir NameError _memora_parse_results en ops_cell.py — agregar al import top-level de helpers",
+        "domain": "shared",
+        "depends_on": [],
+        "result_state": "cognitive_v2/shared/ops_cell.py importa _memora_parse_results al top-level (línea 20) junto a _memora_search. La sección 7c de _synthesize_context (~línea 2400) puede llamar _memora_parse_results sin import local. python -c 'import cognitive_v2.shared.ops_cell' no lanza NameError.",
+        "preconditions": [
+          "Funcion _memora_parse_results existe en cognitive_v2/shared/helpers.py línea 2970",
+          "ops_cell.py sección 7c llama _memora_parse_results sin import local (bug confirmado)",
+          "ops_cell.py línea 1429 tiene import local from helpers import _memora_search, _memora_parse_results (referencia correcta)"
+        ],
+        "acceptance_criteria": [
+          "grep '_memora_parse_results' cognitive_v2/shared/ops_cell.py muestra import en top-level (línea ~20)",
+          "python -c 'import cognitive_v2.shared.ops_cell' retorna sin NameError",
+          "grep -c 'from helpers import.*_memora_parse_results' cognitive_v2/shared/ops_cell.py retorna >= 1",
+          "No hay import local redundante de _memora_parse_results dentro de funciones (el top-level basta)"
+        ],
+        "quality_gates": [
+          "python -c 'import cognitive_v2.shared.ops_cell' sin errores",
+          "python -c 'from cognitive_v2.shared.ops_cell import op_cell, _synthesize_context' sin errores",
+          "grep '_memora_parse_results' cognitive_v2/shared/ops_cell.py | head -1 muestra import top-level"
+        ],
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/ops_cell.py (modificar — agregar _memora_parse_results al import top-level línea 20, ya hecho en sesión actual)"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [
+            "cognitive_v2/tests/test_ops_cell.py (ampliar — test que verifica _memora_parse_results accesible desde _synthesize_context)"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Agregar _memora_parse_results al import top-level en vez de import local en sección 7c",
+            "alternatives": [
+              "Import local dentro de _synthesize_context sección 7c (rechazado: duplica el import que ya existe en línea 1429, inconsistente)",
+              "Mover _memora_parse_results a otro módulo (rechazado: pertenece a helpers con las demás funciones _memora_*)"
+            ],
+            "rationale": "El import top-level es consistente con _memora_search que ya está ahí. Una sola fuente de import, usada por múltiples secciones del archivo."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "import _memora_parse_results en línea top-level de cognitive_v2/shared/ops_cell.py",
+          "python -c 'import cognitive_v2.shared.ops_cell' sin NameError",
+          "Sección 7c _synthesize_context puede llamar _memora_parse_results sin import local"
+        ],
+        "loop_acceptance": "all",
+        "validation": {
+          "predicates": [
+            "import _memora_parse_results en top-level de cognitive_v2/shared/ops_cell.py"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-FIX-002",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 1,
+        "objective": "Eliminar _ensure_codegraph_indexed() de semantic_term.py — reemplazar por no-op que retorna True. El indexado masivo de CodeGraph en Memora es un error arquitectónico que causa latencia 23min y loop CPU 98%",
+        "domain": "guidance",
+        "depends_on": ["TASK-FIX-001"],
+        "result_state": "cognitive_v2/features/guidance/domain/semantic_term.py NO contiene la función _ensure_codegraph_indexed con su implementación de copiar 400 nodos. La función existe pero retorna True inmediatamente (no-op) o fue eliminada con su caller actualizado. No hay adapter.query_cypher('MATCH (n:Function)') ni threading.Lock para serializar escrituras a Memora.",
+        "preconditions": [
+          "TASK-FIX-001 completado (import _memora_parse_results arreglado)",
+          "_ensure_codegraph_indexed existe en semantic_term.py línea 140",
+          "compute_semantic_term llama _ensure_codegraph_indexed en línea ~420",
+          "Decisión arquitectónica persistida: Memora = propósito, CodeGraph = estructura, NO duplicar"
+        ],
+        "acceptance_criteria": [
+          "grep -c 'MATCH (n:Function)' cognitive_v2/features/guidance/domain/semantic_term.py retorna 0",
+          "grep -c 'MATCH (n:Class)' cognitive_v2/features/guidance/domain/semantic_term.py retorna 0",
+          "grep -c 'threading.Lock' cognitive_v2/features/guidance/domain/semantic_term.py retorna 0",
+          "grep -c 'codegraph-snapshot' cognitive_v2/features/guidance/domain/semantic_term.py retorna 0 (no se taggean nodos CodeGraph en Memora)",
+          "python -c 'from cognitive_v2.features.guidance.domain.semantic_term import compute_semantic_term' sin errores",
+          "_index_target_spec_in_memora preservada (esa SI guarda propósito del spec, NO estructura)"
+        ],
+        "quality_gates": [
+          "python -c 'import cognitive_v2.features.guidance.domain.semantic_term' sin errores",
+          "python -c 'from cognitive_v2.features.guidance.domain.semantic_term import compute_semantic_term, _index_target_spec_in_memora' sin errores",
+          "grep 'MATCH (n:Function)' cognitive_v2/features/guidance/domain/semantic_term.py | wc -l retorna 0"
+        ],
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/guidance/domain/semantic_term.py (modificar — reemplazar _ensure_codegraph_indexed por no-op o eliminar, actualizar compute_semantic_term para no llamarla)"
+          ],
+          "apis": [
+            "compute_semantic_term",
+            "_ensure_codegraph_indexed (eliminar o no-op)",
+            "_index_target_spec_in_memora (preservar)"
+          ],
+          "data": [
+            "kv:semantic:cached_rev ya no se actualiza masivamente (puede quedar stale, no afecta)",
+            "kv:semantic:project ya no se actualiza masivamente"
+          ],
+          "config": [],
+          "tests": [
+            "cognitive_v2/features/guidance/tests/test_semantic_term.py (modificar — tests que esperaban indexado masivo deben actualizarse)"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.2,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Eliminar _ensure_codegraph_indexed y su llamada en compute_semantic_term. Retornar (0.0, False) como EHR-20 fallback.",
+            "alternatives": [
+              "Reemplazar por no-op que retorna True (rechazado: deja código muerto y confunde futuros desarrolladores)",
+              "Mover el indexado a un job background separado (rechazado: el indexado masivo NO debería existir en primer lugar — duplica CodeGraph en Memora)"
+            ],
+            "rationale": "El indexado masivo de CodeGraph en Memora viola la separación de responsabilidades. CodeGraph ya tiene la estructura. Memora debe tener propósito, no duplicados de estructura. El término semántico se calcula contra Memora (propósito del spec) NO contra CodeGraph copiado."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "grep 'MATCH (n:Function)' cognitive_v2/features/guidance/domain/semantic_term.py retorna 0",
+          "grep 'threading.Lock' cognitive_v2/features/guidance/domain/semantic_term.py retorna 0",
+          "python -c 'from cognitive_v2.features.guidance.domain.semantic_term import compute_semantic_term' sin errores",
+          "_index_target_spec_in_memora sigue existiendo (NO eliminada)"
+        ],
+        "loop_acceptance": "all",
+        "validation": {
+          "predicates": [
+            "funcion _ensure_codegraph_indexed ELIMINADA o reemplazada por no-op en cognitive_v2/features/guidance/domain/semantic_term.py",
+            "funcion compute_semantic_term NO llama _ensure_codegraph_indexed ni copia nodos CodeGraph a Memora"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-FIX-003",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 1,
+        "objective": "Rediseñar compute_semantic_term() para usar Memora como búsqueda de PROPÓSITO (no estructura copiada). Si no hay datos semánticos en Memora, retornar (0.0, False) como EHR-20 — NO intentar indexar CodeGraph",
+        "domain": "guidance",
+        "depends_on": ["TASK-FIX-002"],
+        "result_state": "compute_semantic_term en semantic_term.py sigue estos pasos: (1) indexar TargetSpec en Memora (propósito, ya existe), (2) buscar en Memora con query de propósito del spec, (3) si hay resultados calcular distancia semántica, (4) si no hay resultados retornar (0.0, False). NUNCA copia nodos del CodeGraph a Memora. NUNCA llama _ensure_codegraph_indexed.",
+        "preconditions": [
+          "TASK-FIX-002 completado (_ensure_codegraph_indexed eliminada)",
+          "_index_target_spec_in_memora preservada y funcionando",
+          "_build_spec_query preservada y funcionando",
+          "_memora_search y _memora_parse_results disponibles en helpers"
+        ],
+        "acceptance_criteria": [
+          "compute_semantic_term NO contiene llamada a _ensure_codegraph_indexed",
+          "compute_semantic_term llama _index_target_spec_in_memora (preservar propósito del spec)",
+          "compute_semantic_term llama _memora_search con query de _build_spec_query",
+          "compute_semantic_term retorna (0.0, False) si _memora_search retorna None o vacío",
+          "compute_semantic_term retorna (1.0 - max_score, True) si hay resultados de Memora",
+          "python -m pytest cognitive_v2/features/guidance/tests/test_semantic_term.py -v pasa"
+        ],
+        "quality_gates": [
+          "python -c 'from cognitive_v2.features.guidance.domain.semantic_term import compute_semantic_term' sin errores",
+          "python -m pytest cognitive_v2/features/guidance/tests/test_semantic_term.py -v",
+          "grep '_ensure_codegraph_indexed' cognitive_v2/features/guidance/domain/semantic_term.py | wc -l retorna 0"
+        ],
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/guidance/domain/semantic_term.py (modificar — simplificar compute_semantic_term, remover indexado masivo, preservar búsqueda por propósito)"
+          ],
+          "apis": [
+            "compute_semantic_term",
+            "_index_target_spec_in_memora (preservar)",
+            "_build_spec_query (preservar)"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "cognitive_v2/features/guidance/tests/test_semantic_term.py (modificar — actualizar tests para nuevo flujo sin indexado masivo)"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.3,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "compute_semantic_term busca propósito en Memora, NO estructura en CodeGraph copiado",
+            "alternatives": [
+              "Eliminar compute_semantic_term por completo (rechazado: el término semántico es útil cuando Memora tiene contexto de propósito)",
+              "Calcular distancia semántica contra CodeGraph directamente sin Memora (rechazado: CodeGraph no tiene embeddings vectoriales, Memora sí)"
+            ],
+            "rationale": "Memora ya tiene embeddings para búsqueda vectorial. Si guardamos el propósito del TargetSpec ahí, podemos buscar contexto semántico relacionado. Si no hay datos, EHR-20 fallback (0.0, False). No necesitamos copiar CodeGraph — CodeGraph se consulta por estructura, Memora por propósito."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "compute_semantic_term NO llama _ensure_codegraph_indexed",
+          "compute_semantic_term llama _index_target_spec_in_memora (propósito)",
+          "compute_semantic_term retorna (0.0, False) si no hay resultados de Memora",
+          "python -m pytest cognitive_v2/features/guidance/tests/test_semantic_term.py -v pasa"
+        ],
+        "loop_acceptance": "all",
+        "validation": {
+          "predicates": [
+            "funcion compute_semantic_term NO llama _ensure_codegraph_indexed ni copia nodos CodeGraph a Memora",
+            "funcion compute_semantic_term retorna (0.0, False) como EHR-20 fallback sin indexado masivo"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-FIX-004",
+        "role": "core",
+        "type": "bugfix",
+        "work_type": "bugfix",
+        "importer_files": 1,
+        "objective": "Verificar que delta_create_sprint() responde en menos de 5 segundos sin loop CPU 98%. El bug era consecuencia de _ensure_codegraph_indexed() haciendo 400 _memora_create() secuenciales",
+        "domain": "guidance",
+        "depends_on": ["TASK-FIX-003"],
+        "result_state": "delta_create_sprint() en project_service.py completa su pipeline (set_goal → compute_and_cache → StateGraph.add_node → create_task) en menos de 5 segundos. El proceso Python no excede 10% CPU durante la ejecución. El log /private/tmp/cog-server.log no muestra cuelgues.",
+        "preconditions": [
+          "TASK-FIX-003 completado (compute_semantic_term rediseñado)",
+          "MCP server reiniciado con código corregido",
+          "compute_and_cache usa cache o fallback rápido (no re-computa si no hay adapter)"
+        ],
+        "acceptance_criteria": [
+          "MCP server health_check responde en menos de 2 segundos",
+          "delta_create_sprint(goal='test sprint') responde en menos de 5 segundos (timeout 10s)",
+          "Proceso Python no excede 30% CPU durante delta_create_sprint",
+          "Log /private/tmp/cog-server.log muestra delta_create_sprint completado sin cuelgues",
+          "StateGraph tiene nuevo nodo sprint creado correctamente"
+        ],
+        "quality_gates": [
+          "cognitive-engine health_check retorna ok=true",
+          "delta_create_sprint retorna ok=true con sprint_id",
+          "ps aux | grep cognitive_v2 muestra CPU < 30% después de delta_create_sprint"
+        ],
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/project/application/project_service.py (verificar — NO modificar, solo validar que create_sprint es rápido ahora)"
+          ],
+          "apis": [
+            "create_sprint",
+            "compute_and_cache",
+            "compute_distance"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Verificar que el fix de _ensure_codegraph_indexed resuelve el loop CPU automáticamente",
+            "alternatives": [
+              "Agregar timeout explícito en compute_and_cache (rechazado: el problema raíz ya está resuelto, timeout es parche)",
+              "Agregar logging detallado en compute_distance (rechazado: innecesario si el loop ya no existe)"
+            ],
+            "rationale": "El loop CPU 98% era causado por _ensure_codegraph_indexed haciendo 400 _memora_create() secuenciales con embeddings. Al eliminar esa función, compute_distance retorna rápido (usa cache o EHR-20 fallback). No se necesita fix adicional en delta_create_sprint."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "loop_verification": [
+          "MCP server health_check ok=true",
+          "delta_create_sprint responde en menos de 5 segundos",
+          "Proceso Python CPU < 30% durante delta_create_sprint",
+          "StateGraph tiene nuevo nodo sprint"
+        ],
+        "loop_acceptance": "all",
+        "validation": {
+          "predicates": [
+            "delta_create_sprint responde en menos de 5 segundos sin loop CPU"
+          ]
+        }
+      }
+    ],
+    "dependency_graph": {
+      "TASK-FIX-001": [],
+      "TASK-FIX-002": ["TASK-FIX-001"],
+      "TASK-FIX-003": ["TASK-FIX-002"],
+      "TASK-FIX-004": ["TASK-FIX-003"]
+    },
+    "parallel_opportunities": {},
+    "task_roles": {
+      "prerequisite": "TASK-FIX-001 corrige el NameError que rompe cell() — prerequisito para todo lo demás",
+      "core": "TASK-FIX-002 y TASK-FIX-003 corrigen el error arquitectónico (duplicación CodeGraph→Memora). TASK-FIX-004 verifica que el loop CPU se resolvió."
+    }
+  }
+}

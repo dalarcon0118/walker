@@ -1,0 +1,581 @@
+{
+    "plan": {
+        "meta": {
+            "chain_id": "backend-microservices-player-landing-squid-game-20260701",
+            "generated_at": "2026-07-01T00:00:00-03:00",
+            "version": "2.0",
+            "source": "delta-skill",
+            "type": "plan"
+        },
+        "project": {
+            "project_id": "backend-microservices",
+            "project_type": "backend-python-django",
+            "domains": [
+                "core",
+                "draw",
+                "bet",
+                "authentication",
+                "notification",
+                "player"
+            ],
+            "tags": [
+                "python",
+                "django",
+                "drf",
+                "sse",
+                "redis",
+                "postgresql",
+                "jinja2",
+                "alpinejs"
+            ]
+        },
+        "g_objetivo": {
+            "description": "Evolucionar templates/player/draw_detail.html (single-file React-via-CDN) hacia una landing page pública del jugador con: (1) diseño moderno y elegante, (2) sección de menú para buscar jugadas, (3) contador en vivo de jugadores nuevos jugando, (4) contador en vivo del premio acumulado que crece con cada nuevo jugador, (5) animación de 'dinero cayendo' estilo Squid Game respetando prefers-reduced-motion, (6) preservando compatibilidad de la URL /public/draw/<id>/ y los endpoints /api/draw/draws/{id}/player-stats/ y /check-same-bet/.",
+            "predicates": {
+                "must_exist": [
+                    "module player/ como nueva app Django con apps.py (PlayerConfig)",
+                    "directory player/domain/ con __init__.py",
+                    "directory player/application/ con __init__.py",
+                    "directory player/infrastructure/ con __init__.py",
+                    "directory player/presentation/ con __init__.py",
+                    "function register_arrival en player/application/arrival_service.py",
+                    "function increment_arrival_counter en player/infrastructure/redis_counters.py",
+                    "function get_counters_snapshot en player/infrastructure/redis_counters.py",
+                    "function publish_counter_update en player/infrastructure/sse_publisher.py",
+                    "class CountersSSEView en player/presentation/sse_counters_view.py (extiende APIView con StreamingHttpResponse)",
+                    "class LandingView en player/presentation/landing_view.py (extiende PublicView)",
+                    "function compute_prize_pool en player/application/prize_pool_service.py (consume RewardRule)",
+                    "template templates/player/landing.html (reemplaza draw_detail.html)",
+                    "partial templates/player/components/money_rain.html",
+                    "static file static/player/js/money_rain.js (canvas-free, CSS+JS)",
+                    "static file static/player/js/counters_sse.js (cliente SSE)",
+                    "static file static/player/css/landing.css (sin Tailwind CDN)",
+                    "URL route /p/ en config/urls.py hacia LandingView",
+                    "URL route /api/player/counters/stream/ en config/urls.py hacia CountersSSEView",
+                    "URL route /api/player/search/ en config/urls.py hacia SearchPlayView",
+                    "post_save signal hook en core/signals.py para Bet → arrival_service.register_arrival",
+                    "test player/tests/test_invariants.py cubriendo URL /public/draw/<id>/ y endpoints existentes"
+                ],
+                "must_not_exist": [
+                    "imports de unpkg.com, cdn.tailwindcss.com o babel-standalone en templates/player/landing.html"
+                ],
+                "invariants": [
+                    "URL /public/draw/<int:draw_id>/ debe seguir resolviendo a PlayerDrawDetailView",
+                    "Endpoint /api/draw/draws/<id>/player-stats/ debe responder mismo shape JSON",
+                    "Endpoint /api/draw/draws/<id>/check-same-bet/ debe responder mismo shape JSON",
+                    "RewardRule sigue siendo la única fuente de verdad para fórmula de premio",
+                    "Animación de money_rain debe desactivarse cuando prefers-reduced-motion: reduce esté activo",
+                    "Landing debe pasar WCAG 2.1 AA (contraste, foco visible, alt en imágenes)"
+                ]
+            },
+            "signatures": [
+                "def register_arrival(*, player_code: str, draw_id: int, ts: datetime | None = None) -> int",
+                "def increment_arrival_counter(player_code: str) -> int",
+                "def get_counters_snapshot() -> dict[str, int]",
+                "def publish_counter_update(payload: dict) -> None",
+                "def compute_prize_pool(*, draw: Draw, arrival_count: int) -> Decimal"
+            ]
+        },
+        "tasks": [
+            {
+                "task_id": "PLAYER-APP-SKELETON",
+                "type": "feature",
+                "work_type": "feature_new_bc",
+                "domain": "player",
+                "objective": "Crear nueva app Django player/ con arquitectura domain/application/infrastructure/presentation, register en INSTALLED_APPS, urls.py y tests/ vacíos",
+                "importer_files": 1,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/player/__init__.py (crear)",
+                        "projects/backend-microservices/player/apps.py (crear — PlayerConfig)",
+                        "projects/backend-microservices/player/domain/__init__.py (crear)",
+                        "projects/backend-microservices/player/application/__init__.py (crear)",
+                        "projects/backend-microservices/player/infrastructure/__init__.py (crear)",
+                        "projects/backend-microservices/player/presentation/__init__.py (crear)",
+                        "projects/backend-microservices/player/urls.py (crear — vacío con app_name='player')",
+                        "projects/backend-microservices/player/tests/__init__.py (crear)",
+                        "projects/backend-microservices/config/settings.py (modificar — agregar 'player' a INSTALLED_APPS)",
+                        "projects/backend-microservices/config/urls.py (modificar — include('player.urls'))"
+                    ],
+                    "apis": [],
+                    "data": [],
+                    "config": [
+                        "INSTALLED_APPS += ['player']"
+                    ],
+                    "tests": [
+                        "python manage.py check --deploy"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.10,
+                    "pre_churn": 0.0,
+                    "commit_trust": 0.05
+                },
+                "decisions": {
+                    "chosen": "App Django dedicada con 4 capas (DDD/hexagonal ligero)",
+                    "alternatives": [
+                        "Mantener en core/ (rechazado — viola hard-constraint del proyecto: domain/application/presentation)",
+                        "Reutilizar bet/ (rechazado — acopla features no relacionadas)"
+                    ],
+                    "rationale": "Cumple hard constraint y permite aislamiento del bounded context 'player'"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "module player/ como nueva app Django con apps.py (PlayerConfig)",
+                        "directory player/domain/ con __init__.py",
+                        "directory player/application/ con __init__.py",
+                        "directory player/infrastructure/ con __init__.py",
+                        "directory player/presentation/ con __init__.py"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-COUNTERS-REDIS",
+                "type": "feature",
+                "work_type": "feature_new_file",
+                "domain": "player",
+                "objective": "Implementar redis_counters.py usando RedisConnectionProvider existente: increment_arrival_counter (SETEX 5min para deduplicar), get_counters_snapshot (HGETALL sobre key 'player:counters:global')",
+                "importer_files": 1,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/player/infrastructure/keys.py (crear — CacheKeys.player_arrival(player_code), player_counters_global())",
+                        "projects/backend-microservices/player/infrastructure/redis_counters.py (crear — increment + snapshot)",
+                        "projects/backend-microservices/player/tests/test_redis_counters.py (crear)"
+                    ],
+                    "apis": [],
+                    "data": [
+                        "Redis hash: player:counters:global { arrivals_today, arrivals_total, prize_pool }",
+                        "Redis key: player:arrival:dedup:{player_code} con TTL 300s"
+                    ],
+                    "config": [],
+                    "tests": [
+                        "test_increment_increments_only_if_not_dedup",
+                        "test_snapshot_returns_dict_with_required_keys"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.05,
+                    "pre_churn": 0.0,
+                    "commit_trust": 0.05
+                },
+                "decisions": {
+                    "chosen": "Redis hash con TTL para deduplicación por player_code",
+                    "alternatives": [
+                        "Counter en PostgreSQL (rechazado — mayor latencia, más carga DB)",
+                        "Sin dedup (rechazado — un listero automatizado podría inflar el contador)"
+                    ],
+                    "rationale": "Reusa core/redis_connection.py ya en producción; TTL 5min evita spam"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "function increment_arrival_counter en player/infrastructure/redis_counters.py",
+                        "function get_counters_snapshot en player/infrastructure/redis_counters.py"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-ARRIVAL-SERVICE",
+                "type": "feature",
+                "work_type": "feature_new_method",
+                "domain": "player",
+                "objective": "Crear register_arrival en application/arrival_service.py que valida player_code, llama increment_arrival_counter, y publica en canal Redis 'player:counters:updates'",
+                "importer_files": 0,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/player/application/arrival_service.py (crear)",
+                        "projects/backend-microservices/player/tests/test_arrival_service.py (crear)"
+                    ],
+                    "apis": [],
+                    "data": [
+                        "Canal Redis pub/sub: player:counters:updates"
+                    ],
+                    "config": [],
+                    "tests": [
+                        "test_register_arrival_publishes_event",
+                        "test_register_arrival_skips_dedup"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.05,
+                    "pre_churn": 0.0,
+                    "commit_trust": 0.05
+                },
+                "decisions": {
+                    "chosen": "Service en application/ publica a Redis pub/sub",
+                    "alternatives": [
+                        "Publicar directo desde signal (rechazado — acopla infra a Django ORM)",
+                        "Usar Celery task (rechazado — overhead innecesario para evento de baja latencia)"
+                    ],
+                    "rationale": "Aísla lógica de negocio en service; el signal solo dispara"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "function register_arrival en player/application/arrival_service.py"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-SIGNAL-HOOK",
+                "type": "feature",
+                "work_type": "feature_new_method",
+                "domain": "core",
+                "objective": "Conectar post_save de Bet en core/signals.py a arrival_service.register_arrival, con guardia is_active=True y exclude de User.staff",
+                "importer_files": 2,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/core/signals.py (modificar — agregar handler bet_post_save → arrival_service)",
+                        "projects/backend-microservices/player/tests/test_signal_integration.py (crear)"
+                    ],
+                    "apis": [],
+                    "data": [
+                        "Tabla bet: post_save trigger"
+                    ],
+                    "config": [],
+                    "tests": [
+                        "test_bet_creation_registers_arrival",
+                        "test_staff_bet_excluded_from_counter"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.15,
+                    "pre_churn": 0.05,
+                    "commit_trust": 0.10
+                },
+                "decisions": {
+                    "chosen": "post_save de Bet (no User.created) → player_code es estable, evita spam de registros sin juego",
+                    "alternatives": [
+                        "post_save de User (rechazado — registro ≠ jugar)",
+                        "Primer login (rechazado — no hay evento único fácil de capturar)"
+                    ],
+                    "rationale": "D4 confirmado: 'nuevo jugador' = primera jugada efectiva (Bet creada)"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "post_save signal hook en core/signals.py para Bet → arrival_service.register_arrival"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-PRIZE-POOL",
+                "type": "feature",
+                "work_type": "feature_new_file",
+                "domain": "player",
+                "objective": "Implementar compute_prize_pool leyendo RewardRule base_amount + arrival_count * increment_per_player, con cap máximo desde extra_data y freeze si funds_available < prize_pool",
+                "importer_files": 0,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/player/domain/entities/prize_pool.py (crear — dataclass inmutable)",
+                        "projects/backend-microservices/player/application/prize_pool_service.py (crear — compute_prize_pool)",
+                        "projects/backend-microservices/player/tests/test_prize_pool.py (crear)"
+                    ],
+                    "apis": [],
+                    "data": [
+                        "draw.models.RewardRule.base_amount",
+                        "draw.models.RewardRule.extra_data.increment_per_player"
+                    ],
+                    "config": [],
+                    "tests": [
+                        "test_compute_prize_pool_linear_growth",
+                        "test_compute_prize_pool_respects_cap",
+                        "test_compute_prize_pool_freezes_if_funds_insufficient"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.10,
+                    "pre_churn": 0.0,
+                    "commit_trust": 0.05
+                },
+                "decisions": {
+                    "chosen": "Reutilizar RewardRule con campos nuevos en extra_data (increment_per_player, max_cap)",
+                    "alternatives": [
+                        "Modelo nuevo PrizePool (rechazado — duplica lógica financiera)",
+                        "Cálculo inline en template (rechazado — bad practice, sin tests)"
+                    ],
+                    "rationale": "D5 cerrado: acoplar a RewardRule evita crear pasivo financiero paralelo"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "function compute_prize_pool en player/application/prize_pool_service.py (consume RewardRule)"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-SSE-COUNTERS",
+                "type": "feature",
+                "work_type": "feature_new_method",
+                "domain": "player",
+                "objective": "Replicar el patrón SSE de notification_event_stream: CountersSSEView con StreamingHttpResponse, subscribe a 'player:counters:updates', yield events + keep-alive cada 15s",
+                "importer_files": 0,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/player/infrastructure/sse_publisher.py (crear — wrapper sobre Redis pub/sub)",
+                        "projects/backend-microservices/player/presentation/sse_counters_view.py (crear — CountersSSEView)",
+                        "projects/backend-microservices/player/tests/test_sse_publisher.py (crear)"
+                    ],
+                    "apis": [
+                        "GET /api/player/counters/stream/ (text/event-stream)"
+                    ],
+                    "data": [
+                        "Redis pub/sub channel: player:counters:updates"
+                    ],
+                    "config": [],
+                    "tests": [
+                        "test_counters_sse_yields_initial_snapshot",
+                        "test_counters_sse_handles_disconnect_gracefully"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.15,
+                    "pre_churn": 0.05,
+                    "commit_trust": 0.10
+                },
+                "decisions": {
+                    "chosen": "SSE replicando notification_event_stream (pubsub + keep-alive + 1h max stream)",
+                    "alternatives": [
+                        "WebSockets con Django Channels (rechazado — Channels no instalado, overhead)",
+                        "Long polling (rechazado — deprecated, peor UX)"
+                    ],
+                    "rationale": "Reusa patrón probado del proyecto, sin nuevas dependencias"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "function publish_counter_update en player/infrastructure/sse_publisher.py",
+                        "class CountersSSEView en player/presentation/sse_counters_view.py (extiende APIView con StreamingHttpResponse)"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-LANDING-TEMPLATE",
+                "type": "feature",
+                "work_type": "refactor_code_motion",
+                "domain": "player",
+                "objective": "Reemplazar templates/player/draw_detail.html (React via CDN) con templates/player/landing.html: secciones Hero + SearchMenu + Counters (2 cards) + PrizePool + MoneyRain canvas-free; CSS propio; Alpine.js vendored; respeta prefers-reduced-motion",
+                "importer_files": 1,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/templates/player/landing.html (crear — reemplaza draw_detail.html)",
+                        "projects/backend-microservices/templates/player/components/money_rain.html (crear — partial)",
+                        "projects/backend-microservices/templates/player/components/counter_card.html (crear — partial reutilizable)",
+                        "projects/backend-microservices/templates/player/components/search_menu.html (crear — partial)",
+                        "projects/backend-microservices/static/player/css/landing.css (crear — sin Tailwind CDN)",
+                        "projects/backend-microservices/static/player/js/money_rain.js (crear — animación dinero cayendo)",
+                        "projects/backend-microservices/static/player/js/counters_sse.js (crear — cliente SSE)",
+                        "projects/backend-microservices/static/player/js/alpine.min.js (crear — vendored v3.x)",
+                        "projects/backend-microservices/static/player/img/bill_1.svg (crear — sprite)",
+                        "projects/backend-microservices/static/player/img/bill_5.svg (crear — sprite)",
+                        "projects/backend-microservices/static/player/img/bill_10.svg (crear — sprite)",
+                        "projects/backend-microservices/templates/player/draw_detail.html (marcar deprecated — agregar redirect nota)",
+                        "projects/backend-microservices/core/views.py (modificar — PlayerDrawDetailView.template_name = 'player/landing.html')"
+                    ],
+                    "apis": [],
+                    "data": [],
+                    "config": [
+                        "STATICFILES_DIRS para player/static"
+                    ],
+                    "tests": [],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.30,
+                    "pre_churn": 0.10,
+                    "commit_trust": 0.20
+                },
+                "decisions": {
+                    "chosen": "Django template + Alpine.js vendored + CSS propio (sin CDN, sin build step)",
+                    "alternatives": [
+                        "Migrar a ReScript SPA (rechazado — viola Q1='templates Jinja2')",
+                        "Tailwind compilado (rechazado — añade build step, complejidad)",
+                        "Mantener React via CDN (rechazado — Babel en prod, anti-pattern)"
+                    ],
+                    "rationale": "D1 cerrado: cero CDN externos, vendor local, 60kb JS total"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "template templates/player/landing.html (reemplaza draw_detail.html)",
+                        "partial templates/player/components/money_rain.html",
+                        "static file static/player/js/money_rain.js (canvas-free, CSS+JS)",
+                        "static file static/player/js/counters_sse.js (cliente SSE)",
+                        "static file static/player/css/landing.css (sin Tailwind CDN)"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-LANDING-VIEW",
+                "type": "feature",
+                "work_type": "feature_new_method",
+                "domain": "player",
+                "objective": "Crear LandingView en player/presentation/ que extiende PublicView, computa snapshot inicial de counters y prize_pool, expone al template",
+                "importer_files": 1,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/player/presentation/landing_view.py (crear — LandingView)",
+                        "projects/backend-microservices/player/presentation/search_view.py (crear — SearchPlayView proxy a check-same-bet + lookup receipt_code)",
+                        "projects/backend-microservices/player/tests/test_landing_view.py (crear)"
+                    ],
+                    "apis": [
+                        "GET /api/player/search/?type=player_code&value=XYZ",
+                        "GET /api/player/search/?type=receipt_code&value=123"
+                    ],
+                    "data": [],
+                    "config": [],
+                    "tests": [
+                        "test_landing_view_renders_with_initial_snapshot",
+                        "test_search_view_proxies_to_check_same_bet",
+                        "test_search_view_looks_up_by_receipt_code"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.10,
+                    "pre_churn": 0.0,
+                    "commit_trust": 0.05
+                },
+                "decisions": {
+                    "chosen": "LandingView + SearchPlayView separadas (single responsibility)",
+                    "alternatives": [
+                        "Una sola view mega (rechazado — God Object)",
+                        "ViewSet (rechazado — no hay CRUD, solo GET)"
+                    ],
+                    "rationale": "Patrón PublicView ya validado en el proyecto"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "class LandingView en player/presentation/landing_view.py (extiende PublicView)"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-URL-ROUTING",
+                "type": "feature",
+                "work_type": "feature_new_method",
+                "domain": "config",
+                "objective": "Wirear URLs en config/urls.py: /p/ → LandingView, /api/player/counters/stream/ → CountersSSEView, /api/player/search/ → SearchPlayView",
+                "importer_files": 1,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/config/urls.py (modificar — agregar 3 paths)"
+                    ],
+                    "apis": [
+                        "GET /p/",
+                        "GET /api/player/counters/stream/",
+                        "GET /api/player/search/"
+                    ],
+                    "data": [],
+                    "config": [],
+                    "tests": [
+                        "Smoke test que los 3 paths resuelven 200"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.05,
+                    "pre_churn": 0.0,
+                    "commit_trust": 0.05
+                },
+                "decisions": {
+                    "chosen": "Prefijo /p/ para landing pública (corto, memorable)",
+                    "alternatives": [
+                        "/player/landing/ (rechazado — verboso)",
+                        "/public/landing/ (rechazado — choca con /public/draw/)"
+                    ],
+                    "rationale": "D7 cerrado: landing es la 'home pública' del producto"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "URL route /p/ en config/urls.py hacia LandingView",
+                        "URL route /api/player/counters/stream/ en config/urls.py hacia CountersSSEView",
+                        "URL route /api/player/search/ en config/urls.py hacia SearchPlayView"
+                    ]
+                }
+            },
+            {
+                "task_id": "PLAYER-INVARIANTS-AND-TESTS",
+                "type": "feature",
+                "work_type": "feature_new_file",
+                "domain": "player",
+                "objective": "Tests de invariantes: URL /public/draw/<id>/ sigue 200, endpoints player-stats y check-same-bet mantienen shape JSON, prefers-reduced-motion desactiva animación",
+                "importer_files": 0,
+                "artefactos_impactados": {
+                    "files": [
+                        "projects/backend-microservices/player/tests/test_invariants.py (crear)",
+                        "projects/backend-microservices/player/tests/test_accessibility.py (crear)"
+                    ],
+                    "apis": [],
+                    "data": [],
+                    "config": [],
+                    "tests": [
+                        "test_public_draw_url_still_resolves",
+                        "test_player_stats_endpoint_backward_compat",
+                        "test_check_same_bet_endpoint_backward_compat",
+                        "test_money_rain_respects_prefers_reduced_motion",
+                        "test_lighthouse_a11y_aa_contrast"
+                    ],
+                    "docs": []
+                },
+                "risks": {
+                    "curvature": 0.10,
+                    "pre_churn": 0.0,
+                    "commit_trust": 0.05
+                },
+                "decisions": {
+                    "chosen": "Tests integración con pytest + lighthouse-ci en CI",
+                    "alternatives": [
+                        "Solo smoke test manual (rechazado — sin regresión coverage)"
+                    ],
+                    "rationale": "Los 6 invariantes son contratos con consumidores externos (PWA, listeros)"
+                },
+                "refinement": {
+                    "attempts": 0,
+                    "dead_ends": []
+                },
+                "validation": {
+                    "predicates": [
+                        "test player/tests/test_invariants.py cubriendo URL /public/draw/<id>/ y endpoints existentes"
+                    ]
+                }
+            }
+        ]
+    }
+}

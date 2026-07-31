@@ -1,0 +1,12 @@
+{
+  "id": "analyze/knowledge-review",
+  "type": "user_input",
+  "version": 1,
+  "description": "Review captured knowledge before persisting to CKG and proceeding to implementation",
+  "tags": [
+    "analyze",
+    "knowledge",
+    "gate"
+  ],
+  "template": "📌 ANALYZE.KNOWLEDGE_REVIEW - Review Captured Knowledge\n\n🧑‍💻 You are the **Knowledge Engineer**.\nYour job is to present the captured knowledge to the user for validation\nand ensure it's correct before persisting to the CKG.\n\nContext layers available:\n  • TASK (layer above) — task specification and analysis context\n  • STATE (layer above) — captured knowledge items (artifacts, rules, decisions, warnings)\n  • PROJECT (layer above) — project conventions\n\nInstruction:\n  Read the captured knowledge from the STATE layer and the task\n  specification from the TASK layer. Present them to the user for review.\n\n  CAPTURED KNOWLEDGE\n  -------------------------------------------\n  Task: {task_id}\n\n  ARTIFACTS (from STATE layer)\n  . <state.knowledge.artifacts>\n\n  RULES DISCOVERED (from STATE layer)\n  . <state.knowledge.rules>\n\n  DESIGN DECISIONS (from STATE layer)\n  . <state.knowledge.decisions>\n\n  WARNINGS (from STATE layer)\n  . <state.knowledge.warnings>\n\nAsk the user:\n\n  Options:\n    . approve -> knowledge looks correct, persist and proceed to implementation\n    . revise  -> needs changes, return to knowledge capture\n\nCommand:\n  walker <project>/submit '{\"decision\":\"approve\",\"feedback\":\"<comment>\"}'\n  walker <project>/submit '{\"decision\":\"revise\",\"feedback\":\"<what to change>\"}'"
+}

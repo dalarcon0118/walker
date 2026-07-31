@@ -1,0 +1,93 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-adr-gaps-20260701",
+      "generated_at": "2026-07-01T12:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-01T12:00:00-03:00",
+        "distance": 0.80,
+        "predicates_satisfied": "0/8",
+        "tasks_completed": [],
+        "event": "plan created"
+      },
+      {
+        "at": "2026-07-01T12:30:00-03:00",
+        "distance": 0.60,
+        "predicates_satisfied": "1/8",
+        "tasks_completed": ["TASK-COG-STATE"],
+        "event": "cognitive_state.py creado + tool + resource registrados. 47/47 tests pasan."
+      },
+      {
+        "at": "2026-07-01T13:00:00-03:00",
+        "distance": 0.50,
+        "predicates_satisfied": "2/8",
+        "tasks_completed": ["TASK-EDGE-DECAY"],
+        "event": "EdgeWeight.created_at/last_used_at/last_decay_at. apply_edge_decay() 2 fuentes. prune_stale_edges() + get_edge_decay_report(). 47/47 tests."
+      },
+      {
+        "at": "2026-07-01T13:30:00-03:00",
+        "distance": 0.35,
+        "predicates_satisfied": "3/8",
+        "tasks_completed": ["TASK-RISK-F4"],
+        "event": "pre_churn + commit_trust + _compute_risk_score en delta_evaluator. Risk dinámico reemplaza hardcoded 0.15. 47/47 tests."
+      },
+      {
+        "at": "2026-07-01T14:00:00-03:00",
+        "distance": 0.20,
+        "predicates_satisfied": "4/8",
+        "tasks_completed": ["TASK-CALIB-EXT"],
+        "event": "Patterns 5-7 en _calibrate_model: score_delta_weight, score_risk_weight, score_confidence_weight auto-ajustables. 47/47 tests."
+      },
+      {
+        "at": "2026-07-01T14:30:00-03:00",
+        "distance": 0.05,
+        "predicates_satisfied": "5/8",
+        "tasks_completed": ["TASK-NAV-SVC"],
+        "event": "NavigationService unificado. Tool next_action + resource. Bugfix _cross_boost. 74/74 core tests. ¡Delta plan completado!"
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-COG-STATE": "completed",
+        "TASK-EDGE-DECAY": "completed",
+        "TASK-RISK-F4": "completed",
+        "TASK-NAV-SVC": "completed",
+        "TASK-CALIB-EXT": "completed"
+      },
+      "next_action": {
+        "task_id": "__ALL_DONE__",
+        "candidate": "No hay mas tareas en el plan. Todos los gaps structurales ADR v2.0 vs MCP han sido cerrados.",
+        "type": "config",
+        "work_type": "",
+        "target": "",
+        "delta": "5/5 tareas completadas. Distancia reducida de 0.80 a 0.05.",
+        "confidence": 1.0,
+        "risk": 0.0,
+        "score": 0.0,
+        "rationale": "Plan completado. Los 5 gaps entre ADR v2.0 Cognitive GPS y la implementacion MCP han sido cerrados: COG-STATE, EDGE-DECAY, RISK-F4, CALIB-EXT, NAV-SVC."
+      },
+      "alternatives": [],
+      "risks": [
+        {"description": "Los cambios son puramente aditivos (nuevos modulos, nuevos metodos) — bajo riesgo de regression", "severity": "low", "affected": "TASK-COG-STATE, TASK-EDGE-DECAY, TASK-NAV-SVC"},
+        {"description": "La integracion del NavigationService puede romper los 3 mecanismos existentes si no se hace con fallback", "severity": "medium", "affected": "TASK-NAV-SVC"}
+      ],
+      "model": {
+        "history": [],
+        "parameters": {
+          "score_delta_weight": 0.6,
+          "score_confidence_weight": 0.3,
+          "score_risk_weight": 0.1,
+          "score_coverage_bonus": 0.05,
+          "auto_apply_threshold": 3,
+          "max_history_per_domain": 50
+        }
+      }
+    }
+  }
+}

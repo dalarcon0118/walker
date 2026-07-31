@@ -1,0 +1,40 @@
+{
+  "sprint_id": "test-spring-planning",
+  "project_id": "delta-skill",
+  "state": "closed",
+  "current_task_id": null,
+  "planning_phase": "task_definition",
+  "goal": "Validar flujo spring-planning 1 a 1",
+  "workflow_state": {
+    "current_node": "SPRINT_PLANNING",
+    "current_sub_state": "TASK_DEFINITION",
+    "sub_state_index": 0
+  },
+  "tasks": [],
+  "created_at": "2026-07-22T22:09:34.333406+00:00",
+  "updated_at": "2026-07-23T01:54:48.257556+00:00",
+  "current_node": "SPRINT_PLANNING",
+  "current_sub_state": "GOAL",
+  "sub_state_index": 0,
+  "history": [
+    "SPRINT_PLANNING.GOAL"
+  ],
+  "context": {
+    "chain_dir": "/Users/davidmartinez/develop/Active-projects/game_reset/.cognitive/projects/delta-skill/delta/test-spring-planning"
+  },
+  "sub_state_data": {},
+  "audit": {
+    "trail": [
+      {
+        "timestamp": "2026-07-23T01:58:20.917264+00:00",
+        "event": "Sprint test-spring-planning closed (prototype)"
+      }
+    ]
+  },
+  "sprint": {
+    "status": "closed"
+  },
+  "meta": {
+    "status": "closed"
+  }
+}

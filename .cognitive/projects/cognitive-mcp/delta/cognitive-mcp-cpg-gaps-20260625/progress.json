@@ -1,0 +1,33 @@
+{
+  "plan_ref": "plan.json",
+  "trail": [
+    {
+      "at": "2026-06-25T14:35:00-03:00",
+      "d": 0.92,
+      "e": "plan created"
+    },
+    {
+      "at": "2026-06-25T16:50:00-03:00",
+      "d": 0.0,
+      "e": "CPG gaps closed in f94f362 + 7df67a6"
+    }
+  ],
+  "current": {
+    "task_states": {
+      "add-adapter-methods": "completed",
+      "add-validation-bc": "completed",
+      "add-mcp-tools": "completed",
+      "add-bridge-reexport": "completed",
+      "fix-syntax-error": "completed",
+      "add-cypher-query": "completed"
+    },
+    "next_action": null
+  },
+  "meta": {
+    "chain_id": "cognitive-mcp-cpg-gaps-20260625",
+    "generated_at": "2026-06-25T14:35:00-03:00",
+    "version": "2.0",
+    "source": "delta-skill",
+    "type": "progress"
+  }
+}

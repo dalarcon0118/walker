@@ -1,0 +1,578 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "messages-bc-refactor-plus-workflow-20260710",
+      "generated_at": "2026-07-10T11:40:00Z",
+      "version": "2.0",
+      "refined_at": "2026-07-10T12:00:00Z",
+      "refinement_note": "Mapeo completo de Messages BC completado. Se identificaron 3 puntos de fuga de workflow: (1) _record_message() lines 93-162 en api/mcp_tools.py, (2) GPS Instruction Gate lines 57-128 en agent/llm_response_hook.py, (3) ops_message.py legacy dispatch ops (probable dead code). Mensajes agrega 2 tareas nuevas (MSG-102, MSG-103).",
+
+      "source": "delta-skill",
+      "type": "plan",
+      "supersedes": "cognitive-mcp-workflow-scrum-master-refactor-20260709"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "messages",
+        "workflow"
+      ],
+      "tags": [
+        "bounded-context",
+        "ddd",
+        "refactor",
+        "messages",
+        "workflow"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Refactorizar el bounded context de Messages para que sus responsabilidades sean EXCLUSIVAMENTE storage/retrieval/schemas, removiendo la fuga de lógica de workflow que hoy existe en _record_message(). Refinar el WorkflowOrchestrator para que sea el entry point que llama a Messages para registrar mensajes y obtener esquemas de clasificación, y luego corre su propio pipeline (Classifier → Router → Engine → CognitiveGPS). El workflow es la puerta de entrada del LLM al MCP. Messages es un módulo interno que el workflow consulta.",
+      "predicates": {
+        "must_exist": [
+          "shared/messages/api/mcp_tools.py: _record_message() solo guarda mensajes via MessageService — NO clasifica, NO actualiza goals, NO inyecta GPS state",
+          "shared/messages/domain/ contiene el modelo de dominio de Messages (MessageRecord)",
+          "shared/messages/application/message_service.py expone: record_message(), get_by_session(), get_by_project(), get_by_task(), load_message() — SOLO storage/retrieval",
+          "shared/messages/application/message_classifier.py expone: classify() para proveer esquemas de contexto (domain/type/task_id) al workflow — NO decide flujo",
+          "shared/messages/application/message_gate.py es un hook del dispatch pipeline que registra tool_calls como mensajes — NO tiene lógica de workflow",
+          "features/workflow/application/orchestrator.py (WorkflowOrchestrator.handle()) llama a MessageService.record_message() al inicio del pipeline",
+          "features/workflow/application/orchestrator.py llama a MessageClassifier.classify() para obtener contexto de clasificación",
+          "WorkflowOrchestrator corre el pipeline completo: Classifier → SessionManager → Router → Enforcement → Engine → CognitiveGPS",
+          "El workflow es la UNICA puerta de entrada del LLM al MCP. Messages NO expone tools que hagan de workflow.",
+          "dispatch_pipeline es entry point delgado que delega a Orchestrator.handle()"
+        ],
+        "must_not_exist": [
+          "messages/api/mcp_tools.py NO debe contener llamadas a op_classify(), _update_goal(), _build_cognitive_gps_state(), _reorder_gps_response()",
+          "messages/api/mcp_tools.py NO debe importar de cognitive_v2.shared.ops_context, cognitive_v2.features.session.application.session_service",
+          "messages/application/ NO debe importar de features/workflow/ — es el workflow quien importa de messages, no al revés",
+          "messages/api/mcp_tools.py NO debe hacer de workflow — su responsabilidad es solo storage/retrieval"
+        ],
+        "invariants": [
+          "Messages es un bounded context con dependencia CERO hacia workflow. Solo el workflow importa de messages, no al revés.",
+          "message(record) MCP tool solo persiste el mensaje y retorna el message_id. La clasificación y el GPS los maneja el workflow.",
+          "MessageStoreGate sigue siendo un hook del pipeline que registra tool_calls como mensajes. NO se modifica su función.",
+          "WorkflowOrchestrator.handle() es el entry point que orquesta: Messages → Classifier → SessionManager → Router → Enforcement → Engine → CognitiveGPS",
+          "El LLM llama al workflow (vía dispatch_pipeline), nunca directo a messages para operaciones de workflow.",
+          "384 tests existentes del workflow se mantienen verdes. Mensajes agrega tests nuevos sin romper los existentes."
+        ]
+      },
+      "done_when": [
+        {
+          "criterio": "Messages module purificado — sin lógica de workflow",
+          "predicates": [
+            "_record_message() solo llama a svc.record_message() y retorna",
+            "No hay imports de ops_context, session_service, dispatch_pipeline en messages/api/mcp_tools.py",
+            "MessageClassifier.classify() solo retorna esquemas de contexto, no decide acciones"
+          ]
+        },
+        {
+          "criterio": "WorkflowOrchestrator integrado con Messages",
+          "predicates": [
+            "Orchestrator.handle() llama a MessageService.record_message() al inicio",
+            "Orchestrator.handle() llama a MessageClassifier.classify() para contexto",
+            "dispatch_pipeline delega en Orchestrator.handle()"
+          ]
+        },
+        {
+          "criterio": "384 tests workflow + nuevos tests messages pasan",
+          "predicates": [
+            "pytest features/workflow/tests/ pasa 384+ tests",
+            "pytest shared/messages/tests/ pasa todos los tests existentes + nuevos"
+          ]
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-MSG-101",
+        "role": "prerequisite",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "objective": "Purificar _record_message() en messages/api/mcp_tools.py — remover los 3 bloques de lógica de workflow (lines 93-162): (1) op_classify + _update_goal, (2) _build_cognitive_gps_state + cache + reorder, (3) bootstrap project hints. Dejar solo: svc.record_message().",
+        "result_state": "_record_message() en messages/api/mcp_tools.py solo persiste mensajes y retorna message_id. Sin classify, sin _update_goal, sin GPS injection, sin project hints, sin imports de ops_context/session/dispatch_pipeline.",
+        "domain": "messages/api",
+        "depends_on": [],
+        "preconditions": [
+          "messages/api/mcp_tools.py existe con _record_message() actual (contaminada con workflow)",
+          "MessageService.record_message() funciona correctamente"
+        ],
+        "acceptance_criteria": [
+          "Como desarrollador de otro bounded context, cuando llamo a MessageService.record_message() para guardar un mensaje, quiero que SOLO se persista el mensaje y se retorne un message_id, para poder controlar el flujo desde mi propio contexto sin efectos secundarios ocultos de clasificación, goals, o GPS state."
+        ],
+        "quality_gates": [
+          "0 imports de features/workflow/ en messages/api/mcp_tools.py",
+          "0 imports de cognitive_v2/shared/ops_context en messages/api/mcp_tools.py",
+          "0 imports de cognitive_v2/features/session/ en messages/api/mcp_tools.py",
+          "pytest shared/messages/tests/ pasa completo"
+        ],
+        "loop_verification": [
+          "grep -c 'op_classify' projects/cognitive-mcp/cognitive_v2/shared/messages/api/mcp_tools.py == 0",
+          "grep -c '_update_goal' projects/cognitive-mcp/cognitive_v2/shared/messages/api/mcp_tools.py == 0",
+          "grep -c '_build_cognitive_gps_state' projects/cognitive-mcp/cognitive_v2/shared/messages/api/mcp_tools.py == 0",
+          "grep -c '_reorder_gps_response' projects/cognitive-mcp/cognitive_v2/shared/messages/api/mcp_tools.py == 0",
+          "grep -c '_suggest_relevant_projects' projects/cognitive-mcp/cognitive_v2/shared/messages/api/mcp_tools.py == 0"
+        ],
+        "validation": {
+          "predicates": [
+            "_record_message() solo llama a svc.record_message() y retorna el resultado",
+            "Se removieron: lines 93-111 (op_classify + _update_goal), lines 113-143 (GPS build + cache + reorder), lines 145-162 (_project_hints bootstrap)",
+            "Se removieron imports de ops_context, session_service, dispatch_pipeline",
+            "message(record) tool sigue funcionando para storage — retorna message_id correctamente",
+            "NO se rompe compatibilidad: message_id, ok/error response format se mantienen"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/api/mcp_tools.py (modificar — purgar workflow logic lines 93-162)"
+          ],
+          "tests": [
+            "shared/messages/tests/test_message_service.py (verificar que sigue pasando)"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.05,
+          "commit_trust": 0.2
+        }
+      },
+      {
+        "task_id": "TASK-MSG-102",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "objective": "Purificar agent/llm_response_hook.py — remover el GPS Instruction Compliance Gate (lines 57-128) que valida si el LLM siguió la instrucción del GPS y rechaza respuestas. Esa lógica de enforcement pertenece al workflow, no a messages.",
+        "result_state": "agent/llm_response_hook.py solo captura la respuesta del LLM como mensaje vía MessageService. Sin GPS gate, sin validación de instrucciones, sin lógica de 'free' override. capture_llm_response() es CRUD puro.",
+        "domain": "messages/agent",
+        "depends_on": [],
+        "preconditions": [
+          "agent/llm_response_hook.py existe con capture_llm_response() conteniendo GPS gate (lines 57-128)"
+        ],
+        "acceptance_criteria": [
+          "Como el pipeline de respuesta del LLM, cuando capture_llm_response() recibe una respuesta, quiero que la registre como mensaje sin validar ni rechazar la respuesta basándose en instrucciones GPS, para que la responsabilidad de enforcement esté centralizada en el workflow y no en el hook de storage."
+        ],
+        "quality_gates": [
+          "grep -c 'KV_GPS_LAST_INSTRUCTION' agent/llm_response_hook.py == 0",
+          "grep -c 'FREE_OVERRIDE' agent/llm_response_hook.py == 0",
+          "grep -c 'INSTRUCTION_NOT_FOLLOWED' agent/llm_response_hook.py == 0"
+        ],
+        "loop_verification": [
+          "grep -c 'KV_GPS_LAST_INSTRUCTION' projects/cognitive-mcp/cognitive_v2/shared/messages/agent/llm_response_hook.py == 0",
+          "grep -c 'FREE_OVERRIDE' projects/cognitive-mcp/cognitive_v2/shared/messages/agent/llm_response_hook.py == 0"
+        ],
+        "validation": {
+          "predicates": [
+            "capture_llm_response() solo llama a svc.record_message() y retorna resultado",
+            "Se removieron las lines 57-128 (GPS Instruction Compliance Gate: KV_GPS_LAST_INSTRUCTION, FREE_OVERRIDE_INVALID, INSTRUCTION_NOT_FOLLOWED)",
+            "capture_llm_response ya NO rechaza respuestas del LLM — solo registra",
+            "La tool capture_llm_response sigue funcionando para storage"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/agent/llm_response_hook.py (modificar — remover GPS gate lines 57-128)"
+          ],
+          "tests": [
+            "shared/messages/tests/test_llm_response_hook.py (verificar que sigue pasando)"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.05,
+          "commit_trust": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-MSG-103",
+        "role": "optional",
+        "type": "refactor",
+        "work_type": "refactor",
+        "objective": "Evaluar application/ops_message.py — determinar si es código muerto. Si ningún dispatch llama a las funciones op_record_message(), op_get_messages_by_session(), etc., marcarlo como DEPRECATED o eliminarlo.",
+        "result_state": "ops_message.py evaluado. Si no tiene consumidores activos: marcado como DEPRECATED con docstring o eliminado. Si tiene consumidores: documentados y se decide si migrar o mantener.",
+        "domain": "messages/application",
+        "depends_on": [],
+        "preconditions": [
+          "ops_message.py existe en shared/messages/application/",
+          "Se puede verificar grep -r 'op_record_message\\|op_get_messages_by_session' para encontrar consumidores"
+        ],
+        "acceptance_criteria": [
+          "Como mantenedor del código base, quiero que ops_message.py esté marcado como DEPRECATED si no tiene consumidores activos, para reducir ruido cognitivo y evitar que se use en nuevos desarrollos asumiendo que es una API vigente."
+        ],
+        "quality_gates": [
+          "Si no hay consumidores: archivo marcado DEPRECATED o eliminado",
+          "Si hay consumidores: documentados en la task result"
+        ],
+        "loop_verification": [
+          "grep -r 'op_record_message\\|op_get_messages' --include='*.py' --exclude='*ops_message*' | grep -v legacy | grep -v __pycache__"
+        ],
+        "validation": {
+          "predicates": [
+            "Se identificaron todos los consumidores de ops_message.py",
+            "Si consumers == 0: archivo marcado DEPRECATED o eliminado",
+            "Si consumers > 0: cada consumer documentado con plan de migración"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/application/ops_message.py (evaluar — marcar DEPRECATED o eliminar)"
+          ]
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.2
+        }
+      },
+      {
+        "task_id": "TASK-MSG-201",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor",
+        "objective": "Formalizar la API pública del bounded context de Messages — definir contrato explícito de lo que Messages EXPONE vs lo que NO debe hacer. Documentar en docstrings, __init__.py, y domain message_record.py. Hoy todos los __init__.py están vacíos — hay que agregar exports explícitos.",
+        "result_state": "Messages BC tiene una API pública documentada con exports explícitos en __init__.py. Cada archivo tiene docstring claro de su responsabilidad: MessageService (storage/retrieval), MessageClassifier (schemas), MessageStoreGate (hook), MessageRecord (modelo). Messages NO exporta nada de workflow.",
+        "domain": "messages",
+        "depends_on": [
+          "TASK-MSG-101",
+          "TASK-MSG-102"
+        ],
+        "preconditions": [
+          "_record_message() purgado de workflow logic (TASK-MSG-101)",
+          "llm_response_hook.py purgado de GPS gate (TASK-MSG-102)"
+        ],
+        "acceptance_criteria": [
+          "Como desarrollador que consume Messages BC, quiero importar solo lo que necesito desde __init__.py con exports explícitos y documentados, para conocer la frontera del BC sin tener que leer el código interno ni arriesgarme a acoplamientos ocultos con workflow."
+        ],
+        "quality_gates": [
+          "grep -r 'features.workflow' shared/messages/ --include='*.py' retorna 0 líneas",
+          "Todos los __init__.py tienen exports explícitos (no están vacíos)",
+          "Todos los docstrings de la API pública explican claramente la responsabilidad del BC"
+        ],
+        "loop_verification": [
+          "grep -r 'features.workflow' projects/cognitive-mcp/cognitive_v2/shared/messages/ --include='*.py' || echo 'clean'",
+          "grep -q 'MessageService' projects/cognitive-mcp/cognitive_v2/shared/messages/__init__.py && echo 'has exports'"
+        ],
+        "validation": {
+          "predicates": [
+            "messages/__init__.py exporta solo: MessageService, MessageClassifier, MessageStoreGate, MessageRecord",
+            "messages/application/__init__.py exporta: MessageService, MessageClassifier, MessageStoreGate",
+            "messages/domain/__init__.py exporta: MessageRecord",
+            "messages/infrastructure/__init__.py exporta: KVMessageRepository",
+            "MessageService solo tiene métodos de storage/retrieval — sin mención de workflow, classify, goal, gps",
+            "MessageClassifier.classify() documenta que SOLO provee esquemas de contexto (domain/type/task_id), NO decide flujo",
+            "MessageStoreGate documenta que es un hook del dispatch pipeline, no un orquestador",
+            "NO hay imports de features/workflow/ en ningún archivo de messages/"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/__init__.py (modificar — agregar exports explícitos)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/application/__init__.py (modificar — agregar exports controlados)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/domain/__init__.py (modificar — agregar exports)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/infrastructure/__init__.py (modificar — agregar exports)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/application/message_service.py (modificar — docstrings)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/application/message_classifier.py (modificar — docstrings)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/application/message_gate.py (modificar — docstrings)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/domain/message_record.py (verificar — docstrings)"
+          ],
+          "tests": [
+            "shared/messages/tests/test_message_service.py",
+            "shared/messages/tests/test_message_classifier.py",
+            "shared/messages/tests/test_message_gate.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-WF-601",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "ScrumIntegrator — puente entre WorkflowEngine y ScrumMaster. Consulta proyectos, sprints, deltas. ScrumContext es READ-ONLY snapshot.",
+        "result_state": "features/workflow/application/scrum_integrator.py existe con ScrumIntegrator que expone: get_active_sprint(), get_project_list(), calculate_delta(), create_project(), create_sprint(), verify_task(), tasks_pendientes(). ScrumContext es READ-ONLY snapshot. Sprint goal solo en ScrumMaster.",
+        "domain": "workflow/application",
+        "depends_on": [],
+        "preconditions": [
+          "features/workflow/domain/models.py existe con ScrumContext",
+          "ScrumMaster existe en su módulo"
+        ],
+        "acceptance_criteria": [
+          "Como WorkflowOrchestrator, quiero consultar datos de Scrum (sprints activos, proyectos, tareas pendientes) a través de ScrumIntegrator sin importar directamente ScrumMaster, para mantener el workflow desacoplado del BC de Scrum y poder testear cada uno de forma independiente."
+        ],
+        "quality_gates": [
+          "pytest features/workflow/tests/test_scrum_integrator.py pasa",
+          "38 tests pre-existentes de router siguen pasando"
+        ],
+        "loop_verification": [
+          "test -f cognitive_v2/features/workflow/application/scrum_integrator.py && echo 'exists'",
+          "grep -q 'class ScrumIntegrator' cognitive_v2/features/workflow/application/scrum_integrator.py && echo 'class found'"
+        ],
+        "validation": {
+          "predicates": [
+            "get_active_sprint(project_id) → ScrumContext(sprint_id, sprint_goal, tasks, distance)",
+            "get_active_sprint() consulta ScrumMaster.get_current_sprint() y SprintStateService.compute_distance()",
+            "get_project_list() → lista de proyectos via ScrumMaster.get_projects()",
+            "create_project(name, description) → project_id — delega a ScrumMaster.create_project()",
+            "create_sprint(project_id, goal, tasks) → sprint_id — delega a ScrumMaster.create_sprint()",
+            "verify_task(task_id) → bool — delega a ScrumMaster.verify_task()",
+            "tasks_pendientes(sprint_id) → int",
+            "ScrumContext es frozen dataclass READ-ONLY — el goal NO está en workflow"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/workflow/application/scrum_integrator.py (crear)"
+          ],
+          "tests": [
+            "features/workflow/tests/test_scrum_integrator.py (crear)"
+          ],
+          "apis": [
+            "ScrumMaster (features/scrum/ScrumMaster.py)",
+            "SprintStateService (features/scrum/SprintStateService.py)"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.05,
+          "commit_trust": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-WF-701",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "WorkflowOrchestrator — entry point unificado que orquesta: MessageService.record_message() → MessageClassifier.classify() → WorkflowClassifier.classify() → SessionManager → Router → Enforcement → Engine → CognitiveGPS. Este orquestador REEMPLAZA la lógica de workflow que hoy está fugada en messages/ (classify, goal, GPS injection).",
+        "result_state": "features/workflow/application/orchestrator.py existe con WorkflowOrchestrator.handle(session_id, op, data) que: (1) llama MessageService.record_message() para registrar, (2) llama MessageClassifier.classify() para esquema, (3) corre pipeline DDD completo, (4) retorna dict con StepInstruction + CognitiveGPS state + alerts. Las responsabilidades de workflow que estaban en messages ahora viven aquí.",
+        "domain": "workflow/application",
+        "depends_on": [
+          "TASK-WF-601",
+          "TASK-MSG-101",
+          "TASK-MSG-102"
+        ],
+        "preconditions": [
+          "WorkflowClassifier, SessionManager, Router, Enforcement, Engine, CognitiveGPS existen y tienen tests",
+          "MessageService, MessageClassifier existen y están purificados (sin workflow logic)"
+        ],
+        "acceptance_criteria": [
+          "Como dispatch_pipeline, quiero llamar a WorkflowOrchestrator.handle() con un mensaje y obtener una respuesta completa (StepInstruction + CognitiveGPS state + alerts) sin tener que orquestar manualmente el pipeline de clasificación, ruteo y ejecución, para que la lógica de workflow esté centralizada y testeable en un solo lugar."
+        ],
+        "quality_gates": [
+          "pytest features/workflow/tests/test_orchestrator.py pasa",
+          "0 imports de shared/ops_context, shared/guidance en orchestrator.py",
+          "grep -c 'op_classify' orchestrator.py == 0"
+        ],
+        "loop_verification": [
+          "test -f cognitive_v2/features/workflow/application/orchestrator.py && echo 'exists'",
+          "grep -q 'MessageService' cognitive_v2/features/workflow/application/orchestrator.py && echo 'calls messages'",
+          "grep -q 'class WorkflowOrchestrator' cognitive_v2/features/workflow/application/orchestrator.py && echo 'class found'"
+        ],
+        "validation": {
+          "predicates": [
+            "Orchestrator.handle(session_id, op, data) → dict con StepInstruction + CognitiveGPS state + alerts",
+            "handle() llama a MessageService.record_message() al inicio para registrar el mensaje entrante",
+            "handle() llama a MessageClassifier.classify() para obtener contexto de clasificación",
+            "Pipeline: Classifier → SessionManager.load/create → Router → Enforcement → Engine → CognitiveGPS",
+            "Si route = PASSTHROUGH → retorna temprano sin Engine/CognitiveGPS",
+            "Si Engine.execute() devuelve CLOSED con tasks_pendientes > 0 → loop a REFINE",
+            "3+ desviaciones → _deviation_alert escalada en respuesta",
+            "NO llama a op_classify, _update_goal, ni funciones de guidance legacy — usa el nuevo workflow DDD"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/workflow/application/orchestrator.py (crear)"
+          ],
+          "tests": [
+            "features/workflow/tests/test_orchestrator.py (crear)"
+          ],
+          "apis": [
+            "MessageService (shared/messages/application/message_service.py)",
+            "MessageClassifier (shared/messages/application/message_classifier.py)",
+            "dispatch_pipeline (shared/dispatch_pipeline.py)"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.1
+        }
+      },
+      {
+        "task_id": "TASK-WF-801",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "objective": "Simplificar dispatch_pipeline a ~600 líneas — delegar orquestación completa a WorkflowOrchestrator.handle(). dispatch_pipeline solo: (1) recibe op/data, (2) llama Orchestrator.handle(), (3) post-procesa con CognitiveGPS.",
+        "result_state": "dispatch_pipeline.py reducido a ~600 líneas, delega en Orchestrator.handle(). El código muerto de guidance/messages está removido. Mantiene GPS Phase como post-procesador.",
+        "domain": "shared",
+        "depends_on": [
+          "TASK-WF-701"
+        ],
+        "preconditions": [
+          "WorkflowOrchestrator.handle() existe y funciona",
+          "CognitiveGPS.build_cognitive_state() funciona como data provider"
+        ],
+        "acceptance_criteria": [
+          "Como desarrollador que mantiene el pipeline, quiero que dispatch_pipeline.py tenga una responsabilidad clara (recibir op/data → delegar en Orchestrator → post-procesar con GPS) y esté por debajo de 700 líneas, para poder entender y modificar el pipeline sin tener que navegar por 1800 líneas de lógica mezclada entre guidance, messages y workflow."
+        ],
+        "quality_gates": [
+          "wc -l dispatch_pipeline.py <= 700",
+          "0 imports de guidance/ en dispatch_pipeline.py",
+          "grep -c 'op_classify' dispatch_pipeline.py == 0"
+        ],
+        "loop_verification": [
+          "wc -l < projects/cognitive-mcp/cognitive_v2/shared/dispatch_pipeline.py",
+          "grep -c 'Orchestrator' projects/cognitive-mcp/cognitive_v2/shared/dispatch_pipeline.py"
+        ],
+        "validation": {
+          "predicates": [
+            "dispatch_pipeline.dispatch() delega la orquestación completa a Orchestrator.handle()",
+            "dispatch_pipeline ya NO llama a op_classify, _update_goal, guidance legacy",
+            "GPS Phase se mantiene como post-procesador que inyecta CognitiveGPS state en response",
+            "dispatch_pipeline ~600 líneas o menos (de ~1800 actuales)",
+            "NO se rompe la API de dispatch() — la firma y el resultado son compatibles"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/shared/dispatch_pipeline.py (modificar — reducir, delegar a Orchestrator)"
+          ],
+          "tests": [
+            "features/workflow/tests/test_orchestrator.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.15,
+          "commit_trust": 0.1
+        }
+      },
+      {
+        "task_id": "TASK-MSG-901",
+        "role": "optional",
+        "type": "test",
+        "work_type": "feature_new_method",
+        "objective": "Tests para la purificación de Messages BC — verificar que _record_message(), capture_llm_response(), y ops_message.py ya NO tienen lógica de workflow. Verificar que la API pública respeta las fronteras del BC.",
+        "result_state": "Tests existentes de messages pasan + nuevos tests verifican que messages no tiene lógica de workflow, no importa de workflow, y que su API es solo storage/retrieval/schemas.",
+        "domain": "messages/tests",
+        "depends_on": [
+          "TASK-MSG-101",
+          "TASK-MSG-102",
+          "TASK-MSG-103",
+          "TASK-MSG-201"
+        ],
+        "preconditions": [
+          "_record_message() purgado de workflow logic",
+          "API pública de Messages formalizada"
+        ],
+        "acceptance_criteria": [
+          "Como desarrollador que refactoriza Messages BC, quiero tests automatizados que fallen si alguien reintroduce imports de workflow en messages (como op_classify o GPS functions), para tener una barrera de regresión que mantenga la pureza del BC a lo largo del tiempo."
+        ],
+        "quality_gates": [
+          "pytest shared/messages/tests/ pasa completo con los tests existentes",
+          "Al menos 1 test nuevo que verifica que messages no tiene lógica de workflow"
+        ],
+        "loop_verification": [
+          "pytest projects/cognitive-mcp/cognitive_v2/shared/messages/tests/ -v --tb=short 2>&1 | tail -5"
+        ],
+        "validation": {
+          "predicates": [
+            "test_message_service.py: record_message almacena correctamente, get_by_session recupera",
+            "test_message_classifier.py: classify retorna esquemas de contexto (domain/type/task_id), NO decide flujo",
+            "Nuevo test: _record_message NO llama a op_classify, _update_goal, ni GPS functions",
+            "Nuevo test: capture_llm_response NO tiene GPS gate (no busca KV_GPS_LAST_INSTRUCTION)",
+            "Nuevo test: messages NO importa de features/workflow/",
+            "Todos los tests existentes de messages siguen pasando"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/tests/test_message_service.py (modificar — agregar tests)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/tests/test_message_classifier.py (modificar — agregar tests)",
+            "projects/cognitive-mcp/cognitive_v2/shared/messages/tests/test_llm_response_hook.py (modificar — agregar tests)"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.0,
+          "commit_trust": 0.2
+        }
+      },
+      {
+        "task_id": "TASK-WF-900",
+        "role": "optional",
+        "type": "test",
+        "work_type": "feature_new_method",
+        "objective": "Tests de integración para el flujo completo Messages→Workflow. Verificar que el pipeline orquestado funciona: MessageService.record_message() → WorkflowClassifier → Router → Engine → CognitiveGPS.",
+        "result_state": "test_integration.py existe con flujo completo: FREE mode (no intercepta), SCRUM mode con sprint multi-tarea (CLOSED→REFINE loop), enforcement no bloqueante, y verificación de que el workflow llama a Messages correctamente.",
+        "domain": "workflow/tests",
+        "depends_on": [
+          "TASK-WF-701",
+          "TASK-WF-801"
+        ],
+        "preconditions": [
+          "WorkflowOrchestrator.handle() existe e integra con Messages",
+          "dispatch_pipeline delega en Orchestrator"
+        ],
+        "acceptance_criteria": [
+          "Como desarrollador del pipeline completo, quiero tests que verifiquen el flujo integral Messages→Workflow (FREE mode sin interceptación, SCRUM mode con clasificación→ruteo→engine→GPS, y edge cases como CLOSED→REFINE loop), para asegurar que los bounded contexts orquestados funcionan correctamente juntos antes de hacer deployment."
+        ],
+        "quality_gates": [
+          "pytest features/workflow/tests/ --tb=short pasa 384+ tests",
+          "pytest shared/messages/tests/ --tb=short pasa todos los tests"
+        ],
+        "loop_verification": [
+          "pytest cognitive_v2/features/workflow/tests/ -v --tb=short 2>&1 | tail -5"
+        ],
+        "validation": {
+          "predicates": [
+            "test_integration.py: flujo FREE mode — message se registra, workflow no intercepta",
+            "test_integration.py: flujo SCRUM mode — message se registra, workflow clasifica, rutea, engine avanza, GPS produce estado",
+            "test_integration.py: CLOSED→REFINE loop con sprint multi-tarea",
+            "test_integration.py: enforcement no bloquea — tool se ejecuta aunque no sea la recomendada",
+            "384 tests de workflow + tests de messages pasan completos"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/workflow/tests/test_integration.py (crear)"
+          ],
+          "tests": [
+            "features/workflow/tests/test_integration.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.0,
+          "commit_trust": 0.2
+        }
+      }
+    ],
+    "dependency_graph": {
+      "TASK-MSG-101": [],
+      "TASK-MSG-102": [],
+      "TASK-MSG-103": [],
+      "TASK-MSG-201": ["TASK-MSG-101", "TASK-MSG-102"],
+      "TASK-WF-601": [],
+      "TASK-WF-701": ["TASK-WF-601", "TASK-MSG-101", "TASK-MSG-102"],
+      "TASK-WF-801": ["TASK-WF-701"],
+      "TASK-MSG-901": ["TASK-MSG-101", "TASK-MSG-102", "TASK-MSG-103", "TASK-MSG-201"],
+      "TASK-WF-900": ["TASK-WF-701", "TASK-WF-801"]
+    },
+    "parallel_opportunities": {
+      "fase1_paralelo": ["TASK-MSG-101", "TASK-MSG-102", "TASK-MSG-103", "TASK-WF-601"],
+      "fase2": ["TASK-MSG-201"],
+      "fase3": ["TASK-WF-701"],
+      "fase4_paralelo": ["TASK-WF-801", "TASK-MSG-901"],
+      "fase5": ["TASK-WF-900"]
+    },
+    "task_roles": {
+      "prerequisite": "TASK-MSG-101",
+      "core": "TASK-WF-701",
+      "optional": "TASK-WF-900"
+    }
+  }
+}

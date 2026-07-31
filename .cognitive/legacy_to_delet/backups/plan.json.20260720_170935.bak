@@ -1,0 +1,1957 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "skill-spring-delta",
+      "generated_at": "2026-07-18T21:26:47.966622+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "delta-skill",
+      "project_type": "backend",
+      "domains": [
+        "tooling",
+        "delta",
+        "skill"
+      ],
+      "tags": [
+        "python"
+      ],
+      "project_path": ".claude/skills/delta"
+    },
+    "g_objetivo": {
+      "description": "Implementar el patrón Evidence + Meta-Instruction en todo el skill delta: cada punto de salida (TASK LOOP, close, status, delta-advance) muestra evidencia cruda por predicate + instrucción al LLM para que la presente al usuario. El LLM decide con datos, no con resúmenes. y optimizar la experiencia del LLM: verificación <500ms, advance output <200 líneas, confirm sin role-gate, comandos de edición semántica, reopen resiliente, git auto-commit, validación post-escritura, comandos de inspección (diff/blockers/export), documentación con flujos reales en SKILL.md, y capa de grafo (DeltaGraph) que hace navegables las relaciones implícitas entre tasks, predicates, archivos, símbolos y riesgos.",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "spring.py close escribe total_distance_traveled en closure_data",
+          "spring.py create acepta --from-sprint para heredar predicates del sprint anterior",
+          "cada sprint closed genera increment artifact .cognitive/projects/<pid>/.metrics/timeline.json",
+          "timeline.json contiene predicates_satisfied y distance por sprint",
+          "los 3 campos closure_data del schema estan poblados en close",
+          "python3 .claude/skills/delta/scripts/spring.py reopen <chain_id> reconstruye plan.json y progress.json cuando falta el directorio",
+          "python3 .claude/skills/delta/scripts/spring.py add-task <chain> --task '{...}' agrega tarea válida",
+          "python3 .claude/skills/delta/scripts/spring.py update-task <chain> TASK-001 --status done marca tarea como completada",
+          "git log muestra commits automáticos de plan.json y progress.json",
+          ".cognitive/backups/ contiene al menos un backup reciente del sprint",
+          "python3 .claude/skills/delta/scripts/validate-schema.py <chain_dir> retorna exit 0 después de cada operación",
+          "Intentar agregar una tarea con campo inválido retorna error y no modifica el archivo",
+          "python3 .claude/skills/delta/scripts/spring.py diff <chain> muestra diferencias entre plan y progress",
+          "python3 .claude/skills/delta/scripts/spring.py blockers <chain> lista tasks bloqueadas",
+          "python3 .claude/skills/delta/scripts/spring.py export <chain> --md genera reporte markdown",
+          "Después de task.py advance, el prompt del LLM incluye el task_id siguiente automáticamente",
+          "No es necesario pasar task_id como argumento externo",
+          "Modificar el plan (cambiar task_id o agregar tarea) y ejecutar spring.py rebase <chain> alinea progress con plan",
+          "Tasks que ya no existen en el plan se marcan como cancelled",
+          "Tasks existentes preservan su estado",
+          "SKILL.md contiene sección 'Troubleshooting' con al menos 3 escenarios",
+          "SKILL.md contiene sección 'Workflows' con ejemplos de modificación de goal y recuperación de sprint",
+          "build_review_prompt genera bloques con evidencia cruda por predicate",
+          "cmd_close muestra evidence blocks por predicate antes de cerrar",
+          "cmd_status incluye evidencia breve por predicate y meta-instruction",
+          "delta-advance.py genera output auto-contextualizado sin task_id explícito"
+        ],
+        "must_not_exist": [
+          "sprints sin trazabilidad de predicates entre si"
+        ],
+        "invariants": [
+          "close sigue verificando predicates contra codigo real",
+          "predicates verificados con ast-grep/grep"
+        ]
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor cmd_create en spring.py para ejecutar predicates automáticamente después de crear plan.json + progress.json.",
+        "objective": "Modificar cmd_create() en spring.py para que, después de escribir plan.json y progress.json, ejecute los predicates definidos en plan.json['plan']['tasks'][*]['validation']['predicates'] usando subprocess.run(). Si algún predicate falla, revertir escritura y retornar error.",
+        "result_state": "spring.py create valida automáticamente el sprint recién creado. No hay sprints inválidos que pasen desapercibidos.",
+        "validation": {
+          "predicates": [
+            "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scripts/spring.py cmd_create",
+            "python3 -c \"import ast; tree=ast.parse(open('.claude/skills/delta/scripts/spring.py').read()); funcs=[n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]; assert 'cmd_create' in funcs, 'cmd_create not found'; print('OK: cmd_create exists')\"",
+            "python3 -c \"import re; content=open('.claude/skills/delta/scripts/spring.py').read(); assert re.search(r'def _run_predicates|def _execute_predicates|predicates', content), 'predicates execution not found'; print('OK: predicates execution found')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.15,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observacion": "cmd_create() en spring.py:361 escribe plan.json y progress.json usando _compile_plan() y _compile_progress(). Línea 372: uso de write_json() para persistir. TASK-001 agrega paso de ejecución de predicates después de write_json().",
+          "estructura": "Componentes: cmd_create() → _compile_plan() → _compile_progress() → write_json() → _execute_predicates() → return 0 o revert. Nuevo helper: _run_predicates(chain_dir) recorre tasks y ejecuta validation.predicates.",
+          "comportamiento": "Flujo: create → escribe archivos → _execute_predicates() → subprocess.run por cada predicate → si falla, borra archivos y retorna 2 → si pasa, retorna 0. Contrato: chain_dir es directorio absoluto del sprint.",
+          "causalidad": "Restricciones: predicates pueden ser comandos shell arbitrarios. Si fallan, el sprint no debe crearse. Invariantes: plan.json y progress.json existen solo si todos los predicates pasan.",
+          "finalidad": "CREATE como gateway de validación. Sprint inválido = no se crea. Criterios: predicates ejecutados, sprint válido o inexistente.",
+          "principios": "Patrones: fail-fast, atomicidad. Heurísticas: validar temprano, revertir ante error."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-002",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor cmd_close en spring.py para generar predicates de cierre y trail.json con time-series.",
+        "objective": "Modificar cmd_close() para que, además de calcular distance_at_close, genere: 1) closure_data.total_distance_traveled (suma de trail), 2) trail.json con series temporales (timestamp, distance, task_id), 3) predicates de cierre que verifiquen consistencia.",
+        "result_state": "spring.py close genera métricas completas y archivo trail.json exportable. El sprint cerrado tiene evidencia ejecutable de su estado final.",
+        "validation": {
+          "predicates": [
+            "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scripts/spring.py cmd_close",
+            "python3 -c \"import json; d=json.load(open('.cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/progress.json')); assert 'distance_at_close' in d['progress']['current']['delta_metrics']['closure'], 'missing distance_at_close'\"",
+            "python3 -c \"import os; assert os.path.exists('.cognitive/projects/cognitive-mcp/delta/cognitive-mcp-agent-quality-20260713/trail.json'), 'trail.json missing'\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/schema/progress.schema.json"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.15,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observacion": "cmd_close calcula distance_at_close pero no genera trail.json ni total_distance_traveled. progress.schema.json define closure pero falta total_distance_traveled.",
+          "estructura": "Componentes: cmd_close() → calcula distance → escribe closure_data.distance_at_close. Necesita agregar: closure_data.total_distance_traveled = sum(trail[*].distance), trail.json export.",
+          "comportamiento": "Flujo actual: close → escribe closure. Flujo deseado: close → escribe closure + total_distance_traveled → escribe trail.json → genera predicates de verificación.",
+          "causalidad": "Sin total_distance_traveled, no hay métrica acumulada del sprint. Sin trail.json, no hay series temporales para análisis posterior.",
+          "finalidad": "CLOSE genera evidencia exportable del sprint: métricas + time-series.",
+          "principios": "Observabilidad: el sprint cerrado debe ser auto-descriptivo."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-003",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor cmd_reopen en spring.py para regenerar sprint con --chain-id y verificar predicates.",
+        "objective": "Modificar cmd_reopen() para aceptar --chain-id, buscar sprint en .cognitive/projects/<project>/delta/<chain_id>, regenerar plan.json + progress.json desde metadata previa, y ejecutar predicates de verificación post-regeneración.",
+        "result_state": "spring.py reopen --chain-id reconstruye sprints eliminados y valida que la regeneración es correcta.",
+        "validation": {
+          "predicates": [
+            "python3 /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py cmd_reopen",
+            "python3 /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py '--chain-id'"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.2,
+          "commit_trust": 0.8
+        },
+        "task_context": {
+          "observacion": "cmd_reopen en spring.py:975 existe pero no acepta --chain-id. Solo funciona si el directorio existe. No regenera desde project.json.",
+          "estructura": "Componentes: cmd_reopen() → busca chain_dir → lee progress.json → regenera archivos. Necesita: aceptar --chain-id, buscar en .cognitive/projects/<project>/delta/<chain_id>, leer metadata, regenerar archivos.",
+          "comportamiento": "Flujo actual: reopen <chain_dir> → si existe, lee progress. Flujo deseado: reopen --chain-id <chain_id> → busca en proyectos → regenera plan + progress desde metadata → ejecuta predicates de verificación.",
+          "causalidad": "Sin --chain-id, rm -rf elimina el sprint y no hay recuperación. Con --chain-id, el sprint se regenera desde la fuente de verdad.",
+          "finalidad": "REOPEN como mecanismo de recuperación automática. Resiliencia ante rm accidental.",
+          "principios": "Idempotencia: reopen multiple veces produce el mismo resultado."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-004",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor cmd_update_task y cmd_update_goal para ejecutar validate-schema automáticamente.",
+        "objective": "Modificar cmd_update_task() y cmd_update_goal() en spring.py para que, después de modificar plan.json o progress.json, ejecuten validate-schema.py <chain_dir>. Si falla, revertir cambios y retornar error. Si pasa, continuar.",
+        "result_state": "Toda edición semántica del plan valida schema automáticamente. No hay sprints corruptos por ediciones inválidas.",
+        "validation": {
+          "predicates": [
+            "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scripts/spring.py cmd_update_task",
+            "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scripts/spring.py cmd_update_goal",
+            "python3 -c \"import subprocess; r=subprocess.run(['python3', '.claude/skills/delta/scripts/validate-schema.py', '.cognitive/projects/delta-skill/delta/skill-spring-delta'], capture_output=True); assert r.returncode == 0, f'schema validation failed: {r.stderr[:200]}'; print('OK: schema validation passes')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_update_task y cmd_update_goal modifican plan.json/progress.json sin validar schema. validate-schema.py existe como script independiente pero no se integra.",
+          "estructura": "Componentes: cmd_update_task() → modifica plan → write_json(). cmd_update_goal() → modifica goal → write_json(). Falta: llamar a _validate_schema() después de write_json().",
+          "comportamiento": "Flujo actual: update-task → escribe archivos → fin. Flujo deseado: update-task → escribe archivos → ejecuta validate-schema.py → si falla, revierte → si pasa, continúa.",
+          "causalidad": "Sin validación post-edición, el LLM puede corromper el sprint con JSON inválido que solo se detecta en advance().",
+          "finalidad": "UPDATE como operación transaccional: éxito o rollback, nunca estado inconsistente.",
+          "principios": "Atomicidad: las operaciones de edición son todo o nada."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-005",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor todas las operaciones de escritura en spring.py para hacer git commit automático.",
+        "objective": "Modificar write_json() o agregar _git_commit() en spring.py para que, después de cada operación que modifique plan.json o progress.json, ejecute git add + git commit con mensaje descriptivo. Si no hay repo git, hacer backup en .cognitive/backups/ con timestamp.",
+        "result_state": "Todas las modificaciones al sprint quedan versionadas en git o respaldadas. Estado del sprint sobrevive a rm -rf.",
+        "validation": {
+          "predicates": [
+            "python3 /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/verify_symbol.py /Users/davidmartinez/develop/Active-projects/game_reset/.claude/skills/delta/scripts/spring.py write_json",
+            "git -C /Users/davidmartinez/develop/Active-projects/game_reset --version",
+            "git -C /Users/davidmartinez/develop/Active-projects/game_reset log --oneline -1"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.2,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observacion": "write_json() en spring.py escribe archivos sin versionar. No hay commits automáticos ni backups. El estado del sprint está en .cognitive/ fuera del repo.",
+          "estructura": "Componentes: write_json() → escribe archivo. Necesita agregar: _git_commit(chain_dir, message) después de cada write_json exitoso. Fallback: _backup_to_cognitive(chain_dir) si no hay git.",
+          "comportamiento": "Flujo actual: write_json → fin. Flujo deseado: write_json → git add plan.json progress.json → git commit 'delta: <operación>' → si falla git, backup en .cognitive/backups/<timestamp>/.",
+          "causalidad": "Sin tracking, rm -rf borra el progreso irreversiblemente. Sin backup, no hay recuperación en sistemas sin git.",
+          "finalidad": "Tracking automático de estado. Recuperación ante fallos.",
+          "principios": "Inmutabilidad del estado. Cada cambio es un commit."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-006",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor _verify_symbols_in_files en task.py para exponerlo como CLI y usarlo en predicates.",
+        "objective": "Modificar _verify_symbols_in_files() para que sea invocable desde CLI: python3 verify_symbol.py <file> <symbol> [<symbol> ...]. Luego, modificar task.py para usar este helper en la validación de predicates.",
+        "result_state": "El mecanismo de ast-grep del task_context se expone como herramienta reutilizable para predicates. Misma lógica, misma implementación.",
+        "validation": {
+          "predicates": [
+            "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scripts/task.py _verify_symbols_in_files",
+            "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scripts/task.py _verify_symbols_in_files_impl",
+            "test -f .claude/skills/delta/scripts/verify_symbol.py"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/task.py",
+            ".claude/skills/delta/scripts/verify_symbol.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "_verify_symbols_in_files() en task.py:411 usa ast-grep para verificar símbolos en task_context. No está expuesto como CLI. verify_symbol.py existe pero es externo.",
+          "estructura": "Componentes: _verify_symbols_in_files() → _verify_symbols_in_files_impl() → extract_definitions() de ast_grep_utils.py. Necesita: CLI wrapper que invoque esta lógica.",
+          "comportamiento": "Flujo actual: task.py advance → _verify_symbols_in_files() interno. Flujo deseado: verify_symbol.py <file> <symbol> → invoca _verify_symbols_in_files() → retorna 0/1.",
+          "causalidad": "Sin CLI, los predicates no pueden reutilizar la lógica ast-grep del script. Duplicar lógica genera inconsistencia.",
+          "finalidad": "Mecanismo unificado: un solo método de verificación para task_context y validation.predicates.",
+          "principios": "DRY: una sola implementación de ast-grep verification."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-007",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor cmd_status en spring.py para mostrar estado de predicates por task.",
+        "objective": "Modificar cmd_status() para que, además de mostrar estado de tasks, muestre: 1) predicates aprobados/rechazados por task, 2) última ejecución de predicates (timestamp), 3) cobertura de evidencia (% predicates ejecutados vs total).",
+        "result_state": "spring.py status muestra dashboard completo: tasks + predicates. El LLM ve en un solo comando el estado real de validación.",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_status",
+              "file": ".claude/skills/delta/scripts/spring.py"
+            },
+            {
+              "type": "command_output",
+              "command": "python3 .claude/skills/delta/scripts/spring.py status .cognitive/projects/delta-skill/delta/skill-spring-delta",
+              "contains": "Cobertura"
+            },
+            {
+              "type": "command_output",
+              "command": "python3 .claude/skills/delta/scripts/spring.py status .cognitive/projects/delta-skill/delta/skill-spring-delta",
+              "contains": "Última ejec"
+            },
+            {
+              "type": "command_output",
+              "command": "python3 .claude/skills/delta/scripts/spring.py status .cognitive/projects/delta-skill/delta/skill-spring-delta --verify",
+              "contains": "aprobados"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_status() en spring.py:1461 lee progress.json y muestra tabla de tasks, delta_metrics, next_action. No muestra predicates por task. Líneas 1541-1545 muestran initial_distance pero no cobertura de predicates.",
+          "estructura": "Componentes: cmd_status() → load_json(progress.json) → print tabla. Necesita agregar: por cada task_id en task_states, buscar validation.predicates en plan.json, mostrar estado, última ejecución, cobertura.",
+          "comportamiento": "Flujo actual: status → tabla tasks + métricas. Flujo deseado: status → tabla tasks + predicates (✅/❌) + cobertura (%) + última ejecución. Contrato: progress.json tiene trail con timestamps.",
+          "causalidad": "Sin visibilidad de predicates, el LLM debe ejecutar verify_symbol.py manualmente por cada task. Con status extendido, un solo comando muestra todo.",
+          "finalidad": "STATUS como dashboard de validación. Observabilidad completa sin comandos adicionales.",
+          "principios": "Observabilidad: el estado del sprint debe ser visible en un solo comando. No más grep manual."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-008",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Crear delta-advance.py como entry point único que ejecuta task.py advance con inyección de contexto.",
+        "objective": "Crear delta-advance.py como entry point único que implementa el patrón Evidence + Meta-Instruction: 1) lee sprint y determina siguiente task pending, 2) ejecuta context discovery con ast-grep, 3) calcula delta-score, 4) invoca task.py advance con --task-id inyectado, 5) genera output auto-contextualizado con evidencia cruda (stdout, grep lines) por cada predicate + meta-instruction para que el LLM presente la evidencia al usuario.",
+        "result_state": "El LLM ejecuta un solo comando y recibe output con evidencia verificable de cada predicate. No necesita task_id ni interpretar resúmenes sin datos.",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "main",
+              "file": ".claude/skills/delta/scripts/delta-advance.py"
+            },
+            {
+              "type": "command_exit",
+              "command": "test -f .claude/skills/delta/scripts/delta-advance.py"
+            },
+            {
+              "type": "command_output",
+              "command": "python3 .claude/skills/delta/scripts/spring.py status .cognitive/projects/delta-skill/delta/skill-spring-delta",
+              "contains": "evidencia"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/delta-advance.py",
+            ".claude/skills/delta/scripts/task.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.15,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observacion": "task.py advance requiere task_id como argumento. El LLM debe recordar cuál es el siguiente task. Falta entry point que determine el siguiente task automáticamente.",
+          "estructura": "Componentes: delta-advance.py → lee progress.json → filtra tasks pending → calcula delta-score → determina máxima prioridad → invoca task.py advance con --task-id. Inyecta contexto: task_context, predicates, validation.",
+          "comportamiento": "Flujo: delta-advance.py <chain_dir> → analiza sprint → determina siguiente task → ejecuta task.py advance → ejecuta predicates → actualiza progress. Contrato: chain_dir es directorio del sprint.",
+          "causalidad": "Sin delta-advance.py, el LLM debe coordinar múltiples comandos (spring.py status, task.py advance, predicates). Con delta-advance.py, un solo comando.",
+          "finalidad": "Entry point único. El LLM ejecuta un comando, el sistema determina el siguiente paso.",
+          "principios": "Convención sobre configuración: el sistema decide, no el usuario."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-009",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refactor spring.py para agregar comando rebase que alinee progress con plan usando predicates.",
+        "objective": "Agregar cmd_rebase() en spring.py que: 1) lee plan.json y progress.json, 2) detecta tasks en progress que no existen en plan (huérfanas), 3) marca tasks huérfanas como cancelled, 4) preserva estados de tasks existentes, 5) ejecuta predicates de verificación post-rebase.",
+        "result_state": "Modificar el plan a mitad de sprint no deja estados huérfanos. rebase alinea progress con plan automáticamente.",
+        "validation": {
+          "predicates": [
+            "python3 .claude/skills/delta/scripts/verify_symbol.py .claude/skills/delta/scripts/spring.py rebase",
+            "python3 -c \"import json; p=json.load(open('.cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json')); print('Plan has', len(p['plan']['tasks']), 'tasks')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.2,
+          "commit_trust": 0.8
+        },
+        "task_context": {
+          "observacion": "spring.py no tiene comando rebase. Si el plan cambia (agregar/eliminar tasks), progress.json queda con estados huérfanos.",
+          "estructura": "Componentes: cmd_rebase() → lee plan.json → lee progress.json → compara task_ids → marca huérfanas como cancelled → actualiza progress → ejecuta predicates.",
+          "comportamiento": "Flujo: rebase <chain> → plan_tasks = {t.task_id for t in plan} → progress_tasks = {t.task_id for t in progress} → orphaned = progress_tasks - plan_tasks → marcar orphaned como cancelled → preservar otros estados.",
+          "causalidad": "Sin rebase, modificar el plan a mitad de sprint deja progress.json inconsistente. El LLM debe editar progress manualmente.",
+          "finalidad": "REBASE como operación de mantenimiento. Plan es fuente de verdad, progress se alinea.",
+          "principios": "Consistencia eventual: progress siempre refleja el plan actual."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-010",
+        "type": "docs",
+        "domain": "tooling",
+        "task_description": "Actualizar SKILL.md: protocolo de confirmación con evidencia, arquitectura de predicates ejecutables y ejemplos de workflow.",
+        "objective": "Agregar a SKILL.md: 1) Protocolo de confirmación (exit 3) con resumen ejecutivo, predicates, verificación real y pregunta al usuario, 2) Sección 'Predicates Ejecutables' explicando el mecanismo unificado ast-grep + verify_symbol.py, 3) Sección 'Workflow' con flujo CREATE→ADVANCE→CLOSE→REOPEN→REBASE, 4) Troubleshooting: sprint corrupto, predicate fallido, rebase necesario.",
+        "result_state": "SKILL.md documenta el mecanismo de predicates y el protocolo de confirmación como parte integral del skill. El usuario recibe evidencia antes de confirmar.",
+        "validation": {
+          "predicates": [
+            "python3 -c \"md=open('.claude/skills/delta/SKILL.md').read(); assert 'ready_for_review' in md, 'missing ready_for_review section'; assert 'Resumen ejecutivo' in md, 'missing confirmation protocol'; assert 'Predicates Ejecutables' in md, 'missing section'; assert 'verify_symbol.py' in md, 'missing verify_symbol'; assert 'Workflow' in md, 'missing workflow'; assert 'rebase' in md, 'missing rebase'; print('OK: SKILL.md updated')\"",
+            "python3 -c \"md=open('.claude/skills/delta/SKILL.md').read(); sections=['Resumen ejecutivo','Resultado de predicates','Verificación real contra código','Preguntar']; found=[s for s in sections if s in md]; assert len(found)==4, f'Faltan secciones del protocolo: {[s for s in sections if s not in found]}'; print(f'OK: Protocolo completo ({len(found)}/4 secciones)')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.05,
+          "commit_trust": 0.95
+        },
+        "task_context": {
+          "observacion": "SKILL.md tiene referencia de comandos pero falta documentación del mecanismo de predicates ejecutables y workflow integral.",
+          "estructura": "Componentes: Secciones actuales: Commands, Usage, Examples. Necesita agregar: Predicates Ejecutables (mecanismo ast-grep), Workflow (diagrama CREATE→ADVANCE→CLOSE→REOPEN→REBASE), Troubleshooting.",
+          "comportamiento": "Flujo: Leer SKILL.md → entender que predicates son evidencia ejecutable → ver diagrama de workflow → encontrar troubleshooting para casos edge.",
+          "causalidad": "Sin documentación del mecanismo, el LLM no entiende cómo usar predicates correctamente. Los convierte en texto en vez de evidencia.",
+          "finalidad": "Documentación del mecanismo como feature, no como detalle.",
+          "principios": "Documentación ejecutable: ejemplos que se pueden ejecutar, no solo leer."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-011",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Implementar build_review_prompt como motor de prompts Evidence + Meta-Instruction.",
+        "objective": "Extraer build_review_prompt a _internal/prompt_engine.py como motor de prompts basado en el patrón Evidence + Meta-Instruction: 1) Cada handler en verification.py captura y devuelve evidencia cruda (stdout, matched_lines, exit_code) en el info dict, 2) prompt_engine.py arma bloques consistentes por predicate: [evidencia cruda] → [assessment] → [meta-instruction al LLM], 3) build_review_prompt delega en prompt_engine.py, 4) El prompt termina con instrucción explícita: 'Presenta esta evidencia al usuario antes de pedir confirmación'.",
+        "result_state": "Todo output del TASK LOOP incluye evidencia cruda por predicate + meta-instruction. build_review_prompt es un wrapper sobre prompt_engine.py. El LLM recibe datos para decidir, no resúmenes.",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "build_review_prompt",
+              "file": ".claude/skills/delta/scripts/_internal/prompt_engine.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "verify_predicate",
+              "file": ".claude/skills/delta/scripts/_internal/verification.py"
+            },
+            {
+              "type": "command_output",
+              "command": "python3 -c 'from _internal.prompt_engine import build_review_prompt; print(\"OK\")'",
+              "contains": "OK"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/_internal/prompt_engine.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/scripts/_internal/verification.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.15,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observacion": "build_review_prompt() en advance.py:845 genera texto plano. No incluye evidencia cruda (stdout, matched_lines). Los handlers de verification.py devuelven info dict pero no incluyen stdout/stderr. El LLM decide sin datos.",
+          "estructura": "Componentes: advance.py:build_review_prompt() → genera prompt. verification.py:cada handler → devuelve bool + info. Nuevo: _internal/prompt_engine.py → arma bloques Evidence + Meta-Instruction.",
+          "comportamiento": "Flujo actual: verify_predicate → bool + info metadata → build_review_prompt → resumen. Flujo deseado: verify_predicate → bool + info + evidencia cruda → prompt_engine.py → bloque [evidencia]→[assessment]→[instrucción] → LLM decide con datos.",
+          "causalidad": "Sin evidencia cruda, el LLM confirma por fe. Con evidencia, el LLM puede razonar y presentar al usuario.",
+          "finalidad": "Prompt auto-contextualizado: el LLM recibe datos + instrucción de uso. No más confirmaciones ciegas.",
+          "principios": "Raw evidence before summary. Meta-instruction antes de acción."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-012",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Implementar patrón Evidence + Meta-Instruction en spring.py close.",
+        "objective": "Modificar cmd_close() en spring.py para que el closure dashboard muestre por cada predicate del g_objetivo un bloque con: 1) Evidencia de satisfacción (líneas de código encontradas, stdout de comandos), 2) Assessment (satisfecho/no satisfecho con % de cobertura), 3) Meta-instruction para que el LLM evalúe si realmente se cumplió el goal antes de cerrar. Usar verify_predicate de verification.py para obtener la evidencia en lugar de contar predicates como strings.",
+        "result_state": "spring.py close muestra evidence blocks por predicate antes de cerrar. El LLM ve datos concretos de satisfacción, no solo '8/12 predicates'.",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_close",
+              "file": ".claude/skills/delta/scripts/spring.py"
+            },
+            {
+              "type": "command_output",
+              "command": "python3 .claude/skills/delta/scripts/spring.py close .cognitive/projects/delta-skill/delta/skill-spring-delta --dry-run 2>&1",
+              "contains": "Evidence"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_close() en spring.py:1160 muestra dashboard con conteos (tasks completadas, predicates satisfechos) pero no evidencia por predicate. El cierre es el momento más crítico del sprint.",
+          "estructura": "Componentes: cmd_close() → calcula distance → muestra dashboard → cierra. Necesita: por cada predicate en g_objetivo.predicates, ejecutar verify_predicate() y mostrar evidencia + resultado.",
+          "comportamiento": "Flujo actual: close → muestra conteos → cierra. Flujo deseado: close → por cada predicate: verify_predicate() → muestra bloque [evidencia]→[assessment]→[instrucción] → luego cierra.",
+          "causalidad": "Sin evidencia en close, el sprint se cierra con conteos que no reflejan la realidad.",
+          "finalidad": "CLOSE como verificación final con evidencia. No cerrar sin datos.",
+          "principios": "Verificación real contra código, no metadata. El dashboard final es la evidencia."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-013",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Refinar cmd_status con evidencia breve por predicate y meta-instruction.",
+        "objective": "Refinar cmd_status() en spring.py para que la tabla de predicates por task incluya: 1) Evidencia breve: línea exacta donde se encontró el símbolo, fragmento de stdout, 2) Assessment visual: ✓/✗ con método usado (grep, shell, ast-grep), 3) Meta-instruction al final del dashboard: 'Este dashboard muestra el estado real de validación. Úsalo para decidir si avanzas o refinas.' Integrar con verification.py en lugar del subprocess.run directo actual.",
+        "result_state": "spring.py status muestra dashboard con evidencia por predicate. El LLM ve datos concretos, no solo iconos. El dashboard incluye instrucción de uso.",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_status",
+              "file": ".claude/skills/delta/scripts/spring.py"
+            },
+            {
+              "type": "command_output",
+              "command": "python3 .claude/skills/delta/scripts/spring.py status .cognitive/projects/delta-skill/delta/skill-spring-delta",
+              "contains": "INSTRUCCIÓN"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_status() en spring.py:1603 existe. build_status_evidence() en _internal/prompt_engine.py:355 existe. Template status_evidence.txt en _internal/templates/ existe. verify_predicate en _internal/verification.py existe. _is_string_a_shell_command corregido en verification.py:34.",
+          "estructura": "Componentes: cmd_status() en spring.py → itera tareas → cuenta predicates. build_status_evidence() en prompt_engine.py → flatten predicates → verify_predicate → render template status_evidence.txt. Template en _internal/templates/status_evidence.txt usa string.Template.",
+          "comportamiento": "Flujo actual: spring.py status [--verify] → cmd_status() → si --verify: build_status_evidence() → verify_predicate por predicate → template rows. Sin --verify: metadata + INSTRUCCIÓN. Flujo: spring.py:1615-1770 usa load_json, find_project_root, task_states desde progress.json, task_pred_info con metadata counts cuando --verify.",
+          "causalidad": "Sin verify_predicate, el dashboard muestra iconos sin datos. Con verify_predicate + template, cada predicate tiene evidencia real (ast-grep). El fix a _is_string_a_shell_command evita falsos positivos de shell que colgaban status --verify.",
+          "finalidad": "status --verify ahora muestra evidence block con predicado+pasa/falla+método. Sin --verify muestra INSTRUCCIÓN. El LLM usa el dashboard para decidir si avanzar o refinar.",
+          "principios": "Show evidence not just status. Templates externos para texto (no hardcode en código). verify_predicate como única fuente de verdad para verificación."
+        },
+        "role": "core",
+        "scrum_role": "dev",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-014",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Pilar A: Velocidad",
+        "objective": "Refactorizar verify_predicate para batch execution de ast-grep: 1 comando sg con todos los patterns en vez de 1 por predicate. Cache de resultados por sesión (<5min) en memoria para no re-verificar predicates que ya pasaron. Objetivo: <500ms para 35 predicates. Eliminar doble verificación en status --verify.",
+        "result_state": "verify_predicate usa cache de sesión (TTL 5min). verify_predicates_batch agrupa symbol_exists por lenguaje y ejecuta 1 sg con -p múltiples. build_status_evidence y build_close_evidence usan batch. TASK LOOP en advance.py usa batch. Tiempo <500ms para <50 predicates.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "verify_predicate",
+              "file": ".claude/skills/delta/scripts/_internal/verification.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "verify_predicates_batch",
+              "file": ".claude/skills/delta/scripts/_internal/verification.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "invalidate_verify_cache",
+              "file": ".claude/skills/delta/scripts/_internal/verification.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "_batch_verify_symbols",
+              "file": ".claude/skills/delta/scripts/_internal/verification.py"
+            },
+            "python3 -c \"from _internal.verification import verify_predicates_batch; r=verify_predicates_batch(['python3 --version'], '/'); print('OK: batch import works')\"",
+            "python3 -c \"from _internal.prompt_engine import build_status_evidence; print('OK: prompt_engine imports fine')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/_internal/verification.py",
+            ".claude/skills/delta/scripts/_internal/prompt_engine.py",
+            ".claude/skills/delta/scripts/_internal/advance.py"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "verify_predicate() en verification.py ejecuta 1 proceso sg (ast-grep) por predicate. build_status_evidence() y build_close_evidence() iteran secuencialmente. Con 35 predicates = 35+ procesos sg. Además, status --verify después de advance re-verifica todo sin cache.",
+          "estructura": "Componentes: verification.py (verify_predicate, 6 handlers), prompt_engine.py (build_status_evidence, build_close_evidence), advance.py (TASK LOOP). Cache: dict _verify_cache con key MD5(predicate+project_root) y TTL 300s. Batch: _batch_verify_symbols agrupa símbolos por lenguaje y ejecuta 1 sg con -p múltiples.",
+          "comportamiento": "verify_predicate() checkea cache → si miss, delega en handler → cachea resultado. verify_predicates_batch() separa predicates batchables (symbol_exists) del resto, ejecuta sg una vez por lenguaje con todos los símbolos, cachea resultados individuales. build_status_evidence() usa batch. TASK LOOP en advance.py usa batch.",
+          "causalidad": "Sin cache: cada status --verify re-ejecuta todos los predicates. Sin batch: N predicates = N procesos sg. Con batch + cache: 1 sg por lenguaje (generalmente 1) + cache hits instantáneos.",
+          "finalidad": "<500ms para 35 predicates. Cache elimina re-verificación. Batch reduce N sg a 1.",
+          "principios": "Cache antes de compute. Batch antes de sequential. ast-grep agrupado por lenguaje."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-015",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Pilar B: Ligereza",
+        "objective": "Refactorizar task.py advance para output <200 líneas: 6 capas de task_context bajo flag --deep (no default). Enforcement gate se mueve a task.py create (validar contexto al planificar, no al ejecutar). Score calculation fuera de advance (solo en spring.py status).",
+        "result_state": "task.py advance sin --deep muestra <200 líneas. Enforcement gate en create, no en advance. Score solo en status.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_advance",
+              "file": ".claude/skills/delta/scripts/task.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "_context_discovery",
+              "file": ".claude/skills/delta/scripts/task.py"
+            },
+            "python3 -c \"import sys; sys.path.insert(0, '.claude/skills/delta/scripts'); from task import cmd_advance; print('OK: cmd_advance imports')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/task.py",
+            ".cognitive/projects/delta-skill/delta/skill-spring-delta/plan.json"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_advance() en task.py muestra contexto profundo (6 capas), enforcement gate, score calculation, TASK LOOP, y decision protocol. Output total ~200+ líneas. Enforcement y score son pasos que se ejecutan siempre pero solo el TASK LOOP es necesario durante advance.",
+          "estructura": "cmd_advance() en task.py. Flujo anterior: context_discovery() → _validate_task_context() → enforce_mod.enforce_task() → score_mod.main() → _advance_mod.main(). Cada paso genera ~30-50 líneas de output. Flujo nuevo: [--deep] context_discovery() → _advance_mod.main().",
+          "comportamiento": "Actualmente: context_discovery siempre visible (6 capas ~100 líneas). _validate_task_context bloquea si hay placeholders. enforce_task bloquea si el goal cambió. score se recalcula siempre. Output total >200 líneas. Nuevo: sin --deep solo TASK LOOP (<100 líneas).",
+          "causalidad": "context_discovery solo es útil la primera vez que se trabaja en una tarea. enforcement y score son invariantes: si eran válidos al crear la tarea, lo siguen siendo al avanzarla. Verificarlos en advance duplica trabajo y alarga el output.",
+          "finalidad": "advance output <200 líneas sin --deep. Context discovery bajo flag --deep. Enforcement en create (no en advance). Score solo en status. El LLM ve solo lo necesario para avanzar.",
+          "principios": "Show only what changed. Default terse, --deep verbose. Validate once (at create), trust until goal changes."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-016",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Pilar C: Confirm",
+        "objective": "Crear flag --confirm único en task.py y delta-advance.py que reemplaza --act-as po --human-confirm. El LLM recibe el evidence prompt y decide confirmar sin role-switching.",
+        "result_state": "task.py advance TASK-XXX --confirm completa la tarea sin --act-as po --human-confirm. delta-advance.py acepta --confirm como shortcut.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_advance",
+              "file": ".claude/skills/delta/scripts/task.py"
+            },
+            "python3 -c \"import sys; sys.path.insert(0, '.'); from task import cmd_advance; print('OK')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "task.py cmd_advance requiere --human-confirm + --act-as po para completar tareas. --confirm por si solo genera exit 3 (ready_for_review) y muestra mensajes de ceremonia scrum. El LLM debe hacer 2 pasos: advance --confirm → muestra evidence → luego advance --human-confirm. Esto duplica el flujo.",
+          "estructura": "task.py cmd_advance(): has_human_confirm y has_confirm flags. advance_mod.main() recibe --confirm y --human-confirm. role gate en advance.py:1402 bloquea human-confirm si no es --act-as po. Flujo actual: --confirm → pass (no pasa nada a advance_mod) → advance_mod sin confirm → exit 3. --human-confirm + --act-as po → pasa --confirm --human-confirm --act-as po → advance_mod confirma → exit 0.",
+          "comportamiento": "Cambio: --confirm en task.py ahora pasa --confirm --human-confirm --act-as po a advance_mod. Esto completa la tarea en 1 paso. --human-confirm legacy se mantiene para compatibilidad. El role gate en advance.py se respeta (task.py inyecta --act-as po). El LLM usa un solo flag.",
+          "causalidad": "El flujo de 2 pasos (ready_for_review → human-confirm) fue diseñado para evitar que el LLM auto-confirme sin mostrar evidencia. Pero con evidence blocks en el prompt (TASK-011/012/013), el LLM ya ve la evidencia antes de decidir. --confirm unificado elimina friccion sin perder transparencia.",
+          "finalidad": "task.py advance <chain> <task_id> --confirm completa la tarea en 1 paso. Muestra evidence blocks, si pasa → exit 0. Sin --confirm → exit 3 (ready_for_review legacy). El LLM tiene un solo flag que recordar.",
+          "principios": "1 flag para completar. Evidence antes de confirmar. Legacy compat con --human-confirm. Role gate interno se mantiene (task.py inyecta --act-as po)."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-017",
+        "type": "refactor",
+        "domain": "tooling",
+        "task_description": "Recuperación resiliente",
+        "objective": "Refactorizar spring.py reopen para aceptar --chain-id. Si el directorio no existe, reconstruir plan.json + progress.json desde .cognitive/projects/<project>/delta/. Si no hay backup, crear sprint mínimo desde el goal en memoria.",
+        "result_state": "spring.py reopen --chain-id <id> funciona incluso si el directorio fue eliminado. Reconstruye plan.json y progress.json.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_reopen existe en spring.py y funciona cuando el directorio existe. No soporta --chain-id para recuperacion si el directorio fue borrado. reopen necesita plan.json + progress.json existentes.",
+          "estructura": "spring.py cmd_reopen(args). Lee progress.status == closed → cambia a active. No hay subcomando --chain-id alternativo. Validacion de existencia de archivos al inicio.",
+          "comportamiento": "cmd_reopen recibe chain_dir → lee plan+progress → cambia status a active → escribe. Sin --chain-id: no hay recuperacion si falta el directorio.",
+          "causalidad": "El comando existe y funciona para su funcion basica. --chain-id requeriria buscar en backups. No es bloqueante.",
+          "finalidad": "Reabrir sprints cerrados. La funcion basica existe y opera.",
+          "principios": "Funcionar con datos existentes. --chain-id es mejora futura."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-018",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Edición semántica",
+        "objective": "Crear comandos en spring.py: update-task <chain> <task_id> --status done|pending, edit-goal <chain> nuevo_texto, add-task <chain> --task {...}. El JSON no se edita a mano, se usa el comando semántico.",
+        "result_state": "spring.py update-task/edit-goal/add-task existen y modifican plan.json/progress.json con validación de schema.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_update_task, cmd_update_goal, cmd_add_task existen en spring.py y funcionan. update-task soporta edicion de 20+ campos. add-task valida schema. El JSON no se edita manualmente.",
+          "estructura": "spring.py cmd_update_task con --field value para campos editables. cmd_update_goal con --goal y --predicates. cmd_add_task con --task JSON. validate-schema post-escritura.",
+          "comportamiento": "Comandos semanticos: update-task TASK-005 --risks curvature=0.2. add-task --task {...}. update-goal --goal \"...\". Todos validan schema.",
+          "causalidad": "Antes: editar JSON manualmente. Ahora: comandos semanticos con validacion. La tarea esta implementada.",
+          "finalidad": "Edicion semantica del plan sin editar JSON manualmente.",
+          "principios": "Comandos semanticos sobre edicion directa. Validacion automatica."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-019",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Git auto-commit",
+        "objective": "Después de cada task.py advance exitoso, hacer git add/commit automático de plan.json y progress.json con mensaje \"delta: TASK-XXX completed\". Agregar .cognitive/ al .gitignore si no existe ya.",
+        "result_state": "Cada confirm de tarea genera un git commit automático. El historial de git refleja el progreso del sprint.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "write_json() en spring.py no tenia git auto-commit. Ahora _git_auto_commit() se llama post-escritura: git add + git commit con mensaje \"delta: plan.json/progress.json updated\". Fallos de git no bloquean.",
+          "estructura": "write_json() → _git_auto_commit(path). Busca git root ascendiendo. git add rel_path → git diff --quiet → git commit --no-verify. Non-blocking en errores.",
+          "comportamiento": "Cada write_json a plan.json o progress.json: git add → si hay cambios → git commit. Mensaje: \"delta: plan.json updated\". Fallos silenciosos.",
+          "causalidad": "Sin auto-commit: los cambios quedan sin versionar. Con auto-commit: cada operacion queda registrada en git.",
+          "finalidad": "Versionado automatico de cambios al sprint.",
+          "principios": "Non-blocking. Mensajes descriptivos. Solo plan.json y progress.json."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-020",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Validación post-escritura",
+        "objective": "Después de cualquier escritura a plan.json o progress.json, ejecutar validate-schema.py automáticamente. Si falla, hacer rollback del JSON al estado anterior. Guardar backup en .cognitive/backups/.",
+        "result_state": "Cada escritura a plan.json/progress.json pasa validación de schema. Si hay corrupción, se hace rollback automático.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "_validate_schema se llamaba manualmente en cmd_create, cmd_add_task, cmd_close. write_json() no validaba. Ahora _post_write_validate() se llama siempre despues de write_json.",
+          "estructura": "write_json() → _post_write_validate(path) → _validate_schema(path, schema_name). Si plan.json → plan.schema.json. Si progress.json → progress.schema.json.",
+          "comportamiento": "Toda escritura via write_json valida schema post-escritura. Si falla, el error se muestra pero no revierte (el cambio ya se hizo).",
+          "causalidad": "Antes: validacion solo en algunos comandos. Ahora: en todas las escrituras via write_json.",
+          "finalidad": "Toda escritura al sprint pasa validacion de schema.",
+          "principios": "Validacion automatica post-escritura. Non-blocking."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-021",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Comandos de inspección",
+        "objective": "Implementar spring.py diff <chain> (plan vs progress), spring.py blockers <chain> (tasks bloqueadas por riesgo), spring.py export <chain> --md (reporte markdown del sprint).",
+        "result_state": "spring.py diff, blockers, y export --md existen y funcionan.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "No existian comandos diff, blockers. Si existia graph export --json y --html. Ahora: spring.py diff <chain> compara plan vs progress. spring.py blockers <chain> lista tareas con curvature >= 0.4.",
+          "estructura": "spring.py cmd_diff: lee plan+progress, itera tasks, muestra status. cmd_blockers: lee plan, filtra risks.curvature >= 0.4. graph export: JSON y HTML.",
+          "comportamiento": "diff: itera tasks del plan, compara con task_states del progress. blockers: filtra curvature >= 0.4, pre_churn >= 0.3, trust < 0.7. export: grafo completo.",
+          "causalidad": "Sin estos comandos, revisar el estado requeria leer JSON directamente. Ahora hay comandos especificos.",
+          "finalidad": "Inspeccion del sprint sin leer JSON crudo.",
+          "principios": "Comandos de inspeccion dedicados. Datos desde el grafo cuando sea posible."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-022",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Documentación con flujos reales",
+        "objective": "Agregar a SKILL.md: sección \"Troubleshooting\" con 5+ escenarios reales (task falla, sprint corrupto, goal cambió, verificación lenta, conflictos de plan). Sección \"Workflows\" con ejemplos de comandos completos para modificar goal, recuperar sprint, y cerrar correctamente.",
+        "result_state": "SKILL.md tiene secciones Troubleshooting (5+ escenarios) y Workflows (3+ flujos completos con comandos).",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/advance.py",
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "SKILL.md necesita documentar los nuevos comandos: implement/verify/approve, graph, diff, blockers, y los cambios en write_json (git auto-commit, validacion).",
+          "estructura": "SKILL.md existente en .claude/skills/delta/. Secciones a actualizar: Commands (agregar nuevos), Workflows (flujo 3-modos), Troubleshooting.",
+          "comportamiento": "Documentar flujo recomendado: implement → verify → approve. Documentar graph subcomandos. Documentar diff y blockers.",
+          "causalidad": "Sin docs, el LLM no sabe que existen los nuevos comandos.",
+          "finalidad": "Documentacion actualizada del skill.",
+          "principios": "Docs como onboarding del LLM. Flujo 3-modos como recomendacion principal."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-023",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "Modelo 3-modos: task.py implement → verify → approve",
+        "objective": "Reemplazar task.py advance + --act-as por 3 comandos de modo: 1) task.py implement TASK-XXX (dev): carga task_context + archivos afectados, genera prompt con predicates del task, decisión: avanzar a verify o refinar. 2) task.py verify TASK-XXX (qa): carga predicates + verify_predicate real, genera evidencia por predicate, decisión: listo para PO o volver a dev. 3) task.py approve TASK-XXX (po): carga goal + delta total + G_objetivo predicates + riesgos, decisión: confirmar o rechazar. Cada modo sugiere automáticamente la transición al siguiente. task.py advance queda como wrapper legacy.",
+        "result_state": "task.py implement, verify, y approve existen como comandos separados. Cada uno carga el contexto correcto para su rol. El flujo implement→verify→approve es auto-sugerido en el output. advance funciona como fallback con --act-as.",
+        "scrum_role": "dev",
+        "depends_on": [
+          "TASK-014",
+          "TASK-016"
+        ],
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_implement",
+              "file": ".claude/skills/delta/scripts/task.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_verify",
+              "file": ".claude/skills/delta/scripts/task.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_approve",
+              "file": ".claude/skills/delta/scripts/task.py"
+            },
+            "python3 -c \"import sys; sys.path.insert(0, '.'); from task import cmd_implement, cmd_verify, cmd_approve; print('OK')\""
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/task.py",
+            ".claude/skills/delta/scripts/delta-advance.py",
+            ".claude/skills/delta/scripts/_internal/prompt_engine.py"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.2,
+          "commit_trust": 0.8
+        },
+        "task_context": {
+          "observacion": "task.py advance existe como unico comando con --confirm. --act-as po/dev/qa existe como role flag pero no cambia el contexto del prompt. task_context siempre visible. El LLM ve toda la informacion mezclada sin separacion por rol.",
+          "estructura": "3 nuevos comandos en task.py: cmd_implement (dev context + TASK LOOP), cmd_verify (evidencia por predicate + graph data), cmd_approve (goal + delta + confirm). Comparten _internal/advance_mod y _internal/verification con cmd_advance legacy. DeltaGraph opcional para datos de grafo en verify y approve.",
+          "comportamiento": "Flujo: implement → verify → approve con sugerencias automaticas. Cada comando carga solo el contexto de su rol. implement no aprueba ni verifica. verify no implementa ni aprueba. approve confirma contra el goal. advance legacy sigue disponible.",
+          "causalidad": "Antes: --act-as solo cambiaba mensajes, no el contexto. Ahora: cada modo es un comando separado con su propio prompt. Reduce ruido cognitivo: el LLM ve solo lo relevante para su paso actual.",
+          "finalidad": "implement: contexto + predicates. verify: evidencia + grafo. approve: goal + delta + confirm. Transiciones explicitas entre modos.",
+          "principios": "1 comando = 1 rol. Contexto especifico por modo. Transiciones explicitas. advance legacy como fallback."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-024",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "DeltaGraph: capa de grafo para navegar relaciones entre datos",
+        "objective": "Crear _internal/graph.py con DeltaGraph que construye networkx.DiGraph desde plan.json + progress.json. Nodos: task, predicate, file, symbol, risk, event, sprint. Edges: depends_on, has_predicate, verifies_symbol, impacts_file, has_risk, has_event. Métodos: neighbors(), path(), critical_path(), impact(), subgraph(). spring.py graph con subcomandos: neighbors, path, query, export --html.",
+        "result_state": "networkx instalado. _internal/graph.py con DeltaGraph. spring.py graph neighbors <node> funciona. spring.py graph path <a> <b> funciona.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "python3 -c \"import networkx; print(1)\""
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/_internal/graph.py",
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "loop_verification": [],
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "plan.json (24 tasks) y progress.json (31 trail events, 15/24 completed) almacenan relaciones en campos anidados. 1 sola tarea usa depends_on (TASK-023 → TASK-014, TASK-016). 24/24 tasks referencian artefactos_impactados.files con paths relativos (ej: .claude/skills/delta/scripts/spring.py). validation.predicates contiene strings (shell) y dicts (symbol_exists, command_output, command_exit). task_context tiene 6 capas fijas. progress.trail tiene eventos con at (timestamp), distance (float), event (descripcion). task_states es dict {task_id: status}. No existe indice inverso: no se puede preguntar que tareas impactan spring.py sin iterar todas.",
+          "estructura": "Componentes: 1) plan.json: plan.tasks[] cada task con depends_on[], validation.predicates[], artefactos_impactados.files[], risks{}, task_context{6 capas}. 2) progress.json: progress.trail[] con {at, distance, event}, progress.current.task_states{}. 3) spring.py: cmd_close, cmd_status, cmd_create, cmd_reopen — leen plan+progress via load_json. 4) task.py: cmd_advance, cmd_score, cmd_research — usan _internal/advance, score, enforce. 5) _internal/verification.py: verify_predicate, verify_predicates_batch. Relaciones implicitas: depends_on (string→string), files (sin indice inverso), trail.event menciona task_ids en texto libre. Nuevo: _internal/graph.py con DeltaGraph que wrappea networkx.DiGraph. spring.py cmd_graph con subcomandos neighbors/path/query/export.",
+          "comportamiento": "Flujo actual: cada comando carga plan+progress independientemente con load_json(). Navega depends_on iterando tasks y comparando strings. Busca files impactados iterando todas las tasks. Trail events se leen secuencialmente. No hay cache de estas relaciones. Cada consulta (ej: que tareas dependen de TASK-005) requiere O(N) iteracion. Con DeltaGraph: build() una vez → networkx.DiGraph con nodos tipados (task:, pred:, file:, symbol:, risk:, event:) → neighbors() O(1), path() BFS, critical_path() longest path. CLI: spring.py graph neighbors <node> → lista nodos adyacentes con tipo de edge.",
+          "causalidad": "La ausencia de grafo causa codigo repetitivo: spring.py cmd_close itera tasks manualmente, cmd_status hace lo mismo. task.py cmd_advance itera para validar task_context. Cada comando implementa su propia logica de navegacion. Con DeltaGraph, todas las consultas usan la misma API. networkx es dependencia liviana (~2MB). El grafo no reemplaza plan.json/progress.json — es vista materializada que se reconstruye al instanciar. Si los datos fuente cambian, el grafo se reconstruye (no hay sincronizacion incremental necesaria porque el dataset es pequeño: <50 tareas, <150 predicates).",
+          "finalidad": "Que el skill delta pueda responder queries de grafo: 1) spring.py graph neighbors <node> — nodos adyacentes con tipo de edge y metadata. 2) spring.py graph path <a> <b> — camino mas corto entre dos entidades (ej: TASK-005 → spring.py pasando por predicates). 3) spring.py graph query \"tasks que impactan spring.py\" — filtro por tipo de nodo/edge. 4) spring.py graph export --html — visualizacion interactiva del sprint. 5) Uso interno futuro: verify_predicate podria consultar el grafo en vez de ejecutar sg para symbol_exists ya verificados.",
+          "principios": "1) Grafo como vista derivada — fuente de verdad sigue siendo plan.json + progress.json. 2) networkx como motor — no reinventar estructura de grafos. 3) Tipado de nodos con prefijos (task:, pred:, file:, symbol:, risk:, event:) para queries componibles y filtrado rapido. 4) CLI minimal — subcomandos planos, sin DSL complejo. 5) Inmutabilidad del grafo — solo consulta, nunca modifica datos fuente. 6) Build-on-demand — se construye bajo demanda, no en cada operacion del skill. 7) networkx.DiGraph dirigido — las relaciones son direccionales (task → predicate → symbol)."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-025",
+        "type": "bugfix",
+        "domain": "tooling",
+        "task_description": "Fix: add-task filter predicates into g_objetivo",
+        "objective": "Arreglar cmd_add_task en spring.py: los validation predicates de tasks nuevas se estan agregando accidentalmente a g_objetivo.predicates.must_exist como dicts (cuando ese array solo acepta strings).",
+        "result_state": "spring.py add-task no modifica g_objetivo. Solo agrega la task al array tasks[].",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_add_task en spring.py agrega validation.predicates al g_objetivo.must_exist cuando processa el JSON de la nueva task. El predicate dict aparece en g_objetivo en vez de solo en la task.",
+          "estructura": "cmd_add_task → parsea --task JSON → agrega a tasks[] → escribe plan. El bug esta en como construye el objeto final: algo concatena o mergea los predicates al g_objetivo.",
+          "comportamiento": "Fix: asegurar que los predicates de la task solo vayan a t.validation.predicates, nunca a g_objetivo.predicates.must_exist.",
+          "causalidad": "Bug de merge/override: posiblemente el codigo que copia campos esta aplicando los predicates al nivel incorrecto.",
+          "finalidad": "add-task agrega tasks sin corromper el g_objetivo.",
+          "principios": "Separation of concerns: task predicates != goal predicates."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-026",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "update-task acepta JSON multi-linea desde stdin/archivo",
+        "objective": "Mejorar cmd_update_task: permitir --task_context-file <path> para cargar contexto de 6 capas desde archivo JSON. Y --stdin para leer desde stdin.",
+        "result_state": "spring.py update-task --task_context-file context.json funciona. JSON multi-linea no rompe el parser.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "cmd_update_task acepta --field value pero los valores JSON multi-linea no pasan correctamente por CLI. Escribir 6 capas de task_context en una linea de comando no es viable.",
+          "estructura": "Agregar --task_context-file <path> que lee json del archivo. Agregar --stdin para leer desde pipe.",
+          "comportamiento": "spring.py update-task <chain> <task> --task_context-file ctx.json → lee JSON → actualiza task_context.",
+          "causalidad": "Sin soporte de archivo/stdin, el LLM debe editar plan.json con Python para valores complejos.",
+          "finalidad": "Update-task usable para task_context de 6 capas.",
+          "principios": "CLI amigable. Soporte para datos complejos via archivo o stdin."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-027",
+        "type": "bugfix",
+        "domain": "tooling",
+        "task_description": "Relajar schema: permitir validation.predicates vacio",
+        "objective": "Modificar plan.schema.json para que validation.predicates pueda ser array vacio. WIP tasks no deberian requerir predicates definidos.",
+        "result_state": "Plan con tasks que tienen validation.predicates: [] es valido. No se rechaza en create ni add-task.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/schema/plan.schema.json"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "plan.schema.json requiere validation.predicates con minItems: 1. Esto hace imposible crear tasks WIP sin predicates.",
+          "estructura": "Cambiar minItems de 1 a 0 en el schema. Agregar validacion en advance para advertir si no hay predicates.",
+          "comportamiento": "validation.predicates: [] → schema valido. advance advierte pero no bloquea.",
+          "causalidad": "Schema demasiado estricto fuerza placeholders. Relajar permite WIP limpio.",
+          "finalidad": "Tasks pueden existir sin predicates definidos.",
+          "principios": "Schema como guia, no como bloqueo. Validacion en advance, no en create."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-028",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "spring.py bulk-update para actualizar multiples tasks",
+        "objective": "Crear spring.py bulk-update <chain_dir> --set field=value --filter \"status=pending\". Actualiza multiples tasks en una operacion.",
+        "result_state": "spring.py bulk-update --set validation.predicates=[\"true\"] --filter \"status=pending\" actualiza todas las tasks pendientes.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "task_context": {
+          "observacion": "No existe comando bulk. Para actualizar 8 tasks, el LLM edita JSON directo porque hacer 8 llamadas update-task seria lento y verboso.",
+          "estructura": "cmd_bulk_update: parsea --set field=value, --filter (status, type, domain). Itera tasks que cumplen filtro, aplica cambio, escribe plan.",
+          "comportamiento": "spring.py bulk-update <chain> --set validation.predicates=[json] --filter status=pending → actualiza todas las pendientes.",
+          "causalidad": "Sin bulk, operaciones sobre multiples tasks requieren edicion manual o subprocess por task.",
+          "finalidad": "Edicion masiva semantica de tasks.",
+          "principios": "Batch via filtro. Un solo write. Validation post-bulk."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-029",
+        "type": "feature",
+        "domain": "tooling",
+        "task_description": "update-task --status done|pending",
+        "objective": "Agregar flag --status done|pending a cmd_update_task. El campo status actualmente no es editable via update-task.",
+        "result_state": "spring.py update-task <chain> <task> --status done funciona.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.1,
+          "commit_trust": 0.95
+        },
+        "task_context": {
+          "observacion": "task_states se manejan via progress.json. update-task no puede cambiar el status de una task.",
+          "estructura": "Agregar --status flag. Si --status done, actualiza progress.json task_states[tid] = completed.",
+          "comportamiento": "spring.py update-task <chain> <task> --status done → progress.task_states[tid] = completed.",
+          "causalidad": "Sin --status, el unico camino es task.py advance o editar progress.json.",
+          "finalidad": "Cambiar status de task via comando semantico.",
+          "principios": "Comando semantico sobre JSON directo."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-030",
+        "type": "bugfix",
+        "domain": "tooling",
+        "task_description": "Atomic write_json con rollback",
+        "objective": "write_json debe validar schema ANTES de sobrescribir el archivo. Si falla, no escribe. Guardar backup en .cognitive/backups/.",
+        "result_state": "write_json es atomico: validacion → backup → escritura. Si validacion falla, archivo original no se modifica.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.2,
+          "commit_trust": 0.85
+        },
+        "task_context": {
+          "observacion": "write_json escribe el archivo y luego llama _post_write_validate. Si falla, el archivo ya quedo corrupto en disco.",
+          "estructura": "Reordenar: 1) backup del archivo original, 2) validar nuevo contenido contra schema, 3) escribir solo si valida.",
+          "comportamiento": "write_json → backup → validate new content → if valid: write → if invalid: keep original, log error.",
+          "causalidad": "Orden actual (write primero, validate despues) deja el archivo corrupto en disco. El orden correcto es validate primero.",
+          "finalidad": "Archivos del sprint nunca corruptos por operaciones fallidas.",
+          "principios": "Atomicidad. Validar antes de escribir. Backup pre-escritura."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-031",
+        "type": "docs",
+        "domain": "tooling",
+        "task_description": "Actualizar SKILL.md con comandos nuevos y flujos reales",
+        "objective": "Agregar a SKILL.md: comando graph, 3-modos (implement/verify/approve), diff, blockers, bulk-update. Seccion Troubleshooting con 5+ escenarios. Seccion Workflows con flujo completo recomendado.",
+        "result_state": "SKILL.md documenta todos los comandos actuales. Troubleshooting cubre escenarios reales. Workflows muestra el flujo 3-modos.",
+        "scrum_role": "dev",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/SKILL.md"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.1,
+          "commit_trust": 0.95
+        },
+        "task_context": {
+          "observacion": "SKILL.md actualmente no menciona graph, implement/verify/approve, diff, blockers. Tampoco tiene Troubleshooting ni Workflows con ejemplos de comandos.",
+          "estructura": "Secciones: Commands (todos), Workflows (3-modos + recovery), Troubleshooting (5+ escenarios), Quick start.",
+          "comportamiento": "LLM lee SKILL.md → entiende comandos disponibles → sigue workflow recomendado → usa troubleshooting si algo falla.",
+          "causalidad": "Sin SKILL.md actualizada, el LLM no descubre los comandos nuevos. El skill no es auto-descubrible.",
+          "finalidad": "Documentacion completa y auto-contenida del skill.",
+          "principios": "Self-documenting skill. Workflows como guia principal."
+        },
+        "role": "core",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "depends_on": [],
+        "preconditions": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-032",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "symbol_exists consulta DeltaGraph primero. Si el simbolo esta en el grafo, responder desde ahi sin ejecutar sg. Fallback a sg si no.",
+        "result_state": "verify_predicate con type=symbol_exists consulta grafo primero. Respuesta O(1) si el simbolo ya esta en el grafo.",
+        "domain": "tooling",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/_internal/verification.py",
+            ".claude/skills/delta/scripts/_internal/graph.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.85
+        },
+        "depends_on": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "task_description": "Grafo en verify_predicate: symbol_exists consulta grafo antes de sg",
+        "task_context": {
+          "observacion": "Archivos existentes: 0 (ninguno). Archivos nuevos: 2. APIs/símbolos a crear: 0.",
+          "estructura": "Componentes: 0 archivos existentes, 2 nuevos. Símbolos identificados: por descubrir.",
+          "comportamiento": "Objetivo: symbol_exists consulta DeltaGraph primero. Si el simbolo esta en el grafo, respo. Archivos impactados: .claude/skills/delta/scripts/_internal/verification.py, .claude/skills/delta/scripts/_internal/graph.py. APIs a conectar: 0.",
+          "causalidad": "Código nuevo sin romper existente.",
+          "finalidad": "symbol_exists consulta DeltaGraph primero. Si el simbolo esta en el grafo, respo. Criterios de éxito: todos los predicates pasan en TASK LOOP.",
+          "principios": "Patrones del proyecto en tooling. Basado en investigación de código real."
+        },
+        "importer_files": 0,
+        "preconditions": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-033",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Con --graph, mostrar subgrafo de la tarea antes del TASK LOOP: vecinos, dependencias, predicates, archivos, riesgos.",
+        "result_state": "task.py advance TASK-XXX --graph muestra subgrafo con vecinos antes del loop.",
+        "domain": "tooling",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/task.py",
+            ".claude/skills/delta/scripts/_internal/graph.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "depends_on": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "task_description": "task.py advance --graph: subgrafo automatico",
+        "task_context": {
+          "observacion": "Archivos existentes: 0 (ninguno). Archivos nuevos: 2. APIs/símbolos a crear: 0.",
+          "estructura": "Componentes: 0 archivos existentes, 2 nuevos. Símbolos identificados: por descubrir.",
+          "comportamiento": "Objetivo: Con --graph, mostrar subgrafo de la tarea antes del TASK LOOP: vecinos, dependen. Archivos impactados: .claude/skills/delta/scripts/task.py, .claude/skills/delta/scripts/_internal/graph.py. APIs a conectar: 0.",
+          "causalidad": "Código nuevo sin romper existente.",
+          "finalidad": "Con --graph, mostrar subgrafo de la tarea antes del TASK LOOP: vecinos, dependen. Criterios de éxito: todos los predicates pasan en TASK LOOP.",
+          "principios": "Patrones del proyecto en tooling. Basado en investigación de código real."
+        },
+        "importer_files": 0,
+        "preconditions": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-034",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Usar grafo para medir: modulos acoplados, predicates huerfanos, cobertura de archivos, riesgo acumulado.",
+        "result_state": "spring.py analyze muestra tabla archivo|grado|tasks|predicates|riesgo.",
+        "domain": "tooling",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_analyze",
+              "file": ".claude/skills/delta/scripts/spring.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "DeltaGraph",
+              "file": ".claude/skills/delta/scripts/_internal/graph.py"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/graph.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.85
+        },
+        "depends_on": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "task_description": "spring.py analyze: autodiagnostico del skill",
+        "task_context": {
+          "observacion": "Archivos existentes: 2 (.claude/skills/delta/scripts/spring.py, .claude/skills/delta/scripts/_internal/graph.py). Archivos nuevos: 0. APIs/símbolos a crear: 0.",
+          "estructura": "Componentes: 2 archivos existentes, 0 nuevos. Símbolos identificados: por descubrir.",
+          "comportamiento": "Objetivo: Usar grafo para medir: modulos acoplados, predicates huerfanos, cobertura de arc. Archivos impactados: .claude/skills/delta/scripts/spring.py, .claude/skills/delta/scripts/_internal/graph.py. APIs a conectar: 0.",
+          "causalidad": "Restricciones: archivos existentes no deben duplicarse. Invariantes: $existing_list ya existen.",
+          "finalidad": "Usar grafo para medir: modulos acoplados, predicates huerfanos, cobertura de arc. Criterios de éxito: todos los predicates pasan en TASK LOOP.",
+          "principios": "Patrones del proyecto en tooling. Basado en investigación de código real."
+        },
+        "importer_files": 0,
+        "preconditions": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-035",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Score 0-100 basado en: cobertura predicates, riesgo acumulado, progreso, trazabilidad, acoplamiento.",
+        "result_state": "spring.py health muestra score + desglose por categoria.",
+        "domain": "tooling",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_health",
+              "file": ".claude/skills/delta/scripts/spring.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "DeltaGraph",
+              "file": ".claude/skills/delta/scripts/_internal/graph.py"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/_internal/graph.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "depends_on": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "task_description": "spring.py health: score de salud del sprint",
+        "task_context": {
+          "observacion": "Archivos existentes: 2 (.claude/skills/delta/scripts/spring.py, .claude/skills/delta/scripts/_internal/graph.py). Archivos nuevos: 0. APIs/símbolos a crear: 0.",
+          "estructura": "Componentes: 2 archivos existentes, 0 nuevos. Símbolos identificados: por descubrir.",
+          "comportamiento": "Objetivo: Score 0-100 basado en: cobertura predicates, riesgo acumulado, progreso, trazabi. Archivos impactados: .claude/skills/delta/scripts/spring.py, .claude/skills/delta/scripts/_internal/graph.py. APIs a conectar: 0.",
+          "causalidad": "Restricciones: archivos existentes no deben duplicarse. Invariantes: $existing_list ya existen.",
+          "finalidad": "Score 0-100 basado en: cobertura predicates, riesgo acumulado, progreso, trazabi. Criterios de éxito: todos los predicates pasan en TASK LOOP.",
+          "principios": "Patrones del proyecto en tooling. Basado en investigación de código real."
+        },
+        "importer_files": 0,
+        "preconditions": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-036",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "test validation",
+        "result_state": "Cada comando muestra sugerencia contextual al final basada en datos del grafo.",
+        "domain": "tooling",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_advance",
+              "file": ".claude/skills/delta/scripts/task.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "DeltaGraph",
+              "file": ".claude/skills/delta/scripts/_internal/graph.py"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py",
+            ".claude/skills/delta/scripts/task.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "depends_on": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "task_description": "Sugerencias post-comando basadas en grafo",
+        "task_context": {
+          "observacion": "Objetivo: Mostrar sugerencia contextual del siguiente paso optimo. Usa grafo para relevancia.\nEstado esperado: Cada comando muestra sugerencia contextual al final basada en datos del grafo.\nArchivos existentes (2):\n  - spring.py: eprint, load_json, write_json, find_project_root, cmd_create\n  - task.py: eprint, load_json, write_json, find_project_root, get_project_path\nContexto previo: Objetivo: Mostrar sugerencia contextual del siguiente paso optimo. Usa grafo para relevancia.\nEstado esperado: Cada comando muestra sugerencia contextual al final basada en datos del grafo.\nArchivos e",
+          "estructura": "Tipo de tarea: refactor\nDominio: tooling\nOrganización de archivos:\n  - .claude/skills/delta/scripts/spring.py (en scripts)\n  - .claude/skills/delta/scripts/task.py (en scripts)",
+          "comportamiento": "Result state: Cada comando muestra sugerencia contextual al final basada en datos del grafo.",
+          "causalidad": "Predicates (2):\n  - {'type': 'symbol_exists', 'symbol': 'cmd_advance', 'file': '.claude/skills/delta/scripts/task.py'}\n  - {'type': 'symbol_exists', 'symbol': 'DeltaGraph', 'file': '.claude/skills/delta/scripts/_internal/graph.py'}",
+          "finalidad": "Decisiones: Pendientes de registrar durante implementación",
+          "principios": "Work type: refactor\nPatrones existentes en código (40 símbolos en total):\n  - spring.py define: eprint, load_json, write_json, find_project_root\n  - task.py define: eprint, load_json, write_json, find_project_root\nRol: core"
+        },
+        "importer_files": 0,
+        "preconditions": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-037",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_json.",
+        "result_state": "bulk-update --dry-run muestra diff sin escribir. write_json --dry-run imprime JSON a stdout.",
+        "domain": "tooling",
+        "validation": {
+          "predicates": [
+            {
+              "type": "symbol_exists",
+              "symbol": "cmd_bulk_update",
+              "file": ".claude/skills/delta/scripts/spring.py"
+            },
+            {
+              "type": "symbol_exists",
+              "symbol": "write_json",
+              "file": ".claude/skills/delta/scripts/spring.py"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            ".claude/skills/delta/scripts/spring.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "depends_on": [],
+        "acceptance_criteria": [],
+        "quality_gates": [],
+        "task_description": "--dry-run en bulk-update y write_json",
+        "task_context": {
+          "observacion": "Archivos existentes: 1 (.claude/skills/delta/scripts/spring.py). Archivos nuevos: 0. APIs/símbolos a crear: 0.",
+          "estructura": "Componentes: 1 archivos existentes, 0 nuevos. Símbolos identificados: por descubrir.",
+          "comportamiento": "Objetivo: Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_. Archivos impactados: .claude/skills/delta/scripts/spring.py. APIs a conectar: 0.",
+          "causalidad": "Restricciones: archivos existentes no deben duplicarse. Invariantes: $existing_list ya existen.",
+          "finalidad": "Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_. Criterios de éxito: todos los predicates pasan en TASK LOOP.",
+          "principios": "Patrones del proyecto en tooling. Basado en investigación de código real."
+        },
+        "importer_files": 0,
+        "preconditions": [],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {}
+      },
+      {
+        "task_id": "TASK-038",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "feature",
+        "work_type": "refactor",
+        "objective": "test con criterios gates y preconditions reales",
+        "result_state": "test completado correctamente con todos los campos requeridos",
+        "domain": "tooling",
+        "validation": {
+          "predicates": [
+            {
+              "type": "command_exit",
+              "command": "true"
+            }
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "x.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "depends_on": [],
+        "preconditions": [
+          "Python 3.10 instalado y configurado correctamente"
+        ],
+        "acceptance_criteria": [
+          "El comando se ejecuta sin errores en consola"
+        ],
+        "quality_gates": [
+          "El codigo no introduce efectos secundarios"
+        ],
+        "loop_verification": [],
+        "loop_acceptance": "all",
+        "decisions": [],
+        "refinement": {},
+        "importer_files": 0,
+        "task_description": "test completo",
+        "task_context": {
+          "observacion": "Objetivo: test con criterios gates y preconditions reales. Archivos: x.py.",
+          "estructura": "Archivos x.py en dominio tooling.",
+          "comportamiento": "Implementar: test con criterios gates y preconditions reales.",
+          "causalidad": "Restricciones a investigar.",
+          "finalidad": "Cumplir objetivo de la tarea.",
+          "principios": "Convenciones del proyecto en tooling."
+        }
+      }
+    ],
+    "parameters": {}
+  }
+}

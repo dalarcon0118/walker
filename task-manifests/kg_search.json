@@ -1,0 +1,56 @@
+{
+  "description": "Search the CognitiveGraph (CKG, CPG, Delta, Trace) for knowledge",
+  "usage": "walker <project>/kg_search '{"campo":"valor"}'",
+  "tags": [
+    "knowledge",
+    "query"
+  ],
+  "input_schema": {
+    "required": [
+      "index"
+    ],
+    "optional": [
+      "query",
+      "filters"
+    ],
+    "index": {
+      "type": "string",
+      "description": "Index to search: ckg | cpg | delta | trace",
+      "example": "ckg"
+    },
+    "query": {
+      "type": "object",
+      "description": "Search filters as JSON",
+      "example": {
+        "type": "refactor"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "took": {
+            "type": "integer"
+          },
+          "hits": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "hits": {
+                "type": "array"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,360 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "game-reset-page-bootstrap-20260701",
+      "generated_at": "2026-07-01T00:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-01T00:00:00-03:00",
+        "d": 1.0,
+        "ps": "0/33",
+        "tc": [],
+        "e": "Plan game-reset-page creado. 10 tareas, 33 must_exist + 4 must_not_exist + 6 invariants. Score inicial 0.81."
+      },
+      {
+        "at": "2026-07-01T11:35:00-03:00",
+        "d": 0.879,
+        "ps": "4/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD"
+        ],
+        "e": "F0 REPO-INIT-SCAFFOLD. tsc 0 errors, build 2.1s 4/4 pages.",
+        "calibration": {
+          "expected_satisfied": 6,
+          "actual_satisfied": 4,
+          "type": "under_estimated",
+          "error_pct": 13.5,
+          "cause": "create-next-app entrega 4 de 6 predicates; el resto en F3"
+        }
+      },
+      {
+        "at": "2026-07-01T12:50:00-03:00",
+        "d": 0.742,
+        "ps": "8/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS"
+        ],
+        "e": "F1 ARCHITECTURE-FOLDERS: 4 dirs + 4 READMEs. tsc 0 errors, build OK.",
+        "calibration": {
+          "expected_satisfied": 4,
+          "actual_satisfied": 4,
+          "type": "perfect",
+          "error_pct": 0,
+          "cause": null
+        }
+      },
+      {
+        "at": "2026-07-01T13:15:00-03:00",
+        "d": 0.636,
+        "ps": "10/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG"
+        ],
+        "e": "F2 TOOLING-BIOME-TSCONFIG: Biome 2.5.2 instalado, biome.json con formatter+lint+tailwindDirectives, tsconfig endurecido con noUncheckedIndexedAccess, .vscode/{settings,extensions}.json. Bonus: deleted 5 demo SVGs de create-next-app. Verifications: pnpm lint 0 errors, tsc 0 errors, build 4/4 pages.",
+        "calibration": {
+          "expected_satisfied": 1,
+          "actual_satisfied": 2,
+          "type": "over_estimated_deferred",
+          "error_pct": -100,
+          "cause": "el predicate tsconfig con noUncheckedIndexedAccess (deferido de F0) se cerró en F2 — score > esperado"
+        }
+      },
+      {
+        "at": "2026-07-01T15:50:00-03:00",
+        "d": 0.530,
+        "ps": "14/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG",
+          "DESIGN-SYSTEM-TAILWIND-SHADCN"
+        ],
+        "e": "F3 DESIGN-SYSTEM-TAILWIND-SHADCN: tokens.css (paleta OKLCH + 8 keyframes money-fall/shimmer/pulse-slow/count-up/fall-slow/fast), globals.css con @layer base + prefers-reduced-motion (WCAG 2.1 SC 2.3.3), shadcn/ui button/card/input (CVA + data-slot) + cn() helper, components.json, override biome noImportantStyles para src/presentation/theme/**. Commit 6d01bc6. pnpm lint 0 errors, tsc 0 errors, build 4/4 pages con cacheComponents activo.",
+        "calibration": {
+          "expected_satisfied": 4,
+          "actual_satisfied": 4,
+          "type": "perfect",
+          "error_pct": 0,
+          "cause": null,
+          "notes": "Bypass exitoso del shadcn CLI (que colgaba) usando manual templates; lint fix automático con biome-ignore removed in favor of biome.json override (más limpio para archivos completos)"
+        }
+      },
+      {
+        "at": "2026-07-01T16:30:00-03:00",
+        "d": 0.424,
+        "ps": "18/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG",
+          "DESIGN-SYSTEM-TAILWIND-SHADCN",
+          "BFF-INFRASTRUCTURE"
+        ],
+        "e": "F4 BFF-INFRASTRUCTURE: env/env.ts (zod schema con 7 vars: BACKEND_URL/API_KEY/TIMEOUT_MS/MAX_RETRIES/RETRY_DELAY_MS/NODE_ENV/NEXT_PUBLIC_API_BASE_URL), http/result.ts (Result<T,E> discriminated union + ok/err/map/andThen), http/error-mapper.ts (BackendError tipado con 8 codes estables + mapError + isRetryable), http/backend-client.ts (BackendClient class con get<T>/post<TBody,TResp>, AbortController por intento, X-Internal-Token opcional, logger estructurado en fallos), .env.example, .gitignore permite .env.example, infrastructure/README.md actualizado. Commit 48edb2e (9 files changed, 505 insertions). pnpm lint 0 errors, tsc 0 errors, build 4/4 pages. Decisiones en modo controlador: auth opcional (AllowAny MVP), retry 1x lineal 200ms solo en network/5xx/429, sin cache layer (usa 'use cache' directive en F6/F7). Endpoints reales del backend verificados: /api/draw/v2/draws/{id}/player-stats/ y /api/bets/audit/v/{hash}/.",
+        "calibration": {
+          "expected_satisfied": 4,
+          "actual_satisfied": 4,
+          "type": "perfect",
+          "error_pct": 0,
+          "cause": null,
+          "notes": "Verificación previa de URLs reales del backend Django (player-stats v2, public_audit) confirmó que el plan original era correcto. Skip de cache/fetch-cache.ts per R1+R8. AskUserQuestion cancelado por usuario → procedí en modo controlador con decisiones documentadas en código + commit message."
+        }
+      },
+      {
+        "at": "2026-07-01T17:00:00-03:00",
+        "d": 0.318,
+        "ps": "21/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG",
+          "DESIGN-SYSTEM-TAILWIND-SHADCN",
+          "BFF-INFRASTRUCTURE",
+          "BFF-PROXY-ROUTES"
+        ],
+        "e": "F5 BFF-PROXY-ROUTES: 3 Route Handlers en src/app/api/proxy/: (1) draws/[id]/player-stats/route.ts (GET) con zod schema del response verificado contra draw/views_v2.py:222-277, (2) draws/[id]/check-same-bet/route.ts (POST) con zod del body y prettifyError, (3) bets/audit/v/[hash]/route.ts (GET) con zod discriminatedUnion para 4 modes (online, offline_crypto_verified, offline_trust, unverified). Aplicado async params Promise<{id:string}> (Next 16 R1). Status mapping: 4xx propagados, 5xx→502. Commit c42ab4d (3 files, 295 insertions). pnpm lint 0 errors (24 files), tsc 0 errors, build 4/4 static + 3 dynamic routes registradas.",
+        "calibration": {
+          "expected_satisfied": 3,
+          "actual_satisfied": 3,
+          "type": "perfect",
+          "error_pct": 0,
+          "cause": null,
+          "notes": "Zod 4 incompatibilidad: z.union(options, params) y z.treeifyError(error, mapper) requieren 2 args. Refactor con z.unknown().refine() y z.prettifyError(). zod version 4.4.3. Response shape verificado leyendo draw/API_V2_SPEC.md y bet/views.py."
+        }
+      },
+      {
+        "at": "2026-07-01T17:15:00-03:00",
+        "d": 0.212,
+        "ps": "27/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG",
+          "DESIGN-SYSTEM-TAILWIND-SHADCN",
+          "BFF-INFRASTRUCTURE",
+          "BFF-PROXY-ROUTES",
+          "PLAYER-LANDING-PAGE"
+        ],
+        "e": "F6 PLAYER-LANDING-PAGE: 7 archivos nuevos + 3 route handlers refactorizados. domain/schemas/{draw,bet}.ts extraídos (consolida shapes, evita drift). application/get-landing-data.ts con 'use cache' (top of file, no parentizado — Next 16 requirement) + cacheLife('seconds') (30s). 4 components: hero (Server), counter-card (Client con rAF+ease-out cubic+prefers-reduced-motion), money-rain (Server, decorativo aria-hidden, motion-safe:animate-fall). app/(public)/p/page.tsx con <Suspense> (Cache Components R16). app/(public)/p/loading.tsx skeleton. Route /p aparece como ◐ Partial Prerender en build. Commit eb2a369 (11 files, 509 insertions, 125 deletions). pnpm lint 0 errors (32 files), tsc 0 errors, build 5/5 pages.",
+        "calibration": {
+          "expected_satisfied": 4,
+          "actual_satisfied": 6,
+          "type": "over_estimated_deferred",
+          "error_pct": -50,
+          "cause": "Schemas movidos a domain/ (refactor free de F5); los 3 route handlers modificaron sus imports → 6 files modificados, no 4 esperados. Bonus: 2 nuevos archivos domain/ que no estaban en el plan original pero eran necesarios para evitar duplicación.",
+          "notes": "Decisiones clave: (1) Suspense boundary OBLIGATORIO con Cache Components Next 16 (build falla sin él con 'Uncached data outside of <Suspense>'). (2) counter-card usa useState+rAF en vez de CSS @property (mejor compatibilidad Safari). (3) 'use cache' en top of file, no parentizado. (4) BackendClient logueó BACKEND_UNREACHABLE esperado (Django no corre en build time) — el build NO falló gracias a Suspense + Result sin throw."
+        }
+      },
+      {
+        "at": "2026-07-01T17:30:00-03:00",
+        "d": 0.106,
+        "ps": "31/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG",
+          "DESIGN-SYSTEM-TAILWIND-SHADCN",
+          "BFF-INFRASTRUCTURE",
+          "BFF-PROXY-ROUTES",
+          "PLAYER-LANDING-PAGE",
+          "PUBLIC-AUDIT-PAGE"
+        ],
+        "e": "F7 PUBLIC-AUDIT-PAGE: 5 archivos nuevos (get-public-audit.ts + 3 components + page). application/get-public-audit.ts con 'use cache' + cacheLife('minutes') (5min server, 1h stale client). 3 components audit: status-card (con accent color semántico verified/pending/unverified/error), bet-details (con <dl> semántica + Intl currency DOP), offline-instructions (con <details> expandible). app/(public)/audit/[hash]/page.tsx NO async — pasa Promise<params> al sub-component dentro de <Suspense> (NO use() en root, también es flagged). generateMetadata async con robots:index:false. Route /audit/[hash] aparece como ◐ Partial Prerender. Commit 71cee8f (5 files, 564 insertions). pnpm lint 0 errors (37 files), tsc 0 errors, build 6/6 pages.",
+        "calibration": {
+          "expected_satisfied": 3,
+          "actual_satisfied": 3,
+          "type": "perfect",
+          "error_pct": 0,
+          "cause": null,
+          "notes": "Decisiones clave: (1) cacheLife('minutes') en vez de 'seconds' — hash único, no necesita 30s. (2) use(params) de React 19 NO funciona con Cache Components (también es uncached) — workaround: pasar Promise al sub-component. (3) generateMetadata async está fuera del chequeo 'uncached data outside Suspense' (Next.js lo llama separado). (4) robots:index:false por datos personales."
+        }
+      },
+      {
+        "at": "2026-07-01T17:40:00-03:00",
+        "d": 0.000,
+        "ps": "33/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG",
+          "DESIGN-SYSTEM-TAILWIND-SHADCN",
+          "BFF-INFRASTRUCTURE",
+          "BFF-PROXY-ROUTES",
+          "PLAYER-LANDING-PAGE",
+          "PUBLIC-AUDIT-PAGE",
+          "SHARED-LAYOUT-THEME"
+        ],
+        "e": "F8 SHARED-LAYOUT-THEME: 7 archivos nuevos + 4 modificados. presentation/theme/theme-script.ts (anti-FOUC inline, lee localStorage 'game-reset-theme', fallback a prefers-color-scheme). theme-toggle (Client Component con useEffect+aria-label dinámico). header (sticky+backdrop-blur, nav links). footer (3 cols en md+). app/(public)/layout.tsx (flex-col+flex-1 main+sticky header). not-found.tsx (404 prominent+CTA). error.tsx (boundary con reset()). tokens.css +[data-theme='light'] (CSS variables invertidas manteniendo identidad de marca). layout.tsx root (inyecta themeScript+lang=es+suppressHydrationWarning). Refactor de p/page.tsx y audit/[hash]/page.tsx (sin duplicar header/footer). Commit c07066b (11 files, 403 insertions, 55 deletions). pnpm lint 0 errors (44 files), tsc 0 errors, build 6/6 pages (2 ◐ Partial Prerender).",
+        "calibration": {
+          "expected_satisfied": 2,
+          "actual_satisfied": 2,
+          "type": "perfect",
+          "error_pct": 0,
+          "cause": null,
+          "notes": "Decisiones clave: (1) dark por default (matches tokens actuales), light + system como alternativas. (2) localStorage('game-reset-theme') para persistencia. (3) Sin next-themes — 30 líneas propias son suficientes. (4) suppressHydrationWarning necesario porque el script anti-FOUC modifica el DOM antes de hidratación React. (5) Footer mt-auto via flex-col en (public)/layout. (6) robots:index:false en audit page (datos personales). (7) generateMetadata con title.template del root layout (herencia automática). Plan completo: 33/33 predicates cerrados."
+        }
+      },
+      {
+        "at": "2026-07-01T17:55:00-03:00",
+        "d": 0.000,
+        "ps": "33/33",
+        "tc": [
+          "REPO-INIT-SCAFFOLD",
+          "ARCHITECTURE-FOLDERS",
+          "TOOLING-BIOME-TSCONFIG",
+          "DESIGN-SYSTEM-TAILWIND-SHADCN",
+          "BFF-INFRASTRUCTURE",
+          "BFF-PROXY-ROUTES",
+          "PLAYER-LANDING-PAGE",
+          "PUBLIC-AUDIT-PAGE",
+          "SHARED-LAYOUT-THEME",
+          "DEPLOY-DOCKERFILE-TESTS"
+        ],
+        "e": "F9 DEPLOY-DOCKERFILE-TESTS: 5 archivos nuevos + 3 modificados. Dockerfile multi-stage (base node:20-slim con corepack+pnpm@9.15.9 -> deps con pnpm install --frozen-lockfile + pnpm cache mount -> builder con pnpm build -> runner no-root uid 1001 + healthcheck contra /p). .dockerignore excluye node_modules, tests, .env, docs. tests/setup.ts (server lifecycle: spawn child process, polling al puerto 30s, SIGTERM+SIGKILL fallback). tests/smoke.test.ts (9 tests: root, /p, /audit, 404, BFF proxy con 400 validation + 502 backend down). tests/cache.test.ts (6 tests: x-nextjs-stale-time header presence, cache stability, body byte-identity). Fix critico: next.config.ts outputFileTracingRoot=path.join(import.meta.dirname) para que Next.js NO infiera el workspace root del monorepo padre (package-lock.json) — sin esto la salida standalone quedaba anidada en .next/standalone/projects/game-reset-page/ y rompía el COPY del Dockerfile. devDep: tsx 4.22.4. Commit 9c5fbc0 (8 files, 1033 insertions, 1 deletion). pnpm lint 0 errors (47 files), tsc 0 errors, build 6/6 pages (2 ◐ Partial Prerender), tests 15/15 pass en 12s. Plan completo cerrado: 33/33 predicates must_exist + 4 must_not_exist + 6 invariants = 10/10 tasks.",
+        "calibration": {
+          "expected_satisfied": 0,
+          "actual_satisfied": 0,
+          "type": "operational_close",
+          "error_pct": 0,
+          "cause": null,
+          "notes": "F9 es operacional (cierre del plan), no sustantivo. Cierra el plan completo. Decisiones clave: (1) Tests E2E zero-deps (node:test + tsx) — sin Playwright/Vitest para MVP. (2) Puertos separados por archivo (TEST_PORT=3001/3002) + --test-concurrency=1 para evitar races con TIME_WAIT. (3) Lifecycle UNICO por archivo (no multiple before/after por describe) — choca con TIME_WAIT entre describe blocks. (4) Tests NO requieren backend Django (graceful degradation con 502). (5) Cache test verifica header x-nextjs-stale-time (no timing — frágil). (6) Smoke test valida validation errors 400 ademas de 502 — prueba que el route handler está vivo. (7) outputFileTracingRoot FIX CRITICO: sin esto, Next.js genera .next/standalone/projects/game-reset-page/server.js (anidado) en vez de .next/standalone/server.js (estándar)."
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "REPO-INIT-SCAFFOLD": "completed",
+        "ARCHITECTURE-FOLDERS": "completed",
+        "TOOLING-BIOME-TSCONFIG": "completed",
+        "DESIGN-SYSTEM-TAILWIND-SHADCN": "completed",
+        "BFF-INFRASTRUCTURE": "completed",
+        "BFF-PROXY-ROUTES": "completed",
+        "PLAYER-LANDING-PAGE": "completed",
+        "PUBLIC-AUDIT-PAGE": "completed",
+        "SHARED-LAYOUT-THEME": "completed",
+        "DEPLOY-DOCKERFILE-TESTS": "completed"
+      },
+      "next_action": {
+        "task_id": "PLAN_COMPLETE",
+        "candidate": "Plan game-reset-page-bootstrap-20260701 cerrado. 10/10 tasks completadas (F0-F9). Score final 0.0 (zero distance, plan completo).",
+        "type": "close",
+        "work_type": "close",
+        "target": "n/a",
+        "delta": "Plan cerrado. No quedan predicates must_exist abiertos.",
+        "confidence": 1.0,
+        "risk": 0.0,
+        "score": 0.0,
+        "rationale": "Todas las features F0-F9 implementadas y verificadas. 33/33 predicates must_exist cerrados. 4 must_not_exist respetados. 6 invariants mantenidos. Tests E2E + Dockerfile listos para deploy.",
+        "importer_files": 0,
+        "importer_factor": 1.0,
+        "dfg_verified": true,
+        "score_breakdown": {
+          "delta_base": 0.0,
+          "delta_ajustado": 0.0,
+          "delta_ponderado": 0.0,
+          "confidence": 1.0,
+          "risk_curvature": 0.0,
+          "coverage_bonus": 0.0,
+          "formula": "plan closed"
+        }
+      },
+      "model": {
+        "history": [
+          {
+            "task_id": "REPO-INIT-SCAFFOLD",
+            "error_type": "under_estimated",
+            "error_pct": 13.5,
+            "cause": "reasoning"
+          },
+          {
+            "task_id": "ARCHITECTURE-FOLDERS",
+            "error_type": "perfect",
+            "error_pct": 0,
+            "cause": null
+          },
+          {
+            "task_id": "TOOLING-BIOME-TSCONFIG",
+            "error_type": "over_estimated_deferred",
+            "error_pct": -100,
+            "cause": "tsconfig predicate de F0 se cerró aquí"
+          },
+          {
+            "task_id": "DESIGN-SYSTEM-TAILWIND-SHADCN",
+            "error_type": "perfect",
+            "error_pct": 0,
+            "cause": null,
+            "notes": "bypass shadcn CLI exitoso con manual templates; biome-ignore en archivo replaced por override en biome.json"
+          },
+          {
+            "task_id": "BFF-INFRASTRUCTURE",
+            "error_type": "perfect",
+            "error_pct": 0,
+            "cause": null,
+            "notes": "URLs reales del backend verificadas (player-stats v2, public_audit). AskUserQuestion cancelado → procedí en modo controlador con decisiones documentadas en código."
+          },
+          {
+            "task_id": "BFF-PROXY-ROUTES",
+            "error_type": "perfect",
+            "error_pct": 0,
+            "cause": null,
+            "notes": "Zod 4 incompatibilidades: union(options, params) y treeifyError(error, mapper) requieren 2 args. Refactor con z.unknown().refine() y z.prettifyError(). Response shape verificado leyendo views_v2.py y bet/views.py."
+          },
+          {
+            "task_id": "PLAYER-LANDING-PAGE",
+            "error_type": "over_estimated_deferred",
+            "error_pct": -50,
+            "cause": "schemas movidos a domain/ (refactor free de F5); bonus de 2 archivos nuevos no planificados",
+            "notes": "Decisiones clave: Suspense boundary obligatorio con Cache Components Next 16. counter-card usa useState+rAF (mejor compatibilidad Safari). 'use cache' en top of file. BackendClient logueó BACKEND_UNREACHABLE esperado (Django no corre en build time) — build NO falló gracias a Suspense + Result."
+          },
+          {
+            "task_id": "PUBLIC-AUDIT-PAGE",
+            "error_type": "perfect",
+            "error_pct": 0,
+            "cause": null,
+            "notes": "use(params) de React 19 NO funciona con Cache Components (también uncached) — workaround: pasar Promise al sub-component. cacheLife('minutes') justificado (hash único, no 30s)."
+          },
+          {
+            "task_id": "SHARED-LAYOUT-THEME",
+            "error_type": "perfect",
+            "error_pct": 0,
+            "cause": null,
+            "notes": "Dark por default (matches tokens), light+system via localStorage+prefers-color-scheme. Sin next-themes (30 líneas propias son suficientes). suppressHydrationWarning necesario (anti-FOUC script modifica DOM antes de hidratación)."
+          },
+          {
+            "task_id": "DEPLOY-DOCKERFILE-TESTS",
+            "error_type": "operational_close",
+            "error_pct": 0,
+            "cause": null,
+            "notes": "F9 operacional. Zero-deps tests (node:test + tsx). Fix critico outputFileTracingRoot para monorepo. Tests NO requieren backend (graceful 502). Lifecycle UNICO por archivo (TIME_WAIT). Smoke + cache tests pasando 15/15 en 12s."
+          }
+        ],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "importer_factor_range_6_plus": 0.70,
+          "work_type_multiplier_refactor_code_motion": 1.25,
+          "work_type_multiplier_refactor": 1.0,
+          "work_type_multiplier_feature_new_method": 1.0,
+          "work_type_multiplier_feature_new_file": 0.85,
+          "work_type_multiplier_feature_new_bc": 0.70,
+          "work_type_multiplier_refactor_inline": 0.65,
+          "work_type_multiplier_bugfix": 1.0,
+          "work_type_multiplier_optimization": 0.80,
+          "default_to_event_driven": false,
+          "landing_page_assumed_render_time": true,
+          "package_manager_default": "pnpm",
+          "node_minimum": "20.11.0",
+          "feature_new_bc_create_next_app_estimated_predicates": 4
+        }
+      }
+    }
+  }
+}

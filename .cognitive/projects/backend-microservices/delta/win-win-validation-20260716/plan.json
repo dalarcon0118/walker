@@ -1,0 +1,185 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "win-win-validation-20260716",
+      "generated_at": "2026-07-16T13:48:24.157060+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "backend-microservices",
+      "project_type": "backend",
+      "domains": [
+        "Validar",
+        "el",
+        "backend"
+      ],
+      "tags": [
+        "python"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Validar el backend de Win-Win: conectar a staging via SSH tunnel, ejecutar configure_win_win.py contra DB real, crear jugadas Win-Win via API, listar jugadas y verificar que la configuracion es correcta",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "tunel SSH activo a Oracle VPC (149.130.221.251:5433)",
+          "docker compose staging corriendo en puerto 8001",
+          "configure_win_win.py ejecutado contra DB staging",
+          "DrawType WIN_WIN existe en DB staging",
+          "BetType WIN_WIN_10x7 existe en DB staging",
+          "jugada Win-Win creada via API con 10 numeros de 7 digitos",
+          "jugada Win-Win listada correctamente",
+          "WinningRule y DrawDefinition creados en DB staging"
+        ],
+        "invariants": [
+          "no se modifican datos de produccion solo staging",
+          "las pruebas son en ambiente staging no local",
+          "el tunel SSH se cierra al terminar"
+        ],
+        "must_not_exist": []
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "objective": "Establecer tunel SSH al Oracle VPC 149.130.221.251 y verificar conexion a PostgreSQL staging",
+        "type": "feature",
+        "domain": "infra",
+        "result_state": "Tunel SSH activo en localhost:5433 apuntando a 149.130.221.251:5432, conexion PostgreSQL verificada",
+        "validation": {
+          "predicates": [
+            "ssh tunnel activo en puerto 5433",
+            "psql puede conectar a staging DB",
+            "tablas del schema existen"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "~/.ssh/known_hosts"
+          ]
+        },
+        "risks": {
+          "curvature": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "objective": "Levantar docker compose staging web y redis y verificar que el API responde en puerto 8001",
+        "type": "feature",
+        "domain": "infra",
+        "result_state": "Docker compose staging corriendo, API Django responde en localhost:8001",
+        "validation": {
+          "predicates": [
+            "docker compose up sin errores",
+            "curl localhost:8001/api/ responde 200",
+            "health check del servicio OK"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "docker-compose.staging.yml"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "objective": "Ejecutar configure_win_win.py contra DB staging y verificar DrawType BetType WinningRule y DrawDefinition creados",
+        "type": "feature",
+        "domain": "config",
+        "result_state": "configure_win_win.py ejecutado exitosamente en staging, todos los objetos de configuracion creados en DB",
+        "validation": {
+          "predicates": [
+            "DrawType.objects.filter(code=WIN_WIN).exists()",
+            "BetType.objects.filter(code=WIN_WIN_10x7).exists()",
+            "WinningRule.objects.filter(name=WIN_WIN_MATCH).exists()",
+            "DrawDefinition.objects.filter(draw_type__code=WIN_WIN).exists()"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "configure_win_win.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.08
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "objective": "Crear jugada Win-Win via API con 10 numeros de 7 digitos y verificar respuesta 201",
+        "type": "feature",
+        "domain": "api",
+        "result_state": "Jugada Win-Win creada exitosamente via POST /api/bets/ con status 201 y datos correctos",
+        "validation": {
+          "predicates": [
+            "POST /api/bets/ crea jugada con bet_type=WIN_WIN_10x7",
+            "10 numeros de 7 digitos enviados correctamente",
+            "respuesta incluye id de la jugada creada",
+            "status_code 201"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "api/bets/"
+          ]
+        },
+        "risks": {
+          "curvature": 0.12
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "objective": "Listar jugadas Win-Win y verificar que aparecen con 10 numeros de 7 digitos",
+        "type": "feature",
+        "domain": "api",
+        "result_state": "Jugadas Win-Win listadas correctamente via GET /api/bets/ con filtro bet_type",
+        "validation": {
+          "predicates": [
+            "GET /api/bets/ incluye jugadas WIN_WIN",
+            "filtro por bet_type funciona",
+            "numeros_played muestra 10 numeros de 7 digitos",
+            "paginacion y metadata correcta"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "api/bets/"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1
+        }
+      },
+      {
+        "task_id": "TASK-006",
+        "objective": "Detener docker compose staging cerrar tunel SSH y documentar resultados de la validacion",
+        "type": "feature",
+        "domain": "ops",
+        "result_state": "Ambiente staging detenido tunel cerrado y resultados documentados en el trail del sprint",
+        "validation": {
+          "predicates": [
+            "docker compose down ejecutado",
+            "tunel SSH cerrado",
+            "resultados de validacion documentados"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "logs/",
+            "docker-compose.staging.yml"
+          ]
+        },
+        "risks": {
+          "curvature": 0.05
+        }
+      }
+    ],
+    "parameters": {}
+  }
+}

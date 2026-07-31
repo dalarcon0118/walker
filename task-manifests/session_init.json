@@ -1,0 +1,32 @@
+{
+  "description": "Initialize session in the CKG",
+  "usage": "walker <project>/session_init",
+  "tags": [
+    "workflow",
+    "knowledge"
+  ],
+  "input_schema": {
+    "type": "object",
+    "properties": {},
+    "description": "No input required. Initializes session entry in CKG."
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

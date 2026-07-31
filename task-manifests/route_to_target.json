@@ -1,0 +1,47 @@
+{
+  "description": "Route refinement to the target node",
+  "usage": "walker <project>/route_to_target [--task_id <id>] [--target <node>]",
+  "tags": [
+    "workflow",
+    "refine"
+  ],
+  "input_schema": {
+    "required": [],
+    "optional": [
+      "task_id",
+      "target"
+    ],
+    "task_id": {
+      "type": "string",
+      "description": "Task ID",
+      "example": "TASK-001"
+    },
+    "target": {
+      "type": "string",
+      "description": "Target node to route to",
+      "example": "analyze"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "routed": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-message-capture-classification-20260706",
+      "generated_at": "2026-07-06T15:30:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["messages", "cognitive", "shared"],
+      "tags": ["python", "hexagonal", "cognitive-v2", "mcp-server", "message-store", "classification", "loop-prompting"]
+    },
+    "g_objetivo": {
+      "description": "Capturar automáticamente mensajes del usuario y respuestas del LLM con contenido semántico, clasificarlos con contexto GPS, y propagar trazabilidad (message_id → task_id) — cerrando el gap de captura de mensajes en el MCP y el LLM para alimentar el loop prompting con datos reales de conversación.",
+      "done_when": [
+        {
+          "criterio": "Texto del usuario se captura automáticamente desde params de tools (onboarding, context/infer, cell, session/init) con role=user y message_type=input",
+          "predicates": ["must_exist_1"],
+          "satisfied": false
+        },
+        {
+          "criterio": "Respuesta del LLM se captura desde hook en el agente con role=assistant y message_type=output, con parent_id del user message",
+          "predicates": ["must_exist_2", "must_exist_3"],
+          "satisfied": false
+        },
+        {
+          "criterio": "Mensajes se clasifican automáticamente con domain+type+task_id del GPS context al momento de captura",
+          "predicates": ["must_exist_4"],
+          "satisfied": false
+        },
+        {
+          "criterio": "message_id del user message se propaga como source_message_id a tools hijas (delta_plan, create_task, project) para trazabilidad completa",
+          "predicates": ["must_exist_5"],
+          "satisfied": false
+        },
+        {
+          "criterio": "Tests de integración verifican todo el flujo + script de diagnóstico msg-stats.py reporta stats de la message store",
+          "predicates": ["must_exist_6", "must_exist_7", "must_exist_8", "must_exist_9"],
+          "satisfied": false
+        }
+      ],
+      "predicates": {
+        "must_exist": [
+          "function _capture_user_message de MessageStoreGate que extrae texto de tool params (onboarding.task, context.infer.message, cell.topic, session.init.topic) y registra message(role=user, message_type=input, content=<texto_semantico>)",
+          "function _capture_llm_response en features/messages/agent/llm_response_hook.py que captura output del LLM y registra message(role=assistant, message_type=output)",
+          "module features/messages/agent/llm_response_hook.py con hook post-response para capturar LLM output y asociarlo con parent_id del user message previo",
+          "class MessageClassifier en features/messages/application/message_classifier.py que hereda domain+type+task_id del CognitiveState GPS activo y los propaga al momento de registrar el mensaje",
+          "function propagate_message_id en dispatch_pipeline.py que hereda el message_id del user message como source_message_id en tools hijas (delta_plan, create_task, project)",
+          "test_user_message_capture en tests/test_message_gate.py que verifica que MessageStoreGate.before() registra role=user y message_type=input con el texto semántico correcto",
+          "test_llm_response_capture en tests/test_message_gate.py que verifica que llm_response_hook registra role=assistant y message_type=output con parent_id correcto",
+          "test_message_traceability en tests/test_message_gate.py que verifica propagación de parent_id/source_message_id a tools hijas",
+          "script .cognitive/delta/scripts/msg-stats.py que reporta stats de messages: total, por role, por message_type, con/sin task_id, con/sin parent_id"
+        ],
+        "must_not_exist": [
+          "código duplicado de extracción de texto de usuario entre server.py y dispatch_pipeline.py — debe estar centralizado EXCLUSIVAMENTE en MessageStoreGate._capture_user_message"
+        ],
+        "invariants": [
+          "MessageStoreGate.before() y after() nunca lanzan excepción (EHR-20) — toda captura falla silenciosamente sin bloquear la operación principal",
+          "MessageRecord.to_dict()/from_dict() mantienen compatibilidad total con schema existente (no se agregan nuevos campos requeridos al domain model)",
+          "DOMAIN_KEYWORDS + TYPE_KEYWORDS en index.py no se modifican — la clasificación existente con Memora + keywords se preserva intacta",
+          "MessageStoreGate en dispatch_pipeline.py (líneas 395-403 pre-op y 993-999 post-op) sigue funcionando exactamente como antes tool_call y tool_result",
+          "task_id solo se vincula a mensajes cuando hay tarea activa en el GPS context — nunca se genera un task_id artificial"
+        ]
+      },
+      "signatures": [
+        "MessageStoreGate._capture_user_message(self, op_name: str, params: dict) -> str | None",
+        "llm_response_hook.capture_llm_response(agent_output: str, parent_message_id: str | None = None) -> dict",
+        "MessageClassifier.__init__(self, gps_context_provider: Callable) -> None",
+        "MessageClassifier.classify(self, message: MessageRecord) -> MessageRecord (with domain+type+task_id enriched)",
+        "dispatch_pipeline._propagate_message_id(op_name: str, params: dict, source_message_id: str) -> None"
+      ],
+      "state": "defined"
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-MSG-001",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "importer_files": 1,
+        "objective": "En MessageStoreGate.before(), detectar tools con texto del usuario (onboarding.task, context.infer.message, cell.topic, session.init.topic) y registrar message(role=user, message_type=input, content=<texto_semantico>) antes del tool_call actual, preservando el tool_call original y evitando duplicación de código entre server.py y dispatch_pipeline.py",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/application/message_gate.py (modificar — agregar método _capture_user_message y modificar before())",
+            "tests/test_message_gate.py (ampliar — test_user_message_capture)"
+          ],
+          "apis": ["MessageStoreGate.before()"],
+          "data": ["params de tools entrantes (onboarding, context, cell, session) para extraer texto del usuario"],
+          "config": [],
+          "tests": ["tests/test_message_gate.py (ampliar — test_user_message_capture)"],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.0,
+          "commit_trust": 0.10
+        },
+        "decisions": [
+          {
+            "chosen": "Interceptar en MessageStoreGate.before() (ya existe el hook en dispatch_pipeline)",
+            "alternatives": [
+              "server.py _patched_received_request (más temprano en el ciclo de vida, pero no tiene acceso al mismo contexto)",
+              "Crear un gate nuevo solo para captura de usuario (más limpio pero duplica estructura de gates)"
+            ],
+            "rationale": "MessageStoreGate.before() ya se ejecuta en cada tool call y tiene acceso a op_name + params. Agregar la detección ahí evita crear otro punto de integración y mantiene toda la captura de mensajes en un solo gate."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": ["must_exist_1"]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-002",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 1,
+        "objective": "Crear features/messages/agent/llm_response_hook.py con una función capture_llm_response() que registra message(role=assistant, message_type=output) con el texto de la respuesta del LLM, asociándolo vía parent_id al user message más reciente obtenido del MessageStoreGate o del contexto de sesión",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/agent/__init__.py (crear — package init)",
+            "features/messages/agent/llm_response_hook.py (crear — hook de captura de LLM output)",
+            "features/messages/application/message_gate.py (modificar — exponer get_last_message_id() para que el agente pueda usarlo)"
+          ],
+          "apis": ["llm_response_hook.capture_llm_response()"],
+          "data": ["output del LLM (texto de la respuesta) para persistir como mensaje"],
+          "config": [],
+          "tests": ["tests/test_message_gate.py (ampliar — test_llm_response_capture)"],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.40,
+          "pre_churn": 0.10,
+          "commit_trust": 0.20
+        },
+        "decisions": [
+          {
+            "chosen": "Hook en el lado del agente (opencode) que llama message(action='record') vía MCP tool",
+            "alternatives": [
+              "MCP server polling (el servidor consulta periódicamente el output del LLM — ineficiente y frágil)",
+              "LLM voluntario (el LLM se auto-registra al final de cada respuesta — frágil, el LLM puede olvidar)"
+            ],
+            "rationale": "El agente es el único que tiene acceso al output del LLM después de generar la respuesta. Si el agente llama message(action='record') como parte de su pipeline post-response, la captura es determinista y no depende de que el LLM se acuerde. Este hook debe ser implementado en el lado del agente (opencode plugin/hook)."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": ["must_exist_2", "must_exist_3"]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-003",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 2,
+        "objective": "Crear MessageClassifier en features/messages/application/message_classifier.py que lee el CognitiveState GPS activo (especialmente domain, type, task_id del next_action activo) y los propaga en el metadata del MessageRecord al momento de capturarlo, sin modificar el contenido ni el role del mensaje original",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "features/messages/application/message_classifier.py (crear — MessageClassifier)",
+            "features/messages/application/message_gate.py (modificar — integrar MessageClassifier en before() para clasificar en captura)",
+            "tests/test_message_classifier.py (crear)"
+          ],
+          "apis": ["MessageClassifier.classify()", "CognitiveState (GPS context)"],
+          "data": ["CognitiveState del GPS activo para obtener domain, type, task_id"],
+          "config": [],
+          "tests": ["tests/test_message_classifier.py (crear)"],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.20,
+          "pre_churn": 0.0,
+          "commit_trust": 0.10
+        },
+        "decisions": [
+          {
+            "chosen": "Clasificar en el momento de captura (en MessageStoreGate.before()), no post-captura como proceso batch",
+            "alternatives": [
+              "Post-clasificación batch (procesar mensajes no clasificados en segundo plano — más complejo, requiere estado pendiente)",
+              "Clasificación bajo demanda (clasificar solo cuando se consulta — inconsistente, cada consulta puede dar distinto resultado)"
+            ],
+            "rationale": "En el momento de captura, el GPS context tiene el domain+type+task_id correctos porque el LLM acaba de decidir qué tool llamar. Clasificar en ese momento es determinista y consistente. Una clasificación batch posterior podría dar resultados diferentes si el contexto GPS cambió."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": ["must_exist_4"]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-004",
+        "type": "refactor",
+        "work_type": "refactor",
+        "importer_files": 3,
+        "objective": "En dispatch_pipeline.py, después de ejecutar MessageStoreGate.before() (que ahora devuelve message_id del user message si se capturó), propagar ese message_id como source_message_id en el params de tools hijas (delta_plan, create_task, project) para que quede trazabilidad completa de qué mensaje generó qué tarea",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "shared/dispatch_pipeline.py (modificar — agregar _propagate_message_id() y llamarlo en tools hijas)",
+            "features/messages/application/message_gate.py (modificar — before() devuelve message_id en metadata opcional)",
+            "tests/test_message_gate.py (ampliar — test_message_traceability)"
+          ],
+          "apis": ["dispatch_pipeline._propagate_message_id()"],
+          "data": ["message_id del user message para propagar como source_message_id en tools hijas"],
+          "config": [],
+          "tests": ["tests/test_message_gate.py (ampliar)"],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Guardar el último message_id en MessageStoreGate y propagarlo al params de tools hijas desde dispatch_pipeline.py",
+            "alternatives": [
+              "Contexto de sesión (guardar en kv:session:{session_id}:last_message_id — más robusto pero requiere escritura KV adicional)",
+              "Pasarlo como argumento implícito en todas las tools (contamina el schema de todas las tools)"
+            ],
+            "rationale": "MessageStoreGate ya es singleton por sesión. Guardar el último message_id en el gate evita una escritura KV extra y es más rápido. La propagación desde dispatch_pipeline.py asegura que todas las tools hijas lo reciben sin modificar el schema de cada tool individual."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": ["must_exist_5"]
+        }
+      },
+      {
+        "task_id": "TASK-MSG-005",
+        "type": "test",
+        "work_type": "test",
+        "importer_files": 0,
+        "objective": "Tests de integración que verifican el flujo completo (captura user → captura LLM → clasificación GPS → propagación traceability) + script msg-stats.py que lee kv:msg:* y kv:msg_idx:* para reportar stats: total de mensajes, distribución por role, por message_type, con/sin task_id, con/sin parent_id, y tendencias temporales",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "tests/test_message_gate.py (ampliar — 3 nuevos tests de integración)",
+            ".cognitive/delta/scripts/msg-stats.py (crear — script de diagnóstico CLI)"
+          ],
+          "apis": [],
+          "data": ["kv:msg:* y kv:msg_idx:* para diagnóstico de la message store"],
+          "config": [],
+          "tests": [
+            "tests/test_message_gate.py: test_user_message_capture",
+            "tests/test_message_gate.py: test_llm_response_capture",
+            "tests/test_message_gate.py: test_message_traceability"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [
+          {
+            "chosen": "Tests de integración end-to-end que mockean el dispatch pipeline, no tests unitarios aislados",
+            "alternatives": [
+              "Tests unitarios puros (más rápidos pero no verifican el flujo real del pipeline)",
+              "Solo tests de contrato (verifican schema pero no comportamiento)"
+            ],
+            "rationale": "El valor está en que el flujo completo funcione: desde que el LLM llama una tool hasta que el mensaje queda persistido con task_id. Un test de integración con el dispatch pipeline mockeado captura esto."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": ["must_exist_6", "must_exist_7", "must_exist_8", "must_exist_9"]
+        }
+      }
+    ]
+  }
+}

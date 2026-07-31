@@ -1,0 +1,7 @@
+{
+  "id": "project_init/detect",
+  "type": "auto",
+  "version": 1,
+  "description": "Detect project context: code, git, languages, framework",
+  "template": "PROJECT_INIT.DETECT - Detecting project context...\n\nScanning path for existing code, git repos, and project files.\nThis runs automatically - no action needed."
+}

@@ -1,0 +1,663 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-loop-prompting-20260706",
+      "generated_at": "2026-07-06T12:30:00-03:00",
+      "version": "3.1",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-06T12:30:00-03:00",
+        "distance": 1.0,
+        "predicates_satisfied": "0/25",
+        "tasks_completed": [],
+        "event": "plan created v3.1 — goal corregido: loop prompting es el objetivo, CPG+Memora integration es el path"
+      },
+      {
+        "at": "2026-07-06T15:58:41.237675+00:00",
+        "distance": 0.96,
+        "event": "TASK-LP-003 completed",
+        "tasks": [
+          "TASK-LP-003"
+        ],
+        "loop": {
+          "result_state": "El SKILL.md tiene una seccion 'Loop Prompting con CPG+Memora' que documenta: el loop LLM-driven, que datos recibe el LLM (ValidationReport + hipotesis + Memora), y como decide avanzar.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 5,
+            "passed": 5,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.04,
+            "actual_reduction": 0.04,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-06T17:59:33.470837+00:00",
+        "distance": 0.8,
+        "event": "TASK-INT-001 completed",
+        "tasks": [
+          "TASK-INT-001"
+        ],
+        "loop": {
+          "result_state": "delta_evaluator.py no contiene ningun re.search sobre task.spec.objective. Los simbolos se extraen de predicates parseados. CodeGraphAdapter.find_symbol() es la fuente de nombres de funciones. Las queries CGC se filtran por project scope.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "grep -c 're.search.*objective' delta_evaluator.py retorna 0 en los 6 lugares (~1270, ~1550, ~1620, ~1650, ~260, ~500)",
+              "passed": true
+            },
+            {
+              "criterion": "_extract_symbols_from_predicates(['function get_dead_code en CodeGraphAdapter', 'function get_complexity en CodeGraphAdapter']) retorna 2 simbolos con kind='function', name='get_dead_code'/'get_complexity', container='CodeGraphAdapter'",
+              "passed": true
+            },
+            {
+              "criterion": "_extract_symbols_from_predicates(['class CFGGraph en cfg_graph.py', 'MCP tool code_analyze']) retorna kind='class' y kind='mcp_tool'",
+              "passed": true
+            },
+            {
+              "criterion": "CodeGraphAdapter.find_symbol() llamado en delta_evaluator.py en vez de regex",
+              "passed": true
+            },
+            {
+              "criterion": "Queries CGC incluyen filtro _project del CgcProjectIndexer scope activo",
+              "passed": true
+            },
+            {
+              "criterion": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'symbols' -v pasa",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "python -c 'import cognitive_v2.shared.delta_evaluator' sin errores",
+              "passed": true
+            },
+            {
+              "gate": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'symbols' -v",
+              "passed": true
+            },
+            {
+              "gate": "grep -rn 're.search.*objective' cognitive_v2/shared/delta_evaluator.py | wc -l retorna 0",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.16,
+            "actual_reduction": 0.16,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-06T18:01:21.917490+00:00",
+        "distance": 0.72,
+        "event": "TASK-INT-002 completed",
+        "tasks": [
+          "TASK-INT-002"
+        ],
+        "loop": {
+          "result_state": "Cuando una tarea esta lista para revision, el sistema produce un ValidationReport con coverage (que simbolos existen vs esperados), execution (orden de llamadas), contracts (tipos entre capas), gaps (issues con severity), y score (0.0-1.0). Tambien produce hipotesis accionables (dead code, complejidad, APIs deprecadas).",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "_build_validation_report(task) retorna dict con keys coverage, execution, contracts, gaps, score",
+              "passed": true
+            },
+            {
+              "criterion": "coverage incluye expected, found, missing, extra",
+              "passed": true
+            },
+            {
+              "criterion": "execution incluye call_chain y gaps",
+              "passed": true
+            },
+            {
+              "criterion": "contracts incluye layers, mismatches, verified",
+              "passed": true
+            },
+            {
+              "criterion": "gaps contiene ValidationGap con severity (critical/major/minor/info) y type",
+              "passed": true
+            },
+            {
+              "criterion": "derive_cgc_hypotheses() retorna al menos 1 hipotesis cuando hay dead code detectado",
+              "passed": true
+            },
+            {
+              "criterion": "_build_validation_report() no crashea cuando CGC no disponible (retorna _source='none')",
+              "passed": true
+            },
+            {
+              "criterion": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'validation_report' -v pasa",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "python -c 'from cognitive_v2.features.cpg.application.feature_traversal import get_handler; get_handler()' sin errores",
+              "passed": true
+            },
+            {
+              "gate": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'validation_report' -v",
+              "passed": true
+            },
+            {
+              "gate": "python -c 'from cognitive_v2.features.cpg.application.cpg_validation import derive_cgc_hypotheses; derive_cgc_hypotheses()' sin crash",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.08,
+            "actual_reduction": 0.08,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-06T18:01:45.568002+00:00",
+        "distance": 0.64,
+        "event": "TASK-INT-003 completed",
+        "tasks": [
+          "TASK-INT-003"
+        ],
+        "loop": {
+          "result_state": "Despues de cada calibracion, los learnings se persisten en Memora como memoria semantica buscable. Al evaluar una tarea, el sistema busca en Memora decisiones historicas sobre el mismo dominio/funcion y las incluye como contexto.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 5,
+            "passed": 5,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Despues de _run_calibration(), memora_bridge.lookup_by_source('learning:TASK-XXX') retorna un ref",
+              "passed": true
+            },
+            {
+              "criterion": "_search_historical_context('auth') retorna decisiones pasadas sobre auth desde Memora",
+              "passed": true
+            },
+            {
+              "criterion": "_persist_learning_to_memora() crea entrada en Memora con tags [domain, task_id, 'calibration_learning']",
+              "passed": true
+            },
+            {
+              "criterion": "Memora offline no bloquea delta (EHR-20: retorna None, continua)",
+              "passed": true
+            },
+            {
+              "criterion": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'memora' -v pasa",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "python -c 'from cognitive_v2.shared.memora_adapter import MemoraClient; MemoraClient().search(\"test\")' sin crash",
+              "passed": true
+            },
+            {
+              "gate": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'memora' -v",
+              "passed": true
+            },
+            {
+              "gate": "python -c 'from cognitive_v2.shared.memora_bridge import store_ref; store_ref(None, \"test\", \"kv\")' retorna False sin crash",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.08,
+            "actual_reduction": 0.08,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-06T18:07:51.675611+00:00",
+        "distance": 0.48,
+        "event": "TASK-LP-001 completed",
+        "tasks": [
+          "TASK-LP-001"
+        ],
+        "loop": {
+          "result_state": "Cuando los predicates de una tarea estan satisfechos, _evaluate_tasks() NO avanza automaticamente. Marca ready_for_review e incluye cfg (ValidationReport) + review_prompt (hipotesis + contexto Memora). El LLM ve esto en next_action y decide si avanzar.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 5,
+            "passed": 5,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "_evaluate_tasks() con predicates satisfechos retorna status='ready_for_review' (no 'advanced')",
+              "passed": true
+            },
+            {
+              "criterion": "next_action incluye campo 'cfg' con keys coverage, execution, contracts, gaps, score",
+              "passed": true
+            },
+            {
+              "criterion": "next_action incluye campo 'review_prompt' con hipotesis de derive_cgc_hypotheses + contexto de Memora",
+              "passed": true
+            },
+            {
+              "criterion": "_delta_advance() NO se llama en _evaluate_tasks() cuando predicates satisfechos",
+              "passed": true
+            },
+            {
+              "criterion": "review_prompt incluye instruccion explicita al LLM: 'Revisa el ValidationReport contra los acceptance criteria. ¿Faltan branches? ¿Hay gaps critical/major? Si hay errores, corrigelos antes de llamar project_advance().'",
+              "passed": true
+            },
+            {
+              "criterion": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'ready_for_review' -v pasa",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "python -c 'import cognitive_v2.shared.delta_evaluator' sin errores",
+              "passed": true
+            },
+            {
+              "gate": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'ready_for_review' -v",
+              "passed": true
+            },
+            {
+              "gate": "python -m pytest cognitive_v2/tests/test_delta_flow.py -k 'cfg' -v",
+              "passed": true
+            },
+            {
+              "gate": "grep -n '_delta_advance' cognitive_v2/shared/delta_evaluator.py | grep '_evaluate_tasks' retorna 0 (no se llama en _evaluate_tasks)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.16,
+            "actual_reduction": 0.16,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-06T18:09:54.362036+00:00",
+        "distance": 0.32,
+        "event": "TASK-LP-002 completed",
+        "tasks": [
+          "TASK-LP-002"
+        ],
+        "loop": {
+          "result_state": "El flujo ready_for_review -> project_advance() -> _run_calibration() funciona end-to-end sin errores. _find_next_action() muestra tareas ready_for_review. _evaluate_tasks() no reconstruye CFG si ya esta ready_for_review.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "ready_for_review en project_advance en features/project/api/mcp_tools.py",
+              "passed": true
+            },
+            {
+              "criterion": "_run_calibration procesa ready_for_review en cognitive_v2/shared/_shared/_calibration_source.py",
+              "passed": true
+            },
+            {
+              "criterion": "_find_next_action incluye ready_for_review en cognitive_v2/shared/delta_evaluator.py",
+              "passed": true
+            },
+            {
+              "criterion": "_evaluate_tasks es idempotente: no reconstruye CFG si ya esta ready_for_review",
+              "passed": true
+            },
+            {
+              "criterion": "Trail entry despues de project_advance incluye calibration data",
+              "passed": true
+            },
+            {
+              "criterion": "python -m pytest cognitive_v2/tests/test_delta_flow.py -v ALL tests pasan",
+              "passed": true
+            },
+            {
+              "criterion": "python -m pytest cognitive_v2/tests/test_delta_integration.py -v ALL tests pasan",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "python -m pytest cognitive_v2/tests/test_delta_flow.py -v",
+              "passed": true
+            },
+            {
+              "gate": "python -m pytest cognitive_v2/tests/test_delta_integration.py -v",
+              "passed": true
+            },
+            {
+              "gate": "python -c 'from cognitive_v2.shared._shared._calibration_source import _run_calibration; _run_calibration([], None, None, [], \"\", \"\")' retorna None sin crash",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.16,
+            "actual_reduction": 0.16,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-06T18:15:01.507019+00:00",
+        "distance": 0.32,
+        "event": "TASK-LP-003 completed",
+        "tasks": [
+          "TASK-LP-003"
+        ],
+        "loop": {
+          "result_state": "El SKILL.md tiene una seccion 'Loop Prompting con CPG+Memora' que documenta: el loop LLM-driven, que datos recibe el LLM (ValidationReport + hipotesis + Memora), y como decide avanzar.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 5,
+            "passed": 5,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "grep 'Loop Prompting' SKILL.md retorna matches",
+              "passed": true
+            },
+            {
+              "criterion": "grep 'ready_for_review' SKILL.md retorna matches",
+              "passed": true
+            },
+            {
+              "criterion": "grep 'FeatureTraversal' SKILL.md retorna matches",
+              "passed": true
+            },
+            {
+              "criterion": "grep 'review_prompt' SKILL.md retorna matches",
+              "passed": true
+            },
+            {
+              "criterion": "Seccion incluye diagrama del loop: ready_for_review -> LLM revisa -> LLM autocritica -> LLM corrige -> LLM llama project_advance",
+              "passed": true
+            },
+            {
+              "criterion": "Seccion explica que datos recibe el LLM: ValidationReport (coverage + execution + contracts + gaps + score) + hipotesis (derive_cgc_hypotheses) + contexto (Memora)",
+              "passed": true
+            },
+            {
+              "criterion": "FASE 2 actualizada para mencionar _extract_symbols_from_predicates en vez de regex",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "grep -c 'Loop Prompting' .claude/skills/delta/SKILL.md mayor a 0",
+              "passed": true
+            },
+            {
+              "gate": "grep -c 'ready_for_review' .claude/skills/delta/SKILL.md mayor a 0",
+              "passed": true
+            },
+            {
+              "gate": "grep -c 'FeatureTraversal' .claude/skills/delta/SKILL.md mayor a 0",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.04,
+            "actual_reduction": 0.04,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-INT-001": "completed",
+        "TASK-INT-002": "completed",
+        "TASK-INT-003": "completed",
+        "TASK-LP-001": "pending",
+        "TASK-LP-002": "completed",
+        "TASK-LP-003": "completed"
+      },
+      "next_action": {
+        "task_id": "TASK-LP-001",
+        "type": "refine",
+        "candidate": "REFINE: result_state no alcanzado",
+        "detail": [
+          "NO _delta_advance llamada en _evaluate_tasks cuando predicates satisfechos"
+        ],
+        "rationale": "El TASK LOOP detectó que el result_state no se refleja en G_actual."
+      },
+      "alternatives": [
+        {
+          "task_id": "TASK-INT-003",
+          "role": "prerequisite",
+          "objective": "Integrar Memora en delta_evaluator (puede ejecutarse en paralelo con TASK-INT-002 despues de INT-001)",
+          "score": 0.25,
+          "rationale": "No depende de TASK-INT-001. Puede ejecutarse en paralelo con INT-002. Pero tiene menos predicados (2/25) y menor impacto inmediato."
+        }
+      ],
+      "risks": [
+        {
+          "description": "Modificar _evaluate_tasks() puede romper el auto-advance que otros componentes esperan (server.py, navigation_service, project_service)",
+          "severity": "medium",
+          "affected": "DeltaEvaluator.check(), project_advance(), navigation_service, cognitive_state"
+        },
+        {
+          "description": "FeatureTraversalHandler.validate() puede fallar si CGC/FalkorDB no esta disponible — debe degradar graceful (EHR-20)",
+          "severity": "low",
+          "affected": "_build_validation_report()"
+        },
+        {
+          "description": "Memora puede no estar inicializado — MemoraClient.search() debe retornar None y no bloquear",
+          "severity": "low",
+          "affected": "_search_historical_context()"
+        },
+        {
+          "description": "Cambiar _run_calibration filtro puede romper calibracion existente si no se maneja correctamente ready_for_review",
+          "severity": "medium",
+          "affected": "_calibration_source.py, project_advance trail"
+        },
+        {
+          "description": "14 modulos CPG no usados hoy — integracion masiva puede revelar bugs latentes en esos modulos",
+          "severity": "medium",
+          "affected": "FeatureTraversalHandler, cpg_validation, cgc_project_indexer"
+        },
+        {
+          "description": "LLM puede ignorar review_prompt y avanzar sin revisar — no hay enforcement mecanico",
+          "severity": "medium",
+          "affected": "flujo ready_for_review -> project_advance"
+        },
+        {
+          "description": "Dead-lock si LLM nunca llama project_advance — no hay timeout ni fallback",
+          "severity": "medium",
+          "affected": "tareas quedan en ready_for_review permanentemente"
+        },
+        {
+          "description": "Multiples tareas ready_for_review simultaneamente sin priorizacion",
+          "severity": "low",
+          "affected": "_find_next_action retorna solo 1, otras se ignoran"
+        }
+      ],
+      "model": {
+        "history": [],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "importer_factor_range_6plus": 0.7,
+          "work_type_multiplier_refactor_code_motion": 1.25,
+          "work_type_multiplier_refactor": 1.0,
+          "work_type_multiplier_feature_new_method": 1.0,
+          "work_type_multiplier_feature_new_file": 0.85,
+          "work_type_multiplier_feature_new_bc": 0.7,
+          "work_type_multiplier_refactor_inline": 0.65,
+          "work_type_multiplier_bugfix": 1.0,
+          "work_type_multiplier_optimization": 0.8,
+          "score_delta_weight": 0.6,
+          "score_confidence_weight": 0.3,
+          "score_risk_weight": 0.1,
+          "score_coverage_bonus": 0.05,
+          "score_calculated_at": "via delta-score.py (0.36)"
+        }
+      },
+      "finished": true
+    }
+  }
+}

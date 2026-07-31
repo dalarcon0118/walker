@@ -1,0 +1,175 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "http-hook-integration-20260701",
+      "generated_at": "2026-07-01T16:30:00-00:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["acl", "monitoring", "shared"],
+      "tags": ["python", "cognitive-v2", "mcp", "hooks", "http-api"]
+    },
+    "g_objetivo": {
+      "description": "Implementar HTTP endpoint /api/analyze para que los PreToolUse hooks llamen al MCP server via curl en vez de hacer analisis local en bash. Incluye: modulo de analisis, endpoint Starlette, hook script con fallback, y actualizacion de docs.",
+      "predicates": {
+        "must_exist": [
+          "module analyze_api.py con funcion analyze_file() que use codegraph scan + semgrep para decisiones de hook",
+          "POST /api/analyze endpoint registrado en server.py via Starlette sub-app mount",
+          "redirect-via-http.sh hook script que llame POST /api/analyze via curl con fallback a redirect-to-cognitive.sh",
+          ".claude/settings.json PreToolUse matcher Read|Grep|Glob|Write|Edit apunte a redirect-via-http.sh",
+          "docs/cognitive-hook-integration.md marcado como IMPLEMENTED con detalles de la implementacion real",
+          "Write/Edit-specific decision logic en _build_decision() que muestre contenido preview en denial messages",
+          "tool_input full payload passthrough desde hook hasta endpoint para Write/Edit content fields"
+        ],
+        "must_not_exist": [],
+        "invariants": [
+          "path traversal check en el endpoint (no escapar project_root)",
+          "jq-safe JSON escaping en el hook script (no shell injection)",
+          "tool_input stripped from cache to avoid memory bloat with large file content",
+          "fallback a redirect-to-cognitive.sh cuando MCP server no alcanzable",
+          "timeout appropriado: hook 10s, curl 8s"
+        ]
+      },
+      "signatures": [
+        "def analyze_file(file_path, tool='Read', session_id='', use_cache=True, tool_input=None) -> dict",
+        "def _build_decision(analysis, tool) -> None",
+        "POST /api/analyze {file, tool, tool_input, session_id, cache_ttl} -> {ok, decision, permissionDecisionReason, ...}"
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-ANALYZE-API",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 1,
+        "objective": "Crear analyze_api.py con analyze_file() + _build_decision() + cache de 5min",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": ["projects/cognitive-mcp/cognitive_v2/analyze_api.py (crear)"],
+          "apis": ["analyze_file()", "_build_decision()", "get_cache_stats()", "clear_cache()"],
+          "data": ["codegraph._scan_file()", "codegraph._semgrep_scan()"],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {"chosen": "codegraph scan + semgrep en vez de CGC directo", "alternatives": ["CGC Neo4j queries", "Bash analysis en el hook"], "rationale": "CGC requiere conexion a Neo4j que puede no estar disponible. codegraph scan es local y rapido."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "module analyze_api.py con funcion analyze_file() que use codegraph scan + semgrep para decisiones de hook"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-STARLETTE-ROUTE",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "importer_files": 0,
+        "objective": "Registrar POST /api/analyze en server.py via Starlette sub-app mount con path traversal check",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": ["projects/cognitive-mcp/cognitive_v2/server.py (modificar — _register_analyze_api + create_app)"],
+          "apis": ["POST /api/analyze"],
+          "data": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {"chosen": "Starlette sub-app mount en vez de FastAPI standalone", "alternatives": ["FastAPI app separada", "Route directo en MCP"], "rationale": "FastMCP retorna Starlette instance. Mount es limpio y no requiere dependency nueva."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "POST /api/analyze endpoint registrado en server.py via Starlette sub-app mount"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-HOOK-SCRIPT",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 0,
+        "objective": "Crear redirect-via-http.sh con curl + jq-safe JSON + fallback a bash hook",
+        "domain": "acl",
+        "artefactos_impactados": {
+          "files": [".claude/hooks/redirect-via-http.sh (crear)", ".claude/settings.json (modificar — PreToolUse matcher)"],
+          "apis": [],
+          "data": ["tool_input from Claude Code hook JSON"],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.08, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {"chosen": "jq -n --argjson para safe escaping en vez de string interpolation", "alternatives": ["String interpolation con escapes", "Python wrapper"], "rationale": "jq es estandar en Claude Code hooks. --argjson parsea JSON correctamente sin shell injection."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "redirect-via-http.sh hook script que llame POST /api/analyze via curl con fallback a redirect-to-cognitive.sh",
+            ".claude/settings.json PreToolUse matcher Read|Grep|Glob|Write|Edit apunte a redirect-via-http.sh"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-DOCS",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 0,
+        "objective": "Actualizar cognitive-hook-integration.md: marcar como IMPLEMENTED, documentar implementacion real vs blueprint original",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": ["docs/cognitive-hook-integration.md (reescribir)"],
+          "apis": [],
+          "data": [],
+          "tests": [],
+          "docs": ["docs/cognitive-hook-integration.md"]
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.05},
+        "decisions": [],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "docs/cognitive-hook-integration.md marcado como IMPLEMENTED con detalles de la implementacion real"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-TOOL-INPUT",
+        "type": "feature",
+        "work_type": "refactor",
+        "importer_files": 1,
+        "objective": "Agregar Write/Edit-specific decision logic + tool_input full passthrough desde hook hasta endpoint",
+        "domain": "acl",
+        "artefactos_impactados": {
+          "files": [
+            ".claude/hooks/redirect-via-http.sh (modificar — agregar tool_input al payload)",
+            "projects/cognitive-mcp/cognitive_v2/analyze_api.py (modificar — accept tool_input param, Write/Edit branches)",
+            "projects/cognitive-mcp/cognitive_v2/server.py (modificar — forward tool_input)"
+          ],
+          "apis": ["analyze_file(tool_input=...)"],
+          "data": ["content, old_string, new_string from Write/Edit tool_input"],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [
+          {"chosen": "Strip tool_input from cache to avoid memory bloat", "alternatives": ["Cache full tool_input", "Don't cache Write/Edit results"], "rationale": "Write/Edit content can be large (full file content). Stripping before cache prevents memory growth."}
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "Write/Edit-specific decision logic en _build_decision() que muestre contenido preview en denial messages",
+            "tool_input full payload passthrough desde hook hasta endpoint para Write/Edit content fields"
+          ]
+        }
+      }
+    ]
+  }
+}

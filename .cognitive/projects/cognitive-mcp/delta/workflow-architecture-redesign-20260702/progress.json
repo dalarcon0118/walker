@@ -1,0 +1,127 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "workflow-architecture-redesign-20260702",
+      "generated_at": "2026-07-02T12:00:00-03:00",
+      "version": "2.1",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-02T12:00:00-03:00",
+        "distance": 0.765,
+        "predicates_satisfied": "4/17 (invariantes)",
+        "tasks_completed": [],
+        "event": "plan created"
+      },
+      {
+        "at": "2026-07-02T12:30:00-03:00",
+        "distance": 0.706,
+        "event": "TASK-001: workflow_registry.py con WORKFLOWS dict (project_absorption + task_execution), 14 funciones de consulta",
+        "tasks": ["TASK-001"],
+        "calibration": {
+          "state": {"expected_satisfied": 1, "actual_satisfied": 1, "type": "accurate", "gap_detail": []},
+          "delta": {"expected_reduction": 0.059, "actual_reduction": 0.059, "error": 0, "error_pct": 0, "error_type": "accurate"},
+          "strategy": {"optimal": true}
+        }
+      },
+      {
+        "at": "2026-07-02T13:00:00-03:00",
+        "distance": 0.588,
+        "event": "TASK-002: KV_ABSORPTION_STATE en helpers.py + 4 funciones absorption state machine en ops_skill.py",
+        "tasks": ["TASK-002"],
+        "calibration": {
+          "state": {"expected_satisfied": 4, "actual_satisfied": 4, "type": "accurate", "gap_detail": []},
+          "delta": {"expected_reduction": 0.118, "actual_reduction": 0.118, "error": 0, "error_pct": 0, "error_type": "accurate"},
+          "strategy": {"optimal": true}
+        }
+      },
+      {
+        "at": "2026-07-02T13:30:00-03:00",
+        "distance": 0.559,
+        "event": "TASK-003: _attach_workflow_next_step() en dispatch_pipeline.py + imports + call después de _delta_phase()",
+        "tasks": ["TASK-003"],
+        "calibration": {
+          "state": {"expected_satisfied": 1, "actual_satisfied": 1, "type": "accurate", "gap_detail": []},
+          "delta": {"expected_reduction": 0.029, "actual_reduction": 0.029, "error": 0, "error_pct": 0, "error_type": "accurate"},
+          "strategy": {"optimal": true}
+        }
+      },
+      {
+        "at": "2026-07-02T14:00:00-03:00",
+        "distance": 0.471,
+        "event": "TASK-004: _detect_absorption_intent() en ops_meta.py + bifurcación en op_onboarding() ANTES del project gate",
+        "tasks": ["TASK-004"],
+        "calibration": {
+          "state": {"expected_satisfied": 1, "actual_satisfied": 1, "type": "accurate", "gap_detail": []},
+          "delta": {"expected_reduction": 0.029, "actual_reduction": 0.029, "error": 0, "error_pct": 0, "error_type": "accurate"},
+          "strategy": {"optimal": true}
+        }
+      },
+      {
+        "at": "2026-07-02T14:30:00-03:00",
+        "distance": 0.0,
+        "event": "TASK-005: absorption_tools.py con 5 tools (project_discover, project_analyze, project_ask_architect, project_register, project_index_cgc) + registro en server.py",
+        "tasks": ["TASK-005"],
+        "calibration": {
+          "state": {"expected_satisfied": 5, "actual_satisfied": 5, "type": "accurate", "gap_detail": []},
+          "delta": {"expected_reduction": 0.059, "actual_reduction": 0.059, "error": 0, "error_pct": 0, "error_type": "accurate"},
+          "strategy": {"optimal": true}
+        }
+      },
+      {
+        "at": "2026-07-02T15:00:00-03:00",
+        "distance": 0.0,
+        "event": "BUGFIX-PASS: 7 correcciones al flujo de absorción completo",
+        "tasks": ["BUGFIX-001","BUGFIX-002","BUGFIX-003","BUGFIX-004","BUGFIX-005","BUGFIX-006","BUGFIX-007"],
+        "bugfixes": [
+          {"id": "BUGFIX-001", "file": "dispatch_pipeline.py", "severity": "critical",
+           "description": "_attach_workflow_next_step() sobrescribía _next_step de onboarding 'discover' → 'analyze'. Fix: checkear completed_steps vacío → usar current_step como entry point."},
+          {"id": "BUGFIX-002", "file": "absorption_tools.py", "severity": "critical",
+           "description": "project_register() pasaba path= y domains=str a set_project_context, causando TypeError. Fix: project_root= y domains=list."},
+          {"id": "BUGFIX-003", "file": "absorption_tools.py", "severity": "medium",
+           "description": "Absorption state nunca se limpiaba al completar. Fix: _clear_absorption_state() en project_index_cgc()."},
+          {"id": "BUGFIX-004", "file": "ops_meta.py", "severity": "medium",
+           "description": "No había guard contra absorción + task workflow simultáneos. Fix: active absorption check en _detect_absorption_intent()."},
+          {"id": "BUGFIX-005", "file": "dispatch_pipeline.py", "severity": "critical",
+           "description": "Missing import get_step_schema del workflow_registry — NameError en runtime. Fix: agregado al import block."},
+          {"id": "BUGFIX-006", "file": "ops_meta.py", "severity": "critical",
+           "description": "Active absorption guard reseteaba el workflow vía _init_absorption_workflow(). Fix: rama detected_by=='active_absorption' que NO resetea."},
+          {"id": "BUGFIX-007", "file": "ops_meta.py", "severity": "critical",
+           "description": "Missing import get_step_tool del workflow_registry — NameError en runtime. Fix: agregado al import block."}
+        ],
+        "calibration": {
+          "state": {"expected_satisfied": 0, "actual_satisfied": 0, "type": "bugfix", "gap_detail": []},
+          "delta": {"expected_reduction": 0.0, "actual_reduction": 0.0, "error": 0, "error_pct": 0, "error_type": "bugfix"},
+          "strategy": {"optimal": true}
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-001": "completed",
+        "TASK-002": "completed",
+        "TASK-003": "completed",
+        "TASK-004": "completed",
+        "TASK-005": "completed"
+      },
+      "next_action": null,
+      "finished": true,
+      "alternatives": [],
+      "risks": [],
+      "model": {
+        "history": [],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "importer_factor_range_6plus": 0.70,
+          "work_type_multiplier_feature_new_file": 0.85,
+          "work_type_multiplier_feature_new_method": 1.0,
+          "work_type_multiplier_refactor": 1.0
+        }
+      }
+    }
+  }
+}

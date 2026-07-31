@@ -1,0 +1,11 @@
+{
+  "id": "design/design-gather",
+  "type": "auto",
+  "version": 1,
+  "description": "Gather context for design phase - code, knowledge, and previous sprint data",
+  "tags": [
+    "design",
+    "context"
+  ],
+  "template": "📌 DESIGN.DESIGN_GATHER - Gathering context...\n\nCollecting code structure, knowledge graph, and previous sprint data.\nThis runs automatically - no action needed."
+}

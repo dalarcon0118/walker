@@ -1,0 +1,193 @@
+{
+  "$schema": "schema/workflow.schema.json",
+  "version": "3.1",
+  "description": "Workflow v3.1 Enterprise. LLM-adapted Scrum sprint: PLANNING→ACTIVE→REVIEW→RETRO→CLOSE. TaskRegistry actions as the sole LLM interface (no direct CPG/CKG/delta-spring exposure). REFINE with context, loop detection, and knowledge capture.",
+  "initial_state": "START",
+  "context_bag": {
+    "description": "Catalog of placeholders the engine resolves in prompt templates (prompts/{prompt_id}.prompt.json) before presenting to the agent. Each placeholder is replaced with its current value from sprint state or context_bag on step(). If a placeholder is not found, it is left literal.",
+    "placeholders": {
+      "session_id": {
+        "source": "session_init action (bootstrap)",
+        "description": "Auto-generated session ID",
+        "available_in": [
+          "SPRINT.*",
+          "DESIGN.*",
+          "ANALYZE.*",
+          "IMPLEMENT.*",
+          "VERIFY.*",
+          "REFINE.*"
+        ]
+      },
+      "project_id": {
+        "source": "session_init + detect_context (bootstrap)",
+        "description": "Active project ID detected or provided by the user",
+        "available_in": [
+          "SPRINT.*",
+          "DESIGN.*",
+          "ANALYZE.*",
+          "IMPLEMENT.*",
+          "VERIFY.*",
+          "REFINE.*"
+        ]
+      },
+      "sprint_goal": {
+        "source": "plan_sprint action (SPRINT.PLANNING)",
+        "description": "Active sprint goal, defined during planning",
+        "available_in": [
+          "SPRINT.ACTIVE",
+          "SPRINT.REVIEW",
+          "SPRINT.RETRO",
+          "SPRINT.CLOSE"
+        ]
+      },
+      "task_count": {
+        "source": "show_dashboard action (SPRINT.ACTIVE)",
+        "description": "Total number of tasks in the active sprint backlog",
+        "available_in": [
+          "SPRINT.ACTIVE",
+          "SPRINT.PLANNING",
+          "SPRINT.REVIEW",
+          "SPRINT.RETRO"
+        ]
+      },
+      "completed_count": {
+        "source": "show_dashboard action (SPRINT.ACTIVE)",
+        "description": "Number of completed tasks in the active sprint",
+        "available_in": [
+          "SPRINT.ACTIVE",
+          "SPRINT.REVIEW",
+          "SPRINT.RETRO"
+        ]
+      },
+      "goal_display": {
+        "source": "Engine formats sprint_goal for dashboard: 'Goal: <sprint_goal>' or 'Goal: Not set'",
+        "description": "Formatted sprint goal line for dashboard display",
+        "available_in": [
+          "SPRINT.ACTIVE"
+        ]
+      },
+      "ready_tasks": {
+        "source": "Engine runs DAGBuilder + JobScheduler.get_ready_tasks() from plan.json depends_on",
+        "description": "List of tasks whose dependencies are all met and are ready to work on",
+        "available_in": ["SPRINT.ACTIVE"]
+      },
+      "blocked_tasks": {
+        "source": "Engine runs DAGBuilder + JobScheduler.get_blocked_tasks() from plan.json depends_on",
+        "description": "List of tasks blocked by incomplete dependencies",
+        "available_in": ["SPRINT.ACTIVE"]
+      },
+      "task_summary": {
+        "source": "Engine formats task summary for review: brief list of completed/pending",
+        "description": "Formatted task status summary for sprint review",
+        "available_in": [
+          "SPRINT.REVIEW"
+        ]
+      },
+      "source_node": {
+        "source": "Engine injects when transitioning to REFINE",
+        "description": "Node that triggered refine: DESIGN, ANALYZE, IMPLEMENT, or VERIFY",
+        "available_in": [
+          "REFINE.DIAGNOSE"
+        ]
+      },
+      "attempt": {
+        "source": "Engine reads counter from sprint-state on entering REFINE",
+        "description": "Current refine attempt number (1, 2, 3)",
+        "available_in": [
+          "REFINE.DIAGNOSE",
+          "REFINE.ESCALATION"
+        ]
+      },
+      "error_context": {
+        "source": "Engine injects from the failed action result",
+        "description": "Failure context: quality gate, error, message",
+        "available_in": [
+          "REFINE.DIAGNOSE"
+        ]
+      },
+      "task_id": {
+        "source": "Engine inyecta desde el sprint-state al hacer transicion a ANALYZE, IMPLEMENT o REFINE",
+        "description": "Active task ID (TASK-XXX). Used by agent to fetch briefing via context tasks.",
+        "available_in": [
+          "ANALYZE.*",
+          "IMPLEMENT.*",
+          "VERIFY.*",
+          "REFINE.DIAGNOSE"
+        ]
+      },
+      "max_attempts": {
+        "source": "Configuracion del workflow (default: 3)",
+        "description": "Maximum refine attempts before escalation (default: 3)",
+        "available_in": [
+          "REFINE.ESCALATION"
+        ]
+      },
+      "predicates": {
+        "source": "Engine reads task validation.predicates from plan.json",
+        "description": "List of validation predicates for the current task (DoD criteria)",
+        "available_in": [
+          "VERIFY.PREDICATE_CHECK",
+          "VERIFY.QA",
+          "VERIFY.PO_ACCEPT",
+          "IMPLEMENT.REPORT_GATE",
+          "IMPLEMENT.USER_GATE"
+        ]
+      }
+    }
+  },
+  "on": {
+    "sprint_planned": {
+      "transition": "show_dashboard",
+      "description": "After planning, show the sprint dashboard"
+    },
+    "plan_approved": {
+      "run": "update_sprint_progress",
+      "description": "When plan is approved, update sprint progress"
+    },
+    "task_approved": {
+      "run": "update_sprint_progress",
+      "description": "When a task is PO-approved, update sprint progress metrics"
+    },
+    "qa_failed": {
+      "transition": "refine",
+      "description": "When QA rejects, auto-route to refinement"
+    },
+    "implementation_rejected": {
+      "run": "log_rejection_to_ckg",
+      "description": "Log implementation rejection reason to CKG"
+    },
+    "refine_exhausted": {
+      "run": "notify_po_escalation",
+      "description": "Notify PO when refine attempts are exhausted"
+    },
+    "sprint_closed": {
+      "run": "archive_sprint_metrics",
+      "description": "Archive sprint metrics when sprint closes"
+    }
+  },
+  "tracing": {
+    "level": "full",
+    "track": [
+      "NODE_ENTRY",
+      "SUB_STATE",
+      "SUBMIT",
+      "AUTO_EXECUTE",
+      "TRANSITION",
+      "SESSION",
+      "ERROR"
+    ]
+  },
+  "import": {
+    "nodes": [
+      "nodes/start.node.json",
+      "nodes/sprint.node.json",
+      "nodes/design.node.json",
+      "nodes/analyze.node.json",
+      "nodes/implement.node.json",
+      "nodes/verify.node.json",
+      "nodes/refine.node.json",
+      "nodes/project_init.node.json"
+    ],
+    "edges": "edges.json"
+  }
+}

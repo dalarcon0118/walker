@@ -1,0 +1,108 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-mcp-as-delta-skill-20260706",
+      "generated_at": "2026-07-06T18:42:21.501289",
+      "version": "3.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "active"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-06T18:42:21.501289",
+        "distance": 1.0,
+        "predicates_satisfied": "0/18",
+        "tasks_completed": [],
+        "event": "Plan creado. Baseline: StateGraph, StateNode, CognitiveState, Facts, Rules, Memora, KV existen pero no estan conectados en pipeline. No hay sprint grouping, no hay delta_weight, no hay SigmaDelta, no hay calibration feedback."
+      },
+      {
+        "at": "2026-07-06T18:55:41.679724",
+        "distance": 0.89,
+        "predicates_satisfied": "2/18",
+        "tasks_completed": [
+          "TASK-PLN-004"
+        ],
+        "event": "TASK-PLN-004: sprint grouping implementado. _resolve_current_sprint_id() lee kv:project:id:current_sprint. create_task() usa sprint node como parent si existe, fallback a root_id. _set_current_sprint_id() para crear sprint desde delta_create_sprint(). 60 tests OK."
+      },
+      {
+        "at": "2026-07-06T18:57:50.109148",
+        "distance": 0.83,
+        "predicates_satisfied": "3/18",
+        "tasks_completed": [
+          "TASK-PLN-005"
+        ],
+        "event": "TASK-PLN-005: delta_weight implementado. _set_current_sprint_id() persiste initial_distance como delta_weight en metadata. Al completar todas las tasks del sprint, recalcula delta_weight = initial - final distance. 60 tests OK."
+      },
+      {
+        "at": "2026-07-06T19:00:01.069859",
+        "distance": 0.78,
+        "predicates_satisfied": "4/18",
+        "tasks_completed": [
+          "TASK-PLN-003"
+        ],
+        "event": "TASK-PLN-003: project_board() tool y get_project_board() service implementados. Lee StateGraph, identifica sprints, calcula SigmaDelta como suma de delta_weight. Devuelve project_goal, sprints[], progress %, next_sprint. 60 tests OK."
+      },
+      {
+        "at": "2026-07-06T19:01:32.215593",
+        "distance": 0.72,
+        "predicates_satisfied": "5/18",
+        "tasks_completed": [
+          "TASK-PLN-001"
+        ],
+        "event": "TASK-PLN-001: delta_create_sprint() pipeline implementado. create_sprint() en project_service. delta_create_sprint() MCP tool. Pipeline: set_goal → compute_and_cache → StateGraph.add_node(sprint) → _set_current_sprint_id → create_tasks → fact-like record → Memora.store_ref. 60 tests OK."
+      },
+      {
+        "at": "2026-07-06T19:02:20.017956",
+        "distance": 0.5,
+        "predicates_satisfied": "9/18",
+        "tasks_completed": [
+          "TASK-PLN-002"
+        ],
+        "event": "TASK-PLN-002: calibration feedback loop implementado. calibration results → fact(observation) con learnable flag + Memora.store_ref() para learnings. 170 tests OK."
+      },
+      {
+        "at": "2026-07-06T19:03:57.085303",
+        "distance": 0.06,
+        "predicates_satisfied": "17/18",
+        "tasks_completed": [
+          "TASK-PLN-006",
+          "TASK-PLN-007"
+        ],
+        "event": "PLN-006 (KV migration): MCP pipeline ya usa KV exclusivamente (create_sprint→StateGraph KV, project_board→StateGraph). Scripts CLI heredados mantienen JSON por compatibilidad. PLN-007 (tests): 4 tests de integracion (sprint hierarchy, delta_weight, calibration feedback, no JSON). 4/4 pass."
+      },
+      {
+        "at": "2026-07-06T19:03:57.085303",
+        "distance": 0.0,
+        "predicates_satisfied": "18/18",
+        "tasks_completed": [],
+        "event": "PLAN COMPLETADO. Todos los predicates satisfechos. MCP ahora reemplaza el skill delta: delta_create_sprint(), project_board(), delta_task_advance() con calibration feedback a Facts+Memora. StateGraph con jerarquia project→sprint→task. Sin JSON files en el pipeline MCP."
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-PLN-001": "completed",
+        "TASK-PLN-002": "completed",
+        "TASK-PLN-003": "completed",
+        "TASK-PLN-004": "completed",
+        "TASK-PLN-005": "completed",
+        "TASK-PLN-006": "completed",
+        "TASK-PLN-007": "completed"
+      },
+      "next_action": null,
+      "model": {
+        "history": [],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "importer_factor_range_6plus": 0.7,
+          "work_type_multiplier_feature_new_method": 1.0,
+          "work_type_multiplier_refactor": 1.0,
+          "work_type_multiplier_refactor_code_motion": 1.25,
+          "work_type_multiplier_test": 1.0
+        }
+      }
+    }
+  }
+}

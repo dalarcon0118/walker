@@ -1,0 +1,22 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "test-spring-planning",
+      "generated_at": "2026-07-22T22:09:34.333406+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "active"
+    },
+    "plan_ref": "test-spring-planning",
+    "trail": [],
+    "current": {
+      "task_states": {},
+      "next_action": null,
+      "alternatives": [],
+      "risks": [],
+      "delta_metrics": {},
+      "project_root": "/Users/davidmartinez/develop/Active-projects/game_reset"
+    }
+  }
+}

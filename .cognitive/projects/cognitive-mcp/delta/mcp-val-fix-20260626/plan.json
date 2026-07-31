@@ -1,0 +1,157 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "mcp-val-fix-20260626",
+      "generated_at": "2026-06-26T18:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["engine", "messages", "session", "context", "decisions", "guidance", "cpg"],
+      "tags": ["python", "hexagonal", "cognitive-v2", "fastmcp"]
+    },
+    "g_objetivo": {
+      "description": "MCP v2 pasa las 36 validaciones del caso de uso FastAPI+JWT Login",
+      "predicates": {
+        "must_exist": [
+          "MCP tool record_message registrada y funcional",
+          "MCP tool get_messages_by_session registrada y funcional",
+          "MCP tool get_messages_by_project registrada y funcional",
+          "MCP tool session-close registrada y funcional",
+          "cell() retorna fingerprint",
+          "cell() retorna files del proyecto real",
+          "cell() retorna symbols del proyecto real",
+          "cell() retorna domain",
+          "code_build invocable como MCP tool directa",
+          "guidance retorna suggestion",
+          "guidance retorna distance.total",
+          "tools/list >= 100 tools"
+        ],
+        "must_not_exist": [],
+        "invariants": [
+          "fact(decisions) no bloqueado por WORKFLOW_GATE",
+          "snapshot no bloqueado por WORKFLOW_GATE"
+        ]
+      },
+      "signatures": [
+        "record_message(session_id, role, content, schema, version) -> message_id",
+        "get_messages_by_session(session_id) -> messages[]",
+        "get_messages_by_project(project_id) -> messages[]",
+        "session-close() -> ok"
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "importer_files": 1,
+        "objective": "Registrar record_message, get_messages_by_session, get_messages_by_project y session-close como MCP tools en server.py",
+        "domain": "messages",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/server.py (modificar — importar register_messages + registrarlo)",
+            "cognitive_v2/features/messages/api/mcp_tools.py (crear — wrappers MCP para 4 tools)"
+          ],
+          "apis": ["FastMCP tool registration"],
+          "data": ["OPS registry ops_message"],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.10},
+        "decisions": [
+          {
+            "chosen": "Crear features/messages/api/mcp_tools.py con 4 tools y registrarlo en server.py",
+            "alternatives": ["Agregar tools directamente en server.py inline", "Registrar desde ops_init.py"],
+            "rationale": "Sigue el patrón existente de los otros 19 módulos de tools. Cada bounded context tiene su propio archivo mcp_tools.py."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "MCP tool record_message registrada y funcional",
+            "MCP tool get_messages_by_session registrada y funcional",
+            "MCP tool get_messages_by_project registrada y funcional",
+            "MCP tool session-close registrada y funcional"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "type": "bugfix",
+        "work_type": "bugfix",
+        "importer_files": 2,
+        "objective": "Fixear cell() para que retorne fingerprint, files, symbols y domain del proyecto real",
+        "domain": "context",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/ops_cell.py (modificar — fixear resolución de contexto contra proyecto real)"
+          ],
+          "apis": ["cell()", "helpers._kv", "codegraph.op_code_lookup"],
+          "data": ["files del proyecto en disco", "symbols del código indexado"],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.35, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [
+          {
+            "chosen": "Arreglar op_cell para que lea el proyecto real del disco en vez de depender de contexto previo",
+            "alternatives": ["Wrapper en cell() que delega en code_scan + code_lookup", "Nueva op cell-context"],
+            "rationale": "La función cell() debe funcionar con proyectos reales, no solo con estado previo. Es un bug de resolución de contexto."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "cell() retorna fingerprint",
+            "cell() retorna files del proyecto real",
+            "cell() retorna symbols del proyecto real",
+            "cell() retorna domain"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "type": "bugfix",
+        "work_type": "bugfix",
+        "importer_files": 3,
+        "objective": "Desbloquear fact(decisions) y snapshot del workflow gate y fixear guidance para que retorne suggestion y distance",
+        "domain": "decisions",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/decisions/api/mcp_tools.py (modificar — revisar workflow gate)",
+            "cognitive_v2/shared/dispatch_pipeline.py (modificar — revisar gate logic para fact/snapshot)",
+            "cognitive_v2/features/guidance/application/guidance_handler.py (modificar — fixear suggestion/distance)"
+          ],
+          "apis": ["fact()", "snapshot()", "guidance"],
+          "data": ["workflow gate state", "TargetSpec", "CognitiveTrail"],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.25, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [
+          {
+            "chosen": "Permitir fact y snapshot en fase init del state machine + fixear guidance para que calcule distance aunque no haya TargetSpec completo",
+            "alternatives": ["Cambiar la fase antes de llamar fact", "Mover gate logic a otro layer"],
+            "rationale": "fact y snapshot deben funcionar desde la fase init. No tiene sentido bloquear decisiones y persistencia al inicio."
+          }
+        ],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "fact(decisions) no bloqueado por WORKFLOW_GATE",
+            "snapshot no bloqueado por WORKFLOW_GATE",
+            "guidance retorna suggestion",
+            "guidance retorna distance.total"
+          ]
+        }
+      }
+    ]
+  }
+}

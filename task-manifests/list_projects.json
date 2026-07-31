@@ -1,0 +1,25 @@
+{
+  "description": "List all available projects with their current status",
+  "usage": "walker <project>/list_projects",
+  "tags": ["projects"],
+  "input_schema": {
+    "optional": ["project_id"],
+    "project_id": {
+      "type": "string",
+      "description": "Filter by project ID. If omitted, lists all projects.",
+      "example": "delta-skill"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "data": {
+        "type": "object",
+        "properties": {
+          "projects": {"type": "array", "description": "List of projects with id, description, sprint count"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1123 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "skill-spring-delta",
+      "generated_at": "2026-07-18T21:26:47.966622+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "active"
+    },
+    "plan_ref": "skill-spring-delta",
+    "trail": [
+      {
+        "at": "2026-07-19T01:50:19.500088+00:00",
+        "distance": 0.0,
+        "event": "TASK-003 added to sprint: spring.py reopen debe aceptar --chain-id y reconstruir plan.json + progress.json"
+      },
+      {
+        "at": "2026-07-19T01:50:19.801253+00:00",
+        "distance": 0.0,
+        "event": "TASK-004 added to sprint: Proveer comandos de edición semántica: spring.py update-task <chain> <task_id> -"
+      },
+      {
+        "at": "2026-07-19T01:50:20.051778+00:00",
+        "distance": 0.0,
+        "event": "TASK-005 added to sprint: Mover plan.json y progress.json dentro del repo del proyecto (o al menos generar"
+      },
+      {
+        "at": "2026-07-19T01:50:20.292454+00:00",
+        "distance": 0.0,
+        "event": "TASK-006 added to sprint: Después de cualquier edición de plan o progress (add-task, update-task, update-g"
+      },
+      {
+        "at": "2026-07-19T01:50:20.535115+00:00",
+        "distance": 0.0,
+        "event": "TASK-007 added to sprint: Agregar comandos: spring.py diff <chain> (plan vs progreso), spring.py blockers "
+      },
+      {
+        "at": "2026-07-19T01:50:20.776474+00:00",
+        "distance": 0.0,
+        "event": "TASK-008 added to sprint: task.py advance debería ser la única vía de progreso. El skill delta debe inyect"
+      },
+      {
+        "at": "2026-07-19T01:50:21.021017+00:00",
+        "distance": 0.0,
+        "event": "TASK-009 added to sprint: Si el plan cambia mientras hay tasks en progreso, detectar el desvío y ofrecer s"
+      },
+      {
+        "at": "2026-07-19T01:50:21.262520+00:00",
+        "distance": 0.0,
+        "event": "TASK-010 added to sprint: Agregar secciones a SKILL.md con ejemplos concretos: qué hacer cuando un task fa"
+      },
+      {
+        "at": "2026-07-19T14:30:15.951394+00:00",
+        "distance": 0.88,
+        "event": "TASK-001 completed",
+        "tasks": [
+          "TASK-001"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py create valida automáticamente el sprint recién creado. No hay sprints inválidos que pasen desapercibidos.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.12,
+            "actual_reduction": 0.12,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T14:31:43.711307+00:00",
+        "distance": 0.76,
+        "event": "TASK-002 completed",
+        "tasks": [
+          "TASK-002"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py close genera métricas completas y archivo trail.json exportable. El sprint cerrado tiene evidencia ejecutable de su estado final.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.12,
+            "actual_reduction": 0.12,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T14:37:29.856384+00:00",
+        "distance": 0.68,
+        "event": "TASK-003 completed",
+        "tasks": [
+          "TASK-003"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py reopen --chain-id reconstruye sprints eliminados y valida que la regeneración es correcta.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.08,
+            "actual_reduction": 0.08,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T14:39:08.795657+00:00",
+        "distance": 0.56,
+        "event": "TASK-004 completed",
+        "tasks": [
+          "TASK-004"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Toda edición semántica del plan valida schema automáticamente. No hay sprints corruptos por ediciones inválidas.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.12,
+            "actual_reduction": 0.12,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T14:45:19.633966+00:00",
+        "distance": 0.44,
+        "event": "TASK-005 completed",
+        "tasks": [
+          "TASK-005"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Todas las modificaciones al sprint quedan versionadas en git o respaldadas. Estado del sprint sobrevive a rm -rf.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.12,
+            "actual_reduction": 0.12,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T14:59:29.659988+00:00",
+        "distance": 0.32,
+        "event": "TASK-006 completed",
+        "tasks": [
+          "TASK-006"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "El mecanismo de ast-grep del task_context se expone como herramienta reutilizable para predicates. Misma lógica, misma implementación.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.12,
+            "actual_reduction": 0.12,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-18T21:26:47.966622+00:00",
+        "distance": 0.44,
+        "event": "TASK-010 completed: SKILL.md with confirmation protocol, predicates ejecutables, workflow, troubleshooting"
+      },
+      {
+        "at": "2026-07-19T15:58:19.119512+00:00",
+        "distance": 0.08,
+        "event": "TASK-007 completed",
+        "tasks": [
+          "TASK-007"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py status muestra dashboard completo: tasks + predicates. El LLM ve en un solo comando el estado real de validación.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.16,
+            "actual_reduction": 0.16,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T15:59:39.228855+00:00",
+        "distance": 0.08,
+        "event": "TASK-011 added to sprint: prompt_engine.py: Evidence + Meta-Instruction"
+      },
+      {
+        "at": "2026-07-19T15:59:39.228855+00:00",
+        "distance": 0.08,
+        "event": "TASK-012 added to sprint: Evidence blocks en close"
+      },
+      {
+        "at": "2026-07-19T15:59:39.228855+00:00",
+        "distance": 0.08,
+        "event": "TASK-013 added to sprint: Evidence en status refinement"
+      },
+      {
+        "at": "2026-07-19T16:06:03.116079+00:00",
+        "distance": 0.1034,
+        "event": "TASK-008 completed",
+        "tasks": [
+          "TASK-008"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "El LLM ejecuta un solo comando y recibe output con evidencia verificable de cada predicate. No necesita task_id ni interpretar resúmenes sin datos.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1034,
+            "actual_reduction": 0.1034,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T16:10:26.273911+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 0 new → pending"
+      },
+      {
+        "at": "2026-07-19T16:23:16.371936+00:00",
+        "distance": 0.0345,
+        "event": "TASK-009 completed",
+        "tasks": [
+          "TASK-009"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Modificar el plan a mitad de sprint no deja estados huérfanos. rebase alinea progress con plan automáticamente.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.069,
+            "actual_reduction": 0.069,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T16:29:09.319922+00:00",
+        "distance": 0.0,
+        "event": "TASK-011 completed",
+        "tasks": [
+          "TASK-011"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Todo output del TASK LOOP incluye evidencia cruda por predicate + meta-instruction. build_review_prompt es un wrapper sobre prompt_engine.py. El LLM recibe datos para decidir, no resúmenes.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1034,
+            "actual_reduction": 0.1034,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T18:05:31.785133+00:00",
+        "distance": 0.0,
+        "event": "TASK-012 completed",
+        "tasks": [
+          "TASK-012"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py close muestra evidence blocks por predicate antes de cerrar. El LLM ve datos concretos de satisfacción, no solo '8/12 predicates'.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.069,
+            "actual_reduction": 0.069,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T18:21:07.083103+00:00",
+        "distance": 0.0,
+        "event": "TASK-013 completed",
+        "tasks": [
+          "TASK-013"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py status muestra dashboard con evidencia por predicate. El LLM ve datos concretos, no solo iconos. El dashboard incluye instrucción de uso.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.069,
+            "actual_reduction": 0.069,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T18:43:33.537356+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 9 new → pending"
+      },
+      {
+        "at": "2026-07-19T18:47:51.475134+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 1 new → pending"
+      },
+      {
+        "at": "2026-07-19T19:10:47.477331+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 0 new → pending"
+      },
+      {
+        "at": "2026-07-19T20:40:16.285113+00:00",
+        "distance": 0.0,
+        "event": "TASK-024 added to sprint: Crear DeltaGraph (_internal/graph.py): clase que construye un networkx.DiGraph d"
+      },
+      {
+        "at": "2026-07-19T20:41:12.660400+00:00",
+        "distance": 0.0,
+        "event": "TASK-024 added to sprint: Crear _internal/graph.py con DeltaGraph que construye networkx.DiGraph desde pla"
+      },
+      {
+        "at": "2026-07-19T20:41:55.194788+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 1 new → pending"
+      },
+      {
+        "at": "2026-07-19T21:33:35.584717+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 7 new → pending"
+      },
+      {
+        "at": "2026-07-19T21:48:11.246480+00:00",
+        "distance": 0.0,
+        "event": "TASK-032 added to sprint: symbol_exists consulta grafo antes de sg"
+      },
+      {
+        "at": "2026-07-19T21:48:28.796967+00:00",
+        "distance": 0.0,
+        "event": "TASK-032 added to sprint: symbol_exists consulta DeltaGraph primero. Si el simbolo esta en el grafo, respo"
+      },
+      {
+        "at": "2026-07-19T21:48:36.192110+00:00",
+        "distance": 0.0,
+        "event": "TASK-033 added to sprint: Con --graph, mostrar subgrafo de la tarea antes del TASK LOOP: vecinos, dependen"
+      },
+      {
+        "at": "2026-07-19T21:48:42.378045+00:00",
+        "distance": 0.0,
+        "event": "TASK-034 added to sprint: Usar grafo para medir: modulos acoplados, predicates huerfanos, cobertura de arc"
+      },
+      {
+        "at": "2026-07-19T21:48:49.136420+00:00",
+        "distance": 0.0,
+        "event": "TASK-035 added to sprint: Score 0-100 basado en: cobertura predicates, riesgo acumulado, progreso, trazabi"
+      },
+      {
+        "at": "2026-07-19T21:48:55.109002+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 added to sprint: Mostrar sugerencia contextual del siguiente paso optimo. Usa grafo para relevanc"
+      },
+      {
+        "at": "2026-07-19T21:49:01.428969+00:00",
+        "distance": 0.0,
+        "event": "TASK-037 added to sprint: Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_"
+      },
+      {
+        "at": "2026-07-19T21:57:45.800942+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 0 new → pending"
+      },
+      {
+        "at": "2026-07-19T21:58:43.376634+00:00",
+        "distance": 0.0,
+        "event": "TASK-032 completed",
+        "tasks": [
+          "TASK-032"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "verify_predicate con type=symbol_exists consulta grafo primero. Respuesta O(1) si el simbolo ya esta en el grafo.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0345,
+            "actual_reduction": 0.0345,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T22:03:03.033541+00:00",
+        "distance": 0.0,
+        "event": "TASK-033 completed",
+        "tasks": [
+          "TASK-033"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "task.py advance TASK-XXX --graph muestra subgrafo con vecinos antes del loop.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0345,
+            "actual_reduction": 0.0345,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-20T00:00:38.808516+00:00",
+        "distance": 0.0,
+        "event": "TASK-034 completed",
+        "tasks": [
+          "TASK-034"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py analyze muestra tabla archivo|grado|tasks|predicates|riesgo.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.069,
+            "actual_reduction": 0.069,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-20T00:03:25.487665+00:00",
+        "distance": 0.0,
+        "event": "TASK-035 updated: validation"
+      },
+      {
+        "at": "2026-07-20T00:31:48.660677+00:00",
+        "distance": 0.0,
+        "event": "TASK-035 completed",
+        "tasks": [
+          "TASK-035"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "spring.py health muestra score + desglose por categoria.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 2,
+            "actual_satisfied": 2,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.069,
+            "actual_reduction": 0.069,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-20T00:32:16.881043+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: validation"
+      },
+      {
+        "at": "2026-07-20T00:32:17.752148+00:00",
+        "distance": 0.0,
+        "event": "TASK-037 updated: validation"
+      },
+      {
+        "at": "2026-07-20T01:26:18.848128+00:00",
+        "distance": 0.0,
+        "event": "REBASE: 0 orphaned → cancelled, 0 new → pending"
+      },
+      {
+        "at": "2026-07-20T12:56:46.703132+00:00",
+        "distance": 0.0,
+        "event": "TASK-038 added to sprint: test con criterios gates y preconditions reales"
+      },
+      {
+        "at": "2026-07-20T15:58:56.652685+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: task_context"
+      },
+      {
+        "at": "2026-07-20T16:01:15.145903+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: task_context"
+      },
+      {
+        "at": "2026-07-20T20:03:13.742084+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: task_context"
+      },
+      {
+        "at": "2026-07-20T20:09:19.613600+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: objective"
+      },
+      {
+        "at": "2026-07-20T20:09:28.129709+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: objective"
+      },
+      {
+        "at": "2026-07-20T20:09:35.875341+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: objective"
+      },
+      {
+        "at": "2026-07-20T20:09:43.164407+00:00",
+        "distance": 0.0,
+        "event": "TASK-036 updated: task_context"
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-001": "completed",
+        "TASK-002": "completed",
+        "TASK-003": "completed",
+        "TASK-004": "completed",
+        "TASK-005": "completed",
+        "TASK-006": "completed",
+        "TASK-007": "completed",
+        "TASK-008": "completed",
+        "TASK-009": "completed",
+        "TASK-010": "completed",
+        "TASK-011": "completed",
+        "TASK-012": "completed",
+        "TASK-013": "completed",
+        "TASK-014": "completed",
+        "TASK-015": "completed",
+        "TASK-016": "completed",
+        "TASK-017": "completed",
+        "TASK-018": "completed",
+        "TASK-019": "completed",
+        "TASK-020": "completed",
+        "TASK-021": "completed",
+        "TASK-022": "completed",
+        "TASK-023": "completed",
+        "TASK-024": "completed",
+        "TASK-025": "completed",
+        "TASK-026": "completed",
+        "TASK-027": "completed",
+        "TASK-028": "completed",
+        "TASK-029": "completed",
+        "TASK-030": "completed",
+        "TASK-031": "completed",
+        "TASK-032": "completed",
+        "TASK-033": "completed",
+        "TASK-034": "completed",
+        "TASK-035": "completed",
+        "TASK-036": "pending",
+        "TASK-037": "pending",
+        "TASK-038": "pending"
+      },
+      "next_action": {
+        "task_id": "TASK-036",
+        "role": "core",
+        "candidate": "Mostrar sugerencia contextual del siguiente paso optimo. Usa grafo para relevancia.",
+        "type": "feature",
+        "work_type": "refactor",
+        "target": "",
+        "delta": 0.0345,
+        "confidence": 0.8,
+        "risk": 0.2,
+        "score": 0.5,
+        "rationale": "Siguiente tarea: Mostrar sugerencia contextual del siguiente paso optimo. Usa..."
+      },
+      "alternatives": [],
+      "risks": [],
+      "delta_metrics": {},
+      "finished": true,
+      "po_approved": {
+        "TEST-2": true
+      },
+      "contract_data": {
+        "ADVANCE_TASK": {
+          "TASK-036": {
+            "q1": "Test Q1",
+            "a1": "Test A1",
+            "q2": "Test Q2",
+            "a2": "Test A2",
+            "q3": "Test Q3",
+            "a3": "Test A3"
+          }
+        },
+        "SPRINT_ACTIVE": {
+          "TASK-036": {
+            "action": "add-task",
+            "objective": "Tarea de prueba desde EDIT_PLAN",
+            "result_state": "Tarea agregada correctamente"
+          }
+        }
+      },
+      "walker_data": {
+        "decision_log": [
+          {
+            "from": "ADVANCE_TASK",
+            "gate": "advance_refine",
+            "task_id": "TASK-036",
+            "reason": "",
+            "at": "2026-07-20T20:44:19.232367+00:00"
+          }
+        ]
+      }
+    }
+  }
+}

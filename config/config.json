@@ -1,0 +1,50 @@
+{
+  "debug_level": 0,
+  "workflow_dir": "workflow.v3",
+  "data_dir": "data",
+  "sprint_dir": "spring",
+  "port": 8000,
+  "delta": {
+    "curvature_budget": 0.50
+  },
+  "tools": {
+    "ast_grep_bin": "sg",
+    "qlty_bin": "qlty"
+  },
+  "quality": {
+    "cyclo_max": 30,
+    "lcom_max": 10,
+    "ce_max": 5,
+    "cc_per_func_max": 10,
+    "dup_blocks_max": 2,
+    "security_high_max": 0,
+    "hallucinated_imports_max": 0,
+    "coverage_min": 80,
+    "maintainability": {
+      "A": 0.05,
+      "B": 0.10,
+      "C": 0.20,
+      "D": 0.50
+    },
+    "security": {
+      "A": 0,
+      "B": 1,
+      "C": 3,
+      "D": 8
+    }
+  },
+  "scan": {
+    "ignored_dirs": [
+      "node_modules",
+      ".git",
+      "__pycache__",
+      "venv",
+      ".venv",
+      ".env",
+      "dist",
+      "build",
+      ".next",
+      ".cognitive"
+    ]
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "project": {
+    "meta": {
+      "project_id": "game-reset-page",
+      "version": "2.0",
+      "created_at": "2026-07-15T21:15:08Z",
+      "updated_at": "2026-07-15T22:00:00Z"
+    },
+    "identity": {
+      "name": "game-reset-page",
+      "description": "Landing page / sitio web de marketing para la plataforma de juegos de azar. Construido con Next.js 15+ y Tailwind CSS v4. Sirve como sitio publico informativo sobre los juegos disponibles, resultados y promociones. No contiene logica de juego ni apuestas en tiempo real.",
+      "language": "typescript",
+      "framework": "next.js 15+, react 19+, tailwind css v4",
+      "tags": ["nextjs", "tailwind", "landing-page", "marketing", "typescript", "ssr"]
+    },
+    "location": {
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/game-reset-page",
+      "cognitive_subdir": "",
+      "code_paths": [
+        "src/app/",
+        "src/components/",
+        "src/domain/",
+        "src/application/",
+        "src/infrastructure/",
+        "src/presentation/"
+      ]
+    },
+    "design": {
+      "patterns": [
+        "nextjs-app-router",
+        "hexagonal-architecture-light",
+        "server-components",
+        "tailwind-css"
+      ],
+      "layer_rules": {
+        "pages": ["src/app/"],
+        "components": ["src/presentation/", "src/components/"],
+        "domain": ["src/domain/"],
+        "application": ["src/application/"],
+        "infrastructure": ["src/infrastructure/"]
+      },
+      "bounded_contexts": [
+        {
+          "name": "app",
+          "description": "Paginas y layouts de Next.js App Router con rutas publicas y dashboard"
+        },
+        {
+          "name": "presentation",
+          "description": "Componentes UI puramente visuales sin logica de negocio"
+        },
+        {
+          "name": "domain",
+          "description": "Modelos de dominio y tipos compartidos"
+        },
+        {
+          "name": "application",
+          "description": "Casos de uso y logica de aplicacion"
+        }
+      ],
+      "port_adapter_required": false,
+      "forbidden_dependencies": [
+        "presentation → infrastructure directo"
+      ],
+      "decisions": [
+        {
+          "id": "ADR-001",
+          "title": "Next.js App Router con Server Components por defecto",
+          "context": "Necesitabamos un sitio publico rapido con SEO y SSR.",
+          "decision": "Se usa Next.js App Router con Server Components como default y Client Components solo cuando hay interactividad.",
+          "consequences": "Excelente SEO, paginas rapidas. La interactividad requiere 'use client' explicito.",
+          "date": "2025-06-01"
+        },
+        {
+          "id": "ADR-002",
+          "title": "Hexagonal ligero sin puertos ni adaptadores formales",
+          "context": "Se queria separar logica de negocio de infraestructura pero sin la complejidad de puertos/adaptadores formales.",
+          "decision": "Separacion en capas (domain/application/infrastructure/presentation) pero sin interfaces de puertos ni inyeccion de dependencias formal. Las capas superiores importan inferiores directamente.",
+          "consequences": "Estructura clara sin over-engineering. La separacion es principalmente organizacional.",
+          "date": "2025-06-01"
+        }
+      ]
+    },
+    "architecture": {
+      "project_structure": "projects/game-reset-page/ — src/app/ (paginas Next.js App Router), src/presentation/ (componentes UI), src/domain/ (tipos y modelos), src/application/ (casos de uso), src/infrastructure/ (acceso a datos, APIs externas), src/components/ (componentes adicionales), tests/ (pruebas), doc/ (documentacion)",
+      "module_organization": "Separacion por capas: app/ para rutas, presentation/ para componentes visuales, domain/ para modelos, application/ para logica, infrastructure/ para acceso a datos externos.",
+      "test_strategy": {
+        "unit": "vitest para funciones puras y utilerias",
+        "integration": "react-testing-library para componentes",
+        "e2e": "playwright para flujos completos"
+      },
+      "dependency_injection": "No hay DI formal. Las dependencias se importan directamente.",
+      "error_handling": "Error boundaries globales en layout.tsx. Pagina 404 y error personalizadas.",
+      "config_management": ".env.local con next.config.ts. Variables: API_URL (opcional, para datos de juegos)."
+    },
+    "coding": {
+      "language": "typescript",
+      "naming_convention": "camelCase para variables/funciones, PascalCase para componentes, kebab-case para archivos",
+      "formatter": "biome",
+      "linter": "biome",
+      "type_checker": "typescript strict",
+      "test_framework": "vitest",
+      "import_style": "imports absolutos con alias @/",
+      "docstring_style": "JSDoc minimalista",
+      "max_line_length": 100,
+      "git_workflow": {
+        "branch": "feature/... → main"
+      }
+    },
+    "quality_preferences": {
+      "cyclo_max": 60,
+      "lcom_max": 20,
+      "ce_max": 10,
+      "cc_per_func_max": 15,
+      "dup_blocks_max": 2,
+      "security_high_max": 0,
+      "hallucinated_imports_max": 0,
+      "coverage_min": null
+    },
+    "active_goal": {},
+    "goals_history": [],
+    "team": {
+      "owners": [],
+      "bounded_contexts": [
+        "public-site",
+        "dashboard"
+      ]
+    },
+    "dependencies": {
+      "internal_modules": [
+        "src/app/",
+        "src/presentation/",
+        "src/domain/",
+        "src/application/",
+        "src/infrastructure/"
+      ],
+      "external_services": [
+        "Vercel (deploy)",
+        "API de backend-microservices (opcional, para datos publicos)"
+      ],
+      "related_projects": [
+        {
+          "project_id": "backend-microservices",
+          "relation": "data source",
+          "description": "Puede consumir datos publicos de juegos y resultados del backend"
+        }
+      ]
+    },
+    "detected_profile": {
+      "type": "web-nextjs",
+      "complexity": "low",
+      "team_size": 1
+    }
+  }
+}

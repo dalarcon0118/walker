@@ -1,0 +1,5 @@
+{
+  "cmd": "sg",
+  "args": ["outline", "--json", "--items", "all", "--view", "expanded"],
+  "timeout": 120
+}

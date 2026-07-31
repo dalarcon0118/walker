@@ -1,0 +1,40 @@
+{
+  "description": "Create the first sprint with sprint-state.json and plan.json",
+  "usage": "walker <project>/create_first_sprint [--path <dir>]",
+  "tags": [
+    "workflow",
+    "sprint"
+  ],
+  "input_schema": {
+    "required": [],
+    "optional": [
+      "path"
+    ],
+    "path": {
+      "type": "string",
+      "description": "Project path. If omitted, derived from chain_dir."
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "sprint_id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "chain_dir": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

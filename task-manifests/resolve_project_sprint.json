@@ -1,0 +1,33 @@
+{
+  "description": "Resolve if a project has an active sprint (ACTIVE) or not (PLANNING)",
+  "usage": "internal use via edge transform",
+  "tags": ["internal", "transform"],
+  "input_schema": {
+    "required": ["chain_dir"],
+    "optional": ["project_id"],
+    "chain_dir": {
+      "type": "string",
+      "description": "Path to the sprint directory (chain_dir)",
+      "example": "/path/to/.cognitive/projects/<id>/delta/<sprint>"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Project ID. If omitted, derived from chain_dir.",
+      "example": "delta-skill"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "data": {
+        "type": "object",
+        "properties": {
+          "project_id": {"type": "string"},
+          "status": {"type": "string", "enum": ["ACTIVE", "PLANNING"]},
+          "sprint_id": {"type": "string", "description": "Active sprint ID if status=ACTIVE"}
+        }
+      }
+    }
+  }
+}

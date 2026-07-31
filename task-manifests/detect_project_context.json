@@ -1,0 +1,27 @@
+{
+  "description": "Detect project context: languages, frameworks, git status",
+  "usage": "walker <project>/detect_project_context [--path <dir>]",
+  "tags": ["workflow", "project-init"],
+  "input_schema": {
+    "required": [],
+    "optional": ["path"],
+    "path": {
+      "type": "string",
+      "description": "Project path to scan. If omitted, uses chain_dir or current dir.",
+      "example": "/home/user/projects/myapp"
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "data": {"type": "object", "properties": {
+        "has_code": {"type": "boolean"},
+        "has_git": {"type": "boolean"},
+        "languages": {"type": "array"},
+        "framework": {"type": "string"},
+        "is_legacy": {"type": "boolean"}
+      }}
+    }
+  }
+}

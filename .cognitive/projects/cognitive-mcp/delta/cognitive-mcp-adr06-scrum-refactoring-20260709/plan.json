@@ -1,0 +1,177 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-adr06-scrum-refactoring-20260709",
+      "generated_at": "2026-07-09T15:10:00-03:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan",
+      "supersedes": ""
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "scrum",
+        "project"
+      ],
+      "tags": [
+        "python",
+        "hexagonal",
+        "ddd",
+        "scrum",
+        "adr",
+        "refactor"
+      ]
+    },
+    "g_objetivo": {
+      "description": "ADR-06: Extraer SprintStateService como interfaz limpia que scrum expone para que la máquina de estado (StateGraph, delta_evaluator, guidance) consuma datos de scrum.",
+      "path_summary": "Crear scrum/SprintStateService.py. Refactorizar SprintPlanning.py y ScrumMaster.py. Actualizar scrum/__init__.py.",
+      "predicates": {
+        "must_exist": [
+          "scrum/SprintStateService.py existe con 9 funciones públicas",
+          "SprintPlanning.py no importa directo de state_graph ni delta_evaluator",
+          "ScrumMaster.py no importa directo de delta_evaluator ni project_state_service",
+          "scrum/__init__.py exporta SprintStateService"
+        ],
+        "must_not_exist": [
+          "SprintPlanning.py sin imports a cognitive_v2.features.project.domain.state_graph",
+          "SprintPlanning.py sin imports a cognitive_v2.shared.delta_evaluator",
+          "ScrumMaster.py sin imports a cognitive_v2.shared.delta_evaluator"
+        ],
+        "invariants": [
+          "state_graph.py se queda en features/project/domain/",
+          "delta_evaluator.py se queda en shared/",
+          "state_graph_registry.py se queda en shared/",
+          "La máquina de estado llama a scrum, no al revés",
+          "SprintStateService usa imports lazy para evitar circular imports"
+        ]
+      }
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-ADR06-001",
+        "role": "prerequisite",
+        "type": "refactor",
+        "work_type": "feature_new_file",
+        "domain": "scrum",
+        "objective": "Crear scrum/SprintStateService.py con 9 funciones públicas + constantes SPRINT_COMPLETED/SPRINT_ABANDONED.",
+        "result_state": "scrum/SprintStateService.py creado sintácticamente válido con 9 funciones y constantes",
+        "acceptance_criteria": [
+          "SprintStateService.py existe",
+          "Exporta get_state_graph, save_state_graph, create_state_graph, compute_distance",
+          "Exporta get_registry, set_registry, ensure_registry, get_project_state",
+          "Exporta SPRINT_COMPLETED y SPRINT_ABANDONED",
+          "create_state_graph acepta goal opcional"
+        ],
+        "validation": {
+          "predicates": [
+            "SprintStateService.py sintácticamente válido",
+            "Exporta todas las funciones requeridas"
+          ]
+        },
+        "risk": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-ADR06-002",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "objective": "Refactorizar SprintPlanning.py: reemplazar imports inline de state_graph/delta_evaluator por SprintStateService.",
+        "result_state": "SprintPlanning.py usa SprintStateService, archivo sintácticamente válido",
+        "acceptance_criteria": [
+          "SprintPlanning.py no importa de state_graph ni delta_evaluator",
+          "4 métodos usan SprintStateService: create_sprint, delta_plan, get_project_board, _recalculate_sprint_delta, _set_current_sprint_id"
+        ],
+        "validation": {
+          "predicates": [
+            "SprintPlanning.py sintácticamente válido",
+            "Sin imports a state_graph/delta_evaluator"
+          ]
+        },
+        "risk": {
+          "curvature": 0.15,
+          "pre_churn": 0.05,
+          "commit_trust": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-ADR06-003",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "objective": "Refactorizar ScrumMaster.py: usar SprintStateService en vez de imports a delta_evaluator y project_state_service.",
+        "result_state": "ScrumMaster.py usa SprintStateService, archivo sintácticamente válido",
+        "acceptance_criteria": [
+          "ScrumMaster.py no importa de cognitive_v2.shared.delta_evaluator",
+          "create_task usa SprintStateService.get_state_graph y save_state_graph",
+          "get_state usa SprintStateService.get_project_state"
+        ],
+        "validation": {
+          "predicates": [
+            "ScrumMaster.py sintácticamente válido",
+            "Sin imports a delta_evaluator/project_state_service"
+          ]
+        },
+        "risk": {
+          "curvature": 0.1,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        }
+      },
+      {
+        "task_id": "TASK-ADR06-004",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "objective": "Actualizar scrum/__init__.py para exportar SprintStateService y sus símbolos públicos.",
+        "result_state": "scrum/__init__.py exporta SprintStateService, sintácticamente válido",
+        "acceptance_criteria": [
+          "__init__.py importa SprintStateService",
+          "__all__ incluye todos los símbolos públicos"
+        ],
+        "validation": {
+          "predicates": [
+            "__init__.py sintácticamente válido",
+            "Exporta SprintStateService"
+          ]
+        },
+        "risk": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        }
+      }
+    ],
+    "dependency_graph": {
+      "TASK-ADR06-001": [],
+      "TASK-ADR06-002": [
+        "TASK-ADR06-001"
+      ],
+      "TASK-ADR06-003": [
+        "TASK-ADR06-001"
+      ],
+      "TASK-ADR06-004": [
+        "TASK-ADR06-001"
+      ]
+    },
+    "parallel_opportunities": {
+      "group_1": [
+        "TASK-ADR06-002",
+        "TASK-ADR06-003",
+        "TASK-ADR06-004"
+      ]
+    },
+    "task_roles": {
+      "prerequisite": "TASK-ADR06-001",
+      "core": "TASK-ADR06-002, TASK-ADR06-003, TASK-ADR06-004"
+    }
+  }
+}

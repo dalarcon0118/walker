@@ -1,0 +1,11 @@
+{
+  "id": "design/ckg-save",
+  "type": "auto",
+  "version": 1,
+  "description": "Save design knowledge to CKG",
+  "tags": [
+    "design",
+    "knowledge"
+  ],
+  "template": "📌 DESIGN.CKG_SAVE - Saving design to knowledge graph...\n\nPersisting architectural decisions and analysis results.\nThis runs automatically - no action needed."
+}

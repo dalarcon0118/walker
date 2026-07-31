@@ -1,0 +1,975 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-cpg-semgrep-integration-20260709",
+      "generated_at": "2026-07-09T11:20:00-03:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan",
+      "supersedes": ""
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "cpg",
+        "shared"
+      ],
+      "tags": [
+        "python",
+        "hexagonal",
+        "deltaux",
+        "ddd",
+        "cpg",
+        "semgrep",
+        "validation",
+        "code-rules",
+        "feature"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Integrar Semgrep dentro del Bounded Context cpg/ como mecanismo de validación de código, sin crear un nuevo feature (sin features/audit/). Semgrep comparte BC con CGC+CFG+DFG porque todos trabajan sobre el mismo dominio (código) y se invocan coordinadamente desde el driving adapter. CGC describe el código, Semgrep lo juzga contra reglas — ambos viven en cpg/. Debe mantener paridad con los 27 lenguajes que soporta CGC.",
+      "path_summary": "Para alcanzar esto: (1) revertir la decisión arquitectural previa en DOMAIN.md que excluía Semgrep de cpg/; (2) añadir SemgrepPort en cpg/domain/ports/ junto a CodeIndexPort y CypherPort; (3) crear modelos de dominio (ValidationRule, ValidationFinding, ValidationReport) con validación en __post_init__; (4) crear eventos CodeValidated/ValidationFailed/NoFindings; (5) crear driven adapter en cpg/infrastructure/semgrep_adapter.py que envuelve el binario externo; (6) crear 3 use cases (ValidateCodeUseCase, ListRulesUseCase, ScanPathUseCase); (7) registrar LoggingHandlers para los nuevos eventos; (8) tests con Mock SemgrepPort; (9) tool MCP code_review en cpg/api/ que compone FindSymbol + ValidateCode.",
+      "predicates": {
+        "must_exist": [
+          "cpg/domain/ports/__init__.py exporta SemgrepPort (Protocol runtime_checkable)",
+          "cpg/domain/models/__init__.py exporta ValidationRule, ValidationFinding, ValidationReport (frozen dataclasses)",
+          "cpg/domain/events/__init__.py exporta CodeValidated, ValidationFailed, NoFindings (frozen dataclass DomainEvent)",
+          "cpg/infrastructure/semgrep_adapter.py implementa SemgrepPort invocando el binario semgrep --config auto --json",
+          "cpg/infrastructure/semgrep_factory.py encapsula subprocess.run de semgrep (composition root, análogo a cgc_watcher_factory)",
+          "cpg/application/use_cases.py exporta ValidateCodeUseCase, ListRulesUseCase, ScanPathUseCase",
+          "cpg/application/event_handlers.py registra LoggingHandlers para CodeValidated/ValidationFailed/NoFindings",
+          "cpg/application/tests/test_semgrep_use_cases.py con mínimo 9 tests (3 use cases × 3 escenarios)",
+          "cpg/infrastructure/tests/test_semgrep_adapter_boundary.py valida SSOT: solo semgrep_factory.py importa subprocess/exec",
+          "cpg/api/mcp_tools.py expone tool code_review que compone FindSymbolUseCase + ValidateCodeUseCase",
+          "cpg/DOMAIN.md documenta explícitamente que Semgrep vive en cpg/ (no en features/audit/)"
+        ],
+        "must_not_exist": [
+          "directorio features/audit/ creado",
+          "import de subprocess o shutil en cpg/domain/ (regla de pureza)",
+          "import de subprocess o shutil en cpg/application/ (regla de pureza)",
+          "import de cognitive_v2.features.cpg.infrastructure.semgrep_adapter desde cpg/domain/ (violación de capas)",
+          "import de cognitive_v2.features.audit.* desde cualquier archivo en cpg/ (ya no aplica: no hay audit/)",
+          "tool MCP con nombre que mencione 'semgrep' (sanitización LLM-facing)"
+        ],
+        "invariants": [
+          "Semgrep vive en cpg/ como mecanismo de validación — CGC+CFG+DFG son mecanismos de consulta, todos en el mismo BC porque comparten dominio (código) y composición en driving adapter",
+          "CGC y Semgrep mantienen paridad de 27 lenguajes: si Semgrep no soporta un lenguaje que CGC sí soporta, debe documentarse explícitamente en cpg/DOMAIN.md sección 'Lenguajes con brecha'",
+          "Sanitización LLM-facing se mantiene: tool names, prompts, enums, métricas no mencionan 'semgrep' — sólo 'code_validate', 'code_review', 'findings'",
+          "El dominio cpg/ permanece puro: domain/ no importa infrastructure/, application/ importa ports/ (Protocols) no adapters concretos",
+          "El driven adapter de Semgrep se invoca sólo desde infrastructure/ vía composition root (semgrep_factory), nunca desde domain/ ni application/"
+        ]
+      },
+      "signatures": [
+        {
+          "function": "validate_code",
+          "file": "cpg/application/use_cases.py",
+          "change": "NEW: use case que orquesta SemgrepPort.scan_path() y publica CodeValidated/ValidationFailed/NoFindings al bus",
+          "params": "(request: ValidateCodeRequest) -> ValidationReport",
+          "returns": "ValidationReport con findings agregados"
+        },
+        {
+          "function": "list_rules",
+          "file": "cpg/application/use_cases.py",
+          "change": "NEW: use case que lista reglas Semgrep aplicables al lenguaje del path objetivo",
+          "params": "(request: ListRulesRequest) -> list[ValidationRule]",
+          "returns": "lista de ValidationRule con id, language, severity, pattern"
+        },
+        {
+          "function": "scan_path",
+          "file": "cpg/application/use_cases.py",
+          "change": "NEW: use case de bajo nivel que invoca SemgrepPort.scan_path() sin publicación de eventos (para escaneos masivos)",
+          "params": "(path: str, rules: list[str] | None = None) -> list[ValidationFinding]",
+          "returns": "lista cruda de findings"
+        },
+        {
+          "function": "is_available",
+          "file": "cpg/infrastructure/semgrep_adapter.py",
+          "change": "NEW: método del adapter que detecta si el binario semgrep está instalado",
+          "params": "() -> bool",
+          "returns": "True si subprocess.run(['semgrep', '--version']) exit=0"
+        },
+        {
+          "function": "scan_path",
+          "file": "cpg/infrastructure/semgrep_adapter.py",
+          "change": "NEW: método del adapter que ejecuta semgrep --config auto --json y mapea resultados a ValidationFinding",
+          "params": "(path: str, rules: list[str] | None = None) -> list[ValidationFinding]",
+          "returns": "lista de findings normalizados al modelo de dominio"
+        }
+      ],
+      "done_when": [
+        {
+          "criterio": "Semgrep es un mecanismo de validación que vive en cpg/ — el dominio reconoce explícitamente que CGC describe código y Semgrep lo juzga, ambos comparten BC",
+          "predicates": [
+            "cpg/DOMAIN.md documenta explícitamente que Semgrep vive en cpg/ (no en features/audit/)",
+            "cpg/domain/ports/__init__.py exporta SemgrepPort (Protocol runtime_checkable)",
+            "directorio features/audit/ no existe"
+          ]
+        },
+        {
+          "criterio": "El driven adapter de Semgrep está encapsulado tras un composition root análogo a cgc_watcher_factory",
+          "predicates": [
+            "cpg/infrastructure/semgrep_factory.py encapsula subprocess.run de semgrep (composition root, análogo a cgc_watcher_factory)",
+            "cpg/infrastructure/tests/test_semgrep_adapter_boundary.py valida SSOT: solo semgrep_factory.py importa subprocess/exec",
+            "import de subprocess o shutil en cpg/domain/ no existe",
+            "import de subprocess o shutil en cpg/application/ no existe"
+          ]
+        },
+        {
+          "criterio": "Los 3 use cases están implementados, publicados como eventos de dominio cuando aplica, y testeados con Mock SemgrepPort",
+          "predicates": [
+            "cpg/application/use_cases.py exporta ValidateCodeUseCase, ListRulesUseCase, ScanPathUseCase",
+            "cpg/application/event_handlers.py registra LoggingHandlers para CodeValidated/ValidationFailed/NoFindings",
+            "cpg/application/tests/test_semgrep_use_cases.py con mínimo 9 tests (3 use cases × 3 escenarios)",
+            "ValidateCodeUseCase publica CodeValidated/ValidationFailed/NoFindings al InMemoryEventBus"
+          ]
+        },
+        {
+          "criterio": "Una herramienta MCP 'code_review' compone FindSymbolUseCase + ValidateCodeUseCase sin acoplar adapters concretos",
+          "predicates": [
+            "cpg/api/mcp_tools.py expone tool code_review que compone FindSymbolUseCase + ValidateCodeUseCase",
+            "tool MCP con nombre que mencione 'semgrep' no existe",
+            "el handler de code_review depende sólo de los use cases (no de cgc_adapter ni semgrep_adapter directamente)"
+          ]
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-SEMGREP-001",
+        "role": "prerequisite",
+        "type": "docs",
+        "work_type": "docs",
+        "objective": "Actualizar cpg/DOMAIN.md para revertir la decisión arquitectural: Semgrep vive en cpg/ como mecanismo de validación. Reescribir las secciones 'Lo que vive aquí' (añadir Semgrep con su rol) y 'Lo que NO vive aquí' (eliminar la mención de audit/). Documentar la paridad de 27 lenguajes como invariante.",
+        "result_state": "cpg/DOMAIN.md dice explícitamente que Semgrep es parte de cpg/, comparte BC con CGC+CFG+DFG, y existe la sección 'Lenguajes con brecha' para documentar dónde Semgrep no cubre lo que CGC sí.",
+        "domain": "cpg",
+        "depends_on": [],
+        "preconditions": [
+          "cpg/ ya está migrado a arquitectura hexagonal con CodeIndexPort, CypherPort, KeyValuePort y use cases funcionando (58/58 tests pasan)"
+        ],
+        "acceptance_criteria": [
+          "grep -c 'Semgrep vive en cpg/' cpg/DOMAIN.md retorna >= 1",
+          "grep -c 'mecanismo de validación' cpg/DOMAIN.md retorna >= 3",
+          "grep -c 'features/audit/' cpg/DOMAIN.md retorna 0",
+          "cpg/DOMAIN.md contiene una sección 'Lenguajes con brecha' con tabla de lenguajes CGC vs cobertura Semgrep"
+        ],
+        "quality_gates": [
+          "DOMAIN.md no menciona creación de nuevo BC (sin features/audit/)",
+          "cpg/__init__.py docstring actualizado para mencionar Semgrep como parte del BC"
+        ],
+        "loop_verification": [
+          "grep -E 'Semgrep vive en cpg/' cpg/DOMAIN.md | head -1",
+          "grep -E 'features/audit/' cpg/DOMAIN.md | wc -l | grep -q '^0$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/DOMAIN.md",
+            "cognitive_v2/features/cpg/__init__.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": [
+            "cognitive_v2/features/cpg/DOMAIN.md"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "decisions": [
+          {
+            "chosen": "Revertir decisión arquitectural: Semgrep vive en cpg/, no en features/audit/",
+            "alternatives": [
+              "Mantener features/audit/ como BC separado (descartado: usuario explícito de no crear nuevo feature)"
+            ],
+            "rationale": "El usuario corrigió la decisión previa: 'no quiero crear un nuevo feature, quiero que este dentro del modulo de contexto de codigo'. CPG+Semgrep comparten dominio (código) y se componen en driving adapters — el mismo BC refleja esta unidad de cambio."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/DOMAIN.md documenta explícitamente que Semgrep vive en cpg/ (no en features/audit/)",
+            "cpg/__init__.py menciona Semgrep como mecanismo de validación del BC"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-002",
+        "role": "prerequisite",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Añadir SemgrepPort como Protocol runtime_checkable en cpg/domain/ports/__init__.py. Define la interfaz que el driven adapter de Semgrep debe implementar, análoga a CodeIndexPort y CypherPort.",
+        "result_state": "cpg/domain/ports/__init__.py exporta SemgrepPort con métodos is_available(), scan_path(path, rules), list_rules(language).",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-001"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-001 completado: decisión arquitectural documentada"
+        ],
+        "acceptance_criteria": [
+          "SemgrepPort está definido con @runtime_checkable",
+          "SemgrepPort.is_available() -> bool",
+          "SemgrepPort.scan_path(path: str, rules: list[str] | None = None) -> list[ValidationFinding]",
+          "SemgrepPort.list_rules(language: str) -> list[ValidationRule]",
+          "__all__ exporta 'SemgrepPort'"
+        ],
+        "quality_gates": [
+          "domain/ports/ no importa infrastructure/ ni application/",
+          "domain/ports/ no importa subprocess, shutil ni ejecutables externos"
+        ],
+        "loop_verification": [
+          "grep 'class SemgrepPort' cognitive_v2/features/cpg/domain/ports/__init__.py",
+          "grep -E 'def (is_available|scan_path|list_rules)' cognitive_v2/features/cpg/domain/ports/__init__.py | wc -l | grep -q '^3$'",
+          "grep -c 'import subprocess' cognitive_v2/features/cpg/domain/ports/__init__.py | grep -q '^0$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/domain/ports/__init__.py"
+          ],
+          "apis": [
+            "SemgrepPort"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.05,
+          "commit_trust": 0.95
+        },
+        "decisions": [
+          {
+            "chosen": "SemgrepPort como Protocol runtime_checkable, análogo a CodeIndexPort y CypherPort",
+            "alternatives": [
+              "ABC abstract class (descartado: el resto del proyecto usa Protocol con runtime_checkable)",
+              "Dataclass con métodos concretos (descartado: rompe inversión de dependencias)"
+            ],
+            "rationale": "Consistencia con CodeIndexPort, CypherPort y KeyValuePort ya en el proyecto. Protocol con runtime_checkable permite type-safe mocking en tests."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/domain/ports/__init__.py exporta SemgrepPort (Protocol runtime_checkable)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-003",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Crear modelos de dominio para validación: ValidationRule (id, language, severity, pattern, message), ValidationFinding (rule_id, path, line, column, severity, message, code_snippet), ValidationReport (findings, total, by_severity, duration_ms). Todos frozen dataclasses con validación en __post_init__.",
+        "result_state": "cpg/domain/models/__init__.py exporta ValidationRule, ValidationFinding, ValidationReport con validación de tipos y rangos en __post_init__.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-001"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-001 completado: dominio documentado"
+        ],
+        "acceptance_criteria": [
+          "ValidationRule es frozen dataclass con campos: rule_id (str, no vacío), language (str), severity (Literal['info','warning','error']), pattern (str), message (str)",
+          "ValidationFinding es frozen dataclass con campos: rule_id, path, line (int >= 0), column (int >= 0), severity, message, code_snippet (str | None)",
+          "ValidationReport es frozen dataclass con campos: findings (tuple[ValidationFinding, ...]), total (int), by_severity (dict[str, int]), duration_ms (int >= 0)",
+          "ValidationReport.__post_init__ valida total == len(findings)",
+          "ValidationReport.__post_init__ valida sum(by_severity.values()) == total"
+        ],
+        "quality_gates": [
+          "modelos no tienen dependencias de infrastructure/ ni application/",
+          "modelos no importan subprocess ni ejecutables externos",
+          "frozen=True para todos (inmutabilidad)"
+        ],
+        "loop_verification": [
+          "grep -E '^class (ValidationRule|ValidationFinding|ValidationReport)' cognitive_v2/features/cpg/domain/models/__init__.py | wc -l | grep -q '^3$'",
+          "grep -c '@dataclass(frozen=True)' cognitive_v2/features/cpg/domain/models/__init__.py | grep -q '^3$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/domain/models/__init__.py"
+          ],
+          "apis": [
+            "ValidationRule",
+            "ValidationFinding",
+            "ValidationReport"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "decisions": [
+          {
+            "chosen": "severity como Literal['info','warning','error'] en lugar de Enum",
+            "alternatives": [
+              "Enum dedicado (descartado: complica serialización JSON)",
+              "str libre (descartado: pierde type-safety)"
+            ],
+            "rationale": "Literal preserva type-safety con compatibilidad JSON nativa. Coincide con el output nativo de Semgrep."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/domain/models/__init__.py exporta ValidationRule, ValidationFinding, ValidationReport (frozen dataclasses)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-004",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Crear eventos de dominio para validación: CodeValidated (path, total_findings, duration_ms, by_severity), ValidationFailed (path, error), NoFindings (path, duration_ms). Todos heredan de DomainEvent compartido.",
+        "result_state": "cpg/domain/events/__init__.py exporta CodeValidated, ValidationFailed, NoFindings como frozen dataclass DomainEvent.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-003"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-003 completado: modelos definidos"
+        ],
+        "acceptance_criteria": [
+          "CodeValidated hereda de DomainEvent con timestamp auto-asignado",
+          "ValidationFailed hereda de DomainEvent con campo error (str)",
+          "NoFindings hereda de DomainEvent con campos path y duration_ms",
+          "Los 3 eventos son frozen dataclasses",
+          "__all__ exporta 'CodeValidated', 'ValidationFailed', 'NoFindings'"
+        ],
+        "quality_gates": [
+          "eventos no importan infrastructure/",
+          "eventos no importan subprocess ni ejecutables externos"
+        ],
+        "loop_verification": [
+          "grep -E '^class (CodeValidated|ValidationFailed|NoFindings)' cognitive_v2/features/cpg/domain/events/__init__.py | wc -l | grep -q '^3$'",
+          "grep -c 'from shared.events import.*DomainEvent\\|from .*shared.events.*DomainEvent\\|DomainEvent' cognitive_v2/features/cpg/domain/events/__init__.py"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/domain/events/__init__.py"
+          ],
+          "apis": [
+            "CodeValidated",
+            "ValidationFailed",
+            "NoFindings"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.05,
+          "commit_trust": 0.95
+        },
+        "decisions": [
+          {
+            "chosen": "Reusar DomainEvent del shared kernel (features/shared/events/__init__.py)",
+            "alternatives": [
+              "Crear nueva base class para eventos de validación (descartado: duplica base class)"
+            ],
+            "rationale": "Consistencia con CodeIndexed, SymbolsFound, CallChainTraced, ImpactCalculated ya existentes. Reusar infraestructura probada."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/domain/events/__init__.py exporta CodeValidated, ValidationFailed, NoFindings (frozen dataclass DomainEvent)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-005",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Crear semgrep_factory.py como composition root que encapsula el subprocess.run de semgrep. Funciones: is_available() (verifica binario), invoke_semgrep(path, rules) (ejecuta semgrep --config auto --json y retorna dict). Análogo a cgc_watcher_factory.py.",
+        "result_state": "cpg/infrastructure/semgrep_factory.py encapsula la única invocación de subprocess para semgrep en todo el BC.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-002"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-002 completado: SemgrepPort definido"
+        ],
+        "acceptance_criteria": [
+          "semgrep_factory.is_available() ejecuta subprocess.run(['semgrep', '--version']) y retorna exit_code == 0",
+          "semgrep_factory.invoke_semgrep(path, rules) ejecuta subprocess.run(['semgrep', '--config', 'auto', '--json', path]) con timeout configurable",
+          "semgrep_factory.invoke_semgrep retorna dict con keys 'results', 'errors'",
+          "Manejo de FileNotFoundError cuando semgrep no está instalado (retorna dict con 'error' key)",
+          "Manejo de subprocess.TimeoutExpired (retorna dict con 'error' key)"
+        ],
+        "quality_gates": [
+          "semgrep_factory es la única ubicación en cpg/ que importa subprocess",
+          "semgrep_factory expone composition root get_semgrep_factory() con caché singleton"
+        ],
+        "loop_verification": [
+          "grep -E 'import subprocess' cognitive_v2/features/cpg/infrastructure/semgrep_factory.py",
+          "grep -c 'subprocess.run' cognitive_v2/features/cpg/infrastructure/semgrep_factory.py | grep -qE '^[1-9][0-9]*$'",
+          "grep -rE 'import subprocess' cognitive_v2/features/cpg/infrastructure/ | grep -v semgrep_factory.py | wc -l | grep -q '^0$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/infrastructure/semgrep_factory.py"
+          ],
+          "apis": [
+            "semgrep_factory.is_available",
+            "semgrep_factory.invoke_semgrep"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.15,
+          "commit_trust": 0.85
+        },
+        "decisions": [
+          {
+            "chosen": "Factory pattern con composition root (singleton)",
+            "alternatives": [
+              "Adapter directo con subprocess embebido (descartado: rompe SSOT)",
+              "Wrapper sobre PyPI semgrep package (descartado: añade dependencia externa pesada)"
+            ],
+            "rationale": "Consistencia con cgc_watcher_factory. Invoción del binario nativo evita dependencias Python innecesarias. Composition root permite testear con Mock semgrep_factory en lugar de Mock subprocess."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/infrastructure/semgrep_factory.py encapsula subprocess.run de semgrep (composition root, análogo a cgc_watcher_factory)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-006",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "objective": "Crear SemgrepAdapter en cpg/infrastructure/semgrep_adapter.py que implementa SemgrepPort. Mapea output JSON de semgrep a ValidationFinding/ValidationRule. Usa semgrep_factory como única dependencia de infrastructure.",
+        "result_state": "cpg/infrastructure/semgrep_adapter.py implementa SemgrepPort, mapea findings de Semgrep JSON a modelos de dominio cpg/.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-005"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-005 completado: factory encapsula subprocess"
+        ],
+        "acceptance_criteria": [
+          "SemgrepAdapter implementa is_available(), scan_path(path, rules), list_rules(language)",
+          "is_available() delega a semgrep_factory.is_available()",
+          "scan_path() invoca semgrep_factory.invoke_semgrep() y mapea results a list[ValidationFinding]",
+          "Mapeo de severity: 'INFO'->'info', 'WARNING'->'warning', 'ERROR'->'error'",
+          "list_rules() invoca `semgrep --config auto --list-rules --json` y retorna list[ValidationRule] filtradas por language"
+        ],
+        "quality_gates": [
+          "SemgrepAdapter no importa subprocess directamente (delega a semgrep_factory)",
+          "SemgrepAdapter no importa json.loads directamente (usa lo que retorna semgrep_factory)"
+        ],
+        "loop_verification": [
+          "grep -E 'class SemgrepAdapter' cognitive_v2/features/cpg/infrastructure/semgrep_adapter.py",
+          "grep -E 'def (is_available|scan_path|list_rules)' cognitive_v2/features/cpg/infrastructure/semgrep_adapter.py | wc -l | grep -q '^3$'",
+          "grep -c 'import subprocess' cognitive_v2/features/cpg/infrastructure/semgrep_adapter.py | grep -q '^0$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/infrastructure/semgrep_adapter.py"
+          ],
+          "apis": [
+            "SemgrepAdapter",
+            "get_semgrep_port"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.2,
+          "commit_trust": 0.8
+        },
+        "decisions": [
+          {
+            "chosen": "Adapter thin que sólo mapea JSON de semgrep al modelo de dominio",
+            "alternatives": [
+              "Reimplementar parsing YAML de reglas Semgrep (descartado: reimplementación incorrecta)",
+              "Usar semgrep package de PyPI (descartado: dependencia externa pesada,违背 de 'binario externo')"
+            ],
+            "rationale": "Mapeo directo del JSON output (formato estable de Semgrep) preserva contrato. Cualquier cambio en Semgrep se absorbe en el adapter sin tocar el dominio."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/infrastructure/semgrep_adapter.py implementa SemgrepPort invocando el binario semgrep --config auto --json"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-007",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Implementar 3 use cases en cpg/application/use_cases.py: ValidateCodeUseCase (publica CodeValidated/ValidationFailed/NoFindings), ListRulesUseCase (consulta reglas aplicables), ScanPathUseCase (escaneo de bajo nivel sin eventos). Reusar UseCase[Req, Res] base class.",
+        "result_state": "cpg/application/use_cases.py exporta ValidateCodeUseCase, ListRulesUseCase, ScanPathUseCase. ValidateCodeUseCase publica eventos al InMemoryEventBus según resultado.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-004",
+          "TASK-SEMGREP-006"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-004 completado: eventos de dominio",
+          "TASK-SEMGREP-006 completado: adapter implementa SemgrepPort"
+        ],
+        "acceptance_criteria": [
+          "ValidateCodeUseCase hereda de UseCase[ValidateCodeRequest, ValidationReport]",
+          "ValidateCodeUseCase invoca port.scan_path() y publica CodeValidated si hay findings, NoFindings si 0 findings, ValidationFailed si error",
+          "ListRulesUseCase hereda de UseCase[ListRulesRequest, list[ValidationRule]]",
+          "ScanPathUseCase hereda de UseCase[ScanPathRequest, list[ValidationFinding]] y NO publica eventos (escaneo masivo)"
+        ],
+        "quality_gates": [
+          "use cases no importan infrastructure/ (sólo ports)",
+          "use cases no importan subprocess directamente",
+          "ValidateCodeUseCase importa InMemoryEventBus desde features.shared.events"
+        ],
+        "loop_verification": [
+          "grep -E '^class (ValidateCodeUseCase|ListRulesUseCase|ScanPathUseCase)' cognitive_v2/features/cpg/application/use_cases.py | wc -l | grep -q '^3$'",
+          "grep -E 'port.scan_path' cognitive_v2/features/cpg/application/use_cases.py | wc -l | grep -qE '^[1-9][0-9]*$'",
+          "grep -c 'import subprocess' cognitive_v2/features/cpg/application/use_cases.py | grep -q '^0$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/application/use_cases.py"
+          ],
+          "apis": [
+            "ValidateCodeUseCase",
+            "ListRulesUseCase",
+            "ScanPathUseCase"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.15,
+          "commit_trust": 0.85
+        },
+        "decisions": [
+          {
+            "chosen": "ValidateCodeUseCase publica eventos; ScanPathUseCase no (para escaneos masivos silenciosos)",
+            "alternatives": [
+              "Un único use case ValidateCode con flag publish_events (descartado: flag booleano es code smell)"
+            ],
+            "rationale": "SRP: cada use case tiene una responsabilidad. ScanPathUseCase es para pipelines de validación masiva que no quieren ruido de eventos; ValidateCodeUseCase es para llamadas interactivas del LLM que sí benefician del bus."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/application/use_cases.py exporta ValidateCodeUseCase, ListRulesUseCase, ScanPathUseCase"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-008",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Registrar LoggingHandlers para CodeValidated, ValidationFailed, NoFindings en cpg/application/event_handlers.py. Extender LoggingHandlers existente con register_for_validation() que suscribe handlers a cada evento.",
+        "result_state": "cpg/application/event_handlers.py LoggingHandlers.register_for_validation() suscribe handlers a los 3 eventos de validación.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-007"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-007 completado: use cases emiten eventos"
+        ],
+        "acceptance_criteria": [
+          "LoggingHandlers.register_for_validation(bus: InMemoryEventBus) suscribe un handler a CodeValidated, ValidationFailed, NoFindings",
+          "Cada handler loggea con _engine_log() o equivalente (no print)",
+          "LoggingHandlers.unregister_for_validation(bus) desuscribe correctamente"
+        ],
+        "quality_gates": [
+          "event_handlers no importan infrastructure/",
+          "event_handlers no importan subprocess"
+        ],
+        "loop_verification": [
+          "grep -E 'def (register|unregister)_for_validation' cognitive_v2/features/cpg/application/event_handlers.py | wc -l | grep -q '^2$'",
+          "grep -E 'CodeValidated|ValidationFailed|NoFindings' cognitive_v2/features/cpg/application/event_handlers.py | wc -l | grep -qE '^[3-9][0-9]*$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/application/event_handlers.py"
+          ],
+          "apis": [
+            "LoggingHandlers.register_for_validation",
+            "LoggingHandlers.unregister_for_validation"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.05,
+          "commit_trust": 0.95
+        },
+        "decisions": [
+          {
+            "chosen": "Extender LoggingHandlers existente con método register_for_validation()",
+            "alternatives": [
+              "Crear nueva clase ValidationHandlers separada (descartado: paralelismo innecesario con LoggingHandlers)"
+            ],
+            "rationale": "Consistencia con register()/unregister() ya en LoggingHandlers. Mismo bundle de handlers de logging para todo el BC."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/application/event_handlers.py registra LoggingHandlers para CodeValidated/ValidationFailed/NoFindings"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-009",
+        "role": "core",
+        "type": "test",
+        "work_type": "feature_new_file",
+        "objective": "Tests con Mock SemgrepPort en cpg/application/tests/test_semgrep_use_cases.py: 9 tests mínimo (3 use cases × 3 escenarios: happy path, empty, error). Sin invocar el binario semgrep real.",
+        "result_state": "cpg/application/tests/test_semgrep_use_cases.py contiene ≥9 tests con MockSemgrepPort. Todos pasan en <1s.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-007",
+          "TASK-SEMGREP-008"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-007 completado: use cases implementados",
+          "TASK-SEMGREP-008 completado: handlers registrados"
+        ],
+        "acceptance_criteria": [
+          "TestValidateCodeUseCase: happy path con 3 findings, valida que CodeValidated se publica al bus",
+          "TestValidateCodeUseCase: empty path con 0 findings, valida NoFindings",
+          "TestValidateCodeUseCase: port lanza excepción, valida ValidationFailed",
+          "TestListRulesUseCase: retorna 5 reglas mock, valida shape",
+          "TestListRulesUseCase: filtrado por language retorna subset",
+          "TestListRulesUseCase: language inválido retorna []",
+          "TestScanPathUseCase: happy path con 3 findings, NO publica eventos al bus",
+          "TestScanPathUseCase: empty path retorna []",
+          "TestScanPathUseCase: port lanza excepción propaga la excepción"
+        ],
+        "quality_gates": [
+          "tests usan Mock SemgrepPort (no invocan binario real)",
+          "tests corren en <1s (sin I/O)",
+          "tests usan pytest fixtures (no setUp manual)"
+        ],
+        "loop_verification": [
+          "PYTHONPATH=. python3 -m pytest cognitive_v2/features/cpg/application/tests/test_semgrep_use_cases.py -q --tb=short 2>&1 | tail -5",
+          "grep -E 'def test_' cognitive_v2/features/cpg/application/tests/test_semgrep_use_cases.py | wc -l | grep -qE '^[0-9]+$' && [[ $(grep -E 'def test_' cognitive_v2/features/cpg/application/tests/test_semgrep_use_cases.py | wc -l) -ge 9 ]]"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/application/tests/test_semgrep_use_cases.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [
+            "cognitive_v2/features/cpg/application/tests/test_semgrep_use_cases.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.05,
+          "commit_trust": 0.95
+        },
+        "decisions": [
+          {
+            "chosen": "Mock SemgrepPort en tests (no invocar binario)",
+            "alternatives": [
+              "Tests de integración con semgrep real instalado (descartado: añade dependencia en CI)",
+              "VCR-style recording del output de semgrep (descartado: overkill para esta fase)"
+            ],
+            "rationale": "Consistencia con 17 tests de use cases existentes en test_use_cases.py que ya usan MockCodeIndexPort. Mock permite tests rápidos (<1s) y deterministas."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/application/tests/test_semgrep_use_cases.py con mínimo 9 tests (3 use cases × 3 escenarios)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-010",
+        "role": "core",
+        "type": "test",
+        "work_type": "feature_new_file",
+        "objective": "Test de boundary en cpg/infrastructure/tests/test_semgrep_adapter_boundary.py: valida SSOT — solo semgrep_factory.py importa subprocess/exec/shutil. Los demás archivos de cpg/ no importan ejecutables externos.",
+        "result_state": "cpg/infrastructure/tests/test_semgrep_adapter_boundary.py contiene test parametrizado que verifica el SSOT.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-006"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-006 completado: adapter usa factory"
+        ],
+        "acceptance_criteria": [
+          "Test parametrizado sobre todos los archivos .py de cpg/ EXCEPTO semgrep_factory.py",
+          "Para cada archivo, valida que no importa subprocess, os.exec*, os.system, shutil",
+          "Test falla si encuentra imports prohibidos en semgrep_adapter.py (que debe delegar a factory)"
+        ],
+        "quality_gates": [
+          "test corre en <0.5s (no invoca binario)",
+          "test detecta violaciones incluso si el archivo no contiene import directo (via ast.parse)"
+        ],
+        "loop_verification": [
+          "PYTHONPATH=. python3 -m pytest cognitive_v2/features/cpg/infrastructure/tests/test_semgrep_adapter_boundary.py -q --tb=short 2>&1 | tail -5",
+          "grep -E 'subprocess|shutil|os\\.exec|os\\.system' cognitive_v2/features/cpg/infrastructure/semgrep_adapter.py | wc -l | grep -q '^0$'"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/infrastructure/tests/test_semgrep_adapter_boundary.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [
+            "cognitive_v2/features/cpg/infrastructure/tests/test_semgrep_adapter_boundary.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.05,
+          "commit_trust": 0.95
+        },
+        "decisions": [
+          {
+            "chosen": "Test parametrizado con ast.parse para detectar imports indirectos",
+            "alternatives": [
+              "Test basado en grep simple (descartado: no detecta from x import subprocess_ofuscado)"
+            ],
+            "rationale": "ast.parse garantiza que cualquier import que se materialice en runtime sea detectado. Consistente con test_code_index_service_boundary.py existente."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/infrastructure/tests/test_semgrep_adapter_boundary.py valida SSOT: solo semgrep_factory.py importa subprocess/exec"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-011",
+        "role": "core",
+        "type": "feature",
+        "work_type": "feature_new_method",
+        "objective": "Exponer tool MCP code_review en cpg/api/mcp_tools.py que compone FindSymbolUseCase + ValidateCodeUseCase. Devuelve al LLM tanto los símbolos encontrados (CGC) como los findings de validación (Semgrep). Tool name sanitizado: no menciona 'semgrep'.",
+        "result_state": "cpg/api/mcp_tools.py exporta tool code_review(path, symbol_query) que orquesta los 2 use cases y devuelve respuesta combinada.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-007"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-007 completado: use cases disponibles"
+        ],
+        "acceptance_criteria": [
+          "tool code_review(path: str, symbol_query: str | None = None) -> dict con keys 'symbols', 'findings', 'metadata'",
+          "tool internamente invoca FindSymbolUseCase + ValidateCodeUseCase",
+          "tool name NO contiene 'semgrep' (sanitización LLM-facing)",
+          "tool prompt description NO menciona 'semgrep'",
+          "tool depende sólo de los use cases (no de cgc_adapter ni semgrep_adapter directamente)"
+        ],
+        "quality_gates": [
+          "tool no importa infrastructure/ adapters directamente",
+          "tool sólo importa use cases desde application/"
+        ],
+        "loop_verification": [
+          "grep -E 'def code_review|def mcp_code_review|@mcp_tool' cognitive_v2/features/cpg/api/mcp_tools.py | head -5",
+          "grep -c 'semgrep' cognitive_v2/features/cpg/api/mcp_tools.py | grep -qE '^([0-9]|[0-9][0-9]*)$' (puede haber referencia interna, pero tool name no)"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/api/mcp_tools.py"
+          ],
+          "apis": [
+            "mcp_tool:code_review"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "decisions": [
+          {
+            "chosen": "Componer FindSymbol + ValidateCode en una sola tool code_review",
+            "alternatives": [
+              "Crear 2 tools separadas code_find_symbol y code_validate (descartado: doble invocación del LLM)",
+              "Crear una tool code_audit con ambos (descartado: nombre menos claro que code_review)"
+            ],
+            "rationale": "code_review es el nombre natural para LLM (sabe qué es). Componer ambos en una tool minimiza round-trips del LLM. El resultado combinado da contexto: 'qué hay aquí + qué problemas tiene'."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/api/mcp_tools.py expone tool code_review que compone FindSymbolUseCase + ValidateCodeUseCase"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-SEMGREP-012",
+        "role": "optional",
+        "type": "docs",
+        "work_type": "docs",
+        "objective": "Documentar la paridad de lenguajes CGC vs Semgrep en cpg/DOMAIN.md sección 'Lenguajes con brecha'. Listar los 27 lenguajes de CGC y marcar cuáles cubre Semgrep, cuáles no, y qué plan hay para los gaps.",
+        "result_state": "cpg/DOMAIN.md contiene tabla de paridad de lenguajes CGC vs Semgrep con status (cubierto/parcial/brecha) y plan para gaps.",
+        "domain": "cpg",
+        "depends_on": [
+          "TASK-SEMGREP-001"
+        ],
+        "preconditions": [
+          "TASK-SEMGREP-001 completado: DOMAIN.md base"
+        ],
+        "acceptance_criteria": [
+          "DOMAIN.md contiene la sección 'Lenguajes con brecha' en projects/cognitive-mcp/cognitive_v2/features/cpg/",
+          "Tabla con columnas: Lenguaje, CGC soporta, Semgrep soporta, Status, Notas",
+          "Mínimo 27 lenguajes listados (cobertura CGC)",
+          "Status posibles: cubierto / parcial / brecha"
+        ],
+        "quality_gates": [
+          "tabla basada en información real (no inventada) — referencias a docs oficiales de CGC y Semgrep"
+        ],
+        "loop_verification": [
+          "grep -E 'Lenguajes con brecha' cognitive_v2/features/cpg/DOMAIN.md",
+          "grep -cE '| .* | .* | .* |' cognitive_v2/features/cpg/DOMAIN.md | head -1 (verifica estructura de tabla)"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/cpg/DOMAIN.md"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": [
+            "cognitive_v2/features/cpg/DOMAIN.md"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.05,
+          "commit_trust": 0.9
+        },
+        "decisions": [
+          {
+            "chosen": "Tabla de paridad con 3 estados (cubierto/parcial/brecha)",
+            "alternatives": [
+              "Booleano único soportado/no-soportado (descartado: pierde granularidad)"
+            ],
+            "rationale": "Cobertura parcial es importante: Semgrep puede soportar un lenguaje con reglas limitadas. Distinguir cubierto/parcial/brecha permite priorizar trabajo futuro."
+          }
+        ],
+        "validation": {
+          "predicates": [
+            "cpg/DOMAIN.md contiene una sección 'Lenguajes con brecha' con tabla de lenguajes CGC vs cobertura Semgrep"
+          ]
+        }
+      }
+    ],
+    "dependency_graph": {
+      "TASK-SEMGREP-001": [],
+      "TASK-SEMGREP-002": [
+        "TASK-SEMGREP-001"
+      ],
+      "TASK-SEMGREP-003": [
+        "TASK-SEMGREP-001"
+      ],
+      "TASK-SEMGREP-004": [
+        "TASK-SEMGREP-003"
+      ],
+      "TASK-SEMGREP-005": [
+        "TASK-SEMGREP-002"
+      ],
+      "TASK-SEMGREP-006": [
+        "TASK-SEMGREP-005"
+      ],
+      "TASK-SEMGREP-007": [
+        "TASK-SEMGREP-004",
+        "TASK-SEMGREP-006"
+      ],
+      "TASK-SEMGREP-008": [
+        "TASK-SEMGREP-007"
+      ],
+      "TASK-SEMGREP-009": [
+        "TASK-SEMGREP-007",
+        "TASK-SEMGREP-008"
+      ],
+      "TASK-SEMGREP-010": [
+        "TASK-SEMGREP-006"
+      ],
+      "TASK-SEMGREP-011": [
+        "TASK-SEMGREP-007"
+      ],
+      "TASK-SEMGREP-012": [
+        "TASK-SEMGREP-001"
+      ]
+    },
+    "parallel_opportunities": {
+      "TASK-SEMGREP-002": [
+        "TASK-SEMGREP-003"
+      ],
+      "TASK-SEMGREP-003": [
+        "TASK-SEMGREP-002"
+      ],
+      "TASK-SEMGREP-005": [
+        "TASK-SEMGREP-002"
+      ],
+      "TASK-SEMGREP-009": [
+        "TASK-SEMGREP-010",
+        "TASK-SEMGREP-011"
+      ],
+      "TASK-SEMGREP-010": [
+        "TASK-SEMGREP-009",
+        "TASK-SEMGREP-011"
+      ],
+      "TASK-SEMGREP-011": [
+        "TASK-SEMGREP-009",
+        "TASK-SEMGREP-010"
+      ],
+      "TASK-SEMGREP-012": [
+        "TASK-SEMGREP-001"
+      ]
+    },
+    "task_roles": {
+      "prerequisite": "TASK-SEMGREP-001",
+      "core": "TASK-SEMGREP-002,TASK-SEMGREP-003,TASK-SEMGREP-004,TASK-SEMGREP-005,TASK-SEMGREP-006,TASK-SEMGREP-007,TASK-SEMGREP-008,TASK-SEMGREP-009,TASK-SEMGREP-010,TASK-SEMGREP-011",
+      "optional": "TASK-SEMGREP-012"
+    }
+  }
+}

@@ -1,0 +1,275 @@
+{
+  "project": {
+    "meta": {
+      "project_id": "walker",
+      "version": "2.0",
+      "created_at": "2026-07-18T23:03:00-03:00",
+      "updated_at": "2026-07-29T15:30:00Z",
+      "migration_note": "Proyecto migrado de delta-skill (game_reset skill) a walker3 engine en refactor a 7 vertical slices"
+    },
+    "identity": {
+      "name": "walker3",
+      "aliases": ["delta-skill"],
+      "description": "Workflow engine cognitivo con 7 vertical slices (features/) sobre DDD+Hexagonal. Orquesta sprints, nodos, tareas y conocimiento (CPG, CKG, DeltaGraph, TraceGraph). Soporta multi-proyecto con memorias persistentes y consultas estructurales.",
+      "language": "python",
+      "framework": "walker3 (workflow engine + cognitive graphs + CLI)",
+      "tags": [
+        "walker3",
+        "workflow-engine",
+        "cognitive",
+        "ddd",
+        "hexagonal",
+        "vertical-slices",
+        "claude-code",
+        "mcp",
+        "orchestration"
+      ]
+    },
+    "location": {
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/walker",
+      "code_paths": [
+        "scripts/",
+        "features/",
+        "libs/",
+        "bootstrap/",
+        "config/",
+        "prompts/",
+        "schema/"
+      ],
+      "code_extensions": ["py", "json", "md", "sh", "yaml", "yml"]
+    },
+    "design": {
+      "patterns": [
+        "ddd",
+        "hexagonal",
+        "vertical-slices",
+        "event-driven",
+        "cqs",
+        "workflow-nodes",
+        "cognitive-graphs"
+      ],
+      "layer_rules": {
+        "domain": ["features/*/domain/"],
+        "application": ["features/*/application/"],
+        "infrastructure": ["features/*/infrastructure/"],
+        "interface": ["features/*/interface/", "bootstrap/cli/"],
+        "shared": ["libs/"]
+      },
+      "bounded_contexts": [
+        {
+          "name": "workflow-engine",
+          "description": "Orquestación de sprints y nodos — el core del walker. WorkflowGraph, SprintState, ExecutionContext, transitions, gates.",
+          "status": "migrated",
+          "source": "scripts/_walker/workflow_engine/",
+          "target": "features/engine/",
+          "layers": ["domain", "application", "infrastructure", "context", "interface"],
+          "files": ["features/engine/"]
+        },
+        {
+          "name": "cognitive-knowledge",
+          "description": "CKG: almacén de conocimiento estructurado (decisiones, patrones, convenciones, advertencias).",
+          "status": "legacy",
+          "source": "scripts/ckg/",
+          "target": "features/cognitive-knowledge/"
+        },
+        {
+          "name": "code-analysis",
+          "description": "CPG: análisis estático de código (Code Property Graph). Builder + QueryService + AST scanning.",
+          "status": "legacy",
+          "source": "scripts/cpg/",
+          "target": "features/code-analysis/"
+        },
+        {
+          "name": "delta-tracking",
+          "description": "DeltaGraph: seguimiento de cambios entre tareas y sprints. TokenIndex, search, persistencia.",
+          "status": "legacy",
+          "source": "scripts/deltagraph/",
+          "target": "features/delta-tracking/"
+        },
+        {
+          "name": "event-tracing",
+          "description": "TraceGraph: trazabilidad de eventos del workflow y agentes.",
+          "status": "legacy",
+          "source": "scripts/tracegraph/",
+          "target": "features/event-tracing/"
+        },
+        {
+          "name": "task-execution",
+          "description": "Sistema de tareas registradas (TaskRegistry). Manifests, side effects, gathering, verification.",
+          "status": "legacy",
+          "source": "scripts/tasks/, scripts/side_effects/",
+          "target": "features/task-execution/"
+        },
+        {
+          "name": "cli-interface",
+          "description": "Interfaz de línea de comandos. Router de comandos, handlers de status/submit/advance/transition.",
+          "status": "legacy",
+          "source": "scripts/_walker/cli/, bootstrap/cli/",
+          "target": "features/cli-interface/"
+        },
+        {
+          "name": "shared-libs",
+          "description": "Librerías compartidas entre features: path_resolver, cognitive_graph, infrastructure, contracts, events.",
+          "status": "migrated",
+          "target": "libs/",
+          "files": ["libs/"]
+        }
+      ],
+      "port_adapter_required": true,
+      "forbidden_dependencies": [
+        "[TARGET] features/ no importan directamente entre sí (solo vía eventos o libs/)",
+        "[TARGET] domain/ no importa infrastructure/ ni interface/",
+        "[TARGET] application/ no importa interface/",
+        "[TARGET] Ninguna feature importa de otra feature hermana",
+        "[LEGACY] _walker/ shim permite imports cruzados temporalmente hasta completar migración"
+      ],
+      "decisions": [
+        {
+          "id": "ADR-WALKER-001",
+          "title": "Arquitectura de 7 vertical slices sobre DDD+Hexagonal",
+          "context": "El proyecto tenía código legacy mezclado en scripts/ sin separación clara de dominios. Dificultaba el mantenimiento y la extensión.",
+          "decision": "Migrar a 7 features independientes (vertical slices), cada una con sus propias capas domain/application/infrastructure/interface. Las features se comunican vía eventos de dominio y libs/ compartidas.",
+          "consequences": "Cada feature es autónoma y testeable. Prohibido imports entre features hermanas. Migración gradual con shims de compatibilidad.",
+          "date": "2026-07-29",
+          "scope": "global",
+          "severity": "obligatoria"
+        },
+        {
+          "id": "ADR-WALKER-002",
+          "title": "Shim de compatibilidad en _walker/__init__.py",
+          "context": "El código legacy (scripts/_walker/) es importado por múltiples módulos. No se puede romper todo a la vez.",
+          "decision": "Crear un shim en scripts/_walker/__init__.py que re-exporte todo desde features/engine/. El shim se eliminará cuando toda la migración esté completa.",
+          "consequences": "Los imports existentes (from _walker.xxx import yyy) siguen funcionando. El shim es temporal.",
+          "date": "2026-07-29",
+          "scope": "global",
+          "severity": "obligatoria"
+        },
+        {
+          "id": "ADR-WALKER-003",
+          "title": "Path resolver con data/project.json como canónico",
+          "context": "La estructura de datos se consolidó en data/ (cpg.json.gz, ckg.json.gz, project.json, traces/). El path resolver legacy buscaba project.json en la raíz.",
+          "decision": "El path resolver (resolve_project_root) busca primero en <dir>/data/project.json y luego en <dir>/project.json como fallback. data/ es la ubicación canónica.",
+          "consequences": "Todos los datos del proyecto están bajo data/. El path resolver es backward-compatible.",
+          "date": "2026-07-29",
+          "scope": "infrastructure",
+          "severity": "obligatoria"
+        },
+        {
+          "id": "ADR-WALKER-004",
+          "title": "Memorias cognitivas vía CognitiveGraph facade",
+          "context": "CPG, CKG, DeltaGraph y TraceGraph son memorias independientes con formatos y backends diferentes.",
+          "decision": "Unificar bajo CognitiveGraph facade con search/CRUD unificado. Cada memoria se registra como un índice con su propio search_handler y storage.",
+          "consequences": "Interfaz consistente para consultas. Cada backend mantiene su lógica interna. Fácil añadir nuevos índices.",
+          "date": "2026-07-28",
+          "scope": "global",
+          "severity": "recomendada"
+        },
+        {
+          "id": "ADR-WALKER-005",
+          "title": "Prompts con placeholders resueltos por el engine (no por el agente)",
+          "context": "Los prompts del workflow tenían placeholders ({goal_display}, {task_table}, etc.) que el agente debía resolver manualmente, resultando en datos vacíos.",
+          "decision": "El engine (OrchestrationService._build_prompt_context) resuelve los placeholders automáticamente antes de entregar el prompt al agente, inyectando datos reales del sprint-state y plan.json.",
+          "consequences": "Los prompts siempre tienen datos frescos. El agente ya no necesita resolver placeholders manualmente.",
+          "date": "2026-07-29",
+          "scope": "workflow-engine",
+          "severity": "obligatoria"
+        }
+      ]
+    },
+    "architecture": {
+      "project_structure": "features/ (7 vertical slices) + libs/ (shared) + bootstrap/ (entry points) + scripts/ (legacy + shims) + config/ + prompts/ + schema/",
+      "module_organization": "Por bounded context vertical-slice: cada feature tiene domain/application/infrastructure/interface/. Las libs/ son código compartido sin lógica de negocio.",
+      "migration_state": {
+        "workflow-engine": "migrated (features/engine/)",
+        "cognitive-knowledge": "legacy (scripts/ckg/)",
+        "code-analysis": "legacy (scripts/cpg/)",
+        "delta-tracking": "legacy (scripts/deltagraph/)",
+        "event-tracing": "legacy (scripts/tracegraph/)",
+        "task-execution": "legacy (scripts/tasks/)",
+        "cli-interface": "legacy (scripts/_walker/cli/)",
+        "shared-libs": "migrated (libs/)"
+      },
+      "test_strategy": {
+        "unit": "pytest por feature: features/*/tests/",
+        "integration": "tests/ raíz para integración entre features",
+        "regression": "QA_RUN automático en nodo VERIFY del workflow"
+      },
+      "dependency_injection": "Bootstrap explícito en bootstrap/. Las features reciben dependencias vía constructor.",
+      "error_handling": "Dominio puro con errores tipados (domain.errors). Infrastructure traduce a I/O. Workflow engine maneja recovery gates.",
+      "config_management": "config/config.json (base) + .cognitive/config.json (override por proyecto). Acceso por path_resolver y config.get().",
+      "data_persistence": "data/ por proyecto: cpg.json.gz (CPG), ckg.json.gz (CKG), delta.json.gz (DeltaGraph), trace.json.gz (TraceGraph), project.json (manifiesto), spring/ (sprints)",
+      "cognitive_injection": "ContextProvider y ContextComposer inyectan capas CPG/CKG/DELTA/TRACE/STATE en cada nodo del workflow automáticamente"
+    },
+    "coding": {
+      "language": "python",
+      "naming_convention": "snake_case para archivos y funciones. Clases PascalCase. Constantes UPPER_CASE.",
+      "formatter": "ruff",
+      "linter": "ruff",
+      "type_checker": "mypy",
+      "test_framework": "pytest",
+      "import_style": "imports absolutos desde features/ o libs/. Prohibidos imports relativos entre features hermanas.",
+      "docstring_style": "Google-style con Args/Returns/Raises",
+      "max_line_length": 100,
+      "git_workflow": {
+        "branch": "cognitive/<feature> → main"
+      }
+    },
+    "quality_preferences": {
+      "cyclo_max": 30,
+      "lcom_max": 10,
+      "ce_max": 5,
+      "cc_per_func_max": 10,
+      "dup_blocks_max": 2,
+      "security_high_max": 0,
+      "hallucinated_imports_max": 0,
+      "coverage_min": 60
+    },
+    "team": {
+      "owners": [],
+      "bounded_contexts": [
+        "workflow-engine",
+        "cognitive-knowledge",
+        "code-analysis",
+        "delta-tracking",
+        "event-tracing",
+        "task-execution",
+        "cli-interface",
+        "shared-libs"
+      ]
+    },
+    "dependencies": {
+      "internal_modules": [
+        "features/",
+        "libs/",
+        "scripts/"
+      ],
+      "external_services": [],
+      "related_projects": [
+        {
+          "project_id": "game_reset",
+          "relation": "origin",
+          "description": "Proyecto original donde nació delta-skill como skill de Claude Code. El walker3 es la evolución separada del engine."
+        },
+        {
+          "project_id": "cognitive-mcp",
+          "relation": "consumer",
+          "description": "Proyecto que consume walker3 para orquestar sprints cognitivos."
+        }
+      ]
+    },
+    "detected_profile": {
+      "type": "walker3-python-engine",
+      "complexity": "high",
+      "team_size": 1,
+      "notes": "Proyecto en refactor activo. 7 features target, 1 migrada (workflow-engine), 1 migrada (shared-libs). 5 pendientes."
+    },
+    "active_goal": {
+      "description": "Refactor arquitectónico: migrar scripts/ a features/ con 7 vertical slices. Sprint activo: migrate-scripts-to-features. Tarea 1: workflow-engine (completada). Pendientes: cognitive-knowledge, code-analysis, delta-tracking, event-tracing, task-execution, cli-interface.",
+      "chain_id": "migrate-scripts-to-features",
+      "set_at": "2026-07-29T11:10:34Z",
+      "sprint_status": "active",
+      "current_task": "TASK-001",
+      "current_node": "IMPLEMENT"
+    }
+  }
+}

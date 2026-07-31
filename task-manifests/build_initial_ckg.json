@@ -1,0 +1,40 @@
+{
+  "description": "Build initial Code Knowledge Graph (CKG) from project specs and patterns",
+  "usage": "walker <project>/build_initial_ckg [--path <dir>]",
+  "tags": [
+    "workflow",
+    "ckg"
+  ],
+  "input_schema": {
+    "required": [],
+    "optional": [
+      "path"
+    ],
+    "path": {
+      "type": "string",
+      "description": "Project path. If omitted, derived from chain_dir."
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "nodes_created": {
+            "type": "integer"
+          },
+          "conventions": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

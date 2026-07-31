@@ -1,0 +1,428 @@
+[
+  {
+    "task_id": "TASK-038",
+    "role": "core",
+    "scrum_role": "dev",
+    "type": "feature",
+    "work_type": "refactor",
+    "objective": "test con criterios gates y preconditions reales",
+    "result_state": "test completado correctamente con todos los campos requeridos",
+    "domain": "tooling",
+    "validation": {
+      "predicates": [
+        {
+          "type": "command_exit",
+          "command": "true"
+        }
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        "x.py"
+      ]
+    },
+    "risks": {
+      "curvature": 0.1,
+      "pre_churn": 0.1,
+      "commit_trust": 0.9
+    },
+    "depends_on": [],
+    "preconditions": [
+      "Python 3.10 instalado y configurado correctamente"
+    ],
+    "acceptance_criteria": [
+      "El comando se ejecuta sin errores en consola"
+    ],
+    "quality_gates": [
+      "El codigo no introduce efectos secundarios"
+    ],
+    "loop_verification": [],
+    "loop_acceptance": "all",
+    "decisions": [],
+    "refinement": {},
+    "importer_files": 0,
+    "task_description": "test completo",
+    "task_context": {
+      "observacion": "Objetivo: test con criterios gates y preconditions reales. Archivos: x.py.",
+      "estructura": "Archivos x.py en dominio tooling.",
+      "comportamiento": "Implementar: test con criterios gates y preconditions reales.",
+      "causalidad": "Restricciones a investigar.",
+      "finalidad": "Cumplir objetivo de la tarea.",
+      "principios": "Convenciones del proyecto en tooling."
+    },
+    "_origin_sprint": "skill-spring-delta",
+    "_moved_to_backlog_at": "2026-07-21T01:36:16.585078+00:00"
+  },
+  {
+    "task_id": "TASK-009",
+    "objective": "Implementar motor de Personalización Algorítmica: perfil de usuario de riesgo (conservador/equilibrado/arriesgado), ajuste de feed según historial, y configuración de preferencias de tipo de sorteo",
+    "type": "feature",
+    "domain": "data",
+    "result_state": "lib/profile/userRiskProfile.ts con RiskProfile enum y calculateRiskProfile(), lib/feed/feedAlgorithm.ts con personalizeFeed(), hooks/useUserProfile.ts, y pantalla app/lister/screens/PreferencesScreen.tsx",
+    "validation": {
+      "predicates": [
+        "RiskProfile enum: conservative, balanced, risk_taker",
+        "calculateRiskProfile() determina perfil según historial de participación",
+        "personalizeFeed() reordena cards del feed según perfil",
+        "PreferencesScreen permite ajustar preferencias manualmente",
+        "Profile persistido en AsyncStorage con TTL 24h"
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        "lib/profile/userRiskProfile.ts",
+        "lib/feed/feedAlgorithm.ts",
+        "hooks/useUserProfile.ts",
+        "app/lister/screens/PreferencesScreen.tsx"
+      ]
+    },
+    "risks": {
+      "curvature": 0.2
+    },
+    "role": "core",
+    "scrum_role": "dev",
+    "work_type": "feature_new_file",
+    "importer_files": [],
+    "depends_on": [],
+    "preconditions": [],
+    "acceptance_criteria": [],
+    "quality_gates": [],
+    "loop_verification": [],
+    "loop_acceptance": [],
+    "decisions": [],
+    "refinement": [],
+    "task_description": "",
+    "task_context": {
+      "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+      "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+      "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+      "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+      "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+      "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+    },
+    "_origin_sprint": "win-win-game-type-20260715",
+    "_moved_to_backlog_at": "2026-07-21T01:37:10.566716+00:00"
+  },
+  {
+    "task_id": "TASK-037",
+    "role": "core",
+    "scrum_role": "dev",
+    "type": "feature",
+    "work_type": "refactor",
+    "objective": "Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_json.",
+    "result_state": "bulk-update --dry-run muestra diff sin escribir. write_json --dry-run imprime JSON a stdout.",
+    "domain": "tooling",
+    "validation": {
+      "predicates": [
+        {
+          "type": "symbol_exists",
+          "symbol": "cmd_bulk_update",
+          "file": ".claude/skills/delta/scripts/spring.py"
+        },
+        {
+          "type": "symbol_exists",
+          "symbol": "write_json",
+          "file": ".claude/skills/delta/scripts/spring.py"
+        }
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        ".claude/skills/delta/scripts/spring.py"
+      ]
+    },
+    "risks": {
+      "curvature": 0.2,
+      "pre_churn": 0.1,
+      "commit_trust": 0.9
+    },
+    "depends_on": [],
+    "acceptance_criteria": [],
+    "quality_gates": [],
+    "task_description": "--dry-run en bulk-update y write_json",
+    "task_context": {
+      "observacion": "Archivos existentes: 1 (.claude/skills/delta/scripts/spring.py). Archivos nuevos: 0. APIs/símbolos a crear: 0.",
+      "estructura": "Componentes: 1 archivos existentes, 0 nuevos. Símbolos identificados: por descubrir.",
+      "comportamiento": "Objetivo: Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_. Archivos impactados: .claude/skills/delta/scripts/spring.py. APIs a conectar: 0.",
+      "causalidad": "Restricciones: archivos existentes no deben duplicarse. Invariantes: $existing_list ya existen.",
+      "finalidad": "Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_. Criterios de éxito: todos los predicates pasan en TASK LOOP.",
+      "principios": "Patrones del proyecto en tooling. Basado en investigación de código real."
+    },
+    "importer_files": 0,
+    "preconditions": [],
+    "loop_verification": [],
+    "loop_acceptance": "all",
+    "decisions": [],
+    "refinement": {},
+    "_origin_sprint": "skill-spring-delta",
+    "_moved_to_backlog_at": "2026-07-21T01:39:54.236309+00:00"
+  },
+  {
+    "task_id": "TASK-038",
+    "role": "core",
+    "scrum_role": "dev",
+    "type": "feature",
+    "work_type": "refactor",
+    "objective": "test con criterios gates y preconditions reales",
+    "result_state": "test completado correctamente con todos los campos requeridos",
+    "domain": "tooling",
+    "validation": {
+      "predicates": [
+        {
+          "type": "command_exit",
+          "command": "true"
+        }
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        "x.py"
+      ]
+    },
+    "risks": {
+      "curvature": 0.1,
+      "pre_churn": 0.1,
+      "commit_trust": 0.9
+    },
+    "depends_on": [],
+    "preconditions": [
+      "Python 3.10 instalado y configurado correctamente"
+    ],
+    "acceptance_criteria": [
+      "El comando se ejecuta sin errores en consola"
+    ],
+    "quality_gates": [
+      "El codigo no introduce efectos secundarios"
+    ],
+    "loop_verification": [],
+    "loop_acceptance": "all",
+    "decisions": [],
+    "refinement": {},
+    "importer_files": 0,
+    "task_description": "test completo",
+    "task_context": {
+      "observacion": "Objetivo: test con criterios gates y preconditions reales. Archivos: x.py.",
+      "estructura": "Archivos x.py en dominio tooling.",
+      "comportamiento": "Implementar: test con criterios gates y preconditions reales.",
+      "causalidad": "Restricciones a investigar.",
+      "finalidad": "Cumplir objetivo de la tarea.",
+      "principios": "Convenciones del proyecto en tooling."
+    },
+    "_origin_sprint": "skill-spring-delta",
+    "_moved_to_backlog_at": "2026-07-21T01:42:39.610989+00:00"
+  },
+  {
+    "task_id": "TASK-009",
+    "objective": "Implementar motor de Personalización Algorítmica: perfil de usuario de riesgo (conservador/equilibrado/arriesgado), ajuste de feed según historial, y configuración de preferencias de tipo de sorteo",
+    "type": "feature",
+    "domain": "data",
+    "result_state": "lib/profile/userRiskProfile.ts con RiskProfile enum y calculateRiskProfile(), lib/feed/feedAlgorithm.ts con personalizeFeed(), hooks/useUserProfile.ts, y pantalla app/lister/screens/PreferencesScreen.tsx",
+    "validation": {
+      "predicates": [
+        "RiskProfile enum: conservative, balanced, risk_taker",
+        "calculateRiskProfile() determina perfil según historial de participación",
+        "personalizeFeed() reordena cards del feed según perfil",
+        "PreferencesScreen permite ajustar preferencias manualmente",
+        "Profile persistido en AsyncStorage con TTL 24h"
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        "lib/profile/userRiskProfile.ts",
+        "lib/feed/feedAlgorithm.ts",
+        "hooks/useUserProfile.ts",
+        "app/lister/screens/PreferencesScreen.tsx"
+      ]
+    },
+    "risks": {
+      "curvature": 0.2
+    },
+    "role": "core",
+    "scrum_role": "dev",
+    "work_type": "feature_new_file",
+    "importer_files": [],
+    "depends_on": [],
+    "preconditions": [],
+    "acceptance_criteria": [],
+    "quality_gates": [],
+    "loop_verification": [],
+    "loop_acceptance": [],
+    "decisions": [],
+    "refinement": [],
+    "task_description": "",
+    "task_context": {
+      "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+      "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+      "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+      "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+      "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+      "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+    },
+    "_origin_sprint": "win-win-game-type-20260715",
+    "_moved_to_backlog_at": "2026-07-21T01:44:08.122568+00:00"
+  },
+  {
+    "task_id": "TASK-036",
+    "role": "core",
+    "scrum_role": "dev",
+    "type": "feature",
+    "work_type": "refactor",
+    "objective": "Mostrar sugerencia contextual del siguiente paso optimo. Usa grafo para relevancia.",
+    "result_state": "Cada comando muestra sugerencia contextual al final basada en datos del grafo.",
+    "domain": "tooling",
+    "validation": {
+      "predicates": [
+        {
+          "type": "symbol_exists",
+          "symbol": "cmd_advance",
+          "file": ".claude/skills/delta/scripts/task.py"
+        },
+        {
+          "type": "symbol_exists",
+          "symbol": "DeltaGraph",
+          "file": ".claude/skills/delta/scripts/_internal/graph.py"
+        }
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        ".claude/skills/delta/scripts/spring.py",
+        ".claude/skills/delta/scripts/task.py"
+      ]
+    },
+    "risks": {
+      "curvature": 0.2,
+      "pre_churn": 0.1,
+      "commit_trust": 0.9
+    },
+    "depends_on": [],
+    "acceptance_criteria": [],
+    "quality_gates": [],
+    "task_description": "Sugerencias post-comando basadas en grafo",
+    "task_context": {
+      "observacion": "Objetivo: Mostrar sugerencia contextual del siguiente paso optimo. Usa grafo para relevancia.\nEstado esperado: Cada comando muestra sugerencia contextual al final basada en datos del grafo.\nArchivos existentes (2):\n  - spring.py: eprint, load_json, write_json, find_project_root, cmd_create\n  - task.py: eprint, load_json, write_json, find_project_root, get_project_path\nContexto previo: Objetivo: Mostrar sugerencia contextual del siguiente paso optimo. Usa grafo para relevancia.\nEstado esperado: Cada comando muestra sugerencia contextual al final basada en datos del grafo.\nArchivos e",
+      "estructura": "Tipo de tarea: refactor\nDominio: tooling\nOrganización de archivos:\n  - .claude/skills/delta/scripts/spring.py (en scripts)\n  - .claude/skills/delta/scripts/task.py (en scripts)",
+      "comportamiento": "Result state: Cada comando muestra sugerencia contextual al final basada en datos del grafo.",
+      "causalidad": "Predicates (2):\n  - {'type': 'symbol_exists', 'symbol': 'cmd_advance', 'file': '.claude/skills/delta/scripts/task.py'}\n  - {'type': 'symbol_exists', 'symbol': 'DeltaGraph', 'file': '.claude/skills/delta/scripts/_internal/graph.py'}",
+      "finalidad": "Decisiones: Pendientes de registrar durante implementación",
+      "principios": "Work type: refactor\nPatrones existentes en código (40 símbolos en total):\n  - spring.py define: eprint, load_json, write_json, find_project_root\n  - task.py define: eprint, load_json, write_json, find_project_root\nRol: core"
+    },
+    "importer_files": 0,
+    "preconditions": [],
+    "loop_verification": [],
+    "loop_acceptance": "all",
+    "decisions": [],
+    "refinement": {},
+    "_origin_sprint": "skill-spring-delta",
+    "_moved_to_backlog_at": "2026-07-21T13:39:16.541420+00:00"
+  },
+  {
+    "task_id": "TASK-037",
+    "role": "core",
+    "scrum_role": "dev",
+    "type": "feature",
+    "work_type": "refactor",
+    "objective": "Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_json.",
+    "result_state": "bulk-update --dry-run muestra diff sin escribir. write_json --dry-run imprime JSON a stdout.",
+    "domain": "tooling",
+    "validation": {
+      "predicates": [
+        {
+          "type": "symbol_exists",
+          "symbol": "cmd_bulk_update",
+          "file": ".claude/skills/delta/scripts/spring.py"
+        },
+        {
+          "type": "symbol_exists",
+          "symbol": "write_json",
+          "file": ".claude/skills/delta/scripts/spring.py"
+        }
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        ".claude/skills/delta/scripts/spring.py"
+      ]
+    },
+    "risks": {
+      "curvature": 0.2,
+      "pre_churn": 0.1,
+      "commit_trust": 0.9
+    },
+    "depends_on": [],
+    "acceptance_criteria": [],
+    "quality_gates": [],
+    "task_description": "--dry-run en bulk-update y write_json",
+    "task_context": {
+      "observacion": "Archivos existentes: 1 (.claude/skills/delta/scripts/spring.py). Archivos nuevos: 0. APIs/símbolos a crear: 0.",
+      "estructura": "Componentes: 1 archivos existentes, 0 nuevos. Símbolos identificados: por descubrir.",
+      "comportamiento": "Objetivo: Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_. Archivos impactados: .claude/skills/delta/scripts/spring.py. APIs a conectar: 0.",
+      "causalidad": "Restricciones: archivos existentes no deben duplicarse. Invariantes: $existing_list ya existen.",
+      "finalidad": "Preview de cambios antes de escribirlos. Flags --dry-run en bulk-update y write_. Criterios de éxito: todos los predicates pasan en TASK LOOP.",
+      "principios": "Patrones del proyecto en tooling. Basado en investigación de código real."
+    },
+    "importer_files": 0,
+    "preconditions": [],
+    "loop_verification": [],
+    "loop_acceptance": "all",
+    "decisions": [],
+    "refinement": {},
+    "status": "backlog",
+    "_origin_sprint": "skill-spring-delta",
+    "_moved_to_backlog_at": "2026-07-21T13:39:16.541433+00:00"
+  },
+  {
+    "task_id": "TASK-038",
+    "role": "core",
+    "scrum_role": "dev",
+    "type": "feature",
+    "work_type": "refactor",
+    "objective": "test con criterios gates y preconditions reales",
+    "result_state": "test completado correctamente con todos los campos requeridos",
+    "domain": "tooling",
+    "validation": {
+      "predicates": [
+        {
+          "type": "command_exit",
+          "command": "true"
+        }
+      ]
+    },
+    "artefactos_impactados": {
+      "files": [
+        "x.py"
+      ]
+    },
+    "risks": {
+      "curvature": 0.1,
+      "pre_churn": 0.1,
+      "commit_trust": 0.9
+    },
+    "depends_on": [],
+    "preconditions": [
+      "Python 3.10 instalado y configurado correctamente"
+    ],
+    "acceptance_criteria": [
+      "El comando se ejecuta sin errores en consola"
+    ],
+    "quality_gates": [
+      "El codigo no introduce efectos secundarios"
+    ],
+    "loop_verification": [],
+    "loop_acceptance": "all",
+    "decisions": [],
+    "refinement": {},
+    "importer_files": 0,
+    "task_description": "test completo",
+    "task_context": {
+      "observacion": "Objetivo: test con criterios gates y preconditions reales. Archivos: x.py.",
+      "estructura": "Archivos x.py en dominio tooling.",
+      "comportamiento": "Implementar: test con criterios gates y preconditions reales.",
+      "causalidad": "Restricciones a investigar.",
+      "finalidad": "Cumplir objetivo de la tarea.",
+      "principios": "Convenciones del proyecto en tooling."
+    },
+    "_origin_sprint": "skill-spring-delta",
+    "_moved_to_backlog_at": "2026-07-21T13:39:16.541436+00:00"
+  }
+]

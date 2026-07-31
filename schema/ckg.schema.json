@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CKG Schema",
+  "description": "Formato canónico del Code Knowledge Graph (ckg.json)",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "nodes", "edges"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Versión del formato (semver)",
+      "default": "1.0"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "ID del proyecto"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Fecha de creación ISO 8601"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Fecha de última actualización ISO 8601"
+    },
+    "source": {
+      "type": "string",
+      "description": "Origen de los datos (ej: DESIGN conversation)"
+    },
+    "nodes": {
+      "type": "object",
+      "description": "Nodos del grafo keyed by node_id",
+      "patternProperties": {
+        "^.*$": {
+          "type": "object",
+          "required": ["type", "label"],
+          "properties": {
+            "type": { "type": "string" },
+            "label": { "type": "string" },
+            "description": { "type": "string" },
+            "scope": { "type": "array", "items": { "type": "string" } },
+            "metadata": { "type": "object" },
+            "created_at": { "type": "string" }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Edges dirigidos del grafo",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "type"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "type": { "type": "string" },
+          "weight": { "type": "number", "default": 1.0 },
+          "properties": { "type": "object" }
+        }
+      }
+    }
+  }
+}

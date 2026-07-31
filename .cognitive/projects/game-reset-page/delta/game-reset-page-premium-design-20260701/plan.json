@@ -1,0 +1,161 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "game-reset-page-premium-design-20260701",
+      "generated_at": "2026-07-01T18:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "game-reset-page",
+      "project_type": "frontend",
+      "domains": [
+        "presentation"
+      ],
+      "tags": [
+        "nextjs",
+        "tailwind",
+        "react"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Transformar la landing page actual en una experiencia visual premium, cinematográfica y de alta fidelidad, aplicando psicología de UX y un sistema de diseño refinado.",
+      "predicates": {
+        "must_exist": [],
+        "must_not_exist": [],
+        "invariants": []
+      }
+    },
+    "tasks": [
+      {
+        "task_id": "PREMIUM-TOKENS-REFINEMENT",
+        "type": "feature",
+        "objective": "Refinar tokens de diseño en tokens.css: paleta de oro fundido, texturas de grano y animaciones cinematográficas.",
+        "work_type": "feature_new_file",
+        "domain": "frontend",
+        "artefactos_impactados": {
+          "files": [
+            "src/presentation/theme/tokens.css"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "validation": {
+          "predicates": [
+            "src/presentation/theme/tokens.css"
+          ]
+        }
+      },
+      {
+        "task_id": "CINEMATIC-HERO-SECTION",
+        "type": "feature",
+        "objective": "Rediseñar Hero con tipografía masiva, gradientes de texto oro y efectos de profundidad.",
+        "work_type": "feature_new_file",
+        "domain": "frontend",
+        "artefactos_impactados": {
+          "files": [
+            "src/presentation/components/hero/index.tsx"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "validation": {
+          "predicates": [
+            "src/presentation/components/hero/index.tsx"
+          ]
+        }
+      },
+      {
+        "task_id": "PREMIUM-MONEY-RAIN",
+        "type": "feature",
+        "objective": "Evolucionar MoneyRain a un sistema de partículas estilizadas con motion blur y variación de escala.",
+        "work_type": "feature_new_file",
+        "domain": "frontend",
+        "artefactos_impactados": {
+          "files": [
+            "src/presentation/components/money-rain/index.tsx"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "validation": {
+          "predicates": [
+            "src/presentation/components/money-rain/index.tsx"
+          ]
+        }
+      },
+      {
+        "task_id": "UX-STATS-CARDS",
+        "type": "feature",
+        "objective": "Refactorizar tarjetas de estadísticas (counter) con efectos de vidrio (glassmorphism) y bordes iluminados.",
+        "work_type": "feature_new_file",
+        "domain": "frontend",
+        "artefactos_impactados": {
+          "files": [
+            "src/presentation/components/counter-card/index.tsx"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "validation": {
+          "predicates": [
+            "src/presentation/components/counter-card/index.tsx"
+          ]
+        }
+      },
+      {
+        "task_id": "AUDIT-PAGE-REFINEMENT",
+        "type": "feature",
+        "objective": "Pulir página de auditoría con estados visuales claros (verified/error) y tipografía mono refinada.",
+        "work_type": "feature_new_file",
+        "domain": "frontend",
+        "artefactos_impactados": {
+          "files": [
+            "src/app/(public)/audit/[hash]/page.tsx"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "validation": {
+          "predicates": [
+            "src/app/(public)/audit/[hash]/page.tsx"
+          ]
+        }
+      },
+      {
+        "task_id": "FINAL-VISUAL-AUDIT",
+        "type": "feature",
+        "objective": "Verificación final de consistencia, anti-FOUC y performance de animaciones.",
+        "work_type": "feature_new_file",
+        "domain": "frontend",
+        "artefactos_impactados": {
+          "files": [],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "validation": {
+          "predicates": []
+        }
+      }
+    ]
+  }
+}

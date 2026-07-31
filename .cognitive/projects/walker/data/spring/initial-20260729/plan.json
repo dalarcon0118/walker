@@ -1,0 +1,8 @@
+{
+  "version": "2.0",
+  "chain_id": "initial-20260729",
+  "project_id": "delta-skill",
+  "goal": "Initial sprint",
+  "workflow": "workflow.v3/",
+  "tasks": []
+}

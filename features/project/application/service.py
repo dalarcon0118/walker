@@ -1,0 +1,694 @@
+"""
+application/service.py — Application service for project operations.
+
+SRP: Unica responsabilidad = orquestar operaciones de proyecto.
+SSOT: Delega en libs.path_resolver para resolucion de paths (la unica
+      fuente de verdad). Delega en domain/models.py y domain/services.py
+      para logica pura.
+
+TODA resolucion de paths en el codebase debe pasar por esta clase.
+NADIE debe importar libs.path_resolver directamente desde ahora.
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from ..domain.models import ProjectId, SprintId, ProjectPaths, Project, ProjectRepository
+from ..domain import services as domain_services
+
+
+class ProjectResolutionError(Exception):
+    """Error resolviendo paths de proyecto."""
+
+
+class ProjectNotFoundError(Exception):
+    """Proyecto no encontrado."""
+
+
+class ProjectService:
+    """Application service — unico entry point para operaciones de proyecto.
+
+    Uso:
+        # Desde chain_dir (recomendado)
+        project = ProjectService.from_chain_dir(chain_dir)
+        ckg_path = project.paths.ckg_path
+
+        # Desde project_id
+        project = ProjectService.from_project_id("delta-skill")
+
+        # Paths sin cargar el proyecto completo
+        paths = ProjectService.resolve_paths(chain_dir)
+        ckg_path = paths.ckg_path
+
+        # Descubrimiento
+        cognitive = ProjectService.find_cognitive_root()
+        projects = ProjectService.list_available()
+    """
+
+    # ── Factory methods ───────────────────────────────────────────────
+
+    @staticmethod
+    def from_chain_dir(chain_dir: str, repo: ProjectRepository | None = None) -> Project:
+        """Construye un Project desde un chain_dir (sprint activo).
+
+        Args:
+            chain_dir: Directorio del sprint activo.
+            repo: Repositorio opcional para cargar datos adicionales.
+
+        Returns:
+            Project con paths resueltos.
+
+        Raises:
+            ProjectResolutionError: si no se puede resolver el proyecto.
+        """
+        paths = ProjectService.resolve_paths(chain_dir)
+        project_id = ProjectId(paths.project_id)
+
+        project = Project(
+            project_id=project_id,
+            paths=paths,
+            repo_path=paths.repo_path,
+            code_paths=list(paths.code_paths),
+            active_sprint_id=paths.sprint_id,
+        )
+
+        # Cargar perfil desde project.json si hay repositorio
+        if repo:
+            stored = repo.load(project_id)
+            if stored:
+                project.name = stored.name
+                project.language = stored.language
+                project.framework = stored.framework
+                if stored.repo_path:
+                    project.repo_path = stored.repo_path
+                if stored.code_paths:
+                    project.code_paths = stored.code_paths
+        else:
+            # Intentar leer project.json directamente
+            manifest_path = paths.project_json_path
+            if manifest_path and os.path.exists(manifest_path):
+                try:
+                    with open(manifest_path) as f:
+                        data = json.load(f)
+                    proj_data = data.get("project", data)
+                    identity = proj_data.get("identity", {})
+                    project.name = identity.get("name", project_id.value)
+                    project.language = identity.get("language", "")
+                    project.framework = identity.get("framework", "")
+                    loc = proj_data.get("location", {})
+                    project.repo_path = loc.get("repo_path", "")
+                    project.code_paths = loc.get("code_paths", [])
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+        return project
+
+    @staticmethod
+    def from_project_id(project_id: str, chain_dir: str | None = None) -> Project:
+        """Construye un Project desde un project_id.
+
+        Args:
+            project_id: Identificador del proyecto.
+            chain_dir: Chain_dir opcional (para resolver paths especificos).
+
+        Returns:
+            Project con paths resueltos.
+
+        Raises:
+            ProjectNotFoundError: si el proyecto no existe.
+        """
+        from libs.path_resolver import get_project_dir
+
+        pid = ProjectId(project_id)
+        proj_dir = str(get_project_dir(project_id))
+
+        # Si hay chain_dir, usarlo para resolver paths
+        if chain_dir:
+            return ProjectService.from_chain_dir(chain_dir)
+
+        # Sino, construir paths desde el project_dir
+        der = domain_services.compute_project_paths(proj_dir)
+        paths = ProjectPaths(
+            chain_dir="",
+            project_root=der["project_root"],
+            project_id=project_id,
+            data_dir=der["data_dir"],
+            delta_dir=der["delta_dir"],
+            workflow_dir=der["workflow_dir"],
+            traces_dir=der["traces_dir"],
+            cpg_path=der["cpg_path"],
+            ckg_path=der["ckg_path"],
+            project_json_path=der["project_json_path"],
+            workflow_json_path=der["workflow_json_path"],
+            repo_path="",
+            cognitive_dir=str(get_cognitive_dir()),
+            walker_root=str(get_walker_root()),
+        )
+
+        project = Project(project_id=pid, paths=paths)
+
+        # Cargar perfil
+        if os.path.exists(paths.project_json_path):
+            try:
+                with open(paths.project_json_path) as f:
+                    data = json.load(f)
+                proj_data = data.get("project", data)
+                identity = proj_data.get("identity", {})
+                project.name = identity.get("name", project_id)
+                project.language = identity.get("language", "")
+                project.framework = identity.get("framework", "")
+                loc = proj_data.get("location", {})
+                project.repo_path = loc.get("repo_path", "")
+                project.code_paths = loc.get("code_paths", [])
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        return project
+
+    # ── Path resolution (sin cargar el proyecto completo) ─────────────
+
+    @staticmethod
+    def resolve_paths(chain_dir: str) -> ProjectPaths:
+        """Resuelve todas las rutas desde un chain_dir.
+
+        Unico metodo que hace IO de resolucion de paths (via libs.path_resolver).
+
+        Args:
+            chain_dir: Directorio del sprint.
+
+        Returns:
+            ProjectPaths con todas las rutas resueltas.
+
+        Raises:
+            ProjectResolutionError: si no se puede resolver.
+        """
+        from libs.path_resolver import (
+            resolve_project_root,
+            resolve_project_id,
+            get_project_dir,
+            get_data_dir,
+            get_delta_dir,
+            get_workflow_dir,
+            get_cpg_path,
+            get_ckg_path,
+            get_trace_dir,
+            get_repo_path,
+            get_code_paths,
+            get_cognitive_dir,
+            get_walker_root,
+        )
+
+        if not chain_dir:
+            raise ProjectResolutionError("chain_dir vacio — no se puede resolver paths")
+
+        try:
+            project_root = resolve_project_root(chain_dir)
+        except FileNotFoundError as e:
+            raise ProjectResolutionError(str(e))
+
+        project_id = resolve_project_id(chain_dir)
+        pid_str = project_id or os.path.basename(project_root)
+
+        # Construir ProjectPaths
+        data_dir = str(get_data_dir(pid_str))
+        delta_dir = str(get_delta_dir(pid_str))
+        workflow_dir = str(get_workflow_dir(pid_str))
+        trace_dir = str(get_trace_dir(pid_str))
+        cpg_path = str(get_cpg_path(pid_str))
+        ckg_path = str(get_ckg_path(pid_str))
+
+        # project.json path: data/project.json con fallback a project.json legacy
+        project_json = os.path.join(data_dir, "project.json")
+        if not os.path.exists(project_json):
+            legacy = os.path.join(project_root, "project.json")
+            if os.path.exists(legacy):
+                project_json = legacy
+
+        # workflow.json path
+        workflow_json = os.path.join(workflow_dir, "workflow.json")
+        if not os.path.exists(workflow_json):
+            legacy_wf = os.path.join(project_root, "workflow.json")
+            if os.path.exists(legacy_wf):
+                workflow_json = legacy_wf
+
+        # Repo info
+        repo_path = ""
+        code_paths: tuple[str, ...] = ()
+        try:
+            repo_path = get_repo_path(pid_str)
+            code_paths = tuple(get_code_paths(pid_str))
+        except Exception:
+            pass
+
+        # WALKER / COGNITIVE ROOTS (no fallan)
+        cognitive_dir = ""
+        walker_root = ""
+        try:
+            cognitive_dir = str(get_cognitive_dir())
+        except Exception:
+            pass
+        try:
+            walker_root = str(get_walker_root())
+        except Exception:
+            pass
+
+        return ProjectPaths(
+            chain_dir=chain_dir,
+            project_root=project_root,
+            project_id=pid_str,
+            data_dir=data_dir,
+            delta_dir=delta_dir,
+            workflow_dir=workflow_dir,
+            traces_dir=trace_dir,
+            cpg_path=cpg_path,
+            ckg_path=ckg_path,
+            project_json_path=project_json,
+            workflow_json_path=workflow_json,
+            repo_path=repo_path,
+            code_paths=code_paths,
+            cognitive_dir=cognitive_dir,
+            walker_root=walker_root,
+        )
+
+    # ── Discovery ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def find_cognitive_root(start: str | None = None) -> str | None:
+        """Busca el directorio .cognitive/ caminando hacia arriba desde start.
+
+        Args:
+            start: Directorio donde empezar (default: CWD).
+
+        Returns:
+            Path absoluto a .cognitive/ o None si no se encuentra.
+        """
+        from libs.path_resolver import find_cognitive_root as _find
+        result = _find(start)
+        return str(result) if result else None
+
+    @staticmethod
+    @staticmethod
+    def _verify_registration(repo_path: str) -> bool:
+        """Verifica que un proyecto registrado sea valido: path existe y tiene .cognitive/."""
+        if not repo_path:
+            return False
+        cog_dir = os.path.join(repo_path, ".cognitive")
+        return os.path.isdir(repo_path) and os.path.isdir(cog_dir)
+
+    @staticmethod
+    def _load_registry() -> dict[str, dict[str, Any]]:
+        """Carga el registro global de proyectos desde data/projects.json."""
+        registry_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "data", "projects.json"
+        )
+        if os.path.exists(registry_path):
+            try:
+                with open(registry_path) as f:
+                    data = json.load(f)
+                return data.get("projects", {})
+            except Exception:
+                pass
+        return {}
+
+    def list_available() -> list[dict[str, Any]]:
+        """Lista todos los proyectos registrados y verificados.
+
+        Solo incluye proyectos que cumplan TRES condiciones:
+          1. Existen en el registro global (data/projects.json)
+          2. Su repo_path existe en disco
+          3. Tienen directorio .cognitive/ en su repo_path
+
+        Returns:
+            Lista de dicts con: project_id, name, language, active_sprints, status.
+        """
+        registry = ProjectService._load_registry()
+        if not registry:
+            return []
+
+        result: list[dict[str, Any]] = []
+        for pid, reg_entry in sorted(registry.items()):
+            repo_path = reg_entry.get("repo_path", "") or ""
+
+            # ── Filtro: repo_path existe y tiene .cognitive/ ──
+            if not ProjectService._verify_registration(repo_path):
+                continue
+
+            # ── Leer metadata desde project.json ──
+            cog_dir = os.path.join(repo_path, ".cognitive")
+            projects_dir = Path(cog_dir) / "projects" / pid
+            manifest_path = projects_dir / "data" / "project.json"
+            if not manifest_path.exists():
+                manifest_path = projects_dir / "project.json"
+
+            name = reg_entry.get("name", pid)
+            language = ""
+            framework = ""
+            if manifest_path.exists():
+                try:
+                    with open(manifest_path) as f:
+                        manifest_data = json.load(f)
+                    proj = manifest_data.get("project", manifest_data)
+                    identity = proj.get("identity", {})
+                    name = identity.get("name", name)
+                    language = identity.get("language", "")
+                    framework = identity.get("framework", "")
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+            # ── Detectar sprints activos ──
+            active_sprints: list[str] = []
+            for sprint_dir_name in ["delta", "spring"]:
+                sd = projects_dir / sprint_dir_name
+                if sd.is_dir():
+                    for sprint_entry in sorted(sd.iterdir()):
+                        if sprint_entry.is_dir():
+                            try:
+                                from features.spring.infrastructure.repositories import SprintStateRepository
+                                state = SprintStateRepository().load_dict(str(sprint_entry))
+                                if not state:
+                                    continue
+                                status = (
+                                    state.get("status")
+                                    or state.get("sprint", {}).get("status", "")
+                                    or state.get("walker", {}).get("state", "")
+                                )
+                                if status in ("active", "in_progress", "planning", ""):
+                                    active_sprints.append(sprint_entry.name)
+                            except Exception:
+                                pass
+
+            result.append({
+                "project_id": pid,
+                "name": name,
+                "language": language,
+                "framework": framework,
+                "repo_path": repo_path,
+                "verified": True,
+                "active_sprints": active_sprints,
+                "status": "active" if active_sprints else "inactive",
+            })
+
+        return result
+
+    # ── Sprint discovery ──────────────────────────────────────────────
+
+    @staticmethod
+    def find_active_sprint(project_id: str) -> str | None:
+        """Encuentra el sprint activo de un proyecto.
+
+        Busca en delta/ y data/spring/ por sprints con estado activo.
+
+        Returns:
+            Chain_dir del sprint activo, o None si no hay.
+        """
+        from libs.path_resolver import get_delta_dir
+
+        # Buscar en delta/ primero (canonico para walker v4)
+        delta_base = get_delta_dir(project_id)
+        candidates = [delta_base]
+
+        # Si delta_dir es diferente de data/spring, buscar ahi tambien
+        from libs.path_resolver import get_data_dir
+        spring_dir = get_data_dir(project_id) / "spring"
+        if spring_dir != delta_base and spring_dir.is_dir():
+            candidates.append(spring_dir)
+
+        for base in candidates:
+            if not base.is_dir():
+                continue
+            for entry in sorted(base.iterdir(), reverse=True):
+                if not entry.is_dir():
+                    continue
+                try:
+                    from features.spring.infrastructure.repositories import SprintStateRepository
+                    state = SprintStateRepository().load_dict(str(entry))
+                    if not state:
+                        continue
+                    status = (
+                        state.get("status")
+                        or state.get("sprint", {}).get("status", "")
+                        or state.get("walker", {}).get("state", "")
+                    )
+                    if status in ("active", "in_progress", "planning", ""):
+                        # Verificar que no este cerrado
+                        node = state.get("current_node", "")
+                        sub = state.get("current_sub_state", "")
+                        if not (node == "SPRINT" and sub in ("CLOSE", "CLOSED")):
+                            return str(entry)
+                except Exception:
+                    continue
+
+        return None
+
+    @staticmethod
+    def resolve_from_registry(start: str | None = None) -> dict | None:
+        """Resolve current project from global registry using CWD.
+
+        Reads data/projects.json (walker root) and finds the project
+        whose repo_path contains the current working directory.
+
+        FALLBACK: If not found in registry, looks for .cognitive/ at CWD.
+        If found, migrates project.json to data/ (canonical) if needed,
+        auto-registers in data/projects.json, and returns the project.
+
+        Returns:
+            Dict with project_id, repo_path, name if found, else None.
+        """
+        from libs.path_resolver import get_walker_root
+
+        registry_path = get_walker_root() / "data" / "projects.json"
+        registry: dict = {"projects": {}}
+        if registry_path.exists():
+            try:
+                with open(registry_path) as f:
+                    registry = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                registry = {"projects": {}}
+
+        cwd = os.path.abspath(start or os.getcwd())
+        projects = registry.get("projects", {})
+
+        # 1. Try registry match first
+        for pid, info in projects.items():
+            repo = info.get("repo_path", "")
+            if repo:
+                try:
+                    if os.path.samefile(cwd, repo):
+                        return {"project_id": pid, "repo_path": repo, "name": info.get("name", pid)}
+                except OSError:
+                    pass
+                if cwd.startswith(repo):
+                    return {"project_id": pid, "repo_path": repo, "name": info.get("name", pid)}
+
+        # 2. Fallback: detect .cognitive/ at CWD, auto-register
+        cognitive = os.path.join(cwd, ".cognitive")
+        if not os.path.isdir(cognitive):
+            return None
+
+        # Find project inside .cognitive/projects/
+        projects_dir = os.path.join(cognitive, "projects")
+        if not os.path.isdir(projects_dir):
+            return None
+
+        pids = sorted(os.listdir(projects_dir))
+        if not pids:
+            return None
+
+        pid = pids[0]
+        proj_dir = os.path.join(projects_dir, pid)
+
+        # Find project.json (canonical first: data/project.json, legacy: project.json)
+        project_json_data = os.path.join(proj_dir, "data", "project.json")
+        project_json_legacy = os.path.join(proj_dir, "project.json")
+        project_json = project_json_data if os.path.exists(project_json_data) else project_json_legacy
+
+        # Detect legacy location and warn
+        legacy_warning = ""
+        if os.path.exists(project_json_legacy) and not os.path.exists(project_json_data):
+            legacy_warning = (
+                f"⚠️  Project {pid}: project.json is in legacy location.\n"
+                f"   Move it to: .cognitive/projects/{pid}/data/project.json"
+            )
+        elif os.path.exists(project_json_legacy) and os.path.exists(project_json_data):
+            # Both exist — legacy is stale
+            legacy_warning = (
+                f"⚠️  Project {pid}: legacy project.json found outside data/.\n"
+                f"   Using data/project.json. Legacy file can be removed."
+            )
+
+        if not os.path.exists(project_json):
+            return None
+
+        # Read project info
+        try:
+            with open(project_json) as f:
+                proj_data = json.load(f)
+            project_info = proj_data.get("project", proj_data)
+            identity = project_info.get("identity", {})
+            location = project_info.get("location", {})
+            repo_path = location.get("repo_path", cwd)
+            name = identity.get("name", pid)
+        except Exception:
+            repo_path = cwd
+            name = pid
+
+        # Migrate project.json to data/ if it's in legacy location
+        if project_json == project_json_legacy and not os.path.exists(project_json_data):
+            try:
+                os.makedirs(os.path.join(proj_dir, "data"), exist_ok=True)
+                with open(project_json) as f_src:
+                    content = f_src.read()
+                with open(project_json_data, "w") as f_dst:
+                    f_dst.write(content)
+                # Keep legacy file for backward compat
+            except Exception:
+                pass
+
+        # Auto-register in global registry
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        projects[pid] = {
+            "project_id": pid, "name": name, "repo_path": repo_path,
+            "active": True, "registered_at": now, "last_accessed": now,
+        }
+        registry["projects"] = projects
+        registry["updated_at"] = now
+        try:
+            os.makedirs(os.path.dirname(str(registry_path)), exist_ok=True)
+            with open(registry_path, "w") as f:
+                json.dump(registry, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+        result = {"project_id": pid, "repo_path": repo_path, "name": name}
+        if legacy_warning:
+            result["_warning"] = legacy_warning
+        return result
+
+    @staticmethod
+    def resolve_chain_dir(
+        project_id: str | None = None,
+        start: str | None = None,
+    ) -> str | None:
+        """Resuelve un chain_dir desde un project_id o directorio de trabajo.
+
+        Si no se especifica project_id, busca el proyecto activo desde CWD.
+
+        Returns:
+            Chain_dir del sprint activo, o None si no se encuentra.
+        """
+        if project_id:
+            chain = ProjectService.find_active_sprint(project_id)
+            if chain:
+                return chain
+            return None
+
+        # Buscar .cognitive/ desde CWD
+        cognitive = ProjectService.find_cognitive_root(start)
+        if cognitive:
+            # El CWD puede estar dentro de un sprint
+            cwd = os.path.abspath(start or os.getcwd())
+            # Buscar si ya estamos en un chain_dir (via SprintStateRepository SSOT)
+            from features.spring.infrastructure.repositories import SprintStateRepository
+            if SprintStateRepository().load_dict(cwd):
+                return cwd
+            # Buscar proyecto activo en el cognitive root
+            projects = ProjectService.list_available()
+            for p in projects:
+                if p.get("status") == "active" and p.get("active_sprints"):
+                    chain = ProjectService.find_active_sprint(p["project_id"])
+                    if chain:
+                        return chain
+        return None
+
+    # ── Creacion ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def create_project(
+        project_id: str,
+        repo_path: str,
+        name: str = "",
+        language: str = "",
+        framework: str = "",
+        repo: ProjectRepository | None = None,
+    ) -> Project:
+        """Crea un nuevo proyecto con su project.json y lo registra.
+
+        Args:
+            project_id: Identificador unico.
+            repo_path: Ruta absoluta al repositorio de codigo.
+            name: Nombre descriptivo (default: project_id).
+            language: Lenguaje principal.
+            framework: Framework principal.
+            repo: Repositorio opcional para persistir.
+
+        Returns:
+            Project creado.
+
+        Raises:
+            ValueError: Si project_id es invalido.
+        """
+        if not domain_services.validate_project_id(project_id):
+            raise ValueError(
+                f"project_id invalido: '{project_id}'. "
+                "Usa solo letras, numeros, guiones y underscores."
+            )
+
+        from libs.path_resolver import get_project_dir, get_data_dir
+
+        pid = ProjectId(project_id)
+        name = name or project_id
+
+        # Construir paths
+        proj_dir = str(get_project_dir(project_id))
+        data_dir = str(get_data_dir(project_id))
+
+        paths = ProjectPaths(
+            chain_dir="",
+            project_root=proj_dir,
+            project_id=project_id,
+            data_dir=data_dir,
+            delta_dir=str(get_data_dir(project_id) / "spring"),
+            workflow_dir=str(get_project_dir(project_id) / "workflow.v3"),
+            traces_dir=os.path.join(data_dir, "traces"),
+            cpg_path=os.path.join(data_dir, "cpg.json.gz"),
+            ckg_path=os.path.join(data_dir, "ckg.json.gz"),
+            project_json_path=os.path.join(data_dir, "project.json"),
+            workflow_json_path=os.path.join(proj_dir, "workflow.v3", "workflow.json"),
+            repo_path=os.path.abspath(repo_path) if repo_path else "",
+            cognitive_dir="",
+            walker_root="",
+        )
+
+        project = Project(
+            project_id=pid,
+            name=name,
+            language=language,
+            framework=framework,
+            repo_path=paths.repo_path,
+            paths=paths,
+        )
+
+        if repo:
+            repo.save(project)
+
+        return project
+
+
+# ── Convenience re-exports ──────────────────────────────────────────────
+
+
+def get_cognitive_dir() -> Path:
+    """Re-export desde libs.path_resolver para conveniencia."""
+    from libs.path_resolver import get_cognitive_dir as _get
+    return _get()
+
+
+def get_walker_root() -> Path:
+    """Re-export desde libs.path_resolver para conveniencia."""
+    from libs.path_resolver import get_walker_root as _get
+    return _get()

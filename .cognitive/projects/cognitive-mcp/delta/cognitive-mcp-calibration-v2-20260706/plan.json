@@ -1,0 +1,195 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-calibration-v2-20260706",
+      "generated_at": "2026-07-06T09:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": ["shared", "project", "guidance"],
+      "tags": ["python", "hexagonal", "cognitive-v2", "fastmcp", "calibration"]
+    },
+    "g_objetivo": {
+      "description": "Completar la migración del sistema de calibración: eliminar duplicación entre delta_evaluator.py y _calibration_source.py, agregar unit tests a las funciones extraídas y forzar el barrel import pattern en todas las importaciones de shared/",
+      "predicates": {
+        "must_exist": [
+          "function compute_proportional_calibration en cognitive_v2/shared/_shared/calibration_utils.py",
+          "function _run_calibration en cognitive_v2/shared/_shared/_calibration_source.py (única fuente de verdad)",
+          "function _calibrate_state en cognitive_v2/shared/_shared/_calibration_source.py",
+          "function _calibrate_delta en cognitive_v2/shared/_shared/_calibration_source.py",
+          "function _calibrate_strategy en cognitive_v2/shared/_shared/_calibration_source.py",
+          "function _calibrate_model en cognitive_v2/shared/_shared/_calibration_source.py",
+          "function _compute_last_known_distance en cognitive_v2/shared/_shared/_calibration_source.py",
+          "function _record_calibration_event en cognitive_v2/shared/_shared/_calibration_source.py",
+          "function _record_delta_trail en cognitive_v2/shared/_shared/_calibration_source.py",
+          "MCP tool project_advance con auto-calibration (proportional heuristic)",
+          "test unitario de compute_proportional_calibration con casos edge (empty states, all pending, all completed, single task)",
+          "test unitario de _run_calibration con casos (no advanced, single advanced, multiple advanced)",
+          "test unitario de _calibrate_delta con clasificación de causa y flag learnable",
+          "test unitario de CalibrationParameterStore.apply_adjustment con conteo de evidencias",
+          "delta_evaluator.py importa _run_calibration desde _calibration_source.py (no definición local)",
+          "delta_evaluator.py elimina funciones duplicadas: _run_calibration, _calibrate_state, _calibrate_delta, _calibrate_strategy, _calibrate_model, _compute_last_known_distance, _record_calibration_event"
+        ],
+        "must_not_exist": [
+          "def _run_calibration en cognitive_v2/shared/delta_evaluator.py (reemplazada por import desde _calibration_source.py)",
+          "def _calibrate_state en cognitive_v2/shared/delta_evaluator.py (importada desde _calibration_source.py)",
+          "def _calibrate_delta en cognitive_v2/shared/delta_evaluator.py",
+          "def _calibrate_strategy en cognitive_v2/shared/delta_evaluator.py",
+          "def _calibrate_model en cognitive_v2/shared/delta_evaluator.py",
+          "def _compute_last_known_distance en cognitive_v2/shared/delta_evaluator.py",
+          "def _record_calibration_event en cognitive_v2/shared/delta_evaluator.py",
+          "import directo desde cognitive_v2/shared/_shared/ en features/ (debe usar barrel cognitive_v2.shared)",
+          "import directo desde cognitive_v2/shared/calibration_store en features/ (debe usar barrel cognitive_v2.shared)"
+        ],
+        "invariants": [
+          "test_calibration_integration.py sigue pasando 86/86 después de la migración",
+          "todos los archivos pasan syntax check",
+          "los nombres de funciones públicas no cambian (solo se mueven)",
+          "delta_evaluator.py mantiene clase DeltaEvaluator.check() intacta (solo cambia _run_calibration → import)",
+          "barrel cognitive_v2/shared/__init__.py exporta compute_proportional_calibration",
+          "calibration_store.py mantiene singleton calibration_store exportado a nivel módulo"
+        ]
+      },
+      "signatures": {
+        "compute_proportional_calibration": "(states: dict, current_distance: float) -> dict",
+        "_run_calibration": "(updates: list, distance: Any, spec: Any, pending_tasks: list, session_id: str, project_id: str) -> dict | None",
+        "_calibrate_state": "(advanced: list, distance: Any, spec: Any) -> dict",
+        "_calibrate_delta": "(advanced: list, distance: Any) -> dict",
+        "_calibrate_strategy": "(advanced: list, pending_tasks: list) -> dict",
+        "_calibrate_model": "(advanced: list, distance: Any) -> dict",
+        "_compute_last_known_distance": "(session_id: str, project_id: str) -> Any",
+        "_record_calibration_event": "(project_id: str, event: dict) -> None",
+        "CalibrationParameterStore.apply_adjustment": "(param_name, old_value, new_value, rationale, source_causes) -> bool"
+      }
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-CAL-001",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 0,
+        "objective": "Eliminar _run_calibration duplicado de delta_evaluator.py — importar desde _calibration_source.py",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/delta_evaluator.py (modificar — remover ~260 líneas de funciones duplicadas, agregar import)",
+            "cognitive_v2/shared/_shared/_calibration_source.py (leer — ya existe como single source of truth)"
+          ],
+          "apis": ["_run_calibration", "_calibrate_state", "_calibrate_delta", "_calibrate_strategy", "_calibrate_model", "_compute_last_known_distance", "_record_calibration_event"],
+          "data": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.15, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [{"chosen": "Importar desde _calibration_source.py manteniendo el mismo nombre de función", "alternatives": ["Mover todo a calibration_store.py — rechazado: calibration_store es para persistencia, no para lógica de calibración"], "rationale": "_calibration_source.py ya fue extraído como source of truth. Solo falta eliminar los duplicados en delta_evaluator.py y redirigir las importaciones."}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "delta_evaluator.py importa _run_calibration desde _calibration_source.py (no definición local)",
+            "def _run_calibration NO existe en delta_evaluator.py",
+            "def _calibrate_state NO existe en delta_evaluator.py",
+            "def _calibrate_delta NO existe en delta_evaluator.py",
+            "def _calibrate_strategy NO existe en delta_evaluator.py",
+            "def _calibrate_model NO existe en delta_evaluator.py",
+            "def _compute_last_known_distance NO existe en delta_evaluator.py",
+            "def _record_calibration_event NO existe en delta_evaluator.py"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-CAL-002",
+        "type": "test",
+        "work_type": "feature_new_file",
+        "importer_files": 0,
+        "objective": "Crear test unitario de compute_proportional_calibration con casos edge",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/tests/shared/test_calibration_utils.py (crear)"
+          ],
+          "apis": ["compute_proportional_calibration"],
+          "data": [],
+          "tests": ["cognitive_v2/tests/shared/test_calibration_utils.py (crear)"],
+          "docs": []
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [{"chosen": "Unit test con pytest, 6 casos edge: empty states, all pending, all completed, single task, mixed states, zero distance", "alternatives": ["Sin tests — rechazado: la función ya tiene 2 puntos de uso y se usará en más contexts"], "rationale": "Es una función pura sin dependencias externas, ideal para unit test completo."}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "test unitario de compute_proportional_calibration con empty states",
+            "test unitario con all pending (ratio 1.0)",
+            "test unitario con all completed (ratio 0.0, all_done)",
+            "test unitario con single task (ratio 0/1 o 1/1 según estado)",
+            "test unitario con mixed states (2/3 pending)",
+            "test unitario con current_distance=0.0"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-CAL-003",
+        "type": "test",
+        "work_type": "feature_new_file",
+        "importer_files": 0,
+        "objective": "Crear test unitario de la calibración de 4 capas (_run_calibration, _calibrate_delta, CalibrationParameterStore)",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/tests/shared/test_calibration_source.py (crear)"
+          ],
+          "apis": ["_run_calibration", "_calibrate_delta", "_calibrate_state", "_calibrate_model", "CalibrationParameterStore.apply_adjustment"],
+          "data": [],
+          "tests": ["cognitive_v2/tests/shared/test_calibration_source.py (crear)"],
+          "docs": []
+        },
+        "risks": {"curvature": 0.10, "pre_churn": 0.0, "commit_trust": 0.15},
+        "decisions": [{"chosen": "Tests que validan: delta classification (accurate/over/under), cause.category (execution/reasoning/external/environment/unknown), learnable flag, y el contador de evidencias del store", "alternatives": ["Integración solamente — rechazado: la integración ya cubre 86 tests, necesita unit tests para regression"], "rationale": "_calibrate_delta tiene lógica de clasificación condicional (5 categorías de causa, flag learnable) que necesita tests específicos."}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "test _run_calibration con no advanced (returns None)",
+            "test _run_calibration con single advanced (returns dict con 4 layers)",
+            "test _run_calibration con multiple advanced (returns dict con acumulación)",
+            "test _calibrate_delta con accurate (error ±0.05)",
+            "test _calibrate_delta con over_estimated (error > 0.05)",
+            "test _calibrate_delta con under_estimated (error < -0.05)",
+            "test _calibrate_delta cause.category=execution para error moderado",
+            "test _calibrate_delta cause.category=reasoning para error grande >50%",
+            "test CalibrationParameterStore.apply_adjustment conteo de 2 evidencias (no aplica) vs 3 evidencias (aplica)"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-CAL-004",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 0,
+        "objective": "Forzar barrel import pattern en imports restantes: delta_evaluator.py → cognitive_v2.shared (no shared.calibration_store directo)",
+        "domain": "shared",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/shared/delta_evaluator.py (modificar — 2 imports: calibration_store + calibration_utils → barrel)",
+            "cognitive_v2/shared/__init__.py (leer — verificar que compute_proportional_calibration y calibration_store están exportados)"
+          ],
+          "apis": ["cognitive_v2.shared"],
+          "data": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {"curvature": 0.05, "pre_churn": 0.0, "commit_trust": 0.20},
+        "decisions": [{"chosen": "Forzar barrel: delta_evaluator.py importa calibration_store desde cognitive_v2.shared en vez de cognitive_v2.shared.calibration_store", "alternatives": ["Dejar imports directos — rechazado: inconsistente con el patrón barrel recién establecido"], "rationale": "El barrel import pattern es el estándar establecido en cognitive_v2/shared/__init__.py. Todos los contexts deben importar desde allí."}],
+        "refinement": {"attempts": 0, "dead_ends": []},
+        "validation": {
+          "predicates": [
+            "delta_evaluator.py importa calibration_store desde cognitive_v2.shared (barrel)",
+            "delta_evaluator.py importa compute_proportional_calibration desde cognitive_v2.shared (barrel)"
+          ]
+        }
+      }
+    ]
+  }
+}

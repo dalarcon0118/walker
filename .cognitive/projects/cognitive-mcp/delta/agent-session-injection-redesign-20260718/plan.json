@@ -1,0 +1,73 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "agent-session-injection-redesign-20260718",
+      "generated_at": "2026-07-18T21:28:00-03:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "agent",
+        "integration",
+        "architecture"
+      ],
+      "tags": [
+        "agent",
+        "session",
+        "dependency-injection",
+        "refactoring"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Investigar quién necesita realmente identity/session y proponer un rediseño de inyección de session_id para que scrum/tools/workflow/engine no importen identity/session directamente.",
+      "predicates": {
+        "must_exist": [
+          "Mapa de usos de identity/session por módulo (ast-grep)",
+          "Propuesta de rediseño de inyección de session_id",
+          "Plan de implementación concreto"
+        ],
+        "must_not_exist": [
+          "Imports de identity/session en scrum/tools/workflow/engine (después de implementado)"
+        ],
+        "invariants": [
+          "agent es el único que conoce identity/session",
+          "session_id se inyecta como parámetro, no como import"
+        ]
+      }
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-INT-001",
+        "type": "docs",
+        "domain": "integration",
+        "task_description": "Investigar quién necesita realmente identity/session y proponer rediseño de inyección de session_id.",
+        "artefactos_impactados": {
+          "files": []
+        },
+        "risks": {
+          "curvature": 0.2
+        },
+        "validation": {
+          "predicates": [
+            "sg -l python -p \"_get_session_id($CTX)\" projects/cognitive-mcp/cognitive_v2/features | wc -l | grep -v \"^0$\"",
+            "sg -l python -p \"_check_rate_limit($SID)\" projects/cognitive-mcp/cognitive_v2/features | wc -l | grep -v \"^0$\""
+          ]
+        },
+        "task_context": {
+          "observacion": "ast-grep evidencia 194 usos de _get_session_id y 182 de _check_rate_limit en features/. Módulos: agent (78+70=148), scrum (69+67=136), tools (41+41=82), workflow (4+4=8), engine (1), shared (2). MCP arranca pero shared/ sigue presente con archivos idénticos a agent/.",
+          "estructura": "Módulos que usan identity/session: agent/acl/api/mcp_tools.py, agent/context/api/mcp_tools.py, agent/context/api/context_impl.py, agent/context/api/context_tools.py, agent/messages/api/mcp_tools.py, agent/decisions/api/*, agent/guidance/api/*, scrum/api/mcp_tools.py, scrum/api/project_crud.py, scrum/api/absorption_tools.py, tools/cpg/api/mcp_tools.py, tools/cpg/api/code_impl.py, tools/api/fact_tools.py, tools/api/cqrs_tools.py, tools/api/absorption.py, workflow/api/mcp_tools.py, engine/api/mcp_tools.py.",
+          "comportamiento": "Flujo actual: cada módulo importa _get_session_id(context) y _check_rate_limit(session_id) desde agent/ o shared/. Flujo objetivo: agent extrae session_id una vez y lo inyecta como parámetro a workflow/orchestrate(session_id, ...), workflow lo pasa a scrum/tools/engine.",
+          "causalidad": "Los módulos internos necesitan session_id para enriquecer respuestas MCP, no para lógica de dominio. Por eso importan identity/session. Pero esa necesidad se resuelve inyectando session_id como parámetro, no como dependencia de módulo.",
+          "finalidad": "Eliminar la dependencia de identity/session en scrum/tools/workflow/engine. Establecer agent como único proveedor de sesión, no como módulo importable.",
+          "principios": "DDD: los bounded contexts scrum/tools/workflow no deben conocer detalles de sesión. DIP: depende de abstracciones (session_id como parámetro), no de implementaciones (módulo identity/session). Clean Architecture: agent es el compositor que inyecta dependencias."
+        },
+        "objective": "Investigar quién necesita realmente identity/session y proponer rediseño de inyección de session_id.",
+        "result_state": "Investigación completada: mapa de usos por módulo, propuesta de rediseño, plan de implementación."
+      }
+    ]
+  }
+}

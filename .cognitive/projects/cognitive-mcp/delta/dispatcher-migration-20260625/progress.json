@@ -1,0 +1,52 @@
+{
+  "plan_ref": "plan.json",
+  "trail": [
+    {
+      "at": "2026-06-25T15:10:00-03:00",
+      "d": 0.85,
+      "e": "plan created"
+    },
+    {
+      "at": "2026-06-25T15:35:00-03:00",
+      "d": 0.44,
+      "e": "Fase A: funciones extraídas a session_service.py",
+      "tasks": [
+        "DISPATCHER-FASE-A"
+      ]
+    },
+    {
+      "at": "2026-06-25T15:50:00-03:00",
+      "d": 0.28,
+      "e": "Fase B: dispatch() inlined en dispatch_pipeline.py",
+      "tasks": [
+        "DISPATCHER-FASE-A",
+        "DISPATCHER-FASE-B"
+      ]
+    },
+    {
+      "at": "2026-06-25T16:28:57-03:00",
+      "d": 0.0,
+      "e": "Fase C: dispatcher.py → stub 35L, ops_init.py creado",
+      "tasks": [
+        "DISPATCHER-FASE-A",
+        "DISPATCHER-FASE-B",
+        "DISPATCHER-FASE-C"
+      ]
+    }
+  ],
+  "current": {
+    "task_states": {
+      "DISPATCHER-FASE-A": "completed",
+      "DISPATCHER-FASE-B": "completed",
+      "DISPATCHER-FASE-C": "completed"
+    },
+    "next_action": null
+  },
+  "meta": {
+    "chain_id": "dispatcher-migration-20260625",
+    "generated_at": "2026-06-25T15:10:00-03:00",
+    "version": "2.0",
+    "source": "delta-skill",
+    "type": "progress"
+  }
+}

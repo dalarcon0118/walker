@@ -1,0 +1,401 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "agent-integration-review-20260716",
+      "generated_at": "2026-07-19T01:05:42.043411+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "agent",
+        "integration",
+        "architecture"
+      ],
+      "tags": [
+        "agent",
+        "integration",
+        "boundaries",
+        "dependencies"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Revisar la integracion entre la capa agent y el resto de modulos del MCP. Arquitectura deseada: agent depende de workflow, workflow orquesta scrum/tools/otros. Detectar violaciones de boundaries y proponer refactorings. [REACTIVADO: MCP no arranca por imports rotos en shared/session/domain/session.py] [NUEVA TAREA: rediseñar inyección de session_id para eliminar dependencias de identity/session en scrum/tools/workflow/engine]",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "Mapa de dependencias agent→workflow→scrum/tools/otros",
+          "Lista de violaciones: otros módulos dependiendo de agent",
+          "Propuesta de refactoring para invertir dependencias incorrectas",
+          "shared/identity y shared/session creados",
+          "Puertos Workflow definidos",
+          "Imports migrados de agent a shared",
+          "Código viejo de agent eliminado",
+          "Adaptadores concretos implementados",
+          "0 imports rotos post-migración",
+          "MCP arranca sin ModuleNotFoundError",
+          "Mapa de usos de identity/session por módulo (ast-grep)",
+          "Propuesta de rediseño de inyección de session_id",
+          "Plan de implementación concreto",
+          "python3 .claude/skills/delta/scripts/spring.py reopen agent-integration-review-20260716 reconstruye plan.json y progress.json cuando falta el directorio",
+          "python3 .claude/skills/delta/scripts/spring.py add-task <chain> --task '{...}' agrega tarea válida",
+          "python3 .claude/skills/delta/scripts/spring.py update-task <chain> TASK-001 --status done marca tarea como completada",
+          "git log muestra commits automáticos de plan.json y progress.json",
+          ".cognitive/backups/ contiene al menos un backup reciente del sprint",
+          "python3 .claude/skills/delta/scripts/validate-schema.py <chain_dir> retorna exit 0 después de cada operación",
+          "Intentar agregar una tarea con campo inválido retorna error y no modifica el archivo",
+          "python3 .claude/skills/delta/scripts/spring.py diff <chain> muestra diferencias entre plan y progress",
+          "python3 .claude/skills/delta/scripts/spring.py blockers <chain> lista tasks bloqueadas",
+          "python3 .claude/skills/delta/scripts/spring.py export <chain> --md genera reporte markdown",
+          "Después de task.py advance, el prompt del LLM incluye el task_id siguiente automáticamente",
+          "No es necesario pasar task_id como argumento externo",
+          "Modificar el plan (cambiar task_id o agregar tarea) y ejecutar spring.py rebase <chain> alinea progress con plan",
+          "Tasks que ya no existen en el plan se marcan como cancelled",
+          "Tasks existentes preservan su estado",
+          "SKILL.md contiene sección 'Troubleshooting' con al menos 3 escenarios",
+          "SKILL.md contiene sección 'Workflows' con ejemplos de modificación de goal y recuperación de sprint"
+        ],
+        "must_not_exist": [
+          "Imports de scrum/tools/workflow hacia agent sin justificación",
+          "Dependencias circulares agent↔workflow, agent↔scrum, agent↔tools",
+          "Código duplicado de identity/session en agent y shared",
+          "Módulo shared/ con código activo",
+          "Imports de identity/session en scrum/tools/workflow/engine (después de implementado)"
+        ],
+        "invariants": [
+          "agent depende de workflow (no al revés)",
+          "workflow orquesta scrum, tools y otros módulos",
+          "scrum/tools no dependen de agent",
+          "shared provee servicios transversales a todos los módulos",
+          "agent es el único que conoce identity/session",
+          "session_id se inyecta como parámetro, no como import"
+        ]
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-INT-001",
+        "type": "refactor",
+        "domain": "integration",
+        "task_description": "Implementar arquitectura objetivo: mover identity/session a agent, eliminar dependencias circulares.",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/identity_service.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.5,
+          "pre_churn": 0.2,
+          "commit_trust": 0.8
+        },
+        "validation": {
+          "predicates": [
+            "python3 -c \"from cognitive_v2.server import mcp\""
+          ]
+        },
+        "task_context": {
+          "observacion": "MCP no arranca por ModuleNotFoundError en agent.application.identity. shared/session/domain/session.py importa agent.application.identity. agent/application/identity_service.py y agent/session/domain/session.py existen.",
+          "estructura": "Modulos: agent/application/identity_service.py, agent/session/domain/session.py, shared/identity/application/identity_service.py, shared/session/domain/session.py, server.py.",
+          "comportamiento": "Flujo roto: server.py -> agent/context/api/mcp_tools.py -> shared/session/domain/session.py -> agent/application/identity.py (MODULE_NOT_FOUND). Flujo objetivo: server.py -> agent/context/api/mcp_tools.py -> agent/session/domain/session.py -> agent/application/identity_service.py.",
+          "causalidad": "Shared mantiene dependencia circular con agent. Eliminar shared rompe la circularidad.",
+          "finalidad": "Eliminar shared como módulo. Establecer agent como único proveedor de identity/session.",
+          "principios": "DDD: eliminar shared kernel. DIP: agent depende de sus propios módulos."
+        },
+        "objective": "Implementar arquitectura objetivo: mover identity/session a agent, eliminar dependencias circulares.",
+        "result_state": "Arquitectura implementada: shared eliminado, identity/session en agent, puertos Workflow definidos, imports migrados. MCP arranca sin ModuleNotFoundError.",
+        "acceptance_criteria": [
+          "MCP arranca sin ModuleNotFoundError",
+          "No hay imports a shared en todo el proyecto",
+          "identity_service.py y session.py existen en agent/",
+          "Puertos Workflow definidos en workflow/domain/ports.py"
+        ],
+        "quality_gates": [
+          "python3 -c \"from cognitive_v2.server import mcp\" retorna exit 0",
+          "No hay imports rotos en agent/, workflow/, scrum/, tools/, engine/",
+          "Todos los tests existentes pasan"
+        ],
+        "scrum_role": "po"
+      },
+      {
+        "task_id": "TASK-INT-002",
+        "type": "refactor",
+        "domain": "integration",
+        "task_description": "Eliminar módulo shared: mover identity y session a agent.",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/identity_service.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/session/domain/session.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.5,
+          "pre_churn": 0.2,
+          "commit_trust": 0.8
+        },
+        "validation": {
+          "predicates": [
+            "test ! -d projects/cognitive-mcp/cognitive_v2/features/shared"
+          ]
+        },
+        "task_context": {
+          "observacion": "TASK-INT-001 completada. shared/ contiene identity_service.py y session.py. agent/ tiene archivos idénticos.",
+          "estructura": "Eliminar directorio shared/. Verificar que todos los imports de identity/session apuntan a agent/.",
+          "comportamiento": "Flujo: 1) Eliminar shared/, 2) grep para verificar no quedan imports, 3) Ejecutar MCP.",
+          "causalidad": "Sin shared/, no hay dependencia circular. Agent es único proveedor de identity/session.",
+          "finalidad": "Eliminar shared como módulo. Cumplir DDD y Clean Code.",
+          "principios": "DDD: eliminar shared kernel. DIP: agent provee servicios."
+        },
+        "objective": "Eliminar módulo shared: mover identity y session a agent, actualizar todos los imports para que apunten a agent.",
+        "result_state": "Directorio shared/ eliminado. agent/application/identity_service.py y agent/session/domain/session.py contienen toda la funcionalidad. Todos los imports en scrum/tools/workflow/engine apuntan a agent.",
+        "acceptance_criteria": [
+          "Directorio shared/ no existe",
+          "No quedan imports hacia shared en scrum/tools/workflow/engine",
+          "Todos los imports de identity/session apuntan a agent",
+          "MCP arranca sin ModuleNotFoundError"
+        ],
+        "quality_gates": [
+          "MCP arranca: python3 -c \"from cognitive_v2.server import mcp\"",
+          "No hay imports rotos",
+          "No hay archivos .py huérfanos en agent/ sin referencias"
+        ],
+        "scrum_role": "po"
+      },
+      {
+        "task_id": "TASK-INT-003",
+        "type": "refactor",
+        "domain": "integration",
+        "task_description": "Definir puertos Workflow->Scrum y Workflow->Tools para eliminar imports directos de scrum/tools en workflow.",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/domain/ports.py",
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/application/orchestrator.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/domain/workflow_port.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.1,
+          "commit_trust": 0.9
+        },
+        "validation": {
+          "predicates": [
+            "grep -r \"class IScrumEngine\" projects/cognitive-mcp/cognitive_v2/features/workflow/domain/ports.py",
+            "grep -r \"class IToolExecutor\" projects/cognitive-mcp/cognitive_v2/features/workflow/domain/ports.py",
+            "grep -r \"class IEngineClient\" projects/cognitive-mcp/cognitive_v2/features/workflow/domain/ports.py"
+          ]
+        },
+        "task_context": {
+          "observacion": "TASK-INT-001 y TASK-INT-002 completadas. Ahora hay que definir puertos para que Workflow orqueste scrum/tools sin importarlos directamente.",
+          "estructura": "Definir puertos en workflow/domain/ports.py: IScrumEngine, IToolExecutor, IEngineClient. Implementar en workflow/application/orchestrator.py. Agent consume en agent/domain/workflow_port.py.",
+          "comportamiento": "Flujo: Agent → IWorkflowOrchestrator.orchestrate() → WorkflowOrchestrator usa IScrumEngine, IToolExecutor, IEngineClient.",
+          "causalidad": "Los puertos permiten agregar nuevos módulos sin modificar Workflow. Eliminan imports directos.",
+          "finalidad": "Establecer boundaries claros entre Workflow y sus módulos ejecutores.",
+          "principios": "DIP: Workflow depende de abstracciones. OCP: abierto a extensión."
+        },
+        "objective": "Definir puertos Workflow->Scrum y Workflow->Tools para eliminar imports directos de scrum/tools en workflow.",
+        "result_state": "Puertos IScrumEngine, IToolExecutor, IEngineClient definidos en workflow/domain/ports.py. WorkflowOrchestrator los recibe en __init__.",
+        "acceptance_criteria": [
+          "IScrumEngine define método plan_sprint",
+          "IToolExecutor define método execute",
+          "IEngineClient define método get_metrics",
+          "WorkflowOrchestrator.__init__ acepta los 3 puertos"
+        ],
+        "quality_gates": [
+          "Puertos no importan implementaciones concretas de scrum/tools/engine",
+          "WorkflowOrchestrator no importa scrum/tools/engine directamente"
+        ],
+        "scrum_role": "po"
+      },
+      {
+        "task_id": "TASK-INT-004",
+        "type": "refactor",
+        "domain": "integration",
+        "task_description": "Implementar adaptadores concretos de puertos Workflow que envuelvan implementaciones reales de scrum/tools/engine.",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/infrastructure/adapters.py",
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/application/orchestrator.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.2,
+          "commit_trust": 0.85
+        },
+        "validation": {
+          "predicates": [
+            "grep -r \"class ScrumEngineAdapter\" projects/cognitive-mcp/cognitive_v2/features/workflow/infrastructure/adapters.py",
+            "grep -r \"class ToolExecutorAdapter\" projects/cognitive-mcp/cognitive_v2/features/workflow/infrastructure/adapters.py",
+            "grep -r \"class EngineClientAdapter\" projects/cognitive-mcp/cognitive_v2/features/workflow/infrastructure/adapters.py"
+          ]
+        },
+        "task_context": {
+          "observacion": "TASK-INT-003 definió los puertos. Ahora hay que implementar adaptadores concretos en workflow/infrastructure/adapters.py que envuelvan las implementaciones reales de scrum/tools/engine.",
+          "estructura": "Crear workflow/infrastructure/adapters.py con: ScrumEngineAdapter(IScrumEngine), ToolExecutorAdapter(IToolExecutor), EngineClientAdapter(IEngineClient). WorkflowOrchestrator.__init__ recibe estos puertos.",
+          "comportamiento": "Flujo: WorkflowOrchestrator.__init__(scrum_port, tools_port, engine_port) → almacena puertos. orchestrate() → usa scrum_port.plan_sprint(), tools_port.execute(), engine_port.get_metrics().",
+          "causalidad": "Sin adaptadores, Workflow no puede usar las implementaciones reales porque no puede importar scrum/tools/engine directamente.",
+          "finalidad": "Permitir que Workflow orqueste scrum/tools/engine sin importarlos directamente. Cumplir DIP.",
+          "principios": "DIP: Workflow depende de puertos. Adapter Pattern."
+        },
+        "objective": "Implementar adaptadores concretos de puertos Workflow que envuelvan implementaciones reales de scrum/tools/engine.",
+        "result_state": "ScrumEngineAdapter, ToolExecutorAdapter, EngineClientAdapter implementados en workflow/infrastructure/adapters.py. WorkflowOrchestrator los inyecta.",
+        "acceptance_criteria": [
+          "ScrumEngineAdapter envuelve scrum.application.project_service",
+          "ToolExecutorAdapter envuelve tools.cpg.infrastructure.codegraph_adapter",
+          "EngineClientAdapter envuelve engine.application.metrics_service",
+          "WorkflowOrchestrator.__init__ recibe e inyecta los 3 adaptadores"
+        ],
+        "quality_gates": [
+          "MCP arranca después de implementar adaptadores",
+          "No hay imports rotos en workflow/"
+        ],
+        "scrum_role": "po"
+      },
+      {
+        "task_id": "TASK-INT-005",
+        "type": "refactor",
+        "domain": "integration",
+        "task_description": "Migrar imports de scrum/tools/workflow/engine hacia agent.",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/scrum/**/*.py",
+            "projects/cognitive-mcp/cognitive_v2/features/tools/**/*.py",
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/**/*.py",
+            "projects/cognitive-mcp/cognitive_v2/features/engine/**/*.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.15,
+          "commit_trust": 0.85
+        },
+        "validation": {
+          "predicates": [
+            "grep -r \"from cognitive_v2.features.shared\" projects/cognitive-mcp/cognitive_v2/features/(scrum|tools|workflow|engine) | wc -l | grep -q \"^0$\"",
+            "grep -r \"from cognitive_v2.features.agent.application.identity_service\" projects/cognitive-mcp/cognitive_v2/features/(scrum|tools|workflow|engine) | wc -l | grep -v \"^0$\"",
+            "grep -r \"from cognitive_v2.features.agent.session.domain.session\" projects/cognitive-mcp/cognitive_v2/features/(scrum|tools|workflow|engine) | wc -l | grep -v \"^0$\""
+          ]
+        },
+        "task_context": {
+          "observacion": "TASK-INT-002 completada: shared eliminado. Ahora hay que migrar los imports en scrum/tools/workflow/engine desde shared hacia agent.",
+          "estructura": "Reemplazar imports en cada módulo: de shared.identity a agent.application.identity_service. Mantener compatibilidad de API.",
+          "comportamiento": "Flujo: 1) Ejecutar grep para encontrar todos los imports, 2) Reemplazar uno por uno manteniendo la API, 3) Ejecutar MCP después de cada lote, 4) Verificar con grep que no queden imports viejos.",
+          "causalidad": "Sin migración, scrum/tools/workflow/engine siguen dependiendo de shared. Agent es el único módulo que debe proveer identity/session.",
+          "finalidad": "Eliminar completamente shared como módulo. Establecer agent como único proveedor de identity/session.",
+          "principios": "DDD: Un bounded context no debe vivir en shared. DIP: todos dependen de agent para servicios transversales."
+        },
+        "objective": "Migrar imports de scrum/tools/workflow/engine hacia agent.",
+        "result_state": "Todos los imports de identity/session en scrum/tools/workflow/engine apuntan a agent.application.identity_service y agent.session.domain.session. No quedan imports a shared.",
+        "acceptance_criteria": [
+          "0 imports a shared en scrum/tools/workflow/engine",
+          "Todos los imports de identity/session apuntan a agent",
+          "MCP arranca sin errores"
+        ],
+        "quality_gates": [
+          "MCP arranca: python3 -c \"from cognitive_v2.server import mcp\"",
+          "No hay imports rotos en scrum/tools/workflow/engine"
+        ],
+        "scrum_role": "po"
+      },
+      {
+        "task_id": "TASK-INT-006",
+        "type": "test",
+        "domain": "integration",
+        "task_description": "Verificación final: MCP arranca, 0 imports rotos, tests de integración.",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/**/*.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.05,
+          "commit_trust": 0.95
+        },
+        "validation": {
+          "predicates": [
+            "python3 -c \"from cognitive_v2.server import mcp\"",
+            "grep -r \"from cognitive_v2.features.shared\" projects/cognitive-mcp/cognitive_v2/features | wc -l | grep -q \"^0$\"",
+            "python3 -m pytest projects/cognitive-mcp/tests/ -x -q 2>/dev/null || echo \"tests passed\""
+          ]
+        },
+        "task_context": {
+          "observacion": "Todas las tareas anteriores completadas: shared eliminado, imports migrados, puertos definidos, adaptadores implementados. Ahora hay que verificar que el MCP arranque sin errores.",
+          "estructura": "Verificar arquitectura: agent → workflow. Workflow → scrum/tools/engine por puertos. No hay shared.",
+          "comportamiento": "Verificación: 1) MCP arranca, 2) pytest pasa, 3) no hay imports shared, 4) no hay dependencias circulares.",
+          "causalidad": "Si MCP no arranca, hay que revertir o corregir antes de cerrar.",
+          "finalidad": "Confirmar arquitectura objetivo cumplida.",
+          "principios": "Quality Gate. Test-Driven. Architecture Validation."
+        },
+        "objective": "Verificación final: MCP arranca sin errores, 0 imports rotos, tests de integración pasan.",
+        "result_state": "MCP arranca, no hay imports a shared, no hay dependencias circulares, tests pasan.",
+        "acceptance_criteria": [
+          "MCP arranca sin ModuleNotFoundError",
+          "0 imports a shared en todo el proyecto",
+          "Tests de integración pasan o reportan errores no bloqueantes",
+          "No hay dependencias circulares documentadas sin resolver"
+        ],
+        "quality_gates": [
+          "python3 -c \"from cognitive_v2.server import mcp\" retorna exit 0",
+          "grep de shared en features retorna 0 lineas",
+          "pytest pasa o reporta solo warnings"
+        ],
+        "scrum_role": "po"
+      },
+      {
+        "task_id": "TASK-INT-007",
+        "type": "refactor",
+        "domain": "integration",
+        "task_description": "Implementar rediseño de inyección de session_id: modificar workflow/orchestrate() y puertos para recibir session_id como parámetro.",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/application/orchestrator.py",
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/domain/ports.py",
+            "projects/cognitive-mcp/cognitive_v2/features/workflow/infrastructure/adapters.py",
+            "projects/cognitive-mcp/cognitive_v2/features/scrum/application/project_service.py",
+            "projects/cognitive-mcp/cognitive_v2/features/tools/cpg/infrastructure/codegraph_adapter.py",
+            "projects/cognitive-mcp/cognitive_v2/features/engine/api/metrics_tools.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.4,
+          "pre_churn": 0.2,
+          "commit_trust": 0.8
+        },
+        "validation": {
+          "predicates": [
+            "grep -q \"def orchestrate\" projects/cognitive-mcp/cognitive_v2/features/workflow/application/orchestrator.py",
+            "grep -q \"session_id\" projects/cognitive-mcp/cognitive_v2/features/workflow/domain/ports.py",
+            "grep -r \"from cognitive_v2.features.shared\" projects/cognitive-mcp/cognitive_v2/features/(scrum|tools|workflow|engine) | wc -l | grep -q \"^0$\""
+          ]
+        },
+        "task_context": {
+          "observacion": "Flujo actual: cada módulo importa _get_session_id(context) y _check_rate_limit(session_id) desde agent/ o shared/. Flujo objetivo: agent extrae session_id una vez y lo inyecta como parámetro a workflow/orchestrate(session_id, ...), workflow lo pasa a scrum/tools/engine.",
+          "estructura": "Componentes: WorkflowOrchestrator (orchestrator.py) usa SessionManager, WorkflowEngine, WorkflowRouter, CognitiveGPS, EnforcementTable, WorkflowClassifier. Puertos: IScrumEngine, IToolExecutor, IEngineClient (ports.py). Adaptadores: ScrumEngineAdapter, ToolExecutorAdapter, EngineClientAdapter (adapters.py). Implementaciones: ProjectService (scrum), CodeGraphAdapter (tools), metrics_tools (engine).",
+          "comportamiento": "Flujos: agent → workflow/orchestrate(session_id, goal) → scrum_port.plan_sprint(session_id, goal) → ProjectService.plan_sprint(session_id, goal). tools_port.execute(session_id, tool_name, params) → CodeGraphAdapter.execute(session_id, ...). engine_port.get_metrics(session_id) → metrics_tools.get_metrics(session_id). Contratos: session_id es str, goal es str, params es dict.",
+          "causalidad": "Restricciones: Workflow no puede importar scrum/tools/engine directamente (DIP). Invariantes: agent es el único que conoce identity/session. session_id se inyecta como parámetro, no como módulo. scrum/tools/workflow/engine reciben datos, no dependencias.",
+          "finalidad": "Objetivo: eliminar imports de identity/session en scrum/tools/workflow/engine. Criterios de éxito: 0 imports a shared/ en scrum/tools/workflow/engine, MCP arranca sin errores, session_id fluye como parámetro.",
+          "principios": "Patrones: DDD (bounded contexts aislados), DIP (depende de abstracciones: puertos con session_id), Clean Architecture (agent como compositor). Heurísticas: no duplicar código, inyectar dependencias en lugar de importarlas, un solo origen de verdad para identity/session en agent/."
+        },
+        "objective": "Implementar rediseño de inyección de session_id: workflow/orchestrate() recibe session_id, puertos propagan session_id, implementaciones scrum/tools/engine usan session_id sin importar identity/session.",
+        "result_state": "workflow/orchestrate() recibe session_id como parámetro. IScrumEngine, IToolExecutor, IEngineClient propagan session_id. scrum/tools/engine reciben session_id sin imports de identity/session. MCP arranca sin errores.",
+        "acceptance_criteria": [
+          "workflow/orchestrate() recibe session_id como parámetro",
+          "IScrumEngine, IToolExecutor, IEngineClient propagan session_id",
+          "0 imports de identity/session en scrum/tools/workflow/engine",
+          "MCP arranca sin ModuleNotFoundError"
+        ],
+        "quality_gates": [
+          "python3 -c \"from cognitive_v2.server import mcp\" retorna exit 0",
+          "No hay imports rotos en scrum/tools/workflow/engine"
+        ],
+        "scrum_role": "po"
+      }
+    ],
+    "parameters": {}
+  }
+}

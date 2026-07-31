@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-07-31T14:09:33.911021+00:00",
+  "files_changed": [],
+  "total_changes": 0,
+  "new_changes": [
+    "features/engine/application/orchestrator.py",
+    "libs/infrastructure/utils.py",
+    "features/engine/infrastructure/repositories.py",
+    "features/project/application/use_cases.py",
+    "features/engine/loader.py",
+    "tests/test_dynamic_discovery.py",
+    "features/engine/domain/services.py",
+    "features/engine/application/use_cases.py",
+    "features/engine/engine.py",
+    "features/cli_interface/infrastructure/output.py",
+    "libs/path_resolver/__init__.py",
+    "features/engine/migrate.py",
+    "features/cli_interface/application/handlers.py",
+    "features/prompts/loader.py"
+  ],
+  "fingerprint": "c30900cd173f667dfd92c31d81ccf0ea25a8c89bd4ec2a9c7a6ff97aa0c9f1c0",
+  "ckg_status": "stale",
+  "cpg_status": "up_to_date"
+}

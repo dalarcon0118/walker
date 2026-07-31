@@ -1,0 +1,693 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-agent-quality-20260713",
+      "generated_at": "2026-07-20T13:37:50.091530+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "agent",
+        "messages",
+        "workflow",
+        "scrum"
+      ],
+      "tags": [
+        "python",
+        "refactor",
+        "qlty",
+        "cognitive-v2"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Elevar el feature agent de rating de seguridad D a B+, reducir complejidad ciclom\u00e1tica total de 237 a <=180, eliminar todos los archivos con CC>20, y resolver los 171 issues de qlty sin romper la suite de tests existente.",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "qlty fmt aplicado y 0 ruff:fmt en toda la feature agent",
+          "0 bandit:B101 en tests/ y 0 bandit:B110 en application/",
+          "message_gate.py CC total <= 40 (de 92)",
+          "identity.py CC total <= 30 (de 60)",
+          "memora_feedback.py CC total <= 12 (de 19)",
+          "llm_response_hook.py CC total <= 18 (de 21)",
+          "Tests de agent verdes: pytest projects/cognitive-mcp/cognitive_v2/features/agent/tests/",
+          "Re-an\u00e1lisis delta con analyze_refactored.py muestra Security rating >= B, issues <= 50"
+        ],
+        "must_not_exist": [
+          "_extract_user_text con CC > 15",
+          "_capture_user_message con CC > 10",
+          "_init_session con CC > 15",
+          "_get_actor_identity con CC > 12",
+          "feed_message_to_memora con CC > 12",
+          "try/except/pass silencioso en llm_response_hook.py",
+          "ruff:F401 (import no usado) en agent/"
+        ],
+        "invariants": [
+          "No romper contratos de puertos existentes (MessageGatePort, WorkflowPort)",
+          "No eliminar funcionalidad de capture_llm_response ni feed_message_to_memora",
+          "Tests existentes pasan sin modificar comportamiento p\u00fablico",
+          "Composition de agent (get_adapter, get_router, get_workflow) se mantiene"
+        ]
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-AG-001",
+        "role": "prerequisite",
+        "scrum_role": "dev",
+        "type": "optimization",
+        "work_type": "refactor",
+        "importer_files": 0,
+        "objective": "Aplicar auto-fixes de qlty: ruff:fmt y ruff:F401 en toda la feature agent (5 imports no usados, 11 archivos con formato incorrecto).",
+        "result_state": "qlty fmt ejecutado, 0 ruff:fmt, 0 ruff:F401 en agent/. workflow_adapter.py tiene import limpio de WorkflowPort.",
+        "domain": "agent",
+        "depends_on": [],
+        "preconditions": [
+          "Sin dependencias"
+        ],
+        "acceptance_criteria": [
+          "qlty fmt reporta 0 issues de formato",
+          "qlty check reporta 0 ruff:F401 en agent/"
+        ],
+        "quality_gates": [
+          "Tests verdes tras formateo"
+        ],
+        "loop_verification": [
+          "qlty check --select F401 projects/cognitive-mcp/cognitive_v2/features/agent",
+          "qlty fmt --check projects/cognitive-mcp/cognitive_v2/features/agent"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/composition.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/message_gate.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/identity.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/classification_schema.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/workflow_adapter.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/dk.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Usar qlty fmt + qlty fix para auto-corregir todo lo autom\u00e1tico antes de refactor manual",
+            "alternatives": [
+              "Editar manualmente cada archivo"
+            ],
+            "rationale": "Menor ruido humano, cambios deterministas, reduce CC baseline."
+          }
+        ],
+        "task_context": {
+          "observacion": "Existen 5 imports no usados (ruff:F401) y 11 archivos con formato incorrecto (ruff:fmt) en la feature agent. qlty check reporta 171 issues (155 bandit:B101, 1 bandit:B110, 5 ruff:F401, 11 ruff:fmt).",
+          "estructura": "Feature agent organizada en application/, domain/, infrastructure/, api/, tests/. Archivos afectados: composition.py, message_gate.py, identity.py, classification_schema.py, workflow_adapter.py, dk.py.",
+          "comportamiento": "qlty fmt reescribe archivos. qlty check --fix resuelve import no usados. Tests se ejecutan con pytest. No hay dependencias externas complejas.",
+          "causalidad": "El ruido de lint oscurece issues reales de seguridad y complejidad. Sin limpieza previa, el refactor manual introduce errores.",
+          "finalidad": "Reducir el baseline de issues a 0 para que las m\u00e9tricas de refactor sean medibles y el security rating suba de D.",
+          "principios": "Limpieza determinista primero, refactor manual despu\u00e9s. No modificar l\u00f3gica, solo formato y imports."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Aplicar auto-fixes de qlty: ruff:fmt y ruff:F401 en toda la feature agent (5 imports no usados, 11 archivos con formato incorrecto).",
+        "validation": {
+          "predicates": [
+            "qlty fmt aplicado y 0 ruff:fmt en toda la feature agent",
+            "0 ruff:F401 en agent/"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-AG-002",
+        "role": "prerequisite",
+        "scrum_role": "dev",
+        "type": "optimization",
+        "work_type": "docs",
+        "importer_files": 0,
+        "objective": "Suppresar bandit:B101 (assert) en tests de agent mediante # noqa: B101 o configuraci\u00f3n de bandit excluyendo tests/.",
+        "result_state": "0 bandit:B101 en reports de qlty para tests/. assert warnings eliminadas del reporte de seguridad.",
+        "domain": "agent",
+        "depends_on": [
+          "TASK-AG-001"
+        ],
+        "preconditions": [
+          "Depende de: TASK-AG-001"
+        ],
+        "acceptance_criteria": [
+          "qlty check sobre tests/ reporta 0 B101",
+          "bandit ejecutado directamente sobre tests/ confirma 0 B101"
+        ],
+        "quality_gates": [
+          "Tests siguen pasando post-suppression"
+        ],
+        "loop_verification": [
+          "qlty check projects/cognitive-mcp/cognitive_v2/features/agent/tests/",
+          "grep -r B101 projects/cognitive-mcp/cognitive_v2/features/agent/tests/ || true"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/conftest.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_llm_response_hook.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_message_gate.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_memora_feedback.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_message_gate_integration.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.02,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [
+          {
+            "chosen": "Agregar # noqa: B101 en cada assert de tests",
+            "alternatives": [
+              "Configurar bandit para excluir tests/ globalmente"
+            ],
+            "rationale": "M\u00e1s expl\u00edcito, no requiere cambiar configuraci\u00f3n global del proyecto. 154 asserts son intencionales en tests unitarios."
+          }
+        ],
+        "task_context": {
+          "observacion": "qlty check reporta 154 bandit:B101 en tests/. Los asserts son requeridos por pytest y se desactivan con -O en producci\u00f3n.",
+          "estructura": "Tests organizados en tests/ con 5 archivos: conftest.py, test_llm_response_hook.py, test_message_gate.py, test_memora_feedback.py, test_message_gate_integration.py.",
+          "comportamiento": "Bandit escanea asserts como security issue. qlty check muestra B101 por archivo. No hay configuraci\u00f3n global de bandit.",
+          "causalidad": "Los asserts en tests son falsos positivos de seguridad. Sin supresi\u00f3n, el security rating permanece en D y el equipo ignora el reporte.",
+          "finalidad": "Eliminar 154 falsos positivos para que el security rating refleje issues reales.",
+          "principios": "Supresi\u00f3n expl\u00edcita con comentario en c\u00f3digo. No cambiar configuraci\u00f3n global."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Suppresar bandit:B101 (assert) en tests de agent mediante # noqa: B101 o configuraci\u00f3n de bandit excluyendo tests/.",
+        "validation": {
+          "predicates": [
+            "0 bandit:B101 en tests/"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-AG-003",
+        "role": "prerequisite",
+        "scrum_role": "dev",
+        "type": "bugfix",
+        "work_type": "bugfix",
+        "importer_files": 1,
+        "objective": "Resolver bandit:B110 (try/except/pass silencioso) en llm_response_hook.py l\u00ednea 54. Reemplazar por manejo expl\u00edcito con log o retry.",
+        "result_state": "0 bandit:B110 en llm_response_hook.py. Excepci\u00f3n silenciosa eliminada o logueada con contexto.",
+        "domain": "agent",
+        "depends_on": [
+          "TASK-AG-001"
+        ],
+        "preconditions": [
+          "Depende de: TASK-AG-001"
+        ],
+        "acceptance_criteria": [
+          "qlty check reporta 0 B110",
+          "bandit ejecutado sobre llm_response_hook.py confirma 0 B110"
+        ],
+        "quality_gates": [
+          "No se pierde funcionalidad de _record_legacy",
+          "Tests de llm_response_hook pasan"
+        ],
+        "loop_verification": [
+          "qlty check projects/cognitive-mcp/cognitive_v2/features/agent/application/llm_response_hook.py",
+          "grep -n except.*pass projects/cognitive-mcp/cognitive_v2/features/agent/application/llm_response_hook.py || true"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/llm_response_hook.py"
+          ],
+          "apis": [],
+          "data": [
+            "excepciones de _record_legacy"
+          ],
+          "config": [],
+          "tests": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_llm_response_hook.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.05,
+          "commit_trust": 0.2
+        },
+        "decisions": [
+          {
+            "chosen": "Reemplazar try/except/pass por logging estructurado + retry controlado o propagaci\u00f3n de error",
+            "alternatives": [
+              "Mantener pero agregar comentario (no soluciona B110)"
+            ],
+            "rationale": "B110 es security issue: silenciar excepciones oculta fallos. En c\u00f3digo de captura de LLM responses, un error debe ser visible."
+          }
+        ],
+        "task_context": {
+          "observacion": "Existe un try/except/pass en _resolve_parent_id (l\u00ednea 54) que silencia excepciones al leer kv:session:{sid}:last_message_id.",
+          "estructura": "Funci\u00f3n helper en llm_response_hook.py, dependencia de capture_llm_response(). No modifica firma p\u00fablica.",
+          "comportamiento": "Si _kv falla (import, conexi\u00f3n, dato corrupto), la excepci\u00f3n se traga y retorna None. El caller no sabe si hubo error o simplemente no hay parent_id.",
+          "causalidad": "Bandit B110 detecta patrones peligrosos de excepci\u00f3n silenciosa. En producci\u00f3n, fallos de KV quedan invisibles.",
+          "finalidad": "Hacer visibles los errores de KV sin romper el flujo. El caller debe poder distinguir entre no hay parent y error de sistema.",
+          "principios": "Logging estructurado para observabilidad. No cambiar contrato de retorno (str | None) para no romper callers."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Resolver bandit:B110 (try/except/pass silencioso) en llm_response_hook.py l\u00ednea 54. Reemplazar por manejo expl\u00edcito con log o retry.",
+        "validation": {
+          "predicates": [
+            "0 bandit:B110 en llm_response_hook.py"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-AG-004",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 3,
+        "objective": "Extraer _extract_user_text (CC=17) de message_gate.py a aplicaci\u00f3n/message_parser.py con funci\u00f3n pura extract_user_text(params, result) -> str.",
+        "result_state": "_extract_user_text removida de MessageGate. extract_user_text en message_parser.py con CC <= 8. MessageGate delega a parser.",
+        "domain": "agent",
+        "depends_on": [
+          "TASK-AG-001",
+          "TASK-AG-002",
+          "TASK-AG-003"
+        ],
+        "preconditions": [
+          "Depende de: TASK-AG-001",
+          "Depende de: TASK-AG-002",
+          "Depende de: TASK-AG-003"
+        ],
+        "acceptance_criteria": [
+          "CC de _extract_user_text <= 8 en nueva ubicaci\u00f3n",
+          "MessageGate llama a extract_user_text(params, result)",
+          "Tests de message_gate pasan sin modificaci\u00f3n"
+        ],
+        "quality_gates": [
+          "message_gate.py NLOC reduce >= 20 LOC",
+          "No se modifica firma p\u00fablica de MessageGate"
+        ],
+        "loop_verification": [
+          "qlty metrics projects/cognitive-mcp/cognitive_v2/features/agent/application/message_parser.py",
+          "pytest projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_message_gate.py -q"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/message_gate.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/message_parser.py (crear)"
+          ],
+          "apis": [
+            "MessageGate._extract_user_text (removida, reemplazada por message_parser.extract_user_text)"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_message_gate.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.1,
+          "commit_trust": 0.25
+        },
+        "decisions": [
+          {
+            "chosen": "Funci\u00f3n pura sin dependencias \u2014 recibe params y result, retorna str o raise",
+            "alternatives": [
+              "Clase MessageParser con m\u00e9todos"
+            ],
+            "rationale": "Funci\u00f3n pura es m\u00e1s testable y tiene menor superficie. Solo necesita acceso a params y result, no a estado de MessageGate."
+          }
+        ],
+        "task_context": {
+          "observacion": "MessageStoreGate._extract_user_text es un staticmethod con CC=17 que extrae texto del usuario desde params seg\u00fan op_name (onboarding, cell, context, session).",
+          "estructura": "Dentro de MessageStoreGate en message_gate.py. Depende de constante _USER_TEXT_TOOLS definida en el mismo m\u00f3dulo.",
+          "comportamiento": "Es llamada por _capture_user_message antes de clasificar y grabar el mensaje. Retorna str | None.",
+          "causalidad": "La funci\u00f3n tiene m\u00faltiples branches if/elif que incrementan CC. Al estar dentro de MessageStoreGate, dificulta unit test aislado.",
+          "finalidad": "Aislar la l\u00f3gica de parsing en una funci\u00f3n pura para reducir CC de MessageStoreGate y mejorar testabilidad.",
+          "principios": "Single Responsibility: MessageStoreGate orquesta, message_parser.parse. Funci\u00f3n pura sin efectos secundarios."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Extraer _extract_user_text (CC=17) de message_gate.py a aplicaci\u00f3n/message_parser.py con funci\u00f3n pura extract_user_text(params, result) -> str.",
+        "validation": {
+          "predicates": [
+            "message_gate.py CC total <= 40"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-AG-005",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 3,
+        "objective": "Extraer _capture_user_message (CC=12) de message_gate.py a application/message_capture.py con builder/clase UserMessageCapturer.",
+        "result_state": "_capture_user_message removida de MessageGate. UserMessageCapturer en message_capture.py con CC <= 8. MessageGate delega captura.",
+        "domain": "agent",
+        "depends_on": [
+          "TASK-AG-004"
+        ],
+        "preconditions": [
+          "Depende de: TASK-AG-004"
+        ],
+        "acceptance_criteria": [
+          "CC de _capture_user_message <= 8 en nueva ubicaci\u00f3n",
+          "UserMessageCapturer expone m\u00e9todo build(params, result) -> UserMessage",
+          "Tests de message_gate pasan"
+        ],
+        "quality_gates": [
+          "No se modifica firma p\u00fablica de MessageGate"
+        ],
+        "loop_verification": [
+          "qlty metrics projects/cognitive-mcp/cognitive_v2/features/agent/application/message_capture.py",
+          "pytest projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_message_gate.py -q"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/message_gate.py",
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/message_capture.py (crear)"
+          ],
+          "apis": [
+            "MessageGate._capture_user_message (removida)"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_message_gate.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.1,
+          "commit_trust": 0.2
+        },
+        "decisions": [
+          {
+            "chosen": "Clase UserMessageCapturer con m\u00e9todo build() que encapsula la l\u00f3gica de construcci\u00f3n del mensaje",
+            "alternatives": [
+              "Funci\u00f3n pura _capture_user_message(params, result)"
+            ],
+            "rationale": "La l\u00f3gica actual mezcla validaci\u00f3n, logging y construcci\u00f3n. Un builder es m\u00e1s claro para este flujo multi-step."
+          }
+        ],
+        "task_context": {
+          "observacion": "MessageStoreGate._capture_user_message es un m\u00e9todo de instancia con CC=12 que orquesta extracci\u00f3n, clasificaci\u00f3n, validaci\u00f3n, grabaci\u00f3n y escalado a Workflow.",
+          "estructura": "Dentro de MessageStoreGate en message_gate.py. Acopla MessagePort, SessionRouter, WorkflowPort y KV store.",
+          "comportamiento": "Es llamada por before() hook. Retorna message_id | None. Modifica estado interno (_last_message_id, _last_user_text).",
+          "causalidad": "El m\u00e9todo mezcla 5 responsabilidades: extraer texto, clasificar, validar schema, grabar mensaje, escalar workflow. Alto CC por branching y efectos secundarios.",
+          "finalidad": "Aislar la orquestaci\u00f3n de captura en una clase dedicada para reducir CC de MessageStoreGate y permitir test independiente.",
+          "principios": "Builder pattern: UserMessageCapturer recibe dependencias en construcci\u00f3n y expone build() para ejecutar el flujo."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Extraer _capture_user_message (CC=12) de message_gate.py a application/message_capture.py con builder/clase UserMessageCapturer.",
+        "validation": {
+          "predicates": [
+            "message_gate.py CC total <= 40"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-AG-006",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 2,
+        "objective": "Reducir complejidad en identity.py: dividir _get_actor_identity (CC=15) y _init_session (CC=19) en funciones especialistas.",
+        "result_state": "_get_actor_identity CC <= 8, _init_session CC <= 10. identity.py CC total <= 30. Nuevos helpers: resolve_actor_identity(), build_session().",
+        "domain": "agent",
+        "depends_on": [
+          "TASK-AG-001",
+          "TASK-AG-002",
+          "TASK-AG-003"
+        ],
+        "preconditions": [
+          "Depende de: TASK-AG-001",
+          "Depende de: TASK-AG-002",
+          "Depende de: TASK-AG-003"
+        ],
+        "acceptance_criteria": [
+          "CC de _get_actor_identity <= 8",
+          "CC de _init_session <= 10",
+          "identity.py CC total <= 30"
+        ],
+        "quality_gates": [
+          "No se modifica firma de AgentIdentity",
+          "Tests de identity pasan"
+        ],
+        "loop_verification": [
+          "qlty metrics projects/cognitive-mcp/cognitive_v2/features/agent/application/identity.py",
+          "pytest projects/cognitive-mcp/cognitive_v2/features/agent/tests/ -q"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/identity.py"
+          ],
+          "apis": [
+            "AgentIdentity._get_actor_identity (dividida)",
+            "AgentIdentity._init_session (dividida)"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.05,
+          "commit_trust": 0.2
+        },
+        "decisions": [
+          {
+            "chosen": "Extraer resolve_actor_identity() y build_session() como m\u00e9todos privados, cada uno con una responsabilidad clara",
+            "alternatives": [
+              "Crear clases ActorResolver y SessionBuilder"
+            ],
+            "rationale": "Mantener todo dentro de AgentIdentity evita crear nuevas clases innecesarias. M\u00e9todos privados son suficientes."
+          }
+        ],
+        "task_context": {
+          "observacion": "AgentIdentity._get_actor_identity (CC=15) y _init_session (CC=19) concentran l\u00f3gica de resoluci\u00f3n de identidad y construcci\u00f3n de sesi\u00f3n.",
+          "estructura": "Clase AgentIdentity en identity.py. Depende de helpers (_kv, get_project_context), MemoraClient y configuraci\u00f3n de agente.",
+          "comportamiento": "_get_actor_identity resuelve actor desde KV/Memora con fallback silencioso. _init_session construye sesi\u00f3n con identidad, proyecto y contexto.",
+          "causalidad": "Ambos m\u00e9todos tienen m\u00faltiples branches de fallback y condicionales de entorno que inflan CC.",
+          "finalidad": "Reducir CC a <=8 y <=10 respectivamente para hacer la l\u00f3gica de identidad mantenible.",
+          "principios": "Extraer helpers especialistas. Cada funci\u00f3n una responsabilidad. Sin crear clases nuevas."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Reducir complejidad en identity.py: dividir _get_actor_identity (CC=15) y _init_session (CC=19) en funciones especialistas.",
+        "validation": {
+          "predicates": [
+            "identity.py CC total <= 30"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-AG-007",
+        "role": "core",
+        "scrum_role": "dev",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "importer_files": 1,
+        "objective": "Refactor de feed_message_to_memora (CC=19) en memora_feedback.py: extraer validaci\u00f3n, enriquecimiento y registro en funciones privadas.",
+        "result_state": "feed_message_to_memora CC <= 10. Helpers: _validate_feedback(), _enrich_feedback(), _record_feedback(). memora_feedback.py CC total <= 12.",
+        "domain": "agent",
+        "depends_on": [
+          "TASK-AG-001",
+          "TASK-AG-002",
+          "TASK-AG-003"
+        ],
+        "preconditions": [
+          "Depende de: TASK-AG-001",
+          "Depende de: TASK-AG-002",
+          "Depende de: TASK-AG-003"
+        ],
+        "acceptance_criteria": [
+          "CC de feed_message_to_memora <= 10",
+          "memora_feedback.py CC total <= 12",
+          "Tests de memora_feedback pasan"
+        ],
+        "quality_gates": [
+          "No se modifica firma p\u00fablica de feed_message_to_memora",
+          "No se pierde l\u00f3gica de validaci\u00f3n"
+        ],
+        "loop_verification": [
+          "qlty metrics projects/cognitive-mcp/cognitive_v2/features/agent/application/memora_feedback.py",
+          "pytest projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_memora_feedback.py -q"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/application/memora_feedback.py"
+          ],
+          "apis": [
+            "feed_message_to_memora (refactor, misma firma)"
+          ],
+          "data": [],
+          "config": [],
+          "tests": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/test_memora_feedback.py"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.18,
+          "pre_churn": 0.05,
+          "commit_trust": 0.2
+        },
+        "decisions": [
+          {
+            "chosen": "Extraer 3 helpers privados: validaci\u00f3n, enriquecimiento, registro",
+            "alternatives": [
+              "Crear FeedbackService separado"
+            ],
+            "rationale": "Helpers privados mantienen cohesi\u00f3n en el m\u00f3dulo. FeedbackService es overkill para 3 operaciones."
+          }
+        ],
+        "task_context": {
+          "observacion": "feed_message_to_memora en memora_feedback.py tiene CC=19. Mezcla validaci\u00f3n de entrada, enriquecimiento con contexto y registro en Memora.",
+          "estructura": "Funci\u00f3n p\u00fablica en memora_feedback.py. Depende de MemoraClient, MessagePort y validadores locales.",
+          "comportamiento": "Recibe mensaje, valida campos, enriquece con project/session context, y registra en Memora como feedback loop.",
+          "causalidad": "Alta CC por branching de validaci\u00f3n, condicionales de enriquecimiento y manejo de errores inline.",
+          "finalidad": "Reducir CC a <=10 separando validaci\u00f3n, enriquecimiento y registro en funciones privadas.",
+          "principios": "Single Responsibility por helper. Misma firma p\u00fablica. Sin clases nuevas."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Refactor de feed_message_to_memora (CC=19) en memora_feedback.py: extraer validaci\u00f3n, enriquecimiento y registro en funciones privadas.",
+        "validation": {
+          "predicates": [
+            "memora_feedback.py CC total <= 12"
+          ]
+        }
+      },
+      {
+        "task_id": "TASK-AG-008",
+        "role": "core",
+        "scrum_role": "qa",
+        "type": "test",
+        "work_type": "docs",
+        "importer_files": 0,
+        "objective": "Re-an\u00e1lisis delta final con analyze_refactored.py y verificaci\u00f3n de quality gates del feature agent completo.",
+        "result_state": "analyze_refactored.py muestra Security rating >= B, Cyclomatic total <= 180, issues <= 50, 0 archivos con CC > 20.",
+        "domain": "agent",
+        "depends_on": [
+          "TASK-AG-004",
+          "TASK-AG-005",
+          "TASK-AG-006",
+          "TASK-AG-007"
+        ],
+        "preconditions": [
+          "Depende de: TASK-AG-004",
+          "Depende de: TASK-AG-005",
+          "Depende de: TASK-AG-006",
+          "Depende de: TASK-AG-007"
+        ],
+        "acceptance_criteria": [
+          "Security rating >= B",
+          "Cyclomatic total <= 180",
+          "Issues totales <= 50",
+          "0 archivos con CC > 20"
+        ],
+        "quality_gates": [
+          "Suite de tests de agent 100% verde",
+          "analyze_refactored.py reporta mejora vs baseline"
+        ],
+        "loop_verification": [
+          "python3 .cognitive/projects/cognitive-mcp/metrics-report/analyze_refactored.py projects/cognitive-mcp/cognitive_v2/features/agent/**/*.py",
+          "pytest projects/cognitive-mcp/cognitive_v2/features/agent/tests/ -q"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/**/*.py"
+          ],
+          "apis": [],
+          "data": [],
+          "config": [],
+          "tests": [
+            "projects/cognitive-mcp/cognitive_v2/features/agent/tests/"
+          ],
+          "docs": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Comparar m\u00e9tricas contra baseline almacenado en .cognitive/projects/cognitive-mcp/metrics-report/",
+            "alternatives": [
+              "Comparaci\u00f3n manual sin baseline"
+            ],
+            "rationale": "analyze_refactored.py genera m\u00e9tricas reproducibles. Guardar baseline previo permite calcular delta real."
+          }
+        ],
+        "task_context": {
+          "observacion": "El feature agent tiene m\u00e9tricas baseline: LOC=2353, NLOC=1404, Cyclo=237, Cog=215, Security=D, Issues=171.",
+          "estructura": "Archivos en application/, domain/, infrastructure/, api/, tests/. Script analyze_refactored.py en .cognitive/projects/cognitive-mcp/metrics-report/.",
+          "comportamiento": "Se ejecuta analyze_refactored.py sobre todos los .py del feature. Se compara contra baseline. Tests con pytest.",
+          "causalidad": "Sin m\u00e9tricas baseline no hay forma de medir mejora. Sin ejecuci\u00f3n de tests no hay garant\u00eda de no regresi\u00f3n.",
+          "finalidad": "Verificar que el delta cumple los predicates del G_objetivo: Security>=B, Cyclo<=180, Issues<=50, 0 archivos CC>20.",
+          "principios": "Medici\u00f3n objetiva con script. Cierre de sprint solo con predicates satisfechos y verificados."
+        },
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "task_description": "Re-an\u00e1lisis delta final con analyze_refactored.py y verificaci\u00f3n de quality gates del feature agent completo.",
+        "validation": {
+          "predicates": [
+            "Security rating >= B",
+            "Cyclomatic total <= 180",
+            "Issues totales <= 50",
+            "0 archivos con CC > 20"
+          ]
+        }
+      }
+    ],
+    "parameters": {}
+  }
+}

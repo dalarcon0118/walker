@@ -1,0 +1,480 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "agent-integration-review-20260716",
+      "generated_at": "2026-07-18T21:17:39.417103+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "closed",
+      "closed_at": "2026-07-19T00:57:37.365938+00:00",
+      "updated_at": "2026-07-18T21:33:00-03:00"
+    },
+    "plan_ref": "agent-integration-review-20260716",
+    "trail": [
+      {
+        "at": "2026-07-18T21:38:11.664277+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-001 updated: task_context"
+      },
+      {
+        "at": "2026-07-18T21:38:40.465585+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-001 updated: task_context"
+      },
+      {
+        "at": "2026-07-18T21:41:29.747036+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-001 updated: artefactos_impactados"
+      },
+      {
+        "at": "2026-07-18T21:53:02.558265+00:00",
+        "distance": 0.8333,
+        "event": "TASK-INT-001 completed",
+        "tasks": [
+          "TASK-INT-001"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Arquitectura implementada: shared eliminado, identity/session en agent, puertos Workflow definidos, imports migrados. MCP arranca sin ModuleNotFoundError.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-18T21:55:21.787267+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-002 updated: task_context"
+      },
+      {
+        "at": "2026-07-18T22:01:26.310126+00:00",
+        "distance": 0.7778,
+        "event": "TASK-INT-002 completed",
+        "tasks": [
+          "TASK-INT-002"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Directorio shared/ eliminado. agent/application/identity_service.py y agent/session/domain/session.py contienen toda la funcionalidad. Todos los imports en scrum/tools/workflow/engine apuntan a agent.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-18T22:10:03.352264+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-003 updated: artefactos_impactados"
+      },
+      {
+        "at": "2026-07-18T22:16:22.361970+00:00",
+        "distance": 0.5556,
+        "event": "TASK-INT-003 completed",
+        "tasks": [
+          "TASK-INT-003"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Puertos IScrumEngine, IToolExecutor, IEngineClient definidos en workflow/domain/ports.py. WorkflowOrchestrator los recibe en __init__.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2222,
+            "actual_reduction": 0.2222,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-18T22:24:04.851482+00:00",
+        "distance": 0.3889,
+        "event": "TASK-INT-004 completed",
+        "tasks": [
+          "TASK-INT-004"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "ScrumEngineAdapter, ToolExecutorAdapter, EngineClientAdapter implementados en workflow/infrastructure/adapters.py. WorkflowOrchestrator los inyecta.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2222,
+            "actual_reduction": 0.2222,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-18T22:30:14.904454+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-005 updated: task_context"
+      },
+      {
+        "at": "2026-07-18T22:35:05.490325+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-005 updated: acceptance_criteria"
+      },
+      {
+        "at": "2026-07-18T22:35:53.838873+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-005 updated: acceptance_criteria"
+      },
+      {
+        "at": "2026-07-18T22:41:03.063702+00:00",
+        "distance": 0.2222,
+        "event": "TASK-INT-005 completed",
+        "tasks": [
+          "TASK-INT-005"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "Todos los imports de identity/session en scrum/tools/workflow/engine apuntan a agent.application.identity_service y agent.session.domain.session. No quedan imports a shared.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-18T22:49:28.858552+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-006 updated: task_context"
+      },
+      {
+        "at": "2026-07-18T22:50:00.420586+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-006 updated: task_context"
+      },
+      {
+        "at": "2026-07-18T22:53:38.933810+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-006 updated: acceptance_criteria"
+      },
+      {
+        "at": "2026-07-18T23:17:37.486337+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-006 completed",
+        "tasks": [
+          "TASK-INT-006"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "MCP arranca, no hay imports a shared, no hay dependencias circulares, tests pasan.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 4,
+            "actual_satisfied": 4,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.2222,
+            "actual_reduction": 0.2222,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T00:51:42.646442+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-007 updated: type, domain, objective, result_state, validation, artefactos_impactados, risks, acceptance_criteria, quality_gates"
+      },
+      {
+        "at": "2026-07-19T00:55:51.687321+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-007 updated: task_context"
+      },
+      {
+        "at": "2026-07-19T00:57:23.000879+00:00",
+        "distance": 0.0,
+        "event": "TASK-INT-007 completed",
+        "tasks": [
+          "TASK-INT-007"
+        ],
+        "loop": {
+          "acceptance": true,
+          "result_state": "workflow/orchestrate() recibe session_id como parámetro. IScrumEngine, IToolExecutor, IEngineClient propagan session_id. scrum/tools/engine reciben session_id sin imports de identity/session. MCP arranca sin errores.",
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": []
+          }
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 3,
+            "actual_satisfied": 3,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.1667,
+            "actual_reduction": 0.1667,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        },
+        "qlty": {
+          "files_analyzed": 0,
+          "total_smells": 0,
+          "quality": {
+            "passed": true,
+            "summary": "N/A",
+            "fails": 0,
+            "warns": 0
+          }
+        }
+      },
+      {
+        "at": "2026-07-19T00:57:37.365523+00:00",
+        "distance": 0.0,
+        "event": "🔒 SPRINT CLOSED. 7/8 tareas. 18/18 predicates.",
+        "closure": {
+          "tasks_completed": 7,
+          "tasks_total": 8,
+          "predicates_satisfied": 18,
+          "predicates_total": 18,
+          "distance": 0.0,
+          "risks_valid": 0,
+          "risks_obsolete": 0,
+          "risks_unchecked": 0
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-INT-001": "completed",
+        "TASK-INT-002": "completed",
+        "TASK-INT-003": "completed",
+        "TASK-INT-004": "completed",
+        "TASK-INT-005": "completed",
+        "TASK-INT-006": "completed",
+        "TASK-INT-007": "completed"
+      },
+      "next_action": null,
+      "alternatives": [],
+      "risks": [],
+      "delta_metrics": {
+        "closure": {
+          "closed_at": "2026-07-19T00:57:37.365941+00:00",
+          "satisfied_predicates": 18,
+          "total_predicates": 18,
+          "distance_at_close": 0.0,
+          "risks_obsolete": 0,
+          "risks_total": 0
+        }
+      },
+      "finished": true
+    }
+  },
+  "_checksum": "2c5f73eeaad6e63c55901fbe29499e715428419d1242c988e733e1126ed0b745"
+}

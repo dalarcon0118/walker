@@ -1,0 +1,54 @@
+{
+  "description": "Run code review: quality gates, smells, lint, security scan",
+  "usage": "walker <project>/review_code --task_id <id> --files <list>",
+  "tags": [
+    "workflow",
+    "review",
+    "quality"
+  ],
+  "input_schema": {
+    "required": [
+      "task_id"
+    ],
+    "optional": [
+      "files",
+      "thresholds"
+    ],
+    "task_id": {
+      "type": "string",
+      "description": "Task ID to review",
+      "example": "TASK-001"
+    },
+    "files": {
+      "type": "array",
+      "description": "Files to review",
+      "example": [
+        "src/auth.py"
+      ]
+    },
+    "thresholds": {
+      "type": "object",
+      "description": "Quality gate thresholds",
+      "example": {
+        "max_cyclo": 10
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "passed": {
+        "type": "boolean"
+      },
+      "metrics": {
+        "type": "object"
+      },
+      "gates": {
+        "type": "array"
+      },
+      "findings": {
+        "type": "object"
+      }
+    }
+  }
+}

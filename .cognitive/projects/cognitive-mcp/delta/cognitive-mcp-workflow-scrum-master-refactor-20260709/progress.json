@@ -1,0 +1,127 @@
+{
+  "schema_version": "3.0",
+  "phase": "implementation",
+  "status": "superseded",
+  "superseded_by": "messages-bc-refactor-plus-workflow-20260710",
+  "implementation_state": {
+    "TASK-WF-101": "completed",
+    "TASK-WF-201": "completed",
+    "TASK-WF-202": "completed",
+    "TASK-WF-301": "completed"
+  },
+  "tasks": {
+    "TASK-WF-101": {
+      "objective": "Domain Models inmutables",
+      "status": "completed",
+      "dependencies": [],
+      "note": "Implementado: WorkflowPhaseEnum (11 fases), SessionMode, WorkflowClassification, WorkflowSessionState, ScrumContext, RouteAction (12 rutas), EnforceResult, StepInstruction, PHASE_TRANSITIONS con can_transition/next_phases, PHASE_PERMITTED_TOOLS/PHASE_ADVANCING_TOOLS con helpers, CLOSED→REFINE loop (should_loop_to_refine). Tests: 74 passing."
+    },
+    "TASK-WF-201": {
+      "objective": "WorkflowClassifier",
+      "status": "completed",
+      "dependencies": [
+        "TASK-WF-101"
+      ],
+      "note": "Implementado: WorkflowClassifier con classify(session_id, message) → WorkflowClassification, MessageClassifierProtocol para Duck Typing, keyword heuristics con EN+ES, set_classifier/clear_classifier, fallback a heurística si external falla. Tests: 33 passing."
+    },
+    "TASK-WF-202": {
+      "objective": "SessionManager",
+      "status": "completed",
+      "dependencies": [
+        "TASK-WF-101"
+      ],
+      "note": "Implementado: SessionManager con create_session/load_session/save_session/transition_mode/get_instruction, SessionServiceProtocol para Duck Typing, InMemorySessionStore como default, serialización JSON con ScrumContext incluido, FREE→PASSTHROUGH / CLASSIFYING→CLASSIFY / SCRUM→phase-based basic action mapping. Tests: 155 passing (acumulado)."
+    },
+    "TASK-WF-301": {
+      "objective": "WorkflowRouter",
+      "status": "completed",
+      "dependencies": [
+        "TASK-WF-201",
+        "TASK-WF-202"
+      ],
+      "note": "Implementado: WorkflowRouter con route(session_state, op, data) → RouteAction, DeviationHandler protocol, FREE→PASSTHROUGH, CLASSIFYING→CLASSIFY, SCRUM con 3 prioridades (sprint→task→phase), _PHASE_TO_ROUTE mapping 9 fases, _check_deviation con exenciones (informational ops, advancing tools, exact match). Tests: 38 passing."
+    },
+    "TASK-WF-302": {
+      "objective": "EnforcementTable",
+      "status": "completed",
+      "dependencies": [
+        "TASK-WF-301"
+      ],
+      "note": "Implementado: EnforcementTable con check(phase, op_name) → EnforceResult (allowed=True|False, NUNCA bloquea), _PHASE_RECOVERY_ROUTE y _PHASE_RECOVERY_MESSAGE para 11 fases, _build_recovery_options con mensaje + tools permitidas + advancing tools, DeviationHandler integrado, deviation alerts progresivos (⚠️ mild / 🚨 escalado), static helpers is_permitted/is_advancing. Tests: 52 passing."
+    },
+    "TASK-WF-303": {
+      "objective": "WorkflowEngine",
+      "status": "completed",
+      "dependencies": [
+        "TASK-WF-302"
+      ],
+      "note": "Implementado: WorkflowEngine con advance(state, target_phase) → new state, execute(state, action) → StepInstruction, previous(state) → rollback, _ACTION_TARGET_PHASE map, StepDataValidator con _PHASE_EXPECTED_DATA, CLOSED→REFINE loop, phase history tracking, ErrorHandler protocol. Tests: 51 passing."
+    },
+    "TASK-WF-401": {
+      "objective": "CognitiveGPS",
+      "status": "completed",
+      "dependencies": [
+        "TASK-WF-303"
+      ],
+      "note": "Implementado: CognitiveGPS con build_cognitive_state() R(D)→S reducer, _determine_state(), _load_graph_distance(), _suggest_next_action() informacional (Router decide), scrum summary builder, StepInstruction context enrichment, deviation tracking. Tests: 42 passing."
+    },
+    "TASK-WF-501": {
+      "objective": "WorkflowEventBus",
+      "status": "completed",
+      "dependencies": [
+        "TASK-WF-401"
+      ],
+      "note": "Implementado: WorkflowEventBus con publish() → delega a EventStoreProtocol.push() + FilePublisherProtocol.write(), validacion de event_type contra WORKFLOW_EVENT_TYPES, InMemoryEventStore para tests, SpyFilePublisher, WorkflowEvent frozen dataclass. Tests: 46 passing."
+    },
+    "TASK-WF-601": {
+      "objective": "ScrumIntegrator",
+      "status": "pending",
+      "dependencies": [
+        "TASK-WF-501"
+      ]
+    },
+    "TASK-WF-701": {
+      "objective": "WorkflowOrchestrator",
+      "status": "pending",
+      "dependencies": [
+        "TASK-WF-601",
+        "TASK-WF-303"
+      ]
+    },
+    "TASK-WF-801": {
+      "objective": "dispatch_pipeline simplification",
+      "status": "pending",
+      "dependencies": [
+        "TASK-WF-701"
+      ]
+    },
+    "TASK-WF-900": {
+      "objective": "Tests",
+      "status": "pending",
+      "dependencies": [
+        "TASK-WF-701",
+        "TASK-WF-801"
+      ]
+    }
+  },
+  "next": "TASK-WF-101",
+  "gaps_resolved": [
+    "GPSEnforcementGate → TASK-WF-302 lo depreca",
+    "WorkflowEventBus adapter → TASK-WF-501",
+    "SessionService existente → TASK-WF-202",
+    "CognitiveState scope reducido → TASK-WF-401",
+    "dispatch_pipeline ~600 líneas → TASK-WF-801"
+  ],
+  "decisions": [
+    "SSOT: TODO dentro de features/workflow/ como DDD estricto",
+    "FREE mode: non_development → workflow no intercepta",
+    "SCRUM mode: development → integra con ScrumMaster",
+    "CognitiveState: data provider puro, no decide",
+    "EventBus: adapter sobre CQRS EventStore",
+    "EnforcementTable: advierte, no bloquea (ADR-005)",
+    "SessionFactory: usa SessionService.save() existente",
+    "guidance/messages: bytecode — no migrar"
+  ],
+  "use_cases_doc": "use-cases.md",
+  "use_cases_reference": "Casos de uso con escenarios (flujo Usuario→LLM→MCP) persistidos en use-cases.md. UC principal + UC-05/02/04/06/08. Referencia para integración Agent↔Workflow."
+}

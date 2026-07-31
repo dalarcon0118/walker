@@ -1,0 +1,14 @@
+{
+  "current_node": "SPRINT",
+  "current_sub_state": "INIT",
+  "sub_state_index": 0,
+  "history": [
+    "SPRINT.INIT"
+  ],
+  "sub_state_data": {},
+  "updated_at": "2026-07-21T23:29:56.688985+00:00",
+  "context": {
+    "chain_dir": "/Users/davidmartinez/develop/Active-projects/game_reset/.cognitive/projects/delta-skill/delta/architecture-v4",
+    "task_id": null
+  }
+}

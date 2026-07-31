@@ -1,0 +1,121 @@
+{
+  "description": "Multi-layer query: CPG, CKG, Delta, Trace, State in a single JSON",
+  "usage": "walker <project>/query --query '{\"layer\":{filters}}'",
+  "example": "walker <project>/query --query '{\"ckg\":{\"type\":\"decision\"},\"cpg\":{\"class\":\"EventDispatcher\"}}'",
+  "tags": ["context", "query", "multi-layer"],
+  "input_schema": {
+    "required": ["query"],
+    "optional": ["layer"],
+    "query": {
+      "type": "object",
+      "description": "JSON multi-capa: {capa: {filtros}, ...}. Capas: cpg, ckg, delta, trace, state",
+      "example": {"ckg": {"type": "decision"}, "cpg": {"class": "EventDispatcher"}}
+    },
+    "layer": {
+      "type": "string",
+      "description": "Capa específica a consultar (cpg|ckg|delta|trace|state). Si se omite, consulta todas las capas del query."
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "ok": {"type": "boolean"},
+      "data": {"type": "object", "description": "Resultados por capa. Cada capa tiene {ok, total, results, layer}"}
+    }
+  },
+  "query_instructions": "The task returns raw data with context per layer. As an agent, you interpret and classify the data.\n\nAvailable layers:\n  - cpg: Code Property Graph — source code nodes and relations\n  - ckg: Context Knowledge Graph — decisions, rules, knowledge\n  - delta: DeltaGraph — task dependencies and history\n  - trace: Tool call history\n  - state: Current sprint workflow state\n\nCPG filters for the agent:\n  bug:unused_functions  → functions defined but never called\n  bug:dead_branches     → dead code via unreachable branches\n  bug:missing_returns   → functions missing return in all branches\n  security:sqli         → potential SQL injections\n  security:command_injection → potential command injection\n  trace:funcA->funcB    → call path between two functions\n\n━━ HOW TO CONSUME bug:unused_functions ━━\nEach candidate has: function, file, line, is_private, is_method,\n  incoming_calls, incoming_imports, parent_class, parent_type\n\nCLASSIFICATION RULES (apply in order):\n  1. If incoming_calls > 0 → SKIP (function is called)\n  2. If function name appears in registry.register() or engine.register() → dynamic_dispatch\n  3. If is_method and parent_class scans self.<name>() in its source → dynamic_dispatch\n  4. If name starts with cmd_, _handle_, _query_, _on_, on_ → dynamic_dispatch pattern\n  5. If incoming_imports > 0 or parent class is imported → may be public API\n  6. If is_private (starts with _) → dead_code (safe to remove)\n  7. If not is_private → unintegrated (public API never connected)\n\nACTION:\n  - dead_code: propose removal, no side effects expected\n  - unintegrated: ask user if they want to integrate or remove\n  - dynamic_dispatch: likely false positive, verify dispatch path\n\n━━ END OF INSTRUCTIONS ━━",
+  "filters": {
+    "cpg": {
+      "description": "Code Property Graph — source code nodes and relations",
+      "filters": {
+        "file": "file path (partial match)",
+        "function": "function or method name",
+        "class": "class name",
+        "name": "node name",
+        "type": "node type: file | function | class | module | variable",
+        "calls": "find nodes that call <value>",
+        "called_by": "find nodes called by <value>",
+        "imports": "find nodes importing <value>",
+        "imported_by": "find nodes imported by <value>",
+        "trace": "call path: funcA->funcB",
+        "bug": "dead_branches | missing_returns | infinite_loops | uninitialized_vars | taint_paths | data_gaps | unused_functions",
+        "security": "sqli | command_injection | xss | hardcoded_secrets | code_injection | data_leak | weak_crypto | path_traversal | all",
+        "cyclo": "cyclomatic complexity: >5, <10",
+        "lines": "lines of code: >50, <100",
+        "text": "free text in node name or label"
+      },
+      "examples": [
+        "{\"cpg\":{\"file\":\"cpg.py\"}}",
+        "{\"cpg\":{\"class\":\"CPGBuilder\"}}",
+        "{\"cpg\":{\"function\":\"build\",\"file\":\"cpg.py\"}}",
+        "{\"cpg\":{\"type\":\"file\",\"file\":\".tsx\"}}",
+        "{\"cpg\":{\"text\":\"bootstrap\"}}",
+        "{\"cpg\":{\"bug\":\"unused_functions\",\"file\":\".py\"}}"
+      ]
+    },
+    "ckg": {
+      "description": "Context Knowledge Graph — decisions, rules, conventions",
+      "filters": {
+        "type": "type: decision | convention | warning | rule",
+        "scope": "knowledge scope",
+        "label": "label (partial match)",
+        "task": "metadata.task_id",
+        "description": "description (partial match)"
+      },
+      "examples": [
+        "{\"ckg\":{\"type\":\"decision\"}}",
+        "{\"ckg\":{\"type\":\"convention\",\"scope\":\"engine\"}}",
+        "{\"ckg\":{\"task\":\"TASK-012\"}}"
+      ]
+    },
+    "delta": {
+      "description": "DeltaGraph — sprint tasks and dependencies",
+      "filters": {
+        "task": "task_id",
+        "file": "impacted file",
+        "domain": "change domain",
+        "type": "task type",
+        "objective": "objective (partial match)"
+      },
+      "examples": [
+        "{\"delta\":{\"task\":\"TASK-001\"}}",
+        "{\"delta\":{\"file\":\"cpg.py\"}}",
+        "{\"delta\":{\"domain\":\"core\"}}"
+      ]
+    },
+    "trace": {
+      "description": "Trace — tool call history",
+      "filters": {
+        "task": "task_id",
+        "tool": "tool used (Write, Read, Bash, etc)",
+        "type": "event_type",
+        "file": "files involved"
+      },
+      "examples": [
+        "{\"trace\":{\"tool\":\"Write\"}}",
+        "{\"trace\":{\"task\":\"TASK-001\",\"tool\":\"Read\"}}",
+        "{\"trace\":{\"type\":\"tool_call\"}}"
+      ]
+    },
+    "state": {
+      "description": "Workflow State — current sprint state",
+      "filters": {
+        "node": "current node (START | SPRINT | DESIGN | ANALYZE | IMPLEMENT | VERIFY)",
+        "sub_state": "current sub-state",
+        "task": "context.task_id",
+        "status": "sprint status (active | planned | closed)",
+        "sprint": "sprint.chain_id"
+      },
+      "examples": [
+        "{\"state\":{\"node\":\"SPRINT\"}}",
+        "{\"state\":{\"status\":\"active\"}}",
+        "{\"state\":{\"task\":\"TASK-001\"}}"
+      ]
+    }
+  },
+  "notes": [
+    "Multiple layers can be queried in a single JSON",
+    "Filters within each layer combine with AND",
+    "To explore available filters use: walker3 tasks/query"
+  ]
+}

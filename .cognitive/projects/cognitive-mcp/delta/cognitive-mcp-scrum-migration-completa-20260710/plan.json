@@ -1,0 +1,970 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "cognitive-mcp-scrum-migration-completa-20260710",
+      "generated_at": "2026-07-10T12:00:00-03:00",
+      "version": "1.1",
+      "source": "delta-skill",
+      "type": "plan",
+      "supersedes": ""
+    },
+    "project": {
+      "project_id": "cognitive-mcp",
+      "project_type": "backend",
+      "domains": [
+        "scrum"
+      ],
+      "tags": [
+        "python",
+        "hexagonal",
+        "ddd",
+        "scrum",
+        "refactor",
+        "migration"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Migrar todos los módulos legacy del módulo scrum (~2,970 líneas fuera de capas DDD) a las capas target: api/tools/, application/, domain/, infrastructure/, eliminando ScrumMaster.py, SprintPlanning.py, SprintStateService.py, Project/, Task/, Universe/, Resources/ del root de scrum, y agregando tests unitarios.",
+      "path_summary": "Migrar 6 módulos legacy a capas DDD + crear tests + cleanup final. ScrumMaster.py→application+domain, SprintPlanning.py→application, Project/ActivationService.py→application, Task/→application+infrastructure, Universe/GuidanceService.py→domain, Resources/→eliminar, y finalmente tests/ y phase 7 cleanup.",
+      "predicates": {
+        "must_exist": [
+          "application/scrum_master_service.py existe con funciones públicas de ScrumMaster",
+          "application/sprint_planning_service.py existe con funciones públicas de SprintPlanning",
+          "application/task_lifecycle_service.py existe con funciones públicas de TaskLifecycleService",
+          "application/activation_service.py existe con funciones públicas de ActivationService",
+          "domain/guidance.py existe con funciones públicas de GuidanceService",
+          "infrastructure/task_repository.py consolidado",
+          "tests/ con al menos 1 archivo de test",
+          "api/tools/ imports desde application/ no desde módulos legacy",
+          "scrum/__init__.py exporta desde capas DDD, no desde módulos legacy"
+        ],
+        "must_not_exist": [
+          "scrum/ScrumMaster.py en root de scrum",
+          "scrum/SprintPlanning.py en root de scrum",
+          "scrum/SprintStateService.py en root de scrum",
+          "scrum/shared_helpers.py en root de scrum",
+          "scrum/Project/ como subdirectorio",
+          "scrum/Task/ como subdirectorio",
+          "scrum/Universe/ como subdirectorio",
+          "scrum/Resources/ como subdirectorio"
+        ],
+        "invariants": [
+          "ScrumMaster.create_project() sigue funcionando (misma firma)",
+          "SprintPlanning.plan_sprint() sigue funcionando",
+          "TaskLifecycleService.advance_task() sigue funcionando",
+          "Todas las tools MCP existentes mantienen sus nombres",
+          "Los imports desde otros módulos (fuera de scrum) no se rompen",
+          "El cyclo de cada archivo nuevo queda < 60"
+        ]
+      },
+      "signatures": [
+        {
+          "function": "ScrumMaster.create_project",
+          "file": "application/scrum_master_service.py",
+          "change": "reubicar desde ScrumMaster.py",
+          "returns": "dict"
+        },
+        {
+          "function": "ScrumMaster.close_project",
+          "file": "application/scrum_master_service.py",
+          "change": "reubicar desde ScrumMaster.py",
+          "returns": "dict"
+        },
+        {
+          "function": "SprintPlanning.create_sprint",
+          "file": "application/sprint_planning_service.py",
+          "change": "reubicar desde SprintPlanning.py",
+          "returns": "dict"
+        },
+        {
+          "function": "SprintPlanning.delta_plan",
+          "file": "application/sprint_planning_service.py",
+          "change": "reubicar desde SprintPlanning.py",
+          "returns": "dict"
+        },
+        {
+          "function": "TaskLifecycleService.advance_task",
+          "file": "application/task_lifecycle_service.py",
+          "change": "reubicar desde Task/TaskLifecycleService.py",
+          "returns": "dict"
+        },
+        {
+          "function": "ActivationService.activate_by_identity",
+          "file": "application/activation_service.py",
+          "change": "reubicar desde Project/ActivationService.py",
+          "returns": "dict"
+        },
+        {
+          "function": "GuidanceService.get_guidance",
+          "file": "domain/guidance.py",
+          "change": "reubicar desde Universe/GuidanceService.py",
+          "returns": "dict"
+        },
+        {
+          "function": "register_tools del MCP",
+          "file": "api/mcp_tools.py",
+          "change": "preservar — no romper",
+          "returns": "None"
+        }
+      ],
+      "done_when": [
+        {
+          "criterio": "Sin módulos legacy en root de scrum",
+          "predicates": [
+            "No existe ScrumMaster.py en scrum/",
+            "No existe SprintPlanning.py en scrum/",
+            "No existe SprintStateService.py en scrum/",
+            "No existe Project/ en scrum/",
+            "No existe Task/ en scrum/",
+            "No existe Universe/ en scrum/",
+            "No existe Resources/ en scrum/"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "Capas DDD completas con funcionalidad preservada",
+          "predicates": [
+            "application/ tiene servicios para scrum_master, sprint_planning, task_lifecycle, activation",
+            "domain/ tiene guidance y modelos de dominio puros",
+            "infrastructure/ tiene task_repository consolidado",
+            "api/tools/ importa desde application/ no desde legacy"
+          ],
+          "satisfied": false
+        },
+        {
+          "criterio": "Tests y validación final",
+          "predicates": [
+            "tests/ existe con al menos tests unitarios básicos",
+            "analyze_refactored.py reporta 0 archivos con cyclo > 60",
+            "Todos los MCP tools siguen registrándose correctamente",
+            "Todos los invariants se cumplen: imports externos funcionales, tools existentes, cyclo < 60"
+          ],
+          "satisfied": false
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-SCRM-001",
+        "role": "prerequisite",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "importer_files": 3,
+        "objective": "Migrar shared_helpers.py (~112 lines) completamente a api/tools/_base.py e infrastructure/, eliminando el archivo legacy.",
+        "result_state": "shared_helpers.py eliminado. Sus funciones reubicadas en _base.py o infrastructure/. Todos los importers actualizados.",
+        "acceptance_criteria": [
+          "shared_helpers.py no existe en scrum/",
+          "_base.py contiene get_service() (ya hecho)",
+          "Infrastructure tiene cualquier helper restante",
+          "Ningún archivo importa de shared_helpers"
+        ],
+        "quality_gates": [
+          "No quedan imports a shared_helpers en ningún archivo scrum"
+        ],
+        "loop_verification": [
+          "NO shared_helpers definido en scrum/",
+          "NO shared_helpers"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/shared_helpers.py",
+            "cognitive_v2/features/scrum/api/tools/_base.py",
+            "cognitive_v2/features/scrum/Project/ActivationService.py",
+            "cognitive_v2/features/scrum/ScrumMaster.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Reubicar en _base.py + infrastructure/ según tipo de helper",
+            "alternatives": [
+              "Mantener shared_helpers.py como está",
+              "Fusionar todo en infrastructure/"
+            ],
+            "rationale": "_base.py ya existe con get_service(). Los helpers de utilidad general van allí; los helpers de infra van a infrastructure/."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "shared_helpers.py no existe en scrum/",
+            "Ningún archivo importa shared_helpers"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-008A",
+        "role": "prerequisite",
+        "type": "refactor",
+        "work_type": "refactor",
+        "domain": "scrum",
+        "importer_files": 0,
+        "objective": "Fase 1 __init__.py: agregar redirects de backward compatibility hacia los nuevos módulos DDD para que los imports externos no se rompan durante la migración.",
+        "result_state": "__init__.py tiene redirects de compatibilidad. Los imports externos a scrum/ScrumMaster, SprintPlanning, etc. siguen funcionando porque se re-exportan desde application/.",
+        "acceptance_criteria": [
+          "__init__.py tiene redirects: from .application import scrum_master_service as ScrumMaster (y similares)",
+          "Ningún import externo a scrum se rompe",
+          "Los módulos legacy siguen siendo importables desde scrum/ durante la migración"
+        ],
+        "quality_gates": [
+          "python3 -c 'from cognitive_v2.features.scrum import ScrumMaster' exitoso"
+        ],
+        "loop_verification": [
+          "__init__.py tiene redirects de compatibilidad",
+          "try/except scrum_master_service en cognitive_v2/features/scrum/__init__.py"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/__init__.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.3,
+          "pre_churn": 0.05,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Redirigir imports legacy vía __init__.py (backward compat)",
+            "alternatives": [
+              "Refactor masivo de todos los importers externos",
+              "Dejar legacy imports rotos"
+            ],
+            "rationale": "Redirigir en __init__.py permite migración gradual. Los importers externos no se rompen porque el símbolo se exporta desde el mismo lugar."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "__init__.py tiene redirects de compatibilidad",
+            "import scrum funciona sin error"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-002",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "importer_files": 5,
+        "objective": "Migrar ScrumMaster.py (~395 lines) → application/scrum_master_service.py + domain/scrum_master.py. Facade en api/tools/.",
+        "result_state": "ScrumMaster.py eliminado de root. Lógica distribuida: application/ para orquestación, domain/ para modelos, api/tools/ para facade.",
+        "acceptance_criteria": [
+          "application/scrum_master_service.py existe con funciones close_project, get_state y orquestación de proyecto",
+          "domain/scrum_master.py existe con modelos de dominio puros",
+          "api/tools/project_crud.py importa desde application/, no desde ScrumMaster",
+          "ScrumMaster.py no existe en root de scrum"
+        ],
+        "quality_gates": [
+          "application/scrum_master_service.py cyclo < 60",
+          "domain/scrum_master.py cyclo < 30",
+          "No quedan imports a ScrumMaster.py en módulos fuera de api/tools/"
+        ],
+        "loop_verification": [
+          "application/scrum_master_service.py existe",
+          "domain/scrum_master.py existe",
+          "def create_project en application/scrum_master_service.py",
+          "def close_project en application/scrum_master_service.py",
+          "NO ScrumMaster.py en scrum/"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/ScrumMaster.py",
+            "cognitive_v2/features/scrum/api/tools/project_crud.py",
+            "cognitive_v2/features/scrum/api/tools/status.py",
+            "cognitive_v2/features/scrum/application/scrum_master_service.py",
+            "cognitive_v2/features/scrum/domain/scrum_master.py",
+            "cognitive_v2/features/scrum/__init__.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.25,
+          "pre_churn": 0.05,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Separar en 2 capas: application + domain",
+            "alternatives": [
+              "Un solo archivo en application/",
+              "Distribuir en 3+ archivos"
+            ],
+            "rationale": "ScrumMaster tiene lógica de orquestación (application) y modelos de proyecto/estado (domain). SRP exige separación."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "application/scrum_master_service.py existe",
+            "domain/scrum_master.py existe",
+            "ScrumMaster.py no existe en scrum/",
+            "project_crud.py importa desde application/"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-003",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "importer_files": 4,
+        "objective": "Migrar SprintPlanning.py (~423 lines) → application/sprint_planning_service.py. Facade en api/tools/delta.py.",
+        "result_state": "SprintPlanning.py eliminado de root. Lógica en application/sprint_planning_service.py. api/tools/delta.py importa desde allí.",
+        "acceptance_criteria": [
+          "application/sprint_planning_service.py existe con funciones create_sprint, delta_plan, get_project_board, _recalculate_sprint_delta, _set_current_sprint_id",
+          "api/tools/delta.py importa desde application/sprint_planning_service.py",
+          "SprintPlanning.py no existe en root de scrum"
+        ],
+        "quality_gates": [
+          "application/sprint_planning_service.py cyclo < 60",
+          "No quedan imports a SprintPlanning.py en módulos fuera de api/"
+        ],
+        "loop_verification": [
+          "application/sprint_planning_service.py existe",
+          "def create_sprint en application/sprint_planning_service.py",
+          "def delta_plan en application/sprint_planning_service.py",
+          "NO SprintPlanning.py en scrum/"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/SprintPlanning.py",
+            "cognitive_v2/features/scrum/api/tools/delta.py",
+            "cognitive_v2/features/scrum/application/sprint_planning_service.py",
+            "cognitive_v2/features/scrum/__init__.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Migrar a application/ como servicio único",
+            "alternatives": [
+              "Dividir en application/ + domain/",
+              "Mantener como archivo flat"
+            ],
+            "rationale": "SprintPlanning es predominantemente lógica de orquestación. Los modelos de sprint/plan ya existen en domain/."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "application/sprint_planning_service.py existe",
+            "SprintPlanning.py no existe en scrum/"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-004",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "importer_files": 4,
+        "objective": "Migrar Task/ (TaskLifecycleService.py ~296 lines + TaskRepository.py ~109 lines) → application/task_lifecycle_service.py + infrastructure/task_repository.py consolidado.",
+        "result_state": "Task/ subdirectorio eliminado. Lógica distribuida: application/ para lifecycle, infrastructure/ para repositorio. domain/task_repository.py ya existe como puerto.",
+        "acceptance_criteria": [
+          "application/task_lifecycle_service.py existe con funciones advance_task, confirm_task",
+          "infrastructure/task_repository.py consolidado (hereda de domain/task_repository.py port)",
+          "Task/ subdirectorio no existe en scrum/",
+          "api/tools/advance.py y api/tools/confirm.py importan desde application/"
+        ],
+        "quality_gates": [
+          "application/task_lifecycle_service.py cyclo < 60",
+          "infrastructure/task_repository.py cyclo < 30",
+          "No quedan imports al subdirectorio Task/"
+        ],
+        "loop_verification": [
+          "application/task_lifecycle_service.py existe",
+          "infrastructure/task_repository.py existe",
+          "def advance_task en application/task_lifecycle_service.py",
+          "NO Task/ en scrum/"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/Task/TaskLifecycleService.py",
+            "cognitive_v2/features/scrum/Task/TaskRepository.py",
+            "cognitive_v2/features/scrum/application/task_lifecycle_service.py",
+            "cognitive_v2/features/scrum/infrastructure/task_repository.py",
+            "cognitive_v2/features/scrum/domain/task_repository.py",
+            "cognitive_v2/features/scrum/api/tools/advance.py",
+            "cognitive_v2/features/scrum/api/tools/confirm.py",
+            "cognitive_v2/features/scrum/__init__.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.2,
+          "pre_churn": 0.0,
+          "commit_trust": 0.15
+        },
+        "decisions": [
+          {
+            "chosen": "Consolidar infrastructure/task_repository.py usando domain/task_repository.py port existente",
+            "alternatives": [
+              "Mantener Task/TaskRepository.py aparte",
+              "Fusionar en un solo repositorio en infrastructure/"
+            ],
+            "rationale": "domain/task_repository.py ya es el puerto. infrastructure/kv_task_repository.py ya implementa una parte."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "application/task_lifecycle_service.py existe",
+            "infrastructure/task_repository.py consolidado",
+            "No existe Task/ en scrum/"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-005",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "importer_files": 2,
+        "objective": "Migrar Universe/GuidanceService.py (~105 lines) → domain/guidance.py. Actualizar project_crud.py para importar desde domain/.",
+        "result_state": "Universe/ subdirectorio eliminado. Lógica de guía en domain/guidance.py. api/tools/project_crud.py importa desde allí.",
+        "acceptance_criteria": [
+          "domain/guidance.py existe con funciones get_guidance, _build_guidance_context, _build_guidance_output",
+          "Universe/ subdirectorio no existe en scrum/",
+          "api/tools/project_crud.py importa desde domain/guidance.py"
+        ],
+        "quality_gates": [
+          "domain/guidance.py cyclo < 30",
+          "No quedan imports a Universe/"
+        ],
+        "loop_verification": [
+          "domain/guidance.py existe",
+          "def get_guidance en domain/guidance.py",
+          "NO Universe/ en scrum/"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/Universe/GuidanceService.py",
+            "cognitive_v2/features/scrum/domain/guidance.py",
+            "cognitive_v2/features/scrum/api/tools/project_crud.py",
+            "cognitive_v2/features/scrum/__init__.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Migrar a domain/ como servicio de dominio puro",
+            "alternatives": [
+              "Migrar a application/",
+              "Dejar en Universe/"
+            ],
+            "rationale": "Guidance es lógica de dominio (reglas de guía), no de orquestación."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "domain/guidance.py existe",
+            "No existe Universe/ en scrum/"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-006",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "importer_files": 0,
+        "objective": "Migrar Project/ActivationService.py (~235 lines) → application/activation_service.py. Actualizar project_crud.py e imports.",
+        "result_state": "Project/ subdirectorio eliminado. Lógica de activación en application/activation_service.py.",
+        "acceptance_criteria": [
+          "application/activation_service.py existe con funciones activate_project, activate_by_identity",
+          "Project/ subdirectorio no existe en scrum/",
+          "api/tools/project_crud.py importa desde application/activation_service.py"
+        ],
+        "quality_gates": [
+          "application/activation_service.py cyclo < 60",
+          "No quedan imports a Project/"
+        ],
+        "loop_verification": [
+          "application/activation_service.py existe",
+          "def activate_by_identity en application/activation_service.py",
+          "NO Project/ en scrum/"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/Project/ActivationService.py",
+            "cognitive_v2/features/scrum/application/activation_service.py",
+            "cognitive_v2/features/scrum/api/tools/project_crud.py",
+            "cognitive_v2/features/scrum/__init__.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.1,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Migrar a application/ como servicio de aplicación",
+            "alternatives": [
+              "Dejar en Project/ con refactor menor",
+              "Fusionar con scrum_master_service"
+            ],
+            "rationale": "ActivationService es orquestación pura (activa proyectos). Ya tiene dependencias mínimas y refactor parcial hecho."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "application/activation_service.py existe",
+            "No existe Project/ en scrum/"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-007",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor_code_motion",
+        "domain": "scrum",
+        "importer_files": 0,
+        "objective": "Eliminar subdirectorios Resources/ (~6 lines, vacío) y SprintStateService.py (~130 lines, ya reemplazado).",
+        "result_state": "Resources/ y SprintStateService.py eliminados. Ningún archivo los referencia.",
+        "acceptance_criteria": [
+          "Resources/ no existe en scrum/",
+          "SprintStateService.py no existe en scrum/"
+        ],
+        "quality_gates": [
+          "No quedan imports a Resources/ ni SprintStateService"
+        ],
+        "loop_verification": [
+          "NO Resources/ en scrum/",
+          "NO SprintStateService.py en scrum/"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/Resources/__init__.py",
+            "cognitive_v2/features/scrum/SprintStateService.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.02,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [
+          {
+            "chosen": "Eliminar Resources/ (vacío) y SprintStateService.py",
+            "alternatives": [
+              "Mantener Resources/ como placeholder",
+              "Mantener SprintStateService.py como deprecado"
+            ],
+            "rationale": "Resources/ está vacío desde su creación. SprintStateService ya fue reemplazado por domain/state_graph.py."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "No existe Resources/ en scrum/",
+            "No existe SprintStateService.py en scrum/"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-011",
+        "role": "core",
+        "type": "refactor",
+        "work_type": "refactor",
+        "domain": "scrum",
+        "importer_files": 0,
+        "objective": "Fase 2 __init__.py: eliminar redirects legacy, exportar solo desde capas DDD. Debe ejecutarse DESPUÉS de que todas las migraciones (002-007) estén completas.",
+        "result_state": "__init__.py limpio, sin redirects legacy. Exporta scrum_master_service, sprint_planning_service, activation_service, guidance, task_lifecycle_service desde capas DDD.",
+        "acceptance_criteria": [
+          "__init__.py no importa de ScrumMaster, SprintPlanning, SprintStateService, shared_helpers",
+          "__init__.py exporta scrum_master_service, sprint_planning_service, activation_service, guidance, task_lifecycle_service desde capas DDD",
+          "Todos los imports externos desde otros módulos (fuera de scrum) siguen funcionando"
+        ],
+        "quality_gates": [
+          "__init__.py tiene imports correctos",
+          "NO broken imports en scrum/"
+        ],
+        "loop_verification": [
+          "NO import ScrumMaster en __init__.py",
+          "NO import SprintPlanning en __init__.py",
+          "NO import SprintStateService en __init__.py",
+          "import scrum_master_service en __init__.py",
+          "import sprint_planning_service en __init__.py",
+          "import activation_service en __init__.py"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/__init__.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.15,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Eliminar redirects legacy después de completar todas las migraciones",
+            "alternatives": [
+              "Mantener redirects permanentemente",
+              "Eliminar durante cada migración individual"
+            ],
+            "rationale": "Esperar a que todas las migraciones estén completas permite una limpieza única y verificable, minimizando el riesgo de broken imports intermedios."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "__init__.py limpio de imports legacy",
+            "exports desde capas DDD"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-009",
+        "role": "optional",
+        "type": "test",
+        "work_type": "refactor",
+        "domain": "scrum",
+        "importer_files": 0,
+        "objective": "Crear tests/unitarios para los módulos scrum refactorizados. Tests para scrum_master_service, sprint_planning_service, task_lifecycle_service, guidance.",
+        "result_state": "tests/ con fixtures + test files para los módulos principales. Tests pasando.",
+        "acceptance_criteria": [
+          "tests/ existe en scrum/",
+          "tests/test_scrum_master_service.py existe con al menos 3 tests",
+          "tests/test_sprint_planning_service.py existe con al menos 3 tests",
+          "tests/test_task_lifecycle.py existe con al menos 3 tests",
+          "tests/test_guidance.py existe con al menos 2 tests",
+          "Todos los tests pasan con pytest"
+        ],
+        "quality_gates": [
+          "pytest tests/ pasa exitosamente"
+        ],
+        "loop_verification": [
+          "tests/ existe en scrum/",
+          "pytest tests/ pasa exitosamente"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/tests/__init__.py",
+            "cognitive_v2/features/scrum/tests/test_scrum_master_service.py",
+            "cognitive_v2/features/scrum/tests/test_sprint_planning_service.py",
+            "cognitive_v2/features/scrum/tests/test_task_lifecycle.py",
+            "cognitive_v2/features/scrum/tests/test_guidance.py"
+          ],
+          "tests": [
+            "cognitive_v2/features/scrum/tests/test_scrum_master_service.py",
+            "cognitive_v2/features/scrum/tests/test_sprint_planning_service.py",
+            "cognitive_v2/features/scrum/tests/test_task_lifecycle.py",
+            "cognitive_v2/features/scrum/tests/test_guidance.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.05,
+          "pre_churn": 0.0,
+          "commit_trust": 0.1
+        },
+        "decisions": [
+          {
+            "chosen": "Tests unitarios con pytest, mockeando KV adapters",
+            "alternatives": [
+              "Tests de integración con KV real",
+              "Sin tests (mal)"
+            ],
+            "rationale": "Unit tests con mocks son más rápidos y enfocados. Los tests de integración se pueden agregar después."
+          }
+        ],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "tests/ existe en scrum/",
+            "pytest tests/ pasa exitosamente"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      },
+      {
+        "task_id": "TASK-SCRM-010",
+        "role": "optional",
+        "type": "optimization",
+        "work_type": "refactor",
+        "domain": "scrum",
+        "importer_files": 0,
+        "objective": "Phase 7 cleanup + validación de invariants y signatures. Verificar que todas las funciones migradas existen, los MCP tools funcionan, y Qlty+ast-grep pasan.",
+        "result_state": "Módulo scrum completamente limpio. Los 6 invariants del G_objetivo verificados: funciones legacy preservadas, MCP tools intactos, imports externos funcionales, cyclo < 60.",
+        "acceptance_criteria": [
+          "analyze_refactored.py --json reporta 0 archivos con cyclo > 60 en scrum/",
+          "analyze_refactored.py ast-grep deep analysis reporta 0 hallazgos critical",
+          "No hay archivos __pycache__ sueltos fuera de carpetas",
+          "Todos los invariants del G_objetivo se cumplen"
+        ],
+        "quality_gates": [
+          "analyze_refactored.py --json en todo scrum/ reporta cyclo < 60 en todos los archivos"
+        ],
+        "loop_verification": [
+          "analyze_refactored.py --json scrum/ reporta 0 fails",
+          "NO imports a módulos legacy en api/tools/",
+          "python3 -c 'from cognitive_v2.features.scrum.api.tools.project_crud import register_project_crud'",
+          "python3 -c 'from cognitive_v2.features.scrum.api.tools.delta import register_delta_tools'",
+          "python3 -c 'from cognitive_v2.features.scrum.api.tools.advance import register_advance_tools'",
+          "def create_sprint en application/sprint_planning_service.py",
+          "def create_project en application/scrum_master_service.py",
+          "def advance_task en application/task_lifecycle_service.py",
+          "def activate_by_identity en application/activation_service.py",
+          "def get_guidance en domain/guidance.py"
+        ],
+        "loop_acceptance": "all",
+        "artefactos_impactados": {
+          "files": [
+            "cognitive_v2/features/scrum/__init__.py",
+            ".cognitive/delta/metrics-report/analyze_refactored.py"
+          ],
+          "tests": []
+        },
+        "risks": {
+          "curvature": 0.02,
+          "pre_churn": 0.0,
+          "commit_trust": 0.05
+        },
+        "decisions": [],
+        "refinement": {
+          "attempts": 0,
+          "dead_ends": []
+        },
+        "validation": {
+          "predicates": [
+            "analyze_refactored.py --json scrum/ reporta 0 fails",
+            "Todos los invariants del G_objetivo verificados"
+          ]
+        },
+        "task_context": {
+          "observacion": "Pendiente: investigar estado actual del código antes de implementar.",
+          "estructura": "Pendiente: analizar módulos, dependencias e interfaces relacionadas.",
+          "comportamiento": "Pendiente: mapear flujos, estados y contratos de la funcionalidad.",
+          "causalidad": "Pendiente: identificar restricciones, invariantes y causas raíz.",
+          "finalidad": "Pendiente: definir objetivos, criterios de éxito y trade-offs.",
+          "principios": "Pendiente: documentar patrones reutilizables y heurísticas aplicables."
+        }
+      }
+    ],
+    "dependency_graph": {
+      "TASK-SCRM-001": [],
+      "TASK-SCRM-008A": [],
+      "TASK-SCRM-002": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A"
+      ],
+      "TASK-SCRM-003": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A"
+      ],
+      "TASK-SCRM-004": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A"
+      ],
+      "TASK-SCRM-005": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A"
+      ],
+      "TASK-SCRM-006": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A"
+      ],
+      "TASK-SCRM-007": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A"
+      ],
+      "TASK-SCRM-011": [
+        "TASK-SCRM-002",
+        "TASK-SCRM-003",
+        "TASK-SCRM-004",
+        "TASK-SCRM-005",
+        "TASK-SCRM-006",
+        "TASK-SCRM-007"
+      ],
+      "TASK-SCRM-009": [
+        "TASK-SCRM-002",
+        "TASK-SCRM-003",
+        "TASK-SCRM-004",
+        "TASK-SCRM-005"
+      ],
+      "TASK-SCRM-010": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A",
+        "TASK-SCRM-002",
+        "TASK-SCRM-003",
+        "TASK-SCRM-004",
+        "TASK-SCRM-005",
+        "TASK-SCRM-006",
+        "TASK-SCRM-007",
+        "TASK-SCRM-011",
+        "TASK-SCRM-009"
+      ]
+    },
+    "parallel_opportunities": {
+      "grupo_prerequisites": [
+        "TASK-SCRM-001",
+        "TASK-SCRM-008A"
+      ],
+      "grupo_migracion_1": [
+        "TASK-SCRM-002",
+        "TASK-SCRM-003",
+        "TASK-SCRM-005",
+        "TASK-SCRM-006"
+      ],
+      "grupo_migracion_2": [
+        "TASK-SCRM-004",
+        "TASK-SCRM-007"
+      ]
+    },
+    "task_roles": {
+      "prerequisite": "TASK-SCRM-001, TASK-SCRM-008A",
+      "core": "TASK-SCRM-002, TASK-SCRM-003, TASK-SCRM-004, TASK-SCRM-005, TASK-SCRM-006, TASK-SCRM-007, TASK-SCRM-011",
+      "optional": "TASK-SCRM-009, TASK-SCRM-010"
+    }
+  }
+}

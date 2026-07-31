@@ -1,0 +1,11 @@
+{
+  "id": "analyze/gather",
+  "type": "auto",
+  "version": 1,
+  "description": "Update CPG code index before analysis",
+  "tags": [
+    "analyze",
+    "cpg"
+  ],
+  "template": "📌 ANALYZE.GATHER - Updating code index...\n\nRunning incremental CPG update to ensure the code index is fresh before analysis.\nData layers (CPG, CKG, State, Trace) will be queried by the ContextComposer in ANALYZE.\nThis runs automatically - no action needed."
+}

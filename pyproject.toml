@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "walker3"
+version = "3.0.0"
+description = "Walker3 — Pure Workflow Engine"
+requires-python = ">=3.10"
+dependencies = [
+    "networkx",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+dev = [
+    "pytest",
+]
+
+[project.urls]
+Documentation = "https://github.com/davidmartinez/walker3"
+
+[project.scripts]
+walker3 = "features.cli_interface:main"
+
+[tool.setuptools.packages.find]
+include = ["features*", "libs*"]

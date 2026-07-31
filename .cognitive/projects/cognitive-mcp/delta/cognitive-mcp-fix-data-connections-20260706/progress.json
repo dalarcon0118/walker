@@ -1,0 +1,111 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-fix-data-connections-20260706",
+      "generated_at": "2026-07-06T21:42:46.729241",
+      "version": "3.1",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "active"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-06T21:42:46.729241",
+        "distance": 1.0,
+        "predicates_satisfied": "0/13",
+        "tasks_completed": [],
+        "event": "Plan creado"
+      },
+      {
+        "at": "2026-07-06T21:45:25.394809",
+        "distance": 0.85,
+        "predicates_satisfied": "2/13",
+        "tasks_completed": [
+          "TASK-REG-001"
+        ],
+        "event": "TASK-REG-001: Registry central implementado. _get_registry(), _set_registry(), _ensure_registry() en delta_evaluator.py. _get_state_graph() unifica acceso via registry. _set_state_graph() persiste y actualiza registry. _save_state_graph() actualiza registry al guardar. delta_branch() ahora usa _get_state_graph(). Syntax OK."
+      },
+      {
+        "at": "2026-07-06T21:45:25.394809",
+        "distance": 0.77,
+        "predicates_satisfied": "4/13",
+        "tasks_completed": [
+          "TASK-REG-002"
+        ],
+        "event": "TASK-REG-002: delta_branch() reparado. Ahora usa _get_state_graph(project_id) que lee del registry. _set_state_graph() persiste con registry update. Sync OK."
+      },
+      {
+        "at": "2026-07-06T21:47:19.462151",
+        "distance": 0.54,
+        "predicates_satisfied": "6/13",
+        "tasks_completed": [
+          "TASK-REG-003"
+        ],
+        "event": "TASK-REG-003: create_sprint() registra sprint en registry.deltas[]. get_project_board() lee sprints del registry primero, fallback a scan StateGraph. 174 tests OK."
+      },
+      {
+        "at": "2026-07-06T21:48:18.194198",
+        "distance": 0.46,
+        "predicates_satisfied": "7/13",
+        "tasks_completed": [
+          "TASK-REG-005"
+        ],
+        "event": "TASK-REG-005: 4 tests de integracion: get_state_graph unificado, fallback, create_sprint actualiza registry, project_board lee registry. 4/4 pass."
+      },
+      {
+        "at": "2026-07-06T21:51:54.914188",
+        "distance": 0.23,
+        "predicates_satisfied": "10/13",
+        "tasks_completed": [
+          "TASK-REG-004"
+        ],
+        "event": "TASK-REG-004: delta-advance.py modificado para leer/escribir kv:sprint:{chain_id}:{plan,progress} con fallback a JSON. _kv_load() y _kv_save() con import de helpers. Syntax OK."
+      },
+      {
+        "at": "2026-07-06T21:51:54.914188",
+        "distance": 0.0,
+        "predicates_satisfied": "13/13",
+        "tasks_completed": [],
+        "event": "PLAN COMPLETADO. Registry central kv:project:{id}:registry. _get_state_graph() unificado. delta_branch() reparado. Sprints en registry.deltas[]. project_board() lee de registry. Scripts con KV fallback. 174+4 tests pass."
+      },
+      {
+        "at": "2026-07-06T22:00:03.858713",
+        "distance": 0.23,
+        "predicates_satisfied": "13/13",
+        "tasks_completed": [],
+        "event": "5 bugs del CGC agregados como tareas pendientes al plan. Descubiertos via loop prompting con code-lookup(), code-analyze(), validate_cpg(), derive_hypotheses(). Los bugs afectan la indexacion de delta_evaluator.py, validacion de schema, dead code, read tool, y scanner Python."
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-REG-001": "completed",
+        "TASK-REG-002": "completed",
+        "TASK-REG-003": "completed",
+        "TASK-REG-004": "completed",
+        "TASK-REG-005": "completed",
+        "TASK-CGC-BUG-001": "pending",
+        "TASK-CGC-BUG-002": "pending",
+        "TASK-CGC-BUG-003": "pending",
+        "TASK-CGC-BUG-004": "pending",
+        "TASK-CGC-BUG-005": "pending"
+      },
+      "next_action": {
+        "task_id": "TASK-CGC-BUG-001",
+        "candidate": "CGC no parsea delta_evaluator.py (>99KB). Funciones module-level no indexadas.",
+        "type": "bugfix",
+        "work_type": "bugfix",
+        "target": "shared/delta_evaluator.py (+ CGC scanner)",
+        "delta": "Bug critico: el CGC no puede analizar el archivo mas importante del pipeline delta",
+        "confidence": 0.7,
+        "risk": 0.25,
+        "score": 0.35,
+        "rationale": "BUG-001 es prerequisito de BUG-005. Sin parseo de delta_evaluator.py, code-analyze(action=scan) no funciona para este archivo."
+      },
+      "model": {
+        "history": [],
+        "parameters": {}
+      }
+    }
+  }
+}

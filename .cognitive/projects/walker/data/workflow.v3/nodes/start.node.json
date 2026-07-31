@@ -1,0 +1,105 @@
+{
+  "label": "Start Bootstrap",
+  "description": "Multi-tenant entry point (start event BPMN). Lists available projects, lets agent select or create one. Thin node — delegates to SPRINT or PROJECT_INIT via gates.",
+  "provides": [
+    "session_id"
+  ],
+  "sub_states": [
+    {
+      "key": "LIST",
+      "label": "List projects",
+      "execution": "auto",
+      "action": "list_projects",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "description": "All available projects with sprint counts and active sprint info"
+          }
+        }
+      },
+      "on_success": "SELECT",
+      "side_effects": [],
+      "timeout_ms": 10000,
+      "prompt_id": "start/list"
+    },
+    {
+      "key": "SELECT",
+      "label": "Select or create project",
+      "execution": "llm_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Proyecto seleccionado (opcional)"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "project_selected",
+              "create_project",
+              "refresh"
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "select",
+              "create"
+            ],
+            "description": "select: work on existing project. create: initialize new project."
+          },
+          "project_id": {
+            "type": "string",
+            "description": "Selected project ID (required if decision=select)"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "on_success": "",
+      "on_failure": "",
+      "side_effects": [],
+      "timeout_ms": 600000,
+      "provides": [
+        "project_id"
+      ],
+      "needs": [
+        "session_id"
+      ],
+      "prompt_id": "start/select",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 5
+            }
+          }
+        ],
+        "focus": {
+          "role": "",
+          "constraints": [],
+          "context_priority": "project → trace"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "level": "full"
+      }
+    }
+  ]
+}

@@ -1,0 +1,932 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-cpg-semgrep-integration-20260709",
+      "generated_at": "2026-07-09T11:30:00-03:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "progress",
+      "status": "closed"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-07-09T11:20:00-03:00",
+        "distance": 0.0,
+        "predicates_satisfied": "0/12",
+        "tasks_completed": [],
+        "event": "plan created v1.0 — integrar Semgrep en cpg/ como mecanismo de validación. Decisión revertida: NO se crea features/audit/. Semgrep comparte BC con CGC+CFG+DFG porque todos trabajan sobre código y se componen en driving adapters. Plan cubre 12 tareas: 1 prerequisite (DOMAIN.md), 2 docs (DOMAIN.md paridad lenguajes), 8 core (port, modelos, eventos, factory, adapter, use cases, handlers, tool code_review), 2 tests (use cases + boundary SSOT). Valida pureza del dominio y sanitización LLM-facing (tool names sin 'semgrep')."
+      },
+      {
+        "at": "2026-07-09T11:30:00-03:00",
+        "distance": 0.0833,
+        "predicates_satisfied": "1/12",
+        "tasks_completed": [
+          "TASK-SEMGREP-001"
+        ],
+        "event": "TASK-SEMGREP-001 completed — DOMAIN.md reescrito. Decisión arquitectural revertida: Semgrep vive en cpg/ (no en features/audit/). Tabla de paridad de 27 lenguajes CGC vs Semgrep con estados cubierto/parcial/brecha. 7 menciones de code_review, 3 menciones de 'mecanismo de validación', 2 referencias de descarte de features/audit/. Imports limpios (DOMAIN_DOC=DOMAIN.md). 58/58 tests hexagonales pasan."
+      },
+      {
+        "at": "2026-07-09T14:36:59.523383+00:00",
+        "distance": 0.8636,
+        "event": "TASK-SEMGREP-002 completed",
+        "tasks": [
+          "TASK-SEMGREP-002"
+        ],
+        "loop": {
+          "result_state": "cpg/domain/ports/__init__.py exporta SemgrepPort con métodos is_available(), scan_path(path, rules), list_rules(language).",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 3,
+            "passed": 3,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "SemgrepPort está definido con @runtime_checkable",
+              "passed": true
+            },
+            {
+              "criterion": "SemgrepPort.is_available() -> bool",
+              "passed": true
+            },
+            {
+              "criterion": "SemgrepPort.scan_path(path: str, rules: list[str] | None = None) -> list[ValidationFinding]",
+              "passed": true
+            },
+            {
+              "criterion": "SemgrepPort.list_rules(language: str) -> list[ValidationRule]",
+              "passed": true
+            },
+            {
+              "criterion": "__all__ exporta 'SemgrepPort'",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "domain/ports/ no importa infrastructure/ ni application/",
+              "passed": true
+            },
+            {
+              "gate": "domain/ports/ no importa subprocess, shutil ni ejecutables externos",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:37:34.105024+00:00",
+        "distance": 0.8182,
+        "event": "TASK-SEMGREP-003 completed",
+        "tasks": [
+          "TASK-SEMGREP-003"
+        ],
+        "loop": {
+          "result_state": "cpg/domain/models/__init__.py exporta ValidationRule, ValidationFinding, ValidationReport con validación de tipos y rangos en __post_init__.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "ValidationRule es frozen dataclass con campos: rule_id (str, no vacío), language (str), severity (Literal['info','warning','error']), pattern (str), message (str)",
+              "passed": true
+            },
+            {
+              "criterion": "ValidationFinding es frozen dataclass con campos: rule_id, path, line (int >= 0), column (int >= 0), severity, message, code_snippet (str | None)",
+              "passed": true
+            },
+            {
+              "criterion": "ValidationReport es frozen dataclass con campos: findings (tuple[ValidationFinding, ...]), total (int), by_severity (dict[str, int]), duration_ms (int >= 0)",
+              "passed": true
+            },
+            {
+              "criterion": "ValidationReport.__post_init__ valida total == len(findings)",
+              "passed": true
+            },
+            {
+              "criterion": "ValidationReport.__post_init__ valida sum(by_severity.values()) == total",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "modelos no tienen dependencias de infrastructure/ ni application/",
+              "passed": true
+            },
+            {
+              "gate": "modelos no importan subprocess ni ejecutables externos",
+              "passed": true
+            },
+            {
+              "gate": "frozen=True para todos (inmutabilidad)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:39:48.717996+00:00",
+        "distance": 0.7727,
+        "event": "TASK-SEMGREP-004 completed",
+        "tasks": [
+          "TASK-SEMGREP-004"
+        ],
+        "loop": {
+          "result_state": "cpg/domain/events/__init__.py exporta CodeValidated, ValidationFailed, NoFindings como frozen dataclass DomainEvent.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "CodeValidated hereda de DomainEvent con timestamp auto-asignado",
+              "passed": true
+            },
+            {
+              "criterion": "ValidationFailed hereda de DomainEvent con campo error (str)",
+              "passed": true
+            },
+            {
+              "criterion": "NoFindings hereda de DomainEvent con campos path y duration_ms",
+              "passed": true
+            },
+            {
+              "criterion": "Los 3 eventos son frozen dataclasses",
+              "passed": true
+            },
+            {
+              "criterion": "__all__ exporta 'CodeValidated', 'ValidationFailed', 'NoFindings'",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "eventos no importan infrastructure/",
+              "passed": true
+            },
+            {
+              "gate": "eventos no importan subprocess ni ejecutables externos",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:40:48.856944+00:00",
+        "distance": 0.7273,
+        "event": "TASK-SEMGREP-005 completed",
+        "tasks": [
+          "TASK-SEMGREP-005"
+        ],
+        "loop": {
+          "result_state": "cpg/infrastructure/semgrep_factory.py encapsula la única invocación de subprocess para semgrep en todo el BC.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 3,
+            "passed": 3,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "semgrep_factory.is_available() ejecuta subprocess.run(['semgrep', '--version']) y retorna exit_code == 0",
+              "passed": true
+            },
+            {
+              "criterion": "semgrep_factory.invoke_semgrep(path, rules) ejecuta subprocess.run(['semgrep', '--config', 'auto', '--json', path]) con timeout configurable",
+              "passed": true
+            },
+            {
+              "criterion": "semgrep_factory.invoke_semgrep retorna dict con keys 'results', 'errors'",
+              "passed": true
+            },
+            {
+              "criterion": "Manejo de FileNotFoundError cuando semgrep no está instalado (retorna dict con 'error' key)",
+              "passed": true
+            },
+            {
+              "criterion": "Manejo de subprocess.TimeoutExpired (retorna dict con 'error' key)",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "semgrep_factory es la única ubicación en cpg/ que importa subprocess",
+              "passed": true
+            },
+            {
+              "gate": "semgrep_factory expone composition root get_semgrep_factory() con caché singleton",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:41:34.220033+00:00",
+        "distance": 0.6818,
+        "event": "TASK-SEMGREP-006 completed",
+        "tasks": [
+          "TASK-SEMGREP-006"
+        ],
+        "loop": {
+          "result_state": "cpg/infrastructure/semgrep_adapter.py implementa SemgrepPort, mapea findings de Semgrep JSON a modelos de dominio cpg/.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 3,
+            "passed": 3,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "SemgrepAdapter implementa is_available(), scan_path(path, rules), list_rules(language)",
+              "passed": true
+            },
+            {
+              "criterion": "is_available() delega a semgrep_factory.is_available()",
+              "passed": true
+            },
+            {
+              "criterion": "scan_path() invoca semgrep_factory.invoke_semgrep() y mapea results a list[ValidationFinding]",
+              "passed": true
+            },
+            {
+              "criterion": "Mapeo de severity: 'INFO'->'info', 'WARNING'->'warning', 'ERROR'->'error'",
+              "passed": true
+            },
+            {
+              "criterion": "list_rules() invoca `semgrep --config auto --list-rules --json` y retorna list[ValidationRule] filtradas por language",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "SemgrepAdapter no importa subprocess directamente (delega a semgrep_factory)",
+              "passed": true
+            },
+            {
+              "gate": "SemgrepAdapter no importa json.loads directamente (usa lo que retorna semgrep_factory)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:43:19.009446+00:00",
+        "distance": 0.6364,
+        "event": "TASK-SEMGREP-007 completed",
+        "tasks": [
+          "TASK-SEMGREP-007"
+        ],
+        "loop": {
+          "result_state": "cpg/application/use_cases.py exporta ValidateCodeUseCase, ListRulesUseCase, ScanPathUseCase. ValidateCodeUseCase publica eventos al InMemoryEventBus según resultado.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 3,
+            "passed": 3,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "ValidateCodeUseCase hereda de UseCase[ValidateCodeRequest, ValidationReport]",
+              "passed": true
+            },
+            {
+              "criterion": "ValidateCodeUseCase invoca port.scan_path() y publica CodeValidated si hay findings, NoFindings si 0 findings, ValidationFailed si error",
+              "passed": true
+            },
+            {
+              "criterion": "ListRulesUseCase hereda de UseCase[ListRulesRequest, list[ValidationRule]]",
+              "passed": true
+            },
+            {
+              "criterion": "ScanPathUseCase hereda de UseCase[ScanPathRequest, list[ValidationFinding]] y NO publica eventos (escaneo masivo)",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "use cases no importan infrastructure/ (sólo ports)",
+              "passed": true
+            },
+            {
+              "gate": "use cases no importan subprocess directamente",
+              "passed": true
+            },
+            {
+              "gate": "ValidateCodeUseCase importa InMemoryEventBus desde features.shared.events",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:47:20.882103+00:00",
+        "distance": 0.5909,
+        "event": "TASK-SEMGREP-008 completed",
+        "tasks": [
+          "TASK-SEMGREP-008"
+        ],
+        "loop": {
+          "result_state": "cpg/application/event_handlers.py LoggingHandlers.register_for_validation() suscribe handlers a los 3 eventos de validación.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "LoggingHandlers.register_for_validation(bus: InMemoryEventBus) suscribe un handler a CodeValidated, ValidationFailed, NoFindings",
+              "passed": true
+            },
+            {
+              "criterion": "Cada handler loggea con _engine_log() o equivalente (no print)",
+              "passed": true
+            },
+            {
+              "criterion": "LoggingHandlers.unregister_for_validation(bus) desuscribe correctamente",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "event_handlers no importan infrastructure/",
+              "passed": true
+            },
+            {
+              "gate": "event_handlers no importan subprocess",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:52:24.887849+00:00",
+        "distance": 0.5455,
+        "event": "TASK-SEMGREP-009 completed",
+        "tasks": [
+          "TASK-SEMGREP-009"
+        ],
+        "loop": {
+          "result_state": "cpg/application/tests/test_semgrep_use_cases.py contiene ≥9 tests con MockSemgrepPort. Todos pasan en <1s.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "TestValidateCodeUseCase: happy path con 3 findings, valida que CodeValidated se publica al bus",
+              "passed": true
+            },
+            {
+              "criterion": "TestValidateCodeUseCase: empty path con 0 findings, valida NoFindings",
+              "passed": true
+            },
+            {
+              "criterion": "TestValidateCodeUseCase: port lanza excepción, valida ValidationFailed",
+              "passed": true
+            },
+            {
+              "criterion": "TestListRulesUseCase: retorna 5 reglas mock, valida shape",
+              "passed": true
+            },
+            {
+              "criterion": "TestListRulesUseCase: filtrado por language retorna subset",
+              "passed": true
+            },
+            {
+              "criterion": "TestListRulesUseCase: language inválido retorna []",
+              "passed": true
+            },
+            {
+              "criterion": "TestScanPathUseCase: happy path con 3 findings, NO publica eventos al bus",
+              "passed": true
+            },
+            {
+              "criterion": "TestScanPathUseCase: empty path retorna []",
+              "passed": true
+            },
+            {
+              "criterion": "TestScanPathUseCase: port lanza excepción propaga la excepción",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "tests usan Mock SemgrepPort (no invocan binario real)",
+              "passed": true
+            },
+            {
+              "gate": "tests corren en <1s (sin I/O)",
+              "passed": true
+            },
+            {
+              "gate": "tests usan pytest fixtures (no setUp manual)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:55:18.146180+00:00",
+        "distance": 0.5,
+        "event": "TASK-SEMGREP-010 completed",
+        "tasks": [
+          "TASK-SEMGREP-010"
+        ],
+        "loop": {
+          "result_state": "cpg/infrastructure/tests/test_semgrep_adapter_boundary.py contiene test parametrizado que verifica el SSOT.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "Test parametrizado sobre todos los archivos .py de cpg/ EXCEPTO semgrep_factory.py",
+              "passed": true
+            },
+            {
+              "criterion": "Para cada archivo, valida que no importa subprocess, os.exec*, os.system, shutil",
+              "passed": true
+            },
+            {
+              "criterion": "Test falla si encuentra imports prohibidos en semgrep_adapter.py (que debe delegar a factory)",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "test corre en <0.5s (no invoca binario)",
+              "passed": true
+            },
+            {
+              "gate": "test detecta violaciones incluso si el archivo no contiene import directo (via ast.parse)",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T14:57:29.612921+00:00",
+        "distance": 0.4545,
+        "event": "TASK-SEMGREP-011 completed",
+        "tasks": [
+          "TASK-SEMGREP-011"
+        ],
+        "loop": {
+          "result_state": "cpg/api/mcp_tools.py exporta tool code_review(path, symbol_query) que orquesta los 2 use cases y devuelve respuesta combinada.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "tool code_review(path: str, symbol_query: str | None = None) -> dict con keys 'symbols', 'findings', 'metadata'",
+              "passed": true
+            },
+            {
+              "criterion": "tool internamente invoca FindSymbolUseCase + ValidateCodeUseCase",
+              "passed": true
+            },
+            {
+              "criterion": "tool name NO contiene 'semgrep' (sanitización LLM-facing)",
+              "passed": true
+            },
+            {
+              "criterion": "tool prompt description NO menciona 'semgrep'",
+              "passed": true
+            },
+            {
+              "criterion": "tool depende sólo de los use cases (no de cgc_adapter ni semgrep_adapter directamente)",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "tool no importa infrastructure/ adapters directamente",
+              "passed": true
+            },
+            {
+              "gate": "tool sólo importa use cases desde application/",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T15:03:47.149492+00:00",
+        "distance": 0.4091,
+        "event": "TASK-SEMGREP-012 completed",
+        "tasks": [
+          "TASK-SEMGREP-012"
+        ],
+        "loop": {
+          "result_state": "cpg/DOMAIN.md contiene tabla de paridad de lenguajes CGC vs Semgrep con status (cubierto/parcial/brecha) y plan para gaps.",
+          "acceptance": true,
+          "acceptance_mode": "all",
+          "checks": {
+            "total": 2,
+            "passed": 2,
+            "failed": []
+          },
+          "acceptance_criteria": [
+            {
+              "criterion": "DOMAIN.md contiene la sección 'Lenguajes con brecha' en projects/cognitive-mcp/cognitive_v2/features/cpg/",
+              "passed": true
+            },
+            {
+              "criterion": "Tabla con columnas: Lenguaje, CGC soporta, Semgrep soporta, Status, Notas",
+              "passed": true
+            },
+            {
+              "criterion": "Mínimo 27 lenguajes listados (cobertura CGC)",
+              "passed": true
+            },
+            {
+              "criterion": "Status posibles: cubierto / parcial / brecha",
+              "passed": true
+            }
+          ],
+          "quality_gates": [
+            {
+              "gate": "tabla basada en información real (no inventada) — referencias a docs oficiales de CGC y Semgrep",
+              "passed": true
+            }
+          ]
+        },
+        "calibration": {
+          "state": {
+            "expected_satisfied": 1,
+            "actual_satisfied": 1,
+            "type": "accurate",
+            "gap_detail": []
+          },
+          "delta": {
+            "expected_reduction": 0.0455,
+            "actual_reduction": 0.0455,
+            "error": 0,
+            "error_pct": 0,
+            "error_type": "accurate",
+            "cause": {
+              "category": "execution",
+              "evidence": "TASK LOOP verified result_state",
+              "learnable": true,
+              "contributors": []
+            }
+          },
+          "strategy": {
+            "optimal": true
+          }
+        }
+      },
+      {
+        "at": "2026-07-09T15:06:12.824718+00:00",
+        "distance": 0.0,
+        "event": "plan closed — composicional verification",
+        "tasks": [
+          "TASK-SEMGREP-001",
+          "TASK-SEMGREP-002",
+          "TASK-SEMGREP-003",
+          "TASK-SEMGREP-004",
+          "TASK-SEMGREP-005",
+          "TASK-SEMGREP-006",
+          "TASK-SEMGREP-007",
+          "TASK-SEMGREP-008",
+          "TASK-SEMGREP-009",
+          "TASK-SEMGREP-010",
+          "TASK-SEMGREP-011",
+          "TASK-SEMGREP-012"
+        ],
+        "closure": {
+          "composicion_valida": true,
+          "full_rescan_executed": false,
+          "side_effects_detected": 0,
+          "side_effects": [],
+          "model_corrections": [],
+          "total_tasks": 12,
+          "total_advances": 11,
+          "total_distance_traveled": "0.0 → 0.0",
+          "next_delta_candidates": []
+        }
+      }
+    ],
+    "current": {
+      "task_states": {
+        "TASK-SEMGREP-001": "completed",
+        "TASK-SEMGREP-002": "completed",
+        "TASK-SEMGREP-003": "completed",
+        "TASK-SEMGREP-004": "completed",
+        "TASK-SEMGREP-005": "completed",
+        "TASK-SEMGREP-006": "completed",
+        "TASK-SEMGREP-007": "completed",
+        "TASK-SEMGREP-008": "completed",
+        "TASK-SEMGREP-009": "completed",
+        "TASK-SEMGREP-010": "completed",
+        "TASK-SEMGREP-011": "completed",
+        "TASK-SEMGREP-012": "completed"
+      },
+      "next_action": null,
+      "alternatives": [
+        {
+          "task_id": "TASK-SEMGREP-003",
+          "role": "core",
+          "objective": "Crear modelos ValidationRule/ValidationFinding/ValidationReport",
+          "score": 0.9,
+          "rationale": "Paralelo a TASK-SEMGREP-002 (port). Ambos pueden avanzarse simultáneamente si la sesión tiene foco, aunque 002 es prerequisito de 005/006."
+        }
+      ],
+      "risks": [
+        {
+          "description": "Revertir decisión arquitectural: usuarios que vieron el DOMAIN.md anterior pueden sorprenderse",
+          "severity": "low",
+          "affected": "DOMAIN.md, cpg/__init__.py"
+        },
+        {
+          "description": "Semgrep no instalado en máquinas de desarrollo/CI: tests de integración fallarían",
+          "severity": "medium",
+          "affected": "TASK-SEMGREP-009, TASK-SEMGREP-010",
+          "mitigation": "Tests usan Mock SemgrepPort, no invocan binario real. Boundary test valida SSOT sin ejecutar semgrep."
+        },
+        {
+          "description": "Paridad de 27 lenguajes: Semgrep puede no cubrir todos los lenguajes que CGC sí",
+          "severity": "medium",
+          "affected": "TASK-SEMGREP-012",
+          "mitigation": "Documentar explícitamente la brecha en cpg/DOMAIN.md sección 'Lenguajes con brecha'."
+        }
+      ],
+      "finished": true,
+      "closure": {
+        "composicion_valida": true,
+        "full_rescan_executed": false,
+        "side_effects_detected": 0,
+        "side_effects": [],
+        "model_corrections": [],
+        "total_tasks": 12,
+        "total_advances": 11,
+        "total_distance_traveled": "0.0 → 0.0",
+        "next_delta_candidates": []
+      }
+    }
+  }
+}

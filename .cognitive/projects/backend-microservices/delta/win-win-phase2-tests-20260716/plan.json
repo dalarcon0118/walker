@@ -1,0 +1,180 @@
+{
+  "plan": {
+    "meta": {
+      "chain_id": "win-win-phase2-tests-20260716",
+      "generated_at": "2026-07-16T19:42:25.641199+00:00",
+      "version": "1.0",
+      "source": "delta-skill",
+      "type": "plan"
+    },
+    "project": {
+      "project_id": "backend-microservices",
+      "project_type": "backend",
+      "domains": [
+        "Solidificar",
+        "el",
+        "backend"
+      ],
+      "tags": [
+        "python"
+      ]
+    },
+    "g_objetivo": {
+      "description": "Solidificar el backend de Win-Win con tests unitarios, seed module idempotente y bugfixes de bancos",
+      "path_summary": "",
+      "predicates": {
+        "must_exist": [
+          "WinWinItem schema valida 10 numeros de 7 digitos",
+          "WinWinBuilder construye bets WIN_WIN_10x7",
+          "WinWinPrizeStrategy calcula premios 10/10 a 7/10",
+          "RewardCalculator integra con Win-Win",
+          "Seed module core/seeds/games/win_win.py idempotente",
+          "seed_win_win integrado en orchestrator.py",
+          "configure_win_win.py delega en seed_win_win()",
+          "bank_1.py bank_2.py bank_pluto.py json_logic={}",
+          "36 tests Win-Win unitarios pasando",
+          "WIN_WIN_REWARDS WIN_LIST_10x7 WIN_WIN_VALIDATION como constantes",
+          "BaseWinWinTest elimina duplicacion setUpTestData"
+        ],
+        "must_not_exist": [
+          "rewards hardcodeados en tests"
+        ],
+        "invariants": [
+          "todos los tests legacy siguen pasando",
+          "seed module es idempotente"
+        ]
+      },
+      "signatures": []
+    },
+    "tasks": [
+      {
+        "task_id": "TASK-001",
+        "objective": "Schema WinWinItem + Builder WinWinBuilder con 11 tests",
+        "type": "test",
+        "domain": "validation",
+        "result_state": "WinWinItem schema valida 10 numeros de 7 digitos unicos, WinWinBuilder crea bets",
+        "validation": {
+          "predicates": [
+            "WinWinItem rechaza <10 o >10 numeros",
+            "WinWinItem rechaza duplicados",
+            "WinWinBuilder crea bet con 10 numbers",
+            "WinWinBuilder falla sin WIN_WIN_10x7"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "bet/tests/test_winwin.py",
+            "bet/schemas.py",
+            "bet/bet_builders.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.08
+        }
+      },
+      {
+        "task_id": "TASK-002",
+        "objective": "WinWinPrizeStrategy + RewardCalculator integration con 16 tests",
+        "type": "test",
+        "domain": "rules",
+        "result_state": "WinWinPrizeStrategy calcula premios con exclusividad, RewardCalculator ciclo completo",
+        "validation": {
+          "predicates": [
+            "10/10 a 7/10 premios correctos",
+            "Exclusividad solo nivel mas alto",
+            "Sin premio para 6/10 y 0/10",
+            "RewardCalculator integrado"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "use_cases/estimate_funds/tests_winwin.py",
+            "core/rules/strategies.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.12
+        }
+      },
+      {
+        "task_id": "TASK-003",
+        "objective": "Seed module win_win.py con 9 tests y configure_win_win wrapper",
+        "type": "feature",
+        "domain": "seed",
+        "result_state": "Seed module idempotente, configure_win_win.py delega en seed_win_win()",
+        "validation": {
+          "predicates": [
+            "DrawType WIN_WIN creado",
+            "BetType WIN_WIN_10x7 con rewards",
+            "WinningRule WIN_WIN_MATCH",
+            "DrawDefinition creada",
+            "seed_win_win en orchestrator",
+            "configure_win_win wrapper"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "core/seeds/games/win_win.py",
+            "core/seeds/orchestrator.py",
+            "bet/tests/test_seed_win_win.py",
+            "configure_win_win.py",
+            "core/seeds/README.md"
+          ]
+        },
+        "risks": {
+          "curvature": 0.1
+        }
+      },
+      {
+        "task_id": "TASK-004",
+        "objective": "Bank bugfixes json_logic en bank_1 bank_2 bank_pluto",
+        "type": "bugfix",
+        "domain": "seed",
+        "result_state": "StructureSpecificRule.create() incluye json_logic={} en 3 bancos",
+        "validation": {
+          "predicates": [
+            "bank_1 json_logic presente",
+            "bank_2 json_logic presente",
+            "bank_pluto json_logic presente"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "core/seeds/banks/bank_1.py",
+            "core/seeds/banks/bank_2.py",
+            "core/seeds/banks/bank_pluto.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.05
+        }
+      },
+      {
+        "task_id": "TASK-005",
+        "objective": "Code quality eliminar code duplication BaseWinWinTest y constantes",
+        "type": "refactor",
+        "domain": "quality",
+        "result_state": "BaseWinWinTest elimina setUpTestData duplicado, constantes centralizadas en win_win.py",
+        "validation": {
+          "predicates": [
+            "setUpTestData no duplicado",
+            "WIN_WIN_REWARDS SSOT",
+            "WIN_LIST_10x7 compartida"
+          ]
+        },
+        "artefactos_impactados": {
+          "files": [
+            "bet/tests/test_winwin.py",
+            "use_cases/estimate_funds/tests_winwin.py",
+            "bet/tests/test_seed_win_win.py",
+            "core/seeds/games/win_win.py"
+          ]
+        },
+        "risks": {
+          "curvature": 0.08
+        }
+      }
+    ],
+    "parameters": {}
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delta/tools.schema.json",
+  "title": "Delta Tools Registry",
+  "description": "Registro estructurado de tools/scripts del skill delta, mapeadas a tipos de tarea definidos en plan.schema.json",
+  "type": "object",
+  "required": ["tools"],
+  "properties": {
+    "tools": {
+      "type": "array",
+      "description": "Catálogo de herramientas disponibles, cada una vinculada a tipos de tarea del schema",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "description", "usage", "task_types"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Nombre corto de la herramienta"
+          },
+          "path": {
+            "type": "string",
+            "description": "Ruta relativa al directorio base del skill (scripts/)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Descripción de qué hace la herramienta"
+          },
+          "full_description": {
+            "type": "string",
+            "description": "Descripción detallada con contexto de uso"
+          },
+          "task_types": {
+            "type": "array",
+            "description": "Tipos de tarea (de plan.schema.json task.type) a los que aplica esta tool",
+            "items": {
+              "type": "string",
+              "enum": ["feature", "bugfix", "refactor", "test", "docs", "optimization", "all"]
+            },
+            "minItems": 1
+          },
+          "work_types": {
+            "type": "array",
+            "description": "Subtipos de trabajo (de plan.schema.json task.work_type) a los que aplica",
+            "items": {
+              "type": "string",
+              "enum": [
+                "refactor_code_motion", "refactor", "feature_new_method",
+                "feature_new_file", "feature_new_bc", "refactor_inline",
+                "bugfix", "optimization", "docs"
+              ]
+            }
+          },
+          "pipeline_phase": {
+            "type": "string",
+            "description": "Fase del pipeline delta donde se usa esta tool",
+            "enum": [
+              "FASE 0: Setup",
+              "FASE 0-2: Contexto",
+              "FASE 3: Plan",
+              "FASE 4-5: Riesgos + Score",
+              "FASE 6-8: Ejecutar",
+              "ADVANCE: TASK LOOP",
+              "ADVANCE: ENFORCEMENT",
+              "CLOSURE: Verificación"
+            ]
+          },
+          "usage": {
+            "type": "string",
+            "description": "Comando de uso con placeholders <arg>"
+          },
+          "examples": {
+            "type": "array",
+            "description": "Ejemplos de uso",
+            "items": { "type": "string" }
+          },
+          "exit_codes": {
+            "type": "object",
+            "description": "Significado de cada código de salida",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "when_to_run": {
+            "type": "string",
+            "description": "Instrucción para el agente: cuándo debe ejecutar esta tool"
+          },
+          "depends_on": {
+            "type": "string",
+            "description": "Script o recurso del que depende esta tool"
+          },
+          "input_from": {
+            "type": "string",
+            "description": "De dónde obtiene los datos de entrada (plan.json, progress.json, etc.)"
+          },
+          "output": {
+            "type": "string",
+            "description": "Qué produce y dónde se escribe"
+          },
+          "self_sufficient": {
+            "type": "boolean",
+            "description": "Si es true, el script produce en su stdout las instrucciones de decisión para el LLM (no necesita consultar SKILL.md)"
+          }
+        }
+      }
+    },
+    "task_type_tool_map": {
+      "type": "object",
+      "description": "Mapa inverso: dado un task.type, qué tools aplicar",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "work_type_tool_map": {
+      "type": "object",
+      "description": "Mapa inverso: dado un task.work_type, qué tools aplicar",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

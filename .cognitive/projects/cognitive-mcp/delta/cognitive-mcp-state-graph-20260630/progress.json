@@ -1,0 +1,97 @@
+{
+  "progress": {
+    "meta": {
+      "chain_id": "cognitive-mcp-state-graph-20260630",
+      "generated_at": "2026-06-30T00:00:00-03:00",
+      "version": "2.0",
+      "source": "delta-skill",
+      "type": "progress"
+    },
+    "plan_ref": "plan.json",
+    "trail": [
+      {
+        "at": "2026-06-30T00:00:00-03:00",
+        "d": 0.85,
+        "ps": "0/17",
+        "tc": [],
+        "e": "Plan creado. 6 tareas para implementar state-graph workflow con multi-factor activation, proyecto como entidad de dominio, y branching de estados."
+      },
+      {
+        "at": "2026-06-30T16:30:00-03:00",
+        "d": 0.73,
+        "ps": "3/17",
+        "tc": ["STATE-GRAPH-DOMAIN"],
+        "e": "Creados Project (project.py), StateNode + StateGraph (state_graph.py) en features/project/domain/. Import tests pasan, round-trip serialization OK, branch/get_path/get_tree funcionan."
+      }
+    ],
+    "current": {
+      "task_states": {
+        "STATE-GRAPH-DOMAIN": "completed",
+        "PROJECT-CREATE-FLOW": "pending",
+        "DELTA-BRANCH": "pending",
+        "PROJECT-CONTEXT-INJECT": "pending",
+        "NO-ORPHAN-ENFORCER": "pending",
+        "TESTS-AND-INVARIANTS": "pending"
+      },
+      "next_action": {
+        "task_id": "STATE-GRAPH-DOMAIN",
+        "objective": "Crear modelo de dominio Project + StateNode + StateGraph en features/project/domain/",
+        "type": "feature",
+        "work_type": "feature_new_file",
+        "target": "features/project/domain/project.py + state_graph.py",
+        "delta": "Satisface 3/17 predicates: class Project, class StateNode, class StateGraph con DAG methods",
+        "confidence": 0.70,
+        "risk": 0.25,
+        "score": 0.26,
+        "rationale": "Tarea foundational de la que dependen todas las demas. StateGraph es la base sobre la que se construyen delta_branch, state-tree, y el enforcer. Sin modelos de dominio, el resto no tiene donde apoyarse.",
+        "importer_files": 3,
+        "importer_factor": 0.85,
+        "dfg_verified": false
+      },
+      "alternatives": [],
+      "risks": [
+        {
+          "description": "StateGraph como DAG puede ser complejo de serializar/deserializar correctamente en KV",
+          "severity": "medium",
+          "affected": "STATE-GRAPH-DOMAIN, DELTA-BRANCH",
+          "mitigation": "Usar JSON serialization estandar con validacion al deserializar. Tests de integracion con KV mock."
+        },
+        {
+          "description": "NO-ORPHAN-ENFORCER puede bloquear herramientas que el LLM necesita sin proyecto",
+          "severity": "high",
+          "affected": "NO-ORPHAN-ENFORCER",
+          "mitigation": "Error message claro que indica al LLM que debe crear/activar un proyecto primero. EHR-20: nunca bloquear si no hay project_id resuelto — solo warning."
+        },
+        {
+          "description": "PROJECT-CONTEXT-INJECT puede aumentar significativamente el tamano de cada tool response",
+          "severity": "medium",
+          "affected": "PROJECT-CONTEXT-INJECT",
+          "mitigation": "Incluir solo los campos esenciales: project_id, name, goal, task_states resumido, next_action. El state-tree completo via resource separado."
+        }
+      ],
+      "model": {
+        "history": [],
+        "parameters": {
+          "importer_factor_range_0_2": 1.0,
+          "importer_factor_range_3_5": 0.85,
+          "importer_factor_range_6plus": 0.70,
+          "work_type_multiplier_refactor_code_motion": 1.25,
+          "work_type_multiplier_refactor": 1.0,
+          "work_type_multiplier_feature_new_method": 1.0,
+          "work_type_multiplier_feature_new_file": 0.85,
+          "work_type_multiplier_feature_new_bc": 0.70,
+          "work_type_multiplier_refactor_inline": 0.65,
+          "work_type_multiplier_bugfix": 1.0,
+          "work_type_multiplier_optimization": 0.80,
+          "score_delta_weight": 0.6,
+          "score_confidence_weight": 0.3,
+          "score_risk_weight": 0.1,
+          "score_coverage_bonus": 0.05,
+          "auto_apply_threshold": 3
+        }
+      },
+      "distance": 0.85,
+      "finished": false
+    }
+  }
+}
