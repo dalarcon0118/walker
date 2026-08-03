@@ -148,6 +148,48 @@ class SubmitOrchestrator:
                 )
                 return gate_check
 
+        # ── GATE: trabajo sin capturar (anti-pérdida al salir del sprint) ──
+        # Convención CKG: el watcher registra file_impact, pero convertirlos
+        # en specs del session-log es manual (capture_task). Al salir del
+        # sprint (REVIEW/CLOSE_CONFIRM) se BLOQUEA el cierre si hay cambios
+        # de código sin spec que los cubra — para no perder trabajo.
+        _SPRINT_EXIT_SUBSTATES = {"REVIEW", "CLOSE_CONFIRM"}
+        if (
+            _orig_node == "SPRINT"
+            and _orig_sub in _SPRINT_EXIT_SUBSTATES
+        ):
+            from .uncaptured_work import detect_uncaptured_work
+
+            uw = detect_uncaptured_work(ctx.chain_dir)
+            if uw.should_block:
+                # Trazar el bloqueo para visibilidad en el TraceGraph
+                try:
+                    self._tracer.trace(
+                        ctx.chain_dir,
+                        "GATE_BLOCKED",
+                        data={
+                            "reason": "uncaptured_work",
+                            "sub_state": _orig_sub,
+                            "uncaptured_files": uw.uncaptured_files,
+                            "spring_id": uw.spring_id,
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
+                except Exception:
+                    pass
+                return {
+                    "ok": False,
+                    "action": "gate_blocked",
+                    "blocked": True,
+                    "error_type": "uncaptured_work_gate",
+                    "strategy": "block",
+                    "message": uw.gate_message(),
+                    "execution_type": _orig_exec_type,
+                    "sub_state": _orig_sub,
+                    "uncaptured_files": uw.uncaptured_files,
+                }
+
         # ── Ejecutar submit (TASK-009: try/except con estrategia de error) ──
         from ..domain.errors import WorkflowEngineError
 
