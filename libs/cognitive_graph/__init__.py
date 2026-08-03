@@ -617,26 +617,32 @@ class CognitiveGraph:
 
             filters = query or {}
             events = []
+            # Dedupe global por _id: el mismo evento puede vivir en el storage
+            # nativo Y en el registry global (.cognitive/projects/{pid}/data/) —
+            # cuando chain_dir == project_root, ambas fuentes apuntan al MISMO
+            # archivo y sin este dedupe cada evento se devuelve duplicado.
+            seen_ids: set[str] = set()
 
             # 1. Storage nativo (trace.json.gz via Index._load)
             idx = self._get_index("trace")
             idx._load()
             for doc_id, doc in idx._docs.items():
+                if doc_id and doc_id in seen_ids:
+                    continue
+                if doc_id:
+                    seen_ids.add(doc_id)
                 events.append({"_id": doc_id, "_source": doc})
 
             # 2. NDJSON legacy en data/traces/*.json.gz
-            # Busca en: chain_dir, y en el .cognitive/ global del walker (registry)
-            # SOLO del MISMO proyecto (match por project_id del chain_dir)
+            # Busca en: chain_dir, y en el storage real del proyecto
+            # (resuelto via registry → repo_path, descentralizado).
             traces_dirs = [os.path.join(self.chain_dir, "data", "traces")]
             try:
-                from libs.path_resolver import get_walker_root
-                # project_id = basename del project_root (ej: react-native-frontend)
+                from libs.path_resolver import get_project_dir
                 project_id = os.path.basename(self.chain_dir)
-                walker_cog = get_walker_root() / ".cognitive" / "projects"
-                if walker_cog.is_dir():
-                    for proj_dir in walker_cog.iterdir():
-                        if proj_dir.is_dir() and proj_dir.name == project_id:
-                            traces_dirs.append(str(proj_dir / "data" / "traces"))
+                proj_dir = get_project_dir(project_id)
+                if proj_dir:
+                    traces_dirs.append(str(proj_dir / "data" / "traces"))
             except Exception:
                 pass
 
@@ -660,6 +666,12 @@ class CognitiveGraph:
                                 continue
                             if not isinstance(doc, dict):
                                 continue
+                            # Dedupe por _id (global) antes del key local
+                            ndjson_id = doc.get("id", doc.get("_id", ""))
+                            if ndjson_id and ndjson_id in seen_ids:
+                                continue
+                            if ndjson_id:
+                                seen_ids.add(ndjson_id)
                             # Dedupe por (timestamp, event_type, tool)
                             dedupe_key = (
                                 doc.get("timestamp", ""),
@@ -673,27 +685,35 @@ class CognitiveGraph:
                     except Exception:
                         continue
 
-            # 3. Storage nativo del .cognitive/ global del walker (registry)
-            #    trace.json.gz puede vivir en walker/.cognitive/projects/{pid}/data/
-            #    SOLO del MISMO proyecto (match por project_id del chain_dir)
+            # 3. Storage nativo del proyecto real (descentralizado)
+            #    La fuente de verdad del trace es <repo_path>/.cognitive/projects/
+            #    {pid}/data/trace.json.gz, donde repo_path es la referencia que el
+            #    walker central mantiene en data/projects.json. get_project_dir()
+            #    resuelve esa ruta (registry → repo_path), con fallback al .cognitive
+            #    global del walker si el proyecto no tiene repo registrado.
             try:
-                from libs.path_resolver import get_walker_root
+                from libs.path_resolver import get_project_dir
                 project_id = os.path.basename(self.chain_dir)
-                walker_projects = get_walker_root() / ".cognitive" / "projects"
-                if walker_projects.is_dir():
-                    proj_dir = walker_projects / project_id
-                    if proj_dir.is_dir():
-                        idx_path = proj_dir / "data" / "trace.json.gz"
-                        if idx_path.is_file():
-                            try:
-                                with _gzip.open(idx_path, "rt") as f:
-                                    raw_idx = json.load(f)
-                                docs_idx = raw_idx.get("docs", []) if isinstance(raw_idx, dict) else raw_idx
-                                for doc in docs_idx:
-                                    if isinstance(doc, dict):
-                                        events.append({"_id": doc.get("_id", ""), "_source": doc})
-                            except Exception:
-                                pass
+                proj_dir = get_project_dir(project_id)
+                if proj_dir:
+                    idx_path = proj_dir / "data" / "trace.json.gz"
+                    if idx_path.is_file():
+                        try:
+                            with _gzip.open(idx_path, "rt") as f:
+                                raw_idx = json.load(f)
+                            docs_idx = raw_idx.get("docs", []) if isinstance(raw_idx, dict) else raw_idx
+                            for doc in docs_idx:
+                                if isinstance(doc, dict):
+                                    doc_id = doc.get("_id", "")
+                                    # Dedupe global: si este _id ya vino del
+                                    # storage nativo (mismo archivo), se omite.
+                                    if doc_id and doc_id in seen_ids:
+                                        continue
+                                    if doc_id:
+                                        seen_ids.add(doc_id)
+                                    events.append({"_id": doc_id, "_source": doc})
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -702,6 +722,24 @@ class CognitiveGraph:
             remaining = dict(filters)
             if "text" in remaining:
                 text_query = remaining.pop("text", "").lower()
+            # Metacampos de control: NO son filtros de datos. El searcher soporta
+            # paginación/limites via "max_results"/"size"/"max_events"; si quedan
+            # en remaining, el filtro estructurado los compara contra cada doc y
+            # devuelve 0 hits (ningún doc tiene esos campos). Extraerlos antes.
+            max_results = (
+                remaining.pop("max_results", None)
+                or remaining.pop("size", None)
+                or remaining.pop("max_events", None)
+            )
+            # "_index" es un selector de índice del protocolo CLI, no un filtro.
+            remaining.pop("_index", None)
+            # "query" es el wrapper ES-like {"match_all": {}} (o full-text):
+            # si su valor es un dict (ES semantics) no es un campo de datos.
+            es_query = remaining.pop("query", None)
+            if isinstance(es_query, dict) and text_query is None:
+                # {"match_all": {}} → sin filtro de texto
+                es_text = es_query.get("match_all") if isinstance(es_query, dict) else None
+                _ = es_text  # match_all = sin restricción
 
             results = []
             for item in events:
@@ -738,11 +776,18 @@ class CognitiveGraph:
                         "_score": 1.0,
                         "_source": doc,
                     })
+            # Aplicar límite de resultados (max_results/size)
+            if max_results:
+                results = results[: int(max_results)]
 
             return {
                 "took": 0,
                 "index": "trace",
-                "hits": {"total": len(results), "hits": results[:50]},
+                "hits": {
+                    "total": len(results),
+                    # Respetar el límite solicitado; por defecto 50 (como search())
+                    "hits": results[: max_results or 50],
+                },
                 "schema": {
                     "fields": {
                         "task": "task_id", "tool": "tool",
@@ -903,21 +948,141 @@ class CognitiveGraph:
         """Consulta multiples indices.
 
         Args:
-            queries: {index_name: query_dict, ...}
+            queries: {index_name: query_dict, ...}. Soporta metacampos de
+                     control con prefijo "_" (no se envían como filtros):
+                     - _top_k: límite de hits por capa (default 15)
+                     - _max_chars: truncado de strings largos (default 400)
+                     - _compact: bool — proyección de campos + ranking
+                       (default True)
 
         Returns:
-            {took, responses: {index_name: result, ...}}
+            {took, responses: {index_name: result, ...}} con respuestas
+            compactadas: campos proyectados por índice, strings truncados,
+            ordenadas por relevancia y limitadas a top_k.
         """
         took = time.time()
+        control = {k: v for k, v in (queries or {}).items() if k.startswith("_")}
+        layer_queries = {k: v for k, v in (queries or {}).items() if not k.startswith("_")}
+        top_k = int(control.get("_top_k", 15))
+        max_chars = int(control.get("_max_chars", 400))
+        compact = bool(control.get("_compact", True))
+
         responses = {}
-        for name, query in queries.items():
+        for name, query in layer_queries.items():
             try:
-                responses[name] = self.search(name, query)
+                result = self.search(name, query)
+                if compact:
+                    result = self._compact_result(name, result, top_k=top_k, max_chars=max_chars)
+                responses[name] = result
             except Exception as e:
                 responses[name] = {"ok": False, "error": str(e), "index": name}
         return {
             "took": int((time.time() - took) * 1000),
             "responses": responses,
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # Poda de respuestas (A+B+C): proyección, ranking y presupuesto
+    # ═══════════════════════════════════════════════════════════════
+
+    # Campos relevantes por índice (proyección). El LLM recibe solo estos.
+    COMPACT_FIELDS = {
+        "ckg": ["_id", "type", "subject", "statement", "scope", "severity", "status"],
+        "delta": ["_id", "task_id", "title", "objective", "status", "domain", "result_state"],
+        "trace": ["_id", "event_type", "timestamp", "task_id", "session_id", "tool"],
+        "cpg": ["_id", "name", "type", "file", "line", "signature", "kind"],
+    }
+
+    # Orden de severidad para ranking CKG (obligatoria primero).
+    SEVERITY_ORDER = {"obligatoria": 0, "recomendada": 1, "informativa": 2}
+
+    def _compact_result(self, index: str, result: dict, top_k: int, max_chars: int) -> dict:
+        """Proyecta, rankea y limita los hits de una capa.
+
+        Conserva la estructura ES-like ({took, index, hits: {total, hits},
+        schema}) para no romper consumers, pero:
+          A) Proyecta _source a COMPACT_FIELDS (sin rationale/metadata/files).
+          B) Ordena por relevancia: CKG por severidad, trace/delta por
+             timestamp reciente.
+          C) Limita hits a top_k; total conserva el conteo real del índice.
+        """
+        hits = result.get("hits") or {}
+        hit_list = hits.get("hits", []) if isinstance(hits, dict) else []
+        total = hits.get("total", len(hit_list)) if isinstance(hits, dict) else len(hit_list)
+
+        projected = []
+        for h in hit_list:
+            if not isinstance(h, dict):
+                continue
+            src = h.get("_source") or {}
+            if not isinstance(src, dict):
+                continue
+            compact_src = self._project_source(index, src, max_chars)
+            projected.append({
+                "_id": h.get("_id", ""),
+                "_index": h.get("_index", index),
+                "_source": compact_src,
+            })
+
+        # B) Ranking por relevancia de capa
+        if index == "ckg":
+            projected.sort(
+                key=lambda h: self.SEVERITY_ORDER.get(
+                    (h["_source"].get("severity") or "").lower(), 9
+                )
+            )
+        elif index in ("trace", "delta"):
+            projected.sort(
+                key=lambda h: h["_source"].get("timestamp", ""),
+                reverse=True,
+            )
+
+        # C) Presupuesto
+        projected = projected[:top_k]
+        return {
+            "took": result.get("took", 0),
+            "index": index,
+            "hits": {"total": total, "hits": projected},
+            "schema": result.get("schema", {}),
+        }
+
+    def _project_source(self, index: str, src: dict, max_chars: int) -> dict:
+        """Proyecta un documento a los campos relevantes del índice.
+
+        Los campos de la whitelist se truncan a max_chars. El campo 'data'
+        de trace se resume (index + query) para evitar traer payloads grandes.
+        """
+        fields = self.COMPACT_FIELDS.get(index)
+        if not fields:
+            # Índice sin whitelist: truncar strings largos conservando todo
+            return {
+                k: (v[:max_chars] + "..." if isinstance(v, str) and len(v) > max_chars else v)
+                for k, v in src.items()
+            }
+
+        out = {}
+        for f in fields:
+            if f not in src:
+                continue
+            v = src[f]
+            if isinstance(v, str) and len(v) > max_chars:
+                v = v[:max_chars] + "..."
+            elif f == "data" and isinstance(v, dict):
+                # Trace: resumir payload (index + query acotada)
+                q = v.get("query") or {}
+                out["data"] = {
+                    "index": v.get("index", ""),
+                    "query": self._truncate_dict(q, max_chars=160),
+                }
+                continue
+            out[f] = v
+        return out
+
+    @staticmethod
+    def _truncate_dict(d: dict, max_chars: int) -> dict:
+        return {
+            k: (v[:max_chars] + "..." if isinstance(v, str) and len(v) > max_chars else v)
+            for k, v in d.items()
         }
 
     # ── CRUD ──

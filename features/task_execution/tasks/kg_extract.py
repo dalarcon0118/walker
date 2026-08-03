@@ -17,7 +17,6 @@ Usage:
 """
 
 from __future__ import annotations
-import json
 from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
@@ -45,6 +44,7 @@ class KgExtractInput(TaskInput):
 def _get_cg(chain_dir: str):
     """Return CognitiveGraphSearcher from chain_dir."""
     from libs.infrastructure import CognitiveGraphSearcher
+
     paths = ProjectService.resolve_paths(chain_dir)
     return CognitiveGraphSearcher(paths.project_root)
 
@@ -53,7 +53,9 @@ def _project_cg(project_id: str):
     """Resolve CognitiveGraph from project_id (no chain_dir needed)."""
     from libs.infrastructure import CognitiveGraphSearcher
     from libs.path_resolver import get_walker_root
-    import json, os
+    import json
+    import os
+
     registry_path = get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
         with open(registry_path) as f:
@@ -87,15 +89,21 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     elif project_id:
         cg = _project_cg(project_id)
         if cg is None:
-            return TaskResult.failure("Project not found", data={
-                "error": f"Project '{project_id}' not found or has no .cognitive/ data",
-                "next_step": "Run 'walker prepare <path>' to register the project first",
-            })
+            return TaskResult.failure(
+                "Project not found",
+                data={
+                    "error": f"Project '{project_id}' not found or has no .cognitive/ data",
+                    "next_step": "Run 'walker prepare <path>' to register the project first",
+                },
+            )
     else:
-        return TaskResult.failure("No project context", data={
-            "error": "No chain_dir and no project_id available",
-            "next_step": "Run 'walker <project>/status' first to register project context",
-        })
+        return TaskResult.failure(
+            "No project context",
+            data={
+                "error": "No chain_dir and no project_id available",
+                "next_step": "Run 'walker <project>/status' first to register project context",
+            },
+        )
 
     # ── 1. Query CPG ──
     analysis = {
@@ -110,20 +118,24 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             r = cg.search("cpg", {"type": "function"})
             for h in r.get("hits", {}).get("hits", []):
                 s = h["_source"]
-                analysis["functions"].append({
-                    "name": s.get("name", ""),
-                    "file": s.get("file", ""),
-                    "line": s.get("line", 0),
-                })
+                analysis["functions"].append(
+                    {
+                        "name": s.get("name", ""),
+                        "file": s.get("file", ""),
+                        "line": s.get("line", 0),
+                    }
+                )
             r = cg.search("cpg", {"type": "method"})
             for h in r.get("hits", {}).get("hits", []):
                 s = h["_source"]
-                analysis["functions"].append({
-                    "name": s.get("name", ""),
-                    "file": s.get("file", ""),
-                    "line": s.get("line", 0),
-                    "method": True,
-                })
+                analysis["functions"].append(
+                    {
+                        "name": s.get("name", ""),
+                        "file": s.get("file", ""),
+                        "line": s.get("line", 0),
+                        "method": True,
+                    }
+                )
     except Exception as e:
         analysis["_error_cpg_functions"] = str(e)
 
@@ -132,11 +144,13 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             r = cg.search("cpg", {"type": "class"})
             for h in r.get("hits", {}).get("hits", []):
                 s = h["_source"]
-                analysis["classes"].append({
-                    "name": s.get("name", ""),
-                    "file": s.get("file", ""),
-                    "line": s.get("line", 0),
-                })
+                analysis["classes"].append(
+                    {
+                        "name": s.get("name", ""),
+                        "file": s.get("file", ""),
+                        "line": s.get("line", 0),
+                    }
+                )
     except Exception as e:
         analysis["_error_cpg_classes"] = str(e)
 
@@ -145,16 +159,20 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             r = cg.search("cpg", {"type": "file"})
             for h in r.get("hits", {}).get("hits", []):
                 s = h["_source"]
-                analysis["files"].append({
-                    "path": s.get("file", s.get("name", "")),
-                })
+                analysis["files"].append(
+                    {
+                        "path": s.get("file", s.get("name", "")),
+                    }
+                )
             r = cg.search("cpg", {"type": "module"})
             for h in r.get("hits", {}).get("hits", []):
                 s = h["_source"]
-                analysis["modules"].append({
-                    "name": s.get("name", ""),
-                    "file": s.get("file", ""),
-                })
+                analysis["modules"].append(
+                    {
+                        "name": s.get("name", ""),
+                        "file": s.get("file", ""),
+                    }
+                )
     except Exception as e:
         analysis["_error_cpg_files"] = str(e)
 
@@ -164,11 +182,13 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         r = cg.search("ckg", {})
         for h in r.get("hits", {}).get("hits", []):
             s = h["_source"]
-            existing_facts.append({
-                "type": s.get("type", ""),
-                "statement": s.get("statement", ""),
-                "scope": s.get("scope", ""),
-            })
+            existing_facts.append(
+                {
+                    "type": s.get("type", ""),
+                    "statement": s.get("statement", ""),
+                    "scope": s.get("scope", ""),
+                }
+            )
     except Exception as e:
         analysis["_error_ckg"] = str(e)
 
@@ -292,50 +312,56 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         ],
     }
 
-    return TaskResult.success(data={
-        "task": "kg_extract",
-        "description": "Code analysis via CPG to extract knowledge",
-        "stats": stats,
-        "existing_ckg_facts_count": len(existing_facts),
-        "existing_ckg_facts": existing_facts[:20],
-        "cpg_analysis": analysis,
-        "questionnaire": questionnaire,
-        "action_required": (
-            "Review the CPG analysis and answer each question in the questionnaire. "
-            "Save each answer using kg_store: "
-            "walker <project>/kg_store '{\"type\":\"<type>\",\"statement\":\"<answer>\",\"scope\":\"<scope>\"}'"
-        ),
-    })
+    return TaskResult.success(
+        data={
+            "task": "kg_extract",
+            "description": "Code analysis via CPG to extract knowledge",
+            "stats": stats,
+            "existing_ckg_facts_count": len(existing_facts),
+            "existing_ckg_facts": existing_facts[:20],
+            "cpg_analysis": analysis,
+            "questionnaire": questionnaire,
+            "action_required": (
+                "Review the CPG analysis and answer each question in the questionnaire. "
+                "Save each answer using kg_store: "
+                'walker <project>/kg_store \'{"type":"<type>","statement":"<answer>","scope":"<scope>"}\''
+            ),
+        }
+    )
 
 
 def register(registry: Any) -> None:
-    registry.register("kg_extract", kg_extract, metadata={
-        "description": "Extract knowledge from code via CPG to populate CKG (no sprint needed)",
-        "usage": "walker <project>/kg_extract",
-        "example": "walker <project>/kg_extract",
-        "query_instructions": (
-            "Returns: (1) full CPG analysis, (2) current CKG, "
-            "(3) questionnaire for the LLM to answer and save to CKG."
-        ),
-        "use_cases": {
-            "user": [
-                "Just registered a new project -> kg_extract to populate initial CKG",
-                "Seeing 'CKG is empty' in status -> kg_extract to generate knowledge",
-                "After a large refactor -> kg_extract to update CKG",
-                "Want to know what walker knows about the code -> kg_extract + kg_search",
-            ],
-            "ai_agent": [
-                "status shows 'CKG empty' -> run kg_extract automatically",
-                "Before planning a sprint -> kg_extract to understand architecture",
-                "Investigating a bug without CKG context -> kg_extract + analyze + kg_store",
-                "After implementing a task -> kg_extract to document learnings",
-            ],
-            "synergy": [
-                "kg_extract -> kg_store saves answers to CKG",
-                "kg_extract -> kg_search queries generated knowledge",
-                "kg_extract -> kg_multi cross-references CKG + CPG for full context",
-            ],
+    registry.register(
+        "kg_extract",
+        kg_extract,
+        metadata={
+            "description": "Extract knowledge from code via CPG to populate CKG (no sprint needed)",
+            "usage": "walker <project>/kg_extract",
+            "example": "walker <project>/kg_extract",
+            "query_instructions": (
+                "Returns: (1) full CPG analysis, (2) current CKG, "
+                "(3) questionnaire for the LLM to answer and save to CKG."
+            ),
+            "use_cases": {
+                "user": [
+                    "Just registered a new project -> kg_extract to populate initial CKG",
+                    "Seeing 'CKG is empty' in status -> kg_extract to generate knowledge",
+                    "After a large refactor -> kg_extract to update CKG",
+                    "Want to know what walker knows about the code -> kg_extract + kg_search",
+                ],
+                "ai_agent": [
+                    "status shows 'CKG empty' -> run kg_extract automatically",
+                    "Before planning a sprint -> kg_extract to understand architecture",
+                    "Investigating a bug without CKG context -> kg_extract + analyze + kg_store",
+                    "After implementing a task -> kg_extract to document learnings",
+                ],
+                "synergy": [
+                    "kg_extract -> kg_store saves answers to CKG",
+                    "kg_extract -> kg_search queries generated knowledge",
+                    "kg_extract -> kg_multi cross-references CKG + CPG for full context",
+                ],
+            },
+            "tags": ["kg", "cognitive-graph", "ckg", "extract"],
+            "purpose": ["ckg_populate", "ckg_extract"],
         },
-        "tags": ["kg", "cognitive-graph", "ckg", "extract"],
-        "purpose": ["ckg_populate", "ckg_extract"],
-    })
+    )
