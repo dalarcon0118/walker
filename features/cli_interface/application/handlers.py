@@ -8,10 +8,10 @@ Each handler:
   - Does NOT print, does NOT do direct IO
   - Is resilient (does not propagate errors without handling)
 """
+
 from __future__ import annotations
 
 import os
-from typing import Any
 
 from features.project import ProjectService
 from features.project.application.use_cases import (
@@ -52,6 +52,7 @@ def _sync_watcher(project_id: str) -> None:
         repo_path = _resolve_repo_path_from_registry(project_id)
         if repo_path and os.path.isdir(repo_path):
             from features.project.infrastructure.watcher import FileWatcher
+
             FileWatcher(repo_path).scan()
     except Exception:
         pass  # best-effort
@@ -59,7 +60,7 @@ def _sync_watcher(project_id: str) -> None:
 
 def _ensure_chain_dir(project_id: str, sprint_id: str = "") -> str:
     """Resolve chain_dir. SSOT: delegates to ProjectService.
-    
+
     Antes de resolver, sincroniza el watcher (como git status).
     """
     _sync_watcher(project_id)
@@ -67,6 +68,7 @@ def _ensure_chain_dir(project_id: str, sprint_id: str = "") -> str:
         return ""
     if sprint_id:
         from libs.path_resolver import get_sprint_dir
+
         return str(get_sprint_dir(project_id, sprint_id))
     return ProjectService.find_active_sprint(project_id) or ""
 
@@ -75,6 +77,7 @@ def _list_from_global_registry() -> dict:
     """Read projects from global registry data/projects.json."""
     from libs.path_resolver import get_walker_root
     import json
+
     registry_path = get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
         try:
@@ -82,12 +85,14 @@ def _list_from_global_registry() -> dict:
                 registry = json.load(f)
             projects_list = []
             for pid, info in registry.get("projects", {}).items():
-                projects_list.append({
-                    "project_id": pid,
-                    "name": info.get("name", pid),
-                    "repo_path": info.get("repo_path", ""),
-                    "status": "active" if info.get("active") else "inactive",
-                })
+                projects_list.append(
+                    {
+                        "project_id": pid,
+                        "name": info.get("name", pid),
+                        "repo_path": info.get("repo_path", ""),
+                        "status": "active" if info.get("active") else "inactive",
+                    }
+                )
             if projects_list:
                 return {"type": "projects_list", "projects": projects_list}
         except Exception:
@@ -118,6 +123,7 @@ def _resolve_repo_path_from_registry(project_id: str) -> str:
     """Look up a project's repo_path from the global registry."""
     from libs.path_resolver import get_walker_root
     import json
+
     registry_path = get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
         try:
@@ -156,6 +162,7 @@ def _resolve_project_from_cwd(req: Request) -> bool:
 
 def handle_project_info(req: Request) -> Response:
     """Use case: show all project information in one place."""
+
     def _exec():
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
@@ -177,12 +184,14 @@ def handle_project_info(req: Request) -> Response:
                 next_actions=[action("walker list", "see all registered projects")],
             )
 
-        import json, os
+        import json
+        import os
 
         info["repo_path"] = repo_path
 
         # ── Registry data ──
         from libs.path_resolver import get_walker_root
+
         registry_path = get_walker_root() / "data" / "projects.json"
         if registry_path.exists():
             try:
@@ -195,7 +204,9 @@ def handle_project_info(req: Request) -> Response:
                 pass
 
         # ── Project metadata ──
-        cog_data_dir = os.path.join(repo_path, ".cognitive", "projects", project_id, "data")
+        cog_data_dir = os.path.join(
+            repo_path, ".cognitive", "projects", project_id, "data"
+        )
         proj_json = os.path.join(cog_data_dir, "project.json")
         if not os.path.exists(proj_json):
             proj_json = os.path.join(repo_path, "project.json")
@@ -217,8 +228,11 @@ def handle_project_info(req: Request) -> Response:
             cpg_path = os.path.join(cog_data_dir, "cpg.json.gz")
             if os.path.exists(cpg_path):
                 import gzip
+
                 try:
-                    cpg_data = json.loads(gzip.decompress(open(cpg_path, "rb").read()).decode())
+                    cpg_data = json.loads(
+                        gzip.decompress(open(cpg_path, "rb").read()).decode()
+                    )
                     info["cpg_nodes"] = len(cpg_data.get("nodes", {}))
                     info["cpg_edges"] = len(cpg_data.get("edges", []))
                 except Exception:
@@ -228,7 +242,9 @@ def handle_project_info(req: Request) -> Response:
             ckg_path = os.path.join(cog_data_dir, "ckg.json.gz")
             if os.path.exists(ckg_path):
                 try:
-                    ckg_data = json.loads(gzip.decompress(open(ckg_path, "rb").read()).decode())
+                    ckg_data = json.loads(
+                        gzip.decompress(open(ckg_path, "rb").read()).decode()
+                    )
                     docs = ckg_data.get("docs", [])
                     info["ckg_docs"] = len(docs)
                 except Exception:
@@ -238,7 +254,9 @@ def handle_project_info(req: Request) -> Response:
             delta_path = os.path.join(cog_data_dir, "delta.json.gz")
             if os.path.exists(delta_path):
                 try:
-                    delta_data = json.loads(gzip.decompress(open(delta_path, "rb").read()).decode())
+                    delta_data = json.loads(
+                        gzip.decompress(open(delta_path, "rb").read()).decode()
+                    )
                     info["delta_tasks"] = len(delta_data.get("docs", []))
                 except Exception:
                     pass
@@ -253,12 +271,14 @@ def handle_project_info(req: Request) -> Response:
 
         # ── Active sprints ──
         from features.project.application.service import ProjectService
+
         active = ProjectService.find_active_sprint(project_id)
         info["active_sprint"] = active if active else None
 
         # ── CognitiveGraph schemas ──
         try:
             from libs.cognitive_graph import CognitiveGraph
+
             cg = CognitiveGraph(cog_data_dir, auto_register=True)
             info["cognitive_indices"] = cg.list_indexes()
         except Exception:
@@ -268,13 +288,17 @@ def handle_project_info(req: Request) -> Response:
             "project_info",
             message=f"Project '{project_id}' information",
             data=info,
-            next_actions=[action(f"walker {project_id}/status", "see project health and workflow")],
+            next_actions=[
+                action(f"walker {project_id}/status", "see project health and workflow")
+            ],
         )
+
     return _safe_execute(_exec)
 
 
 def handle_list_projects(req: Request) -> Response:
     """Use case: list available projects."""
+
     def _exec():
         data = _list_from_global_registry()
         return Response.ok(
@@ -282,10 +306,15 @@ def handle_list_projects(req: Request) -> Response:
             message=f"{len(data.get('projects', []))} registered project(s)",
             data=data,
             next_actions=[
-                action("walker <project>/status", "check a project health and workflow"),
-                action("walker prepare .", "register the current directory as a project"),
+                action(
+                    "walker <project>/status", "check a project health and workflow"
+                ),
+                action(
+                    "walker prepare .", "register the current directory as a project"
+                ),
             ],
         )
+
     return _safe_execute(_exec)
 
 
@@ -295,6 +324,7 @@ def handle_status(req: Request) -> Response:
     Thin wrapper over CheckHealthUseCase. Devuelve un Response REST
     con next_actions para que el agente sepa exactamente qué hacer.
     """
+
     def _exec():
         # If no project_id given, try to resolve from CWD or registry
         if not _resolve_project_from_cwd(req):
@@ -329,7 +359,9 @@ def handle_status(req: Request) -> Response:
             if prompt:
                 # Resumir instrucciones accionables: primeras lineas no vacias
                 lines = [l.strip() for l in prompt.split("\n") if l.strip()]
-                instr = [l for l in lines if not l.startswith("{") and not l.endswith("}")]
+                instr = [
+                    l for l in lines if not l.startswith("{") and not l.endswith("}")
+                ]
                 if instr:
                     instructions = " | ".join(instr[:3])
             message = (
@@ -343,7 +375,7 @@ def handle_status(req: Request) -> Response:
                     f"Project '{project_id}' at {node}.{sub} — "
                     f"awaiting your decision. Submit your response with the "
                     f"fields the prompt asks for (e.g. "
-                    f"'walker {project_id}/submit {{\"decision\":\"...\",\"evidence\":\"...\"}}'). "
+                    f'\'walker {project_id}/submit {{"decision":"...","evidence":"..."}}\'). '
                     f"Node gates ({gate_names}) are triggered by the submitted decision."
                 )
             if instructions:
@@ -358,10 +390,12 @@ def handle_status(req: Request) -> Response:
                 actions.append(action(cmd, step.get("reason", "")))
         # Fallback: sugerir consultar memorias si no hay next_steps
         if not actions:
-            actions.append(action(
-                f"walker {project_id}/kg_schema",
-                "consult project memory indices before touching source code",
-            ))
+            actions.append(
+                action(
+                    f"walker {project_id}/kg_schema",
+                    "consult project memory indices before touching source code",
+                )
+            )
 
         return Response.ok(
             "project_health",
@@ -369,6 +403,7 @@ def handle_status(req: Request) -> Response:
             data=health,
             next_actions=actions,
         )
+
     return _safe_execute(_exec)
 
 
@@ -377,8 +412,11 @@ def handle_prepare(req: Request) -> Response:
 
     Thin wrapper over PrepareProjectUseCase.
     """
+
     def _exec():
-        project_path = os.path.abspath(req.project_id or req.flags.get("path", os.getcwd()))
+        project_path = os.path.abspath(
+            req.project_id or req.flags.get("path", os.getcwd())
+        )
         result = PrepareProjectUseCase.execute(
             project_path=project_path,
             args_flags=req.flags,
@@ -387,17 +425,43 @@ def handle_prepare(req: Request) -> Response:
             return Response.error(
                 result["error"],
                 status_code=400,
-                next_actions=[action("walker prepare <path>", "try again with a valid project path")],
+                next_actions=[
+                    action(
+                        "walker prepare <path>", "try again with a valid project path"
+                    )
+                ],
+            )
+        if result.get("type") == "already_exists":
+            pid = result.get("project_id", "?")
+            return Response.ok(
+                "already_exists",
+                message=result.get(
+                    "message",
+                    f"Project '{pid}' is already prepared. Initialization skipped.",
+                ),
+                data=result,
+                next_actions=[
+                    action(
+                        f"walker {pid}/status",
+                        "verify the existing project is healthy and scan memories",
+                    )
+                ],
             )
         pid = result.get("project_id", "?")
-        steps = result.get("next_steps", [])
-        actions = [action(f"walker {pid}/status", "verify the project is healthy and scan memories")]
+        result.get("next_steps", [])
+        actions = [
+            action(
+                f"walker {pid}/status",
+                "verify the project is healthy and scan memories",
+            )
+        ]
         return Response.ok(
             "prepare_result",
             message=f"Project '{pid}' prepared at {result.get('path', '?')}",
             data=result,
             next_actions=actions,
         )
+
     return _safe_execute(_exec)
 
 
@@ -407,6 +471,7 @@ def handle_submit(req: Request) -> Response:
     REST: walker <project>/submit '{"field1":"value1","field2":"value2"}'
     Legacy: walker <project>/submit --field1 value1 --field2 value2
     """
+
     def _exec():
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
@@ -446,15 +511,23 @@ def handle_submit(req: Request) -> Response:
             message=message,
             data={"sub_state": sub_state, "field_count": len(fields), **result},
             next_actions=[
-                action(f"walker {req.project_id}/status", "verify new workflow state and available gates"),
-                action(f"walker {req.project_id}/transition <gate>", "move to the next node if ready"),
+                action(
+                    f"walker {req.project_id}/status",
+                    "verify new workflow state and available gates",
+                ),
+                action(
+                    f"walker {req.project_id}/transition <gate>",
+                    "move to the next node if ready",
+                ),
             ],
         )
+
     return _safe_execute(_exec)
 
 
 def handle_transition(req: Request) -> Response:
     """Use case: transition between nodes."""
+
     def _exec():
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
@@ -466,7 +539,9 @@ def handle_transition(req: Request) -> Response:
             return Response.error(
                 "Missing gate — usage: walker transition <gate>",
                 status_code=400,
-                next_actions=[action(f"walker {req.project_id}/status", "see the available gates")],
+                next_actions=[
+                    action(f"walker {req.project_id}/status", "see the available gates")
+                ],
             )
         api = WorkflowAPI(chain_dir=chain_dir, project_id=req.project_id)
         api.ensure_session()
@@ -476,7 +551,12 @@ def handle_transition(req: Request) -> Response:
             return Response.error(
                 result.get("error") or result.get("message", "Transition failed"),
                 status_code=400,
-                next_actions=[action(f"walker {req.project_id}/status", "check current state and gates")],
+                next_actions=[
+                    action(
+                        f"walker {req.project_id}/status",
+                        "check current state and gates",
+                    )
+                ],
             )
         return Response.ok(
             "transition_result",
@@ -488,14 +568,18 @@ def handle_transition(req: Request) -> Response:
             ),
             data={"gate": gate, **result},
             next_actions=[
-                action(f"walker {req.project_id}/status", "see the new state and its gates"),
+                action(
+                    f"walker {req.project_id}/status", "see the new state and its gates"
+                ),
             ],
         )
+
     return _safe_execute(_exec)
 
 
 def handle_task(req: Request) -> Response:
     """Use case: execute a registered task by name."""
+
     def _exec():
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
@@ -518,6 +602,7 @@ def handle_task(req: Request) -> Response:
             for k, v in payload.items():
                 task_data.setdefault(k, v)
         from features.engine.bootstrap import bootstrap
+
         registry, _ = bootstrap()
 
         # ── Regla de visibilidad: tareas internas del workflow no se invocan desde el CLI ──
@@ -530,20 +615,30 @@ def handle_task(req: Request) -> Response:
                 f"'walker {req.project_id}/transition <gate>' para avanzar.",
                 status_code=400,
                 next_actions=[
-                    action(f"walker {req.project_id}/status", "ver el sub-estado actual e instrucciones"),
-                    action(f"walker {req.project_id}/submit '{{\"...\"}}'", "enviar los datos del nodo para avanzar"),
+                    action(
+                        f"walker {req.project_id}/status",
+                        "ver el sub-estado actual e instrucciones",
+                    ),
+                    action(
+                        f"walker {req.project_id}/submit '{{\"...\"}}'",
+                        "enviar los datos del nodo para avanzar",
+                    ),
                 ],
             )
 
         result = registry.execute(task_name, ctx, task_data)
         result_data = result.data or {}
         if not result.ok:
-            result_data["error"] = result.error or result_data.get("error", "Task failed")
+            result_data["error"] = result.error or result_data.get(
+                "error", "Task failed"
+            )
             return Response.error(
                 result_data["error"],
                 status_code=400,
                 next_actions=[
-                    action(f"walker {req.project_id}/status", "check the project state"),
+                    action(
+                        f"walker {req.project_id}/status", "check the project state"
+                    ),
                 ],
             )
         # Task exitosa: sugerir siguiente acción según el tipo de task
@@ -551,26 +646,39 @@ def handle_task(req: Request) -> Response:
             action(f"walker {req.project_id}/status", "verify the new project state"),
         ]
         if task_name == "kg_schema":
-            next_actions.insert(0, action(
-                f"walker {req.project_id}/kg_search",
-                "search the project memory with a text query",
-            ))
-        elif task_name in ("scan_code_and_build_cpg", "build_initial_ckg", "kg_extract", "update_project"):
-            next_actions.insert(0, action(
-                f"walker {req.project_id}/status",
-                "confirm memories are up to date (FILES/CPG/CKG)",
-            ))
+            next_actions.insert(
+                0,
+                action(
+                    f"walker {req.project_id}/kg_search",
+                    "search the project memory with a text query",
+                ),
+            )
+        elif task_name in (
+            "scan_code_and_build_cpg",
+            "build_initial_ckg",
+            "kg_extract",
+            "update_project",
+        ):
+            next_actions.insert(
+                0,
+                action(
+                    f"walker {req.project_id}/status",
+                    "confirm memories are up to date (FILES/CPG/CKG)",
+                ),
+            )
         return Response.ok(
             "task_result",
             message=f"Task '{task_name}' executed successfully",
             data={"action": task_name, "ok": True, "result": result_data},
             next_actions=next_actions,
         )
+
     return _safe_execute(_exec)
 
 
 def handle_help(req: Request) -> Response:
     """Use case: show help with CognitiveGraph documentation."""
+
     def _exec():
         data = _build_help()
         return Response.ok(
@@ -582,6 +690,7 @@ def handle_help(req: Request) -> Response:
                 action("walker list", "see registered projects"),
             ],
         )
+
     return _safe_execute(_exec)
 
 
@@ -596,6 +705,7 @@ def _build_help() -> dict:
     task_catalog = {"total": 0, "tasks": []}
     try:
         from features.engine.bootstrap import bootstrap
+
         registry, _ = bootstrap()
         task_catalog = registry.discover()
     except Exception:
@@ -605,21 +715,33 @@ def _build_help() -> dict:
     indices_info = []
     try:
         from libs.cognitive_graph import CognitiveGraph
+
         cg = CognitiveGraph(".", auto_register=True)
         for name in sorted(cg.list_indexes()):
             try:
                 schema = cg.schema(name)
-                indices_info.append({
-                    "name": name,
-                    "description": schema.get("description", ""),
-                    "fields": list(schema.get("fields", {}).keys()),
-                    "types": list(schema.get("types", {}).keys()),
-                    "total_docs": schema.get("total_docs", 0),
-                })
+                indices_info.append(
+                    {
+                        "name": name,
+                        "description": schema.get("description", ""),
+                        "fields": list(schema.get("fields", {}).keys()),
+                        "types": list(schema.get("types", {}).keys()),
+                        "total_docs": schema.get("total_docs", 0),
+                    }
+                )
             except Exception:
                 indices_info.append({"name": name, "description": "", "fields": []})
     except Exception:
         pass
+
+    # ── Mapa del workflow (dinamico, desde el grafo SSOT) ──
+    workflow_map = {}
+    try:
+        from features.engine.application.workflow_map import compose_workflow_map
+
+        workflow_map = compose_workflow_map()
+    except Exception:
+        workflow_map = {}
 
     return {
         "type": "help",
@@ -634,7 +756,7 @@ def _build_help() -> dict:
             "las ejecuta al recibir los datos. El agente no las llama directamente.\n"
             "Las tareas PUBLICAS (memorias kg_search/kg_schema/cpg/ckg) si se llaman directo:\n"
             "  walker <project>/kg_schema → descubre los indices disponibles\n"
-            "  walker <project>/kg_search '{\"text\":\"...\"}' → busca en las memorias\n"
+            '  walker <project>/kg_search \'{"text":"..."}\' → busca en las memorias\n'
             "Antes de leer archivos del codigo fuente, consulta las memorias."
         ),
         "sprint_lifecycle": {
@@ -644,15 +766,28 @@ def _build_help() -> dict:
                 "El workflow ejecuta plan_sprint al recibir los datos del sub-estado:\n"
                 "1. Opcional: prepara una lista de tareas como JSON array\n"
                 "2. Usa 'walker <project>/status' para ver el sub-estado actual\n"
-                "3. Envia los datos del nodo: walker <project>/submit '{\"goal\":\"Mi objetivo\",\"tasks\":[...]}'\n"
+                '3. Envia los datos del nodo: walker <project>/submit \'{"goal":"Mi objetivo","tasks":[...]}\'\n'
                 "4. El workflow ejecuta plan_sprint internamente y avanza al siguiente nodo"
             ),
-            "nodos_del_workflow": [
-                {"nodo": "SPRINT.PLANNING", "desc": "Definir especificaciones del sprint (plan_sprint se ejecuta internamente)"},
-                {"nodo": "SPRINT.ACTIVE", "desc": "Sprint en ejecucion, avanzar tareas"},
-                {"nodo": "SPRINT.REVIEW", "desc": "Revision del sprint (close_sprint se ejecuta internamente)"},
-                {"nodo": "SPRINT.CLOSED", "desc": "Sprint finalizado"},
-            ],
+            "nodos_del_workflow": (
+                [
+                    {
+                        "nodo": n["id"],
+                        "desc": n.get("description") or n.get("label", ""),
+                        "sub_states": [
+                            ss["key"] for ss in n.get("sub_states", [])
+                        ],
+                    }
+                    for n in workflow_map.get("nodes", [])
+                ]
+                if workflow_map.get("nodes")
+                else [
+                    {"nodo": "SPRINT.PLANNING", "desc": "Definir especificaciones del sprint"},
+                    {"nodo": "SPRINT.ACTIVE", "desc": "Sprint en ejecucion, avanzar tareas"},
+                    {"nodo": "SPRINT.REVIEW", "desc": "Revision del sprint"},
+                    {"nodo": "SPRINT.CLOSED", "desc": "Sprint finalizado"},
+                ]
+            ),
             "transiciones": (
                 "El workflow expone solo DOS comandos: submit y transition.\n"
                 "  - submit: envia los datos del sub-estado actual (el workflow avanza solo)\n"
@@ -661,30 +796,53 @@ def _build_help() -> dict:
                 "correctos y avanza al siguiente paso. Ver gates disponibles con status."
             ),
         },
+        "workflow_map": workflow_map,
         "commands": [
-            {"name": "status",     "desc": "Show workflow/project status with health checks",
-             "usage": "walker <project>/status"},
-            {"name": "submit",     "desc": "Submit data to current sub-state (body JSON)",
-             "usage": "walker <project>/submit '{\"field\":\"value\"}'"},
-            {"name": "transition", "desc": "Transition between nodes via gate",
-             "usage": "walker <project>/transition <gate>"},
-            {"name": "advance",    "desc": "Advance to next sub-state",
-             "usage": "walker <project>/advance"},
-            {"name": "task",       "desc": "Execute a registered PUBLIC task (memorias; las del workflow son internas)",
-             "usage": "walker <project>/<task_name> [body JSON]"},
-            {"name": "list",       "desc": "List available projects",
-             "usage": "walker list"},
-            {"name": "prepare",    "desc": "Init project at path",
-             "usage": "walker prepare [path]"},
-            {"name": "routes",     "desc": "List all REST endpoints",
-             "usage": "walker routes"},
-            {"name": "mcp-config", "desc": "Genera la config MCP portable para usar las tools del walker en cualquier agente IA (Claude Code, Cursor, Cline, Codex, Roo...)",
-             "usage": "walker mcp-config[?format=opencode|claude|cursor][&raw=true]"},
+            {
+                "name": "status",
+                "desc": "Show workflow/project status with health checks",
+                "usage": "walker <project>/status",
+            },
+            {
+                "name": "submit",
+                "desc": "Submit data to current sub-state (body JSON)",
+                "usage": 'walker <project>/submit \'{"field":"value"}\'',
+            },
+            {
+                "name": "transition",
+                "desc": "Transition between nodes via gate",
+                "usage": "walker <project>/transition <gate>",
+            },
+            {
+                "name": "advance",
+                "desc": "Advance to next sub-state",
+                "usage": "walker <project>/advance",
+            },
+            {
+                "name": "task",
+                "desc": "Execute a registered PUBLIC task (memorias; las del workflow son internas)",
+                "usage": "walker <project>/<task_name> [body JSON]",
+            },
+            {"name": "list", "desc": "List available projects", "usage": "walker list"},
+            {
+                "name": "prepare",
+                "desc": "Init project at path",
+                "usage": "walker prepare [path]",
+            },
+            {
+                "name": "routes",
+                "desc": "List all REST endpoints",
+                "usage": "walker routes",
+            },
+            {
+                "name": "mcp-config",
+                "desc": "Genera la config MCP portable para usar las tools del walker en cualquier agente IA (Claude Code, Cursor, Cline, Codex, Roo...)",
+                "usage": "walker mcp-config[?format=opencode|claude|cursor][&raw=true]",
+            },
         ],
         "task_catalog": task_catalog,
         "indices": indices_info,
     }
-
 
 
 def handle_mcp_config(req: Request) -> Response:
@@ -698,20 +856,16 @@ def handle_mcp_config(req: Request) -> Response:
         format: standard | opencode | claude | cursor (default standard)
         raw: true → solo el bloque mcpServers
     """
+
     def _exec():
         from features.cli_interface.application.mcp_config_service import generate
 
         # Leer de flags (query params ?format=...) o params (path)
-        fmt = (
-            req.flags.get("format")
-            or req.params.get("format")
-            or "standard"
+        fmt = req.flags.get("format") or req.params.get("format") or "standard"
+        raw = (
+            str(req.flags.get("raw") or req.params.get("raw") or "false").lower()
+            == "true"
         )
-        raw = str(
-            req.flags.get("raw")
-            or req.params.get("raw")
-            or "false"
-        ).lower() == "true"
         config = generate(fmt)
         data = config
         if raw:
@@ -724,10 +878,13 @@ def handle_mcp_config(req: Request) -> Response:
             ),
             data=data,
             next_actions=[
-                action(f"walker mcp-config --format=opencode", "config para opencode"),
-                action(f"walker mcp-config --format=claude", "config para Claude Desktop"),
+                action("walker mcp-config --format=opencode", "config para opencode"),
+                action(
+                    f"walker mcp-config --format=claude", "config para Claude Desktop"
+                ),
                 action(f"walker mcp-config --format=cursor", "config para Cursor"),
                 action("walker routes", "list all REST endpoints"),
             ],
         )
+
     return _safe_execute(_exec)

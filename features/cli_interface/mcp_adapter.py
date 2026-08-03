@@ -23,12 +23,12 @@ omitted, the current project is detected.
   [handlers] -> [use cases] -> [domain]
 ```
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sys
-from typing import Any
 
 
 # ── Tools catalog (metadata; dispatch goes through the Router) ─────────────
@@ -40,7 +40,10 @@ _TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Project path (optional; default: CWD)"},
+                "path": {
+                    "type": "string",
+                    "description": "Project path (optional; default: CWD)",
+                },
             },
         },
     },
@@ -55,7 +58,10 @@ _TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID (optional; detected from CWD)"},
+                "project_id": {
+                    "type": "string",
+                    "description": "Project ID (optional; detected from CWD)",
+                },
             },
         },
     },
@@ -125,7 +131,10 @@ _TOOLS = [
             "type": "object",
             "properties": {
                 "project_id": {"type": "string"},
-                "area": {"type": "string", "description": "File/area substring (e.g. 'win-win', 'domain.ts')"},
+                "area": {
+                    "type": "string",
+                    "description": "File/area substring (e.g. 'win-win', 'domain.ts')",
+                },
             },
             "required": ["area"],
         },
@@ -137,7 +146,10 @@ _TOOLS = [
             "type": "object",
             "properties": {
                 "project_id": {"type": "string"},
-                "body": {"type": "object", "description": "{'type':'decision','statement':'...','metadata':{...}}"},
+                "body": {
+                    "type": "object",
+                    "description": "{'type':'decision','statement':'...','metadata':{...}}",
+                },
             },
             "required": ["body"],
         },
@@ -203,17 +215,17 @@ _PROTOCOL_TEXT = (
     "6. SESSION WORK LOG (MANDATORY): when you COMPLETE a piece of work\n"
     "   (implemented a feature, fixed a bug, refactored, indexed, etc.),\n"
     "   PERSIST it with capture_task so it is not lost:\n"
-    "     - walker <project>/capture_task '{\"objective\":\"...\",\"domain\":\"...\",\n"
-    "         \"files\":[\"path/to/file.py\"],\"result_state\":\"...\"}'\n"
+    '     - walker <project>/capture_task \'{"objective":"...","domain":"...",\n'
+    '         "files":["path/to/file.py"],"result_state":"..."}\'\n'
     "   This stores the task under an INFORMAL SPRING by date\n"
     "   (session-YYYYMMDD) that the DeltaGraph indexes as historical\n"
     "   context. The agent's work never gets lost, even without a formal\n"
     "   spring. The formal way remains plan_sprint + the workflow.\n"
     "   DECISIONS: if the work involved an architecture decision, INCLUDE it\n"
     "   in the same capture_task payload:\n"
-    "     - walker <project>/capture_task '{\"objective\":\"...\",\n"
-    "         \"decisions\":[{\"statement\":\"ADR-x: ...\",\"rationale\":\"...\",\n"
-    "           \"supersedes\":[\"<prev statement>\"]}]}'\n"
+    '     - walker <project>/capture_task \'{"objective":"...",\n'
+    '         "decisions":[{"statement":"ADR-x: ...","rationale":"...",\n'
+    '           "supersedes":["<prev statement>"]}]}\'\n'
     "   capture_task registers it in the CKG automatically (with lifecycle).\n"
     "   AUTO-DETECTION: if you do NOT report decisions but the 'files' touch\n"
     "   architecture layers (contracts, domain, workflow, config, engine,\n"
@@ -224,6 +236,7 @@ _PROTOCOL_TEXT = (
 
 # ── Project resolution (git-like: from CWD) ───────────────────────────────────
 
+
 def _resolve_project_id(args: dict) -> str:
     """Resolves the project_id: uses args if provided, otherwise detects it
     from the CWD (like git detects .git/)."""
@@ -232,6 +245,7 @@ def _resolve_project_id(args: dict) -> str:
         return pid
     try:
         from features.project import ProjectService
+
         resolved = ProjectService.resolve_from_registry()
         if resolved:
             return resolved.get("project_id", "")
@@ -247,12 +261,21 @@ _TOOL_ROUTES = {
     "list": ("list", lambda a: {}),
     "status": ("{project_id}/status", lambda a: {}),
     "submit": ("{project_id}/submit", lambda a: {"_payload": a.get("body", {})}),
-    "transition": ("{project_id}/transition", lambda a: {"gate": a.get("gate", ""), "positional": [a.get("gate", "")]}),
+    "transition": (
+        "{project_id}/transition",
+        lambda a: {"gate": a.get("gate", ""), "positional": [a.get("gate", "")]},
+    ),
     "kg_search": ("{project_id}/kg_search", lambda a: {"_payload": a.get("query", {})}),
     "kg_multi": ("{project_id}/kg_multi", lambda a: {"_payload": a.get("layers", {})}),
     "kg_store": ("{project_id}/kg_store", lambda a: {"_payload": a.get("body", {})}),
-    "cpg_business": ("{project_id}/cpg_business", lambda a: {"_payload": {"file": a.get("file", "")}}),
-    "analyze_code": ("{project_id}/analyze_code", lambda a: {"_payload": {"area": a.get("area", "")}}),
+    "cpg_business": (
+        "{project_id}/cpg_business",
+        lambda a: {"_payload": {"file": a.get("file", "")}},
+    ),
+    "analyze_code": (
+        "{project_id}/analyze_code",
+        lambda a: {"_payload": {"area": a.get("area", "")}},
+    ),
     "help": ("help", lambda a: {}),
 }
 
@@ -269,7 +292,11 @@ def _call_tool(name: str, args: dict) -> dict:
 
     route_tpl, flags_builder = _TOOL_ROUTES[name]
     project_id = _resolve_project_id(args)
-    path = route_tpl.format(project_id=project_id) if "{project_id}" in route_tpl else route_tpl
+    path = (
+        route_tpl.format(project_id=project_id)
+        if "{project_id}" in route_tpl
+        else route_tpl
+    )
     flags = flags_builder(args)
 
     from . import _ROUTER
@@ -297,22 +324,31 @@ def _analyze_code(args: dict) -> dict:
     project_id = _resolve_project_id(args)
     area = (args.get("area") or "").strip()
     if not area:
-        return {"type": "error", "status_code": 400,
-                "message": "analyze_code requiere 'area' (substring del archivo)"}
+        return {
+            "type": "error",
+            "status_code": 400,
+            "message": "analyze_code requiere 'area' (substring del archivo)",
+        }
 
     # 1. CPG symbols
-    sym_resp = _call_tool("kg_search", {
-        "project_id": project_id,
-        "query": {"_index": "cpg", "file": area},
-    })
+    sym_resp = _call_tool(
+        "kg_search",
+        {
+            "project_id": project_id,
+            "query": {"_index": "cpg", "file": area},
+        },
+    )
     symbols = sym_resp.get("data", {}).get("result", {}) if sym_resp.get("data") else {}
     hits = symbols.get("hits", {}).get("hits", []) if isinstance(symbols, dict) else []
 
     # 2. Business layer
-    biz_resp = _call_tool("cpg_business", {
-        "project_id": project_id,
-        "file": area,
-    })
+    biz_resp = _call_tool(
+        "cpg_business",
+        {
+            "project_id": project_id,
+            "file": area,
+        },
+    )
     biz = biz_resp.get("data", {}).get("result", {}) if biz_resp.get("data") else {}
 
     # Summarize symbols (avoid huge responses)
@@ -329,9 +365,23 @@ def _analyze_code(args: dict) -> dict:
             files[fpath] = fpath
         elif ftype == "module":
             imports.append({"name": name, "file": fpath, "signature": sig})
-        elif ftype in ("function", "constant", "method", "interface", "struct", "class"):
-            functions.append({"name": name, "type": ftype, "file": fpath,
-                              "line": src.get("line", 0), "signature": sig})
+        elif ftype in (
+            "function",
+            "constant",
+            "method",
+            "interface",
+            "struct",
+            "class",
+        ):
+            functions.append(
+                {
+                    "name": name,
+                    "type": ftype,
+                    "file": fpath,
+                    "line": src.get("line", 0),
+                    "signature": sig,
+                }
+            )
 
     return {
         "type": "analyze_code",
@@ -350,8 +400,14 @@ def _analyze_code(args: dict) -> dict:
             },
         },
         "next_actions": [
-            {"command": f"walker {project_id}/kg_search", "reason": "more specific CPG query"},
-            {"command": f"walker {project_id}/cpg_business", "reason": "reuse functions/patterns of the area"},
+            {
+                "command": f"walker {project_id}/kg_search",
+                "reason": "more specific CPG query",
+            },
+            {
+                "command": f"walker {project_id}/cpg_business",
+                "reason": "reuse functions/patterns of the area",
+            },
         ],
     }
 
@@ -361,10 +417,24 @@ def _read_resource(uri: str) -> dict:
     if uri.startswith("walker://status/"):
         project_id = uri.split("/")[-1]
         result = _call_tool("status", {"project_id": project_id})
-        return {"contents": [{"uri": uri, "mimeType": "application/json",
-                              "text": json.dumps(result, ensure_ascii=False)}]}
-    return {"contents": [{"uri": uri, "mimeType": "application/json",
-                          "text": json.dumps({"error": "resource no encontrado"})}]}
+        return {
+            "contents": [
+                {
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": json.dumps(result, ensure_ascii=False),
+                }
+            ]
+        }
+    return {
+        "contents": [
+            {
+                "uri": uri,
+                "mimeType": "application/json",
+                "text": json.dumps({"error": "resource no encontrado"}),
+            }
+        ]
+    }
 
 
 # ── JSON-RPC 2.0 handler ────────────────────────────────────────────────────
@@ -377,7 +447,8 @@ def _handle_request(msg: dict) -> dict:
 
     if method == "initialize":
         return {
-            "jsonrpc": "2.0", "id": msg_id,
+            "jsonrpc": "2.0",
+            "id": msg_id,
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
@@ -396,17 +467,23 @@ def _handle_request(msg: dict) -> dict:
         try:
             result = _call_tool(name, args)
             return {
-                "jsonrpc": "2.0", "id": msg_id,
+                "jsonrpc": "2.0",
+                "id": msg_id,
                 "result": {
-                    "content": [{"type": "text",
-                                 "text": json.dumps(result, ensure_ascii=False)}],
+                    "content": [
+                        {"type": "text", "text": json.dumps(result, ensure_ascii=False)}
+                    ],
                     "isError": result.get("status_code", 200) >= 400,
                 },
             }
         except Exception as e:
             return {
-                "jsonrpc": "2.0", "id": msg_id,
-                "result": {"content": [{"type": "text", "text": str(e)}], "isError": True},
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "content": [{"type": "text", "text": str(e)}],
+                    "isError": True,
+                },
             }
     if method == "resources/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": _RESOURCES}}
@@ -415,19 +492,37 @@ def _handle_request(msg: dict) -> dict:
         try:
             return {"jsonrpc": "2.0", "id": msg_id, "result": _read_resource(uri)}
         except Exception as e:
-            return {"jsonrpc": "2.0", "id": msg_id,
-                    "result": {"contents": [{"uri": uri, "mimeType": "text/plain", "text": str(e)}]}}
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "contents": [{"uri": uri, "mimeType": "text/plain", "text": str(e)}]
+                },
+            }
     if method == "prompts/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": _PROMPTS}}
     if method == "prompts/get":
-        return {"jsonrpc": "2.0", "id": msg_id,
-                "result": {"description": "Workflow protocol",
-                           "messages": [{"role": "user", "content": {"type": "text", "text": _PROTOCOL_TEXT}}]}}
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "description": "Workflow protocol",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {"type": "text", "text": _PROTOCOL_TEXT},
+                    }
+                ],
+            },
+        }
     if method == "ping":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
 
-    return {"jsonrpc": "2.0", "id": msg_id,
-            "error": {"code": -32601, "message": f"Metodo '{method}' no soportado"}}
+    return {
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "error": {"code": -32601, "message": f"Metodo '{method}' no soportado"},
+    }
 
 
 def _is_notification(msg: dict) -> bool:
@@ -451,8 +546,11 @@ def serve_stdio() -> int:
             msg = json.loads(line)
             resp = _handle_request(msg)
         except json.JSONDecodeError:
-            resp = {"jsonrpc": "2.0", "id": None,
-                    "error": {"code": -32700, "message": "Parse error"}}
+            resp = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": "Parse error"},
+            }
         if _is_notification(msg):
             continue
         sys.stdout.write(json.dumps(resp) + "\n")
