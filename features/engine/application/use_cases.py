@@ -248,7 +248,9 @@ class SubmitDataUseCase:
             task_data_structured = ""
             if task_result.data:
                 try:
-                    task_data_structured = json.dumps(task_result.data, ensure_ascii=False)[:2000]
+                    task_data_structured = json.dumps(
+                        task_result.data, ensure_ascii=False
+                    )[:2000]
                 except (TypeError, ValueError):
                     task_data_structured = str(task_result.data)[:1000]
 
@@ -410,7 +412,10 @@ class SubmitDataUseCase:
         task_success = task_result is not None and task_result.ok
         should_advance = sub_state.on_success and (
             sub_state.is_auto()
-            or (sub_state.execution == ExecutionType.LLM_TASK and (task_success or not sub_state.action))
+            or (
+                sub_state.execution == ExecutionType.LLM_TASK
+                and (task_success or not sub_state.action)
+            )
         )
         advanced_to = ""
         node_complete = False
@@ -420,6 +425,7 @@ class SubmitDataUseCase:
                 # Promover provides del sub-estado completado al contexto global
                 # para que el siguiente sub-estado (hermano) pueda acceder a los datos
                 from .context_resolver import ContextResolver
+
                 state = ContextResolver().promote_provides(advanced, node, sub_state)
                 self._state_repo.save(chain_dir, state)
                 self.events.append(
@@ -430,18 +436,14 @@ class SubmitDataUseCase:
                 )
                 result["advanced_to"] = state.current_sub_state
                 advanced_to = state.current_sub_state
-                node_complete = ValidationService.is_node_complete(
-                    state, workflow
-                )
+                node_complete = ValidationService.is_node_complete(state, workflow)
                 result["node_complete"] = node_complete
             else:
                 node_complete = True
                 result["node_complete"] = True
         else:
             # Sub-estados user_input o llm_task sin on_success no auto-avanzan
-            node_complete = ValidationService.is_node_complete(
-                state, workflow
-            )
+            node_complete = ValidationService.is_node_complete(state, workflow)
             result["node_complete"] = node_complete
 
         # ── 9b. StepResult monádico: compone task + side-effects + señales
@@ -476,7 +478,6 @@ class SubmitDataUseCase:
         )
         self._state_repo.save(chain_dir, state)
 
-
         # ── 10. Dispatch events via EventDispatcher ─────────────
         _flush_events(
             self.events,
@@ -498,7 +499,8 @@ class SubmitDataUseCase:
                 gate = ValidationService.resolve_xor_by_intent(state, workflow, intent)
                 if gate:
                     from .use_cases import TransitionUseCase  # local import
-                    tuc = TransitionUseCase(
+
+                    TransitionUseCase(
                         workflow_repo=self._workflow_repo,
                         state_repo=self._state_repo,
                         script_runner=self._script_runner,
@@ -507,7 +509,9 @@ class SubmitDataUseCase:
                     )
                     result["xor_resolved"] = True
                     result["xor_gate"] = intent
-                    result["xor_next"] = f"{gate.target_node}.{gate.target_sub_state or '*'}"
+                    result["xor_next"] = (
+                        f"{gate.target_node}.{gate.target_sub_state or '*'}"
+                    )
                     result["_auto_transition"] = True
                     result["_gate"] = intent
         return result
@@ -590,6 +594,7 @@ class TransitionUseCase:
         # ── 3b. Evaluate contract.pre / invariants (ANTES de transicionar) ──
         if gate.contract:
             from ..domain.contracts import ContractEvaluator
+
             pre_errors = ContractEvaluator.evaluate_pre(state, gate.contract)
             if pre_errors:
                 raise TransitionBlockedError(
@@ -627,11 +632,13 @@ class TransitionUseCase:
         # ── 6b. Promover provides del nodo origen al global state ──
         if source_node and source_node.provides:
             from .context_resolver import ContextResolver
+
             state = ContextResolver().promote_provides(state, source_node)
 
         # ── 6b. Aplicar context_updates de la edge ────────────────
         if gate.context_updates:
             from .context_resolver import ContextResolver
+
             cr = ContextResolver()
             state = cr.apply_context_updates(state, gate.context_updates)
 
@@ -653,6 +660,7 @@ class TransitionUseCase:
         # Solo puede verificarse tras aplicar la transicion, no antes.
         if gate.contract:
             from ..domain.contracts import ContractEvaluator
+
             post_errors = ContractEvaluator.evaluate_post(state, gate.contract)
             if post_errors:
                 raise TransitionBlockedError(
@@ -692,7 +700,9 @@ class TransitionUseCase:
 
     @staticmethod
     def _find_gate(
-        graph: WorkflowGraph, node_id: str, gate_name: str,
+        graph: WorkflowGraph,
+        node_id: str,
+        gate_name: str,
         current_sub_state: str = "",
     ) -> Gate | None:
         """Busca gate en el nodo o en gates globales.
@@ -741,10 +751,16 @@ class AdvanceSubStateUseCase:
 
         sub_state = node.find_sub_state(state.current_sub_state)
         if not sub_state:
-            return {"ok": False, "error": f"Sub-estado '{state.current_sub_state}' no encontrado"}
+            return {
+                "ok": False,
+                "error": f"Sub-estado '{state.current_sub_state}' no encontrado",
+            }
 
         if not sub_state.on_success:
-            return {"ok": False, "error": "Sub-estado actual no tiene on_success definido"}
+            return {
+                "ok": False,
+                "error": "Sub-estado actual no tiene on_success definido",
+            }
 
         advanced = AdvanceService.advance(state, workflow)
         if not advanced:
@@ -787,6 +803,7 @@ class ReplayUseCase:
 
 # ── Sprint status check (SSOT: solo engine conoce el workflow state) ──────
 
+
 class CheckSprintStatusUseCase:
     """Check sprint status: current node, sub-state, available gates.
 
@@ -809,6 +826,7 @@ class CheckSprintStatusUseCase:
             return {"active": False, "node": "", "sub_state": "", "gates": []}
 
         from .workflow_api import WorkflowAPI
+
         try:
             api = WorkflowAPI(chain_dir=chain_dir, project_id=project_id)
             api.ensure_session()
@@ -827,4 +845,10 @@ class CheckSprintStatusUseCase:
                 "graph_progress": sprint_status.get("graph_progress", {}),
             }
         except Exception as e:
-            return {"active": False, "node": "", "sub_state": "", "gates": [], "error": str(e)}
+            return {
+                "active": False,
+                "node": "",
+                "sub_state": "",
+                "gates": [],
+                "error": str(e),
+            }

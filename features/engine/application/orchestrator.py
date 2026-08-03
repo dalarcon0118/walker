@@ -15,16 +15,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import json
 import os
 
 from ..domain.models import (
     ExecutionContext,
-    ExecutionType,
     SubState,
     WorkflowNode,
 )
-from ..domain.services import ValidationService
 from ..domain.errors import (
     WorkflowEngineError,
     ErrorType,
@@ -41,13 +38,11 @@ from ..infrastructure.side_effects import SideEffectEngine
 from ..infrastructure.task_registry import InMemoryTaskRegistry
 from ..infrastructure.trace_log import TraceLogger
 from ..domain.registry import TaskRegistry
-from ..domain.session import SessionStore
 from ..context import (
     ContextComposer,
     ContextProviderRegistry,
 )
 from libs.contracts import ContractValidator
-from .context_resolver import ContextResolver
 from .use_cases import (
     SubmitDataUseCase,
     TransitionUseCase,
@@ -116,9 +111,11 @@ class OrchestrationService:
         # no sabe qué providers de negocio transporta).
         try:
             from ..bootstrap import build_context_registry
+
             _def_reg = build_context_registry()
         except Exception:
             from ..context import create_default_registry
+
             _def_reg = create_default_registry()
         self._context_registry: ContextProviderRegistry | None = _def_reg
         self._context_composer: ContextComposer | None = (
@@ -202,7 +199,7 @@ class OrchestrationService:
 
         Si context_config está presente, usa compose() (provider-based).
         Si no, usa resolve() (template-based).
-        
+
         Args:
             extra_data: datos adicionales inyectados sobre collect_all() (prioridad alta)
         """
@@ -240,8 +237,8 @@ class OrchestrationService:
 
     def _resolve_status_prompt(self, sub_state, ctx) -> str:
         """Resuelve el prompt para status: usa prompt_id si existe, si no on_entry_message.
-        
-        Inyecta sprint context como extra_data para que templates {variables} 
+
+        Inyecta sprint context como extra_data para que templates {variables}
         se resuelvan con datos reales del STATE layer.
         Si el sub-estado declara context.sources, usa compose() para incluir
         las capas de contexto (cpg, business, ckg, etc.) en el prompt.
@@ -250,8 +247,8 @@ class OrchestrationService:
             sprint_ctx = self._build_prompt_context(ctx.chain_dir, ctx.task_id)
             context_config = sub_state.context if sub_state.context else None
             resolved = self.resolve_prompt(
-                sub_state.prompt_id, 
-                ctx.chain_dir, 
+                sub_state.prompt_id,
+                ctx.chain_dir,
                 ctx.task_id,
                 context_config=context_config,
                 execution_ctx=ctx,
@@ -290,6 +287,20 @@ class OrchestrationService:
                 lines.append(f"Side effects: {', '.join(se_list)}")
             else:
                 lines.append("Side effects: (none)")
+            # ── GATE: required_tools (auto-consulta obligatoria) ────────
+            if sub_state.required_tools:
+                lines.append("")
+                lines.append(
+                    "REQUIRED TOOLS — must invoke BEFORE submitting this step:"
+                )
+                for t in sub_state.required_tools:
+                    tool_id = t.get("id", "?")
+                    hint = t.get("command_hint", "")
+                    lines.append(f"  • {tool_id}: {hint}")
+                lines.append(
+                    "  (The engine will BLOCK the submit if no kg_query for "
+                    "these layers is found in the trace for this task.)"
+                )
         return "\n".join(lines)
 
     def _build_prompt_context(
@@ -359,6 +370,7 @@ class OrchestrationService:
         determinar el destino. Persiste y retorna el nuevo estado.
         """
         from .use_cases import AdvanceSubStateUseCase
+
         uc = AdvanceSubStateUseCase(
             workflow_repo=self._workflow_repo,
             state_repo=self._state_repo,
@@ -386,7 +398,9 @@ class OrchestrationService:
             execute_edge_transform=self._execute_edge_transform,
             dispatch_event=self._dispatch_event,
         )
-        return orch.transition(ctx, gate, reason=reason, skip_preconditions=skip_preconditions)
+        return orch.transition(
+            ctx, gate, reason=reason, skip_preconditions=skip_preconditions
+        )
 
     def status(
         self,
@@ -413,6 +427,7 @@ class OrchestrationService:
         """ErrorHandler: SRP manejo de errores del workflow (lazy)."""
         if getattr(self, "__error_handler", None) is None:
             from .error_handler import ErrorHandler
+
             self.__error_handler = ErrorHandler(
                 submit_uc=self.submit_uc,
                 transition_uc=self.transition_uc,
@@ -590,7 +605,9 @@ class OrchestrationService:
         for se in side_effects:
             se_type = se.get("type")
             se_result = se.get("result", {}) or {}
-            signals = se_result.get("signals", {}) if isinstance(se_result, dict) else {}
+            signals = (
+                se_result.get("signals", {}) if isinstance(se_result, dict) else {}
+            )
 
             # 1. Eventos explícitos (emit_event). El nombre del evento puede
             #    estar en signals (envelope estándar) o en result.event (legacy).
@@ -602,7 +619,11 @@ class OrchestrationService:
                         or (se_result.get("metadata", {}) or {}).get("event", "")
                     )
                 else:
-                    event_name = se_result.get("event", "") if isinstance(se_result, dict) else ""
+                    event_name = (
+                        se_result.get("event", "")
+                        if isinstance(se_result, dict)
+                        else ""
+                    )
                 if event_name:
                     dispatch_result = self._dispatch_event(ctx, event_name, result)
                     if dispatch_result:
@@ -614,7 +635,9 @@ class OrchestrationService:
                 if signals.get("quality_passed") is False:
                     summary = se_result.get("summary", "quality gates fallaron")
                     dispatch_result = self._dispatch_event(
-                        ctx, "quality_gate_failed", result,
+                        ctx,
+                        "quality_gate_failed",
+                        result,
                     )
                     if dispatch_result:
                         count += 1

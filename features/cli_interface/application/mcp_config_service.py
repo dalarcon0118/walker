@@ -13,17 +13,19 @@ Formato estándar:
 El shim en to_clean_next/bootstrap/cli/mcp_config.py re-exporta estas
 funciones para el CLI legacy (walker3).
 """
+
 from __future__ import annotations
 import json
 import os
-import sys
 from pathlib import Path
 
 
 def _walker_root() -> str:
     """Resuelve la raíz del repo del walker (donde vive features/)."""
-    here = Path(__file__).resolve()  # <repo>/features/cli_interface/application/mcp_config_service.py
-    root = here.parents[3]           # application → cli_interface → features → repo
+    here = Path(
+        __file__
+    ).resolve()  # <repo>/features/cli_interface/application/mcp_config_service.py
+    root = here.parents[3]  # application → cli_interface → features → repo
     if (root / "features" / "cli_interface" / "mcp.py").exists():
         return str(root)
     for parent in here.parents:
@@ -128,7 +130,9 @@ def cmd_mcp_config(args: list[str]) -> int:
         return 0
     config = generate(fmt)
     if raw:
-        print(json.dumps(config.get("mcpServers", config), indent=2, ensure_ascii=False))
+        print(
+            json.dumps(config.get("mcpServers", config), indent=2, ensure_ascii=False)
+        )
         return 0
     print(json.dumps(config, indent=2, ensure_ascii=False))
     return 0

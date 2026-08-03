@@ -8,11 +8,13 @@ Orchestrates the CPG build pipeline:
 
 from __future__ import annotations
 import os
-import sys
 from typing import Any
 
-from features.code_analysis.infrastructure.repository import CpgFileRepository, CPG_VERSION, _now
-
+from features.code_analysis.infrastructure.repository import (
+    CpgFileRepository,
+    CPG_VERSION,
+    _now,
+)
 
 
 class BuildGraphUseCase:
@@ -43,6 +45,7 @@ class BuildGraphUseCase:
         """
         try:
             from features.project.infrastructure.watcher import IgnoreRules
+
             root = self.repo_path or self.code_root
             return IgnoreRules(str(root)) if root else None
         except Exception:
@@ -69,6 +72,7 @@ class BuildGraphUseCase:
         """
         try:
             from features.project.infrastructure.watcher import FileWatcher
+
             root = self.repo_path or self.code_root
             return FileWatcher(root).compute_fingerprint()
         except Exception:
@@ -110,9 +114,12 @@ class BuildGraphUseCase:
         project_root = self.code_root or self.repo_path or "."
         # Siempre pasar paths explícitos al review (nunca None → _resolve_default_paths
         # puede fallar si el repo no tiene project.json en la jerarquía).
-        code_paths: list[str] = list(paths or []) if paths else self.resolve_code_paths()
+        code_paths: list[str] = (
+            list(paths or []) if paths else self.resolve_code_paths()
+        )
         try:
             from features.project import ProjectService
+
             resolved = ProjectService.resolve_paths(self.repo_path or self.code_root)
             if resolved.project_root and os.path.isdir(resolved.project_root):
                 project_root = resolved.project_root
@@ -122,27 +129,42 @@ class BuildGraphUseCase:
         # 1. Asegurar qlty config (best-effort: qlty init --yes en repo real)
         try:
             import subprocess as _sp
+
             qlty_root = project_root
-            check = _sp.run(["qlty", "metrics", "--quiet", qlty_root],
-                            capture_output=True, text=True, timeout=30)
+            check = _sp.run(
+                ["qlty", "metrics", "--quiet", qlty_root],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
             if check.returncode != 0 and "No qlty config" in check.stderr:
-                _sp.run(["qlty", "init", "--yes"], cwd=qlty_root,
-                        capture_output=True, text=True, timeout=60)
+                _sp.run(
+                    ["qlty", "init", "--yes"],
+                    cwd=qlty_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
         except Exception:
             pass
 
         try:
             from features.code_analysis.application.review_service import ReviewUseCase
-            from features.code_analysis.infrastructure.metrics_cache import IncrementalMetricsCache
+            from features.code_analysis.infrastructure.metrics_cache import (
+                IncrementalMetricsCache,
+            )
 
             # Cache incremental de métricas qlty: se reutiliza entre builds,
             # evita re-ejecutar qlty sobre archivos no modificados.
             cache = IncrementalMetricsCache(project_root, data_dir=self.data_dir)
 
-            svc = ReviewUseCase(project_root, project_id=self.project_id,
-                                scan_paths=code_paths,
-                                data_dir=self.data_dir,
-                                cache=cache)
+            svc = ReviewUseCase(
+                project_root,
+                project_id=self.project_id,
+                scan_paths=code_paths,
+                data_dir=self.data_dir,
+                cache=cache,
+            )
             result = svc.review_files(files=code_paths)
             report = result.to_dict()
             report["cache"] = cache.stats
@@ -173,10 +195,12 @@ class BuildGraphUseCase:
             }
 
         import json as _json
+
         report["generated_at"] = _now()
         report["scope"] = "build"
         try:
             import os as _os
+
             _os.makedirs(self.data_dir, exist_ok=True)
             with open(_os.path.join(self.data_dir, "quality_report.json"), "w") as f:
                 _json.dump(report, f, indent=2, ensure_ascii=False, default=str)
@@ -210,13 +234,17 @@ class BuildGraphUseCase:
 
             for key in ("dead_branches", "missing_returns", "infinite_loops"):
                 for item in analysis.get(key, []) or []:
-                    proposals[key].append({
-                        "severity": "critical" if key == "infinite_loops" else "warning",
-                        "label": key.replace("_", " "),
-                        "file": item.get("file", ""),
-                        "line": item.get("line", 0),
-                        "detail": str(item.get("detail", ""))[:120],
-                    })
+                    proposals[key].append(
+                        {
+                            "severity": "critical"
+                            if key == "infinite_loops"
+                            else "warning",
+                            "label": key.replace("_", " "),
+                            "file": item.get("file", ""),
+                            "line": item.get("line", 0),
+                            "detail": str(item.get("detail", ""))[:120],
+                        }
+                    )
 
             # unused_functions: nodos función sin CALLS incoming
             nodes = data.get("nodes", {})
@@ -226,31 +254,39 @@ class BuildGraphUseCase:
                 if not isinstance(n, dict):
                     continue
                 if n.get("type") in ("function", "method") and not n.get("is_import"):
-                    if nid not in incoming_ids and not n.get("name", "").startswith("__"):
-                        proposals["unused_functions"].append({
-                            "severity": "warning",
-                            "label": f"función sin llamadas: {n.get('name')}",
-                            "file": n.get("path", ""),
-                            "line": n.get("line", 0),
-                            "detail": f"{n.get('name')} no tiene callers en el CPG",
-                        })
+                    if nid not in incoming_ids and not n.get("name", "").startswith(
+                        "__"
+                    ):
+                        proposals["unused_functions"].append(
+                            {
+                                "severity": "warning",
+                                "label": f"función sin llamadas: {n.get('name')}",
+                                "file": n.get("path", ""),
+                                "line": n.get("line", 0),
+                                "detail": f"{n.get('name')} no tiene callers en el CPG",
+                            }
+                        )
 
             for item in dfg.get("hardcoded_secrets", []) or []:
-                proposals["hardcoded_secrets"].append({
-                    "severity": "critical",
-                    "label": "hardcoded secret",
-                    "file": item.get("file", ""),
-                    "line": item.get("line", 0),
-                    "detail": str(item.get("detail", item.get("text", "")))[:120],
-                })
+                proposals["hardcoded_secrets"].append(
+                    {
+                        "severity": "critical",
+                        "label": "hardcoded secret",
+                        "file": item.get("file", ""),
+                        "line": item.get("line", 0),
+                        "detail": str(item.get("detail", item.get("text", "")))[:120],
+                    }
+                )
             for item in dfg.get("taint_paths", []) or []:
-                proposals["taint_paths"].append({
-                    "severity": "high",
-                    "label": "taint path",
-                    "file": item.get("file", ""),
-                    "line": item.get("line", 0),
-                    "detail": str(item.get("detail", item.get("text", "")))[:120],
-                })
+                proposals["taint_paths"].append(
+                    {
+                        "severity": "high",
+                        "label": "taint path",
+                        "file": item.get("file", ""),
+                        "line": item.get("line", 0),
+                        "detail": str(item.get("detail", item.get("text", "")))[:120],
+                    }
+                )
         except Exception:
             pass
 
@@ -269,13 +305,13 @@ class BuildGraphUseCase:
         try:
             import json as _json
             import os as _os
+
             _os.makedirs(self.data_dir, exist_ok=True)
             with open(_os.path.join(self.data_dir, "bug_proposals.json"), "w") as f:
                 _json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
         except Exception:
             pass
         return payload
-
 
     def _build_business_layer(self, data: dict) -> dict:
         """Construye la capa de negocio sobre el grafo CPG.
@@ -288,6 +324,7 @@ class BuildGraphUseCase:
         """
         try:
             from features.code_analysis.application.business_analyzer import analyze
+
             return analyze(data.get("nodes", {}), data.get("edges", []))
         except Exception:
             return {
@@ -561,6 +598,7 @@ class BuildGraphUseCase:
         )
 
         import os as _os
+
         cfg_cache = CallsCache(_os.path.join(self.data_dir, "cfg_calls_cache.json"))
 
         total_calls = 0
@@ -651,7 +689,9 @@ class BuildGraphUseCase:
             result["cfg_cache_hits"] = cache_hits
         return result
 
-    def scan_dfg(self, scan_paths: list[str] | None = None, verbose: bool = False) -> dict:
+    def scan_dfg(
+        self, scan_paths: list[str] | None = None, verbose: bool = False
+    ) -> dict:
         """Security analysis via ast-grep patterns (multi-lenguaje).
 
         Busca hardcoded secrets, taint paths, y patrones de seguridad
@@ -662,7 +702,10 @@ class BuildGraphUseCase:
             ast-grep sobre archivos modificados (evita ~29 subprocess × archivo).
           - Progreso a stderr (verbose) para no bloquear sin feedback.
         """
-        from features.code_analysis.infrastructure.ast_grep_adapter import _run_ast_grep, _detect_lang
+        from features.code_analysis.infrastructure.ast_grep_adapter import (
+            _run_ast_grep,
+            _detect_lang,
+        )
         from features.code_analysis.infrastructure.ast_grep_calls import CallsCache
 
         def _eprint(*a):
@@ -694,7 +737,9 @@ class BuildGraphUseCase:
         MAX_FILES = 200
         scan_files = all_files[:MAX_FILES]
         if len(all_files) > MAX_FILES and verbose:
-            _eprint(f"  ⚠️  DFG: {len(all_files)} archivos, analizando los {MAX_FILES} primeros")
+            _eprint(
+                f"  ⚠️  DFG: {len(all_files)} archivos, analizando los {MAX_FILES} primeros"
+            )
 
         all_results = {
             "hardcoded_secrets": [],
@@ -704,12 +749,13 @@ class BuildGraphUseCase:
         }
 
         # Caché incremental de resultados por archivo
-        import sys
         dfg_cache = CallsCache(os.path.join(self.data_dir, "dfg_cache.json"))
         cache_hits = 0
 
         try:
-            from features.code_analysis.infrastructure.codereview.config import _DEEP_PATTERNS
+            from features.code_analysis.infrastructure.codereview.config import (
+                _DEEP_PATTERNS,
+            )
 
             # Usar patterns de seguridad y producción
             security_patterns = _DEEP_PATTERNS.get("danger", []) + _DEEP_PATTERNS.get(
@@ -728,12 +774,18 @@ class BuildGraphUseCase:
                 cached = dfg_cache.get(fp)
                 if cached is not None:
                     cache_hits += 1
-                    all_results["hardcoded_secrets"].extend(cached.get("hardcoded_secrets", []))
+                    all_results["hardcoded_secrets"].extend(
+                        cached.get("hardcoded_secrets", [])
+                    )
                     all_results["taint_paths"].extend(cached.get("taint_paths", []))
-                    all_results["uninitialized_vars"].extend(cached.get("uninitialized_vars", []))
+                    all_results["uninitialized_vars"].extend(
+                        cached.get("uninitialized_vars", [])
+                    )
                     all_results["data_gaps"].extend(cached.get("data_gaps", []))
                     if verbose and total > 20 and idx % 20 == 0:
-                        _eprint(f"  🔍 DFG [{idx}/{total}] (cache) {os.path.basename(fp)}")
+                        _eprint(
+                            f"  🔍 DFG [{idx}/{total}] (cache) {os.path.basename(fp)}"
+                        )
                     continue
 
                 # 2. Correr patrones sobre este archivo
@@ -808,44 +860,53 @@ class BuildGraphUseCase:
         def _write_status(payload: dict) -> None:
             try:
                 import json as _json
+
                 os.makedirs(self.data_dir, exist_ok=True)
                 with open(status_path, "w") as f:
                     _json.dump(payload, f, indent=2, ensure_ascii=False)
             except OSError:
                 pass
 
-        _write_status({
-            "status": "running",
-            "started_at": _now(),
-            "finished_at": "",
-            "summary": "",
-            "error": "",
-        })
+        _write_status(
+            {
+                "status": "running",
+                "started_at": _now(),
+                "finished_at": "",
+                "summary": "",
+                "error": "",
+            }
+        )
 
         def _worker() -> None:
             try:
                 result = self.scan_dfg(scan_paths, verbose=False)
-                _write_status({
-                    "status": "ok",
-                    "started_at": status_started,
-                    "finished_at": _now(),
-                    "summary": (
-                        f"{len(result.get('hardcoded_secrets', []))} secrets, "
-                        f"{len(result.get('taint_paths', []))} taint, "
-                        f"{len(result.get('uninitialized_vars', []))} uninit vars, "
-                        f"{len(result.get('data_gaps', []))} data gaps"
-                    ),
-                    "error": "",
-                    "files_scanned": (result.get("_stats") or {}).get("files_scanned", 0),
-                })
+                _write_status(
+                    {
+                        "status": "ok",
+                        "started_at": status_started,
+                        "finished_at": _now(),
+                        "summary": (
+                            f"{len(result.get('hardcoded_secrets', []))} secrets, "
+                            f"{len(result.get('taint_paths', []))} taint, "
+                            f"{len(result.get('uninitialized_vars', []))} uninit vars, "
+                            f"{len(result.get('data_gaps', []))} data gaps"
+                        ),
+                        "error": "",
+                        "files_scanned": (result.get("_stats") or {}).get(
+                            "files_scanned", 0
+                        ),
+                    }
+                )
             except Exception as e:
-                _write_status({
-                    "status": "failed",
-                    "started_at": status_started,
-                    "finished_at": _now(),
-                    "summary": "",
-                    "error": f"{type(e).__name__}: {str(e)[:200]}",
-                })
+                _write_status(
+                    {
+                        "status": "failed",
+                        "started_at": status_started,
+                        "finished_at": _now(),
+                        "summary": "",
+                        "error": f"{type(e).__name__}: {str(e)[:200]}",
+                    }
+                )
 
         status_started = _now()
         t = threading.Thread(target=_worker, daemon=True)
@@ -857,6 +918,7 @@ class BuildGraphUseCase:
         status_path = os.path.join(self.data_dir, "dfg_scan_status.json")
         try:
             import json as _json
+
             with open(status_path) as f:
                 return _json.load(f)
         except Exception:

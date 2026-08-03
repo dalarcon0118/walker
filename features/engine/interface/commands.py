@@ -42,24 +42,8 @@ from .engine import (
     find_workflow,
     ensure_state,
     advance_sub_state,
-    apply_state_transition,
-    check_transition_preconditions,
     execute_sub_state_action,
-    handle_auto_loop,
     validate_gate,
-    store_contract_data,
-    log_decision,
-    show_on_entry_message,
-    show_mode,
-    show_context,
-    show_node_header,
-    show_section,
-    show_transitions,
-    show_history,
-    show_entry_message,
-    show_sprint_info,
-    show_flow_progress,
-    show_related_results,
 )
 from .plan_editor import (
     _execute_plan_edit,
@@ -378,7 +362,18 @@ def cmd_transition(sub_args: list[str]) -> int:
     workflow = find_workflow(chain_dir)
     current = _get_current_node(state)
     sub_key = _get_current_sub_key(state)
-    from features.engine.infrastructure.repositories import WorkflowStateRepository as _SSR; load_state = lambda c: _SSR().load_dict(c) or {}; save_state = lambda s, c: _SSR().save_dict(c, s) if isinstance(s, dict) else _SSR().save(c, s); set_task_status = lambda s, tid, st: s.update({"tasks": {tid: {"status": st}}}); complete_task = lambda s, tid: s.update({"tasks": {tid: {"status": "completed"}}})
+    from features.engine.infrastructure.repositories import (
+        WorkflowStateRepository as _SSR,
+    )
+
+    load_state = lambda c: _SSR().load_dict(c) or {}
+    save_state = (
+        lambda s, c: _SSR().save_dict(c, s)
+        if isinstance(s, dict)
+        else _SSR().save(c, s)
+    )
+    set_task_status = lambda s, tid, st: s.update({"tasks": {tid: {"status": st}}})
+    complete_task = lambda s, tid: s.update({"tasks": {tid: {"status": "completed"}}})
 
     # Implicit task_id from state context or sprint-state.json
     if not task_id and chain_dir:
@@ -866,6 +861,7 @@ def _query_task(
     status = "unknown"
     if chain_dir:
         from features.spring.infrastructure.repositories import SprintStateRepository
+
         raw = SprintStateRepository().load_dict(chain_dir)
         if raw:
             ts = raw.get("tasks", {})
@@ -920,6 +916,7 @@ def _query_file(qarg: str, tasks: list[dict]) -> int:
 def _query_status(chain_dir: str, tasks: list[dict]) -> int:
     """Query: show status summary of all tasks in the sprint."""
     from features.spring.infrastructure.repositories import SprintStateRepository
+
     raw = SprintStateRepository().load_dict(chain_dir) or None
     task_states = raw.get("progress", raw).get("task_states", {}) if raw else {}
 
@@ -1162,6 +1159,7 @@ def cmd_health(sub_args: list[str]) -> int:
     # 4. Task_id is still relevant (not done)?
     if task_id and chain_dir:
         from features.spring.infrastructure.repositories import SprintStateRepository
+
         raw = SprintStateRepository().load_dict(chain_dir)
         if raw:
             prog = raw.get("progress", raw)
@@ -1290,9 +1288,9 @@ def cmd_backlog(sub_args: list[str]) -> int:
         repo = SprintStateRepository()
         state = repo.load(chain_dir)
         new_progress = dict(state.progress)
-        new_progress.setdefault("current", {}).setdefault("task_states", {})[task_id] = (
-            "backlog"
-        )
+        new_progress.setdefault("current", {}).setdefault("task_states", {})[
+            task_id
+        ] = "backlog"
         new_state = replace(state, progress=new_progress)
         repo.save(chain_dir, new_state)
         print(Template("  [backlog] $tid movida al backlog").substitute(tid=task_id))
@@ -1353,7 +1351,6 @@ def _save_knowledge_facts(
     from features.project import ProjectService
 
     paths = ProjectService.resolve_paths(chain_dir)
-    project_id = paths.project_id
     facts_path = os.path.join(paths.project_root, "facts.json")
 
     # Read existing facts

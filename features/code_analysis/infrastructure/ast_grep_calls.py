@@ -179,8 +179,6 @@ def _detect_lang(file_path: str) -> str | None:
 # Optimización del CFG scan: evita re-ejecutar ast-grep sobre archivos
 # que no cambiaron desde el último análisis. Se persiste en data_dir.
 
-import hashlib  # noqa: E402
-
 
 def _file_signature(file_path: str) -> dict | None:
     """Snapshot mtime+size del archivo. None si no existe."""
@@ -233,7 +231,11 @@ class CallsCache:
         if sig is None:
             return None
         stored = entry.get("_file")
-        if stored and stored.get("mtime") == sig["mtime"] and stored.get("size") == sig["size"]:
+        if (
+            stored
+            and stored.get("mtime") == sig["mtime"]
+            and stored.get("size") == sig["size"]
+        ):
             self._hits += 1
             return entry.get("calls", [])
         return None

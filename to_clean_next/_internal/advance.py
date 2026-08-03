@@ -306,13 +306,7 @@ def find_project_root():
 # (ADR-WALKER-011) viven en features/task_execution/infrastructure/verify_engine.py.
 # Este archivo las re-exporta para no romper consumidores históricos.
 from features.task_execution.infrastructure.verify_engine import (
-    _build_grep_args,
-    _collect_ast_files,
-    _extract_symbol_names,
-    _grep_verify,
     _parse_predicate,
-    _resolve_search_target,
-    _ast_verify,
     run_verification,
 )
 

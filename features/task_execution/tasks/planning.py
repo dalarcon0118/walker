@@ -8,6 +8,7 @@ Terminology:
   - "task" = workflow action registered in TaskRegistry
   - "task" in API responses = kept for backward compat with prompts
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -82,8 +83,10 @@ def update_spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResul
 def show_dashboard(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     try:
         return TaskResult.success(data=ShowDashboardUseCase.execute(ctx, data))
-    except Exception as e:
-        return TaskResult.success(data={"sprint_id": "", "goal": "", "spec_count": 0, "completed_count": 0})
+    except Exception:
+        return TaskResult.success(
+            data={"sprint_id": "", "goal": "", "spec_count": 0, "completed_count": 0}
+        )
 
 
 def edit_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -113,29 +116,53 @@ def validate_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     try:
         return TaskResult.success(data=ValidatePlanUseCase.execute(ctx, data))
     except Exception as e:
-        return TaskResult.success(data={"valid": False, "errors": [str(e)], "spec_count": 0})
+        return TaskResult.success(
+            data={"valid": False, "errors": [str(e)], "spec_count": 0}
+        )
 
 
 def update_sprint_progress(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    return TaskResult.success(data={"spec_id": data.get("spec_id", ctx.task_id),
-        "progress_updated": True, "completed": data.get("completed_count", 0),
-        "total": data.get("spec_count", 0)})
+    return TaskResult.success(
+        data={
+            "spec_id": data.get("spec_id", ctx.task_id),
+            "progress_updated": True,
+            "completed": data.get("completed_count", 0),
+            "total": data.get("spec_count", 0),
+        }
+    )
 
 
 def log_rejection_to_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    return TaskResult.success(data={"spec_id": data.get("spec_id", ctx.task_id),
-        "logged": True, "reason": data.get("reason", ""), "source": data.get("source_node", "")})
+    return TaskResult.success(
+        data={
+            "spec_id": data.get("spec_id", ctx.task_id),
+            "logged": True,
+            "reason": data.get("reason", ""),
+            "source": data.get("source_node", ""),
+        }
+    )
 
 
 def notify_po_escalation(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    return TaskResult.success(data={"spec_id": data.get("spec_id", ctx.task_id),
-        "notified": True, "attempts": data.get("attempt", 0),
-        "message": f"Refine limit reached for {data.get('spec_id', ctx.task_id)}"})
+    return TaskResult.success(
+        data={
+            "spec_id": data.get("spec_id", ctx.task_id),
+            "notified": True,
+            "attempts": data.get("attempt", 0),
+            "message": f"Refine limit reached for {data.get('spec_id', ctx.task_id)}",
+        }
+    )
 
 
 def archive_sprint_metrics(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    return TaskResult.success(data={"sprint_id": ctx.session_id, "archived": True,
-        "completed": data.get("completed_count", 0), "total": data.get("spec_count", 0)})
+    return TaskResult.success(
+        data={
+            "sprint_id": ctx.session_id,
+            "archived": True,
+            "completed": data.get("completed_count", 0),
+            "total": data.get("spec_count", 0),
+        }
+    )
 
 
 def register(registry: Any) -> None:
@@ -143,12 +170,20 @@ def register(registry: Any) -> None:
         ("plan_sprint", plan_sprint, "Create sprint plan from goal and tasks"),
         ("spec_task", spec_task, "Specify or refine a specification"),
         ("save_task_spec", save_task_spec, "Save specification (alias)"),
-        ("advance_task_index", advance_task_index, "Advance to next specification index"),
+        (
+            "advance_task_index",
+            advance_task_index,
+            "Advance to next specification index",
+        ),
         ("show_dashboard", show_dashboard, "Show sprint dashboard"),
         ("close_sprint", close_sprint, "Close the current sprint"),
         ("edit_sprint", edit_sprint, "Edit sprint: add specs, update goal"),
         ("validate_plan", validate_plan, "Validate all specifications in plan.json"),
-        ("update_sprint_progress", update_sprint_progress, "Update sprint progress metrics"),
+        (
+            "update_sprint_progress",
+            update_sprint_progress,
+            "Update sprint progress metrics",
+        ),
         ("log_rejection_to_ckg", log_rejection_to_ckg, "Log rejection reason to CKG"),
         ("notify_po_escalation", notify_po_escalation, "Notify PO of refine limit"),
         ("archive_sprint_metrics", archive_sprint_metrics, "Archive sprint metrics"),
@@ -157,10 +192,23 @@ def register(registry: Any) -> None:
         # Solo se ejecutan desde dentro del workflow (execution:llm_task + action),
         # porque es la unica manera de que se actualice workflow-state.json.
         # NO se invocan via 'walker <pid>/<task>'.
-        registry.register(name, fn, metadata={"description": desc, "tags": ["planning", "sprint"], "scope": "internal"})
+        registry.register(
+            name,
+            fn,
+            metadata={
+                "description": desc,
+                "tags": ["planning", "sprint"],
+                "scope": "internal",
+            },
+        )
     # Capacidades para descubrimiento dinamico (health/status/help)
-    registry.register("plan_sprint", plan_sprint,
-                      metadata={"description": "Create sprint plan from goal and tasks",
-                                "tags": ["planning", "sprint"],
-                                "purpose": ["sprint_create", "sprint_plan"],
-                                "scope": "internal"})
+    registry.register(
+        "plan_sprint",
+        plan_sprint,
+        metadata={
+            "description": "Create sprint plan from goal and tasks",
+            "tags": ["planning", "sprint"],
+            "purpose": ["sprint_create", "sprint_plan"],
+            "scope": "internal",
+        },
+    )

@@ -11,11 +11,11 @@ Capas que construye:
 SRP: Analiza el grafo CPG. No hace IO de codigo fuente.
 SSOT: El CPG (nodos + edges) es la entrada; el resultado es derivable.
 """
+
 from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Any
 
 # ── Heurísticas de "pureza": imports/símbolos que introducen side-effects ──
 _IO_MODULES = re.compile(
@@ -41,7 +41,7 @@ class BusinessAnalyzer:
         self.nodes = nodes
         self.edges = edges
         self._by_path: dict[str, list[str]] = defaultdict(list)
-        self._fn_nodes: dict[str, dict] = {}   # name -> node
+        self._fn_nodes: dict[str, dict] = {}  # name -> node
         self._fn_by_path: dict[str, list[str]] = defaultdict(list)
         self._calls: dict[str, set[str]] = defaultdict(set)  # caller -> callees
 
@@ -64,7 +64,9 @@ class BusinessAnalyzer:
             if e.get("type") == "CALLS":
                 caller_node = self.nodes.get(e.get("from", ""), {})
                 callee_node = self.nodes.get(e.get("to", ""), {})
-                if not isinstance(caller_node, dict) or not isinstance(callee_node, dict):
+                if not isinstance(caller_node, dict) or not isinstance(
+                    callee_node, dict
+                ):
                     continue
                 # Solo calls ENTRE funciones/métodos reales. Los edges CALLS
                 # entre archivos e imports (login.tsx -> 'react-native') NO
@@ -106,15 +108,17 @@ class BusinessAnalyzer:
             loc = n.get("loc") or 0
             if min_len and loc < min_len:
                 continue
-            result.append({
-                "id": nid,
-                "name": n.get("name", ""),
-                "type": n.get("type", ""),
-                "file": n.get("path", ""),
-                "line": n.get("line", 0),
-                "signature": sig,
-                "loc": loc,
-            })
+            result.append(
+                {
+                    "id": nid,
+                    "name": n.get("name", ""),
+                    "type": n.get("type", ""),
+                    "file": n.get("path", ""),
+                    "line": n.get("line", 0),
+                    "signature": sig,
+                    "loc": loc,
+                }
+            )
         return result
 
     # ── Capa 2: Business Flows ────────────────────────────────────────────
@@ -145,11 +149,13 @@ class BusinessAnalyzer:
                 truncated = chain[:max_chain]
                 if len(chain) > max_chain:
                     truncated.append("...")
-                flows.append({
-                    "entrypoint": root,
-                    "file": self._fn_nodes[root].get("path", ""),
-                    "chain": truncated,
-                })
+                flows.append(
+                    {
+                        "entrypoint": root,
+                        "file": self._fn_nodes[root].get("path", ""),
+                        "chain": truncated,
+                    }
+                )
         return flows
 
     def _walk_flow(self, fn: str, depth: int, seen: set) -> list[str]:
@@ -176,30 +182,58 @@ class BusinessAnalyzer:
         """
         patterns = []
         for path, nids in self._by_path.items():
-            nodes = [self.nodes[nid] for nid in nids if isinstance(self.nodes[nid], dict)]
+            nodes = [
+                self.nodes[nid] for nid in nids if isinstance(self.nodes[nid], dict)
+            ]
             names = {n.get("name", "") for n in nodes}
             sigs = " ".join(n.get("signature", "") for n in nodes if n.get("signature"))
             types = {n.get("type", "") for n in nodes}
 
             # TEA: msg/init/update/view
-            if any("Msg" in nm or nm.endswith("Msg") for nm in names) and \
-               any(nm in ("init", "update", "view") for nm in names):
-                patterns.append({"pattern": "tea_module", "file": path,
-                                "symbols": sorted(n for n in names if n)})
+            if any("Msg" in nm or nm.endswith("Msg") for nm in names) and any(
+                nm in ("init", "update", "view") for nm in names
+            ):
+                patterns.append(
+                    {
+                        "pattern": "tea_module",
+                        "file": path,
+                        "symbols": sorted(n for n in names if n),
+                    }
+                )
             # Hook
             if any(nm.startswith("use") for nm in names):
-                patterns.append({"pattern": "hook", "file": path,
-                                "symbols": sorted(n for n in names if n.startswith("use"))})
+                patterns.append(
+                    {
+                        "pattern": "hook",
+                        "file": path,
+                        "symbols": sorted(n for n in names if n.startswith("use")),
+                    }
+                )
             # Redux slice
-            if any("slice" in nm.lower() for nm in names) or \
-               ("reducer" in names and "action" in names):
-                patterns.append({"pattern": "redux_slice", "file": path,
-                                "symbols": sorted(n for n in names if n)})
+            if any("slice" in nm.lower() for nm in names) or (
+                "reducer" in names and "action" in names
+            ):
+                patterns.append(
+                    {
+                        "pattern": "redux_slice",
+                        "file": path,
+                        "symbols": sorted(n for n in names if n),
+                    }
+                )
             # Pure domain (sin IO, solo constantes/funciones puras/tipos)
-            if types and types.issubset(_NO_IO_TYPES | {"function"}) and sigs and \
-               not _IO_MODULES.search(sigs):
-                patterns.append({"pattern": "pure_domain", "file": path,
-                                "symbols": sorted(n for n in names if n)})
+            if (
+                types
+                and types.issubset(_NO_IO_TYPES | {"function"})
+                and sigs
+                and not _IO_MODULES.search(sigs)
+            ):
+                patterns.append(
+                    {
+                        "pattern": "pure_domain",
+                        "file": path,
+                        "symbols": sorted(n for n in names if n),
+                    }
+                )
         return patterns
 
     # ── Métricas limpias ──────────────────────────────────────────────────

@@ -46,9 +46,9 @@ def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[
     """Detect if sprint has pending tasks during close check."""
     if not chain_dir:
         return False, []
-    import os as _os
 
     from features.spring.infrastructure.repositories import SprintStateRepository
+
     raw = SprintStateRepository().load_dict(chain_dir)
     if not raw:
         return False, []
@@ -110,7 +110,11 @@ def _detect_task_state_conflicts(chain_dir: str | None) -> list[dict]:
     if not chain_dir:
         return []
 
-    from features.engine.infrastructure.repositories import WorkflowStateRepository as _SSR; load_state = lambda c: _SSR().load_dict(c) or {}
+    from features.engine.infrastructure.repositories import (
+        WorkflowStateRepository as _SSR,
+    )
+
+    load_state = lambda c: _SSR().load_dict(c) or {}
 
     s = load_state(chain_dir)
     tasks = s.get("tasks", {})
@@ -143,7 +147,11 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
 
     Si no hay conflicto, BLOQUEA: el LLM no puede saltarse el workflow.
     """
-    from features.engine.infrastructure.repositories import WorkflowStateRepository as _SSR; load_state = lambda c: _SSR().load_dict(c) or {}, save_state
+    from features.engine.infrastructure.repositories import (
+        WorkflowStateRepository as _SSR,
+    )
+
+    load_state = lambda c: _SSR().load_dict(c) or {}, save_state
 
     # ── Verificar que existe un conflicto real ─────────────────
     cpath = os.path.join(chain_dir, _CONFLICTS_FILE)

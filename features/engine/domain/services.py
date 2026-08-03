@@ -18,7 +18,6 @@ from .models import (
     WorkflowGraph,
     WorkflowState,
     SubState,
-    ExecutionType,
     Gate,
 )
 from .errors import (
@@ -72,8 +71,7 @@ class ValidationService:
             # ── 1. Validar required_fields (cualquier execution type) ──
             if ss.required_fields:
                 missing = [
-                    f for f in ss.required_fields
-                    if not sub_data.is_field_complete(f)
+                    f for f in ss.required_fields if not sub_data.is_field_complete(f)
                 ]
                 if missing:
                     errors.append(
@@ -105,7 +103,8 @@ class ValidationService:
 
                 if schema_required:
                     schema_missing = [
-                        f for f in schema_required
+                        f
+                        for f in schema_required
                         if combined.get(f) is None or combined.get(f) == ""
                     ]
                     if schema_missing:
@@ -174,8 +173,9 @@ class ValidationService:
         return state.sub_state_index < len(node.sub_states) - 1
 
     @staticmethod
-    def is_sub_state_complete(state: WorkflowState, graph: WorkflowGraph,
-                              sub_state_key: str) -> bool:
+    def is_sub_state_complete(
+        state: WorkflowState, graph: WorkflowGraph, sub_state_key: str
+    ) -> bool:
         """Determina si un sub-estado especifico tiene sus datos completos.
 
         Un sub-estado esta completo si:
@@ -212,9 +212,12 @@ class ValidationService:
         for g in edges:
             if g.source_sub_state:
                 # Gate de sub-estado: solo desde ese sub-estado Y completo
-                if g.source_sub_state == state.current_sub_state and \
-                   ValidationService.is_sub_state_complete(state, graph,
-                                                           state.current_sub_state):
+                if (
+                    g.source_sub_state == state.current_sub_state
+                    and ValidationService.is_sub_state_complete(
+                        state, graph, state.current_sub_state
+                    )
+                ):
                     available.append(g)
                 continue
             # Gate del nodo (sin from_sub): válida si el sub-estado ACTUAL
@@ -230,9 +233,7 @@ class ValidationService:
     # ── Teoría de grafos: clasificación de sub-estados ────────────────────
 
     @staticmethod
-    def outgoing_edges(
-        state: WorkflowState, graph: WorkflowGraph
-    ) -> list[Gate]:
+    def outgoing_edges(state: WorkflowState, graph: WorkflowGraph) -> list[Gate]:
         """Aristas salientes del sub-estado actual (XOR-split del nodo).
 
         Devuelve las gates que parten del sub-estado actual, tanto las de
@@ -248,9 +249,7 @@ class ValidationService:
         return result
 
     @staticmethod
-    def classify_sub_state(
-        state: WorkflowState, graph: WorkflowGraph
-    ) -> str:
+    def classify_sub_state(state: WorkflowState, graph: WorkflowGraph) -> str:
         """Clasifica el sub-estado actual segun su tipo en el grafo.
 
         Teoria de grafos de flujos de trabajo (van der Aalst / BPMN):
@@ -313,7 +312,9 @@ class ValidationService:
                 )
 
         # ── 2. Nodos huerfanos (sin entrada) ──
-        targets = {e.target_node for edges in graph.edges_by_source.values() for e in edges}
+        targets = {
+            e.target_node for edges in graph.edges_by_source.values() for e in edges
+        }
         for nid in node_ids:
             if nid != graph.initial_state and nid not in targets:
                 warnings.append(
@@ -343,7 +344,9 @@ class ValidationService:
                 return True  # sink = terminal
             if _is_terminal_node(start):
                 return True  # ultimo sub-estado terminal
-            return any(_can_reach_terminal(e.target_node, set(visited)) for e in outgoing)
+            return any(
+                _can_reach_terminal(e.target_node, set(visited)) for e in outgoing
+            )
 
         for nid in node_ids:
             if not _can_reach_terminal(nid, set()):
@@ -405,9 +408,9 @@ class AdvanceService:
 
         next_ss = node.sub_states[next_idx]
         next_key = f"{state.current_node}.{next_ss.key}"
-        return state.with_node(
-            state.current_node, next_ss.key, next_idx
-        ).add_history(next_key)
+        return state.with_node(state.current_node, next_ss.key, next_idx).add_history(
+            next_key
+        )
 
     @staticmethod
     def can_advance_to(
@@ -438,9 +441,9 @@ class AdvanceService:
 
         prev_ss = node.sub_states[prev_idx]
         prev_key = f"{state.current_node}.{prev_ss.key} (loop)"
-        return state.with_node(
-            state.current_node, prev_ss.key, prev_idx
-        ).add_history(prev_key)
+        return state.with_node(state.current_node, prev_ss.key, prev_idx).add_history(
+            prev_key
+        )
 
     @staticmethod
     def jump_to_sub_state(
@@ -463,9 +466,9 @@ class AdvanceService:
         if target_idx < 0:
             return None
         history_key = f"{state.current_node}.{target_key} (on_failure)"
-        return state.with_node(
-            state.current_node, target_key, target_idx
-        ).add_history(history_key)
+        return state.with_node(state.current_node, target_key, target_idx).add_history(
+            history_key
+        )
 
 
 class TransitionService:
@@ -496,9 +499,9 @@ class TransitionService:
         target_idx = target_node.sub_state_index(first_key)
         idx = target_idx if target_idx >= 0 else 0
 
-        new_state = state.with_node(
-            target_node_id, first_key, idx
-        ).add_history(f"{target_node_id}.{first_key}")
+        new_state = state.with_node(target_node_id, first_key, idx).add_history(
+            f"{target_node_id}.{first_key}"
+        )
 
         # ── Inicializar sub-estado destino (teoria de grafos) ──
         # Al entrar a un sub-estado nuevo, se inicializa su sub_state_data
@@ -508,9 +511,7 @@ class TransitionService:
         try:
             existing = new_state.get_sub_state_data(first_key)
             if not existing.fields:
-                new_state = new_state.record_submit(
-                    first_key, {"status": "pending"}
-                )
+                new_state = new_state.record_submit(first_key, {"status": "pending"})
         except Exception:
             pass
 

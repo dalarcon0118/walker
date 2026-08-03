@@ -6,18 +6,19 @@ SRP: Each use case orchestrates CPG services behind a clean interface.
 SSOT: The code_analysis feature is the SINGLE owner of CPG data.
       No other feature should read CPG files directly.
 """
+
 from __future__ import annotations
 
 import gzip
 import json
 import os
-from typing import Any
 
 from libs.shared_domain import ExecutionContext, TaskResult
 from features.project import ProjectService
 
 
 # ── CPG health check (SSOT: solo code_analysis lee archivos CPG) ──────────
+
 
 class CheckCpgHealthUseCase:
     """Check CPG health: node count and status.
@@ -73,6 +74,7 @@ class GatherCpgContextUseCase:
     def execute(chain_dir: str, files: list[str] | None = None) -> dict:
         try:
             from features.code_analysis import CpgQueryService
+
             svc = CpgQueryService(chain_dir)
             if files:
                 context = {}
@@ -82,7 +84,10 @@ class GatherCpgContextUseCase:
                         context[f] = result
                 return {"files": context, "files_analyzed": len(files)}
             result = svc.grep("function:") or svc.grep("class:")
-            return {"structure": result[:20] if isinstance(result, list) else result, "files_analyzed": 0}
+            return {
+                "structure": result[:20] if isinstance(result, list) else result,
+                "files_analyzed": 0,
+            }
         except Exception as e:
             return {"error": str(e), "files_analyzed": 0}
 
@@ -93,14 +98,19 @@ class DetectUnusedFunctionsUseCase:
     @staticmethod
     def execute(chain_dir: str, file_filter: str = "") -> dict:
         from features.code_analysis import CpgQueryService
+
         svc = CpgQueryService(chain_dir)
         filters = [("bug", "unused_functions")]
         if file_filter:
             filters.append(("file", file_filter))
         result = svc.grep(" ".join(f"{k}:{v}" for k, v in filters))
         if not result:
-            return {"query": "bug:unused_functions", "total": 0, "matches": [],
-                    "message": "No unused functions found"}
+            return {
+                "query": "bug:unused_functions",
+                "total": 0,
+                "matches": [],
+                "message": "No unused functions found",
+            }
         return result
 
 
@@ -114,8 +124,11 @@ class ReviewCodeUseCase:
     """
 
     @staticmethod
-    def execute(chain_dir: str, files: list[str] | None = None, thresholds: dict | None = None) -> dict:
+    def execute(
+        chain_dir: str, files: list[str] | None = None, thresholds: dict | None = None
+    ) -> dict:
         from features.code_analysis.application.review_service import ReviewUseCase
+
         svc = ReviewUseCase(chain_dir)
         result = svc.review_files(files=files, thresholds=thresholds)
         report = result.to_dict()
@@ -137,8 +150,10 @@ def _load_bug_proposals(chain_dir: str) -> dict:
     try:
         from libs.path_resolver import get_project_dir
         import os
+
         # resolver project_id desde chain_dir
         from features.project import ProjectService
+
         paths = ProjectService.resolve_paths(chain_dir)
         pid = paths.project_id
         proj = get_project_dir(pid)
@@ -158,6 +173,7 @@ class ProjectMetricsUseCase:
     @staticmethod
     def execute(chain_dir: str, file_filter: str = "") -> dict:
         from features.code_analysis.application.review_service import ReviewUseCase
+
         svc = ReviewUseCase(chain_dir)
         files = [file_filter] if file_filter else None
         result = svc.review_files(files=files)

@@ -97,7 +97,9 @@ def _list_projects() -> list[dict]:
                         status = "unknown"
                     sprints.append({"id": s, "status": status, "chain_dir": str(spath)})
                 else:
-                    sprints.append({"id": s, "status": "no-state", "chain_dir": str(spath)})
+                    sprints.append(
+                        {"id": s, "status": "no-state", "chain_dir": str(spath)}
+                    )
             projects.append({"project_id": pid, "sprints": sprints})
         except FileNotFoundError:
             continue  # Skip projects not fully migrated
@@ -162,9 +164,7 @@ def _show_projects_dashboard(projects: list[dict]) -> int:
         print(" No projects in", str(get_projects_dir()))
         print()
         print("  To create one, use:")
-        print(
-            "    walker3 switch <project>/<sprint>   — select existing project"
-        )
+        print("    walker3 switch <project>/<sprint>   — select existing project")
         print("    or create a directory in .cognitive/projects/<name>/")
         return 0
 
@@ -225,6 +225,7 @@ def _show_quality_report(pid: str) -> None:
     """
     try:
         from libs.path_resolver import get_data_path
+
         qr_path = get_data_path(pid, "quality_report.json")
     except Exception:
         return
@@ -296,11 +297,11 @@ def _show_project_status(pid: str) -> int:
         repo = get_repo_path(pid)
         if not repo or not os.path.isdir(repo):
             print(f"\n  🛠  Project '{pid}' not configured.")
-            print(f"  No repo_path to find the code.")
+            print("  No repo_path to find the code.")
             print(f"\n  ▶  Configure the project:")
             print(f"       cd /path/to/your/code/{pid}")
             print(f"       walker prepare --name {pid}")
-            print(f"  Or edit repo_path in:")
+            print("  Or edit repo_path in:")
             print(f"       {get_manifest_path(pid)}")
             return 0
 
@@ -314,7 +315,7 @@ def _show_project_status(pid: str) -> int:
         if not has_cpg:
             print(f"\n  📄 Project '{pid}' — code not scanned yet.")
             print(f"  Code at: {repo}")
-            print(f"\n  ▶  Scan the code to build the CPG:")
+            print("\n  ▶  Scan the code to build the CPG:")
             print(f"       walker agents/kilocode/{pid}/task/scan_code_and_build_cpg")
             print(f"\n  Then you can:")
             print(f"       walker agents/kilocode/{pid}/task/build_initial_ckg")
@@ -325,12 +326,13 @@ def _show_project_status(pid: str) -> int:
 
         # ── 4. Check CKG (knowledge base) ──
         from libs.path_resolver import get_ckg_path
+
         ckg_path = get_ckg_path(pid)
         has_ckg = ckg_path.exists()
         if not has_ckg:
             print(f"\n  🧠 Project '{pid}' — CPG ready, no CKG yet.")
             print(f"  CPG: {cpg_path}")
-            print(f"\n  ▶  Build the initial knowledge graph:")
+            print("\n  ▶  Build the initial knowledge graph:")
             print(f"       walker agents/kilocode/{pid}/task/build_initial_ckg")
             print(f"\n  This will scan your code for libraries, classes,")
             print(f"  functions, and conventions.")
@@ -341,7 +343,7 @@ def _show_project_status(pid: str) -> int:
             print(f"\n  🚀 Project '{pid}' — setup complete.")
             print(f"  CPG: {cpg_path}")
             print(f"  CKG: {ckg_path}")
-            print(f"\n  ▶  Create the first sprint:")
+            print("\n  ▶  Create the first sprint:")
             print(f"       walker3 {pid}/task/create_first_sprint")
             return 0
 

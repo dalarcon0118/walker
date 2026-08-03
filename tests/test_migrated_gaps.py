@@ -41,7 +41,9 @@ class TestHallucination:
                 assert not (issue["module"] == "mymod")
 
     def test_check_python_import_stdlib(self):
-        from features.code_analysis.infrastructure.hallucination import check_python_import
+        from features.code_analysis.infrastructure.hallucination import (
+            check_python_import,
+        )
 
         status, _ = check_python_import("os", "", "", "")
         assert status != "HALLUCINATION"
@@ -51,19 +53,67 @@ class TestHallucination:
 
 
 LAYER_DATA = [
-    ("layer-01", {"layer": "observation", "facts": [{"type": "class", "name": "Foo", "path": "src/foo.py"}], "files_scanned": ["src/foo.py"], "symptoms": ["warning"]}),
-    ("layer-02", {"layer": "structure", "components": [{"name": "mod", "type": "module", "status": "existing"}, {"name": "mod2", "type": "module", "status": "missing"}], "boundaries": [{"name": "core"}]}),
-    ("layer-03", {"layer": "behavior", "flows": [{"name": "main-flow", "steps": ["a", "b"]}], "contracts": [{"interface": "I", "invariants": ["sempre true"]}]}),
-    ("layer-04", {"layer": "causality", "pain_points": [{"description": "lento", "impact": "high"}], "invariants": [{"rule": "inv-x", "current_status": "satisfied"}]}),
-    ("layer-05", {"layer": "purpose", "objectives": [{"goal": "mejorar rendimiento", "priority": 3}], "non_goals": ["no ui"]}),
-    ("layer-06", {"layer": "principles", "heuristics": [{"rule": "kiss"}], "governing_principles": ["clean arch"]}),
+    (
+        "layer-01",
+        {
+            "layer": "observation",
+            "facts": [{"type": "class", "name": "Foo", "path": "src/foo.py"}],
+            "files_scanned": ["src/foo.py"],
+            "symptoms": ["warning"],
+        },
+    ),
+    (
+        "layer-02",
+        {
+            "layer": "structure",
+            "components": [
+                {"name": "mod", "type": "module", "status": "existing"},
+                {"name": "mod2", "type": "module", "status": "missing"},
+            ],
+            "boundaries": [{"name": "core"}],
+        },
+    ),
+    (
+        "layer-03",
+        {
+            "layer": "behavior",
+            "flows": [{"name": "main-flow", "steps": ["a", "b"]}],
+            "contracts": [{"interface": "I", "invariants": ["sempre true"]}],
+        },
+    ),
+    (
+        "layer-04",
+        {
+            "layer": "causality",
+            "pain_points": [{"description": "lento", "impact": "high"}],
+            "invariants": [{"rule": "inv-x", "current_status": "satisfied"}],
+        },
+    ),
+    (
+        "layer-05",
+        {
+            "layer": "purpose",
+            "objectives": [{"goal": "mejorar rendimiento", "priority": 3}],
+            "non_goals": ["no ui"],
+        },
+    ),
+    (
+        "layer-06",
+        {
+            "layer": "principles",
+            "heuristics": [{"rule": "kiss"}],
+            "governing_principles": ["clean arch"],
+        },
+    ),
 ]
 
 
 def _run_deep_cycle(tmp: str) -> tuple[str, str]:
     """Ejecuta init → 6 capas → finalize. Retorna rutas de plan/progress."""
     from features.code_analysis.application.deep_analysis import (
-        init_analysis, submit_layer, finalize_analysis,
+        init_analysis,
+        submit_layer,
+        finalize_analysis,
     )
 
     init_analysis(tmp, "test-proj", "Implementar un modulo de analisis profundo")
@@ -87,7 +137,8 @@ class TestDeepAnalysis:
 
     def test_secuencia_forzada_bloquea(self):
         from features.code_analysis.application.deep_analysis import (
-            init_analysis, submit_layer,
+            init_analysis,
+            submit_layer,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,19 +167,31 @@ class TestDeepAnalysis:
 class TestEnforce:
     @pytest.fixture
     def plan_progress(self):
-        plan = {"plan": {
-            "goal": {"predicates": {"must_exist": ["P1", "P2"]}},
-            "tasks": [
-                {"task_id": "TASK-001", "risks": {"curvature": 0.10}, "validation": {"predicates": ["P1"]}},
-                {"task_id": "TASK-002", "risks": {"curvature": 0.80}, "validation": {"predicates": ["P2"]}},
-            ],
-        }}
-        progress = {"progress": {
-            "current": {
-                "task_states": {"TASK-001": "pending", "TASK-002": "pending"},
-                "next_action": {"task_id": "TASK-001"},
+        plan = {
+            "plan": {
+                "goal": {"predicates": {"must_exist": ["P1", "P2"]}},
+                "tasks": [
+                    {
+                        "task_id": "TASK-001",
+                        "risks": {"curvature": 0.10},
+                        "validation": {"predicates": ["P1"]},
+                    },
+                    {
+                        "task_id": "TASK-002",
+                        "risks": {"curvature": 0.80},
+                        "validation": {"predicates": ["P2"]},
+                    },
+                ],
             }
-        }}
+        }
+        progress = {
+            "progress": {
+                "current": {
+                    "task_states": {"TASK-001": "pending", "TASK-002": "pending"},
+                    "next_action": {"task_id": "TASK-001"},
+                }
+            }
+        }
         return plan, progress
 
     def test_next_action_pasa(self, plan_progress):
@@ -174,12 +237,42 @@ class TestCeremonies:
 
         backlog_dir = os.path.join(tmp, "delta")
         assert cmd_backlog(["init", backlog_dir]) == 0
-        assert cmd_backlog(["add", backlog_dir, "--title", "Implementar login", "--value", "8", "--effort", "3", "--scrum-role", "po"]) == 0
-        assert cmd_backlog(["add", backlog_dir, "--title", "Refactor del modulo core", "--value", "6", "--effort", "5"]) == 0
+        assert (
+            cmd_backlog(
+                [
+                    "add",
+                    backlog_dir,
+                    "--title",
+                    "Implementar login",
+                    "--value",
+                    "8",
+                    "--effort",
+                    "3",
+                    "--scrum-role",
+                    "po",
+                ]
+            )
+            == 0
+        )
+        assert (
+            cmd_backlog(
+                [
+                    "add",
+                    backlog_dir,
+                    "--title",
+                    "Refactor del modulo core",
+                    "--value",
+                    "6",
+                    "--effort",
+                    "5",
+                ]
+            )
+            == 0
+        )
         return backlog_dir
 
     def test_backlog_wsjf_prioriza(self, capsys):
-        from features.spring.application.ceremonies import cmd_backlog, _load_backlog
+        from features.spring.application.ceremonies import _load_backlog
 
         with tempfile.TemporaryDirectory() as tmp:
             backlog_dir = self._make_backlog(tmp)
@@ -193,22 +286,34 @@ class TestCeremonies:
             backlog_dir = self._make_backlog(tmp)
             chain = os.path.join(tmp, "chain-proj")
 
-            rc = cmd_planning([
-                "propose", chain, "--project-id", "projX",
-                "--goal", "Implementar el login del sistema",
-                "--backlog-dir", backlog_dir, "--item-ids", "BL-001,BL-002",
-            ])
+            rc = cmd_planning(
+                [
+                    "propose",
+                    chain,
+                    "--project-id",
+                    "projX",
+                    "--goal",
+                    "Implementar el login del sistema",
+                    "--backlog-dir",
+                    backlog_dir,
+                    "--item-ids",
+                    "BL-001,BL-002",
+                ]
+            )
             assert rc == 3  # plan propuesto, espera confirmación
 
-            task_json = json.dumps({
-                "task_id": "TASK-003", "type": "feature",
-                "objective": "Implementar logout de sesion",
-                "result_state": "El logout funciona correctamente",
-                "domain": "auth",
-                "impacted_artifacts": {"files": []},
-                "risks": {"curvature": 0.2},
-                "validation": {"predicates": []},
-            })
+            task_json = json.dumps(
+                {
+                    "task_id": "TASK-003",
+                    "type": "feature",
+                    "objective": "Implementar logout de sesion",
+                    "result_state": "El logout funciona correctamente",
+                    "domain": "auth",
+                    "impacted_artifacts": {"files": []},
+                    "risks": {"curvature": 0.2},
+                    "validation": {"predicates": []},
+                }
+            )
             rc = cmd_planning(["refine", chain, "--edit", f"tasks:add={task_json}"])
             assert rc == 0
 
@@ -240,58 +345,96 @@ def _make_proj(tmp: str) -> Path:
 
 class TestVerifyEngine:
     def test_symbol_exists_presente_y_ausente(self):
-        from features.task_execution.infrastructure.verify_engine import verify_predicate
+        from features.task_execution.infrastructure.verify_engine import (
+            verify_predicate,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             _make_proj(tmp)
             ok, info = verify_predicate(
-                {"type": "symbol_exists", "symbol": "hello_world", "file": "src/foo.py"}, tmp
+                {
+                    "type": "symbol_exists",
+                    "symbol": "hello_world",
+                    "file": "src/foo.py",
+                },
+                tmp,
             )
             assert ok and info["method"] == "symbol_exists"
             ok2, _ = verify_predicate(
-                {"type": "symbol_exists", "symbol": "not_there", "file": "src/foo.py"}, tmp
+                {"type": "symbol_exists", "symbol": "not_there", "file": "src/foo.py"},
+                tmp,
             )
             assert not ok2
 
     def test_symbol_not_exists(self):
-        from features.task_execution.infrastructure.verify_engine import verify_predicate
+        from features.task_execution.infrastructure.verify_engine import (
+            verify_predicate,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             _make_proj(tmp)
             ok, _ = verify_predicate(
-                {"type": "symbol_not_exists", "symbol": "zombie_symbol", "file": "src/foo.py"}, tmp
+                {
+                    "type": "symbol_not_exists",
+                    "symbol": "zombie_symbol",
+                    "file": "src/foo.py",
+                },
+                tmp,
             )
             assert ok
             ok2, _ = verify_predicate(
-                {"type": "symbol_not_exists", "symbol": "hello_world", "file": "src/foo.py"}, tmp
+                {
+                    "type": "symbol_not_exists",
+                    "symbol": "hello_world",
+                    "file": "src/foo.py",
+                },
+                tmp,
             )
             assert not ok2
 
     def test_file_exists(self):
-        from features.task_execution.infrastructure.verify_engine import verify_predicate
+        from features.task_execution.infrastructure.verify_engine import (
+            verify_predicate,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             _make_proj(tmp)
             ok, _ = verify_predicate({"type": "file_exists", "path": "src/foo.py"}, tmp)
             assert ok
-            ok2, _ = verify_predicate({"type": "file_exists", "path": "src/missing.py"}, tmp)
+            ok2, _ = verify_predicate(
+                {"type": "file_exists", "path": "src/missing.py"}, tmp
+            )
             assert not ok2
 
     def test_command_output_contains(self):
-        from features.task_execution.infrastructure.verify_engine import verify_predicate
+        from features.task_execution.infrastructure.verify_engine import (
+            verify_predicate,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             ok, info = verify_predicate(
-                {"type": "command_output", "command": 'python3 -c "print(42)"', "contains": "42"}, tmp
+                {
+                    "type": "command_output",
+                    "command": 'python3 -c "print(42)"',
+                    "contains": "42",
+                },
+                tmp,
             )
             assert ok and info["method"] == "command_output"
             ok2, _ = verify_predicate(
-                {"type": "command_output", "command": 'python3 -c "print(42)"', "contains": "NOPE"}, tmp
+                {
+                    "type": "command_output",
+                    "command": 'python3 -c "print(42)"',
+                    "contains": "NOPE",
+                },
+                tmp,
             )
             assert not ok2
 
     def test_manual_siempre_pasa(self):
-        from features.task_execution.infrastructure.verify_engine import verify_predicate
+        from features.task_execution.infrastructure.verify_engine import (
+            verify_predicate,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             ok, info = verify_predicate(
@@ -309,27 +452,37 @@ class TestVerifyEngine:
 
     def test_cache_devuelve_misma_info(self):
         from features.task_execution.infrastructure.verify_engine import (
-            invalidate_verify_cache, verify_predicate,
+            invalidate_verify_cache,
+            verify_predicate,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
             _make_proj(tmp)
             invalidate_verify_cache()
-            pred = {"type": "symbol_exists", "symbol": "hello_world", "file": "src/foo.py"}
+            pred = {
+                "type": "symbol_exists",
+                "symbol": "hello_world",
+                "file": "src/foo.py",
+            }
             ok, info = verify_predicate(pred, tmp)
             ok2, info2 = verify_predicate(pred, tmp)
             assert ok == ok2 and info == info2
 
     def test_batch_mantiene_orden_y_cache(self):
         from features.task_execution.infrastructure.verify_engine import (
-            invalidate_verify_cache, verify_predicates_batch,
+            invalidate_verify_cache,
+            verify_predicates_batch,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
             _make_proj(tmp)
             invalidate_verify_cache()
             preds = [
-                {"type": "symbol_exists", "symbol": "hello_world", "file": "src/foo.py"},
+                {
+                    "type": "symbol_exists",
+                    "symbol": "hello_world",
+                    "file": "src/foo.py",
+                },
                 {"type": "symbol_exists", "symbol": "Greeter", "file": "src/foo.py"},
                 {"type": "symbol_exists", "symbol": "ghost", "file": "src/foo.py"},
             ]
@@ -343,13 +496,24 @@ class TestVerifyEngine:
         with tempfile.TemporaryDirectory() as tmp:
             _make_proj(tmp)
             ctx = ExecutionContext.create(session_id="s", chain_dir=tmp)
-            result = verify_predicates(ctx, {
-                "predicates": [
-                    {"type": "symbol_exists", "symbol": "hello_world", "file": "src/foo.py"},
-                    {"type": "symbol_exists", "symbol": "ghost", "file": "src/foo.py"},
-                ],
-                "project_root": tmp,
-            })
+            result = verify_predicates(
+                ctx,
+                {
+                    "predicates": [
+                        {
+                            "type": "symbol_exists",
+                            "symbol": "hello_world",
+                            "file": "src/foo.py",
+                        },
+                        {
+                            "type": "symbol_exists",
+                            "symbol": "ghost",
+                            "file": "src/foo.py",
+                        },
+                    ],
+                    "project_root": tmp,
+                },
+            )
             assert result.ok
             assert result.data["all_passed"] is False
             assert result.data["failed_count"] == 1
@@ -357,7 +521,9 @@ class TestVerifyEngine:
             assert result.data["total"] == 2
 
     def test_parse_predicate_natural_language(self):
-        from features.task_execution.infrastructure.verify_engine import _parse_predicate
+        from features.task_execution.infrastructure.verify_engine import (
+            _parse_predicate,
+        )
 
         pattern, vtype, fhint = _parse_predicate("def hello_world en src/foo.py")
         assert pattern == "def hello_world" and vtype == "must_exist"
@@ -366,18 +532,24 @@ class TestVerifyEngine:
         assert vtype2 == "must_not_exist"
 
     def test_run_verification_type_test(self):
-        from features.task_execution.infrastructure.verify_engine import run_verification
+        from features.task_execution.infrastructure.verify_engine import (
+            run_verification,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "test_demo.py").write_text(
                 "def test_demo():\n    assert 1 == 1\n"
             )
-            assert run_verification(
-                {"predicate": "test_demo", "type": "test"}, tmp
-            ) is True
-            assert run_verification(
-                {"predicate": "test_inexistente_xyz", "type": "test"}, tmp
-            ) is False
+            assert (
+                run_verification({"predicate": "test_demo", "type": "test"}, tmp)
+                is True
+            )
+            assert (
+                run_verification(
+                    {"predicate": "test_inexistente_xyz", "type": "test"}, tmp
+                )
+                is False
+            )
 
 
 # ── 6. metrics_cache (optimización review en build) ─────────────
@@ -490,7 +662,7 @@ class TestCallsCache:
         with tempfile.TemporaryDirectory() as tmp:
             fp = os.path.join(tmp, "mod.py")
             with open(fp, "w") as f:
-                f.write("def a():\n    return b()\n\n" "def b():\n    return 1\n")
+                f.write("def a():\n    return b()\n\ndef b():\n    return 1\n")
             cache_path = os.path.join(tmp, "data", "cfg_calls_cache.json")
             defs = [
                 {"name": "a", "line": 1, "end_line": 2},
@@ -519,7 +691,8 @@ class TestScanDfg:
                 "SECRET = 'sk-abc123'\ndef run():\n    print('x')\n"
             )
             builder = BuildGraphUseCase(
-                project_id="smoke", data_dir=os.path.join(tmp, "data"),
+                project_id="smoke",
+                data_dir=os.path.join(tmp, "data"),
                 code_root=tmp,
             )
             r1 = builder.scan_dfg([str(src)], verbose=False)
@@ -544,7 +717,8 @@ class TestScanDfg:
                 "SECRET = 'sk-abc123'\ndef run():\n    print('x')\n"
             )
             builder = BuildGraphUseCase(
-                project_id="smoke", data_dir=os.path.join(tmp, "data"),
+                project_id="smoke",
+                data_dir=os.path.join(tmp, "data"),
                 code_root=tmp,
             )
             launch = builder.scan_dfg_async([str(src)])
@@ -565,11 +739,18 @@ class TestScanDfg:
 class TestSideEffectContract:
     def test_envelope_estandar(self):
         from features.engine.domain.side_effect_contract import (
-            ok, failed, degraded, is_standard,
+            ok,
+            failed,
+            degraded,
+            is_standard,
         )
 
-        e = ok(type="update_cpg", scope="code_index",
-               summary="CPG indexado", signals={"quality_passed": True})
+        e = ok(
+            type="update_cpg",
+            scope="code_index",
+            summary="CPG indexado",
+            signals={"quality_passed": True},
+        )
         assert is_standard(e)
         assert e["status"] == "ok"
         assert e["scope"] == "code_index"
@@ -589,7 +770,8 @@ class TestSideEffectContract:
 
     def test_normalize_envuelve_dicts_legacy(self):
         from features.engine.domain.side_effect_contract import (
-            normalize, is_standard,
+            normalize,
+            is_standard,
         )
 
         legacy = {"ok": True, "files": 5}
@@ -600,6 +782,7 @@ class TestSideEffectContract:
 
         # Envelope estándar pasa tal cual
         from features.engine.domain.side_effect_contract import ok
+
         e = ok(type="x", scope="code_index", summary="s")
         assert normalize(e, "x", "code_index") is e
 
@@ -623,6 +806,7 @@ class TestSideEffectContract:
                         if name == "quality_gate_failed":
                             return {"transition": "needs_refine"}
                         return None
+
                 return W()
 
         class FakeStateRepo:
@@ -630,6 +814,7 @@ class TestSideEffectContract:
                 class S:
                     current_node = "IMPLEMENT"
                     current_sub_state = "WORK"
+
                 return S()
 
         class FakeTransitionUC:
@@ -658,7 +843,8 @@ class TestSideEffectContract:
                     "type": "update_cpg",
                     "ok": True,
                     "result": ok(
-                        type="update_cpg", scope="code_index",
+                        type="update_cpg",
+                        scope="code_index",
                         summary="CPG indexado; cyclo falla",
                         signals={
                             "quality_passed": False,
@@ -671,7 +857,9 @@ class TestSideEffectContract:
         }
         count = svc._dispatch_events_from_side_effects(FakeCtx(), result)
         assert count == 1
-        assert result["quality"]["last_scan"]["failed_gates"] == ["cyclomatic_complexity"]
+        assert result["quality"]["last_scan"]["failed_gates"] == [
+            "cyclomatic_complexity"
+        ]
         assert result["quality"]["last_scan"]["recommend"] == "refactorizar_primero"
 
     def test_dispatch_no_dispara_si_quality_pasa(self):
@@ -685,6 +873,7 @@ class TestSideEffectContract:
                 class W:
                     def find_event_handler(self, name):
                         return None
+
                 return W()
 
         class FakeStateRepo:
@@ -692,6 +881,7 @@ class TestSideEffectContract:
                 class S:
                     current_node = "IMPLEMENT"
                     current_sub_state = "WORK"
+
                 return S()
 
         class FakeTracer:
@@ -711,7 +901,8 @@ class TestSideEffectContract:
                     "type": "update_cpg",
                     "ok": True,
                     "result": ok(
-                        type="update_cpg", scope="code_index",
+                        type="update_cpg",
+                        scope="code_index",
                         summary="CPG indexado; calidad OK",
                         signals={"quality_passed": True, "recommend": "indexar_ok"},
                     ),
@@ -768,9 +959,11 @@ class TestMonadicPipeline:
         from libs.shared_domain.models import TaskResult
 
         se = {
-            "type": "update_cpg", "ok": True,
+            "type": "update_cpg",
+            "ok": True,
             "result": ok(
-                type="update_cpg", scope="code_index",
+                type="update_cpg",
+                scope="code_index",
                 summary="CPG indexado; cyclo falla",
                 signals={
                     "quality_passed": False,
@@ -797,7 +990,9 @@ class TestMonadicPipeline:
         assert pd["step_advanced_to"] == "CODE_REVIEW_SCAN"
 
     def test_read_last_step_result_desde_sub_state_data(self):
-        from features.engine.application.prompt_context_builder import _read_last_step_result
+        from features.engine.application.prompt_context_builder import (
+            _read_last_step_result,
+        )
 
         ssd = {
             "WORK": {
@@ -865,9 +1060,11 @@ class TestPromptTemplatesStepPlaceholders:
             # engine en vez de {step_failed_gates}
             "failed_gates": "cyclomatic_complexity",
         }
-        for rel in ("implement/work.prompt.json",
-                    "implement/code-review-scan.prompt.json",
-                    "refine/diagnose.prompt.json"):
+        for rel in (
+            "implement/work.prompt.json",
+            "implement/code-review-scan.prompt.json",
+            "refine/diagnose.prompt.json",
+        ):
             path = f".cognitive/projects/walker/data/workflow.v3/prompts/{rel}"
             with open(path) as f:
                 t = json.load(f)
@@ -880,7 +1077,9 @@ class TestPromptTemplatesStepPlaceholders:
 class TestSideEffectsMigrated:
     def test_as_side_effect_envuelve_con_scope(self):
         from features.engine.domain.side_effect_contract import (
-            as_side_effect, SCOPE_KNOWLEDGE, is_standard,
+            as_side_effect,
+            SCOPE_KNOWLEDGE,
+            is_standard,
         )
 
         @as_side_effect(scope=SCOPE_KNOWLEDGE)
@@ -902,7 +1101,8 @@ class TestSideEffectsMigrated:
 
     def test_as_side_effect_scope_decision(self):
         from features.engine.domain.side_effect_contract import (
-            as_side_effect, SCOPE_DECISION,
+            as_side_effect,
+            SCOPE_DECISION,
         )
 
         @as_side_effect(scope=SCOPE_DECISION)
@@ -944,6 +1144,7 @@ class TestSideEffectsMigrated:
                         if name == "qa_failed":
                             return {"transition": "refine"}
                         return None
+
                 return W()
 
         class FakeStateRepo:
@@ -951,6 +1152,7 @@ class TestSideEffectsMigrated:
                 class S:
                     current_node = "VERIFY"
                     current_sub_state = "QA_RUN"
+
                 return S()
 
         class FakeTransitionUC:
@@ -976,7 +1178,8 @@ class TestSideEffectsMigrated:
         result = {
             "side_effects": [
                 {
-                    "type": "emit_event", "ok": True,
+                    "type": "emit_event",
+                    "ok": True,
                     "result": emit_event(FakeCtx(), {"event": "qa_failed"}),
                 }
             ]
@@ -1037,7 +1240,9 @@ class TestValidatedVO:
     def test_verify_input_normaliza_predicates(self):
         from features.task_execution.tasks.verification import VerifyInput
 
-        ok = VerifyInput.from_dict({"predicates": [{"predicate": "def x", "type": "symbol_exists"}]})
+        ok = VerifyInput.from_dict(
+            {"predicates": [{"predicate": "def x", "type": "symbol_exists"}]}
+        )
         assert ok.ok
         assert ok.data.normalized_predicates() == ["def x"]
 
@@ -1062,7 +1267,9 @@ class TestMoreTaskVOs:
         from features.task_execution.tasks.capture_task import CaptureTaskInput
 
         assert CaptureTaskInput.from_dict({}).error
-        ok = CaptureTaskInput.from_dict({"objective": "implementar X", "files": ["a.py"]})
+        ok = CaptureTaskInput.from_dict(
+            {"objective": "implementar X", "files": ["a.py"]}
+        )
         assert ok.ok and ok.data.objective == "implementar X"
         assert not CaptureTaskInput.from_dict({"files": "nope"}).ok
 
@@ -1108,9 +1315,11 @@ class TestTypedPersistence:
         from features.engine.domain.side_effect_contract import ok
 
         se = {
-            "type": "update_cpg", "ok": True,
+            "type": "update_cpg",
+            "ok": True,
             "result": ok(
-                type="update_cpg", scope="code_index",
+                type="update_cpg",
+                scope="code_index",
                 summary="CPG indexado; cyclo falla",
                 signals={
                     "quality_passed": False,
@@ -1119,7 +1328,9 @@ class TestTypedPersistence:
                 },
             ),
         }
-        sr = StepResult.success(side_effects=[se], advanced_to="CODE_REVIEW_SCAN", sub_state="WORK")
+        sr = StepResult.success(
+            side_effects=[se], advanced_to="CODE_REVIEW_SCAN", sub_state="WORK"
+        )
 
         # Roundtrip por JSON (como state.json)
         cp = json.loads(json.dumps(sr.to_checkpoint()))
@@ -1132,7 +1343,9 @@ class TestTypedPersistence:
     def test_checkpoint_corrupto_falla_validado(self):
         from features.engine.domain.step_result import StepResult
 
-        bad = StepResult.from_checkpoint({"__checkpoint__": "StepResult:v1", "ok": "no-bool"})
+        bad = StepResult.from_checkpoint(
+            {"__checkpoint__": "StepResult:v1", "ok": "no-bool"}
+        )
         assert not bad.ok
         assert "ok" in (bad.error or "")
 
@@ -1141,14 +1354,18 @@ class TestTypedPersistence:
 
     def test_read_last_step_result_desde_checkpoint(self):
         import json
-        from features.engine.application.prompt_context_builder import _read_last_step_result
+        from features.engine.application.prompt_context_builder import (
+            _read_last_step_result,
+        )
         from features.engine.domain.step_result import StepResult
         from features.engine.domain.side_effect_contract import ok
 
         se = {
-            "type": "update_cpg", "ok": True,
+            "type": "update_cpg",
+            "ok": True,
             "result": ok(
-                type="update_cpg", scope="code_index",
+                type="update_cpg",
+                scope="code_index",
                 summary="CPG indexado; cyclo falla",
                 signals={
                     "quality_passed": False,
@@ -1157,7 +1374,9 @@ class TestTypedPersistence:
                 },
             ),
         }
-        sr = StepResult.success(side_effects=[se], advanced_to="CODE_REVIEW_SCAN", sub_state="WORK")
+        sr = StepResult.success(
+            side_effects=[se], advanced_to="CODE_REVIEW_SCAN", sub_state="WORK"
+        )
         cp = json.loads(json.dumps(sr.to_checkpoint()))
 
         ssd = {"WORK": {"fields": {"step_checkpoint": cp}}}
@@ -1168,7 +1387,13 @@ class TestTypedPersistence:
         assert ph["step_advanced_to"] == "CODE_REVIEW_SCAN"
 
         # Checkpoint corrupto no crashea
-        ssd_bad = {"WORK": {"fields": {"step_checkpoint": {"__checkpoint__": "StepResult:v1", "ok": "x"}}}}
+        ssd_bad = {
+            "WORK": {
+                "fields": {
+                    "step_checkpoint": {"__checkpoint__": "StepResult:v1", "ok": "x"}
+                }
+            }
+        }
         assert _read_last_step_result(ssd_bad) == {}
 
 
@@ -1179,7 +1404,9 @@ class TestMcpConfig:
         """bootstrap/ vive en to_clean_next/, no en el root. Lo añade al path."""
         import sys
 
-        candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "to_clean_next")
+        candidate = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "to_clean_next"
+        )
         candidate = os.path.realpath(candidate)
         if candidate not in sys.path:
             sys.path.insert(0, candidate)
@@ -1200,7 +1427,10 @@ class TestMcpConfig:
         assert server["command"] == "python3"
         assert server["args"] == ["-m", "features.cli_interface.mcp"]
         # Portable: PYTHONPATH incluye la raíz del walker
-        assert os.path.dirname(os.path.dirname(os.path.abspath(__file__))) in server["env"]["PYTHONPATH"]
+        assert (
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            in server["env"]["PYTHONPATH"]
+        )
 
     def test_formatos_opencode_claude_cursor(self):
         self._ensure_bootstrap_path()
@@ -1220,7 +1450,9 @@ class TestMcpConfig:
         self._ensure_bootstrap_path()
         from bootstrap.cli.mcp_config import cmd_mcp_config
 
-        import io, contextlib, json
+        import io
+        import contextlib
+        import json
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -1234,9 +1466,11 @@ class TestMcpConfig:
 
 class TestMcpConfigService:
     def test_service_detecta_root_y_genera(self):
-        import json, os
+        import json
+        import os
         from features.cli_interface.application.mcp_config_service import (
-            _walker_root, mcp_servers_block,
+            _walker_root,
+            mcp_servers_block,
         )
 
         root = _walker_root()

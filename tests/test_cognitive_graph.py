@@ -16,12 +16,12 @@ import json
 import os
 import tempfile
 import gzip
-from pathlib import Path
 
 
 # ════════════════════════════════════════════════════════════════
 # 1. Gzip fallback
 # ════════════════════════════════════════════════════════════════
+
 
 def test_gzip_fallback():
     """CognitiveGraph debe leer archivos gzip incluso si gzip.decompress falla."""
@@ -33,10 +33,14 @@ def test_gzip_fallback():
         ckg_path = os.path.join(data_dir, "ckg.json.gz")
 
         # Guardar un CKG valido
-        ckg_data = {"index": "ckg", "docs": [
-            {"_id": "test-001", "type": "decision", "statement": "test knowledge"}
-        ], "edges": []}
-        
+        ckg_data = {
+            "index": "ckg",
+            "docs": [
+                {"_id": "test-001", "type": "decision", "statement": "test knowledge"}
+            ],
+            "edges": [],
+        }
+
         # Escribir con gzip normal
         payload = json.dumps(ckg_data, ensure_ascii=False, separators=(",", ":"))
         with open(ckg_path, "wb") as f:
@@ -45,29 +49,47 @@ def test_gzip_fallback():
         # Leer via CognitiveGraph
         cg = CognitiveGraph(tmpdir)
         result = cg.search("ckg", {})
-        assert result["hits"]["total"] == 1, f"Expected 1 doc, got {result['hits']['total']}"
+        assert result["hits"]["total"] == 1, (
+            f"Expected 1 doc, got {result['hits']['total']}"
+        )
         print("  ✅ test_gzip_fallback: gzip normal funciona")
 
         # Simular archivo gzip con trailing data (que hace fallar gzip.decompress)
         with open(ckg_path, "wb") as f:
-            payload = json.dumps({"index": "ckg", "docs": [
-                {"_id": "test-002", "type": "decision", "statement": "trailing data test"}
-            ], "edges": []}, ensure_ascii=False, separators=(",", ":"))
+            payload = json.dumps(
+                {
+                    "index": "ckg",
+                    "docs": [
+                        {
+                            "_id": "test-002",
+                            "type": "decision",
+                            "statement": "trailing data test",
+                        }
+                    ],
+                    "edges": [],
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
             compressed = gzip.compress(payload.encode())
             f.write(compressed)
             f.write(b"TRAILING_DATA")  # trailing data que rompe gzip.decompress
 
         # Leer con CognitiveGraph (debe usar fallback manual)
         from libs.cognitive_graph import CognitiveGraph
+
         cg2 = CognitiveGraph(tmpdir)
         result2 = cg2.search("ckg", {})
-        assert result2["hits"]["total"] == 1, f"gzip fallback failed: expected 1, got {result2['hits']['total']}"
+        assert result2["hits"]["total"] == 1, (
+            f"gzip fallback failed: expected 1, got {result2['hits']['total']}"
+        )
         print("  ✅ test_gzip_fallback: trailing data manejado con fallback zlib")
 
 
 # ════════════════════════════════════════════════════════════════
 # 2. Full-text search via TokenIndex
 # ════════════════════════════════════════════════════════════════
+
 
 def test_fulltext_search():
     """Busqueda full-text via CognitiveGraph con TokenIndex."""
@@ -77,36 +99,55 @@ def test_fulltext_search():
         cg = CognitiveGraph(tmpdir)
 
         # Guardar documentos con search config (delta usa fulltext)
-        cg.store("delta", "TASK-001", {
-            "type": "task",
-            "objective": "Implement authentication module",
-            "domain": "security",
-        })
-        cg.store("delta", "TASK-002", {
-            "type": "task",
-            "objective": "Fix payment gateway timeout",
-            "domain": "payments",
-        })
-        cg.store("delta", "TASK-003", {
-            "type": "task",
-            "objective": "Add logout button to auth module",
-            "domain": "security",
-        })
+        cg.store(
+            "delta",
+            "TASK-001",
+            {
+                "type": "task",
+                "objective": "Implement authentication module",
+                "domain": "security",
+            },
+        )
+        cg.store(
+            "delta",
+            "TASK-002",
+            {
+                "type": "task",
+                "objective": "Fix payment gateway timeout",
+                "domain": "payments",
+            },
+        )
+        cg.store(
+            "delta",
+            "TASK-003",
+            {
+                "type": "task",
+                "objective": "Add logout button to auth module",
+                "domain": "security",
+            },
+        )
 
         # Busqueda full-text por "auth"
         result = cg.search("delta", {"text": "auth"})
-        assert result["hits"]["total"] >= 1, f"Expected >=1 for 'auth', got {result['hits']['total']}"
-        
+        assert result["hits"]["total"] >= 1, (
+            f"Expected >=1 for 'auth', got {result['hits']['total']}"
+        )
+
         # Busqueda estructurada por domain
         result = cg.search("delta", {"domain": "security"})
-        assert result["hits"]["total"] >= 2, f"Expected >=2 for security, got {result['hits']['total']}"
-        
-        print(f"  ✅ test_fulltext_search: {result['hits']['total']} tasks in security domain")
+        assert result["hits"]["total"] >= 2, (
+            f"Expected >=2 for security, got {result['hits']['total']}"
+        )
+
+        print(
+            f"  ✅ test_fulltext_search: {result['hits']['total']} tasks in security domain"
+        )
 
 
 # ════════════════════════════════════════════════════════════════
 # 3. ODM entities
 # ════════════════════════════════════════════════════════════════
+
 
 def test_odm_entities():
     """ODM entities: CRUD, search, type preservation."""
@@ -128,7 +169,12 @@ def test_odm_entities():
         TestTask.bind(cg)
 
         # Crear
-        task = TestTask(task_id="TASK-001", objective="Fix auth bug", domain="security", status="in_progress")
+        task = TestTask(
+            task_id="TASK-001",
+            objective="Fix auth bug",
+            domain="security",
+            status="in_progress",
+        )
         task._cg_instance = cg
         task.save()
 
@@ -136,7 +182,9 @@ def test_odm_entities():
         doc = cg.get("odm_test", "TASK-001")
         assert doc is not None, "Doc should exist"
         source_type = doc["_source"].get("type", "")
-        assert source_type != "odm_test", f"type should NOT be index name, got '{source_type}'"
+        assert source_type != "odm_test", (
+            f"type should NOT be index name, got '{source_type}'"
+        )
 
         # Buscar por texto
         results = TestTask.search("auth", cg=cg)
@@ -153,27 +201,38 @@ def test_odm_entities():
 # 4. Cross-index search
 # ════════════════════════════════════════════════════════════════
 
+
 def test_cross_index_search():
     """search_many debe consultar multiples indices y retornar resultados."""
     from libs.cognitive_graph import CognitiveGraph
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cg = CognitiveGraph(tmpdir)
-        
-        cg.store("delta", "T-001", {"type": "task", "objective": "Auth task", "domain": "security"})
-        cg.store("ckg", "D-001", {"type": "decision", "statement": "Use JWT", "scope": "security"})
 
-        result = cg.search_many({
-            "delta": {"domain": "security"},
-            "ckg": {"scope": "security"},
-        })
-        
+        cg.store(
+            "delta",
+            "T-001",
+            {"type": "task", "objective": "Auth task", "domain": "security"},
+        )
+        cg.store(
+            "ckg",
+            "D-001",
+            {"type": "decision", "statement": "Use JWT", "scope": "security"},
+        )
+
+        result = cg.search_many(
+            {
+                "delta": {"domain": "security"},
+                "ckg": {"scope": "security"},
+            }
+        )
+
         responses = result.get("responses", {})
         assert "delta" in responses, "delta response missing"
         assert "ckg" in responses, "ckg response missing"
         assert responses["delta"]["hits"]["total"] >= 1
         assert responses["ckg"]["hits"]["total"] >= 1
-        
+
         print("  ✅ test_cross_index_search: both indices returned results")
 
 
@@ -181,35 +240,41 @@ def test_cross_index_search():
 # 5. Graph edges and navigation
 # ════════════════════════════════════════════════════════════════
 
+
 def test_graph_edges():
     """Edges en el grafo deben persistir y ser navegables."""
     from libs.cognitive_graph import CognitiveGraph
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cg = CognitiveGraph(tmpdir)
-        
+
         cg.store("delta", "TASK-042", {"objective": "Fix auth"})
         cg.store("delta", "TASK-015", {"objective": "Handle token"})
-        
+
         cg.add_edge("TASK-042", "TASK-015", type="depends_on")
         cg.add_edge("TASK-042", "src/auth.py", type="impacts_file")
-        
+
         # Navegar vecinos
         related = cg.get_related("TASK-042", depth=1)
         assert related["total"] >= 2, f"Expected >=2 nodes, got {related['total']}"
-        assert len(related["edges"]) >= 1, f"Expected >=1 edge, got {len(related['edges'])}"
-        
+        assert len(related["edges"]) >= 1, (
+            f"Expected >=1 edge, got {len(related['edges'])}"
+        )
+
         # Persistencia de edges (recargar)
         cg2 = CognitiveGraph(tmpdir)
         related2 = cg2.get_related("TASK-042", depth=1)
-        assert related2["total"] >= 2, f"After reload: expected >=2, got {related2['total']}"
-        
+        assert related2["total"] >= 2, (
+            f"After reload: expected >=2, got {related2['total']}"
+        )
+
         print("  ✅ test_graph_edges: edges persist and navigate correctly")
 
 
 # ════════════════════════════════════════════════════════════════
 # 6. kg_store + kg_search task flow
 # ════════════════════════════════════════════════════════════════
+
 
 def test_kg_store_search_flow():
     """kg_store debe persistir y kg_search debe encontrar lo guardado."""
@@ -218,7 +283,7 @@ def test_kg_store_search_flow():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         project_root = tmpdir
-        
+
         # Inicializar CKG (simula build_initial_ckg)
         data_dir = os.path.join(project_root, "data")
         os.makedirs(data_dir)
@@ -229,15 +294,29 @@ def test_kg_store_search_flow():
 
         # Guardar via CodeKnowledgeGraph (simula kg_store)
         ckg_service = CodeKnowledgeGraph(project_root)
-        result = ckg_service.save_nodes([
-            {"label": "Clean Architecture with DDD", "type": "decision", "scope": "architecture"}
-        ])
-        assert result["nodes_created"] == 1, f"Expected 1 node created, got {result['nodes_created']}"
+        result = ckg_service.save_nodes(
+            [
+                {
+                    "label": "Clean Architecture with DDD",
+                    "type": "decision",
+                    "scope": "architecture",
+                }
+            ]
+        )
+        assert result["nodes_created"] == 1, (
+            f"Expected 1 node created, got {result['nodes_created']}"
+        )
 
         # Guardar segundo nodo (verificar que no pierde datos previos)
-        result2 = ckg_service.save_nodes([
-            {"label": "Use JWT for authentication", "type": "decision", "scope": "security"}
-        ])
+        result2 = ckg_service.save_nodes(
+            [
+                {
+                    "label": "Use JWT for authentication",
+                    "type": "decision",
+                    "scope": "security",
+                }
+            ]
+        )
         assert result2["nodes_created"] == 1
 
         # Leer con CognitiveGraph (simula kg_search)
@@ -248,14 +327,20 @@ def test_kg_store_search_flow():
 
         # Busqueda por tipo
         decisions = cg.search("ckg", {"type": "decision"})
-        assert decisions["hits"]["total"] == 2, f"Expected 2 decisions, got {decisions['hits']['total']}"
+        assert decisions["hits"]["total"] == 2, (
+            f"Expected 2 decisions, got {decisions['hits']['total']}"
+        )
 
         # Busqueda por scope (normalizado a metadata por kg_store; _match
         # debe encontrar el campo tanto en top-level como en metadata)
         scoped = cg.search("ckg", {"scope": "security"})
-        assert scoped["hits"]["total"] == 1, f"Expected 1 with scope=security, got {scoped['hits']['total']}"
+        assert scoped["hits"]["total"] == 1, (
+            f"Expected 1 with scope=security, got {scoped['hits']['total']}"
+        )
         scoped_arch = cg.search("ckg", {"scope": "architecture"})
-        assert scoped_arch["hits"]["total"] == 1, f"Expected 1 with scope=architecture, got {scoped_arch['hits']['total']}"
+        assert scoped_arch["hits"]["total"] == 1, (
+            f"Expected 1 with scope=architecture, got {scoped_arch['hits']['total']}"
+        )
 
         # Rechazar nodos vacios
         with open(ckg_path, "wb") as f:
@@ -264,71 +349,83 @@ def test_kg_store_search_flow():
         result3 = ckg_service2.save_nodes([{"label": "", "type": "decision"}])
         assert result3["nodes_created"] == 0, "Empty label should be rejected"
 
-        print("  ✅ test_kg_store_search_flow: persistence consistent, empty data rejected")
+        print(
+            "  ✅ test_kg_store_search_flow: persistence consistent, empty data rejected"
+        )
 
 
 # ════════════════════════════════════════════════════════════════
 # 7. Integration: tasks via registry (kg_store, kg_search, kg_extract)
 # ════════════════════════════════════════════════════════════════
 
+
 def _create_test_project(tmpdir: str) -> str:
     """Crea un proyecto de prueba con structure .cognitive/ completa."""
-    import gzip, json
+    import gzip
+    import json
+
     cog_proj = os.path.join(tmpdir, ".cognitive", "projects", "test-project")
     data_dir = os.path.join(cog_proj, "data")
     os.makedirs(data_dir)
-    
+
     # CKG vacio
     empty_ckg = {"index": "ckg", "docs": [], "edges": [], "token_index": {}}
     with open(os.path.join(data_dir, "ckg.json.gz"), "wb") as f:
         f.write(gzip.compress(json.dumps(empty_ckg).encode()))
-    
+
     # delta vacio (para kg_search)
     empty_delta = {"index": "delta", "docs": [], "edges": [], "token_index": {}}
     with open(os.path.join(data_dir, "delta.json.gz"), "wb") as f:
         f.write(gzip.compress(json.dumps(empty_delta).encode()))
-    
+
     # project.json minimo
     with open(os.path.join(cog_proj, "project.json"), "w") as f:
         json.dump({"project_id": "test-project", "name": "Test"}, f)
-    
+
     return cog_proj
 
 
 def test_kg_store_task():
     """Ejecutar kg_store como task registrada, con project_root directo."""
     from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         cog_proj = _create_test_project(tmpdir)
-        
+
         # Usar CodeKnowledgeGraph directamente (igual que kg_store internamente)
         ckg = CodeKnowledgeGraph(cog_proj)
-        result = ckg.save_nodes([
-            {"label": "Integration test knowledge", "type": "decision", "scope": "test"}
-        ])
+        result = ckg.save_nodes(
+            [
+                {
+                    "label": "Integration test knowledge",
+                    "type": "decision",
+                    "scope": "test",
+                }
+            ]
+        )
         assert result["nodes_created"] == 1, f"save_nodes failed: {result}"
-        
+
         # Verificar con CognitiveGraph directo (igual que kg_search internamente)
         from libs.cognitive_graph import CognitiveGraph
+
         cg = CognitiveGraph(cog_proj)
         search_result = cg.search("ckg", {"type": "decision"})
         total = search_result["hits"]["total"]
         assert total >= 1, f"Expected >=1 doc, got {total}"
-        
+
         print(f"  ✅ test_kg_store_task: stored + verified ({total} docs)")
 
 
 def test_kg_store_empty_rejected():
     """kg_store.save_nodes debe rechazar label vacio."""
     from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         cog_proj = _create_test_project(tmpdir)
         ckg = CodeKnowledgeGraph(cog_proj)
         result = ckg.save_nodes([{"label": "", "type": "decision"}])
         assert result["nodes_created"] == 0, "Empty label should be rejected"
-        
+
         print("  ✅ test_kg_store_empty_rejected: empty label rejected")
 
 
@@ -336,68 +433,173 @@ def test_kg_extract_task():
     """kg_extract() function debe devolver stats + questionnaire."""
     from features.task_execution.tasks.kg_extract import kg_extract
     from libs.shared_domain import ExecutionContext
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         cog_proj = _create_test_project(tmpdir)
-        
+
         # Simular que hay un CognitiveGraph disponible
         ctx = ExecutionContext.create(session_id="test", chain_dir=cog_proj)
         data = {"scope": "all"}
-        
+
         result = kg_extract(ctx, data)
         # Puede fallar si no hay CPG, pero debe devolver estructura valida
         if result.ok:
-            stats = result.data.get("stats", {})
+            result.data.get("stats", {})
             questionnaire = result.data.get("questionnaire", {})
             assert len(questionnaire.get("questions", [])) == 6
             print(f"  ✅ test_kg_extract_task: CPG stats + 6 questions")
         else:
             # Sin CPG es aceptable (proyecto de prueba no tiene CPG)
-            print(f"  ✅ test_kg_extract_task: no CPG (expected in test env)")
+            print("  ✅ test_kg_extract_task: no CPG (expected in test env)")
 
 
 def test_kg_schema_via_cg():
     """kg_schema: CognitiveGraph debe listar indices."""
     from libs.cognitive_graph import CognitiveGraph
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         _create_test_project(tmpdir)
         cg = CognitiveGraph(tmpdir)
         indexes = cg.list_indexes()
         assert "ckg" in indexes, f"CKG not in {indexes}"
         assert "delta" in indexes, f"Delta not in {indexes}"
-        
+
         print(f"  ✅ test_kg_schema_via_cg: indices: {indexes}")
 
 
 def test_kg_multi_via_cg():
     """kg_multi: CognitiveGraph.search_many debe consultar multi-indice."""
     from libs.cognitive_graph import CognitiveGraph
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         cog_proj = _create_test_project(tmpdir)
         from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+
         ckg = CodeKnowledgeGraph(cog_proj)
-        ckg.save_nodes([
-            {"label": "Multi-index test", "type": "decision", "scope": "test"}
-        ])
-        
+        ckg.save_nodes(
+            [{"label": "Multi-index test", "type": "decision", "scope": "test"}]
+        )
+
         cg = CognitiveGraph(cog_proj)
-        result = cg.search_many({
-            "ckg": {"type": "decision"},
-            "delta": {},
-        })
+        result = cg.search_many(
+            {
+                "ckg": {"type": "decision"},
+                "delta": {},
+            }
+        )
         responses = result.get("responses", {})
         assert "ckg" in responses, "Missing ckg"
         assert responses["ckg"]["hits"]["total"] >= 1
         assert "delta" in responses, "Missing delta"
-        
+
         print(f"  ✅ test_kg_multi_via_cg: {len(responses)} indices")
+
+
+def test_trace_search_dedupes_native_vs_registry():
+    """TraceGraph: el mismo trace.json.gz no debe devolverse duplicado.
+
+    El _trace_search fusiona storage nativo (chain_dir/data/trace.json.gz) y
+    el storage del proyecto real (get_project_dir → repo_path descentralizado).
+    Cuando chain_dir == project_dir (caso MCP con project_id desde CWD), ambas
+    rutas resuelven al MISMO archivo → cada evento se contaba 2 veces.
+    El dedupe por _id debe devolver cada evento exactamente una vez.
+    """
+    import gzip
+    import json
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cog_proj = _create_test_project(tmpdir)
+
+        # Escribir trace.json.gz con 3 eventos kg_query únicos
+        docs = [
+            {
+                "_id": f"ev-{i:012d}",
+                "tool": "",
+                "task_id": "",
+                "session_id": "cli",
+                "event_type": "kg_query",
+                "timestamp": f"2026-08-01T00:00:0{i}",
+                "data": {
+                    "index": "ckg",
+                    "query": {"type": "convention"},
+                    "project_id": "",
+                },
+            }
+            for i in range(1, 4)
+        ]
+        trace_payload = {"index": "trace", "docs": docs, "edges": []}
+        with open(os.path.join(cog_proj, "data", "trace.json.gz"), "wb") as f:
+            f.write(gzip.compress(json.dumps(trace_payload).encode()))
+
+        # chain_dir == project_dir: fuente nativa y registry apuntan al mismo archivo
+        cg = CognitiveGraph(cog_proj)
+        result = cg.search("trace", {"type": "kg_query"})
+        hits = result["hits"]["hits"]
+
+        assert result["hits"]["total"] == 3, (
+            f"Esperaba 3 eventos únicos, obtuvo {result['hits']['total']}"
+        )
+        unique_ids = {h["_id"] for h in hits}
+        assert len(unique_ids) == 3, f"IDs duplicados: {len(unique_ids)} != 3"
+
+        print(
+            "  ✅ test_trace_search_dedupes_native_vs_registry: 3 eventos, 0 duplicados"
+        )
+
+
+def test_query_manager_traces_composer_queries():
+    """QueryManager.query_layer() debe registrar eventos kg_query en el trace.
+
+    El composer inyecta capas (cpg/ckg/delta/trace) via query_layer().
+    Antes esas consultas eran INVISIBLES en el TraceGraph (solo las tasks
+    CLI kg_search/kg_multi registraban eventos). Con este fix, cada capa
+    consultada queda trazada con el task_id/session_id real del contexto.
+    """
+    from features.engine.context.query_manager import QueryManager
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cog_proj = _create_test_project(tmpdir)
+
+        # Escribir trace.json.gz vacío (para que el índice exista)
+        import gzip
+
+        trace_payload = {"index": "trace", "docs": [], "edges": []}
+        with open(os.path.join(cog_proj, "data", "trace.json.gz"), "wb") as f:
+            f.write(gzip.compress(json.dumps(trace_payload).encode()))
+
+        qm = QueryManager(
+            cog_proj,
+            task_id="TASK-1",
+            session_id="sess-composer-test",
+        )
+        qm.query_layer("ckg", {"type": "convention"})
+        qm.query_layer("state", {})
+
+        from libs.infrastructure import CognitiveGraphSearcher
+
+        searcher = CognitiveGraphSearcher(cog_proj)
+        result = searcher.search("trace", {"type": "kg_query"})
+        hits = result["hits"]["hits"]
+
+        # Cada query_layer registra 1 evento kg_query (ckg + state = 2)
+        assert result["hits"]["total"] == 2, (
+            f"Esperaba 2 eventos kg_query del composer, obtuvo {result['hits']['total']}"
+        )
+        sessions = {h["_source"].get("session_id") for h in hits}
+        assert sessions == {"sess-composer-test"}, f"Session no trazada: {sessions}"
+        tasks = {h["_source"].get("task_id") for h in hits}
+        assert tasks == {"TASK-1"}, f"Task no trazada: {tasks}"
+
+        print(
+            "  ✅ test_query_manager_traces_composer_queries: 2 eventos, session/task trazados"
+        )
 
 
 # ════════════════════════════════════════════════════════════════
 # 8. TaskResult failure with data
 # ════════════════════════════════════════════════════════════════
+
 
 def test_task_result_failure_with_data():
     """TaskResult.failure() debe aceptar data dict con next_step."""
@@ -419,21 +621,29 @@ def test_decision_lifecycle_supersedes():
         ckg = CodeKnowledgeGraph(cog_proj)
 
         # 1) Decision v1 activa
-        r1 = ckg.save_nodes([{
-            "label": "decision:use-jwt",
-            "type": "decision",
-            "metadata": {"decision": "approve", "sub_state": "DESIGN.APPROVE"},
-        }])
+        r1 = ckg.save_nodes(
+            [
+                {
+                    "label": "decision:use-jwt",
+                    "type": "decision",
+                    "metadata": {"decision": "approve", "sub_state": "DESIGN.APPROVE"},
+                }
+            ]
+        )
         assert r1["nodes_created"] == 1
         v1_id = r1["node_ids"][0]
 
         # 2) Decision v2 que SUPERSEDE a la v1 -> v1 queda degradada
-        r2 = ckg.save_nodes([{
-            "label": "decision:use-jwt-v2",
-            "type": "decision",
-            "supersedes": [v1_id],
-            "metadata": {"decision": "reject", "sub_state": "DESIGN.APPROVE"},
-        }])
+        r2 = ckg.save_nodes(
+            [
+                {
+                    "label": "decision:use-jwt-v2",
+                    "type": "decision",
+                    "supersedes": [v1_id],
+                    "metadata": {"decision": "reject", "sub_state": "DESIGN.APPROVE"},
+                }
+            ]
+        )
         assert r2["degraded"] == [v1_id], f"Expected v1 degraded, got {r2['degraded']}"
         v2_id = r2["node_ids"][0]
 
@@ -441,12 +651,16 @@ def test_decision_lifecycle_supersedes():
         activas = ckg.query({"type": "decision"})
         activas_ids = [x["_id"] for x in activas]
         assert v2_id in activas_ids, "v2 debe estar activa"
-        assert v1_id not in activas_ids, "v1 debe estar degradada (no visible en query normal)"
+        assert v1_id not in activas_ids, (
+            "v1 debe estar degradada (no visible en query normal)"
+        )
 
         # 4) include_superseded: historia completa
         historia = ckg.query({"type": "decision", "include_superseded": True})
         historia_ids = [x["_id"] for x in historia]
-        assert v1_id in historia_ids and v2_id in historia_ids, "Historia debe incluir ambas"
+        assert v1_id in historia_ids and v2_id in historia_ids, (
+            "Historia debe incluir ambas"
+        )
 
         # 5) La degradada tiene metadata de trazabilidad
         v1_doc = next(x for x in historia if x["_id"] == v1_id)
@@ -454,7 +668,9 @@ def test_decision_lifecycle_supersedes():
         assert meta.get("status") == "superseded", f"status={meta.get('status')}"
         assert meta.get("superseded_by"), "debe registrar quien la reemplazo"
         assert meta.get("superseded_at"), "debe registrar cuando"
-        print("  ✅ test_decision_lifecycle_supersedes: supersedes degrada, query filtra")
+        print(
+            "  ✅ test_decision_lifecycle_supersedes: supersedes degrada, query filtra"
+        )
 
 
 def test_capture_decision_detects_superseded():
@@ -470,15 +686,21 @@ def test_capture_decision_detects_superseded():
         chain_dir = os.path.join(cog_proj, "data", "spring", "sprint-test")
         os.makedirs(chain_dir, exist_ok=True)
 
-        ctx = ExecutionContext(session_id="s1", chain_dir=chain_dir, trace_id="t1", span_id="sp1")
+        ctx = ExecutionContext(
+            session_id="s1", chain_dir=chain_dir, trace_id="t1", span_id="sp1"
+        )
 
         # 1) PO aprueba
-        r1 = capture_decision(ctx, {"decision": "approve", "sub_state": "DESIGN.APPROVE"})
+        r1 = capture_decision(
+            ctx, {"decision": "approve", "sub_state": "DESIGN.APPROVE"}
+        )
         assert r1["captured"] is True, f"capture 1 failed: {r1}"
         first_id = r1["result"]["node_ids"][0]
 
         # 2) PO cambia de opinion -> reject sobre el MISMO sub_state
-        r2 = capture_decision(ctx, {"decision": "reject", "sub_state": "DESIGN.APPROVE"})
+        r2 = capture_decision(
+            ctx, {"decision": "reject", "sub_state": "DESIGN.APPROVE"}
+        )
         assert r2["captured"] is True, f"capture 2 failed: {r2}"
         assert r2["result"]["supersedes_detected"] == [first_id], (
             f"debe detectar la approve previa, got {r2['result'].get('supersedes_detected')}"
@@ -492,9 +714,15 @@ def test_capture_decision_detects_superseded():
         assert activas[0]["metadata"]["decision"] == "reject"
 
         # 4) reconfirmacion del mismo valor NO supersede
-        r3 = capture_decision(ctx, {"decision": "reject", "sub_state": "DESIGN.APPROVE"})
-        assert r3["result"].get("supersedes_detected") == [], "reconfirmacion no debe superseder"
-        print("  ✅ test_capture_decision_detects_superseded: deteccion automatica funcional")
+        r3 = capture_decision(
+            ctx, {"decision": "reject", "sub_state": "DESIGN.APPROVE"}
+        )
+        assert r3["result"].get("supersedes_detected") == [], (
+            "reconfirmacion no debe superseder"
+        )
+        print(
+            "  ✅ test_capture_decision_detects_superseded: deteccion automatica funcional"
+        )
 
 
 def test_capture_task_creates_session_sprint():
@@ -504,35 +732,45 @@ def test_capture_task_creates_session_sprint():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cog_proj = _create_test_project(tmpdir)
-        ctx = ExecutionContext(session_id="s-test", chain_dir="", trace_id="t1", span_id="sp1")
+        ctx = ExecutionContext(
+            session_id="s-test", chain_dir="", trace_id="t1", span_id="sp1"
+        )
 
         # 1) Capturar primera tarea -> crea el spring informal
-        r1 = capture_task(ctx, {
-            "_project_id": "test-project",
-            "_project_root": cog_proj,
-            "_payload": {
-                "objective": "Implementar feature X",
-                "domain": "test-domain",
-                "type": "feature",
-                "result_state": "Feature X funcionando",
-                "files": ["features/x.py"],
+        r1 = capture_task(
+            ctx,
+            {
+                "_project_id": "test-project",
+                "_project_root": cog_proj,
+                "_payload": {
+                    "objective": "Implementar feature X",
+                    "domain": "test-domain",
+                    "type": "feature",
+                    "result_state": "Feature X funcionando",
+                    "files": ["features/x.py"],
+                },
             },
-        })
+        )
         assert r1.ok, f"capture_task 1 failed: {r1.error}"
         sprint_id = r1.data["sprint_id"]
         assert sprint_id.startswith("session-"), f"sprint_id={sprint_id}"
         assert r1.data["created_sprint"] is True, "debe crear el sprint la primera vez"
 
         # 2) Capturar segunda tarea -> reutiliza el mismo spring informal
-        r2 = capture_task(ctx, {
-            "_project_id": "test-project",
-            "_project_root": cog_proj,
-            "_payload": {"objective": "Arreglar bug Y", "domain": "test-domain"},
-        })
+        r2 = capture_task(
+            ctx,
+            {
+                "_project_id": "test-project",
+                "_project_root": cog_proj,
+                "_payload": {"objective": "Arreglar bug Y", "domain": "test-domain"},
+            },
+        )
         assert r2.ok
         assert r2.data["sprint_id"] == sprint_id, "misma fecha = mismo spring"
         assert r2.data["created_sprint"] is False, "no debe recrear el sprint"
-        assert r2.data["spec_count"] == 2, f"debe haber 2 specs, got {r2.data['spec_count']}"
+        assert r2.data["spec_count"] == 2, (
+            f"debe haber 2 specs, got {r2.data['spec_count']}"
+        )
 
         # 3) El sprint informal persiste en el delta (fuente unica) y en
         #    plan.json + sprint-state.json (proyecciones de compatibilidad)
@@ -543,9 +781,13 @@ def test_capture_task_creates_session_sprint():
             plan = json.load(f)
         specs = plan.get("specifications", [])
         assert len(specs) == 2, f"plan debe tener 2 specs, got {len(specs)}"
-        assert specs[0]["domain"] == "test-domain", f"domain se debe preservar: {specs[0].get('domain')}"
+        assert specs[0]["domain"] == "test-domain", (
+            f"domain se debe preservar: {specs[0].get('domain')}"
+        )
         assert specs[0]["result_state"] == "Feature X funcionando"
-        files = specs[0].get("files") or specs[0].get("impacted_artifacts", {}).get("files", [])
+        files = specs[0].get("files") or specs[0].get("impacted_artifacts", {}).get(
+            "files", []
+        )
         assert files == ["features/x.py"], f"files={files}"
         with open(os.path.join(spring_root, "sprint-state.json")) as f:
             state = json.load(f)
@@ -553,18 +795,33 @@ def test_capture_task_creates_session_sprint():
 
         # 4) El delta (fuente unica) tiene nodo spring + specs con estado
         from libs.cognitive_graph import CognitiveGraph
+
         cg = CognitiveGraph(cog_proj, auto_register=True)
         idx = cg._indexes.get("delta")
         result = idx.search({}) if hasattr(idx, "search") else {"hits": {"hits": []}}
         docs = [h.get("_source", h) for h in result.get("hits", {}).get("hits", [])]
-        spring_docs = [d for d in docs if d.get("_id") == sprint_id or d.get("type") == "spring"]
-        assert any(d.get("type") == "spring" for d in spring_docs), "debe existir nodo spring"
-        session_docs = [d for d in docs if d.get("spring_id") == sprint_id or d.get("sprint_id") == sprint_id]
-        assert len(session_docs) >= 2, f"delta debe tener specs de session, got {len(session_docs)}"
+        spring_docs = [
+            d for d in docs if d.get("_id") == sprint_id or d.get("type") == "spring"
+        ]
+        assert any(d.get("type") == "spring" for d in spring_docs), (
+            "debe existir nodo spring"
+        )
+        session_docs = [
+            d
+            for d in docs
+            if d.get("spring_id") == sprint_id or d.get("sprint_id") == sprint_id
+        ]
+        assert len(session_docs) >= 2, (
+            f"delta debe tener specs de session, got {len(session_docs)}"
+        )
         # IDs unicos por sprint
         task_ids = [d.get("task_id", d.get("_id", "")) for d in session_docs]
-        assert all(t.startswith(f"{sprint_id}:") or t == sprint_id for t in task_ids), f"ids={task_ids}"
-        print("  ✅ test_capture_task_creates_session_sprint: spring informal + delta fuente unica")
+        assert all(t.startswith(f"{sprint_id}:") or t == sprint_id for t in task_ids), (
+            f"ids={task_ids}"
+        )
+        print(
+            "  ✅ test_capture_task_creates_session_sprint: spring informal + delta fuente unica"
+        )
 
 
 def test_index_sprint_unique_ids():
@@ -582,8 +839,12 @@ def test_index_sprint_unique_ids():
             os.makedirs(sprint_dir, exist_ok=True)
             state = {
                 "specifications": [
-                    {"spec_id": "SPEC-001", "objective": f"Tarea de {sprint_id}",
-                     "domain": "test", "type": "feature"},
+                    {
+                        "spec_id": "SPEC-001",
+                        "objective": f"Tarea de {sprint_id}",
+                        "domain": "test",
+                        "type": "feature",
+                    },
                 ],
             }
             with open(os.path.join(sprint_dir, "sprint-state.json"), "w") as f:
@@ -605,13 +866,17 @@ def test_index_sprint_unique_ids():
 
 def test_spring_graph_service_unified_model():
     """SpringGraphService: modelo unificado (spring+spec+estados) sobre el delta."""
-    from features.delta_tracking.application.spring_graph_service import SpringGraphService
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         svc = SpringGraphService(tmpdir)
 
         # 1. Crear spring + specs
-        svc.create_spring("sprint-demo", goal="Unificar fuentes", status="planning", project_id="demo")
+        svc.create_spring(
+            "sprint-demo", goal="Unificar fuentes", status="planning", project_id="demo"
+        )
         svc.add_spec("sprint-demo", "Crear nodo spring", domain="delta", spec_index=0)
         svc.add_spec("sprint-demo", "Crear nodo spec", domain="delta", spec_index=1)
 
@@ -639,6 +904,7 @@ def test_spring_graph_service_unified_model():
 
         # 6. Persistencia en disco (delta.json.gz)
         import gzip
+
         delta_path = os.path.join(tmpdir, "data", "delta.json.gz")
         assert os.path.exists(delta_path), "delta debe persistir"
         d = json.loads(gzip.open(delta_path).read())
@@ -647,24 +913,39 @@ def test_spring_graph_service_unified_model():
         # Edges contains
         edge_types = [e.get("type") for e in d.get("edges", [])]
         assert "contains" in edge_types, f"edges={edge_types}"
-        print("  ✅ test_spring_graph_service_unified_model: modelo unificado sobre delta")
+        print(
+            "  ✅ test_spring_graph_service_unified_model: modelo unificado sobre delta"
+        )
 
 
 def test_spring_graph_import_legacy():
     """import_spring: puente desde sprint-state.json/plan.json legacy al modelo unificado."""
-    from features.delta_tracking.application.spring_graph_service import SpringGraphService
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Crear un sprint legacy (plan.json + sprint-state.json)
         sprint_dir = os.path.join(tmpdir, "data", "spring", "sprint-legacy")
         os.makedirs(sprint_dir, exist_ok=True)
         plan = {
-            "chain_id": "sprint-legacy", "goal": "Spring legacy",
+            "chain_id": "sprint-legacy",
+            "goal": "Spring legacy",
             "specifications": [
-                {"spec_id": "SPEC-001", "objective": "Tarea A", "domain": "d1", "type": "feature",
-                 "status": "specified"},
-                {"spec_id": "SPEC-002", "objective": "Tarea B", "domain": "d2", "type": "feature",
-                 "status": "draft"},
+                {
+                    "spec_id": "SPEC-001",
+                    "objective": "Tarea A",
+                    "domain": "d1",
+                    "type": "feature",
+                    "status": "specified",
+                },
+                {
+                    "spec_id": "SPEC-002",
+                    "objective": "Tarea B",
+                    "domain": "d2",
+                    "type": "feature",
+                    "status": "draft",
+                },
             ],
         }
         with open(os.path.join(sprint_dir, "plan.json"), "w") as f:
@@ -678,7 +959,9 @@ def test_spring_graph_import_legacy():
 
         # Spring en modelo unificado con estado importado
         spring = svc.get_spring("sprint-legacy")
-        assert spring is not None and spring.get("status") == "active", f"spring={spring}"
+        assert spring is not None and spring.get("status") == "active", (
+            f"spring={spring}"
+        )
 
         specs = svc.get_specs("sprint-legacy")
         assert len(specs) == 2, f"specs={len(specs)}"
@@ -692,11 +975,12 @@ def test_spring_graph_import_legacy():
 # Runner
 # ════════════════════════════════════════════════════════════════
 
+
 def run_all():
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("CognitiveGraph Tests")
-    print(f"{'='*60}\n")
-    
+    print(f"{'=' * 60}\n")
+
     tests = [
         ("Gzip fallback", test_gzip_fallback),
         ("Full-text search", test_fulltext_search),
@@ -711,13 +995,16 @@ def run_all():
         ("kg_schema via CG", test_kg_schema_via_cg),
         ("kg_multi via CG", test_kg_multi_via_cg),
         ("Decision lifecycle (supersedes)", test_decision_lifecycle_supersedes),
-        ("capture_decision detects superseded", test_capture_decision_detects_superseded),
+        (
+            "capture_decision detects superseded",
+            test_capture_decision_detects_superseded,
+        ),
         ("capture_task session sprint", test_capture_task_creates_session_sprint),
         ("index_sprint unique ids", test_index_sprint_unique_ids),
         ("SpringGraph unified model", test_spring_graph_service_unified_model),
         ("SpringGraph import legacy", test_spring_graph_import_legacy),
     ]
-    
+
     passed = 0
     failed = 0
     for name, fn in tests:
@@ -727,15 +1014,17 @@ def run_all():
         except Exception as e:
             print(f"  ❌ {name}: {e}")
             import traceback
+
             traceback.print_exc()
             failed += 1
-    
-    print(f"\n{'='*60}")
+
+    print(f"\n{'=' * 60}")
     print(f"Results: {passed} passed, {failed} failed")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
     return failed == 0
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(0 if run_all() else 1)

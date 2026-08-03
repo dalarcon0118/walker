@@ -24,6 +24,7 @@ Jerarquía de resolución:
       └── sessions/               ← sesiones del agente
           └── agents/{agent_id}/
 """
+
 from __future__ import annotations
 
 import json
@@ -34,17 +35,18 @@ from typing import Any
 
 # ── Acceso a config sin pasar por config.get() (evita recursion circular) ──
 
+
 def _read_config_file() -> dict:
     """Lee config en cascada: .cognitive/config.json del proyecto + walker/config.json.
-    
+
     El orden de precedencia (de mayor a menor):
     1. .cognitive/config.json del proyecto activo (detectado desde CWD)
     2. config/config.json del walker (base)
-    
+
     Esto permite que cada proyecto tenga sus propios overrides.
     """
     result: dict = {}
-    
+
     # Base: config del walker
     walker_cfg = get_walker_root() / "config" / "config.json"
     if walker_cfg.is_file():
@@ -52,7 +54,7 @@ def _read_config_file() -> dict:
             result.update(json.loads(walker_cfg.read_text()))
         except Exception:
             pass
-    
+
     # Override: .cognitive/config.json del proyecto activo (desde CWD)
     active_cog = find_cognitive_root()
     if active_cog is not None:
@@ -62,13 +64,13 @@ def _read_config_file() -> dict:
                 result.update(json.loads(project_cfg.read_text()))
             except Exception:
                 pass
-    
+
     return result
 
 
 def _get_cfg(key: str, default: Any = None) -> Any:
     """Valor de config con override directo del archivo + fallback a config.get.
-    
+
     Para keys que CAUSAN recursion (projects_dir, sessions_dir) se usa solo
     el override directo del archivo. Para el resto delega en config.get().
     """
@@ -76,12 +78,13 @@ def _get_cfg(key: str, default: Any = None) -> Any:
     cfg = _read_config_file()
     if key in cfg:
         return cfg[key]
-    
+
     # Para keys no-path, delegar en config.get() (no causan recursion)
     if key not in ("projects_dir", "sessions_dir", "scripts_dir"):
         from features.engine.infrastructure.config import get as cfg_get
+
         return cfg_get(key, default)
-    
+
     return None  # Sin override → quien llama usa su default
 
 
@@ -92,11 +95,13 @@ def _get_cfg(key: str, default: Any = None) -> Any:
 
 def get_walker_root() -> Path:
     """Raíz del proyecto walker.
-    
+
     Camina hacia arriba desde scripts/_walker/shared/path_resolver.py
     hasta encontrar config/config.json.
     """
-    this_dir = Path(os.path.dirname(os.path.abspath(__file__)))  # .../scripts/_walker/shared/
+    this_dir = Path(
+        os.path.dirname(os.path.abspath(__file__))
+    )  # .../scripts/_walker/shared/
     candidate = this_dir
     for _ in range(8):
         if (candidate / "config" / "config.json").is_file():
@@ -115,12 +120,12 @@ def get_walker_root() -> Path:
 
 def find_cognitive_root(start: str | None = None) -> Path | None:
     """Busca el .cognitive/ más cercano caminando hacia arriba desde CWD.
-    
+
     Como git encuentra .git/, el walker encuentra .cognitive/.
-    
+
     Args:
         start: Directorio donde empezar la búsqueda (default: os.getcwd()).
-    
+
     Returns:
         Path al directorio .cognitive/ si se encuentra, None si no.
     """
@@ -138,22 +143,22 @@ def find_cognitive_root(start: str | None = None) -> Path | None:
 
 def get_active_cognitive_dir() -> Path:
     """Retorna el .cognitive/ del walker (registro central de proyectos).
-    
+
     El walker tiene su propio .cognitive/ con:
       - config.json          → configuración del walker
       - projects/{pid}/      → manifests con repo_path al código real
       - sessions/            → sesiones de agentes
-    
+
     Si CWD tiene un .cognitive/ propio, se usa como override
     (para proyectos autocontenidos con walker prepare).
     """
     walker_cognitive = get_cognitive_dir()
     project_cognitive = find_cognitive_root()
-    
+
     # Si CWD tiene .cognitive/ propio, usarlo como override
     if project_cognitive is not None and project_cognitive != walker_cognitive:
         return project_cognitive
-    
+
     return walker_cognitive
 
 
@@ -164,7 +169,7 @@ def get_active_cognitive_dir() -> Path:
 
 def get_cognitive_dir() -> Path:
     """Directorio .cognitive/ del walker, desde su raíz detectada por __file__.
-    
+
     Es el registro central: contiene config.json, projects/{pid}, sessions/.
     """
     return get_walker_root() / ".cognitive"
@@ -172,7 +177,7 @@ def get_cognitive_dir() -> Path:
 
 def get_projects_dir() -> Path:
     """Directorio de proyectos: <cognitive>/projects/ (o override).
-    
+
     cognitive = .cognitive/ detectado desde CWD o fallback al del walker.
     """
     cfg = _get_cfg("projects_dir")
@@ -183,7 +188,7 @@ def get_projects_dir() -> Path:
 
 def get_sessions_dir() -> Path:
     """Directorio de sesiones: <cognitive>/sessions/ (o override).
-    
+
     cognitive = .cognitive/ detectado desde CWD o fallback al del walker.
     Si hay WALKER_AGENT_ID, retorna .../agents/{agent_id}/
     """
@@ -203,7 +208,7 @@ def get_sessions_dir() -> Path:
 
 def get_project_dir(project_id: str) -> Path:
     """Directorio cognitivo de un proyecto.
-    
+
     1. Si el proyecto tiene repo_path en data/projects.json y existe
        .cognitive/projects/<pid>/ bajo ese repo, usa esa ruta.
     2. Si no, usa la ruta centralizada: <walker_root>/.cognitive/projects/<pid>/.
@@ -216,10 +221,12 @@ def get_project_dir(project_id: str) -> Path:
 
 def _project_dir_from_registry(project_id: str) -> Path | None:
     """Busca el directorio cognitivo del proyecto desde el registry global.
-    
+
     Lee data/projects.json y construye <repo_path>/.cognitive/projects/<pid>/.
     """
-    import json, os
+    import json
+    import os
+
     reg_path = get_walker_root() / "data" / "projects.json"
     if not reg_path.exists():
         return None
@@ -386,19 +393,19 @@ def resolve_source_code_dirs(project_id: str) -> list[Path]:
 
 def resolve_project_root(chain_dir: str) -> str:
     """Deriva el directorio del proyecto desde un chain_dir.
-    
+
     Camina hacia arriba desde chain_dir buscando project.json.
     El directorio que contiene project.json es el project root.
-    
+
     Busca en dos ubicaciones en cada nivel:
     1. <candidate>/data/project.json (canónico, todo en data/)
     2. <candidate>/project.json (legacy, project root)
-    
+
     IMPORTANTE: Se prefiere data/project.json sobre el directo, y se EVITA
     que un directorio llamado 'data' sea identificado como project root
     (bug del "double data/": chain_dir dentro de .../data/spring/xxx/).
     Si el candidato se llama 'data', se retorna su padre.
-    
+
     Raises:
         FileNotFoundError: si no encuentra project.json en ningún nivel.
     """
@@ -468,14 +475,12 @@ def resolve_real_project_dir(chain_dir: str) -> str:
             )
         return os.path.join(repo_path, "projects", project_id)
     except (json.JSONDecodeError, KeyError, OSError) as e:
-        raise FileNotFoundError(
-            f"Error leyendo project.json en '{manifest_path}': {e}"
-        )
+        raise FileNotFoundError(f"Error leyendo project.json en '{manifest_path}': {e}")
 
 
 def resolve_data_path(chain_dir: str, filename: str) -> str:
     """Resuelve ruta a un archivo de datos desde chain_dir.
-    
+
     Busca SOLO en: <project_root>/data/<filename>.gz
     Si no existe, ERROR.
     """

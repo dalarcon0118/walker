@@ -19,7 +19,6 @@ from bootstrap.cli.project import (
 )
 from bootstrap.cli.prompt import _AGENT_PROMPT
 from libs.path_resolver import (
-    find_cognitive_root,
     get_project_dir,
     get_projects_dir,
     get_manifest_path,
@@ -53,14 +52,13 @@ DEFAULT_INTERACTIVE_PROMPT = "walker3> "
 
 def cmd_prepare(args: list[str]) -> int:
     """Initialize .cognitive/ in the current directory.
-    
+
     Creates the directory structure and config for the walker
     to operate from this project, like 'git init' but for knowledge.
-    
+
     Usage:
         walker3 prepare [--name <project-name>]
     """
-    import shutil
     from pathlib import Path
 
     cwd = Path.cwd().resolve()
@@ -83,8 +81,12 @@ def cmd_prepare(args: list[str]) -> int:
 
     # Create structure
     cognitive_dir.mkdir(parents=True, exist_ok=True)
-    (cognitive_dir / "projects" / project_name / "data").mkdir(parents=True, exist_ok=True)
-    (cognitive_dir / "projects" / project_name / "delta").mkdir(parents=True, exist_ok=True)
+    (cognitive_dir / "projects" / project_name / "data").mkdir(
+        parents=True, exist_ok=True
+    )
+    (cognitive_dir / "projects" / project_name / "delta").mkdir(
+        parents=True, exist_ok=True
+    )
     (cognitive_dir / "sessions").mkdir(parents=True, exist_ok=True)
 
     # Create .cognitive/config.json
@@ -98,6 +100,7 @@ def cmd_prepare(args: list[str]) -> int:
 
     # Create .cognitive/projects/{project}/project.json
     import datetime as dt
+
     project_manifest = {
         "project": {
             "meta": {
@@ -382,21 +385,21 @@ def cmd_workflow(args: list[str]) -> int:
 
 def _ensure_project_configured(pid: str, sprint_id: str | None = None) -> bool:
     """Validate the project (and optionally the sprint) exist.
-    
+
     Checks:
     1. project.json exists in .cognitive/projects/{pid}/
     2. If sprint_id, the delta directory exists
-    
+
     Does NOT validate repo_path — that's _ensure_code_accessible.
     """
     manifest = get_manifest_path(pid)
     if not manifest.exists():
-        cwd = os.getcwd()
+        os.getcwd()
         print(f"  ❌ Project '{pid}' is not configured.")
         print(f"  Expected project.json at:")
         print(f"     {manifest}")
         print()
-        print(f"  ▶  Initialize the project:")
+        print("  ▶  Initialize the project:")
         print(f"       walker prepare --name {pid}")
         print(f"     (from the directory where your code is)")
         return False
@@ -404,6 +407,7 @@ def _ensure_project_configured(pid: str, sprint_id: str | None = None) -> bool:
     # Validate sprint if specified
     if sprint_id:
         from libs.path_resolver import get_delta_dir
+
         sprint_dir = get_delta_dir(pid) / sprint_id
         if not sprint_dir.is_dir():
             print(f"  ❌ Sprint '{sprint_id}' does not exist in project '{pid}'.")
@@ -416,7 +420,7 @@ def _ensure_project_configured(pid: str, sprint_id: str | None = None) -> bool:
                 for s in sprints:
                     print(f"       - {s}")
             print()
-            print(f"  ▶  To create a sprint:")
+            print("  ▶  To create a sprint:")
             print(f"       walker3 {pid}/task/create_first_sprint")
             return False
 
@@ -425,7 +429,7 @@ def _ensure_project_configured(pid: str, sprint_id: str | None = None) -> bool:
 
 def _ensure_code_accessible(pid: str) -> bool:
     """Ensure the project's source code is accessible on disk.
-    
+
     Checks that repo_path exists on disk.
     If CWD doesn't match, warns but doesn't block code-reading tasks.
     """
@@ -443,7 +447,7 @@ def _ensure_code_accessible(pid: str) -> bool:
         print(f"  ⚠️  repo_path for project '{pid}' does not exist on disk:")
         print(f"     {repo}")
         print()
-        print(f"  ▶  Go to the directory where the code is:")
+        print("  ▶  Go to the directory where the code is:")
         print(f"       cd {repo}")
         print(f"  Or edit repo_path in {manifest}")
         return False
@@ -511,9 +515,14 @@ def cmd_task(args: list[str]) -> int:
         return 1
 
     # Para tareas que leen código, validar acceso al código
-    if task_name in ("scan_code_and_build_cpg", "build_initial_ckg",
-                     "cpg_index_ref", "kg_index_repo",
-                     "project_metrics", "review_code"):
+    if task_name in (
+        "scan_code_and_build_cpg",
+        "build_initial_ckg",
+        "cpg_index_ref",
+        "kg_index_repo",
+        "project_metrics",
+        "review_code",
+    ):
         if not _ensure_code_accessible(pid):
             return 1
 
@@ -705,7 +714,9 @@ def cmd_help(args: list[str]) -> int:
                     print()
 
                     if mode == "auto":
-                        print("  ⚡ El engine está ejecutando este paso automáticamente.")
+                        print(
+                            "  ⚡ El engine está ejecutando este paso automáticamente."
+                        )
                         print("  → Solo espera a que termine.")
                     elif mode == "llm_task":
                         required = st.get("required_fields", [])
@@ -717,9 +728,13 @@ def cmd_help(args: list[str]) -> int:
                                 print(f"     • --{f}  <valor>")
                             print()
                         else:
-                            print("  📋 No requiere campos específicos. Usa submit genérico.")
+                            print(
+                                "  📋 No requiere campos específicos. Usa submit genérico."
+                            )
                             print()
-                        print(f"  ▶️  walker3 agents/{agent_id}/{project_id}/{sprint_name}/submit --campo valor")
+                        print(
+                            f"  ▶️  walker3 agents/{agent_id}/{project_id}/{sprint_name}/submit --campo valor"
+                        )
                     elif mode == "user_input":
                         required = st.get("required_fields", [])
                         print("  👤 REQUIERE TU RESPUESTA (user_input).")
@@ -729,7 +744,9 @@ def cmd_help(args: list[str]) -> int:
                             for f in required:
                                 print(f"     • --{f}  <valor>")
                             print()
-                        print(f"  ▶️  walker3 agents/{agent_id}/{project_id}/{sprint_name}/submit --decision approve|reject")
+                        print(
+                            f"  ▶️  walker3 agents/{agent_id}/{project_id}/{sprint_name}/submit --decision approve|reject"
+                        )
 
                     # Gates disponibles
                     gates = st.get("available_gates", [])
@@ -739,15 +756,21 @@ def cmd_help(args: list[str]) -> int:
                         for g in gates:
                             print(f"     • [{g['name']}] → {g.get('target', '?')}")
                         print()
-                        print(f"  ▶️  walker3 agents/{agent_id}/{project_id}/{sprint_name}/transition <gate>")
+                        print(
+                            f"  ▶️  walker3 agents/{agent_id}/{project_id}/{sprint_name}/transition <gate>"
+                        )
 
                     print()
-                    print(f"  📖 walker3 agents/{agent_id}/{project_id}/{sprint_name}/status  — Estado detallado")
-                    print(f"  📖 walker3 agents/{agent_id}/{project_id}/workflow            — Workflow completo")
+                    print(
+                        f"  📖 walker3 agents/{agent_id}/{project_id}/{sprint_name}/status  — Estado detallado"
+                    )
+                    print(
+                        f"  📖 walker3 agents/{agent_id}/{project_id}/workflow            — Workflow completo"
+                    )
                 else:
                     print(f"  ✅ Agent: {agent_id}")
                     print(f"  📍 Sesión activa: {project_id}/{sprint_name}")
-                    print(f"  ▶️  Usa 'status' para ver tu posición actual")
+                    print("  ▶️  Usa 'status' para ver tu posición actual")
 
             except Exception as e:
                 print(f"  ✅ Agent: {agent_id}")
@@ -766,13 +789,21 @@ def cmd_help(args: list[str]) -> int:
             print()
             print("  ▶️  NEXT STEP: Choose a project to start.")
             print()
-            print(f"     walker3 agents/{agent_id}/list             ← View available projects")
-            print(f"     walker3 agents/{agent_id}/<project>/list   ← View sprints of a project")
-            print(f"     walker3 agents/{agent_id}/switch <project>/<sprint>  ← Activate session")
+            print(
+                f"     walker3 agents/{agent_id}/list             ← View available projects"
+            )
+            print(
+                f"     walker3 agents/{agent_id}/<project>/list   ← View sprints of a project"
+            )
+            print(
+                f"     walker3 agents/{agent_id}/switch <project>/<sprint>  ← Activate session"
+            )
             print()
             print("  📋 Available projects:")
             for p in _list_projects():
-                active_count = len([s for s in p.get("sprints", []) if s["status"] == "active"])
+                active_count = len(
+                    [s for s in p.get("sprints", []) if s["status"] == "active"]
+                )
                 status = "▶ active" if active_count > 0 else "  inactive"
                 print(f"     {status}  {p['project_id']}")
             print()
@@ -784,7 +815,9 @@ def cmd_help(args: list[str]) -> int:
     print()
     print("─" * 60)
     print("  📖 REFERENCIA: guía completa a continuación")
-    print("  (La sección de arriba es tu próxima acción — lo de abajo es documentación)")
+    print(
+        "  (La sección de arriba es tu próxima acción — lo de abajo es documentación)"
+    )
     print("─" * 60)
     print()
 

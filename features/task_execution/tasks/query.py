@@ -20,7 +20,7 @@ def query_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.failure(f"Invalid JSON: {e}")
     if not isinstance(layers, dict):
         return TaskResult.failure("JSON must be an object with layer keys")
-    qm = QueryManager(chain_dir)
+    qm = QueryManager(chain_dir, task_id=ctx.task_id or "", session_id=ctx.session_id or "")
     return TaskResult.success(data=qm.query(layers))
 
 

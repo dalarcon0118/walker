@@ -10,9 +10,8 @@ CRUDA (stdout, exit codes, líneas grep, símbolos) + assessment
 Es el corazón de los USER GATES: el agente necesita evidencia real
 para responder "QUÉ SUCEDIÓ" y "POR QUÉ" antes de pedir la decisión.
 """
-from __future__ import annotations
 
-from typing import Any
+from __future__ import annotations
 
 
 # ── Formato de bloque de evidencia cruda ─────────────────────────
@@ -233,10 +232,16 @@ def build_evidence_report(
     if quality_gates:
         parts.append(build_qg_section(quality_gates))
 
-    has_critical = any(f.get("type") == "quality_gate" for f in checks.get("failed", []))
-    all_ac = all(a["passed"] for a in acceptance_criteria) if acceptance_criteria else True
+    has_critical = any(
+        f.get("type") == "quality_gate" for f in checks.get("failed", [])
+    )
+    all_ac = (
+        all(a["passed"] for a in acceptance_criteria) if acceptance_criteria else True
+    )
     all_qg = all(q["passed"] for q in quality_gates) if quality_gates else True
-    can_confirm = passed >= total and not has_critical and all_ac and all_qg if total else False
+    can_confirm = (
+        passed >= total and not has_critical and all_ac and all_qg if total else False
+    )
 
     parts.append(build_verdict(passed, total, checks.get("failed", []), can_confirm))
 

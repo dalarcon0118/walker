@@ -150,8 +150,15 @@ class ContextComposer:
         pieces: list[ContextPiece] = []
 
         # Crear QueryManager desde el chain_dir del ctx
+        # Se le pasa task_id/session_id para que las consultas de contexto
+        # queden trazadas en el TraceGraph asociadas a la ejecución real
+        # (no a "cli" como las queries manuales).
         chain_dir = getattr(ctx, "chain_dir", None)
-        query_manager = QueryManager(chain_dir) if chain_dir else None
+        query_manager = QueryManager(
+            chain_dir,
+            task_id=getattr(ctx, "task_id", ""),
+            session_id=getattr(ctx, "session_id", ""),
+        ) if chain_dir else None
 
         for source_def in sources:
             provider_name = source_def.get("provider", "")

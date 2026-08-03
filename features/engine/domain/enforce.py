@@ -31,7 +31,6 @@ Uso (caller):
 from __future__ import annotations
 
 import json
-from typing import Any
 
 CURVATURE_BUDGET_DEFAULT = 0.50
 
@@ -70,9 +69,7 @@ def get_project_id(plan: dict) -> str | None:
 def find_backlog_path(project_id: str | None, project_root: str) -> str:
     """Ruta del backlog.jsonl (multi-project si hay project_id)."""
     if project_id:
-        return (
-            f"{project_root}/.cognitive/projects/{project_id}/delta/backlog.jsonl"
-        )
+        return f"{project_root}/.cognitive/projects/{project_id}/delta/backlog.jsonl"
     return f"{project_root}/.cognitive/delta/backlog.jsonl"
 
 

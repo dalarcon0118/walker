@@ -278,6 +278,7 @@ class WorkflowRepository:
                         on_entry_message=ss_raw.get("on_entry_message", ""),
                         prompt_id=ss_raw.get("prompt_id", ""),
                         context=ss_raw.get("context"),
+                        required_tools=ss_raw.get("required_tools", []),
                         provides=ss_raw.get("provides", []),
                         needs=ss_raw.get("needs", []),
                     )

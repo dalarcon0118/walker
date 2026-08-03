@@ -236,9 +236,9 @@ def _show_quality_report(chain_dir: str | None) -> None:
         from _walker.shared.path_resolver import (
             resolve_project_root,
             resolve_project_id,
-            get_project_dir,
             get_data_dir,
         )
+
         pid = resolve_project_id(chain_dir)
         if pid:
             candidates.append(str(get_data_dir(pid) / "quality_report.json"))
@@ -272,9 +272,13 @@ def _show_quality_report(chain_dir: str | None) -> None:
     print(f"  {icon} {qr.get('summary', '')}")
     m = qr.get("metrics", {}) or {}
     print(
-        Template("  📊 files=$files loc=$loc funcs=$functions cyclo_max=$cyclo_max dead_code=$dead").substitute(
-            files=m.get("files", 0), loc=m.get("loc", 0),
-            functions=m.get("functions", 0), cyclo_max=m.get("cyclo_max", 0),
+        Template(
+            "  📊 files=$files loc=$loc funcs=$functions cyclo_max=$cyclo_max dead_code=$dead"
+        ).substitute(
+            files=m.get("files", 0),
+            loc=m.get("loc", 0),
+            functions=m.get("functions", 0),
+            cyclo_max=m.get("cyclo_max", 0),
             dead=m.get("dead_code", 0),
         )
     )
@@ -282,7 +286,9 @@ def _show_quality_report(chain_dir: str | None) -> None:
         mark = "✅" if g.get("passed") else "❌"
         print(
             Template("     $mark $name = $actual (max $threshold)").substitute(
-                mark=mark, name=g.get("name", "?"), actual=g.get("actual", "?"),
+                mark=mark,
+                name=g.get("name", "?"),
+                actual=g.get("actual", "?"),
                 threshold=g.get("threshold", "?"),
             )
         )
@@ -301,7 +307,9 @@ def _show_quality_report(chain_dir: str | None) -> None:
                     print(
                         Template("     $sev $label").substitute(
                             sev=sev_tag,
-                            label=str(fi.get("label", fi.get("title", "hallazgo")))[:90],
+                            label=str(fi.get("label", fi.get("title", "hallazgo")))[
+                                :90
+                            ],
                         )
                     )
         except (json.JSONDecodeError, OSError):
@@ -1456,9 +1464,18 @@ def _save_knowledge_facts(
 ) -> None:
     """Save knowledge facts from KNOWLEDGE_CAPTURE or KNOWLEDGE_UPDATE to project-level facts.json."""
     # facts.json lives at project level: .cognitive/projects/<project-id>/facts.json
-    from _walker.shared.path_resolver import resolve_project_root, resolve_project_id, get_project_dir
+    from _walker.shared.path_resolver import (
+        resolve_project_root,
+        resolve_project_id,
+        get_project_dir,
+    )
+
     project_id = resolve_project_id(chain_dir)
-    facts_path = str(get_project_dir(project_id) / "facts.json") if project_id else os.path.join(resolve_project_root(chain_dir), "facts.json")
+    facts_path = (
+        str(get_project_dir(project_id) / "facts.json")
+        if project_id
+        else os.path.join(resolve_project_root(chain_dir), "facts.json")
+    )
 
     # Read existing facts
     facts: list[dict] = load_json(facts_path) if os.path.exists(facts_path) else []

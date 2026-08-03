@@ -16,9 +16,9 @@ Uso típico:
     cache.update(stale_results)
     metrics, funcs, smells, lint = cache.aggregate(all_paths)
 """
+
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -66,8 +66,21 @@ class IncrementalMetricsCache:
     @staticmethod
     def _expand_paths(paths: list[str]) -> list[str]:
         """Expande directorios a archivos de código individuales."""
-        code_exts = (".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go",
-                     ".java", ".rb", ".kt", ".swift", ".mjs", ".cjs")
+        code_exts = (
+            ".py",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".rs",
+            ".go",
+            ".java",
+            ".rb",
+            ".kt",
+            ".swift",
+            ".mjs",
+            ".cjs",
+        )
         files: list[str] = []
         for p in paths:
             if os.path.isfile(p):
@@ -75,10 +88,15 @@ class IncrementalMetricsCache:
             elif os.path.isdir(p):
                 for root, dirs, names in os.walk(p):
                     dirs[:] = [
-                        d for d in dirs
-                        if not d.startswith(".") and d != "__pycache__"
-                        and d != "node_modules" and d != "venv"
-                        and d != ".venv" and d != "dist" and d != "build"
+                        d
+                        for d in dirs
+                        if not d.startswith(".")
+                        and d != "__pycache__"
+                        and d != "node_modules"
+                        and d != "venv"
+                        and d != ".venv"
+                        and d != "dist"
+                        and d != "build"
                     ]
                     for n in names:
                         if n.endswith(code_exts):
@@ -105,7 +123,9 @@ class IncrementalMetricsCache:
         stored = entry.get("_file")
         if stored is None:
             return False
-        return stored.get("mtime") == snap["mtime"] and stored.get("size") == snap["size"]
+        return (
+            stored.get("mtime") == snap["mtime"] and stored.get("size") == snap["size"]
+        )
 
     # ── Partition ─────────────────────────────────────────────────
 
@@ -130,9 +150,14 @@ class IncrementalMetricsCache:
 
     # ── Update (tras correr qlty en stale) ────────────────────────
 
-    def update(self, filepath: str, metrics: dict | None = None,
-               functions: list | None = None, smells: list | None = None,
-               lint: list | None = None) -> None:
+    def update(
+        self,
+        filepath: str,
+        metrics: dict | None = None,
+        functions: list | None = None,
+        smells: list | None = None,
+        lint: list | None = None,
+    ) -> None:
         """Guarda o actualiza las métricas cacheadas de un archivo."""
         key = self._file_key(filepath)
         snap = self._snapshot(filepath)

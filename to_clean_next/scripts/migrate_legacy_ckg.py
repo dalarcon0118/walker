@@ -180,7 +180,7 @@ def migrate(project_dir: str, dry_run: bool = False) -> dict:
 
     if dry_run:
         print()
-        print(f"  🏁 DRY RUN — no se escribió nada")
+        print("  🏁 DRY RUN — no se escribió nada")
         print(f"  Se importarían: {stats['imported']} nodos + {stats['edges']} edges")
         print(f"  Omitidos (ya existen): {stats['skipped']}")
         return stats
@@ -194,7 +194,7 @@ def migrate(project_dir: str, dry_run: bool = False) -> dict:
     save_current(current_path, current)
 
     print()
-    print(f"  ✅ Migración completada")
+    print("  ✅ Migración completada")
     print(f"     Nodos legacy:     {stats['legacy_nodes']}")
     print(f"     Importados:       {stats['imported']}")
     print(f"     Omitidos (dup):   {stats['skipped']}")

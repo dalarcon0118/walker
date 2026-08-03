@@ -7,26 +7,21 @@ Extraido de engine.py para separar IO del resto de la logica.
 PRINCIPIO: NO hay fallbacks a workflow legacy hardcoded. El workflow del motor
 se carga SIEMPRE desde la plantilla workflow.v3 canónica. Si falta, ERROR.
 """
+
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 
 from libs.infrastructure.utils import (
     load_json,
     state_path,
-    save_state,
-    _DONE_STATUSES,
-    _INIT_SCRIPT,
-    _resolve_task_id,
 )
 from libs.path_resolver import (
     get_engine_workflow_dir,
     get_engine_workflow_path,
     resolve_project_root,
 )
-from .plan_editor import _load_rejected_tasks
 
 
 def find_workflow(chain_dir: str | None = None) -> dict:

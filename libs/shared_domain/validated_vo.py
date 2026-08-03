@@ -23,9 +23,10 @@ Uso:
     else:
         log(r.error)
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from .models import TaskResult
@@ -81,11 +82,7 @@ class ValidatedVO:
 
     def to_dict(self) -> dict[str, Any]:
         """Serializa el VO a dict (para persistencia/transporte)."""
-        return {
-            k: v
-            for k, v in self.__dict__.items()
-            if not k.startswith("_")
-        }
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
 @dataclass(frozen=True)
@@ -95,4 +92,5 @@ class TaskInput(ValidatedVO):
     Todo input de task DEBERÍA heredar de TaskInput (o ValidatedVO) para
     que la lógica de negocio reciba entidades limpias y validadas.
     """
+
     task_id: str = ""

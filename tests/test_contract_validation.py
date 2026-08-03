@@ -17,7 +17,6 @@ que los datos producidos cumplan los contratos que cada sub-estado declaro
 en su output_schema. Si el contrato falla, bloquea e informa (doc-28).
 """
 
-import json
 import os
 import tempfile
 
@@ -138,8 +137,7 @@ def test_submit_output_invalido_lanza_validation_error():
     except ValidationError as e:
         raw_errors = (e.context or {}).get("errors", [])
         msgs = [
-            x.get("message", "") if isinstance(x, dict) else str(x)
-            for x in raw_errors
+            x.get("message", "") if isinstance(x, dict) else str(x) for x in raw_errors
         ]
         assert any("target" in m for m in msgs), e
         assert any("reason" in m for m in msgs), e

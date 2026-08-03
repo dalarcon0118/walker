@@ -7,9 +7,9 @@ Incluye:
   - TaskProvider:  la tarea actual desde plan.json (specifications)
   - StateProvider: estado del sprint (via QueryManager)
 """
+
 from __future__ import annotations
 import json
-import os
 from typing import Any
 
 from features.engine.context.models import ContextPiece
@@ -38,10 +38,14 @@ class TaskProvider(ContextProvider):
         # el spring no esta en el delta.
         specs: list[dict] = []
         try:
-            from features.delta_tracking.application.spring_graph_service import SpringGraphService
+            from features.delta_tracking.application.spring_graph_service import (
+                SpringGraphService,
+            )
+
             spring_svc = SpringGraphService.from_chain_dir(chain_dir)
             if spring_svc:
                 import os
+
                 spring_id = os.path.basename(os.path.normpath(chain_dir))
                 spring_svc.ensure_spring_imported(chain_dir, spring_id)
                 specs = spring_svc.get_specs_legacy(spring_id)
@@ -64,7 +68,10 @@ class TaskProvider(ContextProvider):
         # Indice de la spec actual (SSOT: sprint-state)
         current_idx = 0
         try:
-            from features.spring.infrastructure.repositories import SprintStateRepository
+            from features.spring.infrastructure.repositories import (
+                SprintStateRepository,
+            )
+
             sp = SprintStateRepository().load_dict(chain_dir)
             current_idx = sp.get("context", {}).get(
                 "current_spec_index", sp.get("context", {}).get("current_task_index", 0)

@@ -4,6 +4,7 @@ Usa qlty para métricas numéricas (cyclo, LOC, smells, lint).
 Usa CPG para análisis estructural (dead code, call graph).
 Todo en batch, no por archivo.
 """
+
 from __future__ import annotations
 import os
 from typing import Any
@@ -12,8 +13,12 @@ from features.code_analysis.domain.graph import Graph
 from features.code_analysis.domain.metrics import ReviewResult, ProjectMetrics
 from features.code_analysis.infrastructure.repository import CpgFileRepository
 from features.code_analysis.infrastructure.metrics import (
-    run_metrics, run_function_metrics, run_smells, run_check,
-    compute_file_metrics, check_quality_gates,
+    run_metrics,
+    run_function_metrics,
+    run_smells,
+    run_check,
+    compute_file_metrics,
+    check_quality_gates,
 )
 from features.code_analysis.infrastructure.metrics_cache import IncrementalMetricsCache
 
@@ -21,10 +26,14 @@ from features.code_analysis.infrastructure.metrics_cache import IncrementalMetri
 class ReviewUseCase:
     """Code review: metrics + quality gates + smells + lint."""
 
-    def __init__(self, chain_dir: str, project_id: str = "",
-                 scan_paths: list[str] | None = None,
-                 data_dir: str | None = None,
-                 cache: "IncrementalMetricsCache | None" = None):
+    def __init__(
+        self,
+        chain_dir: str,
+        project_id: str = "",
+        scan_paths: list[str] | None = None,
+        data_dir: str | None = None,
+        cache: "IncrementalMetricsCache | None" = None,
+    ):
         self.chain_dir = chain_dir
         self._project_id = project_id
         self._scan_paths = scan_paths
@@ -40,10 +49,15 @@ class ReviewUseCase:
                 self._repo = CpgFileRepository(self._data_dir)
             else:
                 from libs.path_resolver import resolve_project_root, get_data_dir
+
                 project_root = resolve_project_root(self.chain_dir)
                 project_id = os.path.basename(project_root) if project_root else ""
                 data_dir = str(get_data_dir(project_id)) if project_id else ""
-                self._repo = CpgFileRepository(data_dir or os.path.join(project_root, "data") if project_root else "")
+                self._repo = CpgFileRepository(
+                    data_dir or os.path.join(project_root, "data")
+                    if project_root
+                    else ""
+                )
         return self._repo
 
     @property
@@ -52,8 +66,9 @@ class ReviewUseCase:
             self._graph = self.repo.load_graph(self._project_id)
         return self._graph
 
-    def review_files(self, files: list[str] | None = None,
-                     thresholds: dict[str, Any] | None = None) -> ReviewResult:
+    def review_files(
+        self, files: list[str] | None = None, thresholds: dict[str, Any] | None = None
+    ) -> ReviewResult:
         """Code review: metrics + quality gates + smells + lint.
 
         Todo en batch via qlty + CPG.
@@ -75,7 +90,6 @@ class ReviewUseCase:
             qlty_funcs = run_function_metrics(scan_paths, cwd=self.chain_dir)
             smells = run_smells(scan_paths, cwd=self.chain_dir)
             lint_issues = run_check(scan_paths, cwd=self.chain_dir)
-            cache_stats = None
 
         # 2. Build per-file metrics
         per_file = []
@@ -113,17 +127,19 @@ class ReviewUseCase:
                                         callers.append(src.name)
                             break
 
-                    high_cyclo_funcs.append({
-                        "function": fn["function"],
-                        "file": fp,
-                        "line": fn.get("line", 0),
-                        "cyclo": cyclo,
-                        "cognitive": fn.get("cognitive", 0),
-                        "lines": fn.get("lines", 0),
-                        "loc": fn.get("loc", 0),
-                        "callers": callers[:10],
-                        "callees": callees[:15],
-                    })
+                    high_cyclo_funcs.append(
+                        {
+                            "function": fn["function"],
+                            "file": fp,
+                            "line": fn.get("line", 0),
+                            "cyclo": cyclo,
+                            "cognitive": fn.get("cognitive", 0),
+                            "lines": fn.get("lines", 0),
+                            "loc": fn.get("loc", 0),
+                            "callers": callers[:10],
+                            "callees": callees[:15],
+                        }
+                    )
 
         # 3. Dead code from CPG
         dead_code_list = []
@@ -157,12 +173,14 @@ class ReviewUseCase:
             # Skip functions named 'main' in files with __name__ guard (CLI entry points)
             if node.name == "main" and _has_main_guard(node.path):
                 continue
-            dead_code_list.append({
-                "function": node.name,
-                "file": node.path,
-                "line": node.line,
-                "is_private": node.name.startswith("_"),
-            })
+            dead_code_list.append(
+                {
+                    "function": node.name,
+                    "file": node.path,
+                    "line": node.line,
+                    "is_private": node.name.startswith("_"),
+                }
+            )
 
         # 4. Smells + lint ya resueltos arriba (con o sin cache)
 
@@ -297,7 +315,9 @@ class ReviewUseCase:
         cache.save()
         return qlty_metrics, qlty_funcs, smells, lint_issues, cache.stats
 
-    def _build_recommendations(self, metrics, gates, findings, smells, lint_issues, thresholds):
+    def _build_recommendations(
+        self, metrics, gates, findings, smells, lint_issues, thresholds
+    ):
         """Generate actionable recommendations based on metrics + findings."""
         recs = []
         max_cyclo = thresholds.get("max_cyclo", 10)
@@ -310,12 +330,20 @@ class ReviewUseCase:
             # Generar estrategias de refactor según el tipo de función
             strategies = []
             if top["cyclo"] > 50:
-                strategies.append("Extraer bloques condicionales anidados a funciones helper")
+                strategies.append(
+                    "Extraer bloques condicionales anidados a funciones helper"
+                )
             if top.get("callees", []):
-                strategies.append(f"Divide en {len(top['callees'])} llamadas más pequeñas y modulares")
+                strategies.append(
+                    f"Divide en {len(top['callees'])} llamadas más pequeñas y modulares"
+                )
             if top.get("callers"):
-                strategies.append("Revisar si acepta太多 parámetros o responsabilidades")
-            strategies.append("Reemplazar cadenas if-elif con dict dispatch o pattern matching")
+                strategies.append(
+                    "Revisar si acepta太多 parámetros o responsabilidades"
+                )
+            strategies.append(
+                "Reemplazar cadenas if-elif con dict dispatch o pattern matching"
+            )
             strategies.append("Usar guard clauses para reducir anidamiento")
 
             # Top 5 archivos por complejidad
@@ -329,46 +357,65 @@ class ReviewUseCase:
             for fp, cyclos in top_files:
                 total = sum(cyclos)
                 funcs_in_file = len(cyclos)
-                file_context.append({
-                    "file": fp.split("/projects/delta-skill/")[-1] if "/projects/delta-skill/" in fp else fp,
-                    "high_cyclo_funcs": funcs_in_file,
-                    "total_cyclo": total,
-                })
+                file_context.append(
+                    {
+                        "file": fp.split("/projects/delta-skill/")[-1]
+                        if "/projects/delta-skill/" in fp
+                        else fp,
+                        "high_cyclo_funcs": funcs_in_file,
+                        "total_cyclo": total,
+                    }
+                )
 
-            recs.append({
-                "priority": "P1 - Critical",
-                "area": "Complexity",
-                "action": f"Refactor high-complexity functions. Top target: {top['function']} (cyclo={top['cyclo']}, {top.get('lines',0)} lines). "
-                         f"Called by {len(top.get('callers',[]))} functions, calls {len(top.get('callees',[]))} functions.",
-                "impact": f"Reducing cyclo from {metrics.cyclo_max} to <{max_cyclo} would pass the gate.",
-                "strategies": strategies,
-                "files_most_affected": file_context,
-                "targets": [{
-                    "function": f["function"],
-                    "cyclo": f["cyclo"],
-                    "cognitive": f.get("cognitive", 0),
-                    "lines": f.get("lines", 0),
-                    "file": f["file"].split("/projects/delta-skill/")[-1] if "/projects/delta-skill/" in f["file"] else f["file"],
-                    "callers": f.get("callers", [])[:5],
-                    "callees": f.get("callees", [])[:8],
-                } for f in hc[:5]],
-            })
+            recs.append(
+                {
+                    "priority": "P1 - Critical",
+                    "area": "Complexity",
+                    "action": f"Refactor high-complexity functions. Top target: {top['function']} (cyclo={top['cyclo']}, {top.get('lines', 0)} lines). "
+                    f"Called by {len(top.get('callers', []))} functions, calls {len(top.get('callees', []))} functions.",
+                    "impact": f"Reducing cyclo from {metrics.cyclo_max} to <{max_cyclo} would pass the gate.",
+                    "strategies": strategies,
+                    "files_most_affected": file_context,
+                    "targets": [
+                        {
+                            "function": f["function"],
+                            "cyclo": f["cyclo"],
+                            "cognitive": f.get("cognitive", 0),
+                            "lines": f.get("lines", 0),
+                            "file": f["file"].split("/projects/delta-skill/")[-1]
+                            if "/projects/delta-skill/" in f["file"]
+                            else f["file"],
+                            "callers": f.get("callers", [])[:5],
+                            "callees": f.get("callees", [])[:8],
+                        }
+                        for f in hc[:5]
+                    ],
+                }
+            )
 
         # Priority 2: Dead code
         dc = findings.get("dead_code", [])
         if dc:
             priv = [f for f in dc if f.get("is_private")]
             pub = [f for f in dc if not f.get("is_private")]
-            recs.append({
-                "priority": "P2 - High",
-                "area": "Dead Code",
-                "action": f"Remove {len(priv)} private unused functions (safe). "
-                         f"Review {len(pub)} public unused functions: integrate or delete.",
-                "impact": f"Reducing from {len(dc)} to <{max_dead} would pass the gate.",
-                "targets": [{"function": f["function"], "private": f.get("is_private"),
-                             "file": f["file"].split("/projects/delta-skill/")[-1],
-                             "line": f["line"]} for f in dc[:10]],
-            })
+            recs.append(
+                {
+                    "priority": "P2 - High",
+                    "area": "Dead Code",
+                    "action": f"Remove {len(priv)} private unused functions (safe). "
+                    f"Review {len(pub)} public unused functions: integrate or delete.",
+                    "impact": f"Reducing from {len(dc)} to <{max_dead} would pass the gate.",
+                    "targets": [
+                        {
+                            "function": f["function"],
+                            "private": f.get("is_private"),
+                            "file": f["file"].split("/projects/delta-skill/")[-1],
+                            "line": f["line"],
+                        }
+                        for f in dc[:10]
+                    ],
+                }
+            )
 
         # Priority 3: Smells
         if smells:
@@ -377,14 +424,16 @@ class ReviewUseCase:
                 tid = s["id"].split(":")[-1] if ":" in s["id"] else s["id"]
                 by_type[tid] = by_type.get(tid, 0) + 1
             top_smells = sorted(by_type.items(), key=lambda x: -x[1])[:5]
-            recs.append({
-                "priority": "P3 - Medium",
-                "area": "Code Smells",
-                "action": f"Fix {len(smells)} code smells. Top types: " +
-                         ", ".join(f"{t}({c})" for t, c in top_smells),
-                "impact": "Reduces technical debt, improves maintainability.",
-                "targets": [{"type": t, "count": c} for t, c in top_smells],
-            })
+            recs.append(
+                {
+                    "priority": "P3 - Medium",
+                    "area": "Code Smells",
+                    "action": f"Fix {len(smells)} code smells. Top types: "
+                    + ", ".join(f"{t}({c})" for t, c in top_smells),
+                    "impact": "Reduces technical debt, improves maintainability.",
+                    "targets": [{"type": t, "count": c} for t, c in top_smells],
+                }
+            )
 
         # Priority 4: Lint
         if lint_issues:
@@ -393,18 +442,21 @@ class ReviewUseCase:
                 lid = l["id"].split(":")[0] if ":" in l["id"] else "other"
                 by_linter[lid] = by_linter.get(lid, 0) + 1
             top_linters = sorted(by_linter.items(), key=lambda x: -x[1])[:5]
-            recs.append({
-                "priority": "P4 - Low",
-                "area": "Linting",
-                "action": f"Fix {len(lint_issues)} linter issues. Auto-fix with: qlty check --fix",
-                "impact": "Enforces code style, catches bugs early.",
-                "targets": [{"linter": t, "count": c} for t, c in top_linters],
-            })
+            recs.append(
+                {
+                    "priority": "P4 - Low",
+                    "area": "Linting",
+                    "action": f"Fix {len(lint_issues)} linter issues. Auto-fix with: qlty check --fix",
+                    "impact": "Enforces code style, catches bugs early.",
+                    "targets": [{"linter": t, "count": c} for t, c in top_linters],
+                }
+            )
 
         return recs
 
     def _resolve_default_paths(self) -> list[str]:
         from libs.path_resolver import resolve_project_root, resolve_source_code_dirs
+
         proj_dir = resolve_project_root(self.chain_dir)
         project_id = os.path.basename(proj_dir) if proj_dir else ""
         if project_id:

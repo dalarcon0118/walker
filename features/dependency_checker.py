@@ -68,7 +68,10 @@ def ensure_tools(tools: list[str]) -> list[str]:
     still_missing = [t for t in missing if not is_available(t)]
 
     if still_missing:
-        print(f"  ⚠️  Walker3: failed to install: {', '.join(still_missing)}", file=sys.stderr)
+        print(
+            f"  ⚠️  Walker3: failed to install: {', '.join(still_missing)}",
+            file=sys.stderr,
+        )
         _print_manual_instructions(still_missing)
 
     return still_missing
@@ -107,7 +110,9 @@ def check_and_report(verbose: bool = False) -> int:
         version = ""
         if available:
             try:
-                r = subprocess.run([tool, "--version"], capture_output=True, text=True, timeout=5)
+                r = subprocess.run(
+                    [tool, "--version"], capture_output=True, text=True, timeout=5
+                )
                 version = f" ({r.stdout.strip() or r.stderr.strip()})"
             except Exception:
                 pass
@@ -136,11 +141,12 @@ def _install_ast_grep() -> bool:
             print("    Running: brew install ast-grep", file=sys.stderr)
             subprocess.run(
                 ["brew", "install", "ast-grep"],
-                check=True, timeout=120,
+                check=True,
+                timeout=120,
             )
             reset_cache()
             if is_available("ast-grep"):
-                print(f"  ✅ ast-grep installed via brew", file=sys.stderr)
+                print("  ✅ ast-grep installed via brew", file=sys.stderr)
                 return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             print("    brew failed, trying npm...", file=sys.stderr)
@@ -150,11 +156,12 @@ def _install_ast_grep() -> bool:
         try:
             subprocess.run(
                 ["npm", "install", "-g", "@ast-grep/cli"],
-                check=True, timeout=120,
+                check=True,
+                timeout=120,
             )
             reset_cache()
             if is_available("ast-grep"):
-                print(f"  ✅ ast-grep installed via npm", file=sys.stderr)
+                print("  ✅ ast-grep installed via npm", file=sys.stderr)
                 return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             print("    npm failed, trying cargo...", file=sys.stderr)
@@ -165,16 +172,17 @@ def _install_ast_grep() -> bool:
             print("    This may take a few minutes (cargo compile)...", file=sys.stderr)
             subprocess.run(
                 ["cargo", "install", "ast-grep", "--locked"],
-                check=True, timeout=600,
+                check=True,
+                timeout=600,
             )
             reset_cache()
             if is_available("ast-grep"):
-                print(f"  ✅ ast-grep installed via cargo", file=sys.stderr)
+                print("  ✅ ast-grep installed via cargo", file=sys.stderr)
                 return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
 
-    print(f"  ❌ Failed to install ast-grep automatically.", file=sys.stderr)
+    print("  ❌ Failed to install ast-grep automatically.", file=sys.stderr)
     return False
 
 
@@ -197,12 +205,12 @@ def _install_qlty() -> bool:
             _cache["qlty"] = True
             print(f"  ✅ qlty installed at {qlty_path}", file=sys.stderr)
             if not shutil.which("qlty"):
-                print(f"  💡 Add ~/.qlty/bin to your PATH:", file=sys.stderr)
-                print(f"     export PATH=\"$HOME/.qlty/bin:$PATH\"", file=sys.stderr)
+                print("  💡 Add ~/.qlty/bin to your PATH:", file=sys.stderr)
+                print(f'     export PATH="$HOME/.qlty/bin:$PATH"', file=sys.stderr)
             return True
 
         if r.returncode == 0 and is_available("qlty"):
-            print(f"  ✅ qlty installed", file=sys.stderr)
+            print("  ✅ qlty installed", file=sys.stderr)
             return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         pass
@@ -214,7 +222,7 @@ def _install_qlty() -> bool:
         print(f"  ✅ qlty installed at {qlty_path}", file=sys.stderr)
         return True
 
-    print(f"  ❌ Failed to install qlty automatically.", file=sys.stderr)
+    print("  ❌ Failed to install qlty automatically.", file=sys.stderr)
     return False
 
 
@@ -240,11 +248,11 @@ def _print_manual_instructions(tools: list[str]) -> None:
         ),
         "qlty": (
             "  curl -fsSL https://get.qlty.sh | sh\n"
-            "  export PATH=\"$HOME/.qlty/bin:$PATH\"\n"
+            '  export PATH="$HOME/.qlty/bin:$PATH"\n'
             "  https://qlty.sh/"
         ),
     }
-    print(f"\n  📋 Manual installation:", file=sys.stderr)
+    print("\n  📋 Manual installation:", file=sys.stderr)
     for tool in tools:
         if tool in instructions:
             print(f"\n    {tool}:", file=sys.stderr)

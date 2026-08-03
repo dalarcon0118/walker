@@ -14,7 +14,6 @@ Valida:
 import json
 import os
 import tempfile
-from pathlib import Path
 from types import SimpleNamespace
 
 
@@ -43,13 +42,19 @@ def _setup_project(tmpdir: str) -> tuple[str, str]:
     return chain_dir, project_root
 
 
-def _write_template(project_root: str, node: str, prompt_name: str, template: str) -> str:
+def _write_template(
+    project_root: str, node: str, prompt_name: str, template: str
+) -> str:
     """Escribe un template canónico en workflow.v3/prompts/<node>/<prompt>.prompt.json."""
     prompts_dir = os.path.join(project_root, "workflow.v3", "prompts", node)
     os.makedirs(prompts_dir, exist_ok=True)
     path = os.path.join(prompts_dir, f"{prompt_name}.prompt.json")
     with open(path, "w") as f:
-        json.dump({"id": f"{node}/{prompt_name}", "type": "user_input", "template": template}, f, ensure_ascii=False)
+        json.dump(
+            {"id": f"{node}/{prompt_name}", "type": "user_input", "template": template},
+            f,
+            ensure_ascii=False,
+        )
     return path
 
 
@@ -62,14 +67,20 @@ def test_compose_carga_template_real():
         pm = PromptManager(chain_dir, project_dir=project_root)
 
         _write_template(
-            project_root, "testnode", "review",
+            project_root,
+            "testnode",
+            "review",
             "📋 QUÉ SUCEDIÓ\n  {what_happened}\n\n➡️ OPCIÓN: {decision}\n",
         )
 
         ctx = SimpleNamespace(
             chain_dir=chain_dir,
             task_id="TASK-001",
-            baggage={"task_id": "TASK-001", "what_happened": "Análisis completado", "decision": "approve"},
+            baggage={
+                "task_id": "TASK-001",
+                "what_happened": "Análisis completado",
+                "decision": "approve",
+            },
         )
 
         # node_config mínimo
@@ -87,7 +98,9 @@ def test_compose_carga_template_real():
         assert "QUÉ SUCEDIÓ" in result, "Template no renderizado"
         assert "Análisis completado" in result, "what_happened no resuelto"
         assert "approve" in result, "decisión no resuelta"
-        print("  ✅ test_compose_carga_template_real: template real renderizado con datos")
+        print(
+            "  ✅ test_compose_carga_template_real: template real renderizado con datos"
+        )
 
 
 def test_resolve_prompt_inyecta_extra_data():
@@ -99,7 +112,9 @@ def test_resolve_prompt_inyecta_extra_data():
         svc = OrchestrationService()
 
         _write_template(
-            project_root, "testnode", "review",
+            project_root,
+            "testnode",
+            "review",
             "Q1: {q1}\nA1: {a1}\n",
         )
 
@@ -130,7 +145,10 @@ def test_resolve_prompt_inyecta_extra_data():
 
 def test_state_query_expone_last_fields():
     """QueryManager debe exponer last_step_fields del paso anterior."""
-    from features.engine.infrastructure.repositories import WorkflowStateRepository, WorkflowState
+    from features.engine.infrastructure.repositories import (
+        WorkflowStateRepository,
+        WorkflowState,
+    )
     from features.engine.domain.models import SubStateData
     from features.engine.context.query_manager import QueryManager
 
@@ -143,14 +161,18 @@ def test_state_query_expone_last_fields():
             current_node="ANALYZE",
             current_sub_state="REVIEW",
             sub_state_data={
-                "ANALYZE.ANALYZE": SubStateData(fields={"q1": "¿Qué?", "a1": "Respuesta"}, completed_at="x")
+                "ANALYZE.ANALYZE": SubStateData(
+                    fields={"q1": "¿Qué?", "a1": "Respuesta"}, completed_at="x"
+                )
             },
         )
         repo.save(chain_dir, state)
 
         # Cargado de vuelta: los fields deben persistir
         loaded = repo.load(chain_dir)
-        assert loaded.current_node == "ANALYZE", "WorkflowState no persiste current_node"
+        assert loaded.current_node == "ANALYZE", (
+            "WorkflowState no persiste current_node"
+        )
         entry = loaded.sub_state_data.get("ANALYZE.ANALYZE")
         fields = getattr(entry, "fields", {})
         assert fields.get("q1") == "¿Qué?", "sub_state_data no persiste fields"
@@ -184,14 +206,27 @@ def test_evidence_motor():
         "total": 2,
         "passed": 1,
         "passed_items": [
-            {"predicate": "símbolo existe", "detail": {"method": "symbol_exists", "symbol": "X", "file": "a.ts"}}
+            {
+                "predicate": "símbolo existe",
+                "detail": {"method": "symbol_exists", "symbol": "X", "file": "a.ts"},
+            }
         ],
         "failed": [
-            {"predicate": "compila", "detail": {"method": "command_output", "command": "tsc", "found": False, "stdout": "errores"}, "type": "quality_gate"}
+            {
+                "predicate": "compila",
+                "detail": {
+                    "method": "command_output",
+                    "command": "tsc",
+                    "found": False,
+                    "stdout": "errores",
+                },
+                "type": "quality_gate",
+            }
         ],
     }
     report = build_evidence_report(
-        "TASK-001", checks,
+        "TASK-001",
+        checks,
         acceptance_criteria=[{"criterion": "Compila", "passed": False}],
         quality_gates=[{"gate": "tsc sin errores", "passed": False}],
     )
@@ -203,7 +238,10 @@ def test_evidence_motor():
 
 def test_gate_briefing_estandar():
     """El briefing estándar renderiza las 3 secciones (QUÉ / POR QUÉ / SIGUIENTE)."""
-    from features.prompts.gate_briefing import render_gate_briefing, what_happened_from_state
+    from features.prompts.gate_briefing import (
+        render_gate_briefing,
+        what_happened_from_state,
+    )
 
     wh = what_happened_from_state(
         {"q1": "Q?", "a1": "A1", "q2": "Q2?", "a2": "A2", "q3": "Q3?", "a3": "A3"}
@@ -212,7 +250,11 @@ def test_gate_briefing_estandar():
     assert "A1" in wh
 
     gates = [
-        {"name": "analysis_approved", "target": "IMPLEMENT.USER_GATE", "description": "Aprobar"},
+        {
+            "name": "analysis_approved",
+            "target": "IMPLEMENT.USER_GATE",
+            "description": "Aprobar",
+        },
         {"name": "needs_refine", "target": "REFINE.DIAGNOSE", "description": "Refinar"},
     ]
     briefing = render_gate_briefing(
@@ -235,8 +277,12 @@ def test_what_happened_variants():
     """what_happened_from_state maneja decisión/intent/data."""
     from features.prompts.gate_briefing import what_happened_from_state
 
-    assert "Decisión registrada: approve" in what_happened_from_state({"decision": "approve", "feedback": "ok"})
-    assert "Intención del paso: start_task" in what_happened_from_state({"intent": "start_task"})
+    assert "Decisión registrada: approve" in what_happened_from_state(
+        {"decision": "approve", "feedback": "ok"}
+    )
+    assert "Intención del paso: start_task" in what_happened_from_state(
+        {"intent": "start_task"}
+    )
     assert "task_data:" in what_happened_from_state({"task_data": "contexto"})
     assert "(no hay resultado del paso anterior)" in what_happened_from_state({})
     print("  ✅ test_what_happened_variants: variantes sintetizadas")
@@ -311,4 +357,6 @@ def test_health_analyzer_mantiene_transition_en_gates_de_nodo():
     assert len(step4) == 1, steps
     assert "transition <gate_name>" in step4[0]["command"], step4[0]["command"]
     assert "submit" not in step4[0]["command"], "gate de nodo -> transition, no submit"
-    print("  ✅ test_health_analyzer_mantiene_transition_en_gates_de_nodo: gates -> transition")
+    print(
+        "  ✅ test_health_analyzer_mantiene_transition_en_gates_de_nodo: gates -> transition"
+    )

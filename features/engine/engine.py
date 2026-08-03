@@ -7,12 +7,13 @@ PRINCIPIO: NO tiene fallbacks silenciosos. Si falta un archivo, ERROR.
 PRINCIPIO: NO tiene compatibilidad legacy (no emergency_workflow,
            presprint_workflow, reconstruct_walker_state, ni defaults efímeros).
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
 
-from libs.infrastructure.utils import eprint, run_script, _get_sub_state, _DONE_STATUSES
+from libs.infrastructure.utils import eprint, run_script, _get_sub_state
 
 from .domain.models import WorkflowState, WorkflowGraph
 from .infrastructure.repositories import WorkflowRepository, WorkflowStateRepository
@@ -33,6 +34,7 @@ def load_workflow(chain_dir: str) -> WorkflowGraph:
     graph = repo.load(chain_dir)
     if not graph or not graph.nodes:
         from features.project import ProjectService
+
         paths = ProjectService.resolve_paths(chain_dir)
         raise FileNotFoundError(
             f"No se encontró workflow.json en '{paths.workflow_json_path}'"
@@ -84,19 +86,25 @@ def ensure_state(chain_dir: str | None = None) -> dict:
 # ═════════════════════════════════════════════════════════════════════════
 
 
-def advance_sub_state(
-    state: WorkflowState | dict, graph: WorkflowGraph | dict
-) -> bool:
+def advance_sub_state(state: WorkflowState | dict, graph: WorkflowGraph | dict) -> bool:
     """Avanza al siguiente sub-estado. Pura: modifica state in-memory.
 
     Acepta tanto WorkflowState/WorkflowGraph como dict/legacy-workflow-dict.
     """
     # Si es dict legacy, operar directamente sobre el dict (sin conversión)
     if isinstance(graph, dict):
-        node_id = state.get("current_node", "SPRINT") if isinstance(state, dict) else state.current_node
+        node_id = (
+            state.get("current_node", "SPRINT")
+            if isinstance(state, dict)
+            else state.current_node
+        )
         node = graph.get("nodes", {}).get(node_id, {})
         sub_states = node.get("sub_states", [])
-        current_idx = state.get("sub_state_index", 0) if isinstance(state, dict) else state.sub_state_index
+        current_idx = (
+            state.get("sub_state_index", 0)
+            if isinstance(state, dict)
+            else state.sub_state_index
+        )
         next_idx = current_idx + 1
         if next_idx < len(sub_states):
             next_ss = sub_states[next_idx]
@@ -119,6 +127,7 @@ def advance_sub_state(
     if isinstance(state, dict):
         state = WorkflowState.from_dict(state)
     from .domain.services import AdvanceService
+
     new_state = AdvanceService.advance(state, graph)
     # La funcion retorna bool por compatibilidad, pero el nuevo estado
     # se asigna al caller via reemplazo del dict original
@@ -138,6 +147,7 @@ def is_node_complete(
     if isinstance(state, dict):
         state = WorkflowState.from_dict(state)
     from .domain.services import ValidationService
+
     return ValidationService.is_node_complete(state, graph)
 
 
@@ -148,12 +158,16 @@ def check_transition_preconditions(
     if isinstance(state, dict):
         state = WorkflowState.from_dict(state)
     from .domain.services import ValidationService
+
     return ValidationService.check_transition_preconditions(state, graph, gate_name)
 
 
 def validate_gate(
-    workflow: dict, node_id: str, gate: str,
-    chain_dir: str | None = None, task_id: str | None = None
+    workflow: dict,
+    node_id: str,
+    gate: str,
+    chain_dir: str | None = None,
+    task_id: str | None = None,
 ) -> dict:
     """Valida gate ejecutando su script de validación (run_script)."""
     node = workflow.get("nodes", {}).get(node_id, {})
@@ -171,8 +185,10 @@ def validate_gate(
         return {"ok": True, "message": result["stdout"]}
 
     from string import Template
+
     msg = Template(error_template).safe_substitute(
-        stderr=result["stderr"], stdout=result["stdout"],
+        stderr=result["stderr"],
+        stdout=result["stdout"],
         exit_code=str(result["exit_code"]),
     )
     return {"ok": False, "message": msg}
@@ -184,8 +200,11 @@ def validate_gate(
 
 
 def execute_sub_state_action(
-    workflow: dict, node_id: str, sub_key: str,
-    chain_dir: str | None, task_id: str | None,
+    workflow: dict,
+    node_id: str,
+    sub_key: str,
+    chain_dir: str | None,
+    task_id: str | None,
 ) -> dict:
     """Ejecuta auto_complete para un sub-estado mode:auto.
 
@@ -193,18 +212,34 @@ def execute_sub_state_action(
     """
     ss = _get_sub_state(workflow, node_id, sub_key)
     if not ss:
-        return {"executed": False, "exit_code": 0, "stdout": "", "stderr": "Sub-state not found."}
+        return {
+            "executed": False,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "Sub-state not found.",
+        }
 
     mode = ss.get("mode", "manual")
     if mode != "auto":
-        return {"executed": False, "exit_code": 0, "stdout": "Mode manual, no auto action.", "stderr": ""}
+        return {
+            "executed": False,
+            "exit_code": 0,
+            "stdout": "Mode manual, no auto action.",
+            "stderr": "",
+        }
 
     script = ss.get("auto_complete", "")
     if not script:
-        return {"executed": False, "exit_code": 0, "stdout": "No auto_complete script.", "stderr": ""}
+        return {
+            "executed": False,
+            "exit_code": 0,
+            "stdout": "No auto_complete script.",
+            "stderr": "",
+        }
 
     result = run_script(script, chain_dir, task_id)
     from string import Template
+
     print(Template("  [auto_complete] $action").substitute(action=script))
     if result["stdout"]:
         for line in result["stdout"].split("\n"):
@@ -257,9 +292,12 @@ def handle_auto_loop(
     save_state(sprint_state, chain_dir)
 
     from string import Template
-    print(Template(
-        "  [auto-loop] Retrocediendo a [$current.$prev_key] para correccion."
-    ).substitute(current=current, prev_key=prev_ss["key"]))
+
+    print(
+        Template(
+            "  [auto-loop] Retrocediendo a [$current.$prev_key] para correccion."
+        ).substitute(current=current, prev_key=prev_ss["key"])
+    )
     reason = (
         exec_result.get("stderr", "").strip()
         or exec_result.get("stdout", "").strip()[:200]
@@ -291,21 +329,26 @@ def store_contract_data(
 
 
 def log_decision(
-    chain_dir: str, from_state: str, gate: str | None,
-    task_id: str | None = None, reason: str = "",
+    chain_dir: str,
+    from_state: str,
+    gate: str | None,
+    task_id: str | None = None,
+    reason: str = "",
 ) -> None:
     """Registra una decisión en WorkflowState.walker.decision_log."""
     if not chain_dir:
         return
     state = load_state(chain_dir)
     log = state.walker.setdefault("decision_log", [])
-    log.append({
-        "from": from_state,
-        "gate": gate,
-        "task_id": task_id,
-        "reason": reason,
-        "at": datetime.now(timezone.utc).isoformat(),
-    })
+    log.append(
+        {
+            "from": from_state,
+            "gate": gate,
+            "task_id": task_id,
+            "reason": reason,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
     save_state(state, chain_dir)
 
 
@@ -326,6 +369,7 @@ def apply_state_transition(
 
     graph = load_workflow(chain_dir)
     from .domain.services import TransitionService
+
     sprint_state = TransitionService.apply(sprint_state, graph, target)
 
     if reason:
@@ -356,7 +400,9 @@ def show_section(title: str) -> None:
 
 def show_node_header(current: str, node: dict, sub_state: dict | None = None) -> None:
     ss_key = sub_state.get("key", "") if sub_state else ""
-    label = f"  Current:  [{current}.{ss_key}]" if ss_key else f"  Current:  [{current}]"
+    label = (
+        f"  Current:  [{current}.{ss_key}]" if ss_key else f"  Current:  [{current}]"
+    )
     print(label)
     if node.get("label"):
         print(f"  {node['label']}")
@@ -365,7 +411,9 @@ def show_node_header(current: str, node: dict, sub_state: dict | None = None) ->
     if sub_state:
         req = sub_state.get("required_fields", [])
         fields_str = ", ".join(req) if req else "(ninguno)"
-        print(f"  Sub-state: {sub_state['key']}  mode={sub_state.get('mode', 'manual')}  required=[{fields_str}]")
+        print(
+            f"  Sub-state: {sub_state['key']}  mode={sub_state.get('mode', 'manual')}  required=[{fields_str}]"
+        )
     print()
 
 
@@ -373,7 +421,9 @@ def show_mode(node: dict, sub_state: dict | None = None) -> None:
     if sub_state:
         mode = sub_state.get("mode", "manual")
         if mode == "auto":
-            print(f"  Mode: auto  (walker ejecuta: {sub_state.get('auto_complete', '')})")
+            print(
+                f"  Mode: auto  (walker ejecuta: {sub_state.get('auto_complete', '')})"
+            )
         else:
             req = sub_state.get("required_fields", [])
             if req:
@@ -397,8 +447,11 @@ def show_context(state: dict) -> None:
     print()
 
 
-def show_transitions(workflow: dict, node_id: str, chain_dir: str | None = None) -> None:
+def show_transitions(
+    workflow: dict, node_id: str, chain_dir: str | None = None
+) -> None:
     from libs.infrastructure.utils import valid_transitions
+
     trans = valid_transitions(workflow, node_id)
 
     print(f"  Inter-node transitions ({len(trans)}):")
@@ -422,7 +475,12 @@ def show_history(state: dict) -> None:
         print()
 
 
-def show_on_entry_message(node: dict, chain_dir: str | None = None, task_id: str | None = None, sub_state: dict | None = None) -> None:
+def show_on_entry_message(
+    node: dict,
+    chain_dir: str | None = None,
+    task_id: str | None = None,
+    sub_state: dict | None = None,
+) -> None:
     msg = ""
     if sub_state:
         msg = sub_state.get("on_entry_message", "")
@@ -454,8 +512,7 @@ def show_sprint_info(chain_dir: str) -> None:
         tasks = state.tasks
         total = len(tasks)
         done = sum(
-            1 for t in tasks
-            if isinstance(t, dict) and t.get("status") == "completed"
+            1 for t in tasks if isinstance(t, dict) and t.get("status") == "completed"
         )
         status = state.sprint.get("status", "?")
         chain_id = state.sprint.get("chain_id", "") or chain_dir.split("/")[-1]
@@ -537,8 +594,12 @@ def _graph_to_dict(graph: WorkflowGraph) -> dict:
             sub_states.append(entry)
 
         gates = [
-            {"name": g.name, "target": g.target_node,
-             "target_sub_state": g.target_sub_state, "description": g.description}
+            {
+                "name": g.name,
+                "target": g.target_node,
+                "target_sub_state": g.target_sub_state,
+                "description": g.description,
+            }
             for g in graph.edges_by_source.get(nid, [])
         ]
         nodes[nid] = {
@@ -551,8 +612,13 @@ def _graph_to_dict(graph: WorkflowGraph) -> dict:
         }
 
     edges = [
-        {"from": g.source_node, "to": g.target_node, "gate": g.name,
-         "target_sub_state": g.target_sub_state, "description": g.description}
+        {
+            "from": g.source_node,
+            "to": g.target_node,
+            "gate": g.name,
+            "target_sub_state": g.target_sub_state,
+            "description": g.description,
+        }
         for g in graph.edges
     ]
 

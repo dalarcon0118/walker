@@ -72,11 +72,11 @@ class WorkflowAPI:
         try:
             if self._tracer is None:
                 from ..infrastructure.trace_log import TraceLogger
+
                 self._tracer = TraceLogger()
             chain_dir = record.chain_dir or ""
             if not chain_dir:
                 return
-            from datetime import datetime, timezone
             self._tracer.trace(
                 chain_dir,
                 "session_start",
@@ -273,7 +273,7 @@ class WorkflowAPI:
 
     def _build_context(self) -> ExecutionContext:
         """Construye ExecutionContext desde la sesión actual.
-        
+
         Lee task_id del sprint-state si está disponible para que
         _build_prompt_context() pueda identificar la tarea actual.
         """
@@ -282,7 +282,10 @@ class WorkflowAPI:
         if self._chain_dir:
             # Fuente unica: el delta. task_id = spec actual del spring.
             try:
-                from features.delta_tracking.application.spring_graph_service import SpringGraphService
+                from features.delta_tracking.application.spring_graph_service import (
+                    SpringGraphService,
+                )
+
                 spring_svc = SpringGraphService.from_chain_dir(self._chain_dir)
                 if spring_svc:
                     spring_id = spring_svc.get_spring_id(self._chain_dir)
@@ -294,7 +297,10 @@ class WorkflowAPI:
                 pass
             if not task_id:
                 # Fallback: sprint-state legacy (task_id en context)
-                from features.spring.infrastructure.repositories import SprintStateRepository
+                from features.spring.infrastructure.repositories import (
+                    SprintStateRepository,
+                )
+
                 sp_data = SprintStateRepository().load_dict(self._chain_dir)
                 if sp_data:
                     task_id = sp_data.get("context", {}).get("task_id", "")
@@ -320,7 +326,7 @@ class WorkflowAPI:
 
     def advance(self) -> dict:
         """Avanza al siguiente sub-estado dentro del mismo nodo.
-        
+
         Solo funciona si hay un on_success definido en el sub-estado actual.
         Útil para user_input después de presentar resultados al usuario.
         """
@@ -342,6 +348,7 @@ class WorkflowAPI:
         sub-estados, descripciones, campos requeridos, y transiciones
         disponibles. El agente usa esto para navegar el workflow."""
         from ..infrastructure.repositories import WorkflowRepository
+
         wf_repo = WorkflowRepository()
         workflow = wf_repo.load(self._chain_dir or "")
         nodes = {}
@@ -363,8 +370,12 @@ class WorkflowAPI:
                     entry["output_schema"] = ss.output_schema
                 sub_states.append(entry)
             gates = [
-                {"name": g.name, "target": g.target_node,
-                 "target_sub_state": g.target_sub_state, "description": g.description}
+                {
+                    "name": g.name,
+                    "target": g.target_node,
+                    "target_sub_state": g.target_sub_state,
+                    "description": g.description,
+                }
                 for g in workflow.edges_by_source.get(nid, [])
             ]
             nodes[nid] = {
@@ -393,18 +404,22 @@ class WorkflowAPI:
             "initial_state": workflow.initial_state,
             "nodes": nodes,
             "edges": [
-                {"from": g.source_node, "to": g.target_node, "gate": g.name,
-                 "target_sub_state": g.target_sub_state,
-                 "description": g.description}
+                {
+                    "from": g.source_node,
+                    "to": g.target_node,
+                    "gate": g.name,
+                    "target_sub_state": g.target_sub_state,
+                    "description": g.description,
+                }
                 for g in workflow.edges
             ],
             "on": on_events,
             "flows": flows,
             "note": "Usa 'transition <gate>' para navegar entre nodos. "
-                    "NO ejecutes tasks directamente si existe un nodo de workflow. "
-                    "Primero descubre el nodo correcto con este comando, "
-                    "luego navega via transitions. "
-                    "Los event handlers 'on:' se ejecutan automaticamente por el engine.",
+            "NO ejecutes tasks directamente si existe un nodo de workflow. "
+            "Primero descubre el nodo correcto con este comando, "
+            "luego navega via transitions. "
+            "Los event handlers 'on:' se ejecutan automaticamente por el engine.",
         }
 
     def session(self, action: str, **params) -> dict:

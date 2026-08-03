@@ -44,6 +44,7 @@ def _write_trace_ndjson(chain_dir: str, events: list[dict]) -> None:
     por lo que sirve para testear el builder sin infra real.
     """
     import gzip
+
     trace_dir = os.path.join(chain_dir, "data", "traces")
     os.makedirs(trace_dir, exist_ok=True)
     path = os.path.join(trace_dir, "sprint.json.gz")
@@ -60,26 +61,36 @@ def test_reflection_deriva_source_node_y_attempt_desde_trace():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         chain_dir, _ = _setup_project(tmpdir)
-        _write_trace_ndjson(chain_dir, [
-            {
-                "event_type": "TRANSITION",
-                "task_id": "TASK-001",
-                "timestamp": "2026-08-02T10:00:00+00:00",
-                "data": {"gate": "start_task", "from": "SPRINT", "to": "DESIGN"},
-            },
-            {
-                "event_type": "TRANSITION",
-                "task_id": "TASK-001",
-                "timestamp": "2026-08-02T11:00:00+00:00",
-                "data": {"gate": "needs_refine", "from": "IMPLEMENT", "to": "REFINE"},
-            },
-            {
-                "event_type": "ERROR",
-                "task_id": "TASK-001",
-                "timestamp": "2026-08-02T11:00:01+00:00",
-                "data": {"error_type": "quality_gate", "message": "tsc: 235 errores"},
-            },
-        ])
+        _write_trace_ndjson(
+            chain_dir,
+            [
+                {
+                    "event_type": "TRANSITION",
+                    "task_id": "TASK-001",
+                    "timestamp": "2026-08-02T10:00:00+00:00",
+                    "data": {"gate": "start_task", "from": "SPRINT", "to": "DESIGN"},
+                },
+                {
+                    "event_type": "TRANSITION",
+                    "task_id": "TASK-001",
+                    "timestamp": "2026-08-02T11:00:00+00:00",
+                    "data": {
+                        "gate": "needs_refine",
+                        "from": "IMPLEMENT",
+                        "to": "REFINE",
+                    },
+                },
+                {
+                    "event_type": "ERROR",
+                    "task_id": "TASK-001",
+                    "timestamp": "2026-08-02T11:00:01+00:00",
+                    "data": {
+                        "error_type": "quality_gate",
+                        "message": "tsc: 235 errores",
+                    },
+                },
+            ],
+        )
 
         pkg = build_reflection_context(
             chain_dir=chain_dir,
@@ -98,7 +109,9 @@ def test_reflection_deriva_source_node_y_attempt_desde_trace():
         assert "quality_gate" in pkg["error_context"], pkg["error_context"]
         assert "tsc sin errores" in pkg["failed_gates"]
         assert pkg["hint"], "hint no debería estar vacío"
-        assert any(p["type"] == "ERROR" for p in pkg["past_attempts"]), "debería haber ERRORs"
+        assert any(p["type"] == "ERROR" for p in pkg["past_attempts"]), (
+            "debería haber ERRORs"
+        )
         print("  ✅ test_reflection_deriva_source_node_y_attempt_desde_trace")
 
 
@@ -110,20 +123,27 @@ def test_reflection_attempt_incrementa_con_segundo_refine():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         chain_dir, _ = _setup_project(tmpdir)
-        _write_trace_ndjson(chain_dir, [
-            {
-                "event_type": "TRANSITION",
-                "task_id": "TASK-002",
-                "timestamp": "2026-08-02T09:00:00+00:00",
-                "data": {"gate": "needs_refine", "from": "ANALYZE", "to": "REFINE"},
-            },
-            {
-                "event_type": "TRANSITION",
-                "task_id": "TASK-002",
-                "timestamp": "2026-08-02T10:00:00+00:00",
-                "data": {"gate": "needs_refine", "from": "IMPLEMENT", "to": "REFINE"},
-            },
-        ])
+        _write_trace_ndjson(
+            chain_dir,
+            [
+                {
+                    "event_type": "TRANSITION",
+                    "task_id": "TASK-002",
+                    "timestamp": "2026-08-02T09:00:00+00:00",
+                    "data": {"gate": "needs_refine", "from": "ANALYZE", "to": "REFINE"},
+                },
+                {
+                    "event_type": "TRANSITION",
+                    "task_id": "TASK-002",
+                    "timestamp": "2026-08-02T10:00:00+00:00",
+                    "data": {
+                        "gate": "needs_refine",
+                        "from": "IMPLEMENT",
+                        "to": "REFINE",
+                    },
+                },
+            ],
+        )
         pkg = build_reflection_context(chain_dir=chain_dir, task_id="TASK-002")
         assert pkg["attempt"] == 2, f"attempt debería ser 2: {pkg['attempt']}"
         # El source_node es el del último refine
@@ -139,14 +159,17 @@ def test_reflection_provider_produce_capa():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         chain_dir, _ = _setup_project(tmpdir)
-        _write_trace_ndjson(chain_dir, [
-            {
-                "event_type": "TRANSITION",
-                "task_id": "TASK-003",
-                "timestamp": "2026-08-02T10:00:00+00:00",
-                "data": {"gate": "needs_refine", "from": "VERIFY", "to": "REFINE"},
-            },
-        ])
+        _write_trace_ndjson(
+            chain_dir,
+            [
+                {
+                    "event_type": "TRANSITION",
+                    "task_id": "TASK-003",
+                    "timestamp": "2026-08-02T10:00:00+00:00",
+                    "data": {"gate": "needs_refine", "from": "VERIFY", "to": "REFINE"},
+                },
+            ],
+        )
 
         ctx = SimpleNamespace(
             chain_dir=chain_dir,
@@ -195,20 +218,30 @@ def test_prompt_context_builder_inyecta_reflexion():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         chain_dir, _ = _setup_project(tmpdir)
-        _write_trace_ndjson(chain_dir, [
-            {
-                "event_type": "TRANSITION",
-                "task_id": "TASK-004",
-                "timestamp": "2026-08-02T12:00:00+00:00",
-                "data": {"gate": "needs_refine", "from": "IMPLEMENT", "to": "REFINE"},
-            },
-            {
-                "event_type": "ERROR",
-                "task_id": "TASK-004",
-                "timestamp": "2026-08-02T12:00:01+00:00",
-                "data": {"error_type": "quality_gate", "message": "tsc: 235 errores"},
-            },
-        ])
+        _write_trace_ndjson(
+            chain_dir,
+            [
+                {
+                    "event_type": "TRANSITION",
+                    "task_id": "TASK-004",
+                    "timestamp": "2026-08-02T12:00:00+00:00",
+                    "data": {
+                        "gate": "needs_refine",
+                        "from": "IMPLEMENT",
+                        "to": "REFINE",
+                    },
+                },
+                {
+                    "event_type": "ERROR",
+                    "task_id": "TASK-004",
+                    "timestamp": "2026-08-02T12:00:01+00:00",
+                    "data": {
+                        "error_type": "quality_gate",
+                        "message": "tsc: 235 errores",
+                    },
+                },
+            ],
+        )
 
         ctx = PromptContextBuilder().build(chain_dir, "TASK-004")
 
@@ -224,7 +257,9 @@ def test_prompt_context_builder_inyecta_reflexion():
         assert ctx["attempt"] == 1
         assert ctx["max_attempts"] == 3
         assert "tsc" in ctx["hint"], f"hint debería citar el error: {ctx['hint']}"
-        print("  ✅ test_prompt_context_builder_inyecta_reflexion: builder inyecta reflexión")
+        print(
+            "  ✅ test_prompt_context_builder_inyecta_reflexion: builder inyecta reflexión"
+        )
 
 
 def test_prompt_refine_resuelve_placeholders_reflexion():
@@ -233,42 +268,48 @@ def test_prompt_refine_resuelve_placeholders_reflexion():
     Verifica el contrato SKILL.md 210 de punta a punta: el engine inyecta
     source_node/attempt/error_context y el prompt de DIAGNOSE los muestra.
     """
-    import re
     from types import SimpleNamespace
 
     from features.engine.application.orchestrator import OrchestrationService
 
     with tempfile.TemporaryDirectory() as tmpdir:
         chain_dir, project_root = _setup_project(tmpdir)
-        _write_trace_ndjson(chain_dir, [
-            {
-                "event_type": "TRANSITION",
-                "task_id": "TASK-005",
-                "timestamp": "2026-08-02T12:00:00+00:00",
-                "data": {"gate": "needs_refine", "from": "VERIFY", "to": "REFINE"},
-            },
-        ])
+        _write_trace_ndjson(
+            chain_dir,
+            [
+                {
+                    "event_type": "TRANSITION",
+                    "task_id": "TASK-005",
+                    "timestamp": "2026-08-02T12:00:00+00:00",
+                    "data": {"gate": "needs_refine", "from": "VERIFY", "to": "REFINE"},
+                },
+            ],
+        )
 
         # Template minimalista en workflow.v3/prompts/refine (ruta canónica)
-        prompts_dir = os.path.join(
-            project_root, "workflow.v3", "prompts", "refine"
-        )
+        prompts_dir = os.path.join(project_root, "workflow.v3", "prompts", "refine")
         os.makedirs(prompts_dir, exist_ok=True)
         template = (
             "source_node={source_node} attempt={attempt}/{max_attempts} "
             "error={error_context} hint={hint}"
         )
         with open(os.path.join(prompts_dir, "diagnose.prompt.json"), "w") as f:
-            json.dump({"id": "refine/diagnose", "type": "llm_task", "template": template}, f)
+            json.dump(
+                {"id": "refine/diagnose", "type": "llm_task", "template": template}, f
+            )
 
         svc = OrchestrationService()
         ctx_obj = SimpleNamespace(
-            chain_dir=chain_dir, task_id="TASK-005", session_id="s",
+            chain_dir=chain_dir,
+            task_id="TASK-005",
+            session_id="s",
             baggage={"task_id": "TASK-005"},
         )
         sprint_ctx = svc._build_prompt_context(chain_dir, "TASK-005")
         prompt = svc.resolve_prompt(
-            "refine/diagnose", chain_dir, "TASK-005",
+            "refine/diagnose",
+            chain_dir,
+            "TASK-005",
             context_config={"sources": [], "focus": {"role": "x"}},
             execution_ctx=ctx_obj,
             extra_data=sprint_ctx,
@@ -278,4 +319,6 @@ def test_prompt_refine_resuelve_placeholders_reflexion():
         assert "{hint}" not in prompt, "hint sin resolver"
         assert "source_node=VERIFY" in prompt, f"source_node no inyectado: {prompt}"
         assert "attempt=1/3" in prompt, f"attempt no inyectado: {prompt}"
-        print("  ✅ test_prompt_refine_resuelve_placeholders_reflexion: prompt resuelto")
+        print(
+            "  ✅ test_prompt_refine_resuelve_placeholders_reflexion: prompt resuelto"
+        )
