@@ -27,13 +27,13 @@
             "type": "array",
             "minItems": 1,
             "maxItems": 10,
-            "description": "Task titles only — full specification happens per task",
+            "description": "Descriptive task titles (2-3 lines) — full specification happens per task",
             "items": {
               "type": "object",
               "properties": {
                 "objective": {
                   "type": "string",
-                  "description": "Task title (1 line)",
+                  "description": "Descriptive task title (2-3 lines) grounded in the layers",
                   "examples": [
                     "Create login screen"
                   ]
@@ -61,7 +61,8 @@
                 "objective",
                 "type",
                 "domain"
-              ]
+              ],
+              "description": "Task titles only (2-3 line descriptions) — full specification happens per task in TASK_SPEC"
             }
           }
         },
