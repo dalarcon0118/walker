@@ -195,7 +195,7 @@
             "provider": "ckg",
             "config": {
               "query": {
-                "type": "pattern"
+                "type": "convention"
               },
               "max_nodes": 15
             }
@@ -204,7 +204,7 @@
             "provider": "cpg",
             "config": {
               "query": {
-                "file": "_walker"
+                "file": "features"
               },
               "max_results": 20
             }

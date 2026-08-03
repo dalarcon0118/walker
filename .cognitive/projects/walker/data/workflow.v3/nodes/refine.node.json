@@ -130,7 +130,7 @@
             "provider": "cpg",
             "config": {
               "query": {
-                "file": "_walker"
+                "file": "features"
               },
               "max_results": 20
             }
@@ -151,7 +151,7 @@
             "provider": "ckg",
             "config": {
               "query": {
-                "type": "pattern"
+                "type": "convention"
               },
               "max_nodes": 10
             }
@@ -374,7 +374,7 @@
             "provider": "ckg",
             "config": {
               "query": {
-                "type": "pattern"
+                "type": "convention"
               },
               "max_nodes": 10
             }

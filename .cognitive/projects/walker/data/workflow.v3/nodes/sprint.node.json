@@ -840,7 +840,7 @@
             "provider": "ckg",
             "config": {
               "query": {
-                "type": "pattern"
+                "type": "convention"
               },
               "max_nodes": 15
             }

@@ -244,7 +244,7 @@
           {
             "provider": "ckg",
             "config": {
-              "query": {"type": "pattern"},
+              "query": {"type": "convention"},
               "max_nodes": 10
             }
           },
@@ -383,7 +383,7 @@
           {
             "provider": "ckg",
             "config": {
-              "query": {"type": "pattern"},
+              "query": {"type": "convention"},
               "max_nodes": 10
             }
           }
