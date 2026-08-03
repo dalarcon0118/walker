@@ -7,9 +7,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 from libs.shared_domain import ExecutionContext
+from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 from features.project import ProjectService
 
 
+@as_side_effect(scope=SCOPE_TRACKING)
 def import_legacy_trail(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     legacy_data = ctx.baggage.get("legacy_mapping", {})
     events = legacy_data.get("events", params.get("events", []))
@@ -55,6 +57,7 @@ def import_legacy_trail(ctx: ExecutionContext, params: dict[str, Any]) -> dict[s
     return {"ok": True, "imported": total_imported, "chains_processed": list(by_chain.keys()), "traces_dir": traces_dir}
 
 
+@as_side_effect(scope=SCOPE_TRACKING)
 def create_legacy_prompts(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     legacy_data = ctx.baggage.get("legacy_mapping", {})
     prompts_needed = legacy_data.get("prompts_needed", params.get("prompts_needed", []))
@@ -99,6 +102,7 @@ def create_legacy_prompts(ctx: ExecutionContext, params: dict[str, Any]) -> dict
     return {"ok": True, "created": len(created_files), "files": created_files, "prompts_dir": prompts_base}
 
 
+@as_side_effect(scope=SCOPE_TRACKING)
 def save_converted_tasks(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     legacy_data = ctx.baggage.get("legacy_mapping", {})
     tasks = legacy_data.get("tasks", params.get("tasks", []))

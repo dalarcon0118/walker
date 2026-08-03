@@ -34,8 +34,14 @@ def _split(line: str) -> list[str]:
 
 # ── 1. File-level metrics (batch) ──────────────────────────────
 
-def run_metrics(paths: list[str]) -> list[dict]:
+def run_metrics(paths: list[str], cwd: str | None = None) -> list[dict]:
     """Run qlty metrics on multiple paths in one invocation.
+
+    Args:
+        paths: Paths a medir (absolutos o relativos a cwd).
+        cwd: Directorio de trabajo para qlty (repo donde vive .qlty/). Necesario
+             para que qlty encuentre su config cuando el proceso corre desde
+             otro directorio (ej. el repo del walker).
 
     Returns [{file, classes, funcs, fields, cyclo, complex, lcom, lines, loc}, ...]
     """
@@ -43,7 +49,7 @@ def run_metrics(paths: list[str]) -> list[dict]:
     try:
         r = subprocess.run(
             [QLTY_BIN, "metrics", "--quiet"] + paths,
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, cwd=cwd,
         )
         if r.returncode != 0:
             return []
@@ -81,7 +87,7 @@ def _parse_metrics(stdout: str) -> list[dict]:
 
 # ── 2. Per-function metrics (batch) ────────────────────────────
 
-def run_function_metrics(paths: list[str]) -> dict[str, list[dict]]:
+def run_function_metrics(paths: list[str], cwd: str | None = None) -> dict[str, list[dict]]:
     """Run qlty metrics --functions on multiple paths.
 
     Returns {filepath: [{function, cyclo, cognitive, lines, loc}, ...]}
@@ -90,7 +96,7 @@ def run_function_metrics(paths: list[str]) -> dict[str, list[dict]]:
     try:
         r = subprocess.run(
             [QLTY_BIN, "metrics", "--functions", "--quiet"] + paths,
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, cwd=cwd,
         )
         if r.returncode != 0:
             return {}
@@ -138,13 +144,13 @@ def _parse_function_metrics(stdout: str) -> dict[str, list[dict]]:
 
 # ── 3. Smells (batch SARIF) ────────────────────────────────────
 
-def run_smells(paths: list[str]) -> list[dict]:
+def run_smells(paths: list[str], cwd: str | None = None) -> list[dict]:
     """Run qlty smells and return structured issues."""
     ensure_tools(["qlty"])
     try:
         r = subprocess.run(
             [QLTY_BIN, "smells", "--sarif"] + paths,
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=120, cwd=cwd,
         )
         if r.returncode != 0:
             return []
@@ -177,7 +183,7 @@ def _parse_sarif(sarif_text: str) -> list[dict]:
 
 # ── 4. Linter issues (batch SARIF) ─────────────────────────────
 
-def run_check(paths: list[str], level: str = "medium") -> list[dict]:
+def run_check(paths: list[str], level: str = "medium", cwd: str | None = None) -> list[dict]:
     """Run qlty check and return linter issues.
 
     qlty check returns exit code 1 when issues found (like a linter).
@@ -187,7 +193,7 @@ def run_check(paths: list[str], level: str = "medium") -> list[dict]:
     try:
         r = subprocess.run(
             [QLTY_BIN, "check", f"--level={level}", "--sarif"] + paths,
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=120, cwd=cwd,
         )
         return _parse_sarif(r.stdout)
     except (FileNotFoundError, subprocess.TimeoutExpired):

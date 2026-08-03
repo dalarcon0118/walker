@@ -412,6 +412,8 @@ class SubmitDataUseCase:
             sub_state.is_auto()
             or (sub_state.execution == ExecutionType.LLM_TASK and (task_success or not sub_state.action))
         )
+        advanced_to = ""
+        node_complete = False
         if should_advance:
             advanced = AdvanceService.advance(state, workflow)
             if advanced:
@@ -427,16 +429,53 @@ class SubmitDataUseCase:
                     )
                 )
                 result["advanced_to"] = state.current_sub_state
-                result["node_complete"] = ValidationService.is_node_complete(
+                advanced_to = state.current_sub_state
+                node_complete = ValidationService.is_node_complete(
                     state, workflow
                 )
+                result["node_complete"] = node_complete
             else:
+                node_complete = True
                 result["node_complete"] = True
         else:
             # Sub-estados user_input o llm_task sin on_success no auto-avanzan
-            result["node_complete"] = ValidationService.is_node_complete(
+            node_complete = ValidationService.is_node_complete(
                 state, workflow
             )
+            result["node_complete"] = node_complete
+
+        # ── 9b. StepResult monádico: compone task + side-effects + señales
+        # de forma tipada para el PromptManager (sin JSON strings ni re-parseo).
+        from ..domain.step_result import StepResult
+
+        side_results = result.get("side_effects", []) or []
+        step_result = StepResult(
+            ok=task_success if sub_state.action else True,
+            task=task_result,
+            side_effects=side_results,
+            advanced_to=advanced_to,
+            node_complete=node_complete,
+            sub_state=sub_state.key,
+            fields=fields,
+            error=result.get("error", ""),
+        )
+        result["step_result"] = step_result
+        # Placeholders tipados para templates (los arma StepResult)
+        result["prompt_placeholders"] = step_result.to_prompt_dict()
+
+        # Persistencia tipada: el checkpoint (CON tipos) viaja al sub_state_data
+        # para que el siguiente sub-estado lo reconstruya validando (sin perder
+        # bool/list/dict). Se guardan también los placeholders step_* para los
+        # templates.
+        state = state.record_submit(
+            state.current_sub_state,
+            {
+                "step_checkpoint": step_result.to_checkpoint(),
+                "prompt_placeholders": step_result.to_prompt_dict(),
+            },
+        )
+        self._state_repo.save(chain_dir, state)
+
 
         # ── 10. Dispatch events via EventDispatcher ─────────────
         _flush_events(
@@ -548,18 +587,13 @@ class TransitionUseCase:
                     f"Precondiciones no cumplidas para gate '{gate_name}'", pre_errors
                 )
 
-        # ── 3b. Evaluate contract.pre / post / invariants ──────────
+        # ── 3b. Evaluate contract.pre / invariants (ANTES de transicionar) ──
         if gate.contract:
             from ..domain.contracts import ContractEvaluator
             pre_errors = ContractEvaluator.evaluate_pre(state, gate.contract)
             if pre_errors:
                 raise TransitionBlockedError(
                     f"Gate '{gate_name}' contract.pre bloqueado", pre_errors
-                )
-            post_errors = ContractEvaluator.evaluate_post(state, gate.contract)
-            if post_errors:
-                raise TransitionBlockedError(
-                    f"Gate '{gate_name}' contract.post bloqueado", post_errors
                 )
 
         # ── 4. Execute gate validation script ───────────────────
@@ -613,6 +647,17 @@ class TransitionUseCase:
                     SessionStore.save(record)
             except Exception:
                 pass
+
+        # ── 6d. Evaluate contract.post DESPUES de transicionar ──
+        # El post describe una condicion del ESTADO DESTINO (nuevo estado).
+        # Solo puede verificarse tras aplicar la transicion, no antes.
+        if gate.contract:
+            from ..domain.contracts import ContractEvaluator
+            post_errors = ContractEvaluator.evaluate_post(state, gate.contract)
+            if post_errors:
+                raise TransitionBlockedError(
+                    f"Gate '{gate_name}' contract.post bloqueado", post_errors
+                )
 
         self._state_repo.save(chain_dir, state)
         self.events.append(

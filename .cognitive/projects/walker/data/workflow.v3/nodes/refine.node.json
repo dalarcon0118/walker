@@ -1,7 +1,10 @@
 {
   "label": "Refinement Cycle",
   "description": "Root cause diagnosis, knowledge capture, and routing to correct phase. Includes loop detection (3 max attempts) and sprint escalation.",
-  "provides": ["project_id", "sprint_id"],
+  "provides": [
+    "project_id",
+    "sprint_id"
+  ],
   "sub_states": [
     {
       "key": "DIAGNOSE",
@@ -112,6 +115,10 @@
       "context": {
         "sources": [
           {
+            "provider": "reflection",
+            "config": {}
+          },
+          {
             "provider": "project",
             "config": {}
           },
@@ -122,7 +129,9 @@
           {
             "provider": "cpg",
             "config": {
-              "query": {"file": "_walker"},
+              "query": {
+                "file": "_walker"
+              },
               "max_results": 20
             }
           },
@@ -141,7 +150,9 @@
           {
             "provider": "ckg",
             "config": {
-              "query": {"type": "pattern"},
+              "query": {
+                "type": "pattern"
+              },
               "max_nodes": 10
             }
           },
@@ -171,7 +182,6 @@
       "key": "KNOWLEDGE_CAPTURE",
       "label": "Capture lessons learned",
       "execution": "llm_task",
-
       "input_schema": {
         "type": "object",
         "properties": {
@@ -363,7 +373,9 @@
           {
             "provider": "ckg",
             "config": {
-              "query": {"type": "pattern"},
+              "query": {
+                "type": "pattern"
+              },
               "max_nodes": 10
             }
           },
@@ -392,14 +404,17 @@
       "key": "CONFIRM_GATE",
       "label": "Confirm refinement route",
       "execution": "user_input",
-
       "input_schema": {},
       "output_schema": {
         "type": "object",
         "properties": {
           "decision": {
             "type": "string",
-            "enum": ["approve", "modify", "cancel"],
+            "enum": [
+              "approve",
+              "modify",
+              "cancel"
+            ],
             "description": "User decision on refinement route. approve->ROUTE, modify->DIAGNOSE, cancel->SPRINT"
           },
           "feedback": {
@@ -407,17 +422,22 @@
             "description": "User feedback. If modify, specify what to change."
           }
         },
-        "required": ["decision"],
+        "required": [
+          "decision"
+        ],
         "description": "Refinement route confirmed. approve->ROUTE, modify->DIAGNOSE, cancel->SPRINT.ACTIVE."
       },
       "on_success": "ROUTE",
       "on_failure": "DIAGNOSE",
       "side_effects": [],
-
       "timeout_ms": 600000,
       "prompt_id": "refine/confirm-gate",
       "context": {
         "sources": [
+          {
+            "provider": "reflection",
+            "config": {}
+          },
           {
             "provider": "project",
             "config": {}
@@ -479,7 +499,6 @@
       "on_success": "",
       "on_failure": "DIAGNOSE",
       "side_effects": [],
-
       "timeout_ms": 30000,
       "prompt_id": "refine/route",
       "audit": {
@@ -530,7 +549,6 @@
           "optional": true
         }
       ],
-
       "timeout_ms": 30000,
       "prompt_id": "refine/escalation",
       "audit": {

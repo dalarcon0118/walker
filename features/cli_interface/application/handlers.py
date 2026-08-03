@@ -336,6 +336,16 @@ def handle_status(req: Request) -> Response:
                 f"Project '{project_id}' at {node}.{sub} — "
                 f"gates available: {gate_names}"
             )
+            if sprint.get("execution_type") == "user_input":
+                # User gate: la decision la toma el PO respondiendo (submit),
+                # no con transition directa. Explicitar la via correcta.
+                message = (
+                    f"Project '{project_id}' at {node}.{sub} — "
+                    f"awaiting your decision. Submit your response with the "
+                    f"fields the prompt asks for (e.g. "
+                    f"'walker {project_id}/submit {{\"decision\":\"...\",\"evidence\":\"...\"}}'). "
+                    f"Node gates ({gate_names}) are triggered by the submitted decision."
+                )
             if instructions:
                 message += f". {instructions}"
         else:
@@ -668,8 +678,56 @@ def _build_help() -> dict:
              "usage": "walker prepare [path]"},
             {"name": "routes",     "desc": "List all REST endpoints",
              "usage": "walker routes"},
+            {"name": "mcp-config", "desc": "Genera la config MCP portable para usar las tools del walker en cualquier agente IA (Claude Code, Cursor, Cline, Codex, Roo...)",
+             "usage": "walker mcp-config[?format=opencode|claude|cursor][&raw=true]"},
         ],
         "task_catalog": task_catalog,
         "indices": indices_info,
     }
 
+
+
+def handle_mcp_config(req: Request) -> Response:
+    """Use case: genera la configuración MCP portable para cualquier agente IA.
+
+    Retorna la config MCP del walker en formato estándar (mcpServers) para
+    que el usuario la use en cualquier agente (Claude Code, Cursor, Cline,
+    Codex, Roo...) — no solo opencode.
+
+    Flags (en req.params):
+        format: standard | opencode | claude | cursor (default standard)
+        raw: true → solo el bloque mcpServers
+    """
+    def _exec():
+        from features.cli_interface.application.mcp_config_service import generate
+
+        # Leer de flags (query params ?format=...) o params (path)
+        fmt = (
+            req.flags.get("format")
+            or req.params.get("format")
+            or "standard"
+        )
+        raw = str(
+            req.flags.get("raw")
+            or req.params.get("raw")
+            or "false"
+        ).lower() == "true"
+        config = generate(fmt)
+        data = config
+        if raw:
+            data = config.get("mcpServers", config)
+        return Response.ok(
+            "mcp_config",
+            message=(
+                "Configuración MCP del walker — lista para pegar en cualquier "
+                "agente IA (Claude Code, Cursor, Cline, Codex, Roo, opencode...)"
+            ),
+            data=data,
+            next_actions=[
+                action(f"walker mcp-config --format=opencode", "config para opencode"),
+                action(f"walker mcp-config --format=claude", "config para Claude Desktop"),
+                action(f"walker mcp-config --format=cursor", "config para Cursor"),
+                action("walker routes", "list all REST endpoints"),
+            ],
+        )
+    return _safe_execute(_exec)

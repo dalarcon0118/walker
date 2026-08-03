@@ -29,9 +29,21 @@ def resolve_project_sprint_handler(ctx: ExecutionContext, data: dict[str, Any]) 
 
 
 def _has_sprint_state(chain_dir: str) -> bool:
-    """Check if sprint-state.json exists via SprintStateRepository (SSOT)."""
-    from features.spring.infrastructure.repositories import SprintStateRepository
-    return bool(SprintStateRepository().load_dict(chain_dir))
+    """Verifica que el sprint tenga estado en el delta (fuente unica).
+
+    find_active_sprint ya resuelve el sprint activo desde el delta;
+    aqui solo se confirma que el nodo spring existe.
+    """
+    try:
+        from features.delta_tracking.application.spring_graph_service import SpringGraphService
+        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        if not spring_svc:
+            return False
+        spring_id = spring_svc.get_spring_id(chain_dir)
+        spring_svc.ensure_spring_imported(chain_dir, spring_id)
+        return spring_svc.get_spring(spring_id) is not None
+    except Exception:
+        return False
 
 
 def _update_session(ctx: ExecutionContext, project_id: str, chain_dir: str) -> None:

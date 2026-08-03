@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext
+from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_KNOWLEDGE
 from features.project import ProjectService
 
 
@@ -20,6 +21,7 @@ def _get_project_root(chain_dir: str) -> str:
         return ""
 
 
+@as_side_effect(scope=SCOPE_KNOWLEDGE)
 def save_ckg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     if not ctx.chain_dir:
         return {"ok": False, "error": "chain_dir not available", "nodes_saved": 0}
@@ -50,10 +52,12 @@ def save_ckg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": str(e), "nodes_saved": 0}
 
 
+@as_side_effect(scope=SCOPE_KNOWLEDGE)
 def save_to_ckg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     return save_ckg(ctx, params)
 
 
+@as_side_effect(scope=SCOPE_KNOWLEDGE)
 def delete_ckg_node(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     if not ctx.chain_dir:
         return {"ok": False, "error": "chain_dir not available", "deleted": False}
@@ -61,7 +65,9 @@ def delete_ckg_node(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, 
     if not ckg:
         return {"ok": False, "error": "could not resolve project_root", "deleted": False}
     try:
-        result = ckg.delete_nodes_by_task(ctx.task_id or "")
+        task_id = ctx.task_id or ""
+        # El índice CKG mapea el campo 'task' → metadata.task_id
+        result = ckg.delete_by_metadata("task", task_id)
         return {"ok": True, "deleted": result.get("nodes_removed", 0) > 0, **result}
     except Exception as e:
         return {"ok": False, "error": str(e), "deleted": False}

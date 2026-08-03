@@ -2,9 +2,11 @@
 infrastructure/task_registry.py — Implementacion concreta de TaskRegistry.
 
 SRP: Unica responsabilidad = almacenar y ejecutar tareas registradas.
+Tambien registra eventos task_execute en el TraceGraph.
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from ..domain.registry import TaskRegistry
@@ -14,9 +16,10 @@ from ..domain.models import TaskResult, ExecutionContext
 class InMemoryTaskRegistry(TaskRegistry):
     """TaskRegistry en memoria. Tareas registradas por nombre con metadata."""
 
-    def __init__(self):
+    def __init__(self, tracer: Any = None):
         self._tasks: dict[str, Callable] = {}
         self._metadata: dict[str, dict] = {}
+        self._tracer = tracer
 
     def register(self, name: str, fn: Callable[..., TaskResult],
                  metadata: dict | None = None) -> None:
@@ -33,15 +36,54 @@ class InMemoryTaskRegistry(TaskRegistry):
             return TaskResult.failure(
                 TaskNotFoundError(f"Task '{name}' no registrada en TaskRegistry")
             )
+        started = time.time()
         try:
             result = task(ctx, data or {})
             if not isinstance(result, TaskResult):
-                return TaskResult.success(data=result)
+                result = TaskResult.success(data=result)
+            self._trace_execute(name, ctx, data, result, started)
             return result
         except Exception as e:
-            return TaskResult.failure(
+            error_result = TaskResult.failure(
                 type(e)(f"Error ejecutando task '{name}': {e}") if isinstance(e, Exception) else Exception(f"Error: {e}")
             )
+            self._trace_execute(name, ctx, data, error_result, started)
+            return error_result
+
+    def _trace_execute(
+        self,
+        name: str,
+        ctx: ExecutionContext,
+        data: dict[str, Any] | None,
+        result: TaskResult,
+        started: float,
+    ) -> None:
+        """Registra un evento task_execute en el TraceGraph."""
+        if not self._tracer or not getattr(ctx, "chain_dir", ""):
+            return
+        duration_ms = int((time.time() - started) * 1000)
+        payload = dict(data or {})
+        # No trazar payloads gigantes (pueden contener código/base64)
+        if isinstance(payload, dict):
+            for k in list(payload.keys()):
+                if isinstance(payload[k], str) and len(payload[k]) > 500:
+                    payload[k] = payload[k][:500] + "..."
+        try:
+            self._tracer.trace(
+                ctx.chain_dir,
+                "task_execute",
+                data={
+                    "task": name,
+                    "ok": result.ok,
+                    "error": result.error if not result.ok else "",
+                    "duration_ms": duration_ms,
+                    "data": payload,
+                },
+                task_id=getattr(ctx, "task_id", "") or name,
+                session_id=getattr(ctx, "session_id", ""),
+            )
+        except Exception:
+            pass
 
     def list_tasks(self) -> list[str]:
         return list(self._tasks.keys())

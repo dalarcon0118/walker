@@ -69,12 +69,16 @@
       "ready_tasks": {
         "source": "Engine runs DAGBuilder + JobScheduler.get_ready_tasks() from plan.json depends_on",
         "description": "List of tasks whose dependencies are all met and are ready to work on",
-        "available_in": ["SPRINT.ACTIVE"]
+        "available_in": [
+          "SPRINT.ACTIVE"
+        ]
       },
       "blocked_tasks": {
         "source": "Engine runs DAGBuilder + JobScheduler.get_blocked_tasks() from plan.json depends_on",
         "description": "List of tasks blocked by incomplete dependencies",
-        "available_in": ["SPRINT.ACTIVE"]
+        "available_in": [
+          "SPRINT.ACTIVE"
+        ]
       },
       "task_summary": {
         "source": "Engine formats task summary for review: brief list of completed/pending",
@@ -84,23 +88,23 @@
         ]
       },
       "source_node": {
-        "source": "Engine injects when transitioning to REFINE",
-        "description": "Node that triggered refine: DESIGN, ANALYZE, IMPLEMENT, or VERIFY",
+        "source": "ReflectionProvider (feature event_tracing) — derivado del TraceGraph (TRANSITION to REFINE)",
+        "description": "Node that triggered refine. Provided via REFLECTION context layer (NOT engine-injected).",
         "available_in": [
           "REFINE.DIAGNOSE"
         ]
       },
       "attempt": {
-        "source": "Engine reads counter from sprint-state on entering REFINE",
-        "description": "Current refine attempt number (1, 2, 3)",
+        "source": "ReflectionProvider — contado desde TRANSITION to REFINE en el TraceGraph",
+        "description": "Current refine attempt number (1, 2, 3). Provided via REFLECTION context layer.",
         "available_in": [
           "REFINE.DIAGNOSE",
           "REFINE.ESCALATION"
         ]
       },
       "error_context": {
-        "source": "Engine injects from the failed action result",
-        "description": "Failure context: quality gate, error, message",
+        "source": "ReflectionProvider — compuesto desde state.context last_error/last_error_strategy/last_reason",
+        "description": "Failure context. Provided via REFLECTION context layer.",
         "available_in": [
           "REFINE.DIAGNOSE"
         ]
@@ -163,6 +167,10 @@
     "sprint_closed": {
       "run": "archive_sprint_metrics",
       "description": "Archive sprint metrics when sprint closes"
+    },
+    "quality_gate_failed": {
+      "transition": "needs_refine",
+      "description": "Quality gates fallaron al indexar el CPG (signals.quality_passed=False) — auto-route a refinement para refactorizar"
     }
   },
   "tracing": {

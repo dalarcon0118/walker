@@ -135,6 +135,18 @@ def format_state_result(result: dict) -> str:
     history = result.get("history", [])
     if history:
         lines.append(f"history: {len(history)} events")
+
+    # ── Resultado del paso anterior (QUÉ SUCEDIÓ) ──────────────────
+    # last_fields: campos del submit previo (Q&A del ANALYZE, decisiones,
+    # resultados de IMPLEMENT, etc.). Permite que el user gate presente
+    # al PO qué se hizo antes de pedir la decisión.
+    last_fields = result.get("last_fields", {})
+    if last_fields:
+        lines.append("last_step_fields:")
+        for k, v in last_fields.items():
+            if isinstance(v, str) and len(v) > 160:
+                v = v[:160] + "..."
+            lines.append(f"  {k}: {v}")
     return "\n".join(lines)
 
 
@@ -165,4 +177,3 @@ def format_delta_results(result: dict) -> str:
     if len(all_results) > 15:
         lines.append(f"  ... (+{len(all_results) - 15} more)")
     return "\n".join(lines)
-

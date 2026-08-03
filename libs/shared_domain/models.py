@@ -33,6 +33,52 @@ class TaskResult(Generic[T]):
         msg = str(error) if isinstance(error, Exception) else error
         return cls(ok=False, error=msg, data=data)
 
+    # ── Operaciones monádicas (patrón Result/Monad) ──────────────
+    # Permiten componer tareas encadenadas sin if/else: map/bind propaga
+    # el error automáticamente (short-circuit) y mantiene el tipo.
+
+    def is_success(self) -> bool:
+        return self.ok
+
+    def map(self, fn: Any) -> "TaskResult":
+        """bind: aplica fn al data si ok. Si failed, propaga el error (short-circuit)."""
+        if not self.ok:
+            return self
+        try:
+            return TaskResult.success(fn(self.data))
+        except Exception as e:
+            return TaskResult.failure(e, data=self.data)
+
+    def and_then(self, fn: Any) -> "TaskResult":
+        """chain: aplica fn al data (debe devolver otro TaskResult) si ok."""
+        if not self.ok:
+            return self
+        try:
+            next_result = fn(self.data)
+            if isinstance(next_result, TaskResult):
+                return next_result
+            return TaskResult.success(next_result)
+        except Exception as e:
+            return TaskResult.failure(e, data=self.data)
+
+    def tap(self, fn: Any) -> "TaskResult":
+        """ejecuta fn con el data (side-effect) sin modificar el resultado."""
+        if self.ok and self.data is not None:
+            try:
+                fn(self.data)
+            except Exception:
+                pass  # tap es observacional; no debe romper el flujo
+        return self
+
+    def recover(self, fn: Any) -> "TaskResult":
+        """recupera de un error: fn(error) → data de respaldo si failed."""
+        if self.ok:
+            return self
+        try:
+            return TaskResult.success(fn(self.error or ""))
+        except Exception:
+            return self
+
 
 @dataclass
 class ExecutionContext:

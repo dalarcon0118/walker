@@ -216,6 +216,72 @@ def _show_projects_dashboard(projects: list[dict]) -> int:
     return 0
 
 
+def _show_quality_report(pid: str) -> None:
+    """Muestra el quality report persistido junto al CPG (si existe).
+
+    El reporte refleja las métricas de calidad + gates + recomendaciones del
+    estado ACTUAL del código, generado automáticamente al indexar (build/index).
+    Así el agente/usuario decide si refactorizar antes o indexar con métricas.
+    """
+    try:
+        from libs.path_resolver import get_data_path
+        qr_path = get_data_path(pid, "quality_report.json")
+    except Exception:
+        return
+    if not qr_path.exists():
+        return
+    try:
+        with open(qr_path) as f:
+            qr = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
+
+    if qr.get("degraded"):
+        print("\n  ⚠️  QUALITY REPORT (degradado en el index):")
+        print(f"     {str(qr.get('error', ''))[:120]}")
+        return
+
+    passed = qr.get("passed", True)
+    icon = "✅" if passed else "❌"
+    m = qr.get("metrics", {}) or {}
+    print(f"\n  {icon} QUALITY: {qr.get('summary', '')}")
+    print(
+        f"     📊 files={m.get('files', 0)} loc={m.get('loc', 0)} "
+        f"funcs={m.get('functions', 0)} cyclo_max={m.get('cyclo_max', 0)} "
+        f"dead_code={m.get('dead_code', 0)}"
+    )
+    for g in qr.get("gates", []):
+        mark = "✅" if g.get("passed") else "❌"
+        print(
+            f"     {mark} {g.get('name', '?')} = {g.get('actual', '?')} "
+            f"(max {g.get('threshold', '?')})"
+        )
+
+    # Bug proposals post-index (si existen)
+    bp_path = get_data_path(pid, "bug_proposals.json")
+    if bp_path.exists():
+        try:
+            with open(bp_path) as f:
+                bp = json.load(f)
+            total = bp.get("total_findings", 0)
+            if total:
+                print(f"     🐛 Bug proposals: {total} hallazgos")
+                for fi in bp.get("findings", [])[:5]:
+                    sev = fi.get("severity", "")
+                    sev_tag = f"[{sev.upper()}]" if sev else ""
+                    print(
+                        f"        {sev_tag} {str(fi.get('label', fi.get('title', 'hallazgo')))[:90]}"
+                    )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    recs = qr.get("recommendations", [])
+    if recs:
+        print("     💡 Recomendaciones:")
+        for r in recs[:3]:
+            print(f"        • [{r.get('area', '?')}] {str(r.get('action', ''))[:110]}")
+
+
 def _show_project_status(pid: str) -> int:
     """Muestra el estado de un proyecto con guía de setup gradual."""
     from bootstrap.cli.utils import _get_api, _output, _ensure_qlty_for_project
@@ -254,7 +320,10 @@ def _show_project_status(pid: str) -> int:
             print(f"       walker agents/kilocode/{pid}/task/build_initial_ckg")
             return 0
 
-        # ── 3. Check CKG (knowledge base) ──
+        # ── 3. Quality report (métricas + gates persistidos en el index) ──
+        _show_quality_report(pid)
+
+        # ── 4. Check CKG (knowledge base) ──
         from libs.path_resolver import get_ckg_path
         ckg_path = get_ckg_path(pid)
         has_ckg = ckg_path.exists()

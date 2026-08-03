@@ -9,6 +9,7 @@ queda como fachada y delega aqui.
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -90,6 +91,25 @@ class TransitionOrchestrator:
             to_node,
             task_id=ctx.task_id,
         )
+
+        # ── Trazar cambio de estado del workflow (sprint/proyecto) ──
+        to_sub_state = result.get("to_sub_state", "")
+        try:
+            self._tracer.trace(
+                ctx.chain_dir,
+                "workflow_state",
+                data={
+                    "from": from_node,
+                    "to": f"{to_node}.{to_sub_state}" if to_sub_state else to_node,
+                    "gate": gate,
+                    "project_id": getattr(ctx, "project_id", ""),
+                    "sprint_id": os.path.basename(ctx.chain_dir) if ctx.chain_dir else "",
+                },
+                task_id=ctx.task_id,
+                session_id=ctx.session_id,
+            )
+        except Exception:
+            pass
 
         # ── Ejecutar edge transform si existe (DESPUES de transition) ─
         if transform_config:

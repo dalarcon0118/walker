@@ -181,7 +181,7 @@
         "description": "Code review completed. passed=true->KNOWLEDGE_UPDATE, passed=false (after 3 retries)->REFINE.DIAGNOSE."
       },
       "on_success": "CODE_REVIEW_RESULT",
-      "on_failure": "DIAGNOSE",
+      "on_failure": "WORK",
       "side_effects": [
         {
           "type": "update_cpg",
@@ -237,7 +237,7 @@
         "description": "Code review results reviewed. approve->KNOWLEDGE_UPDATE, refine->WORK, analyze->DIAGNOSE, cancel->SPRINT."
       },
       "on_success": "KNOWLEDGE_UPDATE",
-      "on_failure": "DIAGNOSE",
+      "on_failure": "WORK",
       "side_effects": [
         {
           "type": "capture_decision",

@@ -246,7 +246,10 @@ class SideEffectEngine:
         if etype in self._handlers:
             try:
                 result = self._handlers[etype](ctx, params)
-                return result
+                # Contrato estándar: normaliza el resultado del handler a un
+                # envelope uniforme (status/type/scope/summary/signals/metadata).
+                from ..domain.side_effect_contract import normalize
+                return normalize(result, default_type=etype, default_scope="tracking")
             except Exception:
                 return None
 

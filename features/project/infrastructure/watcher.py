@@ -138,7 +138,94 @@ class FileWatcher:
         with open(self.change_path, "w") as f:
             json.dump(change_data, f, indent=2)
 
+        # 7. Registrar file_impact en el TraceGraph
+        if new_changes:
+            self._trace_file_impact(new_changes, cpg_status)
+
         return change_data
+
+    # ── TraceGraph: registrar escrituras y estados ──────────────────
+
+    def _trace_file_impact(self, files: list[str], cpg_status: str) -> None:
+        """Registra un evento file_impact en el TraceGraph.
+
+        Se invoca cuando el watcher detecta archivos modificados.
+        El storage canonical es CognitiveGraph (indice trace).
+        """
+        try:
+            from libs.cognitive_graph import CognitiveGraph
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc).isoformat()
+            event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+            cg = CognitiveGraph(str(self.project_root))
+            cg.store(
+                "trace",
+                event_id,
+                {
+                    "event_type": "file_impact",
+                    "source": "walker_watcher",
+                    "agent_id": os.environ.get("WALKER_AGENT_ID", ""),
+                    "session_id": os.environ.get("WALKER_SESSION_ID", ""),
+                    "sprint_id": "",
+                    "task_id": "",
+                    "node": "",
+                    "sub_state": "",
+                    "tool": "FileWatcher",
+                    "files": files[:MAX_CHANGED_FILES],
+                    "timestamp": now,
+                    "started_at": now,
+                    "finished_at": now,
+                    "duration_ms": 0,
+                    "metadata": {},
+                    "data": {
+                        "total_files": len(files),
+                        "cpg_status": cpg_status,
+                    },
+                },
+            )
+        except Exception:
+            pass  # best-effort: el watcher nunca debe fallar por tracing
+
+    def _trace_state(self, index_type: str, status: str) -> None:
+        """Registra un evento workflow_state en el TraceGraph.
+
+        Se invoca en mark_indexed cuando un índice cambia de estado.
+        """
+        try:
+            from libs.cognitive_graph import CognitiveGraph
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc).isoformat()
+            event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+            cg = CognitiveGraph(str(self.project_root))
+            cg.store(
+                "trace",
+                event_id,
+                {
+                    "event_type": "workflow_state",
+                    "source": "walker_watcher",
+                    "agent_id": os.environ.get("WALKER_AGENT_ID", ""),
+                    "session_id": os.environ.get("WALKER_SESSION_ID", ""),
+                    "sprint_id": "",
+                    "task_id": "",
+                    "node": "INDEX",
+                    "sub_state": index_type,
+                    "tool": "FileWatcher",
+                    "files": [],
+                    "timestamp": now,
+                    "started_at": now,
+                    "finished_at": now,
+                    "duration_ms": 0,
+                    "metadata": {},
+                    "data": {
+                        "index": index_type,
+                        "status": status,
+                    },
+                },
+            )
+        except Exception:
+            pass  # best-effort
 
     def get_status(self) -> dict[str, Any]:
         """Lee change_detected.json sin re-escanear."""
@@ -181,6 +268,9 @@ class FileWatcher:
 
         with open(self.change_path, "w") as f:
             json.dump(status, f, indent=2)
+
+        # Registrar cambio de estado del índice en el TraceGraph
+        self._trace_state(index_type, status.get(f"{index_type}_status", "up_to_date"))
 
     # ── Fingerprint ───────────────────────────────────────────────────
 

@@ -1,7 +1,0 @@
-{
-  "version": "2.0",
-  "chain_id": "taskregistry-migration-20260724",
-  "goal": "",
-  "workflow": "workflow.v3/",
-  "specifications": []
-}

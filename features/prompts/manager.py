@@ -91,10 +91,21 @@ class PromptManager:
         prompt_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "prompt", "templates")
         return os.listdir(prompt_dir) if os.path.isdir(prompt_dir) else []
 
-    def compose(self, node_config: dict, prompt_template: str, ctx: Any, chain_dir: str | None = None) -> str:
+    def compose(self, node_config: dict, prompt_template: str, ctx: Any, chain_dir: str | None = None, extra_data: dict | None = None) -> str:
         from features.engine.context.composer import ContextComposer
         from features.engine.bootstrap import build_context_registry
         cg_dir = chain_dir or getattr(ctx, "chain_dir", self.chain_dir)
+        # FIX (prompt rendering): si prompt_template es un ID de template
+        # (ej. "analyze/review" sin placeholders), cargar el template REAL.
+        # Antes se pasaba el ID literal como user_message y el informe del
+        # gate nunca se renderizaba (el usuario no veía el contenido).
+        if "{" not in prompt_template:
+            try:
+                template_text = self._loader.load(prompt_template)
+                if template_text and not template_text.startswith("[error"):
+                    prompt_template = template_text
+            except Exception:
+                pass
         # Registry completo: utilidades del engine + providers de negocio
         # de cada feature (cpg, ckg, business, state, delta, trace, project).
         # El engine NO conoce las capas; el bootstrap las registra externamente.
@@ -109,6 +120,8 @@ class PromptManager:
             parts.append(composed.user_message)
         message = "\n\n".join(parts)
         data = collect_all(chain_dir=cg_dir, context={"task_id": getattr(ctx, "task_id", "")})
+        if extra_data:
+            data.update(extra_data)
         result = self._renderer.render(message, data)
         _log_prompt("compose", result, {"chain_dir": cg_dir, "task_id": getattr(ctx, "task_id", "")})
         return result

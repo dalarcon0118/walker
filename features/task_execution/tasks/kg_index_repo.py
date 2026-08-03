@@ -1,21 +1,42 @@
 """kg_index_repo — thin adapter to cognitive_knowledge use case."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
+from libs.shared_domain.validated_vo import TaskInput
 from features.cognitive_knowledge.application.use_cases import IndexRepoUseCase
+
+
+@dataclass(frozen=True)
+class IndexRepoInput(TaskInput):
+    """Input validado de kg_index_repo.
+
+    url (required): repo remoto.
+    name: nombre (default: último segmento de la url).
+    branch: rama (default main).
+    """
+
+    url: str = ""
+    name: str = ""
+    branch: str = "main"
+
+    def _validate(self) -> str:
+        if not self.url:
+            return "Requires --url"
+        return ""
 
 
 def kg_index_repo(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     chain_dir = ctx.chain_dir or ""
-    url = data.get("url", "")
-    name = data.get("name", "")
-    if not url:
-        return TaskResult.failure("Requires --url")
-    if not name:
-        name = url.rstrip("/").split("/")[-1]
+    input_result = IndexRepoInput.from_dict(data)
+    if not input_result.ok:
+        return TaskResult.failure(input_result.error or "url requerida")
+    inp: IndexRepoInput = input_result.data
+    url = inp.url
+    name = inp.name or url.rstrip("/").split("/")[-1]
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
-    result = IndexRepoUseCase.execute(chain_dir, url, name, data.get("branch", "main"))
+    result = IndexRepoUseCase.execute(chain_dir, url, name, inp.branch)
     return TaskResult.success(data=result) if result.get("ok", True) else TaskResult.failure(result.get("error", ""))
 
 

@@ -173,3 +173,100 @@ def _find_enclosing_function(line: int, definitions: list[dict]) -> str | None:
 
 def _detect_lang(file_path: str) -> str | None:
     return LANG_MAP.get(Path(file_path).suffix.lower())
+
+
+# ── Caché incremental de calls por archivo (mtime/size) ─────────
+# Optimización del CFG scan: evita re-ejecutar ast-grep sobre archivos
+# que no cambiaron desde el último análisis. Se persiste en data_dir.
+
+import hashlib  # noqa: E402
+
+
+def _file_signature(file_path: str) -> dict | None:
+    """Snapshot mtime+size del archivo. None si no existe."""
+    try:
+        st = os.stat(file_path)
+        return {"mtime": st.st_mtime, "size": st.st_size}
+    except OSError:
+        return None
+
+
+class CallsCache:
+    """Cache de calls por archivo (clave = realpath + mtime/size)."""
+
+    def __init__(self, cache_path: str | None = None):
+        self._cache_path = cache_path
+        self._data: dict = self._load()
+        self._hits = 0
+
+    def _load(self) -> dict:
+        if not self._cache_path or not os.path.exists(self._cache_path):
+            return {"version": 1, "files": {}}
+        try:
+            with open(self._cache_path) as f:
+                data = json.load(f)
+            if data.get("version") == 1:
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+        return {"version": 1, "files": {}}
+
+    def save(self) -> None:
+        if not self._cache_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(self._cache_path), exist_ok=True)
+            tmp = self._cache_path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self._data, f, ensure_ascii=False)
+            os.replace(tmp, self._cache_path)
+        except OSError:
+            pass
+
+    def get(self, file_path: str) -> list[dict] | None:
+        """Retorna calls cacheados si el archivo no ha cambiado."""
+        key = os.path.realpath(file_path)
+        entry = self._data["files"].get(key)
+        if not entry:
+            return None
+        sig = _file_signature(file_path)
+        if sig is None:
+            return None
+        stored = entry.get("_file")
+        if stored and stored.get("mtime") == sig["mtime"] and stored.get("size") == sig["size"]:
+            self._hits += 1
+            return entry.get("calls", [])
+        return None
+
+    def set(self, file_path: str, calls: list[dict]) -> None:
+        key = os.path.realpath(file_path)
+        sig = _file_signature(file_path)
+        if sig is None:
+            return
+        self._data["files"][key] = {"_file": sig, "calls": calls}
+
+    @property
+    def stats(self) -> dict:
+        return {
+            "cached_files": len(self._data.get("files", {})),
+            "hits": self._hits,
+        }
+
+
+def detect_calls_cached(
+    file_path: str,
+    definitions: list[dict],
+    cache: CallsCache | None = None,
+) -> tuple[list[dict], bool]:
+    """detect_calls con caché incremental.
+
+    Returns (calls, from_cache): from_cache=True si vino del caché.
+    """
+    if cache is not None:
+        cached = cache.get(file_path)
+        if cached is not None:
+            return cached, True
+    calls = detect_calls(file_path, definitions)
+    if cache is not None:
+        cache.set(file_path, calls)
+    return calls, False

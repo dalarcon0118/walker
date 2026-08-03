@@ -99,9 +99,49 @@ class ContextResolver:
                     continue  # resuelto
                 if key in self.ENGINE_CONTEXT_KEYS:
                     continue  # engine context (ya incluido arriba)
+                # Resolver datos de negocio desde el sprint-state (SSOT spring)
+                if key in ("sprint_id", "task_id", "project_id"):
+                    resolved = self._resolve_from_sprint_state(state, key)
+                    if resolved is not None:
+                        context[key] = resolved
+                        continue
                 raise ContextResolutionError(key, node.node_id, sub_state.key)
 
         return context
+
+    @staticmethod
+    def _resolve_from_sprint_state(state: WorkflowState, key: str) -> str | None:
+        """Resuelve un need de negocio desde el sprint-state (SSOT spring).
+
+        PRINCIPIO: el workflow no duplica datos de negocio; los consulta
+        desde el DeltaGraph (fuente unica del spring). Resuelve:
+          - sprint_id:  spring._id
+          - task_id:    spec actual del spring
+          - project_id: spring.project_id
+        """
+        chain_dir = state.context.get("chain_dir", "")
+        if not chain_dir:
+            return None
+        try:
+            from features.delta_tracking.application.spring_graph_service import SpringGraphService
+            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            if not spring_svc:
+                return None
+            spring_id = spring_svc.get_spring_id(chain_dir)
+            spring_svc.ensure_spring_imported(chain_dir, spring_id)
+            spring = spring_svc.get_spring(spring_id)
+            if not spring:
+                return None
+            if key == "sprint_id":
+                return spring.get("_id", spring_id) or spring_id
+            if key == "task_id":
+                cur = spring_svc.get_current_spec(spring_id)
+                return cur.get("spec_id", "") if cur else ""
+            if key == "project_id":
+                return spring.get("project_id", "") or None
+        except Exception:
+            pass
+        return None
 
     def promote_provides(
         self,

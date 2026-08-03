@@ -15,27 +15,35 @@ from features.code_analysis.infrastructure.metrics import (
     run_metrics, run_function_metrics, run_smells, run_check,
     compute_file_metrics, check_quality_gates,
 )
+from features.code_analysis.infrastructure.metrics_cache import IncrementalMetricsCache
 
 
 class ReviewUseCase:
     """Code review: metrics + quality gates + smells + lint."""
 
     def __init__(self, chain_dir: str, project_id: str = "",
-                 scan_paths: list[str] | None = None):
+                 scan_paths: list[str] | None = None,
+                 data_dir: str | None = None,
+                 cache: "IncrementalMetricsCache | None" = None):
         self.chain_dir = chain_dir
         self._project_id = project_id
         self._scan_paths = scan_paths
+        self._data_dir = data_dir
+        self._cache = cache
         self._graph: Graph | None = None
         self._repo: CpgFileRepository | None = None
 
     @property
     def repo(self) -> CpgFileRepository:
         if self._repo is None:
-            from libs.path_resolver import resolve_project_root, get_data_dir
-            project_root = resolve_project_root(self.chain_dir)
-            project_id = os.path.basename(project_root) if project_root else ""
-            data_dir = str(get_data_dir(project_id)) if project_id else ""
-            self._repo = CpgFileRepository(data_dir or os.path.join(project_root, "data") if project_root else "")
+            if self._data_dir:
+                self._repo = CpgFileRepository(self._data_dir)
+            else:
+                from libs.path_resolver import resolve_project_root, get_data_dir
+                project_root = resolve_project_root(self.chain_dir)
+                project_id = os.path.basename(project_root) if project_root else ""
+                data_dir = str(get_data_dir(project_id)) if project_id else ""
+                self._repo = CpgFileRepository(data_dir or os.path.join(project_root, "data") if project_root else "")
         return self._repo
 
     @property
@@ -53,9 +61,21 @@ class ReviewUseCase:
         graph = self.graph
         scan_paths = files or self._scan_paths or self._resolve_default_paths()
 
-        # 1. File metrics (batch)
-        qlty_metrics = run_metrics(scan_paths)
-        qlty_funcs = run_function_metrics(scan_paths)
+        # 1. Métricas qlty con caché incremental (si está disponible).
+        #    Solo re-ejecuta qlty sobre archivos nuevos/modificados; el resto
+        #    se reusa del cache por mtime/size. Ahorro ~4 invocaciones qlty
+        #    cuando el código no cambió.
+        if self._cache is not None:
+            qlty_metrics, qlty_funcs, smells, lint_issues, cache_stats = (
+                self._run_with_cache(scan_paths)
+            )
+        else:
+            # Flujo original: batch completo
+            qlty_metrics = run_metrics(scan_paths, cwd=self.chain_dir)
+            qlty_funcs = run_function_metrics(scan_paths, cwd=self.chain_dir)
+            smells = run_smells(scan_paths, cwd=self.chain_dir)
+            lint_issues = run_check(scan_paths, cwd=self.chain_dir)
+            cache_stats = None
 
         # 2. Build per-file metrics
         per_file = []
@@ -64,8 +84,11 @@ class ReviewUseCase:
 
         for qf in qlty_metrics:
             fp = qf.get("file", "")
-            # Normalizar path: qlty usa paths relativos, CPG usa absolutos
-            abs_fp = os.path.abspath(fp) if not os.path.isabs(fp) else fp
+            # Normalizar path: qlty usa paths relativos al repo, CPG usa absolutos
+            if os.path.isabs(fp):
+                abs_fp = os.path.realpath(fp)
+            else:
+                abs_fp = os.path.realpath(os.path.join(self.chain_dir, fp))
             funcs = qlty_funcs.get(fp, qlty_funcs.get(abs_fp, []))
             fm = compute_file_metrics(fp, qf, funcs, graph)
             per_file.append(fm)
@@ -141,9 +164,7 @@ class ReviewUseCase:
                 "is_private": node.name.startswith("_"),
             })
 
-        # 4. Smells + lint (batch SARIF)
-        smells = run_smells(scan_paths)
-        lint_issues = run_check(scan_paths)
+        # 4. Smells + lint ya resueltos arriba (con o sin cache)
 
         # 5. Aggregate metrics
         totals = {
@@ -203,6 +224,78 @@ class ReviewUseCase:
             files_scanned=[f.file for f in per_file[:50]],
             summary=", ".join(parts),
         )
+
+    def _run_with_cache(self, scan_paths: list[str]) -> tuple:
+        """Corre métricas qlty usando el caché incremental.
+
+        Devuelve (qlty_metrics, qlty_funcs, smells, lint, cache_stats):
+          - qlty_metrics: list[dict] con file/cyclo/... para todos los archivos
+          - qlty_funcs: dict {filepath: [funcs]} para todos los archivos
+          - smells/lint: list[dict] de issues SARIF (todos los archivos)
+        """
+        cache = self._cache
+        assert cache is not None
+        fresh, stale = cache.get_stale_files(scan_paths)
+
+        # 1. Correr qlty SOLO sobre los stale (nuevos/modificados)
+        new_metrics: list[dict] = []
+        new_funcs_map: dict[str, list[dict]] = {}
+        new_smells: list[dict] = []
+        new_lint: list[dict] = []
+
+        if stale:
+            new_metrics = run_metrics(stale, cwd=self.chain_dir)
+            new_funcs_map = run_function_metrics(stale, cwd=self.chain_dir)
+            new_smells = run_smells(stale, cwd=self.chain_dir)
+            new_lint = run_check(stale, cwd=self.chain_dir)
+
+        # 2. Actualizar cache por archivo. qlty devuelve paths RELATIVOS al
+        #    repo (cwd). Se normalizan a absolutos respecto al repo para que
+        #    el key del cache coincida con _file_key (realpath).
+        def _abs(fp: str) -> str:
+            if os.path.isabs(fp):
+                return os.path.realpath(fp)
+            return os.path.realpath(os.path.join(self.chain_dir, fp))
+
+        metrics_by_file: dict[str, dict] = {}
+        for m in new_metrics:
+            fp = _abs(m.get("file", ""))
+            metrics_by_file[fp] = m
+            cache.update(fp, metrics=m)
+        for fp, funcs in new_funcs_map.items():
+            cache.update(_abs(fp), functions=funcs)
+        # Agrupar smells/lint por archivo ANTES de cachear (el cache guarda por
+        # archivo; cada update reemplaza — si no agrupamos, se pierden issues).
+        smells_by_file: dict[str, list[dict]] = {}
+        for s in new_smells:
+            smells_by_file.setdefault(_abs(s.get("file", "")), []).append(s)
+        lint_by_file: dict[str, list[dict]] = {}
+        for l_ in new_lint:
+            lint_by_file.setdefault(_abs(l_.get("file", "")), []).append(l_)
+        for fp, issues in smells_by_file.items():
+            cache.update(fp, smells=issues)
+        for fp, issues in lint_by_file.items():
+            cache.update(fp, lint=issues)
+
+        # 3. Merge: fresh (de cache) + stale (nuevos)
+        all_files = list(dict.fromkeys(fresh + stale))
+        qlty_metrics: list[dict] = []
+        qlty_funcs: dict[str, list[dict]] = {}
+        smells: list[dict] = []
+        lint_issues: list[dict] = []
+
+        for fp in all_files:
+            entry = cache.get(fp)
+            if entry:
+                if entry.get("metrics"):
+                    qlty_metrics.append(entry["metrics"])
+                if entry.get("functions"):
+                    qlty_funcs[fp] = entry["functions"]
+                smells.extend(entry.get("smells", []) or [])
+                lint_issues.extend(entry.get("lint", []) or [])
+
+        cache.save()
+        return qlty_metrics, qlty_funcs, smells, lint_issues, cache.stats
 
     def _build_recommendations(self, metrics, gates, findings, smells, lint_issues, thresholds):
         """Generate actionable recommendations based on metrics + findings."""

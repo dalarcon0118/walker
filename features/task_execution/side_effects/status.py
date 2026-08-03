@@ -6,9 +6,11 @@ Se invoca desde los side_effects de los nodos del workflow.
 from __future__ import annotations
 from typing import Any
 from features.engine.domain.models import ExecutionContext
+from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 from features.spring.application.use_cases import UpdateSprintStatusUseCase
 
 
+@as_side_effect(scope=SCOPE_TRACKING)
 def update_sprint_status(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     """Side-effect handler: updates sprint status.
     

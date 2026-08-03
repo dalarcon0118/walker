@@ -250,6 +250,13 @@ def test_kg_store_search_flow():
         decisions = cg.search("ckg", {"type": "decision"})
         assert decisions["hits"]["total"] == 2, f"Expected 2 decisions, got {decisions['hits']['total']}"
 
+        # Busqueda por scope (normalizado a metadata por kg_store; _match
+        # debe encontrar el campo tanto en top-level como en metadata)
+        scoped = cg.search("ckg", {"scope": "security"})
+        assert scoped["hits"]["total"] == 1, f"Expected 1 with scope=security, got {scoped['hits']['total']}"
+        scoped_arch = cg.search("ckg", {"scope": "architecture"})
+        assert scoped_arch["hits"]["total"] == 1, f"Expected 1 with scope=architecture, got {scoped_arch['hits']['total']}"
+
         # Rechazar nodos vacios
         with open(ckg_path, "wb") as f:
             f.write(gzip.compress(json.dumps(empty_ckg).encode()))
@@ -403,6 +410,284 @@ def test_task_result_failure_with_data():
     print("  ✅ test_task_result_failure_with_data: failure() accepts data dict")
 
 
+def test_decision_lifecycle_supersedes():
+    """Ciclo de vida de decisiones: supersedes degrada a la previa y query filtra."""
+    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cog_proj = _create_test_project(tmpdir)
+        ckg = CodeKnowledgeGraph(cog_proj)
+
+        # 1) Decision v1 activa
+        r1 = ckg.save_nodes([{
+            "label": "decision:use-jwt",
+            "type": "decision",
+            "metadata": {"decision": "approve", "sub_state": "DESIGN.APPROVE"},
+        }])
+        assert r1["nodes_created"] == 1
+        v1_id = r1["node_ids"][0]
+
+        # 2) Decision v2 que SUPERSEDE a la v1 -> v1 queda degradada
+        r2 = ckg.save_nodes([{
+            "label": "decision:use-jwt-v2",
+            "type": "decision",
+            "supersedes": [v1_id],
+            "metadata": {"decision": "reject", "sub_state": "DESIGN.APPROVE"},
+        }])
+        assert r2["degraded"] == [v1_id], f"Expected v1 degraded, got {r2['degraded']}"
+        v2_id = r2["node_ids"][0]
+
+        # 3) query() por defecto: SOLO decisiones activas (v2)
+        activas = ckg.query({"type": "decision"})
+        activas_ids = [x["_id"] for x in activas]
+        assert v2_id in activas_ids, "v2 debe estar activa"
+        assert v1_id not in activas_ids, "v1 debe estar degradada (no visible en query normal)"
+
+        # 4) include_superseded: historia completa
+        historia = ckg.query({"type": "decision", "include_superseded": True})
+        historia_ids = [x["_id"] for x in historia]
+        assert v1_id in historia_ids and v2_id in historia_ids, "Historia debe incluir ambas"
+
+        # 5) La degradada tiene metadata de trazabilidad
+        v1_doc = next(x for x in historia if x["_id"] == v1_id)
+        meta = v1_doc["metadata"]
+        assert meta.get("status") == "superseded", f"status={meta.get('status')}"
+        assert meta.get("superseded_by"), "debe registrar quien la reemplazo"
+        assert meta.get("superseded_at"), "debe registrar cuando"
+        print("  ✅ test_decision_lifecycle_supersedes: supersedes degrada, query filtra")
+
+
+def test_capture_decision_detects_superseded():
+    """capture_decision detecta automaticamente que una decision nueva reemplaza a la previa."""
+    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+    from features.task_execution.side_effects.decision_capture import capture_decision
+    from libs.shared_domain import ExecutionContext
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cog_proj = _create_test_project(tmpdir)
+        # chain_dir para que capture_decision resuelva project_root via ProjectService
+        # (el project.json vive a nivel del proyecto: cog_proj/project.json — creado por _create_test_project)
+        chain_dir = os.path.join(cog_proj, "data", "spring", "sprint-test")
+        os.makedirs(chain_dir, exist_ok=True)
+
+        ctx = ExecutionContext(session_id="s1", chain_dir=chain_dir, trace_id="t1", span_id="sp1")
+
+        # 1) PO aprueba
+        r1 = capture_decision(ctx, {"decision": "approve", "sub_state": "DESIGN.APPROVE"})
+        assert r1["captured"] is True, f"capture 1 failed: {r1}"
+        first_id = r1["result"]["node_ids"][0]
+
+        # 2) PO cambia de opinion -> reject sobre el MISMO sub_state
+        r2 = capture_decision(ctx, {"decision": "reject", "sub_state": "DESIGN.APPROVE"})
+        assert r2["captured"] is True, f"capture 2 failed: {r2}"
+        assert r2["result"]["supersedes_detected"] == [first_id], (
+            f"debe detectar la approve previa, got {r2['result'].get('supersedes_detected')}"
+        )
+        assert r2["result"]["degraded"] == [first_id], "debe degradar la approve previa"
+
+        # 3) query normal: solo queda la reject activa
+        ckg = CodeKnowledgeGraph(cog_proj)
+        activas = ckg.query({"type": "decision"})
+        assert len(activas) == 1, f"Deberia quedar 1 activa, got {len(activas)}"
+        assert activas[0]["metadata"]["decision"] == "reject"
+
+        # 4) reconfirmacion del mismo valor NO supersede
+        r3 = capture_decision(ctx, {"decision": "reject", "sub_state": "DESIGN.APPROVE"})
+        assert r3["result"].get("supersedes_detected") == [], "reconfirmacion no debe superseder"
+        print("  ✅ test_capture_decision_detects_superseded: deteccion automatica funcional")
+
+
+def test_capture_task_creates_session_sprint():
+    """capture_task crea/reusa el spring informal session-{fecha} y lo indexa en delta."""
+    from features.task_execution.tasks.capture_task import capture_task
+    from libs.shared_domain import ExecutionContext
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cog_proj = _create_test_project(tmpdir)
+        ctx = ExecutionContext(session_id="s-test", chain_dir="", trace_id="t1", span_id="sp1")
+
+        # 1) Capturar primera tarea -> crea el spring informal
+        r1 = capture_task(ctx, {
+            "_project_id": "test-project",
+            "_project_root": cog_proj,
+            "_payload": {
+                "objective": "Implementar feature X",
+                "domain": "test-domain",
+                "type": "feature",
+                "result_state": "Feature X funcionando",
+                "files": ["features/x.py"],
+            },
+        })
+        assert r1.ok, f"capture_task 1 failed: {r1.error}"
+        sprint_id = r1.data["sprint_id"]
+        assert sprint_id.startswith("session-"), f"sprint_id={sprint_id}"
+        assert r1.data["created_sprint"] is True, "debe crear el sprint la primera vez"
+
+        # 2) Capturar segunda tarea -> reutiliza el mismo spring informal
+        r2 = capture_task(ctx, {
+            "_project_id": "test-project",
+            "_project_root": cog_proj,
+            "_payload": {"objective": "Arreglar bug Y", "domain": "test-domain"},
+        })
+        assert r2.ok
+        assert r2.data["sprint_id"] == sprint_id, "misma fecha = mismo spring"
+        assert r2.data["created_sprint"] is False, "no debe recrear el sprint"
+        assert r2.data["spec_count"] == 2, f"debe haber 2 specs, got {r2.data['spec_count']}"
+
+        # 3) El sprint informal persiste en el delta (fuente unica) y en
+        #    plan.json + sprint-state.json (proyecciones de compatibilidad)
+        spring_root = os.path.join(cog_proj, "data", "spring", sprint_id)
+        assert os.path.exists(os.path.join(spring_root, "plan.json"))
+        assert os.path.exists(os.path.join(spring_root, "sprint-state.json"))
+        with open(os.path.join(spring_root, "plan.json")) as f:
+            plan = json.load(f)
+        specs = plan.get("specifications", [])
+        assert len(specs) == 2, f"plan debe tener 2 specs, got {len(specs)}"
+        assert specs[0]["domain"] == "test-domain", f"domain se debe preservar: {specs[0].get('domain')}"
+        assert specs[0]["result_state"] == "Feature X funcionando"
+        files = specs[0].get("files") or specs[0].get("impacted_artifacts", {}).get("files", [])
+        assert files == ["features/x.py"], f"files={files}"
+        with open(os.path.join(spring_root, "sprint-state.json")) as f:
+            state = json.load(f)
+        assert len(state.get("specifications", [])) == 2, "estado debe tener las specs"
+
+        # 4) El delta (fuente unica) tiene nodo spring + specs con estado
+        from libs.cognitive_graph import CognitiveGraph
+        cg = CognitiveGraph(cog_proj, auto_register=True)
+        idx = cg._indexes.get("delta")
+        result = idx.search({}) if hasattr(idx, "search") else {"hits": {"hits": []}}
+        docs = [h.get("_source", h) for h in result.get("hits", {}).get("hits", [])]
+        spring_docs = [d for d in docs if d.get("_id") == sprint_id or d.get("type") == "spring"]
+        assert any(d.get("type") == "spring" for d in spring_docs), "debe existir nodo spring"
+        session_docs = [d for d in docs if d.get("spring_id") == sprint_id or d.get("sprint_id") == sprint_id]
+        assert len(session_docs) >= 2, f"delta debe tener specs de session, got {len(session_docs)}"
+        # IDs unicos por sprint
+        task_ids = [d.get("task_id", d.get("_id", "")) for d in session_docs]
+        assert all(t.startswith(f"{sprint_id}:") or t == sprint_id for t in task_ids), f"ids={task_ids}"
+        print("  ✅ test_capture_task_creates_session_sprint: spring informal + delta fuente unica")
+
+
+def test_index_sprint_unique_ids():
+    """index_sprint debe usar IDs unicos por sprint (evita colision entre sprints)."""
+    from features.delta_tracking.application.index_service import index_sprint
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cog_proj = _create_test_project(tmpdir)
+        cg = CognitiveGraph(cog_proj, auto_register=True)
+
+        # Crear dos sprints con la misma spec_id
+        for sprint_id in ("sprint-a", "sprint-b"):
+            sprint_dir = os.path.join(cog_proj, "data", "spring", sprint_id)
+            os.makedirs(sprint_dir, exist_ok=True)
+            state = {
+                "specifications": [
+                    {"spec_id": "SPEC-001", "objective": f"Tarea de {sprint_id}",
+                     "domain": "test", "type": "feature"},
+                ],
+            }
+            with open(os.path.join(sprint_dir, "sprint-state.json"), "w") as f:
+                json.dump(state, f)
+
+        # Indexar ambos
+        index_sprint(os.path.join(cog_proj, "data", "spring", "sprint-a"), cg)
+        index_sprint(os.path.join(cog_proj, "data", "spring", "sprint-b"), cg)
+
+        # Verificar que ambos docs existen (no colisionaron)
+        idx = cg._indexes.get("delta")
+        result = idx.search({}) if hasattr(idx, "search") else {"hits": {"hits": []}}
+        docs = [h.get("_source", h) for h in result.get("hits", {}).get("hits", [])]
+        ids = [d.get("task_id", d.get("_id", "")) for d in docs]
+        assert "sprint-a:SPEC-001" in ids, f"debe existir sprint-a:SPEC-001, got {ids}"
+        assert "sprint-b:SPEC-001" in ids, f"debe existir sprint-b:SPEC-001, got {ids}"
+        print("  ✅ test_index_sprint_unique_ids: IDs unicos por sprint, sin colision")
+
+
+def test_spring_graph_service_unified_model():
+    """SpringGraphService: modelo unificado (spring+spec+estados) sobre el delta."""
+    from features.delta_tracking.application.spring_graph_service import SpringGraphService
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = SpringGraphService(tmpdir)
+
+        # 1. Crear spring + specs
+        svc.create_spring("sprint-demo", goal="Unificar fuentes", status="planning", project_id="demo")
+        svc.add_spec("sprint-demo", "Crear nodo spring", domain="delta", spec_index=0)
+        svc.add_spec("sprint-demo", "Crear nodo spec", domain="delta", spec_index=1)
+
+        # 2. Spring activo (consulta de negocio)
+        assert svc.get_active_spring() is None, "aun no activo"
+        svc.set_spring_status("sprint-demo", "active")
+        active = svc.get_active_spring()
+        assert active is not None and active.get("status") == "active"
+
+        # 3. Muta estados de specs durante la ejecucion
+        svc.update_spec_status("sprint-demo", "SPEC-001", "in_progress")
+        svc.update_spec_status("sprint-demo", "SPEC-002", "completed")
+        specs = svc.get_specs("sprint-demo")
+        assert specs[0]["status"] == "in_progress", f"got {specs[0]['status']}"
+        assert specs[1]["status"] == "completed", f"got {specs[1]['status']}"
+
+        # 4. Spec actual = primera no completada
+        cur = svc.get_current_spec("sprint-demo")
+        assert cur["spec_id"] == "SPEC-001", f"current={cur['spec_id']}"
+
+        # 5. Historico: spring cerrado deja de ser activo
+        svc.set_spring_status("sprint-demo", "closed")
+        assert svc.get_active_spring() is None, "cerrado no debe estar activo"
+        assert len(svc.list_springs(status="closed")) == 1
+
+        # 6. Persistencia en disco (delta.json.gz)
+        import gzip
+        delta_path = os.path.join(tmpdir, "data", "delta.json.gz")
+        assert os.path.exists(delta_path), "delta debe persistir"
+        d = json.loads(gzip.open(delta_path).read())
+        types = [x.get("type") for x in d.get("docs", [])]
+        assert "spring" in types and "spec" in types, f"types={types}"
+        # Edges contains
+        edge_types = [e.get("type") for e in d.get("edges", [])]
+        assert "contains" in edge_types, f"edges={edge_types}"
+        print("  ✅ test_spring_graph_service_unified_model: modelo unificado sobre delta")
+
+
+def test_spring_graph_import_legacy():
+    """import_spring: puente desde sprint-state.json/plan.json legacy al modelo unificado."""
+    from features.delta_tracking.application.spring_graph_service import SpringGraphService
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Crear un sprint legacy (plan.json + sprint-state.json)
+        sprint_dir = os.path.join(tmpdir, "data", "spring", "sprint-legacy")
+        os.makedirs(sprint_dir, exist_ok=True)
+        plan = {
+            "chain_id": "sprint-legacy", "goal": "Spring legacy",
+            "specifications": [
+                {"spec_id": "SPEC-001", "objective": "Tarea A", "domain": "d1", "type": "feature",
+                 "status": "specified"},
+                {"spec_id": "SPEC-002", "objective": "Tarea B", "domain": "d2", "type": "feature",
+                 "status": "draft"},
+            ],
+        }
+        with open(os.path.join(sprint_dir, "plan.json"), "w") as f:
+            json.dump(plan, f)
+        with open(os.path.join(sprint_dir, "sprint-state.json"), "w") as f:
+            json.dump({"sprint": {"chain_id": "sprint-legacy", "status": "active"}}, f)
+
+        svc = SpringGraphService(tmpdir)
+        r = svc.import_spring(sprint_dir)
+        assert r["imported"] is True and r["specs"] == 2, f"import={r}"
+
+        # Spring en modelo unificado con estado importado
+        spring = svc.get_spring("sprint-legacy")
+        assert spring is not None and spring.get("status") == "active", f"spring={spring}"
+
+        specs = svc.get_specs("sprint-legacy")
+        assert len(specs) == 2, f"specs={len(specs)}"
+        statuses = {s.get("spec_id"): s.get("status") for s in specs}
+        assert statuses.get("SPEC-001") == "specified", f"statuses={statuses}"
+        assert statuses.get("SPEC-002") == "draft", f"statuses={statuses}"
+        print("  ✅ test_spring_graph_import_legacy: puente legacy al modelo unificado")
+
+
 # ════════════════════════════════════════════════════════════════
 # Runner
 # ════════════════════════════════════════════════════════════════
@@ -425,6 +710,12 @@ def run_all():
         ("kg_extract task (integration)", test_kg_extract_task),
         ("kg_schema via CG", test_kg_schema_via_cg),
         ("kg_multi via CG", test_kg_multi_via_cg),
+        ("Decision lifecycle (supersedes)", test_decision_lifecycle_supersedes),
+        ("capture_decision detects superseded", test_capture_decision_detects_superseded),
+        ("capture_task session sprint", test_capture_task_creates_session_sprint),
+        ("index_sprint unique ids", test_index_sprint_unique_ids),
+        ("SpringGraph unified model", test_spring_graph_service_unified_model),
+        ("SpringGraph import legacy", test_spring_graph_import_legacy),
     ]
     
     passed = 0

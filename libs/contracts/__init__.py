@@ -79,22 +79,38 @@ class Contract:
     postconditions: tuple[str, ...] = field(default_factory=tuple)
     invariants: tuple[str, ...] = field(default_factory=tuple)
     description: str = ""
+    required_fields: tuple[str, ...] = field(default_factory=tuple)
+    schema_properties: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Normaliza listas a tuplas para comparacion consistente."""
-        for field in ('preconditions', 'postconditions', 'invariants'):
+        for field in ('preconditions', 'postconditions', 'invariants', 'required_fields'):
             val = getattr(self, field)
             if isinstance(val, list):
                 object.__setattr__(self, field, tuple(val))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Contract:
-        """Construye un Contract desde un dict JSON."""
+        """Construye un Contract desde un dict JSON.
+
+        Si data es un JSON Schema (input_schema/output_schema) con 'required',
+        esos campos se extraen como required_fields para validarlos en
+        verify_pre. Soporta ambos formatos: contrato formal (preconditions)
+        y JSON Schema.
+        """
+        req = data.get("required", []) or []
+        if not isinstance(req, (list, tuple)):
+            req = []
+        props = data.get("properties", {}) or {}
+        if not isinstance(props, dict):
+            props = {}
         return cls(
             preconditions=tuple(data.get("preconditions", []) or []),
             postconditions=tuple(data.get("postconditions", []) or []),
             invariants=tuple(data.get("invariants", []) or []),
             description=data.get("description", ""),
+            required_fields=tuple(req),
+            schema_properties=props,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -108,6 +124,7 @@ class Contract:
             "postconditions": list(self.postconditions),
             "invariants": list(self.invariants),
             "description": self.description,
+            "required": list(self.required_fields),
         }
 
     @property
@@ -148,6 +165,8 @@ class ContractValidator:
         """Verifica precondiciones.
 
         BLOCKING: si alguna precondition falla, la transicion NO debe ocurrir.
+        Tambien valida required_fields del JSON Schema (input_schema.required):
+        si un campo requerido falta o esta vacio, falla.
 
         Args:
             contract: Contrato con preconditions a verificar.
@@ -156,10 +175,26 @@ class ContractValidator:
         Returns:
             ContractReport con passed=False si alguna precondition falla.
         """
-        if not contract.preconditions:
-            return ContractReport(passed=True, total_checks=0)
-
         violations: list[ContractViolation] = []
+
+        # ── Validar required_fields del JSON Schema ──────────────
+        for field in contract.required_fields:
+            val = state.get(field)
+            if val is None or val == "":
+                violations.append(ContractViolation(
+                    condition=f"{field} is required",
+                    message=f"Campo requerido faltante: {field}",
+                ))
+            elif isinstance(val, (list, tuple)) and len(val) == 0:
+                violations.append(ContractViolation(
+                    condition=f"{field} is required",
+                    message=f"Campo requerido '{field}' no puede estar vacio",
+                ))
+
+        if not contract.preconditions:
+            return ContractReport(passed=not violations, total_checks=len(violations),
+                                  violations=violations)
+
         for expr in contract.preconditions:
             if not cls._evaluate(expr, state):
                 violations.append(ContractViolation(
@@ -176,35 +211,111 @@ class ContractValidator:
 
     @classmethod
     def verify_post(cls, contract: Contract, state: dict[str, Any]) -> ContractReport:
-        """Verifica postcondiciones.
+        """Verifica postcondiciones y contrato de salida (output_schema).
 
-        ADVISORY: si alguna postcondition falla, la transicion YA ocurrio.
-        Se registra como warning, no como error.
+        BLOQUEANTE contra el JSON Schema de salida:
+          - required_fields (output_schema.required): si un campo requerido
+            falta o esta vacio, la salida NO cumple el contrato (error).
+          - properties (tipos y enum): si un valor presente no cumple el tipo
+            o enum declarado, es un error.
+          - postconditions: si fallan se registran como warning (advisory),
+            porque la transicion ya ocurrio para ellas.
+
+        PRINCIPIO (convencion doc-21): el contrato de salida es la unica
+        herramienta del workflow para saber si un nodo completo su trabajo.
+        Un contrato debil permite que datos que no cumplen avancen.
 
         Args:
-            contract: Contrato con postconditions a verificar.
-            state: Estado del workflow DESPUES de la transicion.
+            contract: Contrato (precondiciones y/o JSON Schema de salida).
+            state: Datos de salida producidos por el nodo.
 
         Returns:
-            ContractReport con violations como warnings (no blocking).
+            ContractReport con passed=False si el schema o las postconditions
+            fallan (las postconditions como warning no bloquean, pero el
+            schema de salida si).
         """
-        if not contract.postconditions:
-            return ContractReport(passed=True, total_checks=0)
-
         violations: list[ContractViolation] = []
-        for expr in contract.postconditions:
-            if not cls._evaluate(expr, state):
+
+        # ── 1. Validar required_fields del JSON Schema (BLOQUEANTE) ──
+        # Un output_schema con 'required' exige que el nodo produzca esos
+        # campos. Si faltan o estan vacios, el contrato de salida no se
+        # cumple y el workflow debe bloquear (doc-20/21).
+        for field in contract.required_fields:
+            val = state.get(field)
+            if val is None or val == "":
                 violations.append(ContractViolation(
-                    condition=expr,
-                    message=f"Postcondition WARNING: {expr}",
-                    severity="warning",
+                    condition=f"{field} is required (output)",
+                    message=f"Campo de salida requerido faltante: {field}",
                 ))
+            elif isinstance(val, (list, tuple)) and len(val) == 0:
+                violations.append(ContractViolation(
+                    condition=f"{field} is required (output)",
+                    message=f"Campo de salida requerido '{field}' no puede estar vacio",
+                ))
+
+        # ── 2. Validar properties del JSON Schema (tipos/enum) ──────
+        # No se valida el schema completo (jsonschema), pero si los tipos
+        # basicos y enum que el workflow declaro: string, integer, array,
+        # object, boolean y enum. Si el valor presente no cumple, error.
+        if contract.schema_properties:
+            for prop_name, prop_def in contract.schema_properties.items():
+                val = state.get(prop_name)
+                if val is None:
+                    continue  # No es required -> su ausencia no es error
+                expected_type = prop_def.get("type", "")
+                if expected_type and not cls._type_ok(expected_type, val):
+                    violations.append(ContractViolation(
+                        condition=f"{prop_name} has type '{expected_type}'",
+                        message=(
+                            f"Campo de salida '{prop_name}' debe ser "
+                            f"{expected_type}, got {type(val).__name__}"
+                        ),
+                    ))
+                    continue
+                enum = prop_def.get("enum")
+                if isinstance(enum, (list, tuple)) and val not in enum:
+                    violations.append(ContractViolation(
+                        condition=f"{prop_name} in enum",
+                        message=(
+                            f"Campo de salida '{prop_name}' = {val!r} no esta "
+                            f"en el enum {enum}"
+                        ),
+                    ))
+
+        # ── 3. Validar postconditions (ADVISORY: warning) ───────────
+        if contract.postconditions:
+            for expr in contract.postconditions:
+                if not cls._evaluate(expr, state):
+                    violations.append(ContractViolation(
+                        condition=expr,
+                        message=f"Postcondition WARNING: {expr}",
+                        severity="warning",
+                    ))
 
         return ContractReport(
             passed=len(violations) == 0,
             violations=tuple(violations),
-            total_checks=len(contract.postconditions),
+            total_checks=len(contract.required_fields) + len(contract.postconditions),
         )
+
+    @staticmethod
+    def _type_ok(expected_type: str, val: Any) -> bool:
+        """Verifica que un valor cumpla el tipo basico declarado."""
+        if expected_type == "string":
+            return isinstance(val, str)
+        if expected_type == "integer":
+            return isinstance(val, int) and not isinstance(val, bool)
+        if expected_type == "number":
+            return isinstance(val, (int, float)) and not isinstance(val, bool)
+        if expected_type == "boolean":
+            return isinstance(val, bool)
+        if expected_type == "array":
+            return isinstance(val, (list, tuple))
+        if expected_type == "object":
+            return isinstance(val, dict)
+        if expected_type == "null":
+            return val is None
+        return True  # tipo desconocido -> no validar
 
     @classmethod
     def verify_invariant(

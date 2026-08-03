@@ -264,8 +264,9 @@ class ContextComposer:
         """Resuelve {placeholders} en un texto.
 
         Fuentes de datos (por orden de precedencia):
-        1. ctx.baggage (contexto de sesión)
+        1. ctx.baggage (contexto de sesión — incluye extra_data inyectado)
         2. ctx attributes (task_id, chain_dir, etc.)
+        3. collect_all(chain_dir) (state, project, task, knowledge — fallback)
         """
         if not text or "{" not in text:
             return text
@@ -280,6 +281,15 @@ class ContextComposer:
             val = getattr(ctx, attr, None)
             if val is not None:
                 ctx_dict[attr] = val
+
+        # Fallback: datos de collect_all desde el chain_dir
+        chain_dir = getattr(ctx, "chain_dir", None) or ctx_dict.get("chain_dir", "")
+        if chain_dir:
+            try:
+                from features.prompts.collector import collect_all
+                ctx_dict.update(collect_all(chain_dir=chain_dir, context=ctx_dict))
+            except Exception:
+                pass
 
         def _replace_var(m: _re.Match) -> str:
             var_name = m.group(1)

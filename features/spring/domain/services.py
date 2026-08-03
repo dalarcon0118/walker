@@ -110,7 +110,7 @@ class SpecBuilder:
             "objective": plan_item.get("objective", ""),
             "type": plan_item.get("type", "feature"),
             "domain": plan_item.get("domain", ""),
-            **SPEC_DEFAULTS,
+            **{k: v for k, v in SPEC_DEFAULTS.items() if k != "domain" and k != "type"},
         }
 
     @staticmethod

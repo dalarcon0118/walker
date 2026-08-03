@@ -442,6 +442,31 @@ class AdvanceService:
             state.current_node, prev_ss.key, prev_idx
         ).add_history(prev_key)
 
+    @staticmethod
+    def jump_to_sub_state(
+        state: WorkflowState,
+        graph: WorkflowGraph,
+        target_key: str,
+    ) -> WorkflowState | None:
+        """Salta a un sub-estado especifico DENTRO del nodo actual.
+
+        Usado por on_failure: cuando un sub-estado falla, el workflow
+        retrocede/avanza al sub-estado indicado (si existe en el nodo).
+        Ej: PLAN_APPROVAL.on_failure=PLANNING → salta a PLANNING.
+
+        Retorna None si el target no existe en el nodo actual.
+        """
+        node = graph.get_node(state.current_node)
+        if not node:
+            return None
+        target_idx = node.sub_state_index(target_key)
+        if target_idx < 0:
+            return None
+        history_key = f"{state.current_node}.{target_key} (on_failure)"
+        return state.with_node(
+            state.current_node, target_key, target_idx
+        ).add_history(history_key)
+
 
 class TransitionService:
     """Aplicacion de transiciones de estado. INMUTABLE (ELM pattern)."""
@@ -470,6 +495,23 @@ class TransitionService:
 
         target_idx = target_node.sub_state_index(first_key)
         idx = target_idx if target_idx >= 0 else 0
-        return state.with_node(
+
+        new_state = state.with_node(
             target_node_id, first_key, idx
         ).add_history(f"{target_node_id}.{first_key}")
+
+        # ── Inicializar sub-estado destino (teoria de grafos) ──
+        # Al entrar a un sub-estado nuevo, se inicializa su sub_state_data
+        # con 'status: pending'. Esto satisface las post-condiciones de las
+        # aristas (ej: 'ANALYZE.GATHER.status == pending') y representa
+        # el ciclo de vida del nodo: pending -> activo -> completo.
+        try:
+            existing = new_state.get_sub_state_data(first_key)
+            if not existing.fields:
+                new_state = new_state.record_submit(
+                    first_key, {"status": "pending"}
+                )
+        except Exception:
+            pass
+
+        return new_state

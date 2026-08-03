@@ -84,16 +84,47 @@ class SpecifySpecUseCase:
         sprint_dir = ctx.chain_dir or ""
         plan_repo = PlanRepository()
 
-        plan = plan_repo.load(sprint_dir)
-        specs = plan.get("specifications", plan.get("tasks", []))
+        # Fuente unica: delta (SpringGraphService). Fallback a plan.json
+        # si el spring no esta indexado en el delta.
+        spring_svc = None
+        try:
+            from features.delta_tracking.application.spring_graph_service import SpringGraphService
+            spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+            if spring_svc:
+                import os
+                spring_id = os.path.basename(os.path.normpath(sprint_dir))
+                spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+                specs = spring_svc.get_specs_legacy(spring_id)
+            else:
+                specs = []
+        except Exception:
+            spring_svc = None
+            specs = []
+        if spring_svc is None:
+            try:
+                plan = plan_repo.load(sprint_dir)
+                specs = plan.get("specifications", plan.get("tasks", []))
+            except Exception:
+                specs = []
 
         # Phase 1: Create initial spec if plan is empty
         is_initial = data.get("spec_id", data.get("task_id")) and not data.get("result_state")
         if not specs and is_initial:
             new_spec = SpecBuilder.create_default(0, data)
-            specs.append(new_spec)
-            plan["specifications"] = specs
-            plan_repo.save(sprint_dir, plan)
+            if spring_svc:
+                spring_svc.add_spec(
+                    spring_svc.get_spring_id(sprint_dir) or os.path.basename(os.path.normpath(sprint_dir)),
+                    objective=new_spec.get("objective", ""),
+                    domain=new_spec.get("domain", ""),
+                    spec_type=new_spec.get("type", "feature"),
+                    spec_index=0,
+                    status="draft",
+                )
+            else:
+                specs.append(new_spec)
+                plan = plan_repo.load(sprint_dir)
+                plan["specifications"] = specs
+                plan_repo.save(sprint_dir, plan)
             # SSOT: sprint-state lo escribe el store (unico dueno)
             SprintStateRepository().save_context(sprint_dir, {"current_spec_index": 0})
             return {"spec_id": new_spec["spec_id"], "status": "draft",
@@ -125,8 +156,19 @@ class SpecifySpecUseCase:
 
         refined = SpecBuilder.refine(current_spec, data)
         specs[current_idx] = refined
-        plan["specifications"] = specs
-        plan_repo.save(sprint_dir, plan)
+        if spring_svc:
+            spring_id = spring_svc.get_spring_id(sprint_dir) or os.path.basename(os.path.normpath(sprint_dir))
+            spec_id = refined.get("spec_id", refined.get("task_id", f"SPEC-{current_idx + 1:03d}"))
+            spring_svc.update_spec(spring_id, spec_id, refined)
+            # Proyeccion de compatibilidad
+            try:
+                spring_svc.sync_plan_projection(spring_id)
+            except Exception:
+                pass
+        else:
+            plan = plan_repo.load(sprint_dir)
+            plan["specifications"] = specs
+            plan_repo.save(sprint_dir, plan)
 
         # ── Phase 5: Validar la spec COMPLETA antes de permitir avanzar ──
         # Regla del workflow: el sprint solo avanza de TASK_SPEC si la spec

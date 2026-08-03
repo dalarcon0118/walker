@@ -221,6 +221,104 @@ def _show_auto_context(
         _show_related_results(related, deep)
 
 
+def _show_quality_report(chain_dir: str | None) -> None:
+    """Muestra el quality report persistido (si existe) junto al CPG.
+
+    El reporte se genera al indexar el código (build/index) y refleja las
+    métricas de calidad + gates + recomendaciones del estado ACTUAL del código.
+    Así el agente/usuario decide si refactorizar antes o indexar con métricas.
+    """
+    if not chain_dir:
+        return
+    qr_path = None
+    candidates = []
+    try:
+        from _walker.shared.path_resolver import (
+            resolve_project_root,
+            resolve_project_id,
+            get_project_dir,
+            get_data_dir,
+        )
+        pid = resolve_project_id(chain_dir)
+        if pid:
+            candidates.append(str(get_data_dir(pid) / "quality_report.json"))
+        root = resolve_project_root(chain_dir)
+        if root:
+            candidates.append(os.path.join(root, "data", "quality_report.json"))
+    except Exception:
+        candidates = [os.path.join(chain_dir, "data", "quality_report.json")]
+
+    for c in candidates:
+        if os.path.isfile(c):
+            qr_path = c
+            break
+    if not qr_path:
+        return
+
+    try:
+        with open(qr_path) as f:
+            qr = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
+
+    _show_section("QUALITY REPORT")
+    if qr.get("degraded"):
+        print("  ⚠️  Quality report degradado (qlty no disponible en el index):")
+        print(f"     {qr.get('error', '')[:120]}")
+        return
+
+    passed = qr.get("passed", True)
+    icon = "✅" if passed else "❌"
+    print(f"  {icon} {qr.get('summary', '')}")
+    m = qr.get("metrics", {}) or {}
+    print(
+        Template("  📊 files=$files loc=$loc funcs=$functions cyclo_max=$cyclo_max dead_code=$dead").substitute(
+            files=m.get("files", 0), loc=m.get("loc", 0),
+            functions=m.get("functions", 0), cyclo_max=m.get("cyclo_max", 0),
+            dead=m.get("dead_code", 0),
+        )
+    )
+    for g in qr.get("gates", []):
+        mark = "✅" if g.get("passed") else "❌"
+        print(
+            Template("     $mark $name = $actual (max $threshold)").substitute(
+                mark=mark, name=g.get("name", "?"), actual=g.get("actual", "?"),
+                threshold=g.get("threshold", "?"),
+            )
+        )
+    # Bugs propuestos (post-index) si existen
+    bp_path = os.path.join(os.path.dirname(qr_path), "bug_proposals.json")
+    if os.path.isfile(bp_path):
+        try:
+            with open(bp_path) as f:
+                bp = json.load(f)
+            total = bp.get("total_findings", 0)
+            if total:
+                print(f"  🐛 Bug proposals post-index: {total} hallazgos")
+                for fi in bp.get("findings", [])[:5]:
+                    sev = fi.get("severity", "")
+                    sev_tag = f"[{sev.upper()}]" if sev else ""
+                    print(
+                        Template("     $sev $label").substitute(
+                            sev=sev_tag,
+                            label=str(fi.get("label", fi.get("title", "hallazgo")))[:90],
+                        )
+                    )
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Recomendaciones
+    recs = qr.get("recommendations", [])
+    if recs:
+        print("  💡 Recomendaciones:")
+        for r in recs[:3]:
+            print(
+                Template("     • [$area] $action").substitute(
+                    area=r.get("area", "?"), action=str(r.get("action", ""))[:110]
+                )
+            )
+    print()
+
+
 def cmd_status(sub_args: list[str]) -> int:
     """walker status: muestra estado + sub-estado + transiciones inter-node."""
     sub_args, chain_dir = extract_chain_dir(sub_args)
@@ -294,6 +392,7 @@ def cmd_status(sub_args: list[str]) -> int:
     )
     _show_auto_context(chain_dir, state.get("context", {}).get("task_id"), deep)
     _show_flow_progress(state)
+    _show_quality_report(chain_dir)
 
     return 0
 

@@ -1,8 +1,33 @@
 """Project init tasks — thin adapters to project/ + spring use cases."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
+from libs.shared_domain.validated_vo import TaskInput
 from features.project.application.use_cases import DetectProjectContextUseCase
+
+
+@dataclass(frozen=True)
+class ProjectInitInput(TaskInput):
+    """Input validado de build_project_config.
+
+    project_id (required): id del proyecto.
+    name: nombre (default project_id).
+    repo_path: ruta del repo (default cwd).
+    language: lenguaje (default python).
+    framework: framework (default unknown).
+    """
+
+    project_id: str = ""
+    name: str = ""
+    repo_path: str = ""
+    language: str = "python"
+    framework: str = "unknown"
+
+    def _validate(self) -> str:
+        if not self.project_id:
+            return "Requires --project_id"
+        return ""
 
 
 def detect_project_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -16,13 +41,15 @@ def detect_project_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskR
 
 def build_project_config(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     from features.project import ProjectService
-    project_id = data.get("project_id", "")
-    name = data.get("name", project_id)
-    repo_path = data.get("repo_path", ctx.chain_dir or __import__("os").getcwd())
-    language = data.get("language", "python")
-    framework = data.get("framework", "unknown")
-    if not project_id:
-        return TaskResult.failure("Requires --project_id")
+    input_result = ProjectInitInput.from_dict(data)
+    if not input_result.ok:
+        return TaskResult.failure(input_result.error or "project_id requerido")
+    inp: ProjectInitInput = input_result.data
+    project_id = inp.project_id
+    name = inp.name or project_id
+    repo_path = inp.repo_path or ctx.chain_dir or __import__("os").getcwd()
+    language = inp.language
+    framework = inp.framework
     try:
         project = ProjectService.create_project(project_id=project_id, repo_path=repo_path,
                                                  name=name, language=language, framework=framework)

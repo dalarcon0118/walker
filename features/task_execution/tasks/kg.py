@@ -12,6 +12,33 @@ def _get_searcher(chain_dir: str) -> CognitiveGraphSearcher:
     return CognitiveGraphSearcher(paths.project_root)
 
 
+def _trace_kg_query(chain_dir: str, index: str, query: dict, ctx: ExecutionContext) -> None:
+    """Registra un evento kg_query en el TraceGraph (best-effort)."""
+    try:
+        from features.engine.infrastructure.trace_log import TraceLogger
+        tracer = TraceLogger()
+        # Limitar payload para no inflar el trace
+        safe_query = {}
+        for k, v in (query or {}).items():
+            if isinstance(v, str) and len(v) > 200:
+                safe_query[k] = v[:200] + "..."
+            else:
+                safe_query[k] = v
+        tracer.trace(
+            chain_dir,
+            "kg_query",
+            data={
+                "index": index,
+                "query": safe_query,
+                "project_id": getattr(ctx, "project_id", ""),
+            },
+            task_id=ctx.task_id or "",
+            session_id=ctx.session_id or "",
+        )
+    except Exception:
+        pass
+
+
 _KG_HELP = {
     "protocol": (
         "PROTOCOLO: Antes de leer archivos del codigo fuente, consulta las memorias.\n"
@@ -123,15 +150,43 @@ def kg_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         # Caso: solo _index sin filtros -> listar el indice completo
         if set(payload.keys()) == {"_index"} or (len(payload) == 1 and "_index" in payload):
             index = payload.get("_index", "ckg")
+            _trace_kg_query(ctx.chain_dir or "", index, {}, ctx)
             try:
                 return TaskResult.success(data=cg.search(index, {}))
             except KeyError:
                 return TaskResult.failure(f"Index '{index}' not found. Disponibles: {cg.list_indexes()}")
-        has_single_query_keys = any(k in payload for k in ("text", "type", "file", "function"))
+        has_single_query_keys = any(
+            k in payload for k in (
+                "text", "type", "file", "function", "scope", "status",
+                "severity", "tag", "label", "task", "description",
+                "signature", "kind", "domain", "include_superseded",
+            )
+        )
         if not has_single_query_keys and len(payload) > 0:
+            _trace_kg_query(ctx.chain_dir or "", "multi", payload, ctx)
             return TaskResult.success(data=cg.search_many(payload))
         index = payload.get("_index", "ckg")
         query = {k: v for k, v in payload.items() if k != "_index"}
+
+        # Ciclo de vida CKG: incluir decisiones superseded/deprecated
+        include_superseded = query.pop("include_superseded", False)
+        if index == "ckg" and include_superseded:
+            try:
+                from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+                project_root = _resolve_ckg_project_root(project_id)
+                if project_root:
+                    ckg = CodeKnowledgeGraph(project_root)
+                    nodes = ckg.query({**query, "include_superseded": True})
+                    return TaskResult.success(data={
+                        "type": "kg_search",
+                        "index": "ckg",
+                        "hits": len(nodes),
+                        "results": nodes,
+                    })
+            except Exception:
+                pass  # fallback al searcher normal
+
+        _trace_kg_query(ctx.chain_dir or "", index, query, ctx)
         try:
             return TaskResult.success(data=cg.search(index, query))
         except KeyError:
@@ -146,6 +201,7 @@ def kg_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         query = json.loads(query_raw) if isinstance(query_raw, str) else query_raw
     except json.JSONDecodeError:
         return TaskResult.failure(f"Invalid query JSON: {query_raw}")
+    _trace_kg_query(ctx.chain_dir or "", index, query, ctx)
     try:
         return TaskResult.success(data=cg.search(index, query))
     except KeyError:
@@ -164,6 +220,7 @@ def kg_multi(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # REST: body directo via _payload
     payload = data.get("_payload", None)
     if payload and isinstance(payload, dict):
+        _trace_kg_query(ctx.chain_dir or "", "multi", payload, ctx)
         return TaskResult.success(data=cg.search_many(payload))
     
     # Legacy: flag --queries
@@ -174,6 +231,7 @@ def kg_multi(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         queries = json.loads(queries_raw) if isinstance(queries_raw, str) else queries_raw
     except json.JSONDecodeError:
         return TaskResult.failure(f"Invalid queries JSON: {queries_raw}")
+    _trace_kg_query(ctx.chain_dir or "", "multi", queries, ctx)
     return TaskResult.success(data=cg.search_many(queries))
 
 
@@ -222,6 +280,8 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         statement = payload.get("statement", payload.get("label", ""))
         rationale = payload.get("rationale", "")
         node_type = payload.get("type", "decision")
+        supersedes = payload.get("supersedes", []) or []
+        metadata = payload.get("metadata", {}) or {}
 
         if not statement or not statement.strip():
             return TaskResult.failure("Empty statement", data={
@@ -230,11 +290,33 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             })
 
         ckg = CodeKnowledgeGraph(project_root)
-        nodes = [{"label": statement, "description": rationale, "type": node_type}]
-        result = ckg.save_nodes(nodes)
+        # Normalizar scope/severity a metadata (KnowledgeFact no tiene campos
+        # top-level para ellos; la convencion legacy los guarda en metadata).
+        node_meta = dict(metadata)
+        if "scope" in payload and "scope" not in node_meta:
+            node_meta["scope"] = payload.get("scope")
+        if "severity" in payload and "severity" not in node_meta:
+            node_meta["severity"] = payload.get("severity")
+        node = {
+            "label": statement,
+            "description": rationale,
+            "type": node_type,
+            "tags": payload.get("tags", []) or [],
+            "metadata": node_meta,
+        }
+        if supersedes:
+            # Ciclo de vida: esta decision reemplaza/degrada a otras anteriores
+            node["supersedes"] = supersedes
+        result = ckg.save_nodes([node])
         return TaskResult.success(data={
             "ok": result.get("ok", False),
             "nodes_saved": result.get("nodes_created", 0),
+            "degraded": result.get("degraded", []),
+            "note": (
+                "La nueva decision reemplaza a las previas; estas quedaron "
+                "con status=superseded y solo se ven con include_superseded."
+                if supersedes else "Decision activa registrada."
+            ),
             "next_step": "Run 'walker <project>/kg_search' to verify saved knowledge",
         })
     except Exception as e:
@@ -268,8 +350,8 @@ def register(registry: Any) -> None:
             "tags": ["kg", "cognitive-graph"],
         }),
         ("kg_store", kg_store, {
-            "description": "Almacena un documento en CKG (conocimiento ingenieril)",
-            "usage": "walker <project>/kg_store '{\"type\":\"decision\",\"statement\":\"...\"}'",
+            "description": "Almacena un documento en CKG (conocimiento ingenieril). Soporta ciclo de vida: con 'supersedes' (lista de statements o IDs) degrada a las decisiones anteriores reemplazadas.",
+            "usage": "walker <project>/kg_store '{\"type\":\"decision\",\"statement\":\"...\",\"supersedes\":[\"<statement o id previo>\"]}'",
             "tags": ["kg", "cognitive-graph"],
         }),
         ("kg_multi", kg_multi, {

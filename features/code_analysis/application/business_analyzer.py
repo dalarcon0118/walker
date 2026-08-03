@@ -62,8 +62,21 @@ class BusinessAnalyzer:
 
         for e in self.edges:
             if e.get("type") == "CALLS":
-                caller = self.nodes.get(e.get("from", ""), {}).get("name", "")
-                callee = self.nodes.get(e.get("to", ""), {}).get("name", "")
+                caller_node = self.nodes.get(e.get("from", ""), {})
+                callee_node = self.nodes.get(e.get("to", ""), {})
+                if not isinstance(caller_node, dict) or not isinstance(callee_node, dict):
+                    continue
+                # Solo calls ENTRE funciones/métodos reales. Los edges CALLS
+                # entre archivos e imports (login.tsx -> 'react-native') NO
+                # son flujos de negocio: son dependencias de import.
+                if caller_node.get("type") not in ("function", "method"):
+                    continue
+                if callee_node.get("type") not in ("function", "method"):
+                    continue
+                if caller_node.get("is_import") or callee_node.get("is_import"):
+                    continue
+                caller = caller_node.get("name", "")
+                callee = callee_node.get("name", "")
                 if caller and callee:
                     self._calls[caller].add(callee)
 
@@ -106,11 +119,17 @@ class BusinessAnalyzer:
 
     # ── Capa 2: Business Flows ────────────────────────────────────────────
 
-    def business_flows(self, max_depth: int = 5) -> list[dict]:
+    def business_flows(self, max_depth: int = 5, max_chain: int = 40) -> list[dict]:
         """Cadenas CALLS completas = flujos de negocio.
 
         Para cada funcion "raiz" (entrypoint, no llamada por nadie o
         exportada), camina el grafo de llamadas y produce la cadena.
+
+        max_chain: cap del tamano de cada cadena. Evita flujos gigantes
+        (cientos de elementos) que solo generan ruido en el contexto del
+        agente. Un flow con >max_chain elementos se corta con "..." (el
+        detalle completo no aporta; el nombre del entrypoint + primeros
+        pasos son lo util).
         """
         # Funciones que son llamadas por alguien (no raiz)
         called_by: dict[str, int] = defaultdict(int)
@@ -123,10 +142,13 @@ class BusinessAnalyzer:
         for root in roots:
             chain = self._walk_flow(root, max_depth, set())
             if len(chain) >= 2:  # Solo flujos con al menos una llamada
+                truncated = chain[:max_chain]
+                if len(chain) > max_chain:
+                    truncated.append("...")
                 flows.append({
                     "entrypoint": root,
                     "file": self._fn_nodes[root].get("path", ""),
-                    "chain": chain,
+                    "chain": truncated,
                 })
         return flows
 

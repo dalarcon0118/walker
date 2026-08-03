@@ -40,12 +40,14 @@ class WorkflowAPI:
         chain_dir: str | None = None,
         project_id: str | None = None,
         session_store: Any = None,
+        tracer: Any = None,
     ):
         self._session_store = session_store or SessionStore
         self._session_id = session_id
         self._chain_dir = chain_dir
         self._project_id = project_id
         self._orch: OrchestrationService | None = None
+        self._tracer = tracer
         self.status_message: str = ""
         self.suggestion: str = ""
 
@@ -64,6 +66,29 @@ class WorkflowAPI:
         return self._project_id
 
     # ── Bootstrap / Sesión ────────────────────────────────────────
+
+    def _trace_session_start(self, record: Any) -> None:
+        """Registra un evento session_start en el TraceGraph."""
+        try:
+            if self._tracer is None:
+                from ..infrastructure.trace_log import TraceLogger
+                self._tracer = TraceLogger()
+            chain_dir = record.chain_dir or ""
+            if not chain_dir:
+                return
+            from datetime import datetime, timezone
+            self._tracer.trace(
+                chain_dir,
+                "session_start",
+                data={
+                    "session_id": record.session_id,
+                    "project_id": record.project_id or self._project_id or "",
+                    "mode": "new",
+                },
+                session_id=record.session_id,
+            )
+        except Exception:
+            pass  # best-effort
 
     def ensure_session(self) -> str:
         """Asegura que hay una sesión activa.
@@ -101,6 +126,7 @@ class WorkflowAPI:
             self.status_message = (
                 f"Sesión para {self._project_id or os.path.basename(self._chain_dir)}"
             )
+            self._trace_session_start(record)
             return self._session_id
 
         # 3. Buscar sesión activa (solo si no hay chain_dir explícito)
@@ -254,10 +280,24 @@ class WorkflowAPI:
         session_id = self.ensure_session()
         task_id = ""
         if self._chain_dir:
-            from features.spring.infrastructure.repositories import SprintStateRepository
-            sp_data = SprintStateRepository().load_dict(self._chain_dir)
-            if sp_data:
-                task_id = sp_data.get("context", {}).get("task_id", "")
+            # Fuente unica: el delta. task_id = spec actual del spring.
+            try:
+                from features.delta_tracking.application.spring_graph_service import SpringGraphService
+                spring_svc = SpringGraphService.from_chain_dir(self._chain_dir)
+                if spring_svc:
+                    spring_id = spring_svc.get_spring_id(self._chain_dir)
+                    spring_svc.ensure_spring_imported(self._chain_dir, spring_id)
+                    cur = spring_svc.get_current_spec(spring_id)
+                    if cur:
+                        task_id = cur.get("spec_id", "")
+            except Exception:
+                pass
+            if not task_id:
+                # Fallback: sprint-state legacy (task_id en context)
+                from features.spring.infrastructure.repositories import SprintStateRepository
+                sp_data = SprintStateRepository().load_dict(self._chain_dir)
+                if sp_data:
+                    task_id = sp_data.get("context", {}).get("task_id", "")
         return ExecutionContext(
             session_id=session_id,
             chain_dir=self._chain_dir or "",

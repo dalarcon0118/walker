@@ -389,6 +389,12 @@ def no_sprint_output(data: dict) -> None:
 
 
 # Result type → formatter map (SSOT)
+def mcp_config_output(data: dict) -> None:
+    """Muestra la config MCP (el usuario la necesita para copiar/pegar)."""
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print()
+
+
 OUTPUT_MAP: dict[str, Any] = {
     "help":              help_output,
     "projects_list":     projects_output,
@@ -402,6 +408,7 @@ OUTPUT_MAP: dict[str, Any] = {
     "task_result":       task_output,
     "prepare_result":    prepare_output,
     "routes_list":       routes_output,
+    "mcp_config":        mcp_config_output,
 }
 
 

@@ -26,6 +26,7 @@ from bootstrap.cli.commands import (
     cmd_help,
     cmd_prepare,
 )
+from bootstrap.cli.mcp_config import cmd_mcp_config
 from bootstrap.cli.tracing import cmd_register_file, cmd_register_message, cmd_trace_log
 
 
@@ -46,6 +47,7 @@ COMMANDS: dict[str, tuple[Callable, int, int]] = {
     "tasks": (cmd_tasks, 0, 1),
     "switch": (cmd_switch, 1, 1),
     "help": (cmd_help, 0, 0),
+    "mcp-config": (cmd_mcp_config, 0, 2),
     "register_file": (cmd_register_file, 2, 4),
     "register_message": (cmd_register_message, 3, 3),
     "trace_log": (cmd_trace_log, 3, 99),

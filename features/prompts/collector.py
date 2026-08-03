@@ -56,15 +56,37 @@ def collect_knowledge(chain_dir: str, context: dict | None = None) -> dict:
 
 
 def collect_state(chain_dir: str) -> dict:
-    from features.spring.infrastructure.repositories import SprintStateRepository
-    state = SprintStateRepository().load_dict(chain_dir)
-    if not state:
-        return {}
-    return {"node": state.get("current_node", ""), "sub_state": state.get("current_sub_state", ""),
-            "task_id": state.get("context", {}).get("task_id", ""),
-            "sprint_id": state.get("sprint", {}).get("chain_id", ""),
-            "status": state.get("sprint", {}).get("status", ""),
-            "history": state.get("history", [])[-5:]}
+    # Node/history: workflow (motor). Sprint status: delta (fuente unica).
+    node, sub_state, history = "", "", []
+    try:
+        from features.engine.infrastructure.repositories import WorkflowStateRepository
+        wf = WorkflowStateRepository().load(chain_dir)
+        node = wf.current_node
+        sub_state = wf.current_sub_state
+        history = wf.history[-5:] or []
+    except Exception:
+        pass
+    sprint_id, status, task_id = "", "", ""
+    try:
+        from features.delta_tracking.application.spring_graph_service import SpringGraphService
+        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        if spring_svc:
+            spring_id = spring_svc.get_spring_id(chain_dir)
+            spring_svc.ensure_spring_imported(chain_dir, spring_id)
+            spring = spring_svc.get_spring(spring_id)
+            if spring:
+                sprint_id = spring.get("_id", spring_id)
+                status = spring.get("status", "")
+            cur = spring_svc.get_current_spec(spring_id)
+            if cur:
+                task_id = cur.get("spec_id", "")
+    except Exception:
+        pass
+    return {"node": node, "sub_state": sub_state,
+            "task_id": task_id,
+            "sprint_id": sprint_id,
+            "status": status,
+            "history": history}
 
 
 def collect_all(chain_dir: str, node_id: str | None = None, context: dict | None = None) -> dict:

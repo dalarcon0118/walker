@@ -10,14 +10,51 @@ hace por el. Cada decision queda como nodo CKG tipo 'decision' con:
   - node/sub_state: donde se tomo
   - task_id, session_id, timestamp
 
+CICLO DE VIDA: si sobre el mismo sub_state ya existia una decision ACTIVA
+con valor distinto, esta nueva la REEMPLAZA. Se detecta automaticamente
+(sin intervencion del agente) y se pasa via 'supersedes' a save_nodes,
+que degrada la anterior (status=superseded + superseded_by + superseded_at).
+Asi el CKG siempre refleja la decision VIGENTE sobre cada punto, con historia.
+
 Esto implementa la persistencia de decisiones como mecanismo
 estructural, no como estrategia de agente.
 """
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext
+from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_DECISION
 
 
+def _detect_superseded(ckg, decision: str, sub_state: str) -> list[str]:
+    """Detecta decisiones ACTIVAS previas sobre el mismo sub_state que esta reemplaza.
+
+    Regla: una decision nueva sobre el mismo punto de decision (sub_state)
+    con VALOR DISTINTO al previo indica que el PO cambio de opinion → la
+    nueva reemplaza a la anterior. Mismo valor = reconfirmacion (no supersede).
+    Solo se consideran decisiones ACTIVAS (las ya superseded pertenecen a la
+    historia y no vuelven a reemplazarse).
+    """
+    supersedes: list[str] = []
+    if not sub_state or sub_state == "?" or not decision:
+        return supersedes
+    try:
+        # query() por defecto devuelve SOLO decisiones activas
+        previas = ckg.query({"type": "decision"})
+    except Exception:
+        return supersedes
+    for old in previas:
+        meta = old.get("metadata", {}) or {}
+        if meta.get("sub_state") != sub_state:
+            continue
+        old_decision = meta.get("decision", "")
+        if old_decision and old_decision != decision:
+            old_id = old.get("_id", "")
+            if old_id:
+                supersedes.append(old_id)
+    return supersedes
+
+
+@as_side_effect(scope=SCOPE_DECISION)
 def capture_decision(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     chain_dir = ctx.chain_dir or ""
     if not chain_dir:
@@ -52,7 +89,12 @@ def capture_decision(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
 
         paths = ProjectService.resolve_paths(chain_dir)
         ckg = CodeKnowledgeGraph(str(paths.project_root))
-        result = ckg.save_nodes([{
+
+        # CICLO DE VIDA: detectar si esta decision reemplaza a una anterior
+        # sobre el mismo sub_state (PO cambio de opinion).
+        supersedes = _detect_superseded(ckg, decision, sub_state)
+
+        node = {
             "type": "decision",
             "label": f"decision:{decision}",
             "statement": (
@@ -66,7 +108,14 @@ def capture_decision(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
                 "task_id": ctx.task_id or "",
                 "source": f"session:{ctx.session_id}",
             },
-        }])
+        }
+        if supersedes:
+            # La decision nueva reemplaza a la(s) anterior(es): save_nodes
+            # degradara a las previas automaticamente.
+            node["supersedes"] = supersedes
+
+        result = ckg.save_nodes([node])
+        result.setdefault("supersedes_detected", supersedes)
         return {"ok": True, "captured": True, "result": result}
     except Exception as e:
         return {"ok": False, "error": str(e), "captured": False}

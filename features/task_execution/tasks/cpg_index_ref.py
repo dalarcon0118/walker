@@ -5,21 +5,48 @@ import os
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
+from libs.shared_domain.validated_vo import TaskInput
 from features.project import ProjectService
 
 
+@dataclass(frozen=True)
+class IndexRefInput(TaskInput):
+    """Input validado de cpg_index_ref.
+
+    url (required): repo remoto a clonar.
+    name (required): nombre del índice de referencia.
+    branch: rama (default main).
+    depth: profundidad de clone (default 1).
+    """
+
+    url: str = ""
+    name: str = ""
+    branch: str = "main"
+    depth: int = 1
+
+    def _validate(self) -> str:
+        if not self.url or not self.name:
+            return "Requires --url y --name"
+        if not isinstance(self.depth, int) or self.depth < 1:
+            return "depth debe ser int >= 1"
+        return ""
+
+
 def cpg_index_ref(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    url = data.get("url", "")
-    name = data.get("name", "")
-    if not url or not name:
-        return TaskResult.failure("Requires --url y --name")
+    input_result = IndexRefInput.from_dict(data)
+    if not input_result.ok:
+        return TaskResult.failure(input_result.error or "url/name requeridos")
+    inp: IndexRefInput = input_result.data
+    url = inp.url
+    name = inp.name
     chain_dir = ctx.chain_dir or ""
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
-    branch = data.get("branch", "main")
-    depth = int(data.get("depth", 1))
+    branch = inp.branch
+    depth = inp.depth
 
     paths = ProjectService.resolve_paths(chain_dir)
     data_dir = paths.data_dir

@@ -217,6 +217,7 @@ class WorkflowRepository:
                         max_attempts=int(retry_raw.get("max_attempts", 3)),
                         backoff=str(retry_raw.get("backoff", "exponential")),
                         initial_delay_ms=int(retry_raw.get("initial_delay_ms", 1000)),
+                        on_error=dict(retry_raw.get("on_error", {})) or None,
                     )
 
                 # Parse options

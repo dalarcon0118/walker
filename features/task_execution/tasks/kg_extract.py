@@ -18,9 +18,28 @@ Usage:
 
 from __future__ import annotations
 import json
+from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
+from libs.shared_domain.validated_vo import TaskInput
 from features.project import ProjectService
+
+
+@dataclass(frozen=True)
+class KgExtractInput(TaskInput):
+    """Input validado de kg_extract.
+
+    project_id: id del proyecto (alternativa a chain_dir).
+    scope: all | functions | classes | files (default all).
+    """
+
+    project_id: str = ""
+    scope: str = "all"
+
+    def _validate(self) -> str:
+        if self.scope not in ("all", "functions", "classes", "files"):
+            return "scope debe ser 'all' | 'functions' | 'classes' | 'files'"
+        return ""
 
 
 def _get_cg(chain_dir: str):
@@ -53,7 +72,12 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     No active sprint needed. Uses CPG to understand project structure.
     """
     chain_dir = ctx.chain_dir or ""
-    project_id = data.get("_project_id", "")
+    input_result = KgExtractInput.from_dict(data)
+    if not input_result.ok:
+        return TaskResult.failure(input_result.error or "input inválido")
+    inp: KgExtractInput = input_result.data
+    project_id = inp.project_id or data.get("_project_id", "")
+    scope = inp.scope
 
     if chain_dir:
         try:
@@ -72,8 +96,6 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "error": "No chain_dir and no project_id available",
             "next_step": "Run 'walker <project>/status' first to register project context",
         })
-
-    scope = data.get("scope", "all")  # all | functions | classes | files
 
     # ── 1. Query CPG ──
     analysis = {

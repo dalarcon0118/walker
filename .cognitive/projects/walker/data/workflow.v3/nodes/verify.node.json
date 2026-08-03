@@ -31,7 +31,7 @@
         "description": "Tests executed. exit_code=0->QA, exit_code>0->IMPLEMENT.WORK."
       },
       "on_success": "PREDICATE_CHECK",
-      "on_failure": "WORK",
+      "on_failure": "QA_RUN",
       "side_effects": [],
       "retry": {
         "max_attempts": 2,
@@ -78,7 +78,7 @@
         "description": "Predicate verification completed. all_passed=true -> QA. all_passed=false -> IMPLEMENT.WORK."
       },
       "on_success": "QA",
-      "on_failure": "WORK",
+      "on_failure": "QA_RUN",
       "side_effects": [],
       "retry": {
         "max_attempts": 1,
@@ -126,7 +126,7 @@
         "description": "QA completed. approve -> PO_ACCEPT. reject -> IMPLEMENT.WORK."
       },
       "on_success": "PO_ACCEPT",
-      "on_failure": "WORK",
+      "on_failure": "PREDICATE_CHECK",
       "side_effects": [
         {
           "type": "capture_decision",
@@ -201,7 +201,7 @@
         "description": "PO acceptance. accept -> task completed, return to SPRINT. reject -> IMPLEMENT.WORK."
       },
       "on_success": "",
-      "on_failure": "WORK",
+      "on_failure": "QA",
       "side_effects": [
         {
           "type": "emit_event",

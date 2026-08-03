@@ -6,10 +6,12 @@ CognitiveGraph como almacenamiento nativo con grafo + fulltext search.
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext
+from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 from features.project import ProjectService
 from features.delta_tracking import DeltaGraphService
 
 
+@as_side_effect(scope=SCOPE_TRACKING)
 def index_delta(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     """Indexa el sprint actual en el indice delta de CognitiveGraph."""
     chain_dir = ctx.chain_dir or ""
@@ -24,6 +26,7 @@ def index_delta(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]
         return {"ok": False, "error": str(e), "indexed_tasks": 0}
 
 
+@as_side_effect(scope=SCOPE_TRACKING)
 def reindex_delta(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     """Re-indexa todos los sprints en el indice delta de CognitiveGraph."""
     chain_dir = ctx.chain_dir or ""

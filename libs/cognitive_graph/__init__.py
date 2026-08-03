@@ -405,7 +405,14 @@ class Index:
         return neighbors
 
     def _match(self, doc: dict, filters: dict) -> bool:
-        """Verifica si un documento coincide con los filtros estructurados."""
+        """Verifica si un documento coincide con los filtros estructurados.
+
+        RESOLUCIÓN DE CAMPOS: si el valor top-level no matchea, intenta
+        con metadata.<campo>. Esto cubre datos legados donde el mismo
+        campo (ej. scope) vive en top-level en unos docs y en metadata
+        en otros — sin esta normalización, esas convenciones/decisiones
+        son inconsultables por filtro estructurado.
+        """
         if not filters:
             return True
         for qfield, qvalue in filters.items():
@@ -418,19 +425,27 @@ class Index:
                 val = doc
                 for p in parts:
                     val = val.get(p, {}) if isinstance(val, dict) else {}
-                if str(qvalue) not in str(val):
+                if not self._val_contains(val, qvalue):
                     return False
             else:
                 doc_val = doc.get(rfield, "")
-                if isinstance(doc_val, str):
-                    if qvalue.lower() not in doc_val.lower():
+                if not self._val_contains(doc_val, qvalue):
+                    # Fallback: campo legado viviendo en metadata
+                    meta_val = (doc.get("metadata") or {}).get(rfield)
+                    if not self._val_contains(meta_val, qvalue):
                         return False
-                elif isinstance(doc_val, list):
-                    if not any(qvalue.lower() in str(item).lower() for item in doc_val):
-                        return False
-                elif doc_val != qvalue:
-                    return False
         return True
+
+    @staticmethod
+    def _val_contains(val, qvalue) -> bool:
+        """¿El valor contiene el query (case-insensitive)?"""
+        if val is None:
+            return False
+        if isinstance(val, str):
+            return qvalue.lower() in val.lower()
+        if isinstance(val, list):
+            return any(qvalue.lower() in str(item).lower() for item in val)
+        return val == qvalue
 
     def schema_info(self) -> dict:
         self._load()
@@ -595,7 +610,156 @@ class CognitiveGraph:
             },
         )
 
-        # Trace - storage nativo en CognitiveGraph
+        # Trace - storage nativo + search_handler que combina NDJSON legacy
+        def _trace_search(query):
+            """Busca en trace: storage nativo (trace.json.gz) + NDJSON legacy (data/traces/)."""
+            import gzip as _gzip
+
+            filters = query or {}
+            events = []
+
+            # 1. Storage nativo (trace.json.gz via Index._load)
+            idx = self._get_index("trace")
+            idx._load()
+            for doc_id, doc in idx._docs.items():
+                events.append({"_id": doc_id, "_source": doc})
+
+            # 2. NDJSON legacy en data/traces/*.json.gz
+            # Busca en: chain_dir, y en el .cognitive/ global del walker (registry)
+            # SOLO del MISMO proyecto (match por project_id del chain_dir)
+            traces_dirs = [os.path.join(self.chain_dir, "data", "traces")]
+            try:
+                from libs.path_resolver import get_walker_root
+                # project_id = basename del project_root (ej: react-native-frontend)
+                project_id = os.path.basename(self.chain_dir)
+                walker_cog = get_walker_root() / ".cognitive" / "projects"
+                if walker_cog.is_dir():
+                    for proj_dir in walker_cog.iterdir():
+                        if proj_dir.is_dir() and proj_dir.name == project_id:
+                            traces_dirs.append(str(proj_dir / "data" / "traces"))
+            except Exception:
+                pass
+
+            seen_events = set()
+            for traces_dir in traces_dirs:
+                if not os.path.isdir(traces_dir):
+                    continue
+                for fname in sorted(os.listdir(traces_dir)):
+                    if not fname.endswith(".gz"):
+                        continue
+                    try:
+                        with _gzip.open(os.path.join(traces_dir, fname), "rt") as f:
+                            content = f.read()
+                        for line in content.strip().split("\n"):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                doc = json.loads(line)
+                            except Exception:
+                                continue
+                            if not isinstance(doc, dict):
+                                continue
+                            # Dedupe por (timestamp, event_type, tool)
+                            dedupe_key = (
+                                doc.get("timestamp", ""),
+                                doc.get("event_type", ""),
+                                doc.get("tool", ""),
+                            )
+                            if dedupe_key in seen_events:
+                                continue
+                            seen_events.add(dedupe_key)
+                            events.append({"_id": doc.get("id", ""), "_source": doc})
+                    except Exception:
+                        continue
+
+            # 3. Storage nativo del .cognitive/ global del walker (registry)
+            #    trace.json.gz puede vivir en walker/.cognitive/projects/{pid}/data/
+            #    SOLO del MISMO proyecto (match por project_id del chain_dir)
+            try:
+                from libs.path_resolver import get_walker_root
+                project_id = os.path.basename(self.chain_dir)
+                walker_projects = get_walker_root() / ".cognitive" / "projects"
+                if walker_projects.is_dir():
+                    proj_dir = walker_projects / project_id
+                    if proj_dir.is_dir():
+                        idx_path = proj_dir / "data" / "trace.json.gz"
+                        if idx_path.is_file():
+                            try:
+                                with _gzip.open(idx_path, "rt") as f:
+                                    raw_idx = json.load(f)
+                                docs_idx = raw_idx.get("docs", []) if isinstance(raw_idx, dict) else raw_idx
+                                for doc in docs_idx:
+                                    if isinstance(doc, dict):
+                                        events.append({"_id": doc.get("_id", ""), "_source": doc})
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+            # 4. Filtrar
+            text_query = ""
+            remaining = dict(filters)
+            if "text" in remaining:
+                text_query = remaining.pop("text", "").lower()
+
+            results = []
+            for item in events:
+                doc = item.get("_source", {})
+                match = True
+                if text_query:
+                    haystack = " ".join(str(v) for v in doc.values()).lower()
+                    if text_query not in haystack:
+                        match = False
+                if match and remaining:
+                    for k, v in remaining.items():
+                        # Mapear aliases del schema
+                        alias_map = {
+                            "task": "task_id", "tool": "tool",
+                            "type": "event_type", "agent": "agent_id",
+                            "session": "session_id", "sprint": "sprint_id",
+                            "node": "node", "sub_state": "sub_state",
+                            "source": "source", "file": "files",
+                        }
+                        field = alias_map.get(k, k)
+                        field_val = doc.get(field, "")
+                        needle = str(v)
+                        if isinstance(field_val, list):
+                            # Buscar el valor en cualquier elemento de la lista
+                            if not any(needle in str(item) for item in field_val):
+                                match = False
+                        else:
+                            if needle not in str(field_val):
+                                match = False
+                if match:
+                    results.append({
+                        "_id": item.get("_id", ""),
+                        "_index": "trace",
+                        "_score": 1.0,
+                        "_source": doc,
+                    })
+
+            return {
+                "took": 0,
+                "index": "trace",
+                "hits": {"total": len(results), "hits": results[:50]},
+                "schema": {
+                    "fields": {
+                        "task": "task_id", "tool": "tool",
+                        "type": "event_type", "agent": "agent_id",
+                        "session": "session_id", "sprint": "sprint_id",
+                        "node": "node", "sub_state": "sub_state",
+                        "source": "source", "file": "files",
+                    },
+                    "types": {
+                        "workflow_state": {}, "task_execute": {},
+                        "agent_message": {}, "tool_call": {},
+                        "file_impact": {}, "kg_query": {},
+                    },
+                    "description": "TraceGraph: memoria de ejecucion (workflow + agente + tools)",
+                },
+            }
+
         self.register_index(
             "trace",
             {
@@ -622,6 +786,7 @@ class CognitiveGraph:
                 "storage": {"path": "data/trace.json.gz", "format": "json.gz"},
                 "description": "TraceGraph: memoria de ejecucion (workflow + agente + tools)",
             },
+            search_handler=_trace_search,
         )
 
     def _register_ref_indexes(self) -> None:

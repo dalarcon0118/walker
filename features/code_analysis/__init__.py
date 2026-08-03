@@ -75,6 +75,17 @@ class CPGBuilder:
     def scan_dfg(self, paths: list[str] | None = None) -> dict:
         return self._inner.scan_dfg(paths)
 
+    def scan_dfg_async(self, paths: list[str] | None = None) -> dict:
+        """Ejecuta el DFG security scan en background (no bloquea al agente).
+
+        Persiste data_dir/dfg_scan_status.json consultable vía dfg_scan_status().
+        """
+        return self._inner.scan_dfg_async(paths)
+
+    def dfg_scan_status(self) -> dict:
+        """Estado del DFG scan asíncrono (running | ok | failed | not_started)."""
+        return self._inner.dfg_scan_status()
+
     def stats(self) -> dict:
         from features.code_analysis.infrastructure.repository import CpgFileRepository
         repo = CpgFileRepository(str(self.project_dir / "data"))

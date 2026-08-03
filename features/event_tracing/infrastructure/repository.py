@@ -62,9 +62,22 @@ def load_traces(chain_dir: str) -> list[TraceEvent]:
     except Exception:
         pass
 
+    # ── Resolver project_root para buscar traces legacy a nivel proyecto ──
+    project_root = chain_dir
+    try:
+        from libs.path_resolver import resolve_project_root
+        resolved = resolve_project_root(chain_dir)
+        if resolved:
+            project_root = resolved
+    except Exception:
+        pass
+
     # ── Fuente 2: NDJSON en data/traces/ (legacy) ─────────────────
-    trace_dir = os.path.join(chain_dir, "data", "traces")
-    if os.path.isdir(trace_dir):
+    # Busca en: <sprint>/data/traces/ Y <project>/data/traces/
+    for base in {chain_dir, project_root}:
+        trace_dir = os.path.join(base, "data", "traces")
+        if not os.path.isdir(trace_dir):
+            continue
         for fname in sorted(os.listdir(trace_dir)):
             if not fname.endswith(".gz"):
                 continue
@@ -82,16 +95,18 @@ def load_traces(chain_dir: str) -> list[TraceEvent]:
                 continue
 
     # ── Fuente 3: trace.json.gz (index format legacy) ─────────────
-    index_path = os.path.join(chain_dir, "data", "trace.json.gz")
-    if os.path.isfile(index_path):
-        try:
-            with gzip.open(index_path, "rt") as f:
-                raw = json.load(f)
-            docs = raw.get("docs", []) if isinstance(raw, dict) else raw
-            for doc in docs:
-                if isinstance(doc, dict):
-                    events.append(TraceEvent.from_dict(doc))
-        except Exception:
-            pass
+    # Busca en: <sprint>/data/trace.json.gz Y <project>/data/trace.json.gz
+    for base in {chain_dir, project_root}:
+        index_path = os.path.join(base, "data", "trace.json.gz")
+        if os.path.isfile(index_path):
+            try:
+                with gzip.open(index_path, "rt") as f:
+                    raw = json.load(f)
+                docs = raw.get("docs", []) if isinstance(raw, dict) else raw
+                for doc in docs:
+                    if isinstance(doc, dict):
+                        events.append(TraceEvent.from_dict(doc))
+            except Exception:
+                pass
 
     return events

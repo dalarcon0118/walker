@@ -4,8 +4,10 @@
     "walker": {
       "type": "local",
       "command": ["python3", "-m", "features.cli_interface.mcp"],
+      "cwd": "/Users/davidmartinez/develop/Active-projects/walker",
       "enabled": true,
-      "environment": {}
+      "environment": {},
+      "timeout": 30000
     }
   }
 }

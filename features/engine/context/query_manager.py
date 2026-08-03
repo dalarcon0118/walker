@@ -72,18 +72,60 @@ class QueryManager:
         }
 
     def _query_state(self, filters):
-        from features.spring.infrastructure.repositories import SprintStateRepository
-
-        state = SprintStateRepository().load_dict(self._chain_dir)
-        if not state:
-            return {"ok": False, "error": "sprint-state.json not found"}
+        # Node/history: estado del workflow (motor).
+        node = ""
+        history = []
+        sub_state_data = {}
+        last_fields = {}
+        try:
+            from ..infrastructure.repositories import WorkflowStateRepository
+            wf = WorkflowStateRepository().load(self._chain_dir)
+            node = f"{wf.current_node}.{wf.current_sub_state}" if wf.current_node else ""
+            history = wf.history[-5:] or []
+            # Exponer sub_state_data del paso anterior: el resultado del
+            # submit previo (Q&A del ANALYZE, decisiones, etc.) vive aquí.
+            # Es lo que permite que el user gate muestre "QUÉ SUCEDIÓ".
+            ssd = wf.sub_state_data or {}
+            if isinstance(ssd, dict):
+                sub_state_data = ssd
+                # Del sub-estado actual o del último con fields
+                for key in (wf.current_sub_state, "ANALYZE.ANALYZE", "ANALYZE"):
+                    entry = ssd.get(key)
+                    fields = None
+                    if isinstance(entry, dict):
+                        fields = entry.get("fields", {})
+                    elif hasattr(entry, "fields"):
+                        fields = getattr(entry, "fields", {})
+                    if fields:
+                        last_fields = fields
+                        break
+        except Exception:
+            pass
+        # Sprint status: delta (fuente unica del spring).
+        sprint_status = ""
+        sprint_goal = ""
+        try:
+            from features.delta_tracking.application.spring_graph_service import SpringGraphService
+            spring_svc = SpringGraphService.from_chain_dir(self._chain_dir)
+            if spring_svc:
+                spring_id = spring_svc.get_spring_id(self._chain_dir)
+                spring_svc.ensure_spring_imported(self._chain_dir, spring_id)
+                spring = spring_svc.get_spring(spring_id)
+                if spring:
+                    sprint_status = spring.get("status", "")
+                    sprint_goal = spring.get("goal", "")
+        except Exception:
+            pass
         return {
             "ok": True,
             "layer": "state",
-            "results": [state],
-            "node": f"{state.get('current_node', '')}.{state.get('current_sub_state', '')}",
-            "history": state.get("history", [])[-5:],
-            "sprint_status": state.get("sprint", {}).get("status", ""),
+            "results": [{"node": node, "sprint_status": sprint_status}],
+            "node": node,
+            "history": history,
+            "sprint_status": sprint_status,
+            "sprint_goal": sprint_goal,
+            "sub_state_data": sub_state_data,
+            "last_fields": last_fields,
         }
 
     @property

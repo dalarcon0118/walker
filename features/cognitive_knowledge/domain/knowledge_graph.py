@@ -63,6 +63,14 @@ class KnowledgeNode:
     supersedes: list[str] = field(default_factory=list)
     # IDs de nodos que ESTE reemplaza (conocimiento anterior).
 
+    # ── Ciclo de vida de la decisión ──
+    # active: vigente (la que el agente debe seguir)
+    # superseded: fue reemplazada por otra (obsoleta pero con historia)
+    # deprecated: desaconsejada (se mantiene por contexto histórico)
+    status: str = "active"
+    # Fecha en que esta decision fue degradada/reemplazada
+    superseded_at: str = ""
+
     # ── Extensibilidad ──
     tags: list[str] = field(default_factory=list)
     # Categorías libres. Cada dominio usa las suyas.
@@ -96,6 +104,8 @@ class KnowledgeNode:
             "author": self.author,
             "source": self.source,
             "confidence": self.confidence,
+            "status": self.status,
+            "superseded_at": self.superseded_at,
             "created_at": self.created_at,
         }
 
@@ -117,6 +127,8 @@ class KnowledgeNode:
             author=data.get("author", ""),
             source=data.get("source", "manual"),
             confidence=data.get("confidence", 1.0),
+            status=data.get("status", "active"),
+            superseded_at=data.get("superseded_at", ""),
             created_at=data.get("created_at", ""),
         )
 
@@ -228,8 +240,43 @@ class KnowledgeGraph:
         self._validate_node(node)
         self._nodes[node.id] = node
 
+    def register_decision(self, node: KnowledgeNode) -> list[str]:
+        """Registra una decision aplicando el CICLO DE VIDA del conocimiento.
+
+        Cuando una decision nueva declara 'supersedes=[X]', esta DECRADA
+        la anterior: la marca como status='superseded' (obsoleta pero con
+        historia). Asi el agente sabe que la nueva es la vigente.
+
+        Retorna la lista de nodos degradados.
+        """
+        degraded: list[str] = []
+        now = datetime.now(timezone.utc).isoformat()
+        for old_id in node.supersedes:
+            old = self._nodes.get(old_id)
+            if old and old.status == "active":
+                old.status = "superseded"
+                old.superseded_at = now
+                degraded.append(old_id)
+        # La nueva es activa por defecto
+        node.status = "active"
+        node.superseded_at = ""
+        self._nodes[node.id] = node
+        return degraded
+
     def get_node(self, nid: str) -> KnowledgeNode | None:
         return self._nodes.get(nid)
+
+    def active_nodes(self, type_name: str = "") -> list[dict]:
+        """Nodos VIGENTES (status=active). El agente consulta SOLO estos
+        para tomar decisiones; los superseded se mantienen como historia."""
+        result = []
+        for n in self._nodes.values():
+            if n.status != "active":
+                continue
+            if type_name and n.type != type_name:
+                continue
+            result.append(n.to_dict())
+        return result
 
     def remove_node(self, nid: str) -> None:
         self._nodes.pop(nid, None)

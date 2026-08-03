@@ -133,7 +133,13 @@ def bootstrap(registry: Any = None, se_engine: Any = None) -> tuple[Any, Any]:
     if registry is None:
         from .infrastructure.task_registry import InMemoryTaskRegistry
 
-        registry = InMemoryTaskRegistry()
+        # Inyectar tracer (TraceLogger) para registrar task_execute en el TraceGraph
+        try:
+            from .infrastructure.trace_log import TraceLogger
+            tracer = TraceLogger()
+        except Exception:
+            tracer = None
+        registry = InMemoryTaskRegistry(tracer=tracer)
 
     if se_engine is None:
         from .infrastructure.side_effects import SideEffectEngine

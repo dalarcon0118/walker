@@ -66,7 +66,8 @@ class QueryGraphUseCase:
             from features.code_analysis.application.business_analyzer import analyze
             layer = analyze(data.get("nodes", {}), data.get("edges", []))
         if not focus:
-            return layer
+            # Aplicar cap de chain tambien al leer del CPG almacenado
+            return self._cap_flows(layer)
         # Filtrar por archivo
         result = {
             "pure_functions": [p for p in layer.get("pure_functions", [])
@@ -77,7 +78,28 @@ class QueryGraphUseCase:
                                       if focus in p.get("file", "")],
             "metrics": layer.get("metrics", {}),
         }
-        return result
+        return self._cap_flows(result)
+
+    @staticmethod
+    def _cap_flows(layer: dict, max_chain: int = 40) -> dict:
+        """Limita el tamano de las chains de business_flows.
+
+        Evita que flows con cientos de elementos (arboles CALLS gigantes)
+        generen ruido en el contexto del agente. El entrypoint + primeros
+        pasos son lo util; el detalle completo no aporta.
+        """
+        flows = layer.get("business_flows") or []
+        capped = []
+        for f in flows:
+            chain = f.get("chain") or []
+            if len(chain) > max_chain:
+                f = dict(f)
+                f["chain"] = chain[:max_chain] + ["..."]
+            capped.append(f)
+        if capped:
+            layer = dict(layer)
+            layer["business_flows"] = capped
+        return layer
 
     def grep(self, query_text: str) -> dict:
         """Execute a grep-like query against the CPG.

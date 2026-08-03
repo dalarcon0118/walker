@@ -216,7 +216,22 @@ class HealthReportAnalyzer:
         elif isinstance(sprint, dict):
             node = sprint.get("node", "")
             gates = sprint.get("gates", [])
-            if gates:
+            # En un user gate (user_input) la vía real de avance es SUBMIT
+            # con los campos que pide el sub-estado (ej. {"decision": ...}).
+            # Las gates del grafo (transition <gate>) son rutas entre nodos
+            # y NO se disparan directamente: su contract (ej. ckg_has_decision)
+            # se cumple tras el submit. Sugerir submit evita confundir al PO.
+            if sprint.get("execution_type") == "user_input":
+                prompt_id = sprint.get("prompt_id", "")
+                submit_hint = f"walker {project_id}/submit"
+                steps.append({
+                    "priority": 4,
+                    "action": f"Respond at node '{node}' ({sprint.get('sub_state', '')}) — user decision required",
+                    "reason": f"Sprint is active at {node}.{sprint.get('sub_state', '')} — read the prompt and submit your decision "
+                             f"(e.g. 'walker {project_id}/submit {{\"decision\":\"...\",\"evidence\":\"...\"}}')",
+                    "command": submit_hint,
+                })
+            elif gates:
                 steps.append({
                     "priority": 4,
                     "action": f"Continue sprint at node '{node}' via available gate(s)",
@@ -478,6 +493,17 @@ class CheckHealthUseCase:
             changes = watcher.scan()
             new_changes = changes.get("new_changes", [])
             total = changes.get("total_changes", 0)
+
+            # Exponer detalle del watcher (mismo datos que change_detected.json)
+            health["watcher"] = {
+                "status": "clean" if total == 0 else f"{total} changed",
+                "total_changes": total,
+                "files_changed": changes.get("files_changed", []),
+                "new_changes": new_changes,
+                "cpg_status": changes.get("cpg_status", "up_to_date"),
+                "ckg_status": changes.get("ckg_status", "up_to_date"),
+                "timestamp": changes.get("timestamp", ""),
+            }
 
             if new_changes:
                 # Auto-rebuild incremental: solo archivos que cambiaron

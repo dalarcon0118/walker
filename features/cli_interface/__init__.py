@@ -31,7 +31,7 @@ from libs.router import Router
 from features.cli_interface.application.handlers import (
     handle_list_projects, handle_status, handle_submit,
     handle_transition, handle_task, handle_help, handle_prepare,
-    handle_project_info,
+    handle_project_info, handle_mcp_config,
 )
 from features.cli_interface.infrastructure.output import format_result
 from features.cli_interface.infrastructure.contracts import Request, Response, action
@@ -163,6 +163,11 @@ def _register_system_controller(router: Router) -> None:
         "help",
         lambda p, f, c: handle_help(_as_request(p, f, c)),
         metadata={"description": "GET /help — show help"},
+    )
+    router.get(
+        "mcp-config",
+        lambda p, f, c: handle_mcp_config(_as_request(p, f, c)),
+        metadata={"description": "GET /mcp-config — MCP config portable para cualquier agente IA"},
     )
     # Autodocumentación de endpoints (estilo /docs de FastAPI)
     router.get(

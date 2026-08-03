@@ -30,7 +30,7 @@ def index_sprint(chain_dir: str, cg) -> int:
         Task.bind(cg)
 
     state = SprintStateRepository().load_dict(chain_dir)
-    tasks = state.get("tasks", [])
+    tasks = state.get("tasks", state.get("specifications", []))
     if not tasks:
         return 0
 
@@ -38,13 +38,17 @@ def index_sprint(chain_dir: str, cg) -> int:
     count = 0
 
     for item in tasks:
-        tid = item.get("task_id", "?")
+        tid = item.get("task_id", "") or item.get("spec_id", "?")
         if not tid or tid == "?":
             continue
 
+        # ID unico por sprint: evita colisiones entre sprints con el mismo
+        # task_id/spec_id (ej: todos los sprints tienen SPEC-001).
+        unique_id = f"{sprint_id}:{tid}"
+
         # Crear entidad Task (el save() usa __id_field__ = "task_id")
         task = Task(
-            task_id=tid,
+            task_id=unique_id,
             sprint_id=sprint_id,
             objective=item.get("objective", ""),
             title=item.get("title", ""),

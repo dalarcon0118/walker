@@ -5,9 +5,11 @@ Se invoca desde side_effects de nodos como TASK_SPEC al completar.
 from __future__ import annotations
 from typing import Any
 from features.engine.domain.models import ExecutionContext
+from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 from features.spring.application.use_cases import ValidatePlanUseCase
 
 
+@as_side_effect(scope=SCOPE_TRACKING)
 def validate_plan(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     try:
         result = ValidatePlanUseCase.execute(ctx, params)

@@ -102,14 +102,14 @@ class OrchestrationService:
         self._workflow_repo = workflow_repo or WorkflowRepository()
         self._state_repo = state_repo or WorkflowStateRepository()
         self._script_runner = script_runner or ScriptRunner()
-        self._task_registry = task_registry or InMemoryTaskRegistry()
+        self._tracer = tracer or TraceLogger()
+        self._task_registry = task_registry or InMemoryTaskRegistry(tracer=self._tracer)
         self._contract_validator = contract_validator or ContractValidator
         self._side_effect_engine = side_effect_engine or SideEffectEngine(
             task_registry=self._task_registry,
         )
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
-        self._tracer = tracer or TraceLogger()
 
         # Context Composer (Fase 1: opt-in, backwards compat)
         # Registry armado EXTERNAMENTE por el bootstrap (engine puro:
@@ -213,18 +213,25 @@ class OrchestrationService:
                 ctx.update(getattr(execution_ctx, "baggage", {}) or {})
 
             if context_config:
+                # FIX (prompt rendering): inyectar extra_data (sprint_ctx con
+                # Q&A, task info, etc.) en el baggage del composer para que los
+                # placeholders {q1}, {a1}, {task_title}... se resuelvan con
+                # datos reales. Antes el extra_data solo se usaba en resolve()
+                # (sin context.sources), no en compose().
+                baggage = dict(getattr(execution_ctx, "baggage", {}) or {})
+                if extra_data:
+                    baggage.update(extra_data)
                 composer_ctx = _ComposerContext(
                     chain_dir=chain_dir,
                     task_id=task_id or "",
-                    baggage=getattr(execution_ctx, "baggage", {})
-                    if execution_ctx
-                    else {},
+                    baggage=baggage,
                 )
                 return pm.compose(
                     node_config=context_config,
                     prompt_template=prompt_id,
                     ctx=composer_ctx,
                     chain_dir=chain_dir,
+                    extra_data=extra_data,
                 )
 
             return pm.resolve(prompt_id, context=ctx, extra_data=extra_data)
@@ -410,6 +417,8 @@ class OrchestrationService:
                 submit_uc=self.submit_uc,
                 transition_uc=self.transition_uc,
                 side_effect_engine=self._side_effect_engine,
+                workflow_repo=self._workflow_repo,
+                state_repo=self._state_repo,
             )
         return self.__error_handler
 
@@ -565,6 +574,11 @@ class OrchestrationService:
         Por cada side-effect type=emit_event, busca el evento en
         workflow.json 'on' y ejecuta su handler (run o transition).
 
+        ADEMÁS: consume el CONTRATO ESTÁNDAR de side-effects. Si un side-effect
+        reporta quality_passed=False (signals.recommend='refactorizar_primero'),
+        dispara el evento estándar 'quality_gate_failed' que el workflow puede
+        declarar en on:{} para desviar a REFINE automáticamente.
+
         Returns:
             Numero de eventos despachados.
         """
@@ -574,13 +588,43 @@ class OrchestrationService:
 
         count = 0
         for se in side_effects:
-            if se.get("type") != "emit_event":
+            se_type = se.get("type")
+            se_result = se.get("result", {}) or {}
+            signals = se_result.get("signals", {}) if isinstance(se_result, dict) else {}
+
+            # 1. Eventos explícitos (emit_event). El nombre del evento puede
+            #    estar en signals (envelope estándar) o en result.event (legacy).
+            if se_type == "emit_event":
+                if isinstance(se_result, dict):
+                    event_name = (
+                        signals.get("event")
+                        or se_result.get("event")
+                        or (se_result.get("metadata", {}) or {}).get("event", "")
+                    )
+                else:
+                    event_name = se_result.get("event", "") if isinstance(se_result, dict) else ""
+                if event_name:
+                    dispatch_result = self._dispatch_event(ctx, event_name, result)
+                    if dispatch_result:
+                        count += 1
                 continue
-            event_name = se.get("result", {}).get("event", "")
-            if event_name:
-                dispatch_result = self._dispatch_event(ctx, event_name, result)
-                if dispatch_result:
-                    count += 1
+
+            # 2. Contrato estándar: quality gate falló → evento estándar
+            if isinstance(se_result, dict) and se_result.get("scope") == "code_index":
+                if signals.get("quality_passed") is False:
+                    summary = se_result.get("summary", "quality gates fallaron")
+                    dispatch_result = self._dispatch_event(
+                        ctx, "quality_gate_failed", result,
+                    )
+                    if dispatch_result:
+                        count += 1
+                    # Adjuntar la info de calidad al resultado para el agente
+                    result.setdefault("quality", {})["last_scan"] = {
+                        "summary": summary,
+                        "failed_gates": signals.get("failed_gate_names", []),
+                        "recommend": signals.get("recommend", ""),
+                        "degraded": se_result.get("status") == "degraded",
+                    }
         return count
 
     def _dispatch_event(
