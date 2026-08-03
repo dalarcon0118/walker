@@ -182,14 +182,23 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
                 if f and f not in impacted:
                     impacted.append(f)
 
-        # 2. Archivos cubiertos por specs del spring activo
+        # 2. Archivos cubiertos por specs del spring EN CURSO.
+        #    Usar el spring del chain_dir actual (get_spring_id) con fallback
+        #    al activo global: get_active_spring() es ambiguo cuando hay
+        #    varios springs con status "active".
         spring_svc = SpringGraphService(project_root)
         covered: list[str] = []
         spring = None
         if spring_svc is not None:
-            spring = spring_svc.get_active_spring()
+            spring_id = spring_svc.get_spring_id(chain_dir)
+            spring = spring_svc.get_spring(spring_id) or spring_svc.get_active_spring()
             if spring:
-                spring_id = spring.get("spring_id") or spring.get("_id", "")
+                spring_id = (
+                    spring.get("spring_id")
+                    or spring.get("_id")
+                    or spring.get("sprint_id")
+                    or spring_id
+                )
                 specs = spring_svc.get_specs(spring_id)
                 for spec in specs:
                     for f in spec.get("files") or []:
@@ -207,7 +216,9 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
             impacted_files=impacted,
             covered_files=covered,
             uncaptured_files=uncaptured,
-            spring_id=(spring or {}).get("spring_id", "") if spring else "",
+            spring_id=spring.get("spring_id", "")
+            if spring
+            else (spring_svc.get_spring_id(chain_dir) if spring_svc else ""),
             has_spring=spring is not None,
         )
     except Exception as e:
