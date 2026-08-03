@@ -24,8 +24,8 @@ INVOCACION:
     walker <project>/capture_task '{"objective":"...", "domain":"...",
                                     "files":["..."], "result_state":"..."}'
 """
+
 from __future__ import annotations
-import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -67,6 +67,7 @@ class CaptureTaskInput(TaskInput):
 def _resolve_project_root(project_id: str) -> str:
     """Resuelve el directorio del proyecto (.cognitive/projects/<id>) desde registry."""
     from libs.path_resolver import get_project_dir
+
     try:
         return str(get_project_dir(project_id))
     except Exception:
@@ -100,22 +101,29 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         # Input validado: la lógica de negocio recibe una entidad limpia
         input_result = CaptureTaskInput.from_dict(payload)
         if not input_result.ok:
-            return TaskResult.failure(input_result.error or "objective requerido", data={
-                "error": "Provide 'objective' describing the work done",
-                "next_step": "walker <project>/capture_task '{\"objective\":\"...\"}'",
-            })
+            return TaskResult.failure(
+                input_result.error or "objective requerido",
+                data={
+                    "error": "Provide 'objective' describing the work done",
+                    "next_step": 'walker <project>/capture_task \'{"objective":"..."}\'',
+                },
+            )
         inp: CaptureTaskInput = input_result.data
         objective = inp.objective or inp.label or ""
         if not objective.strip():
-            return TaskResult.failure("Empty objective", data={
-                "error": "Provide 'objective' describing the work done",
-                "next_step": "walker <project>/capture_task '{\"objective\":\"...\"}'",
-            })
+            return TaskResult.failure(
+                "Empty objective",
+                data={
+                    "error": "Provide 'objective' describing the work done",
+                    "next_step": 'walker <project>/capture_task \'{"objective":"..."}\'',
+                },
+            )
 
         # 1. Resolver proyecto
         project_id = data.get("_project_id", "")
         if not project_id:
             from features.project import ProjectService
+
             try:
                 if ctx.chain_dir:
                     paths = ProjectService.resolve_paths(ctx.chain_dir)
@@ -123,17 +131,25 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             except Exception:
                 pass
         if not project_id:
-            return TaskResult.failure("No project context", data={
-                "error": "Cannot resolve project_id",
-                "next_step": "Run from project dir or provide _project_id",
-            })
+            return TaskResult.failure(
+                "No project context",
+                data={
+                    "error": "Cannot resolve project_id",
+                    "next_step": "Run from project dir or provide _project_id",
+                },
+            )
 
         # project_root puede venir directo (override para tests/uso especial)
-        project_root = data.get("_project_root", "") or _resolve_project_root(project_id)
+        project_root = data.get("_project_root", "") or _resolve_project_root(
+            project_id
+        )
         if not project_root or not os.path.isdir(project_root):
-            return TaskResult.failure("Project not found", data={
-                "error": f"Cannot resolve project dir for '{project_id}'",
-            })
+            return TaskResult.failure(
+                "Project not found",
+                data={
+                    "error": f"Cannot resolve project dir for '{project_id}'",
+                },
+            )
         project_root = os.path.realpath(project_root)
 
         # 2. Spring informal del dia (modelo unificado: delta = fuente unica)
@@ -141,7 +157,10 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         sprint_id = f"session-{date_str}"
         sprint_dir = _sprint_dir(project_root, date_str)
 
-        from features.delta_tracking.application.spring_graph_service import SpringGraphService
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
+        )
+
         spring_svc = SpringGraphService(project_root)
 
         # Crear/actualizar el nodo spring en el delta
@@ -181,8 +200,11 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         captured_decisions = []
         decisions = payload.get("decisions", []) or []
         if not decisions and payload.get("decision"):
-            decisions = [payload.get("decision") if isinstance(payload["decision"], dict)
-                         else {"statement": payload["decision"]}]
+            decisions = [
+                payload.get("decision")
+                if isinstance(payload["decision"], dict)
+                else {"statement": payload["decision"]}
+            ]
 
         # Deteccion automatica: archivos de arquitectura → decision implicita
         if not decisions:
@@ -190,20 +212,24 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                 from features.task_execution.side_effects.decision_detector import (
                     detect_decision_from_changes,
                 )
+
                 detected = detect_decision_from_changes(inp.files or [])
                 if detected:
                     # Usar el objective del trabajo como base de la decision
                     # (contexto real, no statement generico).
-                    decisions = [{
-                        "statement": (
-                            f"ADR: {objective} — afecta {det['area']} "
-                            f"({len(det['files'])} archivos de arquitectura)"
-                        ),
-                        "rationale": (
-                            f"Detectado automaticamente desde files de {det['area']}. "
-                            f"Archivos: {', '.join(det['files'][:5])}"
-                        ),
-                    } for det in detected]
+                    decisions = [
+                        {
+                            "statement": (
+                                f"ADR: {objective} — afecta {det['area']} "
+                                f"({len(det['files'])} archivos de arquitectura)"
+                            ),
+                            "rationale": (
+                                f"Detectado automaticamente desde files de {det['area']}. "
+                                f"Archivos: {', '.join(det['files'][:5])}"
+                            ),
+                        }
+                        for det in detected
+                    ]
             except Exception:
                 pass
 
@@ -214,12 +240,16 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             if not statement:
                 continue
             try:
-                from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+                from features.cognitive_knowledge.application.ckg import (
+                    CodeKnowledgeGraph,
+                )
+
                 ckg = CodeKnowledgeGraph(project_root)
                 node = {
                     "type": "decision",
                     "label": f"decision:{statement[:40]}",
-                    "description": dec.get("rationale", "") or dec.get("description", ""),
+                    "description": dec.get("rationale", "")
+                    or dec.get("description", ""),
                     "metadata": {
                         "task_id": result.get("spec_id", ""),
                         "source": f"session:{ctx.session_id}",
@@ -229,36 +259,48 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                 if dec.get("supersedes"):
                     node["supersedes"] = dec["supersedes"]
                 save_r = ckg.save_nodes([node])
-                captured_decisions.append({
-                    "node_id": save_r.get("node_ids", [None])[0],
-                    "statement": statement[:60],
-                    "degraded": save_r.get("degraded", []),
-                })
+                captured_decisions.append(
+                    {
+                        "node_id": save_r.get("node_ids", [None])[0],
+                        "statement": statement[:60],
+                        "degraded": save_r.get("degraded", []),
+                    }
+                )
             except Exception:
                 pass  # captura de decision best-effort; el trabajo ya quedo en delta
 
-        return TaskResult.success(data={
-            "ok": True,
-            "sprint_id": sprint_id,
-            "sprint_dir": sprint_dir,
-            "created_sprint": created,
-            "spec_count": len(spring_svc.get_specs(sprint_id)),
-            "indexed_tasks": 1,
-            "decisions_captured": len(captured_decisions),
-            "decisions": captured_decisions,
-            "next_step": (
-                "Consulta el historico con: walker <project>/kg_search "
-                "'{\"_index\":\"delta\",\"text\":\"<domain>\"}'"
-            ),
-        })
+        return TaskResult.success(
+            data={
+                "ok": True,
+                "sprint_id": sprint_id,
+                "sprint_dir": sprint_dir,
+                "created_sprint": created,
+                "spec_count": len(spring_svc.get_specs(sprint_id)),
+                "indexed_tasks": 1,
+                "decisions_captured": len(captured_decisions),
+                "decisions": captured_decisions,
+                "next_step": (
+                    "Consulta el historico con: walker <project>/kg_search "
+                    '\'{"_index":"delta","text":"<domain>"}\''
+                ),
+            }
+        )
     except Exception as e:
-        return TaskResult.failure(str(e), data={
-            "error": f"capture_task failed: {e}",
-        })
+        return TaskResult.failure(
+            str(e),
+            data={
+                "error": f"capture_task failed: {e}",
+            },
+        )
 
 
 def _sync_legacy_projection(
-    spring_svc, sprint_id: str, sprint_dir: str, project_id: str, session_id: str, created: bool
+    spring_svc,
+    sprint_id: str,
+    sprint_dir: str,
+    project_id: str,
+    session_id: str,
+    created: bool,
 ) -> None:
     """Regenera plan.json + sprint-state.json como PROYECCIONES del delta.
 
@@ -277,8 +319,14 @@ def _sync_legacy_projection(
         legacy_specs = spring_svc._to_legacy_specs(specs)
         from features.spring.domain.services import SprintPlanBuilder
         from features.spring.infrastructure.repositories import SprintStateRepository
+
         state = SprintPlanBuilder.build_initial_state(
-            sprint_dir, sprint_id, spring.get("goal", ""), project_id, session_id or "", legacy_specs,
+            sprint_dir,
+            sprint_id,
+            spring.get("goal", ""),
+            project_id,
+            session_id or "",
+            legacy_specs,
         )
         state["sprint"]["status"] = spring.get("status", "active")
         state["specifications"] = legacy_specs
@@ -298,7 +346,7 @@ def register(registry: Any) -> None:
                 "(session-YYYYMMDD) para que el DeltaGraph la consulte como historico. "
                 "Invocar al completar trabajo implementado."
             ),
-            "usage": "walker <project>/capture_task '{\"objective\":\"...\",\"domain\":\"...\",\"files\":[\"...\"]}'",
+            "usage": 'walker <project>/capture_task \'{"objective":"...","domain":"...","files":["..."]}\'',
             "scope": "public",
             "tags": ["delta", "history", "capture", "session-log"],
         },

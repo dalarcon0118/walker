@@ -4,8 +4,8 @@ Se invoca desde nodos del workflow para tracking cross-module:
   - IMPLEMENT.WORK → pending_update
   - save_to_ckg / collect_knowledge → up_to_date
 """
+
 from __future__ import annotations
-import json
 import os
 from typing import Any
 from features.engine.domain.models import ExecutionContext
@@ -25,7 +25,10 @@ def update_ckg_status(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str
         return {"ok": False, "error": "chain_dir not available"}
 
     try:
-        from features.delta_tracking.application.spring_graph_service import SpringGraphService
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
+        )
+
         spring_svc = SpringGraphService.from_chain_dir(chain_dir)
         if not spring_svc:
             return {"ok": False, "error": "cannot resolve SpringGraphService"}

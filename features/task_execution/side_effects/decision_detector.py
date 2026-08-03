@@ -23,10 +23,10 @@ HEURISTICAS (archivos que indican decision de arquitectura):
   - services.py        → decision de servicios/use-cases
   - engine/*, libs/*, features/*/application/ → decision de arquitectura interna
 """
+
 from __future__ import annotations
 import json
 import os
-from datetime import datetime, timezone
 from typing import Any
 
 from libs.shared_domain import ExecutionContext
@@ -96,15 +96,16 @@ def detect_decision_from_changes(files: list[str]) -> list[dict]:
         )
         rationale = (
             f"Detectado automaticamente desde watcher changes. Archivos: "
-            f"{', '.join(area_files[:5])}"
-            + ("..." if len(area_files) > 5 else "")
+            f"{', '.join(area_files[:5])}" + ("..." if len(area_files) > 5 else "")
         )
-        decisions.append({
-            "area": area,
-            "statement": statement,
-            "rationale": rationale,
-            "files": area_files,
-        })
+        decisions.append(
+            {
+                "area": area,
+                "statement": statement,
+                "rationale": rationale,
+                "files": area_files,
+            }
+        )
     return decisions
 
 
@@ -122,11 +123,13 @@ def detect_decisions(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
     project_root = ""
     try:
         from features.project import ProjectService
+
         if chain_dir:
             paths = ProjectService.resolve_paths(chain_dir)
             project_root = str(paths.project_root)
         elif params.get("project_id"):
             from libs.path_resolver import get_project_dir
+
             project_root = str(get_project_dir(params["project_id"]))
     except Exception:
         pass
@@ -156,6 +159,7 @@ def detect_decisions(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
     captured = []
     try:
         from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+
         ckg = CodeKnowledgeGraph(project_root)
         for dec in decisions:
             node = {
@@ -170,13 +174,20 @@ def detect_decisions(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
                 },
             }
             save_r = ckg.save_nodes([node])
-            captured.append({
-                "node_id": save_r.get("node_ids", [None])[0],
-                "area": dec["area"],
-                "statement": dec["statement"][:60],
-            })
+            captured.append(
+                {
+                    "node_id": save_r.get("node_ids", [None])[0],
+                    "area": dec["area"],
+                    "statement": dec["statement"][:60],
+                }
+            )
     except Exception as e:
-        return {"ok": False, "error": str(e), "detected": len(decisions), "captured": captured}
+        return {
+            "ok": False,
+            "error": str(e),
+            "detected": len(decisions),
+            "captured": captured,
+        }
 
     return {
         "ok": True,

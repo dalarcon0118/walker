@@ -22,11 +22,11 @@ PRINCIPIO: solo SpringGraphService escribe en el indice delta. plan.json
 y sprint-state.json quedan como PROYECCIONES de compatibilidad que este
 mismo servicio regenera (para no romper consumidores legacy).
 """
+
 from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any
 
 
 SPRING_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
@@ -63,6 +63,7 @@ class SpringGraphService:
             return None
         try:
             from features.project import ProjectService
+
             paths = ProjectService.resolve_paths(chain_dir)
             data_dir = getattr(paths, "data_dir", "") or ""
             project_root = os.path.dirname(data_dir) if data_dir else ""
@@ -94,6 +95,7 @@ class SpringGraphService:
     def cg(self):
         if self._cg is None:
             from libs.cognitive_graph import CognitiveGraph
+
             self._cg = CognitiveGraph(self.project_root, auto_register=True)
             self._ensure_index()
         return self._cg
@@ -141,11 +143,13 @@ class SpringGraphService:
         if doc:
             # Update: preservar campos existentes
             data = dict(doc)
-            data.update({
-                "goal": goal if goal else data.get("goal", ""),
-                "status": status,
-                "updated_at": now,
-            })
+            data.update(
+                {
+                    "goal": goal if goal else data.get("goal", ""),
+                    "status": status,
+                    "updated_at": now,
+                }
+            )
         else:
             data = {
                 "type": self.TYPE_SPRING,
@@ -236,9 +240,17 @@ class SpringGraphService:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         # Preservar campos legacy completos si se pasan
-        for k in ("predicates", "risks", "depends_on", "preconditions",
-                  "acceptance_criteria", "quality_gates", "decisions",
-                  "task_description", "validation"):
+        for k in (
+            "predicates",
+            "risks",
+            "depends_on",
+            "preconditions",
+            "acceptance_criteria",
+            "quality_gates",
+            "decisions",
+            "task_description",
+            "validation",
+        ):
             if k in extra and extra[k] is not None:
                 data[k] = extra[k]
         self._store(doc_id, data)
@@ -292,7 +304,9 @@ class SpringGraphService:
             preds = updates["validation"].get("predicates")
             if preds is not None:
                 data["predicates"] = preds
-        if "impacted_artifacts" in updates and isinstance(updates["impacted_artifacts"], dict):
+        if "impacted_artifacts" in updates and isinstance(
+            updates["impacted_artifacts"], dict
+        ):
             files = updates["impacted_artifacts"].get("files")
             if files is not None:
                 data["files"] = files
@@ -314,10 +328,18 @@ class SpringGraphService:
                 # Normalizar a modelo spec
                 l.setdefault("spec_id", l.get("task_id", l.get("_id", "")))
                 all_specs.append(l)
-        specs = [s for s in all_specs if s.get("spring_id") == spring_id or s.get("sprint_id") == spring_id]
+        specs = [
+            s
+            for s in all_specs
+            if s.get("spring_id") == spring_id or s.get("sprint_id") == spring_id
+        ]
         if status:
             specs = [s for s in specs if s.get("status") == status]
-        specs.sort(key=lambda s: (s.get("spec_index") if s.get("spec_index") is not None else 999))
+        specs.sort(
+            key=lambda s: (
+                s.get("spec_index") if s.get("spec_index") is not None else 999
+            )
+        )
         return specs
 
     def get_spec(self, spring_id: str, spec_id: str) -> dict | None:
@@ -404,6 +426,7 @@ class SpringGraphService:
         sigan funcionando sin cambios.
         """
         from features.spring.infrastructure.repositories import PlanRepository
+
         spring = self._get(spring_id) or {}
         specs = self._to_legacy_specs(self.get_specs(spring_id))
         plan = {
@@ -437,7 +460,9 @@ class SpringGraphService:
                 "preconditions": s.get("preconditions", []),
                 "acceptance_criteria": s.get("acceptance_criteria", []),
                 "quality_gates": s.get("quality_gates", []),
-                "risks": s.get("risks", {"curvature": 0.3, "pre_churn": 0.3, "commit_trust": 0.8}),
+                "risks": s.get(
+                    "risks", {"curvature": 0.3, "pre_churn": 0.3, "commit_trust": 0.8}
+                ),
                 "decisions": s.get("decisions", []),
             }
             out.append(legacy)
@@ -461,7 +486,11 @@ class SpringGraphService:
         self.cg.store("delta", doc_id, data)
 
     def _get(self, doc_id: str) -> dict | None:
-        hit = self.cg._indexes.get("delta").get(doc_id) if "delta" in self.cg.list_indexes() else None
+        hit = (
+            self.cg._indexes.get("delta").get(doc_id)
+            if "delta" in self.cg.list_indexes()
+            else None
+        )
         if not hit:
             return None
         src = hit.get("_source", hit) if isinstance(hit, dict) else hit
