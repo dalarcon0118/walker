@@ -63,6 +63,25 @@
             "config": {
               "max_items": 15
             }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 15
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 15
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {}
           }
         ]
       }

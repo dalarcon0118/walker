@@ -34,6 +34,42 @@ class QueryManager:
             result = self._searcher.search(layer, filters)
         except KeyError as e:
             return {"ok": False, "error": str(e), "layer": layer}
+        return self._normalize(layer, result)
+
+    @staticmethod
+    def _normalize(layer: str, result: dict) -> dict:
+        """Traduce el formato ES-like del searcher al contrato de los providers.
+
+        El searcher (CognitiveGraph.search) devuelve:
+          {"took", "index", "hits": {"total", "hits": [{"_id", "_source"}]}, "schema"}
+
+        Los providers de contexto (ckg/cpg/delta) esperan:
+          {"ok": True, "layer", "total", "results": [<source>...]}
+
+        Si el searcher ya devuelve {"ok": False} (error), se propaga tal cual.
+        """
+        if result is None:
+            return {"ok": False, "error": "empty result", "layer": layer}
+        if result.get("ok") is False:
+            result["layer"] = layer
+            return result
+
+        hits = result.get("hits", {})
+        total = hits.get("total", 0) if isinstance(hits, dict) else 0
+        raw_hits = hits.get("hits", []) if isinstance(hits, dict) else []
+        results = []
+        for h in raw_hits:
+            if isinstance(h, dict):
+                src = h.get("_source") or {}
+                if isinstance(src, dict):
+                    results.append(src)
+        return {
+            "ok": True,
+            "layer": layer,
+            "total": total,
+            "results": results,
+            "raw": result,
+        }
 
     def _query_state(self, filters):
         from features.spring.infrastructure.repositories import SprintStateRepository

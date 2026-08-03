@@ -18,7 +18,12 @@ def fmt_tokens(content: str) -> int:
 
 
 def format_ckg_results(result: dict, max_nodes: int = 20) -> str:
-    """Formatea resultados de CKG como texto estructurado."""
+    """Formatea resultados de CKG como texto estructurado.
+
+    Contract: recibe el resultado normalizado de QueryManager.query_layer
+    → {"ok", "layer", "total", "results": [<source>...]}. Cada source es el
+    documento CKG real (type, scope, statement/subject, severity, tags).
+    """
     results = result.get("results", [])
     if not results:
         return "(no matching CKG nodes)"
@@ -26,11 +31,18 @@ def format_ckg_results(result: dict, max_nodes: int = 20) -> str:
     lines = []
     for r in results[:max_nodes]:
         ntype = r.get("type", "?")
-        label = r.get("label", r.get("id", "?"))
-        snippet = r.get("snippet", "")
-        lines.append(f"  [{ntype}] {label}")
-        if snippet:
-            s = snippet[:120] + "..." if len(snippet) > 120 else snippet
+        scope = r.get("scope", "")
+        statement = r.get("statement") or r.get("subject") or r.get("description", "")
+        label = r.get("label") or statement[:70] or r.get("id", "?")
+        severity = r.get("severity", "")
+        head = f"  [{ntype}] {label}"
+        if scope:
+            head += f" (scope: {scope})"
+        if severity:
+            head += f" [{severity}]"
+        lines.append(head)
+        if statement and statement != label:
+            s = statement[:120] + "..." if len(statement) > 120 else statement
             lines.append(f"    {s}")
     if len(results) > max_nodes:
         lines.append(f"  ... (+{len(results) - max_nodes} more)")
@@ -38,19 +50,25 @@ def format_ckg_results(result: dict, max_nodes: int = 20) -> str:
 
 
 def format_cpg_results(result: dict, max_results: int = 30) -> str:
-    """Formatea resultados de CPG como texto estructurado."""
-    data = result if "matches" in result else result.get("data", {})
-    matches = data.get("matches", [])
-    if not matches:
+    """Formatea resultados de CPG como texto estructurado.
+
+    Contract: resultado normalizado → {"ok", "results": [<source>...]}.
+    Cada source: name, type, file, line, signature, kind.
+    """
+    results = result.get("results", [])
+    if not results:
         return "(no matching CPG nodes)"
 
     lines = []
-    for m in matches[:max_results]:
+    for m in results[:max_results]:
         ntype = m.get("type", "?")
         name = m.get("name", "?")
         file_path = m.get("file", "")
         line = m.get("line", 0)
         lines.append(f"  {ntype} {name} ({file_path}:{line})")
+        sig = m.get("signature", "")
+        if sig:
+            lines.append(f"    {sig[:90]}")
         rels = m.get("relations", {})
         for rel_type, targets in rels.items():
             preview = ", ".join(targets[:3])
@@ -58,17 +76,27 @@ def format_cpg_results(result: dict, max_results: int = 30) -> str:
         cyclo = m.get("cyclo")
         if cyclo:
             lines.append(f"    cyclomatic: {cyclo}")
-    if len(matches) > max_results:
-        lines.append(f"  ... (+{len(matches) - max_results} more)")
+    if len(results) > max_results:
+        lines.append(f"  ... (+{len(results) - max_results} more)")
     return "\n".join(lines)
 
 
 def format_trace_results(result: dict, max_events: int = 8) -> str:
-    """Formatea resultados de Trace como texto cronológico."""
-    data = result if "results" in result else result.get("data", {})
-    all_results = []
-    for items in data.get("results", {}).values():
-        all_results.extend(items)
+    """Formatea resultados de Trace como texto cronológico.
+
+    Contract: resultado normalizado → {"ok", "results": [<source>...]}.
+    Compat backward: acepta el formato legacy {"results": {layer: [items]}}.
+    """
+    raw = result.get("results")
+    if raw is None:
+        # Legacy: results era dict de listas por capa
+        raw = result.get("data", {}).get("results", {})
+    if isinstance(raw, dict):
+        all_results = []
+        for items in raw.values():
+            all_results.extend(items)
+    else:
+        all_results = list(raw or [])
     if not all_results:
         return "(no trace events)"
 
@@ -111,11 +139,20 @@ def format_state_result(result: dict) -> str:
 
 
 def format_delta_results(result: dict) -> str:
-    """Formatea resultados de DeltaGraph como texto."""
-    data = result if "results" in result else result.get("data", {})
-    all_results = []
-    for items in data.get("results", {}).values():
-        all_results.extend(items)
+    """Formatea resultados de DeltaGraph como texto.
+
+    Contract: resultado normalizado → {"ok", "results": [<source>...]}.
+    Compat backward: acepta el formato legacy {"results": {layer: [items]}}.
+    """
+    raw = result.get("results")
+    if raw is None:
+        raw = result.get("data", {}).get("results", {})
+    if isinstance(raw, dict):
+        all_results = []
+        for items in raw.values():
+            all_results.extend(items)
+    else:
+        all_results = list(raw or [])
     if not all_results:
         return "(no delta results)"
 
@@ -128,3 +165,4 @@ def format_delta_results(result: dict) -> str:
     if len(all_results) > 15:
         lines.append(f"  ... (+{len(all_results) - 15} more)")
     return "\n".join(lines)
+

@@ -134,8 +134,27 @@
             "config": {
               "max_items": 15
             }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 15
+            }
           }
-        ]
+        ],
+        "focus": {
+          "role": "implementing task {task_id} in sprint \"{sprint_goal}\"",
+          "constraints": [
+            "GATE DE AUTO-CONSULTA: ANTES de tocar cualquier archivo, consulta las convenciones del CKG del scope afectado usando walker <project>/kg_schema y walker <project>/kg_multi con ckg:{type:convention, scope:<dominio de la tarea>}",
+            "No modifiques codigo sin haber consultado primero las convenciones y decisiones del CKG relevantes a la tarea",
+            "Cross-reference with BUSINESS layer for pure functions and patterns to reuse",
+            "Implement the task and complete each file — no half-done work"
+          ],
+          "context_priority": "business → ckg → state"
+        }
       }
     },
     {
