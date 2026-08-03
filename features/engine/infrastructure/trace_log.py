@@ -134,8 +134,13 @@ class TraceLogger:
             task_id=task_id,
         )
 
-    def replay(self, chain_dir: str) -> list[dict]:
-        """Replay de eventos desde CognitiveGraph."""
+    def replay(self, chain_dir: str, max_events: int | None = None) -> list[dict]:
+        """Replay de eventos desde CognitiveGraph.
+
+        Devuelve TODOS los eventos del índice trace (size alto para no
+        truncar con traces grandes — el default del search es 50 y el gate
+        de required_tools necesita ver el trace completo).
+        """
         try:
             from libs.cognitive_graph import CognitiveGraph
             from libs import resolve_project_root
@@ -143,11 +148,77 @@ class TraceLogger:
             proj_dir = resolve_project_root(chain_dir)
             if proj_dir:
                 cg = CognitiveGraph(proj_dir)
-                result = cg.search("trace", {})
+                query = {"_index": "trace"}
+                if max_events:
+                    query["max_results"] = max_events
+                else:
+                    query["max_results"] = 100000
+                result = cg.search("trace", query)
                 return [h["_source"] for h in result["hits"]["hits"]]
         except Exception:
             pass
         return []
+
+    def has_kg_query(
+        self,
+        chain_dir: str,
+        task_id: str = "",
+        session_id: str = "",
+        layers: set[str] | list[str] | None = None,
+    ) -> bool:
+        """¿Existe un kg_query en el trace para las capas requeridas?
+
+        Gate de auto-consulta (convención CKG doc-28): el submit de un
+        sub-estado con required_tools se BLOQUEA si no hay evidencia de
+        consulta a las capas obligatorias.
+
+        Política de conteo (alineada al fix de trazado del QueryManager):
+          - Consultas del composer: trazan con task_id/session_id reales
+            del contexto → matchean por task_id o session_id.
+          - Consultas MCP/CLI del agente: trazan con session_id="cli" o ""
+            (indistinguibles por tarea). Cuentan como evidencia porque son
+            las consultas ACTIVAS del agente a las capas requeridas — el
+            gate exige "hubo consulta real a estas capas", no "fue de la
+            sesión exacta".
+
+        Args:
+            chain_dir: directorio del sprint.
+            task_id: tarea en curso ("" si no se distingue).
+            session_id: sesión en curso ("" si no se distingue).
+            layers: capas obligatorias (p.ej. {"ckg", "cpg"}). Si None,
+                    cualquier kg_query cuenta.
+
+        Returns:
+            True si hay evidencia de consulta, False si no.
+        """
+        try:
+            events = self.replay(chain_dir)
+        except Exception:
+            return False
+        layers = {l for l in (layers or set()) if l}
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("event_type") != "kg_query":
+                continue
+            data = ev.get("data") or {}
+            idx = data.get("index")
+            # "multi" (kg_multi) consulta varias capas a la vez → cubre
+            # cualquier layer requerida. Evita falso bloqueo cuando el
+            # agente usa la herramienta multi-capa recomendada.
+            if layers and idx not in layers and idx != "multi":
+                continue
+            ev_task = str(ev.get("task_id", "") or "")
+            ev_sess = str(ev.get("session_id", "") or "")
+            if task_id and ev_task == task_id:
+                return True
+            if session_id and session_id not in ("", "cli") and ev_sess == session_id:
+                return True
+            # Consultas manuales/MCP (session "cli" o vacía): evidencia de
+            # consulta activa del agente a las capas requeridas.
+            if ev_sess in ("", "cli"):
+                return True
+        return False
 
     def flush(self) -> None:
         self._buffer.clear()

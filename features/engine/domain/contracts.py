@@ -15,11 +15,11 @@ Examples:
   CODE_REVIEW_SCAN.passed == true
   ANALYZE.GATHER.status == 'pending'
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 from .models import WorkflowState
 
@@ -29,10 +29,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ContractExpression:
     """Parsed contract expression."""
-    sub_key: str           # sub_state key (e.g. "REVIEW" or "ANALYZE.GATHER")
-    field: str             # field within sub_state_data
-    expected: str          # expected string value
-    raw: str               # original expression text
+
+    sub_key: str  # sub_state key (e.g. "REVIEW" or "ANALYZE.GATHER")
+    field: str  # field within sub_state_data
+    expected: str  # expected string value
+    raw: str  # original expression text
 
 
 class ContractParser:
@@ -57,7 +58,7 @@ class ContractParser:
             return None  # Free text, not an expression
 
         left = expr[:eq_pos].strip()
-        right = expr[eq_pos + 2:].strip()
+        right = expr[eq_pos + 2 :].strip()
 
         # Parse left side: SUB.field or NODE.SUB.field
         parts = left.split(".")
@@ -71,7 +72,11 @@ class ContractParser:
 
         # Parse right side: strip quotes if present
         expected = right
-        if len(expected) >= 2 and expected[0] == expected[-1] and expected[0] in ("'", '"'):
+        if (
+            len(expected) >= 2
+            and expected[0] == expected[-1]
+            and expected[0] in ("'", '"')
+        ):
             expected = expected[1:-1]
 
         return ContractExpression(
@@ -112,7 +117,9 @@ class ContractEvaluator:
             else:
                 parsed = ContractParser.parse(pre)
                 if parsed is None:
-                    logger.warning("contract.pre '%s' is not a valid expression — skipped", pre)
+                    logger.warning(
+                        "contract.pre '%s' is not a valid expression — skipped", pre
+                    )
                 else:
                     err = ContractEvaluator._check(state, parsed)
                     if err:
@@ -121,7 +128,9 @@ class ContractEvaluator:
         for inv in contract.get("invariants", []):
             parsed = ContractParser.parse(inv)
             if parsed is None:
-                logger.warning("contract.invariant '%s' is not a valid expression — skipped", inv)
+                logger.warning(
+                    "contract.invariant '%s' is not a valid expression — skipped", inv
+                )
             else:
                 err = ContractEvaluator._check(state, parsed)
                 if err:
@@ -139,6 +148,7 @@ class ContractEvaluator:
         persistencia de decisiones.
         """
         import re
+
         m = re.search(r"ckg_has_decision\(\s*['\"]([^'\"]+)['\"]\s*\)", expression)
         if not m:
             return f"expresion '{expression}' invalida. Formato: ckg_has_decision('approve')"
@@ -151,6 +161,7 @@ class ContractEvaluator:
         try:
             from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
             from features.project import ProjectService
+
             paths = ProjectService.resolve_paths(chain_dir)
             ckg = CodeKnowledgeGraph(str(paths.project_root))
             results = ckg.query({"type": "decision"}) if hasattr(ckg, "query") else []
@@ -180,7 +191,9 @@ class ContractEvaluator:
         if post:
             parsed = ContractParser.parse(post)
             if parsed is None:
-                logger.warning("contract.post '%s' is not a valid expression — skipped", post)
+                logger.warning(
+                    "contract.post '%s' is not a valid expression — skipped", post
+                )
             else:
                 err = ContractEvaluator._check(state, parsed)
                 if err:
@@ -199,7 +212,9 @@ class ContractEvaluator:
         for data_key in state.sub_state_data:
             if data_key.endswith(f".{expr.sub_key}"):
                 # Only include if it belongs to current node
-                if not state.current_node or data_key.startswith(f"{state.current_node}."):
+                if not state.current_node or data_key.startswith(
+                    f"{state.current_node}."
+                ):
                     candidates.append(data_key)
 
         # Try each candidate
@@ -208,10 +223,12 @@ class ContractEvaluator:
             ss_data = state.sub_state_data.get(ck)
             if ss_data is None:
                 continue
-            if hasattr(ss_data, 'fields'):
+            if hasattr(ss_data, "fields"):
                 found_value = ss_data.fields.get(expr.field)
             elif isinstance(ss_data, dict):
-                found_value = ss_data.get(expr.field) or ss_data.get("fields", {}).get(expr.field)
+                found_value = ss_data.get(expr.field) or ss_data.get("fields", {}).get(
+                    expr.field
+                )
             if found_value is not None:
                 break
 

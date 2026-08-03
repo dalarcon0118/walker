@@ -93,6 +93,16 @@
       },
       "on_success": "CODE_REVIEW_SCAN",
       "on_failure": "USER_GATE",
+      "required_tools": [
+        {
+          "id": "ckg",
+          "command_hint": "walker_kg_search (layers: ckg) — convenciones y decisiones del scope antes de tocar código"
+        },
+        {
+          "id": "cpg",
+          "command_hint": "walker_analyze_code / walker_cpg_business — estructura y business layer del código a modificar"
+        }
+      ],
       "side_effects": [
         {
           "type": "update_cpg",
@@ -182,6 +192,16 @@
       },
       "on_success": "CODE_REVIEW_RESULT",
       "on_failure": "WORK",
+      "required_tools": [
+        {
+          "id": "ckg",
+          "command_hint": "walker_kg_search (layers: ckg) — convenciones de calidad para validar el código"
+        },
+        {
+          "id": "cpg",
+          "command_hint": "walker_analyze_code — estructura del código implementado para detectar violaciones"
+        }
+      ],
       "side_effects": [
         {
           "type": "update_cpg",
@@ -416,6 +436,16 @@
       },
       "on_success": "REPORT_GATE",
       "on_failure": "WORK",
+      "required_tools": [
+        {
+          "id": "ckg",
+          "command_hint": "walker_kg_search (layers: ckg) — revisar conocimiento existente para no duplicar"
+        },
+        {
+          "id": "cpg",
+          "command_hint": "walker_analyze_code / walker_cpg_business — evidencia del código implementado"
+        }
+      ],
       "side_effects": [],
       "retry": {
         "max_attempts": 2,

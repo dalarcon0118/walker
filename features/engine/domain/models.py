@@ -4,6 +4,7 @@ domain/models.py — SSOT del dominio Workflow Navigation.
 Modelos puros (dataclasses) sin IO ni dependencias externas.
 Toda la lógica de negocio del workflow engine se deriva de estos tipos.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
@@ -14,10 +15,11 @@ from typing import Any
 
 # ── Enums (SSOT de tipos) ──────────────────────────────────────────────────
 
+
 class ExecutionType(str, Enum):
     """
     Tipo de ejecucion de un sub-estado (v3).
-    
+
     5 tipos determinan QUIEN ejecuta el paso:
     - bootstrap:  Engine inits session (TaskRegistry action)
     - auto:       TaskRegistry runs action (scripted)
@@ -25,6 +27,7 @@ class ExecutionType(str, Enum):
     - user_input: User chooses option (submit with options)
     - manual:     Agent does external work (no automation)
     """
+
     BOOTSTRAP = "bootstrap"
     AUTO = "auto"
     LLM_TASK = "llm_task"
@@ -38,6 +41,7 @@ SubStateMode = ExecutionType
 
 class NodeType(str, Enum):
     """Tipo de nodo en el grafo de workflow."""
+
     START = "start"
     SPRINT = "sprint"
     ANALYZE = "analyze"
@@ -49,11 +53,13 @@ class NodeType(str, Enum):
 
 class GateType(str, Enum):
     """Tipo de gate: inter-nodo (transicion) o intra-nodo (sub-state)."""
+
     INTER_NODE = "inter_node"
     INTRA_NODE = "intra_node"
 
 
 # ── Value Objects (v3) ─────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class RetryPolicy:
@@ -67,6 +73,7 @@ class RetryPolicy:
             Ej: {"validation": "block+message", "execution": "retry"}
             Si no hay entrada para un tipo, se usa DEFAULT_STRATEGIES.
     """
+
     max_attempts: int = 3
     backoff: str = "exponential"  # fixed | linear | exponential | jitter
     initial_delay_ms: int = 1000
@@ -91,6 +98,7 @@ class SideEffectDef:
         idempotency_key: Key unica para evitar doble ejecucion.
             Si se re-ejecuta con misma key, retorna resultado previo.
     """
+
     type: str  # update_cpg | save_ckg | update_delta_graph | emit_event | persist_snapshot | run_script
     params: dict[str, object] = field(default_factory=dict)
     optional: bool = False
@@ -101,6 +109,7 @@ class SideEffectDef:
 @dataclass(frozen=True)
 class SelectOption:
     """Opcion seleccionable para sub-estados user_input."""
+
     value: str
     label: str = ""
     description: str = ""
@@ -110,6 +119,7 @@ class SelectOption:
 @dataclass(frozen=True)
 class SubStateKey:
     """Identificador de un sub-estato dentro de un nodo. Inmutable."""
+
     node_id: str
     sub_key: str
 
@@ -120,9 +130,9 @@ class SubStateKey:
 @dataclass(frozen=True)
 class Gate:
     """Puerta de transicion entre nodos o sub-estados.
-    
+
     Una gate es el unico mecanismo para cambiar de estado en el workflow.
-    
+
     Attributes:
         contract: Condiciones pre/post que se validan al cruzar la gate.
             pre: expresion que debe cumplirse ANTES de la transicion
@@ -131,6 +141,7 @@ class Gate:
                   Ej: "ANALYZE.GATHER.status == 'pending'"
             invariants: condiciones que deben mantenerse durante la transicion
     """
+
     name: str
     source_node: str
     target_node: str
@@ -149,13 +160,15 @@ class Gate:
 
 # ── Entity: SubState (v3) ──────────────────────────────────────────────────
 
+
 @dataclass
 class SubState:
     """Paso dentro de un nodo del workflow (v3).
-    
+
     execution es el SSOT de quien ejecuta el paso.
     mode es una property de compatibilidad que delega en execution.
     """
+
     key: str
     label: str = ""
     execution: ExecutionType = ExecutionType.MANUAL
@@ -165,8 +178,8 @@ class SubState:
     input_schema: dict = field(default_factory=dict)
     output_schema: dict = field(default_factory=dict)
     side_effects: list[SideEffectDef] = field(default_factory=list)
-    on_success: str = ""   # next sub-state key on success
-    on_failure: str = ""   # next sub-state key on failure
+    on_success: str = ""  # next sub-state key on success
+    on_failure: str = ""  # next sub-state key on failure
     retry: RetryPolicy | None = None
     timeout_ms: int = 120000
 
@@ -188,8 +201,25 @@ class SubState:
     prompt: str = ""  # Prompt for llm_task execution
     options: list[SelectOption] = field(default_factory=list)
     on_entry_message: str = ""
-    prompt_id: str = ""  # Reference to prompts/{prompt_id}.prompt.md (replaces on_entry_message)
-    context: dict | None = None  # Context Composer config: {sources: [...], focus: {...}}
+    prompt_id: str = (
+        ""  # Reference to prompts/{prompt_id}.prompt.md (replaces on_entry_message)
+    )
+    context: dict | None = (
+        None  # Context Composer config: {sources: [...], focus: {...}}
+    )
+    required_tools: list[dict] = field(default_factory=list)
+    """Tools que el agente DEBE invocar antes de completar el sub-estado.
+
+    Declaración del gate de auto-consulta (schema workflow.v3):
+        [{"id": "ckg", "command_hint": "walker <project>/kg_search '{\"type\":\"convention\"}'"}]
+
+    Uso (engine):
+      - StepOrchestrator renderiza una sección "TOOLS REQUERIDAS" en el
+        mensaje al LLM para que las invoque antes de responder.
+      - SubmitOrchestrator verifica en el TraceGraph que exista un evento
+        kg_query reciente (task/session) para el sub-estado antes de
+        aceptar el submit; si no, BLOQUEA (convención CKG doc-28).
+    """
 
     def __post_init__(self) -> None:
         """Normalize string to enum if needed."""
@@ -203,18 +233,23 @@ class SubState:
 
     @mode.setter
     def mode(self, value: SubStateMode) -> None:
-        self.execution = value if isinstance(value, ExecutionType) else ExecutionType(value)
+        self.execution = (
+            value if isinstance(value, ExecutionType) else ExecutionType(value)
+        )
 
     def is_auto(self) -> bool:
         return self.execution in (ExecutionType.AUTO, ExecutionType.BOOTSTRAP)
 
     def needs_input(self) -> bool:
-        return self.execution in (
-            ExecutionType.LLM_TASK, ExecutionType.USER_INPUT, ExecutionType.MANUAL
-        ) and len(self.required_fields) > 0
+        return (
+            self.execution
+            in (ExecutionType.LLM_TASK, ExecutionType.USER_INPUT, ExecutionType.MANUAL)
+            and len(self.required_fields) > 0
+        )
 
 
 # ── Entity: WorkflowNode ───────────────────────────────────────────────────
+
 
 @dataclass
 class WorkflowNode:
@@ -223,6 +258,7 @@ class WorkflowNode:
     SRP: Unica responsabilidad = el pipeline de sub-estados y su config.
     NO tiene gates/edges — esas pertenecen al WorkflowGraph.
     """
+
     node_id: str
     sub_states: list[SubState] = field(default_factory=list)
     label: str = ""
@@ -255,6 +291,7 @@ class WorkflowNode:
 
 # ── Entity: WorkflowGraph ──────────────────────────────────────────────────
 
+
 @dataclass
 class WorkflowGraph:
     """Grafo completo de workflow. SSOT para edges y definicion de nodos.
@@ -265,6 +302,7 @@ class WorkflowGraph:
 
     Los nodos NO tienen gates — las edges son propiedad exclusiva del grafo.
     """
+
     nodes: dict[str, WorkflowNode] = field(default_factory=dict)
     edges: list[Gate] = field(default_factory=list)
     edges_by_source: dict[str, list[Gate]] = field(default_factory=dict)
@@ -318,26 +356,30 @@ class WorkflowGraph:
             target_sub = gate.target_sub_state or (
                 target_node.first_sub_state.key if target_node.first_sub_state else ""
             )
-            steps.append({
-                "action": "transition",
-                "gate": gate.name,
-                "from": f"{gate.source_node}",
-                "to": f"{target}.{target_sub}",
-                "description": gate.description or f"Transition via {gate.name}",
-            })
+            steps.append(
+                {
+                    "action": "transition",
+                    "gate": gate.name,
+                    "from": f"{gate.source_node}",
+                    "to": f"{target}.{target_sub}",
+                    "description": gate.description or f"Transition via {gate.name}",
+                }
+            )
 
             # Walk sub-states of target node
             for ss in target_node.sub_states:
                 exec_type = ss.execution.value if ss.execution else "manual"
                 required = list(ss.required_fields)
-                steps.append({
-                    "action": "process",
-                    "node": target,
-                    "sub_state": ss.key,
-                    "execution": exec_type,
-                    "label": ss.label or ss.key,
-                    "required_fields": required,
-                })
+                steps.append(
+                    {
+                        "action": "process",
+                        "node": target,
+                        "sub_state": ss.key,
+                        "execution": exec_type,
+                        "label": ss.label or ss.key,
+                        "required_fields": required,
+                    }
+                )
 
             # Follow outgoing gates from target node
             for next_gate in graph.edges_by_source.get(target, []):
@@ -358,14 +400,16 @@ class WorkflowGraph:
         init_steps: list[dict] = []
         for ss in start_node.sub_states:
             exec_type = ss.execution.value if ss.execution else "manual"
-            init_steps.append({
-                "action": "process",
-                "node": self.initial_state,
-                "sub_state": ss.key,
-                "execution": exec_type,
-                "label": ss.label or ss.key,
-                "required_fields": list(ss.required_fields),
-            })
+            init_steps.append(
+                {
+                    "action": "process",
+                    "node": self.initial_state,
+                    "sub_state": ss.key,
+                    "execution": exec_type,
+                    "label": ss.label or ss.key,
+                    "required_fields": list(ss.required_fields),
+                }
+            )
 
         # Follow each outgoing gate from initial node as a separate flow
         for gate in self.edges_by_source.get(self.initial_state, []):
@@ -387,30 +431,38 @@ class WorkflowGraph:
                 elif s["action"] == "transition":
                     labels.append(f"[{s['gate']}]")
 
-            flows.append({
-                "name": " → ".join(labels),
-                "steps": flow_steps,
-                "node_count": len(set(s.get("node", "") for s in flow_steps if s.get("node"))),
-            })
+            flows.append(
+                {
+                    "name": " → ".join(labels),
+                    "steps": flow_steps,
+                    "node_count": len(
+                        set(s.get("node", "") for s in flow_steps if s.get("node"))
+                    ),
+                }
+            )
 
         # Handle case where initial node has no gates (isolated node)
         if not self.edges_by_source.get(self.initial_state) and init_steps:
-            flows.append({
-                "name": " → ".join(
-                    f"{self.initial_state}.{s['sub_state']}" for s in init_steps
-                ),
-                "steps": init_steps,
-                "node_count": 1,
-            })
+            flows.append(
+                {
+                    "name": " → ".join(
+                        f"{self.initial_state}.{s['sub_state']}" for s in init_steps
+                    ),
+                    "steps": init_steps,
+                    "node_count": 1,
+                }
+            )
 
         return flows
 
 
 # ── Value Object: SubStateData ─────────────────────────────────────────────
 
+
 @dataclass
 class SubStateData:
     """Datos capturados en un sub-estado particular."""
+
     fields: dict[str, Any] = field(default_factory=dict)
     completed_at: str | None = None
 
@@ -424,6 +476,7 @@ class SubStateData:
 
 # ── Entity: WorkflowState (inmutable, ELM pattern) ───────────────────────
 
+
 @dataclass(frozen=True)
 class WorkflowState:
     """Estado actual del workflow. INMUTABLE (ELM pattern).
@@ -435,6 +488,7 @@ class WorkflowState:
     PURA: No contiene datos de negocio (sprint, tasks, project, etc.).
     Esos viven en SprintState (features/spring/) que hereda de esta clase.
     """
+
     current_node: str = ""
     current_sub_state: str = ""
     sub_state_index: int = 0
@@ -491,21 +545,23 @@ class WorkflowState:
         """
         now = _now()
         new_execs = list(self.node_executions)
-        new_execs.append(NodeExecution(
-            node=node or self.current_node,
-            sub_state=sub_state or self.current_sub_state,
-            execution_type=execution_type,
-            action=action,
-            submitted_fields=submitted_fields or {},
-            task_ok=task_ok,
-            task_result=task_result,
-            side_effects=side_effects or [],
-            error=error,
-            error_type=error_type,
-            gate=gate,
-            completed_at=now,
-            duration_ms=duration_ms,
-        ))
+        new_execs.append(
+            NodeExecution(
+                node=node or self.current_node,
+                sub_state=sub_state or self.current_sub_state,
+                execution_type=execution_type,
+                action=action,
+                submitted_fields=submitted_fields or {},
+                task_ok=task_ok,
+                task_result=task_result,
+                side_effects=side_effects or [],
+                error=error,
+                error_type=error_type,
+                gate=gate,
+                completed_at=now,
+                duration_ms=duration_ms,
+            )
+        )
         return replace(self, node_executions=new_execs, updated_at=now)
 
     def add_history(self, entry: str) -> WorkflowState:
@@ -559,10 +615,15 @@ class WorkflowState:
         ne_list = []
         for ne_dict in data.get("node_executions", []):
             if isinstance(ne_dict, dict):
-                ne_list.append(NodeExecution(**{
-                    k: v for k, v in ne_dict.items()
-                    if k in NodeExecution.__dataclass_fields__
-                }))
+                ne_list.append(
+                    NodeExecution(
+                        **{
+                            k: v
+                            for k, v in ne_dict.items()
+                            if k in NodeExecution.__dataclass_fields__
+                        }
+                    )
+                )
         return cls(
             version=data.get("version", "5.0"),
             current_node=data.get("current_node", ""),
@@ -580,11 +641,11 @@ class WorkflowState:
 # SSOT: libs/shared_domain/models.py
 # Se re-exportan aqui para compatibilidad hacia atras.
 # Las nuevas importaciones deben ir a libs.shared_domain.
-
-from libs.shared_domain import TaskResult, ExecutionContext
+from libs.shared_domain import ExecutionContext, TaskResult
 
 
 # ── NodeExecution (ELM/Saga Log) ────────────────────────────────────────────
+
 
 @dataclass
 class NodeExecution:
@@ -609,6 +670,7 @@ class NodeExecution:
         completed_at: Timestamp ISO de finalizacion
         duration_ms: Duracion en milisegundos
     """
+
     node: str = ""
     sub_state: str = ""
     execution_type: str = ""
@@ -626,12 +688,14 @@ class NodeExecution:
 
 # ── Domain Event ───────────────────────────────────────────────────────────
 
+
 @dataclass
 class DomainEvent:
     """Evento de dominio en el contexto Workflow Navigation.
-    
+
     SSOT para todos los eventos que puede emitir el engine.
     """
+
     event_type: str
     timestamp: str = field(default_factory=lambda: _now())
     data: dict[str, Any] = field(default_factory=dict)
@@ -639,8 +703,10 @@ class DomainEvent:
 
 # ── Event Types (SSOT) ─────────────────────────────────────────────────────
 
+
 class DomainEventType:
     """Catalogo de eventos de dominio. SSOT."""
+
     STATE_TRANSITIONED = "state_transitioned"
     DATA_SUBMITTED = "data_submitted"
     GATE_VALIDATED = "gate_validated"
@@ -651,6 +717,7 @@ class DomainEventType:
 
 
 # ── Helper ─────────────────────────────────────────────────────────────────
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()

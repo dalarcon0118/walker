@@ -11,12 +11,21 @@ SUPPORTED_LAYERS = {"cpg", "ckg", "delta", "trace", "state"}
 
 
 class QueryManager:
-    """Capa unificada de consulta. Delega en CognitiveGraphSearcher."""
+    """Capa unificada de consulta. Delega en CognitiveGraphSearcher.
 
-    def __init__(self, chain_dir: str):
+    Cada query_layer() registra un evento kg_query en el TraceGraph
+    (best-effort). Esto hace VISIBLES las consultas de contexto que el
+    composer ejecuta para inyectar capas (cpg/ckg/delta/trace) — antes
+    eran invisibles en el trace porque solo las tareas CLI kg_search/
+    kg_multi registraban eventos.
+    """
+
+    def __init__(self, chain_dir: str, task_id: str | None = None, session_id: str | None = None):
         paths = ProjectService.resolve_paths(chain_dir)
         self._searcher = CognitiveGraphSearcher(paths.project_root) if paths.project_root else None
         self._chain_dir = chain_dir
+        self._task_id = task_id or ""
+        self._session_id = session_id or ""
 
     def query(self, layers):
         if not self._searcher:
@@ -24,6 +33,8 @@ class QueryManager:
         return self._searcher.search_many(layers)
 
     def query_layer(self, layer, filters):
+        # Trazar la consulta ANTES de ejecutarla (visibilidad en TraceGraph).
+        self._trace_query(layer, filters)
         if not self._searcher:
             return {"ok": False, "error": "project_root not resolved"}
         if layer not in SUPPORTED_LAYERS:
@@ -35,6 +46,35 @@ class QueryManager:
         except KeyError as e:
             return {"ok": False, "error": str(e), "layer": layer}
         return self._normalize(layer, result)
+
+    def _trace_query(self, layer: str, filters: dict) -> None:
+        """Registra un evento kg_query en el TraceGraph (best-effort).
+
+        La traza asocia la consulta al task_id/session_id del contexto en
+        curso (no a "cli" como las queries manuales), permitiendo distinguir
+        qué consultas ejecutó el agente/workflow para obtener contexto.
+        """
+        try:
+            from features.engine.infrastructure.trace_log import TraceLogger
+            safe = {}
+            for k, v in (filters or {}).items():
+                if isinstance(v, str) and len(v) > 200:
+                    safe[k] = v[:200] + "..."
+                else:
+                    safe[k] = v
+            TraceLogger().trace(
+                self._chain_dir,
+                "kg_query",
+                data={
+                    "index": layer,
+                    "query": safe,
+                    "project_id": "",
+                },
+                task_id=self._task_id,
+                session_id=self._session_id or "composer",
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def _normalize(layer: str, result: dict) -> dict:

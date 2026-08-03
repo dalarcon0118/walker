@@ -12,6 +12,7 @@ Pipeline:
 Extraido de OrchestrationService (god class). El OrchestrationService
 queda como fachada y delega aqui.
 """
+
 from __future__ import annotations
 
 import time
@@ -41,13 +42,65 @@ class SubmitOrchestrator:
         self._transition = transition
         self._dispatch_events_from_side_effects = dispatch_events_from_side_effects
 
+    def _check_required_tools_gate(self, ctx: Any, sub_state: Any) -> dict:
+        """Verifica el gate de auto-consulta (required_tools) antes del submit.
+
+        Un sub-estado con required_tools declara capas que el agente DEBE
+        consultar antes de completar el paso (convención CKG doc-28:
+        "si el contrato falla, bloquea e informa; el agente reintenta").
+
+        La evidencia se lee del TraceGraph via TraceLogger.has_kg_query()
+        (sin IO directo en el engine — convención CKG doc-25): si existe un
+        evento kg_query para las capas requeridas asociado a la task/session
+        actual, el gate pasa. Si no, se bloquea con un mensaje que indica
+        qué herramientas invocar y cómo.
+
+        Returns:
+            {"ok": True} si cumple, o un dict de bloqueo con
+            action="gate_blocked", message y error_type.
+        """
+        required = [t for t in (sub_state.required_tools or []) if isinstance(t, dict)]
+        layers = {t.get("id", "") for t in required if t.get("id")}
+        if not layers:
+            return {"ok": True}
+
+        try:
+            satisfied = self._tracer.has_kg_query(
+                ctx.chain_dir,
+                task_id=ctx.task_id or "",
+                session_id=ctx.session_id or "",
+                layers=layers,
+            )
+        except Exception as e:
+            # Fail-open en errores del tracer (no bloquear por infra)
+            return {"ok": True, "warn": f"trace check failed: {e}"}
+
+        if satisfied:
+            return {"ok": True, "layers_checked": sorted(layers)}
+
+        hints = "; ".join(
+            f"{t.get('id', '?')}: {t.get('command_hint', '')}" for t in required
+        )
+        return {
+            "ok": False,
+            "action": "gate_blocked",
+            "blocked": True,
+            "error_type": "required_tools_gate",
+            "strategy": "block",
+            "message": (
+                "GATE DE AUTO-CONSULTA: este paso requiere consultar las "
+                f"siguientes herramientas antes de submit — {hints}. "
+                "El trace no registra kg_query para esta tarea/sesión. "
+                "Invoca la herramienta y vuelve a submit."
+            ),
+        }
+
     def submit(
         self,
         ctx: ExecutionContext,
         fields: dict[str, Any] | None = None,
     ) -> dict:
         """Ejecuta el pipeline completo de submit."""
-        import time
         _start_ts = time.time()
 
         # ── Capturar sub-estado ORIGEN antes de ejecutar (puede auto-avanzar) ─
@@ -56,12 +109,48 @@ class SubmitOrchestrator:
         _orig_sub = _before_state.current_sub_state
         _orig_workflow = self._workflow_repo.load(ctx.chain_dir)
         _orig_node_def = _orig_workflow.get_node(_orig_node)
-        _orig_sub_def = _orig_node_def.find_sub_state(_orig_sub) if _orig_node_def else None
+        _orig_sub_def = (
+            _orig_node_def.find_sub_state(_orig_sub) if _orig_node_def else None
+        )
         _orig_exec_type = _orig_sub_def.execution.value if _orig_sub_def else "manual"
         _orig_action = _orig_sub_def.action if _orig_sub_def else ""
 
+        # ── GATE: required_tools (auto-consulta obligatoria) ──────────────
+        # Convención CKG doc-28: si el sub-estado declara herramientas
+        # obligatorias (ckg/cpg/delta...), el submit se BLOQUEA si el trace
+        # no tiene evidencia de kg_query para esas capas en esta tarea.
+        if _orig_sub_def and _orig_sub_def.required_tools:
+            gate_check = self._check_required_tools_gate(ctx, _orig_sub_def)
+            if not gate_check.get("ok", False):
+                # Trazar el bloqueo para visibilidad en el TraceGraph
+                try:
+                    self._tracer.trace(
+                        ctx.chain_dir,
+                        "GATE_BLOCKED",
+                        data={
+                            "reason": "required_tools",
+                            "sub_state": _orig_sub,
+                            "required": [
+                                t.get("id", "") for t in _orig_sub_def.required_tools
+                            ],
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
+                except Exception:
+                    pass
+                gate_check.update(
+                    {
+                        "execution_type": _orig_exec_type,
+                        "sub_state": _orig_sub,
+                        "required_tools": _orig_sub_def.required_tools,
+                    }
+                )
+                return gate_check
+
         # ── Ejecutar submit (TASK-009: try/except con estrategia de error) ──
         from ..domain.errors import WorkflowEngineError
+
         try:
             result = self._submit_uc.execute(ctx, fields=fields or {})
         except WorkflowEngineError as e:
@@ -69,8 +158,12 @@ class SubmitOrchestrator:
             result = self._handle_error(ctx, e, None, fields=fields or {})
             # Persistir contexto de error (ELM: state inmutable)
             state = self._state_repo.load(ctx.chain_dir)
-            state = state.with_context("last_error", result.get("error_type", "unknown"))
-            state = state.with_context("last_error_strategy", result.get("strategy", "none"))
+            state = state.with_context(
+                "last_error", result.get("error_type", "unknown")
+            )
+            state = state.with_context(
+                "last_error_strategy", result.get("strategy", "none")
+            )
             state = state.record_node_execution(
                 node=_orig_node,
                 sub_state=_orig_sub,
@@ -103,7 +196,7 @@ class SubmitOrchestrator:
                 trans_result = self._transition(ctx, result["_gate"])
                 result["advanced_to"] = trans_result.get("to_sub_state", "")
                 result["xor_next"] = (
-                    f"{trans_result.get('to_node','')}.{trans_result.get('to_sub_state','')}"
+                    f"{trans_result.get('to_node', '')}.{trans_result.get('to_sub_state', '')}"
                 )
                 result["xor_done"] = True
                 # La transicion persiste el nuevo estado; recargar para
