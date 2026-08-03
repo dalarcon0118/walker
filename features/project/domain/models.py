@@ -10,11 +10,11 @@ Principios:
   - Entities: con identidad (project_id), mutables solo via repository
   - ProjectPaths: computed eagerly en construccion, nunca hace IO
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -30,6 +30,7 @@ class ProjectId:
     El project_id es el nombre del directorio del proyecto
     dentro de .cognitive/projects/<project_id>/.
     """
+
     value: str
 
     def __str__(self) -> str:
@@ -39,6 +40,7 @@ class ProjectId:
     def from_chain_dir(cls, chain_dir: str) -> ProjectId:
         """Deriva project_id desde chain_dir via path_resolver."""
         from libs.path_resolver import resolve_project_id
+
         return cls(resolve_project_id(chain_dir))
 
 
@@ -50,6 +52,7 @@ class SprintId:
     El sprint_id es el nombre del directorio del sprint
     dentro de .cognitive/projects/<pid>/<sprint_dir>/<sprint_id>/.
     """
+
     value: str
 
     def __str__(self) -> str:
@@ -87,6 +90,7 @@ class ProjectPaths:
         cognitive_dir: Ruta a .cognitive/ del proyecto activo.
         walker_root: Ruta raiz del walker.
     """
+
     chain_dir: str
     project_root: str
     project_id: str
@@ -177,6 +181,7 @@ class Project:
         paths: Rutas resueltas del proyecto (VO inmutable).
         active_sprint_id: Sprint activo actual (o vacio si none).
     """
+
     project_id: ProjectId
     name: str = ""
     language: str = ""

@@ -4,27 +4,37 @@ application/use_cases.py — Project domain use cases.
 SRP: Each use case orchestrates domain logic + infrastructure.
      Tasks delegate here instead of containing inline logic.
 """
+
 from __future__ import annotations
 
-import gzip
 import json
 import os
 from datetime import datetime, timezone
 from typing import Any
 
-from libs.shared_domain import TaskResult
-
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
-IGNORE_DIRS = frozenset({
-    "node_modules", "__pycache__", ".git", ".expo", ".venv", "venv",
-    "dist", "build", ".next", "coverage", ".cognitive",
-})
+IGNORE_DIRS = frozenset(
+    {
+        "node_modules",
+        "__pycache__",
+        ".git",
+        ".expo",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".next",
+        "coverage",
+        ".cognitive",
+    }
+)
 CODE_EXTENSIONS = (".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".go", ".java")
 
 
 # ── ProjectDetector ────────────────────────────────────────────────────────
+
 
 class ProjectDetector:
     """Detect project properties by scanning the filesystem.
@@ -38,14 +48,22 @@ class ProjectDetector:
         """Detect primary language from file extensions."""
         scores: dict[str, int] = {}
         for root, dirs, files in os.walk(project_path):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in IGNORE_DIRS]
+            dirs[:] = [
+                d for d in dirs if not d.startswith(".") and d not in IGNORE_DIRS
+            ]
             for f in files:
-                if f.endswith(".py"): scores["python"] = scores.get("python", 0) + 1
-                elif f.endswith((".ts", ".tsx")): scores["typescript"] = scores.get("typescript", 0) + 1
-                elif f.endswith((".js", ".jsx")): scores["javascript"] = scores.get("javascript", 0) + 1
-                elif f.endswith(".rs"): scores["rust"] = scores.get("rust", 0) + 1
-                elif f.endswith(".go"): scores["go"] = scores.get("go", 0) + 1
-                elif f.endswith(".java"): scores["java"] = scores.get("java", 0) + 1
+                if f.endswith(".py"):
+                    scores["python"] = scores.get("python", 0) + 1
+                elif f.endswith((".ts", ".tsx")):
+                    scores["typescript"] = scores.get("typescript", 0) + 1
+                elif f.endswith((".js", ".jsx")):
+                    scores["javascript"] = scores.get("javascript", 0) + 1
+                elif f.endswith(".rs"):
+                    scores["rust"] = scores.get("rust", 0) + 1
+                elif f.endswith(".go"):
+                    scores["go"] = scores.get("go", 0) + 1
+                elif f.endswith(".java"):
+                    scores["java"] = scores.get("java", 0) + 1
         return max(scores, key=scores.get) if scores else "unknown"
 
     @staticmethod
@@ -57,16 +75,24 @@ class ProjectDetector:
                 with open(pkg_json) as f:
                     pkg = json.load(f)
                 deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
-                if "react-native" in deps: return "react-native"
-                if "next" in deps: return "next.js"
-                if "react" in deps: return "react"
-                if "vue" in deps: return "vue"
-                if "@angular/core" in deps: return "angular"
+                if "react-native" in deps:
+                    return "react-native"
+                if "next" in deps:
+                    return "next.js"
+                if "react" in deps:
+                    return "react"
+                if "vue" in deps:
+                    return "vue"
+                if "@angular/core" in deps:
+                    return "angular"
             except Exception:
                 pass
-        if os.path.exists(os.path.join(project_path, "Cargo.toml")): return "rust/cargo"
-        if os.path.exists(os.path.join(project_path, "go.mod")): return "go"
-        if os.path.exists(os.path.join(project_path, "Gemfile")): return "ruby/rails"
+        if os.path.exists(os.path.join(project_path, "Cargo.toml")):
+            return "rust/cargo"
+        if os.path.exists(os.path.join(project_path, "go.mod")):
+            return "go"
+        if os.path.exists(os.path.join(project_path, "Gemfile")):
+            return "ruby/rails"
         return "unknown"
 
     @staticmethod
@@ -75,11 +101,17 @@ class ProjectDetector:
         code_dirs: list[str] = []
         for entry in sorted(os.listdir(project_path)):
             entry_path = os.path.join(project_path, entry)
-            if entry.startswith(".") or entry in IGNORE_DIRS or not os.path.isdir(entry_path):
+            if (
+                entry.startswith(".")
+                or entry in IGNORE_DIRS
+                or not os.path.isdir(entry_path)
+            ):
                 continue
             has_code = False
             for root, dirs, files in os.walk(entry_path):
-                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in IGNORE_DIRS]
+                dirs[:] = [
+                    d for d in dirs if not d.startswith(".") and d not in IGNORE_DIRS
+                ]
                 for f in files:
                     if f.endswith(CODE_EXTENSIONS):
                         has_code = True
@@ -101,6 +133,7 @@ class ProjectDetector:
 
 
 # ── HealthReportAnalyzer ───────────────────────────────────────────────────
+
 
 class HealthReportAnalyzer:
     """Analyze health report and generate prioritized next steps.
@@ -142,8 +175,12 @@ class HealthReportAnalyzer:
         return f"walker {project_id}/{task_name}"
 
     @staticmethod
-    def analyze(health: dict, project_id: str, chain_dir: str,
-                task_catalog: list[dict] | None = None) -> list[dict]:
+    def analyze(
+        health: dict,
+        project_id: str,
+        chain_dir: str,
+        task_catalog: list[dict] | None = None,
+    ) -> list[dict]:
         """Return prioritized next steps based on health data.
 
         Lower priority number = higher urgency.
@@ -155,12 +192,14 @@ class HealthReportAnalyzer:
 
         # Priority 0: Project not initialized (missing project.json) → prepare
         if any("project.json: not found" in w for w in warnings):
-            steps.append({
-                "priority": 0,
-                "action": "Run walker prepare to initialize project",
-                "reason": "project.json not found — project has not been initialized",
-                "command": f"walker {project_id}/prepare",
-            })
+            steps.append(
+                {
+                    "priority": 0,
+                    "action": "Run walker prepare to initialize project",
+                    "reason": "project.json not found — project has not been initialized",
+                    "command": f"walker {project_id}/prepare",
+                }
+            )
             steps.sort(key=lambda s: s["priority"])
             return steps  # nothing else matters until project is prepared
 
@@ -169,12 +208,16 @@ class HealthReportAnalyzer:
         if ckg == "empty" or ckg == "0 nodes" or any("CKG" in w for w in warnings):
             task_name = HealthReportAnalyzer._resolve_task(task_catalog, "ckg_populate")
             if task_name:
-                steps.append({
-                    "priority": 1,
-                    "action": f"Populate CKG: run task '{task_name}' to capture knowledge",
-                    "reason": "CKG is empty — no knowledge base available for agent decisions",
-                    "command": HealthReportAnalyzer._task_cmd(project_id, task_name),
-                })
+                steps.append(
+                    {
+                        "priority": 1,
+                        "action": f"Populate CKG: run task '{task_name}' to capture knowledge",
+                        "reason": "CKG is empty — no knowledge base available for agent decisions",
+                        "command": HealthReportAnalyzer._task_cmd(
+                            project_id, task_name
+                        ),
+                    }
+                )
 
         # Priority 2: Files changed → rebuild CPG (task descubierta por capacidad)
         files = checks.get("files", "")
@@ -183,36 +226,50 @@ class HealthReportAnalyzer:
         elif "stale" in files or "changed" in files:
             task_name = HealthReportAnalyzer._resolve_task(task_catalog, "cpg_build")
             if task_name:
-                steps.append({
-                    "priority": 2,
-                    "action": f"Rebuild CPG to sync code index (task '{task_name}')",
-                    "reason": f"Code index is stale — {files} file(s) changed since last CPG build",
-                    "command": HealthReportAnalyzer._task_cmd(project_id, task_name),
-                })
+                steps.append(
+                    {
+                        "priority": 2,
+                        "action": f"Rebuild CPG to sync code index (task '{task_name}')",
+                        "reason": f"Code index is stale — {files} file(s) changed since last CPG build",
+                        "command": HealthReportAnalyzer._task_cmd(
+                            project_id, task_name
+                        ),
+                    }
+                )
 
         # Priority 3: CPG missing, not scanned, or empty
         cpg = checks.get("cpg", "")
         if not cpg or "error" in cpg or cpg == "0 nodes" or "not scanned" in cpg:
             task_name = HealthReportAnalyzer._resolve_task(task_catalog, "cpg_build")
             if task_name:
-                steps.append({
-                    "priority": 3,
-                    "action": f"Build or update Code Property Graph (task '{task_name}')",
-                    "reason": "CPG is missing or empty — needed for code-aware analysis",
-                    "command": HealthReportAnalyzer._task_cmd(project_id, task_name),
-                })
+                steps.append(
+                    {
+                        "priority": 3,
+                        "action": f"Build or update Code Property Graph (task '{task_name}')",
+                        "reason": "CPG is missing or empty — needed for code-aware analysis",
+                        "command": HealthReportAnalyzer._task_cmd(
+                            project_id, task_name
+                        ),
+                    }
+                )
 
         # Priority 4: Sprint status
         sprint = health.get("sprint")
         if sprint is None:
-            task_name = HealthReportAnalyzer._resolve_task(task_catalog, "sprint_create")
+            task_name = HealthReportAnalyzer._resolve_task(
+                task_catalog, "sprint_create"
+            )
             if task_name:
-                steps.append({
-                    "priority": 4,
-                    "action": f"Start a sprint to begin structured workflow (task '{task_name}')",
-                    "reason": "No active sprint — project is not in a workflow cycle",
-                    "command": HealthReportAnalyzer._task_cmd(project_id, task_name),
-                })
+                steps.append(
+                    {
+                        "priority": 4,
+                        "action": f"Start a sprint to begin structured workflow (task '{task_name}')",
+                        "reason": "No active sprint — project is not in a workflow cycle",
+                        "command": HealthReportAnalyzer._task_cmd(
+                            project_id, task_name
+                        ),
+                    }
+                )
         elif isinstance(sprint, dict):
             node = sprint.get("node", "")
             gates = sprint.get("gates", [])
@@ -222,45 +279,59 @@ class HealthReportAnalyzer:
             # y NO se disparan directamente: su contract (ej. ckg_has_decision)
             # se cumple tras el submit. Sugerir submit evita confundir al PO.
             if sprint.get("execution_type") == "user_input":
-                prompt_id = sprint.get("prompt_id", "")
+                sprint.get("prompt_id", "")
                 submit_hint = f"walker {project_id}/submit"
-                steps.append({
-                    "priority": 4,
-                    "action": f"Respond at node '{node}' ({sprint.get('sub_state', '')}) — user decision required",
-                    "reason": f"Sprint is active at {node}.{sprint.get('sub_state', '')} — read the prompt and submit your decision "
-                             f"(e.g. 'walker {project_id}/submit {{\"decision\":\"...\",\"evidence\":\"...\"}}')",
-                    "command": submit_hint,
-                })
+                steps.append(
+                    {
+                        "priority": 4,
+                        "action": f"Respond at node '{node}' ({sprint.get('sub_state', '')}) — user decision required",
+                        "reason": f"Sprint is active at {node}.{sprint.get('sub_state', '')} — read the prompt and submit your decision "
+                        f'(e.g. \'walker {project_id}/submit {{"decision":"...","evidence":"..."}}\')',
+                        "command": submit_hint,
+                    }
+                )
             elif gates:
-                steps.append({
-                    "priority": 4,
-                    "action": f"Continue sprint at node '{node}' via available gate(s)",
-                    "reason": f"Sprint is active at {node} — {len(gates)} gate(s) available to transition",
-                    "command": f"walker {project_id}/transition <gate_name>",
-                })
+                steps.append(
+                    {
+                        "priority": 4,
+                        "action": f"Continue sprint at node '{node}' via available gate(s)",
+                        "reason": f"Sprint is active at {node} — {len(gates)} gate(s) available to transition",
+                        "command": f"walker {project_id}/transition <gate_name>",
+                    }
+                )
 
         # Priority 5: Project config incomplete (task descubierta por capacidad)
         proj = health.get("project", {})
         if proj:
             missing = []
-            if not proj.get("language"): missing.append("language")
-            if not proj.get("framework"): missing.append("framework")
-            if not proj.get("code_paths"): missing.append("code_paths")
+            if not proj.get("language"):
+                missing.append("language")
+            if not proj.get("framework"):
+                missing.append("framework")
+            if not proj.get("code_paths"):
+                missing.append("code_paths")
             if missing:
-                task_name = HealthReportAnalyzer._resolve_task(task_catalog, "project_update")
+                task_name = HealthReportAnalyzer._resolve_task(
+                    task_catalog, "project_update"
+                )
                 if task_name:
-                    steps.append({
-                        "priority": 5,
-                        "action": f"Complete project configuration: {', '.join(missing)}",
-                        "reason": "Project identity/configuration is incomplete",
-                        "command": HealthReportAnalyzer._task_cmd(project_id, task_name),
-                    })
+                    steps.append(
+                        {
+                            "priority": 5,
+                            "action": f"Complete project configuration: {', '.join(missing)}",
+                            "reason": "Project identity/configuration is incomplete",
+                            "command": HealthReportAnalyzer._task_cmd(
+                                project_id, task_name
+                            ),
+                        }
+                    )
 
         steps.sort(key=lambda s: s["priority"])
         return steps
 
 
 # ── PrepareProjectUseCase ──────────────────────────────────────────────────
+
 
 class PrepareProjectUseCase:
     """Initialize a project: detect properties, create .cognitive/, register, scan CPG, setup watcher.
@@ -270,13 +341,42 @@ class PrepareProjectUseCase:
 
     @staticmethod
     def execute(project_path: str, args_flags: dict) -> dict:
-        from features.project.infrastructure.watcher import FileWatcher, IgnoreRules
+        from features.project.infrastructure.watcher import FileWatcher
         from features.code_analysis import CPGBuilder
         from libs.path_resolver import get_walker_root as _get_walker_root
 
         pid = os.path.basename(os.path.abspath(project_path))
         name = args_flags.get("name", pid)
         walker_root = str(_get_walker_root())
+
+        # 0. Idempotency guard: if the project is already prepared, do NOT
+        #    re-initialize or overwrite existing configuration. Signal the agent
+        #    with an already_exists result and instructions to inspect the
+        #    existing project via status.
+        existing_project_json = os.path.join(
+            project_path, ".cognitive", "projects", pid, "data", "project.json"
+        )
+        if os.path.exists(existing_project_json):
+            return {
+                "type": "already_exists",
+                "project_id": pid,
+                "path": project_path,
+                "project_json": existing_project_json,
+                "message": (
+                    f"Project '{pid}' is already prepared at {project_path}. "
+                    "Initialization skipped — existing configuration was NOT "
+                    "overwritten. Run 'walker <project_id>/status' to verify "
+                    "project health and scan memories."
+                ),
+                "next_steps": [
+                    f"walker {pid}/status",
+                    "Run 'walker <project_id>/status' to verify the project is "
+                    "healthy and scan memories.",
+                ],
+                "_warnings": [
+                    "prepare is idempotent: existing project.json was left untouched."
+                ],
+            }
 
         # 1. Detect project properties
         detections = ProjectDetector.detect_all(project_path)
@@ -309,7 +409,15 @@ class PrepareProjectUseCase:
         os.makedirs(projects_data_dir, exist_ok=True)
 
         # 4. Write project.json
-        _write_project_json(projects_data_dir, pid, name, final_language, final_framework, project_path, detections["code_paths"])
+        _write_project_json(
+            projects_data_dir,
+            pid,
+            name,
+            final_language,
+            final_framework,
+            project_path,
+            detections["code_paths"],
+        )
 
         # 5. Register in global registry
         global_registry_path = os.path.join(walker_root, "data", "projects.json")
@@ -322,7 +430,10 @@ class PrepareProjectUseCase:
         code_detected, cpg_nodes = _auto_scan_cpg(project_path)
 
         # 8. Check CKG status (delegates to cognitive_knowledge — SSOT)
-        from features.cognitive_knowledge.application.use_cases import CheckCkgHealthUseCase
+        from features.cognitive_knowledge.application.use_cases import (
+            CheckCkgHealthUseCase,
+        )
+
         ckg_health = CheckCkgHealthUseCase.execute(projects_data_dir)
         if ckg_health["node_count"] == 0 and ckg_health["status"] != "not scanned":
             setup_warnings.append("CKG is empty. Agent should capture knowledge")
@@ -357,12 +468,21 @@ class PrepareProjectUseCase:
 
 # ── PrepareProjectUseCase helpers (module-level, no side effects beyond IO) ─
 
-def _write_project_json(data_dir: str, pid: str, name: str, language: str, framework: str,
-                         repo_path: str, code_paths: list[str]) -> None:
+
+def _write_project_json(
+    data_dir: str,
+    pid: str,
+    name: str,
+    language: str,
+    framework: str,
+    repo_path: str,
+    code_paths: list[str],
+) -> None:
     project_json = {
         "project": {
             "meta": {
-                "project_id": pid, "version": "1.0",
+                "project_id": pid,
+                "version": "1.0",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
@@ -370,7 +490,12 @@ def _write_project_json(data_dir: str, pid: str, name: str, language: str, frame
             "location": {"repo_path": repo_path, "code_paths": code_paths},
             "design": {"patterns": [], "layer_rules": {}, "forbidden_dependencies": []},
             "architecture": {"module_organization": ""},
-            "coding": {"naming_convention": "", "formatter": "", "linter": "", "test_framework": ""},
+            "coding": {
+                "naming_convention": "",
+                "formatter": "",
+                "linter": "",
+                "test_framework": "",
+            },
             "quality_preferences": {},
             "team": {"owners": []},
             "dependencies": {"internal_modules": [], "external_services": []},
@@ -380,7 +505,9 @@ def _write_project_json(data_dir: str, pid: str, name: str, language: str, frame
         json.dump(project_json, f, indent=2, ensure_ascii=False)
 
 
-def _register_in_global_registry(registry_path: str, pid: str, name: str, repo_path: str) -> None:
+def _register_in_global_registry(
+    registry_path: str, pid: str, name: str, repo_path: str
+) -> None:
     registry: dict = {"projects": {}}
     if os.path.exists(registry_path):
         try:
@@ -390,8 +517,12 @@ def _register_in_global_registry(registry_path: str, pid: str, name: str, repo_p
             pass
     now = datetime.now(timezone.utc).isoformat()
     registry.setdefault("projects", {})[pid] = {
-        "project_id": pid, "name": name, "repo_path": repo_path,
-        "active": True, "registered_at": now, "last_accessed": now,
+        "project_id": pid,
+        "name": name,
+        "repo_path": repo_path,
+        "active": True,
+        "registered_at": now,
+        "last_accessed": now,
     }
     registry["updated_at"] = now
     os.makedirs(os.path.dirname(registry_path), exist_ok=True)
@@ -422,7 +553,21 @@ def _auto_scan_cpg(project_path: str) -> tuple[bool, int]:
             rel = os.path.relpath(os.path.join(root, f), project_path)
             if ign.is_ignored(rel):
                 continue
-            if f.endswith((".py", ".js", ".ts", ".rs", ".go", ".java", ".tsx", ".jsx", ".css", ".json", ".md")):
+            if f.endswith(
+                (
+                    ".py",
+                    ".js",
+                    ".ts",
+                    ".rs",
+                    ".go",
+                    ".java",
+                    ".tsx",
+                    ".jsx",
+                    ".css",
+                    ".json",
+                    ".md",
+                )
+            ):
                 code_detected = True
                 break
         if code_detected:
@@ -432,7 +577,7 @@ def _auto_scan_cpg(project_path: str) -> tuple[bool, int]:
     if code_detected:
         try:
             builder = CPGBuilder(project_path)
-            result = builder.update() if hasattr(builder, 'update') else builder.build()
+            result = builder.update() if hasattr(builder, "update") else builder.build()
             if isinstance(result, dict):
                 stats = result.get("stats", result)
                 cpg_nodes = stats.get("total_nodes", stats.get("nodes", 0))
@@ -461,6 +606,7 @@ def _reset_watcher_baseline(watcher: Any) -> None:
 
 # ── CheckHealthUseCase ─────────────────────────────────────────────────────
 
+
 class CheckHealthUseCase:
     """Check project health: project.json, watcher, CPG, CKG, sprint, next steps.
 
@@ -471,7 +617,9 @@ class CheckHealthUseCase:
     def execute(project_id: str, repo_path: str, sprint_id: str = "") -> dict:
         from features.project.infrastructure.watcher import FileWatcher
         from features.code_analysis.application.use_cases import CheckCpgHealthUseCase
-        from features.cognitive_knowledge.application.use_cases import CheckCkgHealthUseCase
+        from features.cognitive_knowledge.application.use_cases import (
+            CheckCkgHealthUseCase,
+        )
         from features.engine.application.use_cases import CheckSprintStatusUseCase
 
         health: dict = {
@@ -481,7 +629,9 @@ class CheckHealthUseCase:
             "checks": {},
         }
 
-        projects_data_dir = os.path.join(repo_path, ".cognitive", "projects", project_id, "data")
+        projects_data_dir = os.path.join(
+            repo_path, ".cognitive", "projects", project_id, "data"
+        )
         proj_json = os.path.join(projects_data_dir, "project.json")
 
         # 1. Check project.json
@@ -509,14 +659,19 @@ class CheckHealthUseCase:
                 # Auto-rebuild incremental: solo archivos que cambiaron
                 try:
                     from features.code_analysis import CPGBuilder
+
                     builder = CPGBuilder(repo_path)
                     result = builder.index_task_files(new_changes)
                     files_updated = result.get("files_updated", 0)
                     # Re-verificar fingerprint: si CPG ahora es espejo, limpia acumulados
                     watcher.mark_indexed("cpg")
-                    health["checks"]["files"] = f"{total} changed → {files_updated} rebuilt"
+                    health["checks"]["files"] = (
+                        f"{total} changed → {files_updated} rebuilt"
+                    )
                 except Exception as rebuild_err:
-                    health["warnings"].append(f"auto-rebuild CPG incremental falló: {rebuild_err}")
+                    health["warnings"].append(
+                        f"auto-rebuild CPG incremental falló: {rebuild_err}"
+                    )
                     health["checks"]["files"] = f"{total} changed (rebuild error)"
             elif total > 0:
                 health["checks"]["files"] = f"{total} changed (no new deltas)"
@@ -529,7 +684,9 @@ class CheckHealthUseCase:
         cpg_health = CheckCpgHealthUseCase.execute(projects_data_dir)
         health["checks"]["cpg"] = cpg_health["status"]
         if cpg_health["status"] == "not scanned":
-            health["warnings"].append("CPG not scanned. Run walker prepare or update_cpg")
+            health["warnings"].append(
+                "CPG not scanned. Run walker prepare or update_cpg"
+            )
 
         # 4. Check CKG (delegates to cognitive_knowledge — SSOT)
         ckg_health = CheckCkgHealthUseCase.execute(projects_data_dir)
@@ -537,15 +694,19 @@ class CheckHealthUseCase:
         if ckg_health["node_count"] == 0 and ckg_health["status"] != "not scanned":
             health["warnings"].append("CKG is empty. Agent should capture knowledge")
         elif ckg_health["status"] == "empty":
-            health["warnings"].append("CKG not initialized. Agent should capture knowledge")
+            health["warnings"].append(
+                "CKG not initialized. Agent should capture knowledge"
+            )
 
         # 5. Check Sprint (delegates to engine — SSOT)
         chain_dir = ""
         if sprint_id:
             from libs.path_resolver import get_sprint_dir
+
             chain_dir = str(get_sprint_dir(project_id, sprint_id))
         else:
             from ..application.service import ProjectService
+
             chain_dir = ProjectService.find_active_sprint(project_id) or ""
 
         sprint_health = CheckSprintStatusUseCase.execute(chain_dir, project_id)
@@ -570,16 +731,20 @@ class CheckHealthUseCase:
         task_catalog = []
         try:
             from features.engine.bootstrap import bootstrap
+
             registry, _ = bootstrap()
             task_catalog = registry.discover().get("tasks", [])
         except Exception:
             pass  # Sin catalog: analyze() omitira pasos con task no resuelta
         health["next_steps"] = HealthReportAnalyzer.analyze(
-            health, project_id, chain_dir, task_catalog=task_catalog)
+            health, project_id, chain_dir, task_catalog=task_catalog
+        )
         return health
 
 
-def _check_project_json(proj_json: str, project_id: str, repo_path: str, health: dict) -> None:
+def _check_project_json(
+    proj_json: str, project_id: str, repo_path: str, health: dict
+) -> None:
     from ..domain.schema import ProjectSchemaValidator
 
     if not os.path.exists(proj_json):
@@ -587,6 +752,7 @@ def _check_project_json(proj_json: str, project_id: str, repo_path: str, health:
         return
 
     import json
+
     try:
         with open(proj_json) as f:
             pd = json.load(f)
@@ -611,6 +777,7 @@ def _check_project_json(proj_json: str, project_id: str, repo_path: str, health:
 
 # ── Existing use cases (preserved for backward compat) ─────────────────────
 
+
 class DetectProjectContextUseCase:
     """Detect project context: languages, frameworks, git, code paths."""
 
@@ -624,28 +791,44 @@ class DetectProjectContextUseCase:
         for root, dirs, files in os.walk(project_path):
             dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
             for f in files:
-                if f.endswith(".py"): languages.add("python")
-                elif f.endswith((".js", ".jsx")): languages.add("javascript")
-                elif f.endswith((".ts", ".tsx")): languages.add("typescript")
-                elif f.endswith(".rs"): languages.add("rust")
-                elif f.endswith(".java"): languages.add("java")
-                elif f.endswith(".go"): languages.add("go")
+                if f.endswith(".py"):
+                    languages.add("python")
+                elif f.endswith((".js", ".jsx")):
+                    languages.add("javascript")
+                elif f.endswith((".ts", ".tsx")):
+                    languages.add("typescript")
+                elif f.endswith(".rs"):
+                    languages.add("rust")
+                elif f.endswith(".java"):
+                    languages.add("java")
+                elif f.endswith(".go"):
+                    languages.add("go")
                 if f == "package.json":
                     try:
                         with open(os.path.join(root, f)) as pf:
                             framework = "node/" + json.load(pf).get("name", "unknown")
                     except Exception:
                         framework = "node"
-                elif f == "Cargo.toml": framework = "rust/cargo"
-                elif f == "go.mod": framework = "go"
+                elif f == "Cargo.toml":
+                    framework = "rust/cargo"
+                elif f == "go.mod":
+                    framework = "go"
             if root == project_path:
-                code_paths = [d for d in dirs if d not in (".git", "__pycache__", "node_modules", "venv")]
+                code_paths = [
+                    d
+                    for d in dirs
+                    if d not in (".git", "__pycache__", "node_modules", "venv")
+                ]
                 break
 
         return {
-            "detected": True, "path": project_path, "has_git": has_git,
-            "has_code": len(languages) > 0, "languages": list(languages),
-            "framework": framework, "code_paths": code_paths,
+            "detected": True,
+            "path": project_path,
+            "has_git": has_git,
+            "has_code": len(languages) > 0,
+            "languages": list(languages),
+            "framework": framework,
+            "code_paths": code_paths,
         }
 
 
@@ -680,13 +863,23 @@ class DetectLegacyUseCase:
                         sdir = os.path.join(pdir, src)
                         if os.path.isdir(sdir):
                             for c in os.listdir(sdir):
-                                from features.spring.infrastructure.repositories import SprintStateRepository
-                                if SprintStateRepository().load_dict(os.path.join(sdir, c)):
+                                from features.spring.infrastructure.repositories import (
+                                    SprintStateRepository,
+                                )
+
+                                if SprintStateRepository().load_dict(
+                                    os.path.join(sdir, c)
+                                ):
                                     chains.append(c)
 
-        return {"is_legacy": len(indicators) > 0, "indicators": indicators,
-                "pid": projects_list[0] if projects_list else "",
-                "nodes_count": nodes_count, "chains": chains, "projects": projects_list}
+        return {
+            "is_legacy": len(indicators) > 0,
+            "indicators": indicators,
+            "pid": projects_list[0] if projects_list else "",
+            "nodes_count": nodes_count,
+            "chains": chains,
+            "projects": projects_list,
+        }
 
 
 class ImportLegacyHistoryUseCase:
@@ -694,25 +887,46 @@ class ImportLegacyHistoryUseCase:
 
     @staticmethod
     def execute(project_path: str, project_id: str, chains: list[str]) -> dict:
-        import gzip
-        traces_dir = os.path.join(project_path, ".cognitive", "projects", project_id, "data", "traces")
+        traces_dir = os.path.join(
+            project_path, ".cognitive", "projects", project_id, "data", "traces"
+        )
         os.makedirs(traces_dir, exist_ok=True)
         imported = 0
         for chain in chains:
             for src in ["spring", "delta"]:
-                from features.spring.infrastructure.repositories import SprintStateRepository
-                chain_dir = os.path.join(project_path, ".cognitive", "projects", project_id, src, chain)
+                from features.spring.infrastructure.repositories import (
+                    SprintStateRepository,
+                )
+
+                chain_dir = os.path.join(
+                    project_path, ".cognitive", "projects", project_id, src, chain
+                )
                 state = SprintStateRepository().load_dict(chain_dir)
                 if state:
                     try:
                         trace_file = os.path.join(traces_dir, f"{chain}.json.gz")
                         with gzip.open(trace_file, "wt", encoding="utf-8") as gf:
-                            json.dump({"events": [{"event_type": "legacy_import", "chain_id": chain, "state": state}]}, gf)
+                            json.dump(
+                                {
+                                    "events": [
+                                        {
+                                            "event_type": "legacy_import",
+                                            "chain_id": chain,
+                                            "state": state,
+                                        }
+                                    ]
+                                },
+                                gf,
+                            )
                         imported += 1
                         break
                     except Exception:
                         pass
-        return {"project_id": project_id, "chains_imported": imported, "traces_path": traces_dir}
+        return {
+            "project_id": project_id,
+            "chains_imported": imported,
+            "traces_path": traces_dir,
+        }
 
 
 class UpdateProjectUseCase:
@@ -749,12 +963,17 @@ class UpdateProjectUseCase:
         if errors:
             raise ValueError(f"Project schema validation failed: {'; '.join(errors)}")
 
-        current["project"]["meta"]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        current["project"]["meta"]["updated_at"] = datetime.now(
+            timezone.utc
+        ).isoformat()
         with open(project_json_path, "w") as f:
             json.dump(current, f, indent=2, ensure_ascii=False)
 
-        return {"updated": True, "project_id": project_data.get("meta", {}).get("project_id", ""),
-                "path": project_json_path}
+        return {
+            "updated": True,
+            "project_id": project_data.get("meta", {}).get("project_id", ""),
+            "path": project_json_path,
+        }
 
 
 class ImportLegacyTasksUseCase:
@@ -765,22 +984,42 @@ class ImportLegacyTasksUseCase:
         merged_tasks = []
         for chain in chains:
             for src in ["spring", "delta"]:
-                from features.spring.infrastructure.repositories import SprintStateRepository
-                chain_dir = os.path.join(project_path, ".cognitive", "projects", project_id, src, chain)
+                from features.spring.infrastructure.repositories import (
+                    SprintStateRepository,
+                )
+
+                chain_dir = os.path.join(
+                    project_path, ".cognitive", "projects", project_id, src, chain
+                )
                 st = SprintStateRepository().load_dict(chain_dir)
                 if st:
                     try:
                         tasks = st.get("tasks", [])
                         if isinstance(tasks, dict):
                             for tid, tdata in tasks.items():
-                                merged_tasks.append({"task_id": tid, **(tdata if isinstance(tdata, dict) else {"status": tdata})})
+                                merged_tasks.append(
+                                    {
+                                        "task_id": tid,
+                                        **(
+                                            tdata
+                                            if isinstance(tdata, dict)
+                                            else {"status": tdata}
+                                        ),
+                                    }
+                                )
                         elif isinstance(tasks, list):
                             merged_tasks.extend(tasks)
                     except Exception:
                         pass
-        plan_dir = os.path.join(project_path, ".cognitive", "projects", project_id, "data")
+        plan_dir = os.path.join(
+            project_path, ".cognitive", "projects", project_id, "data"
+        )
         os.makedirs(plan_dir, exist_ok=True)
         plan_path = os.path.join(plan_dir, "plan.json")
         with open(plan_path, "w") as f:
             json.dump({"version": "2.0", "tasks": merged_tasks}, f, indent=2)
-        return {"project_id": project_id, "tasks_imported": len(merged_tasks), "plan_path": plan_path}
+        return {
+            "project_id": project_id,
+            "tasks_imported": len(merged_tasks),
+            "plan_path": plan_path,
+        }

@@ -6,11 +6,11 @@ Contiene operaciones de dominio que no requieren acceso a disco:
   - Derivacion de paths (dado un project_root ya conocido)
   - Calculos sobre estructura de proyecto
 """
+
 from __future__ import annotations
 
 import os
 import re
-from typing import Any
 
 from .models import ProjectId, ProjectPaths
 

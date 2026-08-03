@@ -4,11 +4,11 @@ infrastructure/repositories.py — Implementaciones concretas de ProjectReposito
 SRP: Unica responsabilidad = leer/escribir proyectos desde el sistema de archivos.
 SSOT: Delega en libs.path_resolver para descubrir paths canonicos.
 """
+
 from __future__ import annotations
 
 import json
 import os
-from typing import Any
 
 from ..domain.models import ProjectId, ProjectPaths, Project, ProjectRepository
 
@@ -58,6 +58,7 @@ class CognitiveProjectRepository(ProjectRepository):
 
         # Construir paths
         from ..application.service import ProjectService
+
         try:
             active_sprint = ProjectService.find_active_sprint(pid_str)
         except Exception:
@@ -80,7 +81,9 @@ class CognitiveProjectRepository(ProjectRepository):
                 cpg_path=os.path.join(data_dir, "cpg.json.gz"),
                 ckg_path=os.path.join(data_dir, "ckg.json.gz"),
                 project_json_path=manifest_path,
-                workflow_json_path=os.path.join(proj_dir, "workflow.v3", "workflow.json"),
+                workflow_json_path=os.path.join(
+                    proj_dir, "workflow.v3", "workflow.json"
+                ),
                 repo_path=loc.get("repo_path", ""),
                 code_paths=tuple(loc.get("code_paths", [])),
                 cognitive_dir="",
@@ -167,4 +170,5 @@ class CognitiveProjectRepository(ProjectRepository):
 def _now_iso() -> str:
     """Timestamp ISO 8601 actual."""
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).isoformat()

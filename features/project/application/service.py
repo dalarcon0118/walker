@@ -9,6 +9,7 @@ SSOT: Delega en libs.path_resolver para resolucion de paths (la unica
 TODA resolucion de paths en el codebase debe pasar por esta clase.
 NADIE debe importar libs.path_resolver directamente desde ahora.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..domain.models import ProjectId, SprintId, ProjectPaths, Project, ProjectRepository
+from ..domain.models import ProjectId, ProjectPaths, Project, ProjectRepository
 from ..domain import services as domain_services
 
 
@@ -51,7 +52,9 @@ class ProjectService:
     # ── Factory methods ───────────────────────────────────────────────
 
     @staticmethod
-    def from_chain_dir(chain_dir: str, repo: ProjectRepository | None = None) -> Project:
+    def from_chain_dir(
+        chain_dir: str, repo: ProjectRepository | None = None
+    ) -> Project:
         """Construye un Project desde un chain_dir (sprint activo).
 
         Args:
@@ -188,7 +191,6 @@ class ProjectService:
         from libs.path_resolver import (
             resolve_project_root,
             resolve_project_id,
-            get_project_dir,
             get_data_dir,
             get_delta_dir,
             get_workflow_dir,
@@ -286,6 +288,7 @@ class ProjectService:
             Path absoluto a .cognitive/ o None si no se encuentra.
         """
         from libs.path_resolver import find_cognitive_root as _find
+
         result = _find(start)
         return str(result) if result else None
 
@@ -303,11 +306,17 @@ class ProjectService:
         """Carga el registro global de proyectos desde data/projects.json."""
         try:
             from libs.path_resolver import get_walker_root
-            registry_path = os.path.join(str(get_walker_root()), "data", "projects.json")
+
+            registry_path = os.path.join(
+                str(get_walker_root()), "data", "projects.json"
+            )
         except Exception:
             registry_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-                "data", "projects.json",
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                ),
+                "data",
+                "projects.json",
             )
         if os.path.exists(registry_path):
             try:
@@ -366,8 +375,11 @@ class ProjectService:
             # ── Detectar sprints activos (fuente unica: delta) ──
             active_sprints: list[str] = []
             try:
-                from features.delta_tracking.application.spring_graph_service import SpringGraphService
+                from features.delta_tracking.application.spring_graph_service import (
+                    SpringGraphService,
+                )
                 from libs.path_resolver import get_project_dir
+
                 project_root = str(get_project_dir(pid))
                 if os.path.isdir(project_root):
                     spring_svc = SpringGraphService(project_root)
@@ -383,8 +395,13 @@ class ProjectService:
                         for sprint_entry in sorted(sd.iterdir()):
                             if sprint_entry.is_dir():
                                 try:
-                                    from features.spring.infrastructure.repositories import SprintStateRepository
-                                    state = SprintStateRepository().load_dict(str(sprint_entry))
+                                    from features.spring.infrastructure.repositories import (
+                                        SprintStateRepository,
+                                    )
+
+                                    state = SprintStateRepository().load_dict(
+                                        str(sprint_entry)
+                                    )
                                     if not state:
                                         continue
                                     status = (
@@ -392,21 +409,28 @@ class ProjectService:
                                         or state.get("sprint", {}).get("status", "")
                                         or state.get("walker", {}).get("state", "")
                                     )
-                                    if status in ("active", "in_progress", "planning", ""):
+                                    if status in (
+                                        "active",
+                                        "in_progress",
+                                        "planning",
+                                        "",
+                                    ):
                                         active_sprints.append(sprint_entry.name)
                                 except Exception:
                                     pass
 
-            result.append({
-                "project_id": pid,
-                "name": name,
-                "language": language,
-                "framework": framework,
-                "repo_path": repo_path,
-                "verified": True,
-                "active_sprints": active_sprints,
-                "status": "active" if active_sprints else "inactive",
-            })
+            result.append(
+                {
+                    "project_id": pid,
+                    "name": name,
+                    "language": language,
+                    "framework": framework,
+                    "repo_path": repo_path,
+                    "verified": True,
+                    "active_sprints": active_sprints,
+                    "status": "active" if active_sprints else "inactive",
+                }
+            )
 
         return result
 
@@ -425,8 +449,11 @@ class ProjectService:
         """
         # Fuente unica: delta — nodo spring con status active
         try:
-            from features.delta_tracking.application.spring_graph_service import SpringGraphService
+            from features.delta_tracking.application.spring_graph_service import (
+                SpringGraphService,
+            )
             from libs.path_resolver import get_project_dir
+
             project_root = str(get_project_dir(project_id))
             if os.path.isdir(project_root):
                 spring_svc = SpringGraphService(project_root)
@@ -435,6 +462,7 @@ class ProjectService:
                     spring_id = active.get("_id", "")
                     if spring_id:
                         from libs.path_resolver import get_sprint_dir
+
                         sprint_dir = str(get_sprint_dir(project_id, spring_id))
                         if os.path.isdir(sprint_dir):
                             return sprint_dir
@@ -449,6 +477,7 @@ class ProjectService:
 
         # Si delta_dir es diferente de data/spring, buscar ahi tambien
         from libs.path_resolver import get_data_dir
+
         spring_dir = get_data_dir(project_id) / "spring"
         if spring_dir != delta_base and spring_dir.is_dir():
             candidates.append(spring_dir)
@@ -460,7 +489,10 @@ class ProjectService:
                 if not entry.is_dir():
                     continue
                 try:
-                    from features.spring.infrastructure.repositories import SprintStateRepository
+                    from features.spring.infrastructure.repositories import (
+                        SprintStateRepository,
+                    )
+
                     state = SprintStateRepository().load_dict(str(entry))
                     if not state:
                         continue
@@ -514,11 +546,19 @@ class ProjectService:
             if repo:
                 try:
                     if os.path.samefile(cwd, repo):
-                        return {"project_id": pid, "repo_path": repo, "name": info.get("name", pid)}
+                        return {
+                            "project_id": pid,
+                            "repo_path": repo,
+                            "name": info.get("name", pid),
+                        }
                 except OSError:
                     pass
                 if cwd.startswith(repo):
-                    return {"project_id": pid, "repo_path": repo, "name": info.get("name", pid)}
+                    return {
+                        "project_id": pid,
+                        "repo_path": repo,
+                        "name": info.get("name", pid),
+                    }
 
         # 2. Fallback: detect .cognitive/ at CWD, auto-register
         cognitive = os.path.join(cwd, ".cognitive")
@@ -540,11 +580,17 @@ class ProjectService:
         # Find project.json (canonical first: data/project.json, legacy: project.json)
         project_json_data = os.path.join(proj_dir, "data", "project.json")
         project_json_legacy = os.path.join(proj_dir, "project.json")
-        project_json = project_json_data if os.path.exists(project_json_data) else project_json_legacy
+        project_json = (
+            project_json_data
+            if os.path.exists(project_json_data)
+            else project_json_legacy
+        )
 
         # Detect legacy location and warn
         legacy_warning = ""
-        if os.path.exists(project_json_legacy) and not os.path.exists(project_json_data):
+        if os.path.exists(project_json_legacy) and not os.path.exists(
+            project_json_data
+        ):
             legacy_warning = (
                 f"⚠️  Project {pid}: project.json is in legacy location.\n"
                 f"   Move it to: .cognitive/projects/{pid}/data/project.json"
@@ -573,7 +619,9 @@ class ProjectService:
             name = pid
 
         # Migrate project.json to data/ if it's in legacy location
-        if project_json == project_json_legacy and not os.path.exists(project_json_data):
+        if project_json == project_json_legacy and not os.path.exists(
+            project_json_data
+        ):
             try:
                 os.makedirs(os.path.join(proj_dir, "data"), exist_ok=True)
                 with open(project_json) as f_src:
@@ -586,10 +634,15 @@ class ProjectService:
 
         # Auto-register in global registry
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).isoformat()
         projects[pid] = {
-            "project_id": pid, "name": name, "repo_path": repo_path,
-            "active": True, "registered_at": now, "last_accessed": now,
+            "project_id": pid,
+            "name": name,
+            "repo_path": repo_path,
+            "active": True,
+            "registered_at": now,
+            "last_accessed": now,
         }
         registry["projects"] = projects
         registry["updated_at"] = now
@@ -632,10 +685,17 @@ class ProjectService:
             if os.path.exists(os.path.join(cwd, ".workflow-state.json")):
                 return cwd
             try:
-                from features.delta_tracking.application.spring_graph_service import SpringGraphService
+                from features.delta_tracking.application.spring_graph_service import (
+                    SpringGraphService,
+                )
+
                 if SpringGraphService.from_chain_dir(cwd) is not None:
                     spring_svc = SpringGraphService.from_chain_dir(cwd)
-                    if spring_svc and spring_svc.get_spring(spring_svc.get_spring_id(cwd)) is not None:
+                    if (
+                        spring_svc
+                        and spring_svc.get_spring(spring_svc.get_spring_id(cwd))
+                        is not None
+                    ):
                         return cwd
             except Exception:
                 pass
@@ -728,10 +788,12 @@ class ProjectService:
 def get_cognitive_dir() -> Path:
     """Re-export desde libs.path_resolver para conveniencia."""
     from libs.path_resolver import get_cognitive_dir as _get
+
     return _get()
 
 
 def get_walker_root() -> Path:
     """Re-export desde libs.path_resolver para conveniencia."""
     from libs.path_resolver import get_walker_root as _get
+
     return _get()

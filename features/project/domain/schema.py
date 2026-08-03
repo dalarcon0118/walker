@@ -3,15 +3,18 @@ domain/schema.py — Project.json schema definition and validator.
 
 SSOT: All valid fields, types, and required fields for project.json.
 """
+
 from __future__ import annotations
 
-from typing import Any
 
 PROJECT_SCHEMA = {
     "meta": {
         "required": ["project_id", "version"],
         "fields": {
-            "project_id": {"type": "string", "description": "Unique project identifier"},
+            "project_id": {
+                "type": "string",
+                "description": "Unique project identifier",
+            },
             "version": {"type": "string", "description": "Schema version"},
             "created_at": {"type": "string", "description": "ISO timestamp"},
             "updated_at": {"type": "string", "description": "ISO timestamp"},
@@ -30,8 +33,14 @@ PROJECT_SCHEMA = {
     "location": {
         "required": ["repo_path"],
         "fields": {
-            "repo_path": {"type": "string", "description": "Absolute path to repo root"},
-            "cognitive_subdir": {"type": "string", "description": "Subdir for .cognitive"},
+            "repo_path": {
+                "type": "string",
+                "description": "Absolute path to repo root",
+            },
+            "cognitive_subdir": {
+                "type": "string",
+                "description": "Subdir for .cognitive",
+            },
             "code_paths": {"type": "array", "description": "Subdirs with source code"},
         },
     },

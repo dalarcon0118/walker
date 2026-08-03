@@ -2,10 +2,11 @@
   "projects": {
     "walker": {
       "project_id": "walker",
+      "name": "walker",
       "repo_path": "/Users/davidmartinez/develop/Active-projects/walker",
-      "name": "Walker Project",
       "active": true,
-      "last_accessed": "2026-07-30T11:22:08.259027+00:00"
+      "registered_at": "2026-08-03T14:42:53.685379+00:00",
+      "last_accessed": "2026-08-03T14:42:53.685379+00:00"
     },
     "my_app": {
       "project_id": "my_app",
@@ -56,5 +57,5 @@
       "last_accessed": "2026-07-30T19:15:43.719208+00:00"
     }
   },
-  "updated_at": "2026-07-30T19:15:43.719208+00:00"
+  "updated_at": "2026-08-03T15:16:31.868605+00:00"
 }
