@@ -63,17 +63,16 @@ def index_sprint(chain_dir: str, cg) -> int:
 
     sprint_id = os.path.basename(os.path.normpath(chain_dir))
     count = 0
+    batch_docs: dict[str, dict] = {}
+    edges_to_add: list[tuple[str, str, str]] = []
 
     for item in tasks:
         tid = item.get("task_id", "") or item.get("spec_id", "?")
         if not tid or tid == "?":
             continue
 
-        # ID unico por sprint: evita colisiones entre sprints con el mismo
-        # task_id/spec_id (ej: todos los sprints tienen SPEC-001).
         unique_id = f"{sprint_id}:{tid}"
 
-        # Crear entidad Task (el save() usa __id_field__ = "task_id")
         task = Task(
             task_id=unique_id,
             sprint_id=sprint_id,
@@ -91,22 +90,25 @@ def index_sprint(chain_dir: str, cg) -> int:
             ),
         )
         task._cg_instance = cg
-        task.save()
+        batch_docs[unique_id] = dict(task._data)
         count += 1
 
-        # Crear edges en el grafo para relaciones
         node_id = f"{sprint_id}:{tid}"
-
         for dep in item.get("depends_on", []):
-            cg.add_edge(node_id, f"{sprint_id}:{dep}", type="depends_on")
-
+            edges_to_add.append((node_id, f"{sprint_id}:{dep}", "depends_on"))
         files = (
             item.get("impacted_artifacts", {}).get("files", [])
             if isinstance(item.get("impacted_artifacts"), dict)
             else []
         )
         for fpath in files:
-            cg.add_edge(node_id, fpath, type="impacts_file")
+            edges_to_add.append((node_id, fpath, "impacts_file"))
+
+    # Batch persist: 1 serializacion para todos
+    if batch_docs:
+        cg.store_many("delta", batch_docs)
+    for from_id, to_id, edge_type in edges_to_add:
+        cg.add_edge(from_id, to_id, type=edge_type)
 
     return count
 
