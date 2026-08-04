@@ -1561,6 +1561,43 @@ def test_schema_migration_on_fulltext_change():
         print("  ✅ test_schema_migration_on_fulltext_change: G3 migracion automatica")
 
 
+def test_store_many_skip_identical_docs():
+    """store_many salta docs identicos y reporta skipped/touched."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cg = CognitiveGraph(tmpdir, auto_register=True)
+
+        # Fase 1: insertar 5 docs
+        batch1 = {}
+        for i in range(5):
+            batch1[f"doc-{i:03d}"] = {"type": "task", "title": f"Task {i}"}
+        r1 = cg.store_many("ckg", batch1)
+        assert r1["stored"] == 5
+        assert r1["touched"] == 5  # todos nuevos
+        assert r1["skipped"] == 0
+
+        # Fase 2: mismo batch sin cambios → todos skipped
+        r2 = cg.store_many("ckg", batch1)
+        assert r2["stored"] == 5
+        assert r2["skipped"] == 5, r2  # todos identicos
+        assert r2["touched"] == 0
+
+        # Fase 3: batch con 1 doc cambiado + 4 identicos
+        batch3 = dict(batch1)
+        batch3["doc-002"] = {"type": "task", "title": "Task 2 CHANGED"}
+        r3 = cg.store_many("ckg", batch3)
+        assert r3["stored"] == 5
+        assert r3["skipped"] == 4, r3  # 4 identicos
+        assert r3["touched"] == 1   # 1 cambiado
+
+        # Verificar que el cambio se aplico
+        result = cg.search("ckg", {"_id": "doc-002"})
+        src = result["hits"]["hits"][0]["_source"]
+        assert src["title"] == "Task 2 CHANGED", src
+        print("  ✅ test_store_many_skip_identical_docs: skip unchanged docs")
+
+
 # ════════════════════════════════════════════════════════════════
 # Runner
 # ════════════════════════════════════════════════════════════════
@@ -1605,6 +1642,7 @@ def run_all():
         ("search pagination with from", test_search_pagination_with_from),
         ("fulltext nested dict fields", test_fulltext_nested_dict_fields),
         ("schema migration on fulltext change", test_schema_migration_on_fulltext_change),
+        ("store_many skip identical docs", test_store_many_skip_identical_docs),
     ]
 
     passed = 0

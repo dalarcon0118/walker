@@ -218,6 +218,9 @@ class Index:
                                 for item in value:
                                     if isinstance(item, str):
                                         self._token_index.index_node(doc_id, item, field)
+                    # Persistir inmediatamente para que el schema_hash
+                    # quede guardado y no se re-migre en cada _load()
+                    self._save()
                     logger.info(
                         "CognitiveGraph: TokenIndex de '%s' reconstruido "
                         "(%d docs indexados) tras migracion de schema",
