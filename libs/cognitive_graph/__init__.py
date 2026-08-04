@@ -520,6 +520,31 @@ class Index:
             self._save()
         return {"ok": True, "deleted": existed, "_id": doc_id, "_index": self.name}
 
+    def delete_many(self, doc_ids: set[str]) -> dict:
+        """Elimina varios nodos en batch (1 lock + 1 save)."""
+        if not doc_ids:
+            return {"ok": True, "deleted": 0}
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            self._load()
+            deleted = 0
+            for doc_id in doc_ids:
+                if doc_id in self._docs:
+                    self._deindex_doc(doc_id)
+                    self._docs.pop(doc_id)
+                    if doc_id in self._graph:
+                        self._graph.remove_node(doc_id)
+                    if self._token_index is not None:
+                        self._token_index.remove_node(doc_id)
+                    deleted += 1
+            if deleted:
+                self._save()
+            return {"ok": True, "deleted": deleted, "_index": self.name}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
     # ── Edges ──
 
     def add_edge(self, from_id: str, to_id: str, **attrs) -> dict:
@@ -1592,6 +1617,10 @@ class CognitiveGraph:
 
     def delete(self, index: str, doc_id: str) -> dict:
         return self._get_index(index).delete(doc_id)
+
+    def delete_many(self, index: str, doc_ids: set[str]) -> dict:
+        """Elimina varios nodos en batch (1 lock + 1 save)."""
+        return self._get_index(index).delete_many(doc_ids)
 
     def upsert(self, index: str, key: str, data: dict) -> dict:
         """Upsert por key (primitiva reusable de infraestructura).

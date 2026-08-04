@@ -208,13 +208,12 @@ class CodeKnowledgeGraph:
         return src
 
     def delete_by_metadata(self, key: str, value: str) -> dict:
-        """Elimina nodos por metadata."""
+        """Elimina nodos por metadata en batch (1 lock + 1 save)."""
         result = self._cg.search("ckg", {key: value})
-        removed = 0
-        for h in result["hits"]["hits"]:
-            self._cg.delete("ckg", h["_id"])
-            removed += 1
-        return {"ok": True, "nodes_removed": removed}
+        ids = {h["_id"] for h in result["hits"]["hits"]}
+        if ids:
+            return self._cg.delete_many("ckg", ids)
+        return {"ok": True, "nodes_removed": 0}
 
 
 @safe
