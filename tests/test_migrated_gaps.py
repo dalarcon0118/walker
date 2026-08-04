@@ -1605,3 +1605,57 @@ class TestHelpDiscoverability:
         assert req.sprint_id == "session-20260731"
         req2 = Request(params={}, flags={"sprint_id": "session-20260804"})
         assert req2.sprint_id == "session-20260804"
+
+
+class TestCpgPerformance:
+    """Profiling: full build vs incremental update."""
+
+    def test_update_incremental_vs_build_full(self):
+        import time
+        import tempfile
+
+        from features.code_analysis.application.build_service import BuildGraphUseCase
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "src")
+            os.makedirs(src)
+
+            # Crear 100 archivos para simular carga real
+            for i in range(100):
+                with open(os.path.join(src, f"mod_{i:03d}.py"), "w") as f:
+                    f.write(f"def fn_{i}():\n    return {i}\n\nclass C_{i}:\n    pass\n")
+
+            builder = BuildGraphUseCase(
+                project_id="perf",
+                data_dir=os.path.join(tmp, "data"),
+                code_root=tmp,
+            )
+
+            # Full build
+            t0 = time.time()
+            result = builder.build([src])
+            t_build = time.time() - t0
+            assert result.get("stats", {}).get("total_nodes", 0) > 0
+
+            # Modificar 1 solo archivo
+            with open(os.path.join(src, "mod_050.py"), "a") as f:
+                f.write("\ndef fn_050_new():\n    return 'changed'\n")
+
+            # Mark watcher state as up-to-date after full build
+            data_dir = os.path.join(tmp, "data")
+            os.makedirs(data_dir, exist_ok=True)
+
+            # Incremental update (watcher not available in tmp, falls to build)
+            # For profiling, call index_task_files directly
+            t1 = time.time()
+            result2 = builder.index_task_files([os.path.join(src, "mod_050.py")])
+            t_update = time.time() - t1
+            assert result2.get("ok") is True, result2
+
+            speedup = t_build / t_update if t_update > 0 else 0
+            print(f"\n  Full build: {t_build:.2f}s, Incremental: {t_update:.3f}s, "
+                  f"Speedup: {speedup:.1f}x")
+            assert t_update < t_build, (
+                f"Incremental ({t_update:.2f}s) deberia ser mas rapido que "
+                f"full build ({t_build:.2f}s)"
+            )
