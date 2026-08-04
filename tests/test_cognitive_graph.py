@@ -1067,6 +1067,34 @@ def test_spring_display_name():
         )
 
 
+def test_slugify_sprint_name():
+    """Sprints formales se nombran con slug descriptivo del goal.
+
+    Regression: _resolve_chain_dir usaba 'sprint-{timestamp}' (id opaco).
+    Ahora genera sprint-{slug} desde el goal para que el spring_id comunique
+    de que trata el trabajo.
+    """
+    from features.spring.application.use_cases import _slugify_sprint_name
+
+    # Slug descriptivo desde el goal
+    slug = _slugify_sprint_name(
+        "Rediseno del contrato autoritativo del workflow: resolver gaps"
+    )
+    assert slug.startswith("sprint-rediseno-del-contrato-autoritativo"), slug
+    assert slug == slug.lower() and " " not in slug, f"slug invalido: {slug}"
+
+    # Sin caracteres especiales/acentos
+    slug2 = _slugify_sprint_name("Ñandú — migración del código legacy")
+    assert slug2 == "sprint-nandu-migracion-del-codigo-legacy", slug2
+
+    # Goal vacío → fallback timestamp
+    slug3 = _slugify_sprint_name("")
+    assert slug3.startswith("sprint-") and slug3 != "sprint-", slug3
+    print(
+        "  ✅ test_slugify_sprint_name: spring_id descriptivo desde el goal"
+    )
+
+
 def test_spring_graph_import_legacy():
     """import_spring: puente desde plan.json legacy al modelo unificado.
 

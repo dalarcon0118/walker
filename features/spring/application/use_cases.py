@@ -42,10 +42,13 @@ class PlanSprintUseCase:
 
     @staticmethod
     def execute(ctx: ExecutionContext, data: dict) -> dict:
-        sprint_dir = _resolve_chain_dir(ctx, project_id=data.get("_project_id", ""))
         goal = PlanSprintUseCase._from_payload(data, "goal", "")
         specs_raw = PlanSprintUseCase._from_payload(
             data, "tasks", PlanSprintUseCase._from_payload(data, "specifications", [])
+        )
+
+        sprint_dir = _resolve_chain_dir(
+            ctx, project_id=data.get("_project_id", ""), goal=goal
         )
 
         sprint_id = os.path.basename(sprint_dir)
@@ -524,7 +527,9 @@ class ValidatePlanUseCase:
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def _resolve_chain_dir(ctx: ExecutionContext, project_id: str = "") -> str:
+def _resolve_chain_dir(
+    ctx: ExecutionContext, project_id: str = "", goal: str = ""
+) -> str:
     """Resolve or create sprint chain directory.
 
     SSOT: Delegates to ProjectService for path resolution.
@@ -534,6 +539,10 @@ def _resolve_chain_dir(ctx: ExecutionContext, project_id: str = "") -> str:
     PRINCIPIO: un chain_dir válido se detecta por .workflow-state.json
     (estado del motor) o plan.json (proyección del delta). sprint-state.json
     fue eliminado estructuralmente.
+
+    NAMING: los springs formales se nombran con un slug descriptivo del goal
+    (sprint-{slug}, ej: sprint-workflow-contract-redesign). El nombre del
+    directorio es el spring_id (get_spring_id deriva el id del basename).
     """
     cd = ctx.chain_dir or ""
     if cd and os.path.isdir(cd) and (
@@ -557,9 +566,15 @@ def _resolve_chain_dir(ctx: ExecutionContext, project_id: str = "") -> str:
 
         delta_dir = str(get_delta_dir(pid))
         os.makedirs(delta_dir, exist_ok=True)
+        sprint_name = _slugify_sprint_name(goal)
+        sprint_dir = os.path.join(delta_dir, sprint_name)
+        if not os.path.isdir(sprint_dir):
+            os.makedirs(sprint_dir, exist_ok=True)
+            return sprint_dir
+        # Colisión de nombre (sprint del mismo slug): anexar timestamp
         sprint_dir = os.path.join(
             delta_dir,
-            f"sprint-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
+            f"{sprint_name}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
         )
         os.makedirs(sprint_dir, exist_ok=True)
         return sprint_dir
@@ -619,3 +634,34 @@ def _get_current_spec_index(sprint_dir: str) -> int:
         )
     except Exception:
         return 0
+
+
+def _slugify_sprint_name(goal: str) -> str:
+    """Genera un nombre de spring formal desde el goal (sprint-{slug}).
+
+    Reglas:
+      - Toma la primera frase del goal (hasta ':' o ';').
+      - Normaliza: lowercase, espacios->guiones, sin acentos/caracteres raros.
+      - Recorta a 40 chars.
+    Fallback: sprint-{timestamp} si el goal es vacío o no genera slug.
+    Ej: 'Rediseno del contrato autoritativo del workflow: resolver gaps...'
+        -> 'sprint-rediseno-contrato-autoritativo-wor'
+    """
+    import re
+    import unicodedata
+
+    text = (goal or "").strip()
+    for sep in (":", ";"):
+        if sep in text:
+            text = text.split(sep, 1)[0]
+            break
+    if not text:
+        return f"sprint-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+    # Normalizar unicode (eliminar acentos) y quedarnos con alfanumericos
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    text = re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
+    text = re.sub(r"-{2,}", "-", text)[:40].rstrip("-")
+    if not text:
+        return f"sprint-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    return f"sprint-{text}"
