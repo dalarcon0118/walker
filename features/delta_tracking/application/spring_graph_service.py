@@ -143,8 +143,15 @@ class SpringGraphService:
         status: str = "planning",
         project_id: str = "",
         session_id: str = "",
+        informal: bool = False,
     ) -> dict:
-        """Crea (o actualiza) un nodo spring en el delta."""
+        """Crea (o actualiza) un nodo spring en el delta.
+
+        Args:
+            informal: Marca el spring como informal (session log de captura
+                de tareas). Los springs informales NO compiten como "activo"
+                frente a los formales del workflow (ver get_active_spring).
+        """
         self._validate_spring_status(status)
         doc = self._get(spring_id)
         now = datetime.now(timezone.utc).isoformat()
@@ -158,6 +165,8 @@ class SpringGraphService:
                     "updated_at": now,
                 }
             )
+            if informal:
+                data["informal"] = True
         else:
             data = {
                 "type": self.TYPE_SPRING,
@@ -166,6 +175,7 @@ class SpringGraphService:
                 "active": status == "active",
                 "project_id": project_id,
                 "session_id": session_id,
+                "informal": informal,
                 "current_spec_index": 0,
                 "current_task_index": 0,
                 "task_id": "",
@@ -236,11 +246,25 @@ class SpringGraphService:
         }
 
     def get_active_spring(self) -> dict | None:
-        """Retorna el spring con status 'active' (o None)."""
+        """Retorna el spring activo, priorizando el formal del workflow.
+
+        Un spring puede tener status 'active' por dos vias distintas:
+          - Formales del workflow (planning → active): planificados via
+            plan_sprint, con specs especificadas.
+          - Informales de sesion (capture_task session-YYYYMMDD): logs de
+            trabajo del agente.
+
+        PRINCIPIO: el "sprint activo" del proyecto es el formal. Si hay
+        activos informales compitiendo, se ignoran mientras exista un
+        formal activo (fallback al informal si NO hay formal).
+        """
         results = self._search({"type": self.TYPE_SPRING, "status": "active"})
-        if results:
-            return results[0]
-        return None
+        if not results:
+            return None
+        formals = [r for r in results if not r.get("informal")]
+        if formals:
+            return formals[0]
+        return results[0]
 
     def get_spring(self, spring_id: str) -> dict | None:
         return self._get(spring_id)
@@ -570,7 +594,14 @@ class SpringGraphService:
         for h in hits:
             src = h.get("_source", h) if isinstance(h, dict) else h
             if isinstance(src, dict):
-                out.append(dict(src))
+                item = dict(src)
+                # Normalizar _id del hit (los docs creados por _store no lo
+                # incluyen en el _source; los importados/legacy sí).
+                if "_id" not in item:
+                    hid = h.get("_id") if isinstance(h, dict) else None
+                    if hid:
+                        item["_id"] = hid
+                out.append(item)
         return out
 
     @staticmethod

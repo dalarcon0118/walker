@@ -177,9 +177,16 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                 status="active",
                 project_id=project_id,
                 session_id=ctx.session_id or "",
+                informal=True,
             )
         else:
             spring_svc.set_spring_status(sprint_id, "active")
+            # Marcar como informal si no lo estaba (backfill): los session logs
+            # NO deben competir como "activo" frente al sprint formal.
+            existing_data = dict(existing)
+            if not existing_data.get("informal"):
+                existing_data["informal"] = True
+                spring_svc._store(sprint_id, existing_data)
 
         # 3. Agregar la tarea como spec en el delta (fuente unica)
         result = spring_svc.add_spec(

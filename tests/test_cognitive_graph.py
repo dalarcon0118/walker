@@ -923,6 +923,56 @@ def test_spring_graph_service_unified_model():
         )
 
 
+def test_get_active_spring_prioriza_formal():
+    """get_active_spring() debe priorizar el sprint formal del workflow.
+
+    Regression: capture_task crea session-YYYYMMDD con status='active' y
+    competia con el sprint formal como 'activo'. El informal no debe
+    desplazar al formal; solo se usa como fallback si NO hay formal.
+    """
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = SpringGraphService(tmpdir)
+
+        # Sprint formal del workflow (sin informal)
+        svc.create_spring(
+            "sprint-formal", goal="Goal formal", status="active", project_id="demo"
+        )
+        # Sprint informal de captura (session log)
+        svc.create_spring(
+            "session-20260804",
+            goal="Session log session-20260804 — trabajo del agente",
+            status="active",
+            project_id="demo",
+            session_id="cli",
+            informal=True,
+        )
+
+        # El activo global debe ser el FORMAL, no el informal
+        active = svc.get_active_spring()
+        assert active is not None
+        assert active["_id"] == "sprint-formal", (
+            f"formal debe ganar, got {active['_id']}"
+        )
+
+        # Fallback: si el formal se cierra, el informal es el activo
+        svc.set_spring_status("sprint-formal", "closed")
+        active = svc.get_active_spring()
+        assert active is not None and active["_id"] == "session-20260804", (
+            "informal como fallback cuando no hay formal"
+        )
+
+        # Sin activos → None
+        svc.set_spring_status("session-20260804", "closed")
+        assert svc.get_active_spring() is None
+        print(
+            "  ✅ test_get_active_spring_prioriza_formal: formal gana, informal fallback"
+        )
+
+
 def test_spring_graph_import_legacy():
     """import_spring: puente desde plan.json legacy al modelo unificado.
 
