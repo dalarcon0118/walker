@@ -34,6 +34,7 @@ WALKER_CHAIN_DIR = os.path.abspath(
 # Fixtures: proyecto cognitivo aislado en tempdir
 # ════════════════════════════════════════════════════════════════
 
+
 def _make_project(files_changed: list[str], covered_files: list[str]) -> str:
     """Crea un proyecto aislado con trace (file_impact) + delta (specs).
 
@@ -122,6 +123,7 @@ def _empty_project() -> str:
 # 1. Contrato del resultado
 # ════════════════════════════════════════════════════════════════
 
+
 def test_result_clean_no_bloquea():
     from features.engine.application.uncaptured_work import (
         UncapturedWorkResult,
@@ -186,6 +188,7 @@ def test_result_error_fail_open_visible():
 # ════════════════════════════════════════════════════════════════
 # 2. Detector: comparación trace (file_impact) vs delta (specs)
 # ════════════════════════════════════════════════════════════════
+
 
 def test_detector_sin_trabajo_sin_capturar():
     """Archivos modificados cubiertos por specs → clean."""
@@ -262,7 +265,6 @@ def test_detector_lee_change_detected_sin_trace():
     import tempfile
     from features.engine.application.uncaptured_work import (
         detect_uncaptured_work,
-        UncapturedStatus,
     )
 
     tmpdir = tempfile.mkdtemp()
@@ -284,6 +286,7 @@ def test_detector_lee_change_detected_sin_trace():
 # ════════════════════════════════════════════════════════════════
 # 3. Enforcement en SubmitOrchestrator
 # ════════════════════════════════════════════════════════════════
+
 
 def _make_ctx(chain_dir: str, sub_state: str = "REVIEW", node: str = "SPRINT"):
     return SimpleNamespace(

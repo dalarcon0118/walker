@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import os
 
 from ..domain.models import (
     ExecutionContext,
@@ -23,11 +22,8 @@ from ..domain.models import (
     WorkflowNode,
 )
 from ..domain.errors import (
-    WorkflowEngineError,
     ErrorType,
     ErrorStrategy,
-    classify_error,
-    DEFAULT_STRATEGIES,
 )
 from ..infrastructure.repositories import (
     WorkflowRepository,
@@ -308,7 +304,7 @@ class OrchestrationService:
         chain_dir: str,
         task_id: str = "",
     ) -> dict:
-        """Construye contexto de placeholders desde sprint-state y sesión.
+        """Construye contexto de placeholders desde el delta y sesión.
 
         SRP: delega en PromptContextBuilder (componente de contexto).
         """

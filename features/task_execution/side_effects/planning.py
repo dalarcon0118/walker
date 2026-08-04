@@ -44,26 +44,19 @@ def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, A
 @as_side_effect(scope=SCOPE_TRACKING)
 def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     sprint_dir = ctx.chain_dir or ""
-    from features.spring.infrastructure.repositories import SprintStateRepository
+    from features.delta_tracking.application.spring_graph_service import SpringGraphService
 
-    repo = SprintStateRepository()
-    try:
-        state = repo.load(sprint_dir)
-    except Exception as e:
-        return {"ok": False, "error": f"sprint-state.json: {e}"}
-    if not state.current_node and not state.context:
-        return {"ok": False, "error": "sprint-state.json empty or not found"}
+    spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+    if not spring_svc:
+        return {"ok": False, "error": "cannot resolve SpringGraphService"}
+    spring_id = spring_svc.get_spring_id(sprint_dir)
 
     # ── Resolver total de specs ANTES de avanzar (para clamp) ──
     total_specs = 0
     specs = []
     try:
-        from features.delta_tracking.application.spring_graph_service import SpringGraphService
-        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
-        if spring_svc:
-            spring_id = spring_svc.get_spring_id(sprint_dir)
-            spring_svc.ensure_spring_imported(sprint_dir, spring_id)
-            specs = spring_svc.get_specs_legacy(spring_id)
+        spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+        specs = spring_svc.get_specs_legacy(spring_id)
     except Exception:
         specs = []
     if not specs:
@@ -76,7 +69,9 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
             specs = []
     total_specs = len(specs)
 
-    next_idx = state.context.get("current_task_index", 0) + 1
+    # ── Contexto actual desde el DELTA (nodo spring) ──
+    ctx_state = spring_svc.get_spring_context(spring_id)
+    next_idx = ctx_state.get("current_task_index", 0) + 1
     # SSOT: clamp al rango de specs. Si all_done (ultima spec), el indice
     # queda en el ultimo valido, no crece indefinidamente.
     current_idx = min(next_idx, max(total_specs - 1, 0)) if total_specs > 0 else next_idx
@@ -87,23 +82,24 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
     all_done = current_idx >= total_specs - 1 if total_specs > 0 else False
     next_spec_id = ""
     if total_specs > 0:
-        if not all_done:
-            next_spec_id = specs[current_idx + 1].get("spec_id", specs[current_idx + 1].get("task_id", ""))
-        else:
-            # En la ultima spec: el task_id actual es esa spec
-            next_spec_id = specs[current_idx].get("spec_id", specs[current_idx].get("task_id", ""))
-    # ── task_id de la siguiente spec: vive en SPRINT-STATE (negocio) ──
-    # PRINCIPIO: spring actualiza sprint-state.json. El workflow lee el
-    # task_id desde aqui (WorkflowAPI._build_context). El workflow-state
-    # NO debe duplicar datos de negocio.
+        # current_idx YA es el indice de la siguiente tarea a especificar
+        # (next_idx = current_task_index + 1). Usar specs[current_idx] sin
+        # sumar +1 evita el off-by-one que adelantaba una tarea.
+        next_spec_id = specs[current_idx].get(
+            "spec_id", specs[current_idx].get("task_id", "")
+        )
+    # ── task_id de la siguiente spec: vive en el DELTA (nodo spring) ──
+    # PRINCIPIO: el estado de negocio del spring vive en el nodo spring
+    # del delta. El workflow lee el task_id desde aqui
+    # (WorkflowAPI._build_context). .workflow-state.json NO duplica
+    # datos de negocio. sprint-state.json fue eliminado.
     if next_spec_id:
         context_updates["task_id"] = next_spec_id
     try:
-        # SSOT: sprint-state lo escribe el store (unico dueno)
-        repo.save_context(sprint_dir, context_updates)
+        spring_svc.set_spring_context(spring_id, **context_updates)
         return {"ok": True, "current_task_index": current_idx,
                 "next_spec_id": next_spec_id, "all_done": all_done}
-    except OSError as e:
+    except Exception as e:
         return {"ok": False, "error": str(e)}
 
 

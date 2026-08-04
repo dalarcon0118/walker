@@ -170,7 +170,7 @@ class ContractValidator:
 
         Args:
             contract: Contrato con preconditions a verificar.
-            state: Estado actual del workflow (SprintState.to_dict()).
+            state: Estado actual del workflow (WorkflowState.to_dict()).
 
         Returns:
             ContractReport con passed=False si alguna precondition falla.

@@ -116,29 +116,10 @@ class SubmitOrchestrator:
         _orig_action = _orig_sub_def.action if _orig_sub_def else ""
 
         # ── GATE: required_tools (auto-consulta obligatoria) ──────────────
-        # Convención CKG doc-28: si el sub-estado declara herramientas
-        # obligatorias (ckg/cpg/delta...), el submit se BLOQUEA si el trace
-        # no tiene evidencia de kg_query para esas capas en esta tarea.
         if _orig_sub_def and _orig_sub_def.required_tools:
             gate_check = self._check_required_tools_gate(ctx, _orig_sub_def)
             if not gate_check.get("ok", False):
-                # Trazar el bloqueo para visibilidad en el TraceGraph
-                try:
-                    self._tracer.trace(
-                        ctx.chain_dir,
-                        "GATE_BLOCKED",
-                        data={
-                            "reason": "required_tools",
-                            "sub_state": _orig_sub,
-                            "required": [
-                                t.get("id", "") for t in _orig_sub_def.required_tools
-                            ],
-                        },
-                        task_id=ctx.task_id,
-                        session_id=ctx.session_id,
-                    )
-                except Exception:
-                    pass
+                self._trace_gate_blocked(ctx, _orig_sub, _orig_sub_def)
                 gate_check.update(
                     {
                         "execution_type": _orig_exec_type,
@@ -149,46 +130,13 @@ class SubmitOrchestrator:
                 return gate_check
 
         # ── GATE: trabajo sin capturar (anti-pérdida al salir del sprint) ──
-        # Convención CKG: el watcher registra file_impact, pero convertirlos
-        # en specs del session-log es manual (capture_task). Al salir del
-        # sprint (REVIEW/CLOSE_CONFIRM) se BLOQUEA el cierre si hay cambios
-        # de código sin spec que los cubra — para no perder trabajo.
         _SPRINT_EXIT_SUBSTATES = {"REVIEW", "CLOSE_CONFIRM"}
-        if (
-            _orig_node == "SPRINT"
-            and _orig_sub in _SPRINT_EXIT_SUBSTATES
-        ):
-            from .uncaptured_work import detect_uncaptured_work
-
-            uw = detect_uncaptured_work(ctx.chain_dir)
-            if uw.should_block:
-                # Trazar el bloqueo para visibilidad en el TraceGraph
-                try:
-                    self._tracer.trace(
-                        ctx.chain_dir,
-                        "GATE_BLOCKED",
-                        data={
-                            "reason": "uncaptured_work",
-                            "sub_state": _orig_sub,
-                            "uncaptured_files": uw.uncaptured_files,
-                            "spring_id": uw.spring_id,
-                        },
-                        task_id=ctx.task_id,
-                        session_id=ctx.session_id,
-                    )
-                except Exception:
-                    pass
-                return {
-                    "ok": False,
-                    "action": "gate_blocked",
-                    "blocked": True,
-                    "error_type": "uncaptured_work_gate",
-                    "strategy": "block",
-                    "message": uw.gate_message(),
-                    "execution_type": _orig_exec_type,
-                    "sub_state": _orig_sub,
-                    "uncaptured_files": uw.uncaptured_files,
-                }
+        if _orig_node == "SPRINT" and _orig_sub in _SPRINT_EXIT_SUBSTATES:
+            blocked = self._check_uncaptured_work_gate(
+                ctx, _orig_node, _orig_sub, _orig_exec_type
+            )
+            if blocked:
+                return blocked
 
         # ── Ejecutar submit (TASK-009: try/except con estrategia de error) ──
         from ..domain.errors import WorkflowEngineError
@@ -196,56 +144,45 @@ class SubmitOrchestrator:
         try:
             result = self._submit_uc.execute(ctx, fields=fields or {})
         except WorkflowEngineError as e:
-            duration_ms = int((time.time() - _start_ts) * 1000)
-            result = self._handle_error(ctx, e, None, fields=fields or {})
-            # Persistir contexto de error (ELM: state inmutable)
-            state = self._state_repo.load(ctx.chain_dir)
-            state = state.with_context(
-                "last_error", result.get("error_type", "unknown")
+            return self._handle_submit_error(
+                ctx, e, _start_ts, fields or {}, _orig_node, _orig_sub,
+                _orig_exec_type, _orig_action,
             )
-            state = state.with_context(
-                "last_error_strategy", result.get("strategy", "none")
-            )
-            state = state.record_node_execution(
-                node=_orig_node,
-                sub_state=_orig_sub,
-                execution_type=_orig_exec_type,
-                action=_orig_action,
-                submitted_fields=fields or {},
-                task_ok=False,
-                error=result.get("message", str(e)),
-                error_type=result.get("error_type", "unknown"),
-                duration_ms=duration_ms,
-            )
-            self._state_repo.save(ctx.chain_dir, state)
 
-            # ── Trazar error ───────────────────────────────────────
-            self._tracer.trace_error(
-                ctx.chain_dir,
-                result.get("error_type", "unknown"),
-                result.get("message", ""),
-                task_id=ctx.task_id,
+        # ── Superficie fallos de side-effects al agente ──
+        # Si alguna side-effect reporta ok=False, el agente debe verlo
+        # para saber qué corregir (ej: validate_plan con specs vacías).
+        _failed_ses = [
+            se for se in result.get("side_effects", [])
+            if isinstance(se, dict) and se.get("ok") is False
+        ]
+        if _failed_ses:
+            summaries = [
+                se.get("summary", se.get("error", "unknown failure"))
+                for se in _failed_ses
+                if isinstance(se, dict)
+            ]
+            errors = [
+                e for se in _failed_ses if isinstance(se, dict)
+                for e in se.get("errors", [])
+            ]
+            result["ok"] = False
+            result["error"] = (
+                "Side-effect(s) fallaron: " + "; ".join(summaries)
             )
-            return result
+            if errors:
+                result["errors"] = errors
+            # No retornar aquí — el result se procesa normalmente
+            # pero con ok=False para que handle_submit lo surface.
 
         # ── Cargar state para tracing (puede haber auto-avanzado) ────
         duration_ms = int((time.time() - _start_ts) * 1000)
         state = self._state_repo.load(ctx.chain_dir)
 
         # ── Teoría de grafos: XOR-split resuelto por intent ─────────
-        if result.get("_auto_transition") and result.get("_gate"):
-            try:
-                trans_result = self._transition(ctx, result["_gate"])
-                result["advanced_to"] = trans_result.get("to_sub_state", "")
-                result["xor_next"] = (
-                    f"{trans_result.get('to_node', '')}.{trans_result.get('to_sub_state', '')}"
-                )
-                result["xor_done"] = True
-                # La transicion persiste el nuevo estado; recargar para
-                # no sobrescribirlo con el node_execution posterior.
-                state = self._state_repo.load(ctx.chain_dir)
-            except Exception as e:
-                result["xor_error"] = str(e)
+        state = self._resolve_xor_auto_transition(
+            ctx, result, state, _orig_node, _orig_sub, fields or {}
+        )
 
         # ── Registrar NodeExecution (ELM: state inmutable) ─
         state = state.record_node_execution(
@@ -262,41 +199,11 @@ class SubmitOrchestrator:
         self._state_repo.save(ctx.chain_dir, state)
 
         # ── Trazar submit con decision/evidence ──────────────────────
-        decision = fields.get("decision", "") if fields else ""
-        evidence = fields.get("evidence", "") if fields else ""
-        self._tracer.trace_submit(
-            ctx.chain_dir,
-            f"{state.current_node}.{state.current_sub_state}",
-            decision,
-            evidence,
-            task_id=ctx.task_id,
-        )
-
+        self._trace_submit(ctx, state, fields)
         # ── Trazar auto-advance si ocurrio ──────────────────────────
-        advanced_to = result.get("advanced_to", "")
-        if advanced_to:
-            self._tracer.trace(
-                ctx.chain_dir,
-                "AUTO_ADVANCE",
-                data={"from": state.current_sub_state, "to": advanced_to},
-                task_id=ctx.task_id,
-                session_id=ctx.session_id,
-            )
-
+        self._trace_auto_advance(ctx, result, _orig_node, _orig_sub, state)
         # ── Trazar side-effects ejecutados ──────────────────────────
-        side_effects = result.get("side_effects", [])
-        for se in side_effects:
-            self._tracer.trace(
-                ctx.chain_dir,
-                "SIDE_EFFECT",
-                data={
-                    "type": se.get("type", "?"),
-                    "ok": se.get("ok", False),
-                    "result": se.get("result", {}),
-                },
-                task_id=ctx.task_id,
-                session_id=ctx.session_id,
-            )
+        self._trace_side_effects(ctx, result)
 
         # ── Disparar eventos on:{} por side-effects emit_event ──
         event_count = self._dispatch_events_from_side_effects(ctx, result)
@@ -310,3 +217,209 @@ class SubmitOrchestrator:
             )
 
         return result
+
+    def _trace_gate_blocked(
+        self, ctx: ExecutionContext, _orig_sub: str, sub_def: Any
+    ) -> None:
+        """Traza un bloqueo de gate (visibilidad en TraceGraph)."""
+        try:
+            self._tracer.trace(
+                ctx.chain_dir,
+                "GATE_BLOCKED",
+                data={
+                    "reason": "required_tools",
+                    "sub_state": _orig_sub,
+                    "required": [t.get("id", "") for t in sub_def.required_tools],
+                },
+                task_id=ctx.task_id,
+                session_id=ctx.session_id,
+            )
+        except Exception as _trace_err:
+            import logging
+
+            logging.getLogger(__name__).error(
+                "GATE_BLOCKED (required_tools): fallo al trazar: %s",
+                _trace_err,
+            )
+
+    def _check_uncaptured_work_gate(
+        self, ctx: ExecutionContext, _orig_node: str, _orig_sub: str, exec_type: str
+    ) -> dict | None:
+        """Bloquea el cierre del sprint si hay cambios sin capturar."""
+        from .uncaptured_work import detect_uncaptured_work
+
+        uw = detect_uncaptured_work(ctx.chain_dir)
+        if not uw.should_block:
+            return None
+        try:
+            self._tracer.trace(
+                ctx.chain_dir,
+                "GATE_BLOCKED",
+                data={
+                    "reason": "uncaptured_work",
+                    "sub_state": _orig_sub,
+                    "uncaptured_files": uw.uncaptured_files,
+                    "spring_id": uw.spring_id,
+                },
+                task_id=ctx.task_id,
+                session_id=ctx.session_id,
+            )
+        except Exception as _trace_err:
+            import logging
+
+            logging.getLogger(__name__).error(
+                "GATE_BLOCKED (uncaptured_work): fallo al trazar: %s",
+                _trace_err,
+            )
+        return {
+            "ok": False,
+            "action": "gate_blocked",
+            "blocked": True,
+            "error_type": "uncaptured_work_gate",
+            "strategy": "block",
+            "message": uw.gate_message(),
+            "execution_type": exec_type,
+            "sub_state": _orig_sub,
+            "uncaptured_files": uw.uncaptured_files,
+        }
+
+    def _handle_submit_error(
+        self,
+        ctx: ExecutionContext,
+        e: Exception,
+        _start_ts: float,
+        fields: dict,
+        _orig_node: str,
+        _orig_sub: str,
+        _orig_exec_type: str,
+        _orig_action: str,
+    ) -> dict:
+        """Maneja error de submit: estrategia + persistencia + tracing."""
+        duration_ms = int((time.time() - _start_ts) * 1000)
+        result = self._handle_error(ctx, e, None, fields=fields)
+        state = self._state_repo.load(ctx.chain_dir)
+        state = state.with_context("last_error", result.get("error_type", "unknown"))
+        state = state.with_context(
+            "last_error_strategy", result.get("strategy", "none")
+        )
+        state = state.record_node_execution(
+            node=_orig_node,
+            sub_state=_orig_sub,
+            execution_type=_orig_exec_type,
+            action=_orig_action,
+            submitted_fields=fields,
+            task_ok=False,
+            error=result.get("message", str(e)),
+            error_type=result.get("error_type", "unknown"),
+            duration_ms=duration_ms,
+        )
+        self._state_repo.save(ctx.chain_dir, state)
+        self._tracer.trace_error(
+            ctx.chain_dir,
+            result.get("error_type", "unknown"),
+            result.get("message", ""),
+            task_id=ctx.task_id,
+        )
+        return result
+
+    def _resolve_xor_auto_transition(
+        self,
+        ctx: ExecutionContext,
+        result: dict,
+        state: Any,
+        _orig_node: str,
+        _orig_sub: str,
+        fields: dict,
+    ) -> Any:
+        """Aplica la auto-transicion XOR si el submit resolvio un intent/gate."""
+        if not (result.get("_auto_transition") and result.get("_gate")):
+            return state
+        try:
+            trans_result = self._transition(ctx, result["_gate"])
+            result["advanced_to"] = trans_result.get("to_sub_state", "")
+            result["xor_next"] = (
+                f"{trans_result.get('to_node', '')}.{trans_result.get('to_sub_state', '')}"
+            )
+            result["xor_done"] = True
+
+            if trans_result.get("to_node") == "REFINE":
+                self._tracer.trace(
+                    ctx.chain_dir,
+                    "REFINE_ENTRY",
+                    data={
+                        "from_node": _orig_node,
+                        "from_sub_state": _orig_sub,
+                        "gate": result.get("_gate", ""),
+                        "decision": fields.get("decision", ""),
+                        "intent": fields.get("intent", ""),
+                        "target": trans_result.get("to_sub_state", ""),
+                        "reason": (
+                            "nodeworkflow incompleto o decision de "
+                            "reject/refine"
+                        ),
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
+
+            # La transicion persiste el nuevo estado; recargar para
+            # no sobrescribirlo con el node_execution posterior.
+            state = self._state_repo.load(ctx.chain_dir)
+        except Exception as e:
+            result["xor_error"] = str(e)
+        return state
+
+    def _trace_submit(
+        self, ctx: ExecutionContext, state: Any, fields: dict | None
+    ) -> None:
+        """Traza el submit con decision/evidence."""
+        decision = fields.get("decision", "") if fields else ""
+        evidence = fields.get("evidence", "") if fields else ""
+        self._tracer.trace_submit(
+            ctx.chain_dir,
+            f"{state.current_node}.{state.current_sub_state}",
+            decision,
+            evidence,
+            task_id=ctx.task_id,
+        )
+
+    def _trace_auto_advance(
+        self,
+        ctx: ExecutionContext,
+        result: dict,
+        _orig_node: str,
+        _orig_sub: str,
+        state: Any,
+    ) -> None:
+        """Traza el auto-advance (from = sub-estado ORIGEN, no el recargado)."""
+        advanced_to = result.get("advanced_to", "")
+        if not advanced_to:
+            return
+        self._tracer.trace(
+            ctx.chain_dir,
+            "AUTO_ADVANCE",
+            data={
+                "from": _orig_sub,
+                "to": advanced_to,
+                "from_node": _orig_node,
+                "to_node": state.current_node,
+            },
+            task_id=ctx.task_id,
+            session_id=ctx.session_id,
+        )
+
+    def _trace_side_effects(self, ctx: ExecutionContext, result: dict) -> None:
+        """Traza cada side-effect ejecutado."""
+        side_effects = result.get("side_effects", [])
+        for se in side_effects:
+            self._tracer.trace(
+                ctx.chain_dir,
+                "SIDE_EFFECT",
+                data={
+                    "type": se.get("type", "?"),
+                    "ok": se.get("ok", False),
+                    "result": se.get("result", {}),
+                },
+                task_id=ctx.task_id,
+                session_id=ctx.session_id,
+            )

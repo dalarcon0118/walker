@@ -12,8 +12,6 @@ from __future__ import annotations
 import os
 import re
 
-from .models import ProjectId, ProjectPaths
-
 
 # ── ProjectId validation ────────────────────────────────────────────────
 
@@ -63,8 +61,13 @@ def compute_project_paths(
 
 
 def sprint_state_path(chain_dir: str) -> str:
-    """Ruta a sprint-state.json (funcion pura, solo concatena paths)."""
-    return os.path.join(chain_dir, "sprint-state.json")
+    """Ruta al estado del motor (.workflow-state.json).
+
+    PRINCIPIO estructural: .workflow-state.json es el unico estado del
+    motor; sprint-state.json fue eliminado. Se conserva el nombre de la
+    funcion por compatibilidad con llamadores legacy.
+    """
+    return os.path.join(chain_dir, ".workflow-state.json")
 
 
 def plan_json_path(chain_dir: str) -> str:

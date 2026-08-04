@@ -116,10 +116,22 @@ class ProjectPaths:
 
     @property
     def sprint_state_path(self) -> str:
-        """Ruta a sprint-state.json del sprint activo."""
+        """Ruta al estado del motor (.workflow-state.json) del sprint activo.
+
+        PRINCIPIO estructural: .workflow-state.json es el unico estado del
+        motor. sprint-state.json fue eliminado. Mantiene el nombre para
+        compatibilidad con consumidores que piden "estado del sprint".
+        """
         if not self.chain_dir:
             return ""
-        return os.path.join(self.chain_dir, "sprint-state.json")
+        return os.path.join(self.chain_dir, ".workflow-state.json")
+
+    @property
+    def workflow_state_path(self) -> str:
+        """Ruta a .workflow-state.json (estado del motor SAGA)."""
+        if not self.chain_dir:
+            return ""
+        return os.path.join(self.chain_dir, ".workflow-state.json")
 
     @property
     def plan_json_path(self) -> str:

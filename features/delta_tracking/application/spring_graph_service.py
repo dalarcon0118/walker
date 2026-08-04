@@ -19,8 +19,9 @@ RESPONDE CONSULTAS DE NEGOCIO:
     update_spec_status(...)  -> muta status de una spec
 
 PRINCIPIO: solo SpringGraphService escribe en el indice delta. plan.json
-y sprint-state.json quedan como PROYECCIONES de compatibilidad que este
-mismo servicio regenera (para no romper consumidores legacy).
+queda como PROYECCION de compatibilidad que este mismo servicio regenera
+(para no romper consumidores legacy). sprint-state.json fue ELIMINADO:
+el estado de negocio del spring vive en el nodo spring del delta.
 """
 
 from __future__ import annotations
@@ -30,7 +31,14 @@ from datetime import datetime, timezone
 
 
 SPRING_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
-SPEC_STATUS_FLOW = ["draft", "specified", "in_progress", "completed"]
+SPEC_STATUS_FLOW = [
+    "draft",
+    "specified",
+    "in_progress",
+    "completed",
+    "rejected",
+    "backlog",
+]
 
 
 class SpringGraphService:
@@ -158,6 +166,9 @@ class SpringGraphService:
                 "active": status == "active",
                 "project_id": project_id,
                 "session_id": session_id,
+                "current_spec_index": 0,
+                "current_task_index": 0,
+                "task_id": "",
                 "created_at": now,
                 "updated_at": now,
             }
@@ -176,6 +187,53 @@ class SpringGraphService:
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._store(spring_id, data)
         return data
+
+    def set_spring_context(
+        self,
+        spring_id: str,
+        current_spec_index: int | None = None,
+        current_task_index: int | None = None,
+        task_id: str = "",
+    ) -> dict:
+        """Actualiza el contexto de negocio del spring (spec actual).
+
+        PRINCIPIO: el estado de negocio del spring (en qué spec estamos,
+        cuál es el task_id actual) vive en el NODO spring del delta.
+        Sustituye al legacy sprint-state.json/context.
+
+        Args:
+            spring_id: Identificador del spring.
+            current_spec_index: Índice de la spec actual (0-based).
+            current_task_index: Alias legacy del índice (mismo valor).
+            task_id: Spec id de la tarea actual.
+        """
+        doc = self._get(spring_id)
+        if not doc:
+            raise ValueError(f"Spring '{spring_id}' not found")
+        data = dict(doc)
+        if current_spec_index is not None:
+            data["current_spec_index"] = int(current_spec_index)
+        if current_task_index is not None:
+            data["current_task_index"] = int(current_task_index)
+        if task_id:
+            data["task_id"] = task_id
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._store(spring_id, data)
+        return data
+
+    def get_spring_context(self, spring_id: str) -> dict:
+        """Retorna el contexto de negocio del spring (spec actual).
+
+        Lee del nodo spring del delta. Campos: current_spec_index,
+        current_task_index, task_id. Compatible con el formato legacy
+        sprint-state.json/context.
+        """
+        doc = self._get(spring_id) or {}
+        return {
+            "current_spec_index": doc.get("current_spec_index", 0),
+            "current_task_index": doc.get("current_task_index", 0),
+            "task_id": doc.get("task_id", ""),
+        }
 
     def get_active_spring(self) -> dict | None:
         """Retorna el spring con status 'active' (o None)."""
@@ -358,11 +416,14 @@ class SpringGraphService:
     # ── Puente legacy → modelo unificado ──────────────────────────────
 
     def import_spring(self, sprint_dir: str) -> dict:
-        """Importa un spring legacy (sprint-state.json) al modelo unificado.
+        """Importa un spring legacy (plan.json + .workflow-state.json) al modelo unificado.
 
-        Lee plan.json/sprint-state.json y crea nodos spring+spec en el
-        delta con su estado. Permite que el SpringGraphService opere sobre
-        springs creados con el flujo formal.
+        Lee plan.json (specs) y el estado del motor (.workflow-state.json)
+        para crear nodos spring+spec en el delta con su estado. Permite que
+        el SpringGraphService opere sobre springs creados con el flujo formal.
+
+        PRINCIPIO: no depende de sprint-state.json (eliminado estructuralmente).
+        El estado de negocio del spring se deriva de las specs del plan.
 
         Args:
             sprint_dir: Directorio del sprint (contiene plan.json).
@@ -378,19 +439,22 @@ class SpringGraphService:
         spring_id = plan.get("chain_id") or os.path.basename(sprint_dir)
         goal = plan.get("goal", "")
 
-        # Estado del spring: leer sprint-state.json si existe
+        # Estado del spring: derivar desde el workflow del motor
+        # (.workflow-state.json). Fallback al estado en plan.json.
         status = "planning"
-        state_path = os.path.join(sprint_dir, "sprint-state.json")
-        if os.path.exists(state_path):
+        wf_state_path = os.path.join(sprint_dir, ".workflow-state.json")
+        if os.path.exists(wf_state_path):
             try:
-                with open(state_path) as f:
-                    state = json.load(f)
-                sprint = state.get("sprint", {})
+                with open(wf_state_path) as f:
+                    wf_state = json.load(f)
+                sprint = wf_state.get("sprint", {})
                 status = sprint.get("status", "planning")
                 if not status or status not in SPRING_STATUS_FLOW:
                     status = "planning"
             except Exception:
                 pass
+        if status not in SPRING_STATUS_FLOW:
+            status = "planning"
 
         self.create_spring(spring_id, goal=goal, status=status)
 
@@ -413,7 +477,7 @@ class SpringGraphService:
             )
         return {"imported": True, "spring_id": spring_id, "specs": len(specs)}
 
-    # ── Proyecciones legacy (plan.json / sprint-state.json) ───────────
+    # ── Proyeccion legacy (plan.json) ───────────────────────────────
 
     def sync_plan_projection(self, spring_id: str) -> None:
         """Regenera plan.json (proyeccion de specs) para consumidores legacy.

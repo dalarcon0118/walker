@@ -1,7 +1,144 @@
 """domain/analysis.py — Analysis findings as domain entities."""
 
 from __future__ import annotations
+import os
 from dataclasses import dataclass
+
+
+def is_false_positive_dead_code(
+    name: str, node_type: str = "", signature: str = "", path: str = ""
+) -> bool:
+    """Filtra falsos positivos estructurales del análisis de dead code.
+
+    El CPG marca como 'unused' símbolos que el runtime sí usa:
+      1. test_*            → pytest los descubre por naming, no por imports
+      2. __x__ (dunder)    → invocados implícitamente por el framework/ODM
+                             (__index__, __search__, __id_field__, __str__...)
+      3. fields/constantes → members de clase con firma SIN 'def' se indexan
+                             como 'method' (dataclass fields, ODM fields,
+                             constantes tipo TYPE_SPRING). No son callables.
+
+    Retorna True si el símbolo es un falso positivo y NO debe reportarse
+    como dead code.
+    """
+    if name.startswith("test_") or name.endswith("_test"):
+        return True
+    if name.startswith("__") and name.endswith("__"):
+        return True
+    if node_type == "method" and not (signature or "").strip().startswith("def "):
+        return True
+    return False
+
+
+class DeadCodeReferenceScanner:
+    """Escaneo de referencias por texto para detectar usos no-CTT.
+
+    Complementa el análisis de edges del CPG. Un símbolo sin CALLS incoming
+    puede estar vivo por:
+      - registro dinámico por string (registry.register("task", handler))
+      - imports lazy (dentro de funciones) — el CPG no los indexa como IMPORTS
+      - dispatch por nombre (getattr, maps de handlers)
+
+    Si el nombre del símbolo aparece como identificador (word boundary) en
+    CUALQUIER otro archivo del proyecto distinto del que lo define, se
+    considera que está referenciado y NO es dead code.
+    """
+
+    _IDENT_RE = None  # compilada lazy para evitar coste de import
+
+    def __init__(self, source_files: list[str]):
+        # Archivos fuente del proyecto (paths absolutos), para resolver
+        # referencias fuera del propio archivo de definición.
+        self._source_files = [os.path.realpath(f) for f in source_files if f]
+
+    @classmethod
+    def _ident_re(cls):
+        if cls._IDENT_RE is None:
+            import re
+
+            cls._IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+        return cls._IDENT_RE
+
+    def _is_registered_string(self, name: str, path: str) -> bool:
+        """True si el nombre aparece como STRING literal (entre comillas) en
+        cualquier archivo — patrón típico de registry.register("name", fn).
+
+        Se busca también en el propio archivo de definición (donde suele
+        estar el registro), porque allí el string aparece, no el edge.
+        """
+        quoted = f'"{name}"'
+        quoted_single = f"'{name}'"
+        for fp in self._source_files:
+            try:
+                with open(fp, errors="ignore") as fh:
+                    content = fh.read()
+                if quoted in content or quoted_single in content:
+                    return True
+            except OSError:
+                continue
+        return False
+
+    def _other_files(self, path: str) -> list[str]:
+        own = os.path.realpath(path) if path else ""
+        return [f for f in self._source_files if f != own]
+
+    def _referenced_in_own_file(self, name: str, path: str, def_line: int) -> bool:
+        """True si `name` aparece como identificador en el MISMO archivo, en
+        una línea distinta a la de definición.
+
+        Captura dispatch intra-archivo: maps de comandos ("goto": cmd_goto),
+        dicts de handlers ("symbol_exists": _verify_symbol_exists), etc.
+        El CPG no crea edges CALLS para referencias a funciones como valores.
+        """
+        if not path:
+            return False
+        try:
+            with open(path, errors="ignore") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if lineno == def_line:
+                        continue
+                    if self._ident_re().search(line) and name in line:
+                        return True
+        except OSError:
+            return False
+        return False
+
+    def is_referenced(self, name: str, path: str, def_line: int = 0) -> bool:
+        """True si `name` aparece como identificador en otro archivo, como
+        string literal de registro, o como identificador en el propio archivo
+        fuera de su línea de definición."""
+        if not name or len(name) < 2:
+            return False
+        # Nombres demasiado genéricos se descartan (evita falsos negativos
+        # por variables locales de nombres comunes: data, result, value...).
+        if name.lower() in {
+            "data", "result", "value", "status", "name", "path", "file",
+            "config", "ctx", "context", "item", "items", "key", "node",
+            "state", "index", "params", "args", "kwargs", "meta", "extra",
+            "type", "id", "info", "count", "total", "error", "log",
+        }:
+            return False
+
+        # 1. Registro dinámico por string (registry.register("name", ...))
+        if self._is_registered_string(name, path):
+            return True
+
+        # 2. Identificador en otro archivo (imports, dispatch, llamadas)
+        regex = self._ident_re()
+        for other in self._other_files(path):
+            try:
+                with open(other, errors="ignore") as fh:
+                    for line in fh:
+                        if regex.search(line) and name in line:
+                            return True
+            except OSError:
+                continue
+
+        # 3. Identificador en el propio archivo (dispatch intra-archivo)
+        if self._referenced_in_own_file(name, path, def_line):
+            return True
+
+        return False
 
 
 @dataclass

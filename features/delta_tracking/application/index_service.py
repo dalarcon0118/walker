@@ -11,9 +11,13 @@ import os
 def index_sprint(chain_dir: str, cg) -> int:
     """Indexa las tareas de un sprint en CognitiveGraph via Task(entity).save().
 
-    Lee datos via SprintStateRepository (SSOT) y crea entidades Task
-    que se almacenan como nodos en el grafo delta de CognitiveGraph.
-    El ODM maneja automaticamente el TokenIndex (full-text) y los edges.
+    Lee las specs del DELTA (SpringGraphService — fuente unica) y crea
+    entidades Task que se almacenan como nodos en el grafo delta de
+    CognitiveGraph. El ODM maneja automaticamente el TokenIndex (full-text)
+    y los edges.
+
+    PRINCIPIO estructural: las specs del spring viven en el DeltaGraph;
+    sprint-state.json fue eliminado. Fallback a plan.json (proyección).
 
     Args:
         chain_dir: Ruta al directorio del sprint
@@ -22,15 +26,38 @@ def index_sprint(chain_dir: str, cg) -> int:
     Returns:
         Numero de tareas indexadas
     """
-    from features.spring.infrastructure.repositories import SprintStateRepository
     from features.delta_tracking.entities import Task
 
     # Asegurar que el indice delta esta registrado con schema ODM
     if "delta" not in cg.list_indexes():
         Task.bind(cg)
 
-    state = SprintStateRepository().load_dict(chain_dir)
-    tasks = state.get("tasks", state.get("specifications", []))
+    tasks = []
+    try:
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
+        )
+
+        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        if spring_svc:
+            spring_id = spring_svc.get_spring_id(chain_dir)
+            spring_svc.ensure_spring_imported(chain_dir, spring_id)
+            tasks = spring_svc.get_specs_legacy(spring_id)
+    except Exception:
+        tasks = []
+    if not tasks:
+        # Fallback: plan.json (proyección del delta)
+        import json
+
+        plan_path = os.path.join(chain_dir, "plan.json")
+        if not os.path.exists(plan_path):
+            return 0
+        try:
+            with open(plan_path) as f:
+                plan = json.load(f)
+            tasks = plan.get("specifications", plan.get("tasks", []))
+        except (json.JSONDecodeError, OSError):
+            return 0
     if not tasks:
         return 0
 

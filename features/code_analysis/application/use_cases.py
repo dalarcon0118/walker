@@ -13,9 +13,6 @@ import gzip
 import json
 import os
 
-from libs.shared_domain import ExecutionContext, TaskResult
-from features.project import ProjectService
-
 
 # ── CPG health check (SSOT: solo code_analysis lee archivos CPG) ──────────
 

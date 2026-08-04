@@ -330,19 +330,23 @@ class WorkflowStateRepository:
     """Persistencia del estado del workflow (PURO: solo WorkflowState).
 
     SRP: Unica responsabilidad = load/save de WorkflowState.
-    SSOT: .workflow-state.json (nuevo) con fallback a sprint-state.json (legacy).
+    SSOT: .workflow-state.json es el UNICO estado del motor.
+
+    PRINCIPIO estructural: .workflow-state.json (motor SAGA) y el DeltaGraph
+    (negocio spring) son las dos unicas fuentes. sprint-state.json fue
+    ELIMINADO — no hay fallback legacy.
 
     PRINCIPIO: No sabe de plan.json, tasks de sprint, ni nada de negocio.
-    Eso es responsabilidad de SprintStateRepository en features/spring/.
+    Eso es responsabilidad del SpringGraphService en features/delta_tracking/.
     """
 
     STATE_FILE = ".workflow-state.json"
-    LEGACY_FILE = "sprint-state.json"
 
     def load(self, chain_dir: str) -> WorkflowState:
-        """Carga WorkflowState. Prueba .workflow-state.json primero,
-        luego sprint-state.json (legacy). Si nada, retorna vacío."""
-        # Nuevo formato
+        """Carga WorkflowState desde .workflow-state.json.
+
+        Si no existe, retorna vacío (el estado se crea al iniciar el sprint).
+        """
         path = os.path.join(chain_dir, self.STATE_FILE)
         if os.path.exists(path):
             try:
@@ -350,24 +354,6 @@ class WorkflowStateRepository:
                     return WorkflowState.from_dict(json.load(f))
             except (json.JSONDecodeError, OSError):
                 pass
-
-        # Legacy: leer sprint-state.json y extraer solo campos workflow
-        legacy = os.path.join(chain_dir, self.LEGACY_FILE)
-        if os.path.exists(legacy):
-            try:
-                with open(legacy) as f:
-                    raw = json.load(f)
-                wf = WorkflowState.from_dict(raw)
-                # Si habia datos utiles, migrar al nuevo formato
-                if wf.current_node:
-                    try:
-                        self.save(chain_dir, wf)
-                    except Exception:
-                        pass
-                return wf
-            except (json.JSONDecodeError, OSError):
-                pass
-
         return WorkflowState()
 
     def save(self, chain_dir: str, state: WorkflowState) -> None:

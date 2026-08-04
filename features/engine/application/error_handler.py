@@ -114,13 +114,29 @@ class ErrorHandler:
 
         # ── BLOCK+MESSAGE: retornar error al LLM ────────────────
         if strategy == ErrorStrategy.BLOCK_MESSAGE:
+            # Incluir contexto del error (details/errors/stderr) para que
+            # el agente sepa exactamente qué falló y cómo corregirlo.
+            details = error.context if isinstance(error, WorkflowEngineError) else {}
+            # Construir mensaje con detalles específicos cuando existan
+            msg = str(error)
+            if details:
+                # Detalls de TransitionBlockedError: lista de precondiciones fallidas
+                if "details" in details and isinstance(details["details"], list):
+                    msg += " — Fallaron: " + "; ".join(details["details"])
+                # Errores de ValidationError: campos inválidos
+                if "errors" in details and isinstance(details["errors"], list) and details["errors"]:
+                    msg += " — Errores: " + "; ".join(str(e) for e in details["errors"])
+                # Stderr de GateValidationError
+                if "stderr" in details and details["stderr"]:
+                    msg += f" — Stderr: {details['stderr'][:300]}"
             return {
                 "ok": False,
                 "action": "error",
                 "error_type": error_type.value,
                 "strategy": "block+message",
-                "message": str(error),
-                "error": str(error),
+                "message": msg,
+                "error": msg,
+                "details": details,
             }
 
         # ── LOG+CONTINUE: loggear y continuar ────────────────────

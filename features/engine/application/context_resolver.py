@@ -99,7 +99,7 @@ class ContextResolver:
                     continue  # resuelto
                 if key in self.ENGINE_CONTEXT_KEYS:
                     continue  # engine context (ya incluido arriba)
-                # Resolver datos de negocio desde el sprint-state (SSOT spring)
+                # Resolver datos de negocio desde el DELTA (fuente unica del spring)
                 if key in ("sprint_id", "task_id", "project_id"):
                     resolved = self._resolve_from_sprint_state(state, key)
                     if resolved is not None:
@@ -111,7 +111,7 @@ class ContextResolver:
 
     @staticmethod
     def _resolve_from_sprint_state(state: WorkflowState, key: str) -> str | None:
-        """Resuelve un need de negocio desde el sprint-state (SSOT spring).
+        """Resuelve un need de negocio desde el DELTA (fuente unica del spring).
 
         PRINCIPIO: el workflow no duplica datos de negocio; los consulta
         desde el DeltaGraph (fuente unica del spring). Resuelve:
@@ -245,24 +245,53 @@ class ContextResolver:
     # ── Validación en carga ─────────────────────────────────────────
 
     def validate_graph(self, graph: WorkflowGraph) -> list[str]:
-        """Valida que todos los needs del grafo tengan provider.
+        """Valida el flujo de contexto del grafo (ContextFlowGuard).
 
-        Colecta todos los provides (engine + nodos + sub-estados) y
-        verifica que cada need tenga un match. Sin orden topológico,
-        tolerante a ciclos en el grafo.
+        PRINCIPIO (GAP-1/GAP-2): valida el contexto en AMBAS direcciones:
+          1. needs SIN provider → un sub-estado pide contexto que nadie produce
+          2. provides SIN consumidor → un nodo declara contexto que nadie
+             consume (fuga de datos entre fases, ej: ANALYZE.provides=
+             ['analysis_result'] que nunca llega a IMPLEMENT).
+
+        Colecta todos los provides (engine + nodos + sub-estados) y todos
+        los needs. Sin orden topológico, tolerante a ciclos en el grafo.
 
         Returns:
             Lista de errores de validación (vacía = todo ok).
         """
         # Colectar todos los provides disponibles
         available = set(self.ENGINE_CONTEXT_KEYS)
+        declared_provides: set[str] = set()
         for node in graph.nodes.values():
-            available.update(node.provides)
+            declared_provides.update(node.provides)
             for ss in node.sub_states:
-                available.update(ss.provides)
+                declared_provides.update(ss.provides)
+        available.update(declared_provides)
 
-        # Validar que cada need tenga un provider
+        # Colectar todos los needs del grafo
+        all_needs: set[str] = set()
+        for node in graph.nodes.values():
+            for ss in node.sub_states:
+                all_needs.update(ss.needs)
+
+        # Los context_updates de las edges tambien consumen contexto
+        # (destinos NODE.SUB.field -> context.key). Contarlos como
+        # consumidores de provides.
+        edge_consumers: set[str] = set()
+        for gate in graph.edges:
+            for cu in gate.context_updates or []:
+                to_field = (cu.get("to") or "").replace("context.", "")
+                if to_field:
+                    edge_consumers.add(to_field)
+                from_path = cu.get("from") or ""
+                parts = from_path.split(".")
+                if len(parts) >= 3:
+                    edge_consumers.add(parts[2])  # NODE.SUB.field -> field
+        all_needs.update(edge_consumers)
+
         errors: list[str] = []
+
+        # 1. Validar que cada need tenga un provider
         for node_id, node in graph.nodes.items():
             for ss in node.sub_states:
                 if not ss.needs:
@@ -273,6 +302,19 @@ class ContextResolver:
                             f"[{node_id}.{ss.key}] needs '{need}' "
                             f"pero ningún provider lo produce"
                         )
+
+        # 2. Validar que cada provides declarado tenga consumidor
+        #    (GAP-1/GAP-2: un provides sin need que lo consuma es una fuga
+        #    de datos entre fases — el contexto se produce pero se pierde).
+        for node_id, node in graph.nodes.items():
+            for provide in node.provides:
+                if provide in self.ENGINE_CONTEXT_KEYS:
+                    continue  # engine keys siempre consumibles
+                if provide not in all_needs:
+                    errors.append(
+                        f"[{node_id}] provides '{provide}' pero ningún "
+                        f"sub-estado lo consume (fuga de datos entre fases)"
+                    )
 
         return errors
 

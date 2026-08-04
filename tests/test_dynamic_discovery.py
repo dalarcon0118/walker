@@ -9,8 +9,6 @@ Validates:
   5. Transition rejects gates not valid from the current sub-state.
 """
 
-import tempfile
-
 
 # ════════════════════════════════════════════════════════════════
 # 1. Dynamic task discovery in health analyzer

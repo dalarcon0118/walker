@@ -21,6 +21,144 @@ from libs.infrastructure.utils import (
 from datetime import datetime, timezone
 
 
+_LLM_REQUIRED_FIELDS = {
+    "objective",
+    "result_state",
+    "type",
+    "domain",
+    "work_type",
+    "role",
+    "scrum_role",
+}
+
+
+def _build_add_task_cmd(chain_dir: str, flags: dict[str, str]) -> list[str] | None:
+    """Construye el comando add-task (valida campos requeridos del LLM)."""
+    missing = [f for f in _LLM_REQUIRED_FIELDS if not flags.get(f)]
+    if missing:
+        eprint(
+            Template("  [edit_plan] Faltan campos requeridos: $fields").substitute(
+                fields=", ".join(missing)
+            )
+        )
+        eprint("  Uso: walker.py transition plan_updated --action add-task \\")
+        eprint(
+            '       --objective "..." --result_state "..." --type feature --domain tooling \\'
+        )
+        eprint("       --work_type refactor --role core --scrum_role dev")
+        return None
+    task_data = dict(_TASK_DEFAULTS)
+    task_data.update({f: flags[f] for f in _LLM_REQUIRED_FIELDS})
+    task_data["task_id"] = flags.get("task_id", "__pending__")
+    # Pass through all other user-provided fields (override defaults)
+    passthrough = (
+        _EDITABLE_FIELDS - _LLM_REQUIRED_FIELDS - {"action", "task_id", "field", "value"}
+    )
+    for f in passthrough:
+        if f in flags and flags[f]:
+            try:
+                task_data[f] = (
+                    json.loads(flags[f])
+                    if flags[f].startswith(("[", "{"))
+                    else flags[f]
+                )
+            except (json.JSONDecodeError, ValueError):
+                task_data[f] = flags[f]
+    # Convert numeric flags
+    if "importer_files" in flags:
+        task_data["importer_files"] = int(flags["importer_files"])
+    task_json = json.dumps(task_data)
+    return [
+        sys.executable,
+        _SPRING_SCRIPT,
+        "add-task",
+        chain_dir,
+        "--task",
+        task_json,
+    ]
+
+
+def _build_update_task_cmd(
+    chain_dir: str, task_id: str | None, flags: dict[str, str]
+) -> list[str] | None:
+    """Construye el comando update-task (valida campo editable y existencia)."""
+    tid = flags.get("task_id", task_id or "")
+    field = flags.get("field", "")
+    value = flags.get("value", "")
+    if not tid or not field:
+        eprint("  [edit_plan] --task_id y --field son requeridos para update-task")
+        return None
+    if field not in _EDITABLE_FIELDS:
+        eprint(
+            Template("  [edit_plan] Campo no editable: $field").substitute(field=field)
+        )
+        eprint(
+            Template("  Editables: $fields").substitute(
+                fields=", ".join(sorted(_EDITABLE_FIELDS))
+            )
+        )
+        return None
+    # Verify task exists in plan.json
+    plan_path = os.path.join(chain_dir, "plan.json")
+    if os.path.exists(plan_path):
+        pd = load_json(plan_path)
+        if pd:
+            pl = pd.get("plan", pd)
+            found = any(t.get("task_id") == tid for t in pl.get("tasks", []))
+            if not found:
+                eprint(
+                    Template(
+                        "  [edit_plan] Tarea no encontrada en plan.json: $tid"
+                    ).substitute(tid=tid)
+                )
+                return None
+    return [
+        sys.executable,
+        _SPRING_SCRIPT,
+        "update-task",
+        chain_dir,
+        tid,
+        f"--{field}",
+        value,
+    ]
+
+
+def _build_remove_task_cmd(
+    chain_dir: str, task_id: str | None, flags: dict[str, str]
+) -> list[str] | None:
+    """Construye el comando remove-task."""
+    tid = flags.get("task_id", task_id or "")
+    if not tid:
+        eprint("  [edit_plan] --task_id es requerido para remove-task")
+        return None
+    return [
+        sys.executable,
+        _SPRING_SCRIPT,
+        "remove",
+        chain_dir,
+        tid,
+        "--force",
+    ]
+
+
+def _build_update_goal_cmd(
+    chain_dir: str, flags: dict[str, str]
+) -> list[str] | None:
+    """Construye el comando update-goal."""
+    value = flags.get("value", "")
+    if not value:
+        eprint("  [edit_plan] --value es requerido para update-goal")
+        return None
+    return [
+        sys.executable,
+        _SPRING_SCRIPT,
+        "update-goal",
+        chain_dir,
+        "--description",
+        value,
+    ]
+
+
 def _execute_plan_edit(
     chain_dir: str | None, task_id: str | None, flags: dict[str, str]
 ) -> bool:
@@ -36,129 +174,21 @@ def _execute_plan_edit(
         return False
 
     if action == "add-task":
-        # Validate schema-required fields that must come from the LLM
-        llm_fields = {
-            "objective",
-            "result_state",
-            "type",
-            "domain",
-            "work_type",
-            "role",
-            "scrum_role",
-        }
-        missing = [f for f in llm_fields if not flags.get(f)]
-        if missing:
-            eprint(
-                Template("  [edit_plan] Faltan campos requeridos: $fields").substitute(
-                    fields=", ".join(missing)
-                )
-            )
-            eprint("  Uso: walker.py transition plan_updated --action add-task \\")
-            eprint(
-                '       --objective "..." --result_state "..." --type feature --domain tooling \\'
-            )
-            eprint("       --work_type refactor --role core --scrum_role dev")
+        cmd = _build_add_task_cmd(chain_dir, flags)
+        if cmd is None:
             return False
-        # Build full task with schema defaults
-        task_data = dict(_TASK_DEFAULTS)
-        task_data.update({f: flags[f] for f in llm_fields})
-        task_data["task_id"] = flags.get("task_id", "__pending__")
-        # Pass through all other user-provided fields (override defaults)
-        passthrough = (
-            _EDITABLE_FIELDS - llm_fields - {"action", "task_id", "field", "value"}
-        )
-        for f in passthrough:
-            if f in flags and flags[f]:
-                try:
-                    task_data[f] = (
-                        json.loads(flags[f])
-                        if flags[f].startswith(("[", "{"))
-                        else flags[f]
-                    )
-                except (json.JSONDecodeError, ValueError):
-                    task_data[f] = flags[f]
-        # Convert numeric flags
-        if "importer_files" in flags:
-            task_data["importer_files"] = int(flags["importer_files"])
-        task_json = json.dumps(task_data)
-        cmd = [
-            sys.executable,
-            _SPRING_SCRIPT,
-            "add-task",
-            chain_dir,
-            "--task",
-            task_json,
-        ]
-
     elif action == "update-task":
-        tid = flags.get("task_id", task_id or "")
-        field = flags.get("field", "")
-        value = flags.get("value", "")
-        if not tid or not field:
-            eprint("  [edit_plan] --task_id y --field son requeridos para update-task")
+        cmd = _build_update_task_cmd(chain_dir, task_id, flags)
+        if cmd is None:
             return False
-        if field not in _EDITABLE_FIELDS:
-            eprint(
-                Template("  [edit_plan] Campo no editable: $field").substitute(
-                    field=field
-                )
-            )
-            eprint(
-                Template("  Editables: $fields").substitute(
-                    fields=", ".join(sorted(_EDITABLE_FIELDS))
-                )
-            )
-            return False
-        # Verify task exists in plan.json
-        plan_path = os.path.join(chain_dir, "plan.json")
-        if os.path.exists(plan_path):
-            pd = load_json(plan_path)
-            if pd:
-                pl = pd.get("plan", pd)
-                found = any(t.get("task_id") == tid for t in pl.get("tasks", []))
-                if not found:
-                    eprint(
-                        Template(
-                            "  [edit_plan] Tarea no encontrada en plan.json: $tid"
-                        ).substitute(tid=tid)
-                    )
-                    return False
-        cmd = [
-            sys.executable,
-            _SPRING_SCRIPT,
-            "update-task",
-            chain_dir,
-            tid,
-            f"--{field}",
-            value,
-        ]
-
     elif action == "remove-task":
-        tid = flags.get("task_id", task_id or "")
-        if not tid:
-            eprint("  [edit_plan] --task_id es requerido para remove-task")
+        cmd = _build_remove_task_cmd(chain_dir, task_id, flags)
+        if cmd is None:
             return False
-        cmd = [
-            sys.executable,
-            _SPRING_SCRIPT,
-            "remove",
-            chain_dir,
-            tid,
-            "--force",
-        ]
     elif action == "update-goal":
-        value = flags.get("value", "")
-        if not value:
-            eprint("  [edit_plan] --value es requerido para update-goal")
+        cmd = _build_update_goal_cmd(chain_dir, flags)
+        if cmd is None:
             return False
-        cmd = [
-            sys.executable,
-            _SPRING_SCRIPT,
-            "update-goal",
-            chain_dir,
-            "--description",
-            value,
-        ]
     else:
         eprint(
             Template("  [edit_plan] Accion desconocida: $action").substitute(

@@ -203,7 +203,25 @@ class HealthReportAnalyzer:
             steps.sort(key=lambda s: s["priority"])
             return steps  # nothing else matters until project is prepared
 
-        # Priority 1: CKG empty → populate (task descubierta por capacidad)
+        # Prioridades 1-5 (cada una es un helper SRP)
+        HealthReportAnalyzer._prio_ckg(steps, checks, warnings, task_catalog, project_id)
+        HealthReportAnalyzer._prio_cpg_files(steps, checks, task_catalog, project_id)
+        HealthReportAnalyzer._prio_cpg_missing(steps, checks, task_catalog, project_id)
+        HealthReportAnalyzer._prio_sprint(steps, health, task_catalog, project_id)
+        HealthReportAnalyzer._prio_config(steps, health, task_catalog, project_id)
+
+        steps.sort(key=lambda s: s["priority"])
+        return steps
+
+    @staticmethod
+    def _prio_ckg(
+        steps: list[dict],
+        checks: dict,
+        warnings: list[str],
+        task_catalog: list[dict] | None,
+        project_id: str,
+    ) -> None:
+        """Priority 1: CKG empty → populate."""
         ckg = checks.get("ckg", "")
         if ckg == "empty" or ckg == "0 nodes" or any("CKG" in w for w in warnings):
             task_name = HealthReportAnalyzer._resolve_task(task_catalog, "ckg_populate")
@@ -219,11 +237,13 @@ class HealthReportAnalyzer:
                     }
                 )
 
-        # Priority 2: Files changed → rebuild CPG (task descubierta por capacidad)
+    @staticmethod
+    def _prio_cpg_files(
+        steps: list[dict], checks: dict, task_catalog: list[dict] | None, project_id: str
+    ) -> None:
+        """Priority 2: Files changed → suggest rebuild CPG (user decides)."""
         files = checks.get("files", "")
-        if "rebuilt" in files:
-            pass  # Auto-rebuild incremental ya ejecutado
-        elif "stale" in files or "changed" in files:
+        if "changed" in files or "stale" in files:
             task_name = HealthReportAnalyzer._resolve_task(task_catalog, "cpg_build")
             if task_name:
                 steps.append(
@@ -237,7 +257,11 @@ class HealthReportAnalyzer:
                     }
                 )
 
-        # Priority 3: CPG missing, not scanned, or empty
+    @staticmethod
+    def _prio_cpg_missing(
+        steps: list[dict], checks: dict, task_catalog: list[dict] | None, project_id: str
+    ) -> None:
+        """Priority 3: CPG missing, not scanned, or empty."""
         cpg = checks.get("cpg", "")
         if not cpg or "error" in cpg or cpg == "0 nodes" or "not scanned" in cpg:
             task_name = HealthReportAnalyzer._resolve_task(task_catalog, "cpg_build")
@@ -253,7 +277,11 @@ class HealthReportAnalyzer:
                     }
                 )
 
-        # Priority 4: Sprint status
+    @staticmethod
+    def _prio_sprint(
+        steps: list[dict], health: dict, task_catalog: list[dict] | None, project_id: str
+    ) -> None:
+        """Priority 4: Sprint status."""
         sprint = health.get("sprint")
         if sprint is None:
             task_name = HealthReportAnalyzer._resolve_task(
@@ -279,7 +307,6 @@ class HealthReportAnalyzer:
             # y NO se disparan directamente: su contract (ej. ckg_has_decision)
             # se cumple tras el submit. Sugerir submit evita confundir al PO.
             if sprint.get("execution_type") == "user_input":
-                sprint.get("prompt_id", "")
                 submit_hint = f"walker {project_id}/submit"
                 steps.append(
                     {
@@ -300,34 +327,36 @@ class HealthReportAnalyzer:
                     }
                 )
 
-        # Priority 5: Project config incomplete (task descubierta por capacidad)
+    @staticmethod
+    def _prio_config(
+        steps: list[dict], health: dict, task_catalog: list[dict] | None, project_id: str
+    ) -> None:
+        """Priority 5: Project config incomplete."""
         proj = health.get("project", {})
-        if proj:
-            missing = []
-            if not proj.get("language"):
-                missing.append("language")
-            if not proj.get("framework"):
-                missing.append("framework")
-            if not proj.get("code_paths"):
-                missing.append("code_paths")
-            if missing:
-                task_name = HealthReportAnalyzer._resolve_task(
-                    task_catalog, "project_update"
+        if not proj:
+            return
+        missing = []
+        if not proj.get("language"):
+            missing.append("language")
+        if not proj.get("framework"):
+            missing.append("framework")
+        if not proj.get("code_paths"):
+            missing.append("code_paths")
+        if missing:
+            task_name = HealthReportAnalyzer._resolve_task(
+                task_catalog, "project_update"
+            )
+            if task_name:
+                steps.append(
+                    {
+                        "priority": 5,
+                        "action": f"Complete project configuration: {', '.join(missing)}",
+                        "reason": "Project identity/configuration is incomplete",
+                        "command": HealthReportAnalyzer._task_cmd(
+                            project_id, task_name
+                        ),
+                    }
                 )
-                if task_name:
-                    steps.append(
-                        {
-                            "priority": 5,
-                            "action": f"Complete project configuration: {', '.join(missing)}",
-                            "reason": "Project identity/configuration is incomplete",
-                            "command": HealthReportAnalyzer._task_cmd(
-                                project_id, task_name
-                            ),
-                        }
-                    )
-
-        steps.sort(key=lambda s: s["priority"])
-        return steps
 
 
 # ── PrepareProjectUseCase ──────────────────────────────────────────────────
@@ -342,7 +371,6 @@ class PrepareProjectUseCase:
     @staticmethod
     def execute(project_path: str, args_flags: dict) -> dict:
         from features.project.infrastructure.watcher import FileWatcher
-        from features.code_analysis import CPGBuilder
         from libs.path_resolver import get_walker_root as _get_walker_root
 
         pid = os.path.basename(os.path.abspath(project_path))
@@ -637,12 +665,15 @@ class CheckHealthUseCase:
         # 1. Check project.json
         _check_project_json(proj_json, project_id, repo_path, health)
 
-        # 2. Rescan + auto-rebuild CPG incremental
+        # 2. Watcher: detectar cambios (read-only, NO auto-rebuild)
+        # El agente presenta los problemas al usuario y el usuario decide
+        # si ejecutar update_cpg, rebuild ckg, etc.
         try:
             watcher = FileWatcher(repo_path)
             changes = watcher.scan()
             new_changes = changes.get("new_changes", [])
             total = changes.get("total_changes", 0)
+            cpg_status = changes.get("cpg_status", "up_to_date")
 
             # Exponer detalle del watcher (mismo datos que change_detected.json)
             health["watcher"] = {
@@ -650,31 +681,19 @@ class CheckHealthUseCase:
                 "total_changes": total,
                 "files_changed": changes.get("files_changed", []),
                 "new_changes": new_changes,
-                "cpg_status": changes.get("cpg_status", "up_to_date"),
+                "cpg_status": cpg_status,
                 "ckg_status": changes.get("ckg_status", "up_to_date"),
                 "timestamp": changes.get("timestamp", ""),
             }
 
-            if new_changes:
-                # Auto-rebuild incremental: solo archivos que cambiaron
-                try:
-                    from features.code_analysis import CPGBuilder
-
-                    builder = CPGBuilder(repo_path)
-                    result = builder.index_task_files(new_changes)
-                    files_updated = result.get("files_updated", 0)
-                    # Re-verificar fingerprint: si CPG ahora es espejo, limpia acumulados
-                    watcher.mark_indexed("cpg")
-                    health["checks"]["files"] = (
-                        f"{total} changed → {files_updated} rebuilt"
-                    )
-                except Exception as rebuild_err:
+            # Reportar estado de archivos (sin auto-rebuild)
+            if total > 0:
+                health["checks"]["files"] = f"{total} changed since last CPG build"
+                if cpg_status == "stale":
                     health["warnings"].append(
-                        f"auto-rebuild CPG incremental falló: {rebuild_err}"
+                        f"CPG is stale: {total} file(s) changed. "
+                        "Run update_cpg to rebuild the code index."
                     )
-                    health["checks"]["files"] = f"{total} changed (rebuild error)"
-            elif total > 0:
-                health["checks"]["files"] = f"{total} changed (no new deltas)"
             else:
                 health["checks"]["files"] = "up to date"
         except Exception as e:
@@ -863,13 +882,9 @@ class DetectLegacyUseCase:
                         sdir = os.path.join(pdir, src)
                         if os.path.isdir(sdir):
                             for c in os.listdir(sdir):
-                                from features.spring.infrastructure.repositories import (
-                                    SprintStateRepository,
-                                )
-
-                                if SprintStateRepository().load_dict(
-                                    os.path.join(sdir, c)
-                                ):
+                                # PRINCIPIO: plan.json detecta un chain_dir
+                                # válido (sprint-state.json fue eliminado).
+                                if os.path.isfile(os.path.join(sdir, c, "plan.json")):
                                     chains.append(c)
 
         return {
@@ -894,14 +909,28 @@ class ImportLegacyHistoryUseCase:
         imported = 0
         for chain in chains:
             for src in ["spring", "delta"]:
-                from features.spring.infrastructure.repositories import (
-                    SprintStateRepository,
-                )
-
                 chain_dir = os.path.join(
                     project_path, ".cognitive", "projects", project_id, src, chain
                 )
-                state = SprintStateRepository().load_dict(chain_dir)
+                # PRINCIPIO: plan.json + .workflow-state.json = estado legacy
+                # a importar (sprint-state.json fue eliminado).
+                import json as _json
+
+                state = {}
+                plan_path = os.path.join(chain_dir, "plan.json")
+                if os.path.isfile(plan_path):
+                    try:
+                        with open(plan_path) as f:
+                            state["plan"] = _json.load(f)
+                    except Exception:
+                        pass
+                wf_path = os.path.join(chain_dir, ".workflow-state.json")
+                if os.path.isfile(wf_path):
+                    try:
+                        with open(wf_path) as f:
+                            state["walker"] = _json.load(f)
+                    except Exception:
+                        pass
                 if state:
                     try:
                         trace_file = os.path.join(traces_dir, f"{chain}.json.gz")
@@ -984,33 +1013,34 @@ class ImportLegacyTasksUseCase:
         merged_tasks = []
         for chain in chains:
             for src in ["spring", "delta"]:
-                from features.spring.infrastructure.repositories import (
-                    SprintStateRepository,
-                )
-
                 chain_dir = os.path.join(
                     project_path, ".cognitive", "projects", project_id, src, chain
                 )
-                st = SprintStateRepository().load_dict(chain_dir)
-                if st:
-                    try:
-                        tasks = st.get("tasks", [])
-                        if isinstance(tasks, dict):
-                            for tid, tdata in tasks.items():
-                                merged_tasks.append(
-                                    {
-                                        "task_id": tid,
-                                        **(
-                                            tdata
-                                            if isinstance(tdata, dict)
-                                            else {"status": tdata}
-                                        ),
-                                    }
-                                )
-                        elif isinstance(tasks, list):
-                            merged_tasks.extend(tasks)
-                    except Exception:
-                        pass
+                # PRINCIPIO: las specs del spring viven en plan.json
+                # (proyección del delta); sprint-state.json fue eliminado.
+                plan_path = os.path.join(chain_dir, "plan.json")
+                if not os.path.isfile(plan_path):
+                    continue
+                try:
+                    with open(plan_path) as f:
+                        plan = json.load(f)
+                    tasks = plan.get("specifications", plan.get("tasks", []))
+                    if isinstance(tasks, dict):
+                        for tid, tdata in tasks.items():
+                            merged_tasks.append(
+                                {
+                                    "task_id": tid,
+                                    **(
+                                        tdata
+                                        if isinstance(tdata, dict)
+                                        else {"status": tdata}
+                                    ),
+                                }
+                            )
+                    elif isinstance(tasks, list):
+                        merged_tasks.extend(tasks)
+                except Exception:
+                    pass
         plan_dir = os.path.join(
             project_path, ".cognitive", "projects", project_id, "data"
         )

@@ -13,8 +13,6 @@ Valida:
 import os
 import tempfile
 
-import pytest
-
 
 def _template_path(*parts: str) -> str:
     from features.prompts.loader import canonical_templates_dir
@@ -39,7 +37,9 @@ def test_protocol_templates_existen():
     assert "capture_task" in mcp
     assert "PROTOCOLO REST OBLIGATORIO" in rest
     assert "submit" in rest and "transition" in rest
-    print("  ✅ test_protocol_templates_existen: templates de protocolo en el root único")
+    print(
+        "  ✅ test_protocol_templates_existen: templates de protocolo en el root único"
+    )
 
 
 def test_gate_briefing_en_subpath():
@@ -134,13 +134,15 @@ def test_prompts_de_nodo_viven_en_templates_nodes():
     # Sin duplicados: la plantilla del motor (features/engine/workflow) no
     # debe conservar copias de prompts (SSOT único en templates/nodes/), y la
     # data del motor ya no existe como contenedor de maquinaria del engine.
-    assert not os.path.exists(os.path.join("features", "engine", "workflow", "prompts")), (
-        "features/engine/workflow no debe conservar copias de prompts (SSOT único)"
-    )
+    assert not os.path.exists(
+        os.path.join("features", "engine", "workflow", "prompts")
+    ), "features/engine/workflow no debe conservar copias de prompts (SSOT único)"
     assert not os.path.exists(".cognitive/projects/walker/data/workflow.v3"), (
         "la data del motor no debe contener workflow.v3 (maquinaria del engine = código)"
     )
-    print("  ✅ test_prompts_de_nodo_viven_en_templates_nodes: 47 prompts en templates/nodes/")
+    print(
+        "  ✅ test_prompts_de_nodo_viven_en_templates_nodes: 47 prompts en templates/nodes/"
+    )
 
 
 def test_loader_resuelve_prompts_de_nodo():
@@ -156,7 +158,9 @@ def test_loader_resuelve_prompts_de_nodo():
         assert "{step_quality_summary}" in work
         diagnose = loader.load("refine/diagnose")
         assert "{step_recommend}" in diagnose
-    print("  ✅ test_loader_resuelve_prompts_de_nodo: IDs de nodo desde templates/nodes/")
+    print(
+        "  ✅ test_loader_resuelve_prompts_de_nodo: IDs de nodo desde templates/nodes/"
+    )
 
 
 def test_available_templates_incluye_prompts_de_nodo():
@@ -167,8 +171,12 @@ def test_available_templates_incluye_prompts_de_nodo():
         templates = pm.available_templates()
         assert "nodes/sprint/task-review.prompt.json" in templates, templates
         assert "nodes/implement/work.prompt.json" in templates, templates
-        assert len(templates) == 50, f"50 templates esperados (47 nodo + 3 feature), hay {len(templates)}"
-    print("  ✅ test_available_templates_incluye_prompts_de_nodo: 50 templates en el root único")
+        assert len(templates) == 50, (
+            f"50 templates esperados (47 nodo + 3 feature), hay {len(templates)}"
+        )
+    print(
+        "  ✅ test_available_templates_incluye_prompts_de_nodo: 50 templates en el root único"
+    )
 
 
 # ── 6. Plantilla del workflow del motor = CÓDIGO, no data ─────────────────────
@@ -181,11 +189,15 @@ def test_engine_workflow_es_codigo_no_data():
 
     wf_dir = str(get_engine_workflow_dir())
     assert wf_dir.endswith(os.path.join("features", "engine", "workflow")), wf_dir
-    assert ".cognitive" not in wf_dir, f"el engine workflow no debe vivir en data: {wf_dir}"
+    assert ".cognitive" not in wf_dir, (
+        f"el engine workflow no debe vivir en data: {wf_dir}"
+    )
     assert os.path.exists(wf_dir), f"engine workflow ausente en código: {wf_dir}"
     assert os.path.exists(str(get_engine_workflow_path()))
     assert os.path.exists(os.path.join(wf_dir, "nodes", "implement.node.json"))
-    print("  ✅ test_engine_workflow_es_codigo_no_data: plantilla del motor en features/engine/workflow/")
+    print(
+        "  ✅ test_engine_workflow_es_codigo_no_data: plantilla del motor en features/engine/workflow/"
+    )
 
 
 # ── 7. PromptManager.available_templates ──────────────────────────────────────
@@ -200,4 +212,6 @@ def test_available_templates_lista_subpaths():
         assert "protocol/mcp.md" in templates, templates
         assert "protocol/rest.md" in templates, templates
         assert "gates/gate-briefing.md" in templates, templates
-    print("  ✅ test_available_templates_lista_subpaths: root canónico listado con subpaths")
+    print(
+        "  ✅ test_available_templates_lista_subpaths: root canónico listado con subpaths"
+    )

@@ -15,58 +15,59 @@ def match_node(node: dict, filters: list[Filter]) -> bool:
         key, val = f.key, f.value
         if not key:
             continue
-        if key == "file":
-            node_path = node.get("path", "")
-            if val.endswith("/*"):
-                prefix = val[:-1]
-                if prefix not in node_path and not node_path.endswith(
-                    prefix.rstrip("/")
-                ):
-                    if not node_path.split("/")[-1].startswith(val[:-2]):
-                        return False
-            elif val not in node_path and val != node.get("name", ""):
-                if val != node_path.split("/")[-1]:
-                    return False
-        elif key == "function":
-            if node.get("type") not in ("function", "method") or val not in node.get(
-                "name", ""
-            ):
+        if not _match_single(node, key, val):
+            return False
+    return True
+
+
+def _match_single(node: dict, key: str, val: str) -> bool:
+    """Evalua UN filtro contra el nodo (dispatch por tipo de campo)."""
+    if key == "file":
+        return _match_file_node(node, val)
+    if key == "function":
+        return node.get("type") in ("function", "method") and val in node.get(
+            "name", ""
+        )
+    if key == "class":
+        return node.get("type") == "class" and val in node.get("name", "")
+    if key == "name":
+        return val in node.get("name", "")
+    if key == "type":
+        return node.get("type") == val
+    if key == "cyclo":
+        return _match_threshold(node.get("cyclo"), val)
+    if key == "lines":
+        return _match_threshold(node.get("loc", 0), val)
+    return val in str(node.get(key, ""))
+
+
+def _match_file_node(node: dict, val: str) -> bool:
+    """Matchea el filtro 'file' contra el path del nodo."""
+    node_path = node.get("path", "")
+    if val.endswith("/*"):
+        prefix = val[:-1]
+        if prefix not in node_path and not node_path.endswith(prefix.rstrip("/")):
+            if not node_path.split("/")[-1].startswith(val[:-2]):
                 return False
-        elif key == "class":
-            if node.get("type") != "class" or val not in node.get("name", ""):
-                return False
-        elif key == "name":
-            if val not in node.get("name", ""):
-                return False
-        elif key == "type":
-            if node.get("type") != val:
-                return False
-        elif key == "cyclo":
-            node_val = node.get("cyclo")
-            if node_val is None:
-                return False
-            try:
-                threshold = int(val.replace(">", "").replace("<", ""))
-                node_val = int(node_val)
-                if ">" in val and not (node_val > threshold):
-                    return False
-                if "<" in val and not (node_val < threshold):
-                    return False
-            except (ValueError, TypeError):
-                pass
-        elif key == "lines":
-            try:
-                threshold = int(val.replace(">", "").replace("<", ""))
-                node_val = int(node.get("loc", 0))
-                if ">" in val and not (node_val > threshold):
-                    return False
-                if "<" in val and not (node_val < threshold):
-                    return False
-            except (ValueError, TypeError):
-                pass
-        else:
-            if val not in str(node.get(key, "")):
-                return False
+    elif val not in node_path and val != node.get("name", ""):
+        if val != node_path.split("/")[-1]:
+            return False
+    return True
+
+
+def _match_threshold(node_val, val: str) -> bool:
+    """Matchea un filtro numerico de umbral (>, <, o igualdad de presencia)."""
+    if node_val is None:
+        return False
+    try:
+        threshold = int(val.replace(">", "").replace("<", ""))
+        node_val = int(node_val)
+        if ">" in val and not (node_val > threshold):
+            return False
+        if "<" in val and not (node_val < threshold):
+            return False
+    except (ValueError, TypeError):
+        pass
     return True
 
 

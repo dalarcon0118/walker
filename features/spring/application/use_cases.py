@@ -11,7 +11,6 @@ The workflow calls these via registered tasks (features/task_execution/tasks/).
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 
@@ -19,15 +18,19 @@ from libs.shared_domain import ExecutionContext
 from ..domain.services import (
     SpecValidator,
     SpecBuilder,
-    SprintPlanBuilder,
     SpecStatusUpdater,
 )
-from ..infrastructure.repositories import SprintStateRepository, PlanRepository
-from features.engine.domain.models import WorkflowState
+from ..infrastructure.repositories import PlanRepository
 
 
 class PlanSprintUseCase:
-    """Creates a new sprint: plan.json + sprint-state.json + session."""
+    """Creates a new sprint: spring + specs en el delta (fuente unica).
+
+    PRINCIPIO estructural: el DeltaGraph (SpringGraphService) es la unica
+    fuente de verdad del spring. Crea el nodo spring + nodos spec en el
+    indice delta y regenera plan.json como proyeccion de compatibilidad.
+    El estado del motor (.workflow-state.json) lo crea el engine.
+    """
 
     @staticmethod
     def _from_payload(data: dict, key: str, default=None):
@@ -46,28 +49,62 @@ class PlanSprintUseCase:
         )
 
         sprint_id = os.path.basename(sprint_dir)
-        plan = SprintPlanBuilder.build_plan(sprint_id, goal, specs_raw)
-        PlanRepository().save(sprint_dir, plan)
-
         record = _get_active_record(ctx)
         project_id = record.project_id if record else ""
-        state = SprintPlanBuilder.build_initial_state(
-            sprint_dir,
-            sprint_id,
-            goal,
-            project_id,
-            ctx.session_id or "",
-            plan["specifications"],
+
+        # ── Fuente unica: crear spring + specs en el delta ────────────
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
         )
-        SprintStateRepository().save_state_dict(sprint_dir, state)
-        # Sincronizar .workflow-state.json (canonico del engine)
+
+        project_root = _resolve_project_root(project_id) or os.path.dirname(
+            os.path.dirname(sprint_dir)
+        )
+        spring_svc = SpringGraphService(project_root)
+        spring_svc.create_spring(
+            sprint_id,
+            goal=goal,
+            status="planning",
+            project_id=project_id,
+            session_id=ctx.session_id or "",
+        )
+        plan_specs = []
+        for i, item in enumerate(specs_raw):
+            spring_svc.add_spec(
+                sprint_id,
+                objective=item.get("objective", ""),
+                domain=item.get("domain", ""),
+                spec_type=item.get("type", "feature"),
+                spec_index=i,
+                result_state=item.get("result_state", ""),
+                files=(
+                    item.get("impacted_artifacts", {}).get("files", [])
+                    if isinstance(item.get("impacted_artifacts"), dict)
+                    else []
+                ),
+                status=item.get("status", "draft"),
+                description=item.get("task_description", ""),
+            )
+            plan_specs.append(item)
+
+        # plan.json como PROYECCION del delta (compatibilidad legacy)
+        spring_svc.sync_plan_projection(sprint_id)
+
+        # Sincronizar .workflow-state.json (canonico del engine) con el
+        # estado inicial del sprint (PLANNING). El motor no lee
+        # sprint-state.json: el estado de negocio vive en el delta.
         try:
             from features.engine.infrastructure.repositories import (
                 WorkflowStateRepository,
             )
 
-            wf_state = WorkflowState.from_dict(state)
-            WorkflowStateRepository().save(sprint_dir, wf_state)
+            from features.engine.domain.models import WorkflowState
+
+            wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
+            wf.context["chain_dir"] = sprint_dir
+            wf.context["project_id"] = project_id
+            wf.context["session_id"] = ctx.session_id or ""
+            WorkflowStateRepository().save(sprint_dir, wf)
         except Exception:
             pass
 
@@ -82,8 +119,8 @@ class PlanSprintUseCase:
         return {
             "sprint_id": sprint_id,
             "goal": goal,
-            "spec_count": len(plan["specifications"]),
-            "task_count": len(plan["specifications"]),
+            "spec_count": len(plan_specs),
+            "task_count": len(plan_specs),
             "chain_dir": sprint_dir,
             "status": "planned",
         }
@@ -148,8 +185,14 @@ class SpecifySpecUseCase:
                 plan = plan_repo.load(sprint_dir)
                 plan["specifications"] = specs
                 plan_repo.save(sprint_dir, plan)
-            # SSOT: sprint-state lo escribe el store (unico dueno)
-            SprintStateRepository().save_context(sprint_dir, {"current_spec_index": 0})
+            # SSOT: el contexto de negocio vive en el delta (nodo spring)
+            if spring_svc:
+                spring_svc.set_spring_context(
+                    spring_svc.get_spring_id(sprint_dir)
+                    or os.path.basename(os.path.normpath(sprint_dir)),
+                    current_spec_index=0,
+                    current_task_index=0,
+                )
             return {
                 "spec_id": new_spec["spec_id"],
                 "status": "draft",
@@ -244,13 +287,20 @@ class AdvanceSpecIndexUseCase:
         sprint_dir = ctx.chain_dir or ""
         if not sprint_dir:
             raise ValueError("chain_dir not available")
-        state = SprintStateRepository().load(sprint_dir)
-        current_idx = state.context.get("current_spec_index", 0)
+        current_idx = _get_current_spec_index(sprint_dir)
         new_idx = current_idx + 1
-        # SSOT: sprint-state.json lo actualiza el store (unico dueno)
-        SprintStateRepository().save_context(
-            sprint_dir, {"current_spec_index": new_idx}
+        # SSOT: el contexto de negocio vive en el delta (nodo spring)
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
         )
+
+        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        if spring_svc:
+            spring_id = spring_svc.get_spring_id(sprint_dir)
+            spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+            spring_svc.set_spring_context(
+                spring_id, current_spec_index=new_idx, current_task_index=new_idx
+            )
         return {"previous_index": current_idx, "current_index": new_idx}
 
 
@@ -279,7 +329,11 @@ class UpdateSpecStatusUseCase:
 
 
 class ShowDashboardUseCase:
-    """Returns the current sprint dashboard state."""
+    """Returns the current sprint dashboard state.
+
+    PRINCIPIO: el estado del spring (goal, specs, estados) vive en el
+    DELTA (SpringGraphService), fuente unica. No lee sprint-state.json.
+    """
 
     @staticmethod
     def execute(ctx: ExecutionContext, data: dict) -> dict:
@@ -293,7 +347,23 @@ class ShowDashboardUseCase:
                 "completed_count": 0,
             }
         try:
-            state = SprintStateRepository().load(sprint_dir)
+            from features.delta_tracking.application.spring_graph_service import (
+                SpringGraphService,
+            )
+
+            spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+            if not spring_svc:
+                return {
+                    "sprint_id": "",
+                    "goal": "",
+                    "specs": [],
+                    "spec_count": 0,
+                    "completed_count": 0,
+                }
+            spring_id = spring_svc.get_spring_id(sprint_dir)
+            spring = spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+            spring_data = spring or {}
+            specs = spring_svc.get_specs_legacy(spring_id)
         except Exception:
             return {
                 "sprint_id": "",
@@ -302,15 +372,13 @@ class ShowDashboardUseCase:
                 "spec_count": 0,
                 "completed_count": 0,
             }
-        sd = state.to_dict()
-        specs = sd.get("specifications", sd.get("tasks", []))
-        goal = state.sprint.get("goal", "")
+        goal = spring_data.get("goal", "")
         total = len(specs)
         completed = sum(
             1 for s in specs if isinstance(s, dict) and s.get("status") == "completed"
         )
         return {
-            "sprint_id": state.sprint.get("chain_id", ""),
+            "sprint_id": spring_data.get("_id", "") or spring_id,
             "goal": goal,
             "specs": specs,
             "spec_count": total,
@@ -320,19 +388,30 @@ class ShowDashboardUseCase:
 
 
 class CloseSprintUseCase:
-    """Closes the current sprint."""
+    """Closes the current sprint.
+
+    PRINCIPIO: el estado del spring vive en el delta. Cerrar = mutar el
+    nodo spring (status -> closed). No escribe sprint-state.json.
+    """
 
     @staticmethod
     def execute(ctx: ExecutionContext, data: dict) -> dict:
         sprint_dir = ctx.chain_dir or ""
         if not sprint_dir:
             raise ValueError("chain_dir not available")
-        state = SprintStateRepository().load(sprint_dir)
-        new_state_data = state.to_dict()
-        new_state_data.setdefault("sprint", {})["status"] = "closed"
-        new_state_data["sprint"]["closed_at"] = datetime.now(timezone.utc).isoformat()
-        SprintStateRepository().save_state_dict(sprint_dir, new_state_data)
-        return {"status": "closed", "sprint_id": state.sprint.get("chain_id", "")}
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
+        )
+
+        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        if not spring_svc:
+            raise ValueError("cannot resolve SpringGraphService")
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spring = spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+        if not spring:
+            raise ValueError(f"Spring '{spring_id}' not found in delta")
+        spring_svc.set_spring_status(spring_id, "closed")
+        return {"status": "closed", "sprint_id": spring_id}
 
 
 class EditSprintUseCase:
@@ -380,7 +459,12 @@ class EditSprintUseCase:
 
 
 class UpdateSprintStatusUseCase:
-    """Updates sprint status: planning → active → reviewing → closed."""
+    """Updates sprint status: planning → active → reviewing → closed.
+
+    PRINCIPIO: el estado del spring vive en el delta. Mutar el status del
+    nodo spring via SpringGraphService (fuente unica). No escribe
+    sprint-state.json.
+    """
 
     @staticmethod
     def execute(ctx: ExecutionContext, data: dict) -> dict:
@@ -388,16 +472,24 @@ class UpdateSprintStatusUseCase:
         new_status = data.get("status", "")
         if not new_status:
             raise ValueError("Requires --status")
-        state = SprintStateRepository().load(sprint_dir)
-        current = state.sprint.get("status", "planning")
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
+        )
+
+        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        if not spring_svc:
+            raise ValueError("cannot resolve SpringGraphService")
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spring = spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+        if not spring:
+            raise ValueError(f"Spring '{spring_id}' not found in delta")
+        current = spring.get("status", "planning")
         from ..domain.services import SprintStatusUpdater
 
         allowed, reason = SprintStatusUpdater.can_transition(current, new_status)
         if not allowed:
             raise ValueError(reason)
-        new_state_data = state.to_dict()
-        new_state_data.setdefault("sprint", {})["status"] = new_status
-        SprintStateRepository().save_state_dict(sprint_dir, new_state_data)
+        spring_svc.set_spring_status(spring_id, new_status)
         return {"previous_status": current, "status": new_status}
 
 
@@ -438,12 +530,15 @@ def _resolve_chain_dir(ctx: ExecutionContext, project_id: str = "") -> str:
     SSOT: Delegates to ProjectService for path resolution.
     Never uses dirname(dirname()) or hardcoded paths.
     Usa project_id de data cuando no hay sesion activa (CLI directo).
+
+    PRINCIPIO: un chain_dir válido se detecta por .workflow-state.json
+    (estado del motor) o plan.json (proyección del delta). sprint-state.json
+    fue eliminado estructuralmente.
     """
     cd = ctx.chain_dir or ""
-    if (
-        cd
-        and os.path.isdir(cd)
-        and os.path.exists(os.path.join(cd, "sprint-state.json"))
+    if cd and os.path.isdir(cd) and (
+        os.path.exists(os.path.join(cd, ".workflow-state.json"))
+        or os.path.exists(os.path.join(cd, "plan.json"))
     ):
         return cd
 
@@ -486,15 +581,41 @@ def _get_active_record(ctx):
         return None
 
 
-def _get_current_spec_index(sprint_dir: str) -> int:
-    state_path = os.path.join(sprint_dir, "sprint-state.json")
-    if not os.path.exists(state_path):
-        return 0
+def _resolve_project_root(project_id: str) -> str:
+    """Resuelve el directorio cognitivo del proyecto (.cognitive/projects/<id>)."""
+    if not project_id:
+        return ""
+    from libs.path_resolver import get_project_dir
+
     try:
-        with open(state_path) as f:
-            st = json.load(f)
-        return st.get("context", {}).get(
-            "current_spec_index", st.get("context", {}).get("current_task_index", 0)
+        return str(get_project_dir(project_id))
+    except Exception:
+        return ""
+
+
+def _get_current_spec_index(sprint_dir: str) -> int:
+    """Retorna el índice de la spec actual desde el DELTA (fuente unica).
+
+    PRINCIPIO: el estado de negocio del spring vive en el nodo spring del
+    delta (SpringGraphService.get_spring_context). No se lee sprint-state.json.
+    """
+    try:
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
+        )
+
+        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        if not spring_svc:
+            return 0
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spring = spring_svc.get_spring(spring_id)
+        if not spring:
+            return 0
+        return int(
+            spring.get(
+                "current_spec_index",
+                spring.get("current_task_index", 0),
+            )
         )
     except Exception:
         return 0

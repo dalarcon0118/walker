@@ -164,7 +164,15 @@ class ContractEvaluator:
 
             paths = ProjectService.resolve_paths(chain_dir)
             ckg = CodeKnowledgeGraph(str(paths.project_root))
-            results = ckg.query({"type": "decision"}) if hasattr(ckg, "query") else []
+            # Filtrar por metadata.decision EN LA CONSULTA (no en resultados):
+            # el search limita a 50 hits y las decisiones recientes quedarian
+            # fuera si solo se filtra despues. Con el filtro estructurado el
+            # indice devuelve exactamente las que matchean.
+            results = (
+                ckg.query({"type": "decision", "metadata.decision": decision})
+                if hasattr(ckg, "query")
+                else []
+            )
             found = any(
                 (n.get("metadata", {}).get("decision") == decision)
                 or (n.get("label") == f"decision:{decision}")

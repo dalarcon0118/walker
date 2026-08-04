@@ -141,7 +141,6 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
     """
     try:
         from libs.path_resolver import resolve_project_root
-        from ..infrastructure.trace_log import TraceLogger
         from features.delta_tracking.application.spring_graph_service import (
             SpringGraphService,
         )
@@ -156,61 +155,19 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
         # 1. Archivos modificados (dos fuentes complementarias):
         #    a. change_detected.json del watcher (estado ACTUAL acumulado)
         #    b. eventos file_impact del TraceGraph (historial del watcher)
-        impacted: list[str] = []
-        _change_file = os.path.join(data_dir, "change_detected.json")
-        if os.path.isfile(_change_file):
-            try:
-                import json as _json
-
-                with open(_change_file) as _f:
-                    _cd = _json.load(_f)
-                for f in _cd.get("files_changed", []) or []:
-                    if f and f not in impacted:
-                        impacted.append(f)
-            except Exception:
-                pass  # change_detected corrupto/ausente → seguir con trace
-
-        tracer = TraceLogger()
-        events = tracer.replay(project_root)
-        for ev in events:
-            if not isinstance(ev, dict):
-                continue
-            if ev.get("event_type") != "file_impact":
-                continue
-            files = ev.get("files") or []
-            for f in files:
-                if f and f not in impacted:
-                    impacted.append(f)
+        impacted = _collect_impacted_files(data_dir, project_root)
 
         # 2. Archivos cubiertos por specs del spring EN CURSO.
         #    Usar el spring del chain_dir actual (get_spring_id) con fallback
         #    al activo global: get_active_spring() es ambiguo cuando hay
         #    varios springs con status "active".
         spring_svc = SpringGraphService(project_root)
-        covered: list[str] = []
-        spring = None
-        if spring_svc is not None:
-            spring_id = spring_svc.get_spring_id(chain_dir)
-            spring = spring_svc.get_spring(spring_id) or spring_svc.get_active_spring()
-            if spring:
-                spring_id = (
-                    spring.get("spring_id")
-                    or spring.get("_id")
-                    or spring.get("sprint_id")
-                    or spring_id
-                )
-                specs = spring_svc.get_specs(spring_id)
-                for spec in specs:
-                    for f in spec.get("files") or []:
-                        if f and f not in covered:
-                            covered.append(f)
+        covered, spring = _collect_covered_files(spring_svc, chain_dir)
 
         # 3. Diferencia → trabajo sin capturar
         uncaptured = [f for f in impacted if not _path_matches(f, covered)]
 
-        status = (
-            UncapturedStatus.UNCAPTURED if uncaptured else UncapturedStatus.CLEAN
-        )
+        status = UncapturedStatus.UNCAPTURED if uncaptured else UncapturedStatus.CLEAN
         return UncapturedWorkResult(
             status=status,
             impacted_files=impacted,
@@ -229,3 +186,57 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
             status=UncapturedStatus.ERROR,
             error=f"uncaptured_work check failed: {e}",
         )
+
+
+def _collect_impacted_files(data_dir: str, project_root: str) -> list[str]:
+    """Archivos modificados desde change_detected.json + eventos file_impact."""
+    from ..infrastructure.trace_log import TraceLogger
+
+    impacted: list[str] = []
+    _change_file = os.path.join(data_dir, "change_detected.json")
+    if os.path.isfile(_change_file):
+        try:
+            import json as _json
+
+            with open(_change_file) as _f:
+                _cd = _json.load(_f)
+            for f in _cd.get("files_changed", []) or []:
+                if f and f not in impacted:
+                    impacted.append(f)
+        except Exception:
+            pass  # change_detected corrupto/ausente → seguir con trace
+
+    tracer = TraceLogger()
+    events = tracer.replay(project_root)
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("event_type") != "file_impact":
+            continue
+        files = ev.get("files") or []
+        for f in files:
+            if f and f not in impacted:
+                impacted.append(f)
+    return impacted
+
+
+def _collect_covered_files(spring_svc, chain_dir: str) -> tuple[list[str], Any]:
+    """Archivos cubiertos por las specs del spring en curso."""
+    covered: list[str] = []
+    spring = None
+    if spring_svc is not None:
+        spring_id = spring_svc.get_spring_id(chain_dir)
+        spring = spring_svc.get_spring(spring_id) or spring_svc.get_active_spring()
+        if spring:
+            spring_id = (
+                spring.get("spring_id")
+                or spring.get("_id")
+                or spring.get("sprint_id")
+                or spring_id
+            )
+            specs = spring_svc.get_specs(spring_id)
+            for spec in specs:
+                for f in spec.get("files") or []:
+                    if f and f not in covered:
+                        covered.append(f)
+    return covered, spring

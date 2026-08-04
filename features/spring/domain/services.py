@@ -160,7 +160,7 @@ class SpecBuilder:
 # ── SprintPlanBuilder ─────────────────────────────────────────────────────
 
 class SprintPlanBuilder:
-    """Builds sprint plan and initial state structures. PURE."""
+    """Builds sprint plan structure. PURE."""
 
     @staticmethod
     def build_plan(sprint_id: str, goal: str, specs_raw: list) -> dict:
@@ -172,27 +172,6 @@ class SprintPlanBuilder:
             "goal": goal,
             "workflow": "workflow.v3/",
             "specifications": plan_specs,
-        }
-
-    @staticmethod
-    def build_initial_state(sprint_dir: str, sprint_id: str, goal: str,
-                            project_id: str, session_id: str, specs: list) -> dict:
-        """Build the initial sprint-state.json structure."""
-        return {
-            "version": "5.0",
-            "current_node": "SPRINT", "current_sub_state": "ACTIVE",
-            "sub_state_index": 0, "sub_state_data": {}, "history": [],
-            "context": {
-                "chain_dir": sprint_dir, "project_id": project_id,
-                "current_spec_index": 0, "session_id": session_id,
-            },
-            "updated_at": __import__("datetime").datetime.now().isoformat(),
-            "sprint": {
-                "chain_id": sprint_id, "goal": goal, "project_id": project_id,
-                "status": "planning",
-            },
-            "specifications": specs,
-            "spec_order": [s["spec_id"] for s in specs],
         }
 
 

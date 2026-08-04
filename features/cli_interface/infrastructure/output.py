@@ -168,6 +168,30 @@ def health_output(data: dict) -> None:
 
     print()
     print("  ── Memories ──")
+    _print_checks(checks)
+
+    if sprint is not None:
+        print()
+        print("  ── Sprint ──")
+        print(f"  Node: {sprint.get('node', '?')}.{sprint.get('sub_state', '?')}")
+        _print_sprint_progress(sprint)
+        _print_sprint_prompt(sprint)
+        _print_sprint_gates(sprint)
+    else:
+        print("  ℹ️  No active sprint")
+
+    if warnings:
+        print()
+        print(f"  ── {len(warnings)} Warnings ──")
+        for w in warnings:
+            print(f"  ⚠️  {w}")
+
+    # ── Proactive next steps ──
+    _print_next_steps(data.get("next_steps", []))
+
+
+def _print_checks(checks: dict) -> None:
+    """Imprime el estado de las memorias (files/cpg/ckg)."""
     for check_name in ["files", "cpg", "ckg"]:
         status = checks.get(check_name, "?")
         icon = (
@@ -183,80 +207,77 @@ def health_output(data: dict) -> None:
         )
         print(f"  {icon} {check_name.upper()}: {status}")
 
-    if sprint is not None:
-        print()
-        print("  ── Sprint ──")
-        print(f"  Node: {sprint.get('node', '?')}.{sprint.get('sub_state', '?')}")
 
-        # ── Teoria de grafos: mapa de progreso (GPS) ──
-        progress = sprint.get("graph_progress", {})
-        if progress:
-            pos = progress.get("position", "?")
-            hub_ok = progress.get("can_return_to_hub", False)
-            dist = progress.get("distance_to_terminal", -1)
-            path = progress.get("path_to_terminal", [])
-            term = progress.get("terminal", "")
-            print(
-                f"  📍 {pos} | puede volver al hub: {'SI' if hub_ok else 'NO'}"
-                f" | distancia al final: {dist if dist >= 0 else '?'} hops"
-            )
-            if path:
-                print(
-                    f"     ruta sugerida: {' → '.join(path)}"
-                    + (f" → {term}" if term and path[-1] != term else "")
-                )
-            cycles = progress.get("cycles_in_graph", 0)
-            if cycles:
-                print(
-                    f"     ciclos del workflow: {cycles} (REFINE es el hub de rework)"
-                )
+def _print_sprint_progress(sprint: dict) -> None:
+    """Imprime el GPS de progreso del grafo."""
+    progress = sprint.get("graph_progress", {})
+    if not progress:
+        return
+    pos = progress.get("position", "?")
+    hub_ok = progress.get("can_return_to_hub", False)
+    dist = progress.get("distance_to_terminal", -1)
+    path = progress.get("path_to_terminal", [])
+    term = progress.get("terminal", "")
+    print(
+        f"  📍 {pos} | puede volver al hub: {'SI' if hub_ok else 'NO'}"
+        f" | distancia al final: {dist if dist >= 0 else '?'} hops"
+    )
+    if path:
+        print(
+            f"     ruta sugerida: {' → '.join(path)}"
+            + (f" → {term}" if term and path[-1] != term else "")
+        )
+    cycles = progress.get("cycles_in_graph", 0)
+    if cycles:
+        print(
+            f"     ciclos del workflow: {cycles} (REFINE es el hub de rework)"
+        )
 
-        prompt = sprint.get("prompt", "")
-        if prompt:
-            print("  ── Instructions ──")
-            for line in prompt.strip().split("\n"):
-                print(f"  {line.strip()}")
 
-        required = sprint.get("required_fields", [])
-        if required:
-            print(f"  Required fields: {', '.join(required)}")
+def _print_sprint_prompt(sprint: dict) -> None:
+    """Imprime las instrucciones del sprint."""
+    prompt = sprint.get("prompt", "")
+    if prompt:
+        print("  ── Instructions ──")
+        for line in prompt.strip().split("\n"):
+            print(f"  {line.strip()}")
 
-        gates = sprint.get("gates", [])
-        if gates:
-            for g in gates:
-                print(f"    gate: {g.get('name', '?')} -> {g.get('description', '')}")
-    else:
-        print("  ℹ️  No active sprint")
+    required = sprint.get("required_fields", [])
+    if required:
+        print(f"  Required fields: {', '.join(required)}")
 
-    if warnings:
-        print()
-        print(f"  ── {len(warnings)} Warnings ──")
-        for w in warnings:
-            print(f"  ⚠️  {w}")
 
-    # ── Proactive next steps ──
-    next_steps = data.get("next_steps", [])
-    if next_steps:
-        priority_labels = {
-            1: "🔴 High",
-            2: "🟠 Medium-High",
-            3: "🟡 Medium",
-            4: "🟢 Low",
-            5: "⚪ Optional",
-        }
+def _print_sprint_gates(sprint: dict) -> None:
+    """Imprime las gates disponibles del sprint."""
+    gates = sprint.get("gates", [])
+    if gates:
+        for g in gates:
+            print(f"    gate: {g.get('name', '?')} -> {g.get('description', '')}")
 
-        print()
-        print("  ── Next Steps (Prioritized) ──")
-        for step in next_steps:
-            pri = step.get("priority", 99)
-            action = step.get("action", "")
-            reason = step.get("reason", "")
-            command = step.get("command", "")
 
-            print(f"  {priority_labels.get(pri, '⚪')} [{pri}] {action}")
-            print(f"         → {reason}")
-            if command:
-                print(f"         Run: {command}")
+def _print_next_steps(next_steps: list) -> None:
+    """Imprime los next steps priorizados."""
+    if not next_steps:
+        return
+    priority_labels = {
+        1: "🔴 High",
+        2: "🟠 Medium-High",
+        3: "🟡 Medium",
+        4: "🟢 Low",
+        5: "⚪ Optional",
+    }
+    print()
+    print("  ── Next Steps (Prioritized) ──")
+    for step in next_steps:
+        pri = step.get("priority", 99)
+        action = step.get("action", "")
+        reason = step.get("reason", "")
+        command = step.get("command", "")
+
+        print(f"  {priority_labels.get(pri, '⚪')} [{pri}] {action}")
+        print(f"         → {reason}")
+        if command:
+            print(f"         Run: {command}")
 
 
 def project_info_output(data: dict) -> None:
@@ -299,7 +320,7 @@ def project_info_output(data: dict) -> None:
     if data.get("active_sprint"):
         print("  Sprint: active")
     else:
-        print(f"  Sprint: none")
+        print("  Sprint: none")
 
     indices = data.get("cognitive_indices", [])
     if indices:

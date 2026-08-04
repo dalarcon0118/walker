@@ -396,12 +396,12 @@ def _ensure_project_configured(pid: str, sprint_id: str | None = None) -> bool:
     if not manifest.exists():
         os.getcwd()
         print(f"  ❌ Project '{pid}' is not configured.")
-        print(f"  Expected project.json at:")
+        print("  Expected project.json at:")
         print(f"     {manifest}")
         print()
         print("  ▶  Initialize the project:")
         print(f"       walker prepare --name {pid}")
-        print(f"     (from the directory where your code is)")
+        print("     (from the directory where your code is)")
         return False
 
     # Validate sprint if specified

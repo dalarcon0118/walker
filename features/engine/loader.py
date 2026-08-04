@@ -1,26 +1,27 @@
 """
 loader.py — Carga de workflow y estado desde disco.
 
-SRP: Unica responsabilidad = leer/interpretar/recuperar workflow.json y sprint-state.json.
+SRP: Unica responsabilidad = leer/interpretar/recuperar workflow.json y
+el estado del motor (.workflow-state.json).
 Extraido de engine.py para separar IO del resto de la logica.
 
 PRINCIPIO: NO hay fallbacks a workflow legacy hardcoded. El workflow del motor
 se carga SIEMPRE desde la plantilla workflow.v3 canónica. Si falta, ERROR.
+
+PRINCIPIO estructural: .workflow-state.json es el unico estado del motor.
+sprint-state.json fue eliminado (el estado de negocio vive en el DeltaGraph).
 """
 
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 
 from libs.infrastructure.utils import (
     load_json,
     state_path,
 )
 from libs.path_resolver import (
-    get_engine_workflow_dir,
     get_engine_workflow_path,
-    resolve_project_root,
 )
 
 
@@ -65,7 +66,7 @@ def find_workflow(chain_dir: str | None = None) -> dict:
 
 
 def ensure_state(chain_dir: str | None = None) -> dict:
-    """Lee el estado del workflow desde sprint-state.json / .workflow-state.json.
+    """Lee el estado del workflow desde .workflow-state.json.
 
     PRINCIPIO: no reconstruye estado inventado ni retorna defaults efímeros.
     Si no hay estado persistido, retorna dict vacío (el estado se crea

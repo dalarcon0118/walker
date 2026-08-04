@@ -184,76 +184,7 @@ def kg_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # REST: body directo via _payload
     payload = data.get("_payload", None)
     if payload and isinstance(payload, dict):
-        # Caso: solo _index sin filtros -> listar el indice completo
-        if set(payload.keys()) == {"_index"} or (
-            len(payload) == 1 and "_index" in payload
-        ):
-            index = payload.get("_index", "ckg")
-            _trace_kg_query(ctx.chain_dir or "", index, {}, ctx)
-            try:
-                return TaskResult.success(data=cg.search(index, {}))
-            except KeyError:
-                return TaskResult.failure(
-                    f"Index '{index}' not found. Disponibles: {cg.list_indexes()}"
-                )
-        has_single_query_keys = any(
-            k in payload
-            for k in (
-                "text",
-                "type",
-                "file",
-                "function",
-                "scope",
-                "status",
-                "severity",
-                "tag",
-                "label",
-                "task",
-                "description",
-                "signature",
-                "kind",
-                "domain",
-                "include_superseded",
-            )
-        )
-        if not has_single_query_keys and len(payload) > 0:
-            _trace_kg_query(ctx.chain_dir or "", "multi", payload, ctx)
-            return TaskResult.success(
-                data=cg.search_many(_with_compact_defaults(payload))
-            )
-        index = payload.get("_index", "ckg")
-        query = {k: v for k, v in payload.items() if k != "_index"}
-
-        # Ciclo de vida CKG: incluir decisiones superseded/deprecated
-        include_superseded = query.pop("include_superseded", False)
-        if index == "ckg" and include_superseded:
-            try:
-                from features.cognitive_knowledge.application.ckg import (
-                    CodeKnowledgeGraph,
-                )
-
-                project_root = _resolve_ckg_project_root(project_id)
-                if project_root:
-                    ckg = CodeKnowledgeGraph(project_root)
-                    nodes = ckg.query({**query, "include_superseded": True})
-                    return TaskResult.success(
-                        data={
-                            "type": "kg_search",
-                            "index": "ckg",
-                            "hits": len(nodes),
-                            "results": nodes,
-                        }
-                    )
-            except Exception:
-                pass  # fallback al searcher normal
-
-        _trace_kg_query(ctx.chain_dir or "", index, query, ctx)
-        try:
-            return TaskResult.success(data=cg.search(index, query))
-        except KeyError:
-            return TaskResult.failure(
-                f"Index '{index}' not found. Disponibles: {cg.list_indexes()}"
-            )
+        return _kg_search_payload(ctx, cg, payload, project_id)
 
     # Legacy: flags --index y --query
     index = data.get("index", "")
@@ -264,6 +195,87 @@ def kg_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         query = json.loads(query_raw) if isinstance(query_raw, str) else query_raw
     except json.JSONDecodeError:
         return TaskResult.failure(f"Invalid query JSON: {query_raw}")
+    return _kg_search_index(ctx, cg, index, query)
+
+
+def _kg_search_payload(
+    ctx: ExecutionContext, cg: Any, payload: dict, project_id: str
+) -> TaskResult:
+    """Maneja el body REST de kg_search (payload dict)."""
+    # Caso: solo _index sin filtros -> listar el indice completo
+    if set(payload.keys()) == {"_index"} or (len(payload) == 1 and "_index" in payload):
+        index = payload.get("_index", "ckg")
+        _trace_kg_query(ctx.chain_dir or "", index, {}, ctx)
+        try:
+            return TaskResult.success(data=cg.search(index, {}))
+        except KeyError:
+            return TaskResult.failure(
+                f"Index '{index}' not found. Disponibles: {cg.list_indexes()}"
+            )
+
+    has_single_query_keys = any(
+        k in payload
+        for k in (
+            "text",
+            "type",
+            "file",
+            "function",
+            "scope",
+            "status",
+            "severity",
+            "tag",
+            "label",
+            "task",
+            "description",
+            "signature",
+            "kind",
+            "domain",
+            "include_superseded",
+        )
+    )
+    if not has_single_query_keys and len(payload) > 0:
+        _trace_kg_query(ctx.chain_dir or "", "multi", payload, ctx)
+        return TaskResult.success(data=cg.search_many(_with_compact_defaults(payload)))
+
+    index = payload.get("_index", "ckg")
+    query = {k: v for k, v in payload.items() if k != "_index"}
+
+    # Ciclo de vida CKG: incluir decisiones superseded/deprecated
+    include_superseded = query.pop("include_superseded", False)
+    if index == "ckg" and include_superseded:
+        superseded = _kg_search_superseded(project_id, query)
+        if superseded:
+            return TaskResult.success(data=superseded)
+
+    return _kg_search_index(ctx, cg, index, query)
+
+
+def _kg_search_superseded(project_id: str, query: dict) -> dict | None:
+    """Busca en CKG incluyendo decisiones superseded/deprecated."""
+    try:
+        from features.cognitive_knowledge.application.ckg import (
+            CodeKnowledgeGraph,
+        )
+
+        project_root = _resolve_ckg_project_root(project_id)
+        if project_root:
+            ckg = CodeKnowledgeGraph(project_root)
+            nodes = ckg.query({**query, "include_superseded": True})
+            return {
+                "type": "kg_search",
+                "index": "ckg",
+                "hits": len(nodes),
+                "results": nodes,
+            }
+    except Exception:
+        pass  # fallback al searcher normal
+    return None
+
+
+def _kg_search_index(
+    ctx: ExecutionContext, cg: Any, index: str, query: dict
+) -> TaskResult:
+    """Ejecuta cg.search con manejo de KeyError."""
     _trace_kg_query(ctx.chain_dir or "", index, query, ctx)
     try:
         return TaskResult.success(data=cg.search(index, query))

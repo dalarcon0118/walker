@@ -248,7 +248,7 @@ def cmd_status(sub_args: list[str]) -> int:
     if state.get("context", {}).get("reconstructed"):
         print(
             Template("  [auto-rebuild] Estado reconstruido desde $src").substitute(
-                src=state["context"].get("reconstructed_from", "sprint-state.json")
+                src=state["context"].get("reconstructed_from", ".workflow-state.json")
             )
         )
         print()
@@ -321,6 +321,158 @@ def cmd_current(sub_args: list[str]) -> int:
     return 0
 
 
+def _resolve_implicit_task_id(state: dict, chain_dir: str) -> str | None:
+    """Resuelve task_id implicito desde el contexto del state o el delta."""
+    ctx_task = state.get("context", {}).get("task_id")
+    if ctx_task:
+        print(Template("  [task_id] Desde contexto: $tid").substitute(tid=ctx_task))
+        return ctx_task
+    rejected = set(state.get("context", {}).get("rejected_tasks", []))
+    implicit = _resolve_task_id(chain_dir, rejected)
+    if implicit:
+        print(Template("  [task_id] Detectado: $tid").substitute(tid=implicit))
+        return implicit
+    return None
+
+
+def _find_sub_state_gate(workflow: dict, current: str, gate: str) -> str | None:
+    """Busca el sub_state_gate de la edge current->gate (si es intra-node)."""
+    for e in workflow.get("edges", []):
+        if e.get("from") == current and e.get("gate") == gate:
+            return e.get("sub_state_gate")
+    return None
+
+
+def _collect_contract_data(
+    workflow: dict, state: dict, current: str, flags: dict
+) -> dict:
+    """Recolecta los datos del contrato para la transicion."""
+    current_ss = _get_current_sub_state(workflow, state)
+    contract = None
+    if current_ss:
+        contract = current_ss.get("data_contract")
+    if not contract:
+        contract = workflow["nodes"].get(current, {}).get("data_contract")
+    contract_data = {}
+    if contract and isinstance(contract, dict):
+        fields = contract.get("fields", [])
+        contract_data = {k: flags[k] for k in fields if k in flags}
+        if contract_data:
+            for k, v in contract_data.items():
+                print(
+                    Template("  [data] $key: $val").substitute(key=k, val=str(v)[:60])
+                )
+    return contract_data
+
+
+def _report_preconditions_blocked(pre_msg: str, workflow: dict, current: str) -> int:
+    """Reporta una transicion bloqueada por precondiciones."""
+    print()
+    eprint("=" * 70)
+    eprint("  TRANSITION BLOQUEADA: Precondiciones no cumplidas")
+    eprint(pre_msg)
+    eprint("=" * 70)
+    print()
+    return 1
+
+
+def _report_gate_validation_failed(vresult: dict, workflow: dict, current: str) -> int:
+    """Reporta una gate que fallo la validacion, con gates disponibles."""
+    print()
+    eprint("=" * 70)
+    eprint(
+        Template("  Gate validation FAILED: $msg").substitute(msg=vresult["message"])
+    )
+    eprint("=" * 70)
+    trans = valid_transitions(workflow, current)
+    eprint("  Gates disponibles desde este estado:")
+    for t in trans:
+        g = (
+            Template("transition $gate").substitute(gate=t["gate"])
+            if t.get("gate")
+            else "(sin gate)"
+        )
+        eprint(
+            Template("    walker.py $cmd  -> $desc").substitute(
+                cmd=g, desc=t["gate_description"]
+            )
+        )
+    eprint("=" * 70)
+    print()
+    return 1
+
+
+def _update_task_status_on_gate(
+    chain_dir: str | None,
+    task_id: str | None,
+    gate: str,
+) -> None:
+    """Actualiza el task status en el state consolidado segun la gate."""
+    if not (chain_dir and task_id):
+        return
+    from features.engine.infrastructure.repositories import (
+        WorkflowStateRepository as _SSR,
+    )
+
+    def load_state(c):
+        return _SSR().load_dict(c) or {}
+
+    def save_state(s, c):
+        return _SSR().save_dict(c, s) if isinstance(s, dict) else _SSR().save(c, s)
+
+    s = load_state(chain_dir)
+    if gate == "task_complete":
+        s.update({"tasks": {task_id: {"status": "completed"}}})
+        save_state(s, chain_dir)
+    elif gate == "analysis_approved":
+        s.update({"tasks": {task_id: {"status": "in_progress"}}})
+        save_state(s, chain_dir)
+
+
+def _run_auto_complete_chain(
+    workflow: dict,
+    state: dict,
+    target: str,
+    chain_dir: str | None,
+    task_id: str | None,
+    is_self_loop: bool,
+) -> None:
+    """Ejecuta la cadena de auto-complete al entrar a un nodo nuevo."""
+    if not is_self_loop:
+        auto_ss = _get_sub_state_by_index(workflow, target, 0)
+        while auto_ss and auto_ss.get("mode") == "auto":
+            exec_result = execute_sub_state_action(
+                workflow, target, auto_ss["key"], chain_dir, task_id
+            )
+            if exec_result["exit_code"] == 0:
+                advance_sub_state(state, workflow)
+                save_state(state, chain_dir)
+                print(
+                    Template(
+                        "  [auto] Sub-state '$key' completado automaticamente."
+                    ).substitute(key=auto_ss["key"])
+                )
+                auto_ss = _get_current_sub_state(workflow, state)
+            else:
+                eprint(
+                    Template("  ⚠️  Auto-complete '$key' fallo (exit $code)").substitute(
+                        key=auto_ss["key"], code=str(exec_result["exit_code"])
+                    )
+                )
+                break
+        current_ss = _get_current_sub_state(workflow, state)
+        _show_on_entry_message(
+            workflow["nodes"].get(target, {}), chain_dir, task_id, current_ss
+        )
+    else:
+        _show_on_entry_message(
+            workflow["nodes"].get(target, {}),
+            chain_dir,
+            task_id,
+            _get_current_sub_state(workflow, state),
+        )
+
+
 def cmd_transition(sub_args: list[str]) -> int:
     """walker transition <gate>: inter-node transition (v4).
 
@@ -362,31 +514,10 @@ def cmd_transition(sub_args: list[str]) -> int:
     workflow = find_workflow(chain_dir)
     current = _get_current_node(state)
     sub_key = _get_current_sub_key(state)
-    from features.engine.infrastructure.repositories import (
-        WorkflowStateRepository as _SSR,
-    )
 
-    load_state = lambda c: _SSR().load_dict(c) or {}
-    save_state = (
-        lambda s, c: _SSR().save_dict(c, s)
-        if isinstance(s, dict)
-        else _SSR().save(c, s)
-    )
-    set_task_status = lambda s, tid, st: s.update({"tasks": {tid: {"status": st}}})
-    complete_task = lambda s, tid: s.update({"tasks": {tid: {"status": "completed"}}})
-
-    # Implicit task_id from state context or sprint-state.json
+    # Implicit task_id from state context or el delta (nodo spring)
     if not task_id and chain_dir:
-        ctx_task = state.get("context", {}).get("task_id")
-        if ctx_task:
-            task_id = ctx_task
-            print(Template("  [task_id] Desde contexto: $tid").substitute(tid=task_id))
-        else:
-            rejected = set(state.get("context", {}).get("rejected_tasks", []))
-            implicit = _resolve_task_id(chain_dir, rejected)
-            if implicit:
-                task_id = implicit
-                print(Template("  [task_id] Detectado: $tid").substitute(tid=task_id))
+        task_id = _resolve_implicit_task_id(state, chain_dir)
 
     # 1. Find target node via inter-node edge
     target = _find_target(workflow, current, gate)
@@ -395,28 +526,10 @@ def cmd_transition(sub_args: list[str]) -> int:
 
     # Check if self-loop (intra-node gate like edit_plan, close_sprint)
     is_self_loop = target == current
-    sub_state_gate = None
-    for e in workflow.get("edges", []):
-        if e.get("from") == current and e.get("gate") == gate:
-            sub_state_gate = e.get("sub_state_gate")
-            break
+    sub_state_gate = _find_sub_state_gate(workflow, current, gate)
 
     # 2. Collect contract data from sub_state (v4) or node (legacy)
-    current_ss = _get_current_sub_state(workflow, state)
-    contract = None
-    if current_ss:
-        contract = current_ss.get("data_contract")
-    if not contract:
-        contract = workflow["nodes"].get(current, {}).get("data_contract")
-    contract_data = {}
-    if contract and isinstance(contract, dict):
-        fields = contract.get("fields", [])
-        contract_data = {k: flags[k] for k in fields if k in flags}
-        if contract_data:
-            for k, v in contract_data.items():
-                print(
-                    Template("  [data] $key: $val").substitute(key=k, val=str(v)[:60])
-                )
+    contract_data = _collect_contract_data(workflow, state, current, flags)
 
     # 2a. Persist contract data
     if contract_data:
@@ -428,41 +541,12 @@ def cmd_transition(sub_args: list[str]) -> int:
             state, workflow, current, gate, chain_dir
         )
         if not pre_ok:
-            print()
-            eprint("=" * 70)
-            eprint("  TRANSITION BLOQUEADA: Precondiciones no cumplidas")
-            eprint(pre_msg)
-            eprint("=" * 70)
-            print()
-            return 1
+            return _report_preconditions_blocked(pre_msg, workflow, current)
 
     # 2c. Validate gate (using node gate_validation)
     vresult = validate_gate(workflow, current, gate, chain_dir, task_id)
     if not vresult["ok"]:
-        print()
-        eprint("=" * 70)
-        eprint(
-            Template("  Gate validation FAILED: $msg").substitute(
-                msg=vresult["message"]
-            )
-        )
-        eprint("=" * 70)
-        trans = valid_transitions(workflow, current)
-        eprint("  Gates disponibles desde este estado:")
-        for t in trans:
-            g = (
-                Template("transition $gate").substitute(gate=t["gate"])
-                if t.get("gate")
-                else "(sin gate)"
-            )
-            eprint(
-                Template("    walker.py $cmd  -> $desc").substitute(
-                    cmd=g, desc=t["gate_description"]
-                )
-            )
-        eprint("=" * 70)
-        print()
-        return 1
+        return _report_gate_validation_failed(vresult, workflow, current)
 
     # 3. Execute plan action BEFORE transition
     if (
@@ -509,6 +593,28 @@ def cmd_transition(sub_args: list[str]) -> int:
             state, target, old_node, gate, reason, chain_dir, task_id
         )
 
+    # 4b-4e. Side effects post-transicion (pending, cancel, decisions, status)
+    _apply_transition_side_effects(
+        current, sub_key, gate, chain_dir, task_id, reason
+    )
+
+    # 5. If moving to new node, trigger auto_complete chain on first sub-states
+    _run_auto_complete_chain(
+        workflow, state, target, chain_dir, task_id, is_self_loop
+    )
+
+    return 0
+
+
+def _apply_transition_side_effects(
+    current: str,
+    sub_key: str,
+    gate: str,
+    chain_dir: str,
+    task_id: str,
+    reason: str,
+) -> None:
+    """Aplica side-effects post-transicion: pending, cancel, decisions, status."""
     # 4b. Handle HANDLE_PENDING actions
     if current == "SPRINT" and sub_key == "HANDLE_PENDING" and chain_dir:
         if gate == "backlog":
@@ -540,52 +646,7 @@ def cmd_transition(sub_args: list[str]) -> int:
         _log_decision(chain_dir, f"{current}.{sub_key}", gate, task_id, reason)
 
     # 4e. Actualizar task status en consolidated state
-    if chain_dir and task_id:
-        s = load_state(chain_dir)
-        if gate == "task_complete":
-            complete_task(s, task_id)
-            save_state(s, chain_dir)
-        elif gate == "analysis_approved":
-            set_task_status(s, task_id, "in_progress")
-            save_state(s, chain_dir)
-
-    # 5. If moving to new node, trigger auto_complete chain on first sub-states
-    if not is_self_loop:
-        auto_ss = _get_sub_state_by_index(workflow, target, 0)
-        while auto_ss and auto_ss.get("mode") == "auto":
-            exec_result = execute_sub_state_action(
-                workflow, target, auto_ss["key"], chain_dir, task_id
-            )
-            if exec_result["exit_code"] == 0:
-                advance_sub_state(state, workflow)
-                save_state(state, chain_dir)
-                print(
-                    Template(
-                        "  [auto] Sub-state '$key' completado automaticamente."
-                    ).substitute(key=auto_ss["key"])
-                )
-                auto_ss = _get_current_sub_state(workflow, state)
-            else:
-                eprint(
-                    Template("  ⚠️  Auto-complete '$key' fallo (exit $code)").substitute(
-                        key=auto_ss["key"], code=str(exec_result["exit_code"])
-                    )
-                )
-                break
-        # Show on_entry_message for current sub_state
-        current_ss = _get_current_sub_state(workflow, state)
-        _show_on_entry_message(
-            workflow["nodes"].get(target, {}), chain_dir, task_id, current_ss
-        )
-    else:
-        _show_on_entry_message(
-            workflow["nodes"].get(target, {}),
-            chain_dir,
-            task_id,
-            _get_current_sub_state(workflow, state),
-        )
-
-    return 0
+    _update_task_status_on_gate(chain_dir, task_id, gate)
 
 
 def cmd_resume(sub_args: list[str]) -> int:
@@ -851,21 +912,29 @@ def _query_task(
     has_files_flag: bool,
     chain_dir: str | None = None,
 ) -> int:
-    """Query: show details of a specific task, including status from sprint-state.json."""
+    """Query: show details of a specific task, including status from the delta."""
     task = next((t for t in tasks if t.get("task_id") == tid), None)
     if not task:
         eprint(Template("Tarea no encontrada: $tid").substitute(tid=tid))
         return 1
 
-    # Read task status via SprintStateRepository (SSOT)
+    # Read task status via el DELTA (nodo spec — fuente unica)
     status = "unknown"
     if chain_dir:
-        from features.spring.infrastructure.repositories import SprintStateRepository
+        try:
+            from features.delta_tracking.application.spring_graph_service import (
+                SpringGraphService,
+            )
 
-        raw = SprintStateRepository().load_dict(chain_dir)
-        if raw:
-            ts = raw.get("tasks", {})
-            status = ts.get(tid, "unknown")
+            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            if spring_svc:
+                spring_id = spring_svc.get_spring_id(chain_dir)
+                spring_svc.ensure_spring_imported(chain_dir, spring_id)
+                spec = spring_svc.get_spec(spring_id, tid)
+                if spec:
+                    status = spec.get("status", "unknown")
+        except Exception:
+            pass
 
     print(Template("Tarea: $tid  Status: $st").substitute(tid=tid, st=status))
     print(Template("  Objective: $obj").substitute(obj=task.get("objective", "-")))
@@ -914,11 +983,26 @@ def _query_file(qarg: str, tasks: list[dict]) -> int:
 
 
 def _query_status(chain_dir: str, tasks: list[dict]) -> int:
-    """Query: show status summary of all tasks in the sprint."""
-    from features.spring.infrastructure.repositories import SprintStateRepository
+    """Query: show status summary of all tasks in the sprint.
 
-    raw = SprintStateRepository().load_dict(chain_dir) or None
-    task_states = raw.get("progress", raw).get("task_states", {}) if raw else {}
+    PRINCIPIO: el estado de negocio del spring vive en el DELTA.
+    """
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
+
+    task_states = {}
+    try:
+        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        if spring_svc:
+            spring_id = spring_svc.get_spring_id(chain_dir)
+            spring_svc.ensure_spring_imported(chain_dir, spring_id)
+            task_states = {
+                s.get("spec_id", s.get("task_id", "")): s.get("status", "")
+                for s in spring_svc.get_specs(spring_id)
+            }
+    except Exception:
+        pass
 
     by_status: dict[str, list[str]] = {}
     for t in tasks:
@@ -1087,6 +1171,33 @@ def cmd_query(sub_args: list[str]) -> int:
         return _query_similar(qarg, tasks)
 
 
+def _check_task_status_relevance(
+    chain_dir: str, task_id: str, warnings: list[str]
+) -> None:
+    """Warning si la task_id actual ya esta en estado done."""
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
+
+    try:
+        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        if spring_svc:
+            spring_id = spring_svc.get_spring_id(chain_dir)
+            spring_svc.ensure_spring_imported(chain_dir, spring_id)
+            spec = spring_svc.get_spec(spring_id, task_id)
+            status = spec.get("status", "") if spec else ""
+        else:
+            status = ""
+    except Exception:
+        status = ""
+    if isinstance(status, str) and status.lower() in _DONE_STATUSES:
+        warnings.append(
+            Template("task_id '$tid' ya esta $status.").substitute(
+                tid=task_id, status=status
+            )
+        )
+
+
 def cmd_health(sub_args: list[str]) -> int:
     """walker health: diagnostica inconsistencias en el estado del workflow.
 
@@ -1158,19 +1269,7 @@ def cmd_health(sub_args: list[str]) -> int:
 
     # 4. Task_id is still relevant (not done)?
     if task_id and chain_dir:
-        from features.spring.infrastructure.repositories import SprintStateRepository
-
-        raw = SprintStateRepository().load_dict(chain_dir)
-        if raw:
-            prog = raw.get("progress", raw)
-            ts = prog.get("tasks", {})
-            status = ts.get(task_id, "")
-            if isinstance(status, str) and status.lower() in _DONE_STATUSES:
-                warnings.append(
-                    Template("task_id '$tid' ya esta $status.").substitute(
-                        tid=task_id, status=status
-                    )
-                )
+        _check_task_status_relevance(chain_dir, task_id, warnings)
 
     # 5. History is not empty
     if not state.get("history"):
@@ -1198,10 +1297,17 @@ def cmd_health(sub_args: list[str]) -> int:
     )
     print()
 
+    _print_health_report(issues, warnings)
+
+    return 1 if issues else 0
+
+
+def _print_health_report(issues: list[str], warnings: list[str]) -> None:
+    """Imprime el reporte de salud (issues/warnings/sugerencias)."""
     if not issues and not warnings:
         print("  ✅ Todo consistent. No se detectaron problemas.")
         print()
-        return 0
+        return
 
     if issues:
         print("  ❌ PROBLEMAS detectados:")
@@ -1223,8 +1329,6 @@ def cmd_health(sub_args: list[str]) -> int:
     if warnings:
         print("    walker.py status      → Verificar estado actual")
     print()
-
-    return 1 if issues else 0
 
 
 def cmd_backlog(sub_args: list[str]) -> int:
@@ -1281,18 +1385,19 @@ def cmd_backlog(sub_args: list[str]) -> int:
         task["_moved_to_backlog_at"] = datetime.now(timezone.utc).isoformat()
         backlog.append(task)
         _save_backlog(chain_dir, backlog)
-        # Mark as backlog in sprint-state.json via SprintStateRepository (SSOT)
-        from dataclasses import replace
-        from features.spring.infrastructure.repositories import SprintStateRepository
+        # Mark as backlog en el DELTA (nodo spec — fuente unica)
+        try:
+            from features.delta_tracking.application.spring_graph_service import (
+                SpringGraphService,
+            )
 
-        repo = SprintStateRepository()
-        state = repo.load(chain_dir)
-        new_progress = dict(state.progress)
-        new_progress.setdefault("current", {}).setdefault("task_states", {})[
-            task_id
-        ] = "backlog"
-        new_state = replace(state, progress=new_progress)
-        repo.save(chain_dir, new_state)
+            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            if spring_svc:
+                spring_id = spring_svc.get_spring_id(chain_dir)
+                spring_svc.ensure_spring_imported(chain_dir, spring_id)
+                spring_svc.update_spec_status(spring_id, task_id, "backlog")
+        except Exception as e:
+            eprint(f"  [warn] No se pudo marcar backlog en el delta: {e}")
         print(Template("  [backlog] $tid movida al backlog").substitute(tid=task_id))
         return 0
 
@@ -1410,6 +1515,85 @@ def _save_knowledge_facts(
             eprint(f"  [warn] Error guardando facts.json: {e}")
 
 
+def _submit_no_required_fields(
+    state: dict, workflow: dict, chain_dir: str, current: str, sub_key: str, task_id: str
+) -> int:
+    """Submit cuando el sub-estado no requiere campos: avanza + auto-chain."""
+    print(
+        Template(
+            "  [submit] Sub-state '$key' no requiere campos. Avanzando..."
+        ).substitute(key=sub_key)
+    )
+    advance_sub_state(state, workflow)
+    save_state(state, chain_dir)
+    next_ss = _get_current_sub_state(workflow, state)
+    if next_ss and next_ss.get("mode") == "auto":
+        if _run_auto_sub_state(state, workflow, chain_dir, current, next_ss, task_id):
+            return 0
+    _show_on_entry_message(
+        workflow["nodes"].get(current, {}),
+        chain_dir,
+        task_id,
+        _get_current_sub_state(workflow, state),
+    )
+    return 0
+
+
+def _run_auto_sub_state(
+    state: dict, workflow: dict, chain_dir: str, current: str, next_ss: dict, task_id: str
+) -> bool:
+    """Ejecuta un sub-estado auto y encadena los siguientes. Retorna True si
+    ya se completó el flujo (early return)."""
+    exec_result = execute_sub_state_action(
+        workflow, current, next_ss["key"], chain_dir, task_id
+    )
+    if exec_result["exit_code"] != 0:
+        eprint(
+            Template("  [auto] Sub-state '$key' fallo (exit $code)").substitute(
+                key=next_ss["key"], code=str(exec_result["exit_code"])
+            )
+        )
+        return _handle_auto_loop(
+            state, workflow, chain_dir, current, next_ss, exec_result, task_id
+        )
+    if not advance_sub_state(state, workflow):
+        print(
+            Template("  [submit] Todos los sub-estados completados.").substitute()
+        )
+        save_state(state, chain_dir)
+        _show_on_entry_message(
+            workflow["nodes"].get(current, {}),
+            chain_dir,
+            task_id,
+            _get_current_sub_state(workflow, state),
+        )
+        return True
+    save_state(state, chain_dir)
+    print(
+        Template("  [auto] Sub-state '$key' completado.").substitute(
+            key=next_ss["key"]
+        )
+    )
+    # Encadenar mas sub-estados auto
+    chain_ss = _get_current_sub_state(workflow, state)
+    while chain_ss and chain_ss.get("mode") == "auto":
+        chain_result = execute_sub_state_action(
+            workflow, current, chain_ss["key"], chain_dir, task_id
+        )
+        if chain_result["exit_code"] != 0:
+            break
+        if not advance_sub_state(state, workflow):
+            break
+        save_state(state, chain_dir)
+        print(
+            Template("  [auto] Sub-state '$key' completado.").substitute(
+                key=chain_ss["key"]
+            )
+        )
+        chain_ss = _get_current_sub_state(workflow, state)
+    return False
+
+
 def cmd_submit(sub_args: list[str]) -> int:
     """walker submit <key=value>...: envia datos para el sub-estado actual.
 
@@ -1456,75 +1640,9 @@ def cmd_submit(sub_args: list[str]) -> int:
     # Check required_fields
     required = _get_required_fields(workflow, state)
     if not required:
-        print(
-            Template(
-                "  [submit] Sub-state '$key' no requiere campos. Avanzando..."
-            ).substitute(key=sub_key)
+        return _submit_no_required_fields(
+            state, workflow, chain_dir, current, sub_key, task_id
         )
-        advance_sub_state(state, workflow)
-        save_state(state, chain_dir)
-        # Try to auto-advance next sub-state if it's mode:auto
-        next_ss = _get_current_sub_state(workflow, state)
-        if next_ss and next_ss.get("mode") == "auto":
-            exec_result = execute_sub_state_action(
-                workflow, current, next_ss["key"], chain_dir, task_id
-            )
-            if exec_result["exit_code"] == 0:
-                advanced = advance_sub_state(state, workflow)
-                if not advanced:
-                    print(
-                        Template(
-                            "  [submit] Todos los sub-estados completados."
-                        ).substitute()
-                    )
-                    save_state(state, chain_dir)
-                    _show_on_entry_message(
-                        workflow["nodes"].get(current, {}),
-                        chain_dir,
-                        task_id,
-                        _get_current_sub_state(workflow, state),
-                    )
-                    return 0
-                save_state(state, chain_dir)
-                print(
-                    Template("  [auto] Sub-state '$key' completado.").substitute(
-                        key=next_ss["key"]
-                    )
-                )
-                # Check if there's another auto sub-state to chain
-                chain_ss = _get_current_sub_state(workflow, state)
-                while chain_ss and chain_ss.get("mode") == "auto":
-                    chain_result = execute_sub_state_action(
-                        workflow, current, chain_ss["key"], chain_dir, task_id
-                    )
-                    if chain_result["exit_code"] != 0:
-                        break
-                    if not advance_sub_state(state, workflow):
-                        break
-                    save_state(state, chain_dir)
-                    print(
-                        Template("  [auto] Sub-state '$key' completado.").substitute(
-                            key=chain_ss["key"]
-                        )
-                    )
-                    chain_ss = _get_current_sub_state(workflow, state)
-            else:
-                eprint(
-                    Template("  [auto] Sub-state '$key' fallo (exit $code)").substitute(
-                        key=next_ss["key"], code=str(exec_result["exit_code"])
-                    )
-                )
-                if _handle_auto_loop(
-                    state, workflow, chain_dir, current, next_ss, exec_result, task_id
-                ):
-                    return 0
-        _show_on_entry_message(
-            workflow["nodes"].get(current, {}),
-            chain_dir,
-            task_id,
-            _get_current_sub_state(workflow, state),
-        )
-        return 0
 
     # Validate required fields are present in flags OR already stored
     data_key = f"{current}.{sub_key}"
@@ -1577,40 +1695,11 @@ def cmd_submit(sub_args: list[str]) -> int:
         )
         # If next sub-state is auto, execute it
         if next_ss and next_ss.get("mode") == "auto":
-            exec_result = execute_sub_state_action(
-                workflow, current, next_ss["key"], chain_dir, task_id
+            handled = _run_auto_sub_state(
+                state, workflow, chain_dir, current, next_ss, task_id
             )
-            if exec_result["exit_code"] == 0:
-                if not advance_sub_state(state, workflow):
-                    print(
-                        Template(
-                            "  [submit] Todos los sub-estados completados."
-                        ).substitute()
-                    )
-                    save_state(state, chain_dir)
-                    _show_on_entry_message(
-                        workflow["nodes"].get(current, {}),
-                        chain_dir,
-                        task_id,
-                        _get_current_sub_state(workflow, state),
-                    )
-                    return 0
-                save_state(state, chain_dir)
-                print(
-                    Template("  [auto] Sub-state '$key' completado.").substitute(
-                        key=next_ss["key"]
-                    )
-                )
-            else:
-                eprint(
-                    Template("  [auto] Sub-state '$key' fallo (exit $code)").substitute(
-                        key=next_ss["key"], code=str(exec_result["exit_code"])
-                    )
-                )
-                if _handle_auto_loop(
-                    state, workflow, chain_dir, current, next_ss, exec_result, task_id
-                ):
-                    return 0
+            if handled:
+                return 0
         _show_on_entry_message(
             workflow["nodes"].get(current, {}),
             chain_dir,

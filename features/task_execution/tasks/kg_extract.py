@@ -68,44 +68,8 @@ def _project_cg(project_id: str):
     return None
 
 
-def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    """Extract knowledge from code via CPG for the LLM to analyze and persist to CKG.
-
-    No active sprint needed. Uses CPG to understand project structure.
-    """
-    chain_dir = ctx.chain_dir or ""
-    input_result = KgExtractInput.from_dict(data)
-    if not input_result.ok:
-        return TaskResult.failure(input_result.error or "input inválido")
-    inp: KgExtractInput = input_result.data
-    project_id = inp.project_id or data.get("_project_id", "")
-    scope = inp.scope
-
-    if chain_dir:
-        try:
-            cg = _get_cg(chain_dir)
-        except Exception as e:
-            return TaskResult.failure(f"CognitiveGraph not available: {e}")
-    elif project_id:
-        cg = _project_cg(project_id)
-        if cg is None:
-            return TaskResult.failure(
-                "Project not found",
-                data={
-                    "error": f"Project '{project_id}' not found or has no .cognitive/ data",
-                    "next_step": "Run 'walker prepare <path>' to register the project first",
-                },
-            )
-    else:
-        return TaskResult.failure(
-            "No project context",
-            data={
-                "error": "No chain_dir and no project_id available",
-                "next_step": "Run 'walker <project>/status' first to register project context",
-            },
-        )
-
-    # ── 1. Query CPG ──
+def _query_cpg_analysis(cg: Any, scope: str) -> dict:
+    """Consulta el CPG: functions, classes, files, modules segun scope."""
     analysis = {
         "functions": [],
         "classes": [],
@@ -159,24 +123,21 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             r = cg.search("cpg", {"type": "file"})
             for h in r.get("hits", {}).get("hits", []):
                 s = h["_source"]
-                analysis["files"].append(
-                    {
-                        "path": s.get("file", s.get("name", "")),
-                    }
-                )
+                analysis["files"].append({"path": s.get("file", s.get("name", ""))})
             r = cg.search("cpg", {"type": "module"})
             for h in r.get("hits", {}).get("hits", []):
                 s = h["_source"]
                 analysis["modules"].append(
-                    {
-                        "name": s.get("name", ""),
-                        "file": s.get("file", ""),
-                    }
+                    {"name": s.get("name", ""), "file": s.get("file", "")}
                 )
     except Exception as e:
         analysis["_error_cpg_files"] = str(e)
 
-    # ── 2. Query current CKG (avoid duplicates) ──
+    return analysis
+
+
+def _query_existing_ckg(cg: Any, analysis: dict) -> list[dict]:
+    """Consulta el CKG actual para evitar duplicados."""
     existing_facts = []
     try:
         r = cg.search("ckg", {})
@@ -191,40 +152,78 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             )
     except Exception as e:
         analysis["_error_ckg"] = str(e)
+    return existing_facts
 
-    # ── 3. Project stats ──
-    total_functions = 0
-    total_classes = 0
-    total_files = 0
-    total_modules = 0
-    try:
-        r = cg.search("cpg", {"type": "function"})
-        total_functions = r.get("hits", {}).get("total", len(analysis["functions"]))
-    except Exception:
-        pass
-    try:
-        r = cg.search("cpg", {"type": "class"})
-        total_classes = r.get("hits", {}).get("total", len(analysis["classes"]))
-    except Exception:
-        pass
-    try:
-        r = cg.search("cpg", {"type": "file"})
-        total_files = r.get("hits", {}).get("total", len(analysis["files"]))
-    except Exception:
-        pass
-    try:
-        r = cg.search("cpg", {"type": "module"})
-        total_modules = r.get("hits", {}).get("total", len(analysis["modules"]))
-    except Exception:
-        pass
 
-    stats = {
-        "total_functions": total_functions,
-        "total_classes": total_classes,
-        "total_files": total_files,
-        "total_modules": total_modules,
+def _query_project_stats(cg: Any, analysis: dict, existing_facts: list) -> dict:
+    """Consulta los totales del proyecto para el resumen."""
+    counts = {"function": 0, "class": 0, "file": 0, "module": 0}
+    totals = {
+        "function": len(analysis["functions"]),
+        "class": len(analysis["classes"]),
+        "file": len(analysis["files"]),
+        "module": len(analysis["modules"]),
+    }
+    for ntype in counts:
+        try:
+            r = cg.search("cpg", {"type": ntype})
+            counts[ntype] = r.get("hits", {}).get("total", totals[ntype])
+        except Exception:
+            pass
+    return {
+        "total_functions": counts["function"],
+        "total_classes": counts["class"],
+        "total_files": counts["file"],
+        "total_modules": counts["module"],
         "existing_ckg_facts": len(existing_facts),
     }
+
+
+def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    """Extract knowledge from code via CPG for the LLM to analyze and persist to CKG.
+
+    No active sprint needed. Uses CPG to understand project structure.
+    """
+    chain_dir = ctx.chain_dir or ""
+    input_result = KgExtractInput.from_dict(data)
+    if not input_result.ok:
+        return TaskResult.failure(input_result.error or "input inválido")
+    inp: KgExtractInput = input_result.data
+    project_id = inp.project_id or data.get("_project_id", "")
+    scope = inp.scope
+
+    if chain_dir:
+        try:
+            cg = _get_cg(chain_dir)
+        except Exception as e:
+            return TaskResult.failure(f"CognitiveGraph not available: {e}")
+    elif project_id:
+        cg = _project_cg(project_id)
+        if cg is None:
+            return TaskResult.failure(
+                "Project not found",
+                data={
+                    "error": f"Project '{project_id}' not found or has no .cognitive/ data",
+                    "next_step": "Run 'walker prepare <path>' to register the project first",
+                },
+            )
+    else:
+        return TaskResult.failure(
+            "No project context",
+            data={
+                "error": "No chain_dir and no project_id available",
+                "next_step": "Run 'walker <project>/status' first to register project context",
+            },
+        )
+
+    # ── 1. Query CPG ──
+    analysis = _query_cpg_analysis(cg, scope)
+
+    # ── 2. Query current CKG (avoid duplicates) ──
+    existing_facts = _query_existing_ckg(cg, analysis)
+
+    # ── 3. Project stats ──
+    stats = _query_project_stats(cg, analysis, existing_facts)
 
     # ── 4. LLM Questionnaire ──
     questionnaire = {

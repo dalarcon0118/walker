@@ -6,15 +6,65 @@ Se invoca como `python -m features.cli_interface.mcp` — NO hay scripts/.
 El driver solo arranca el loop stdio JSON-RPC; toda la logica vive
 en mcp_adapter (adaptador) que delega en el Router (SSOT).
 
+ANTI-ACUMULACION: cada sesion del cliente MCP (opencode, etc.) spawns
+su propio proceso `python -m features.cli_interface.mcp`. Si una sesion
+se cierra sin cerrar el pipe stdio limpiamente, el proceso queda
+HUERFANO. Este driver incluye un guard que al arrancar detecta y mata
+los procesos previos del mismo entry point (excluyendo el propio y su
+padre) — asi nunca se acumulan instancias.
+
 Uso:
     python -m features.cli_interface.mcp          # servidor stdio
     python -m features.cli_interface.mcp --self-test
 """
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 
 from .mcp_adapter import _handle_request, serve_stdio
+
+
+def _kill_previous_instances() -> None:
+    """Mata procesos previos de este mismo MCP server (instancias huerfanas).
+
+    PRINCIPIO: cada sesion del cliente MCP spawns un proceso. Si la sesion
+    anterior no murio limpio, queda un zombie que acumula instancias y
+    consume el codigo VIEJO (sintomas de "server stale"). Al arrancar,
+    este guard cierra los procesos previos del MISMO entry point.
+
+    Seguridad:
+      - Excluye el PID actual y el PID padre (opencode/terminal que nos
+        spawns) — nunca se mata a si mismo ni a su dueño.
+      - Solo matchea el entry point exacto `features.cli_interface.mcp`
+        (no afecta otros MCP servers ni el resto del sistema).
+    """
+    self_pid = os.getpid()
+    parent_pid = os.getppid()
+    pattern = "features.cli_interface.mcp"
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", pattern],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return  # sin pgrep o timeout: no forzar
+    if out.returncode != 0 or not out.stdout.strip():
+        return  # no hay procesos previos
+    for pid_str in out.stdout.strip().splitlines():
+        try:
+            pid = int(pid_str.strip())
+        except ValueError:
+            continue
+        if pid in (self_pid, parent_pid):
+            continue  # no matarse ni matar al dueño
+        try:
+            os.kill(pid, 15)  # SIGTERM
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 def _self_test() -> int:
@@ -30,6 +80,7 @@ def _self_test() -> int:
 def main() -> int:
     if "--self-test" in sys.argv:
         return _self_test()
+    _kill_previous_instances()
     return serve_stdio()
 
 

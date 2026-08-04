@@ -116,7 +116,7 @@ class QueryTraceUseCase:
 
 
 class QueryStateUseCase:
-    """Consulta sprint-state via CognitiveGraph (QueryManager wrapper)."""
+    """Consulta el estado del workflow/sprint via CognitiveGraph (QueryManager wrapper)."""
 
     def __init__(self, chain_dir: str):
         self._qm = _get_query_manager(chain_dir)

@@ -791,16 +791,20 @@ def _build_help() -> dict:
                     {
                         "nodo": n["id"],
                         "desc": n.get("description") or n.get("label", ""),
-                        "sub_states": [
-                            ss["key"] for ss in n.get("sub_states", [])
-                        ],
+                        "sub_states": [ss["key"] for ss in n.get("sub_states", [])],
                     }
                     for n in workflow_map.get("nodes", [])
                 ]
                 if workflow_map.get("nodes")
                 else [
-                    {"nodo": "SPRINT.PLANNING", "desc": "Definir especificaciones del sprint"},
-                    {"nodo": "SPRINT.ACTIVE", "desc": "Sprint en ejecucion, avanzar tareas"},
+                    {
+                        "nodo": "SPRINT.PLANNING",
+                        "desc": "Definir especificaciones del sprint",
+                    },
+                    {
+                        "nodo": "SPRINT.ACTIVE",
+                        "desc": "Sprint en ejecucion, avanzar tareas",
+                    },
                     {"nodo": "SPRINT.REVIEW", "desc": "Revision del sprint"},
                     {"nodo": "SPRINT.CLOSED", "desc": "Sprint finalizado"},
                 ]
@@ -897,9 +901,9 @@ def handle_mcp_config(req: Request) -> Response:
             next_actions=[
                 action("walker mcp-config --format=opencode", "config para opencode"),
                 action(
-                    f"walker mcp-config --format=claude", "config para Claude Desktop"
+                    "walker mcp-config --format=claude", "config para Claude Desktop"
                 ),
-                action(f"walker mcp-config --format=cursor", "config para Cursor"),
+                action("walker mcp-config --format=cursor", "config para Cursor"),
                 action("walker routes", "list all REST endpoints"),
             ],
         )

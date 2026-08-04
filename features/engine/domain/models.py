@@ -322,6 +322,43 @@ class WorkflowGraph:
     def find_event_handler(self, event_name: str) -> dict | None:
         return self.on_events.get(event_name)
 
+    @staticmethod
+    def _sub_state_steps(node: Any, node_id: str) -> list[dict]:
+        """Steps 'process' para los sub-estados de un nodo."""
+        from .services import RequiredFieldResolver
+
+        steps: list[dict] = []
+        for ss in node.sub_states:
+            exec_type = ss.execution.value if ss.execution else "manual"
+            steps.append(
+                {
+                    "action": "process",
+                    "node": node_id,
+                    "sub_state": ss.key,
+                    "execution": exec_type,
+                    "label": ss.label or ss.key,
+                    "required_fields": RequiredFieldResolver.derive(ss),
+                }
+            )
+        return steps
+
+    @staticmethod
+    def _build_flow(flow_steps: list[dict]) -> dict:
+        """Construye el dict de un flujo con nombre compacto."""
+        labels = []
+        for s in flow_steps:
+            if s["action"] == "process":
+                labels.append(f"{s['node']}.{s['sub_state']}")
+            elif s["action"] == "transition":
+                labels.append(f"[{s['gate']}]")
+        return {
+            "name": " → ".join(labels),
+            "steps": flow_steps,
+            "node_count": len(
+                set(s.get("node", "") for s in flow_steps if s.get("node"))
+            ),
+        }
+
     def generate_flows(self) -> list[dict]:
         """Genera narrativas de flujo auto-descubiertas desde el grafo.
 
@@ -369,7 +406,9 @@ class WorkflowGraph:
             # Walk sub-states of target node
             for ss in target_node.sub_states:
                 exec_type = ss.execution.value if ss.execution else "manual"
-                required = list(ss.required_fields)
+                from .services import RequiredFieldResolver
+
+                required = RequiredFieldResolver.derive(ss)
                 steps.append(
                     {
                         "action": "process",
@@ -397,19 +436,7 @@ class WorkflowGraph:
         visited.add(self.initial_state)
 
         # Steps for initial node sub-states
-        init_steps: list[dict] = []
-        for ss in start_node.sub_states:
-            exec_type = ss.execution.value if ss.execution else "manual"
-            init_steps.append(
-                {
-                    "action": "process",
-                    "node": self.initial_state,
-                    "sub_state": ss.key,
-                    "execution": exec_type,
-                    "label": ss.label or ss.key,
-                    "required_fields": list(ss.required_fields),
-                }
-            )
+        init_steps = self._sub_state_steps(start_node, self.initial_state)
 
         # Follow each outgoing gate from initial node as a separate flow
         for gate in self.edges_by_source.get(self.initial_state, []):
@@ -423,23 +450,7 @@ class WorkflowGraph:
             if len(flow_steps) <= len(init_steps):
                 continue
 
-            # Build a compact flow string for the name
-            labels = []
-            for s in flow_steps:
-                if s["action"] == "process":
-                    labels.append(f"{s['node']}.{s['sub_state']}")
-                elif s["action"] == "transition":
-                    labels.append(f"[{s['gate']}]")
-
-            flows.append(
-                {
-                    "name": " → ".join(labels),
-                    "steps": flow_steps,
-                    "node_count": len(
-                        set(s.get("node", "") for s in flow_steps if s.get("node"))
-                    ),
-                }
-            )
+            flows.append(self._build_flow(flow_steps))
 
         # Handle case where initial node has no gates (isolated node)
         if not self.edges_by_source.get(self.initial_state) and init_steps:
@@ -486,7 +497,8 @@ class WorkflowState:
     y saga/compensación natural.
 
     PURA: No contiene datos de negocio (sprint, tasks, project, etc.).
-    Esos viven en SprintState (features/spring/) que hereda de esta clase.
+    El estado de negocio del spring vive en el DeltaGraph (SpringGraphService),
+    no en este modelo. sprint-state.json/SprintState fueron eliminados.
     """
 
     current_node: str = ""
@@ -641,7 +653,7 @@ class WorkflowState:
 # SSOT: libs/shared_domain/models.py
 # Se re-exportan aqui para compatibilidad hacia atras.
 # Las nuevas importaciones deben ir a libs.shared_domain.
-from libs.shared_domain import ExecutionContext, TaskResult
+from libs.shared_domain.models import ExecutionContext, TaskResult  # noqa: F401
 
 
 # ── NodeExecution (ELM/Saga Log) ────────────────────────────────────────────

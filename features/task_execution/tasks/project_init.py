@@ -112,7 +112,7 @@ def build_initial_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         import json
         import os
 
-        ckg = CodeKnowledgeGraph(project_root)
+        CodeKnowledgeGraph(project_root)
         # Crear archivo CKG vacio con estructura limpia (sin nodos marcadores)
         ckg_path = os.path.join(project_root, "data", "ckg.json.gz")
         os.makedirs(os.path.dirname(ckg_path), exist_ok=True)

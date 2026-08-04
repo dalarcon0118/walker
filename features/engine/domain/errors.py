@@ -5,6 +5,26 @@ SSOT para todos los errores del dominio.
 Tipos semanticos (no genericos) para que el caller sepa exactamente que fallo.
 
 TASK-009: Taxonomia de errores y estrategias on_error.
+
+ESTRATEGIA DE MANEJO DE ERRORES (convencion del dominio):
+  Todo `except` DEBE decidir UNA de estas 5 acciones explicitas — NUNCA
+  `except Exception: pass` silencioso (anti-patron que oculta fallos).
+
+  1. PROPAGAR  — errores criticos (persistencia de estado, transiciones,
+                 contratos). Si no se puede continuar, que el error suba.
+  2. BLOQUEAR  — errores de validacion/gate. Retornar ok=False con mensaje
+                 claro; el workflow NO avanza hasta que se resuelva.
+  3. REINTENTAR — errores transitorios (infraestructura, execution).
+                 Usar sub_state.retry con max_attempts/backoff.
+  4. COMPENSAR — side-effects con compensation definida (Saga). Revertir
+                 el efecto parcial antes de continuar.
+  5. LOGGEAR   — operaciones best-effort (tracing, captura de contexto,
+                 fallbacks de carga). Registrar SIEMPRE con logger
+                 (error/warning/debug segun gravedad) y continuar.
+
+  Regla: si un except no loggea y no propaga y no compensa, es un bug.
+  El tracing (TraceLogger.trace) es OBSERVABILIDAD: nunca rompe el flujo,
+  pero sus fallos SI se loggean (logger.error) para no perder diagnostico.
 """
 from __future__ import annotations
 

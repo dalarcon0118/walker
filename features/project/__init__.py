@@ -10,7 +10,7 @@ Uso tipico:
 
     project = ProjectService.from_chain_dir(chain_dir)
     ckg_path = project.paths.ckg_path          # sin IO
-    state_path = project.paths.sprint_state_path  # sin IO
+    state_path = project.paths.workflow_state_path  # sin IO
 
     # Solo paths (sin cargar perfil del proyecto)
     paths = ProjectService.resolve_paths(chain_dir)

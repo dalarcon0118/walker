@@ -25,7 +25,12 @@ from ..domain.models import (
     ExecutionType,
 )
 from ..domain.registry import TaskRegistry
-from ..domain.services import ValidationService, AdvanceService, TransitionService
+from ..domain.services import (
+    ValidationService,
+    AdvanceService,
+    TransitionService,
+    RequiredFieldResolver,
+)
 from ..domain.errors import (
     TransitionBlockedError,
     GateValidationError,
@@ -109,7 +114,7 @@ class ValidateCurrentStateUseCase:
                 }
             )
 
-        if sub_state and sub_state.required_fields:
+        if sub_state and RequiredFieldResolver.derive(sub_state):
             data = state.get_sub_state_data(state.current_sub_state)
             field_errors = ValidationService.validate_sub_state_data(
                 sub_state, data.fields
@@ -168,7 +173,101 @@ class SubmitDataUseCase:
         task_id: str | None = None,
         ctx: ExecutionContext | None = None,
     ) -> dict:
-        # ── 0. Normalizar parametros: soportar ExecutionContext ──
+        # Orquestacion: cada fase es un helper SRP (reduccion de cyclo).
+        chain_dir, fields, task_id, ctx = self._normalize_params(
+            chain_dir, fields, task_id, ctx
+        )
+
+        # ── 1. Load ────────────────────────────────────────────
+        workflow = self._workflow_repo.load(chain_dir)
+        state = self._state_repo.load(chain_dir)
+        node = workflow.get_node(state.current_node)
+        if not node:
+            raise ValidationError(
+                f"Nodo '{state.current_node}' no existe en el workflow"
+            )
+        sub_state = node.find_sub_state(state.current_sub_state)
+        if not sub_state:
+            raise SubStateNotFoundError(state.current_node, state.current_sub_state)
+
+        # ── 2-3. Validacion de input (con forwarding SPEC-013) ─
+        target_sub_state = self._resolve_forward_target(node, sub_state, fields)
+        self._validate_input(target_sub_state, fields)
+
+        # ── 4. Persist submitted data (ELM: state es inmutable) ──
+        _did_forward = target_sub_state is not sub_state
+        persist_key = (
+            f"{state.current_node}.{target_sub_state.key}"
+            if _did_forward
+            else state.current_sub_state
+        )
+        state = self._persist_submit(state, persist_key, fields, chain_dir, task_id)
+
+        result = {
+            "submitted": True,
+            "sub_state": state.current_sub_state,
+            "field_count": len(fields),
+        }
+
+        # ── 5. TaskRegistry.execute() si sub-estado tiene action ─
+        task_result = self._execute_task(
+            sub_state, state, chain_dir, task_id, ctx, fields, result, _did_forward
+        )
+
+        # ── 6. ContractValidator.validate_output() ──────────────
+        self._validate_output(sub_state, state, fields, task_result)
+
+        # ── 7. SideEffectEngine.execute() ──────────────────────
+        state, result = self._execute_side_effects(
+            sub_state, state, chain_dir, task_id, ctx, result
+        )
+
+        # ── 8. Auto-execute legacy script si mode=auto ──────────
+        auto_early = self._run_auto_script(
+            sub_state, state, workflow, chain_dir, task_id, result
+        )
+        if auto_early:
+            return auto_early
+
+        # ── 9. Auto-advance ─────────────────────────────────────
+        # WF-7 fix: _auto_advance retorna TAMBIEN el estado resultante (que
+        # pudo avanzar a on_success). Sin esto, _build_step_result recibe el
+        # estado previo al avance y su save final REVIERTE la transicion.
+        advanced_to, node_complete, state = self._auto_advance(
+            sub_state, node, state, workflow, chain_dir, task_id, fields, result, task_result
+        )
+
+        # ── 9b. StepResult monádico ────────────────────────────
+        state, result = self._build_step_result(
+            sub_state, state, chain_dir, fields, result, task_result,
+            advanced_to, node_complete,
+        )
+
+        # ── 10. Dispatch events via EventDispatcher ─────────────
+        _flush_events(
+            self.events,
+            self._event_log,
+            self._event_dispatcher,
+            chain_dir,
+            task_id,
+        )
+
+        # ── 11. XOR-split resuelto por intent/decision ──────────
+        self._resolve_xor_selection(
+            sub_state, state, workflow, chain_dir, task_id, fields, result
+        )
+        return result
+
+    # ── Helpers SRP de SubmitDataUseCase.execute ────────────────────────
+
+    def _normalize_params(
+        self,
+        chain_dir: str | ExecutionContext,
+        fields: dict | None,
+        task_id: str | None,
+        ctx: ExecutionContext | None,
+    ) -> tuple[str, dict, str | None, ExecutionContext | None]:
+        """Paso 0: normaliza parametros soportando ExecutionContext."""
         if isinstance(chain_dir, ExecutionContext):
             ctx = chain_dir
             chain_dir = ctx.chain_dir
@@ -180,35 +279,56 @@ class SubmitDataUseCase:
             fields = {}
         if fields is None:
             fields = {}
+        return chain_dir, fields, task_id, ctx
 
-        # ── 1. Load ────────────────────────────────────────────
-        workflow = self._workflow_repo.load(chain_dir)
-        state = self._state_repo.load(chain_dir)
-        node = workflow.get_node(state.current_node)
-        if not node:
-            raise ValidationError(
-                f"Nodo '{state.current_node}' no existe en el workflow"
-            )
+    def _resolve_forward_target(
+        self, node: Any, sub_state: Any, fields: dict
+    ) -> Any:
+        """Paso 2b: deteccion de forwarding de input (SPEC-013).
 
-        sub_state = node.find_sub_state(state.current_sub_state)
-        if not sub_state:
-            raise SubStateNotFoundError(state.current_node, state.current_sub_state)
+        Un sub-estado auto (ej: ANALYZE.GATHER) cuyo on_success apunta a un
+        llm_task con input_schema.required (ej: ANALYZE.ANALYZE) puede recibir
+        el submit con los campos del DESTINO. Si los matchean, se valida
+        contra el destino y se persisten en su sub_state_data.
+        """
+        target_sub_state = sub_state
+        if sub_state.is_auto() and sub_state.on_success:
+            _target = node.find_sub_state(sub_state.on_success)
+            if _target and _target.execution == ExecutionType.LLM_TASK:
+                _t_in = _target.input_schema or {}
+                _t_required = (
+                    _t_in.get("required", []) if isinstance(_t_in, dict) else []
+                )
+                if _t_required and any(k in fields for k in _t_required):
+                    target_sub_state = _target
+        return target_sub_state
 
-        # ── 2. Validate required fields ────────────────────────
-        field_errors = ValidationService.validate_sub_state_data(sub_state, fields)
+    def _validate_input(self, target_sub_state: Any, fields: dict) -> None:
+        """Pasos 2-3: required fields + ContractValidator.validate_input()."""
+        field_errors = ValidationService.validate_sub_state_data(
+            target_sub_state, fields
+        )
         if field_errors:
             raise ValidationError("Campos requeridos faltantes", field_errors)
 
-        # ── 3. ContractValidator.validate_input() ───────────────
-        if sub_state.input_schema and self._contract_validator:
-            contract = Contract.from_dict(sub_state.input_schema)
+        validate_schema = target_sub_state.input_schema or {}
+        if validate_schema and self._contract_validator:
+            contract = Contract.from_dict(validate_schema)
             report = self._contract_validator.verify_pre(contract, fields)
             if not report.passed:
                 errors = [v.message for v in report.errors]
                 raise ValidationError("Contract validation (input) failed", errors)
 
-        # ── 4. Persist submitted data (ELM: state es inmutable) ──
-        state = state.record_submit(state.current_sub_state, fields)
+    def _persist_submit(
+        self,
+        state: WorkflowState,
+        persist_key: str,
+        fields: dict,
+        chain_dir: str,
+        task_id: str | None,
+    ) -> WorkflowState:
+        """Paso 4: persiste los datos sumitidos (ELM: estado inmutable)."""
+        state = state.record_submit(persist_key, fields)
         if task_id:
             state = state.with_context("task_id", task_id)
         state = state.with_context("chain_dir", chain_dir)
@@ -219,196 +339,220 @@ class SubmitDataUseCase:
                 data={"sub_state": state.current_sub_state, "fields": fields},
             )
         )
+        return state
 
-        result = {
-            "submitted": True,
-            "sub_state": state.current_sub_state,
-            "field_count": len(fields),
-        }
-
-        # ── 5. TaskRegistry.execute() si sub-estado tiene action ─
+    def _execute_task(
+        self,
+        sub_state: Any,
+        state: WorkflowState,
+        chain_dir: str,
+        task_id: str | None,
+        ctx: ExecutionContext | None,
+        fields: dict,
+        result: dict,
+        _did_forward: bool,
+    ) -> Any:
+        """Paso 5: TaskRegistry.execute() + recarga de estado + evidencia."""
         task_result = None
-        if sub_state.action and self._task_registry:
-            # Crear ExecutionContext si no tenemos uno
-            exec_ctx = ctx or ExecutionContext.create(
-                session_id=chain_dir.split("/")[-1],
-                chain_dir=chain_dir,
-                task_id=task_id or "",
-            )
-            task_result = self._task_registry.execute(
-                sub_state.action, exec_ctx, fields
-            )
-            # ── 5a. Recargar state DESPUES de ejecutar la tarea ──
-            # Las tareas (spec_task, save_task_spec, etc.) pueden
-            # modificar sprint-state.json directamente. Sin esta recarga,
-            # el save() posterior sobreescribiria esos cambios con el
-            # state en memoria (obsoleto).
+        if not (sub_state.action and self._task_registry):
+            return task_result
+
+        exec_ctx = ctx or ExecutionContext.create(
+            session_id=chain_dir.split("/")[-1],
+            chain_dir=chain_dir,
+            task_id=task_id or "",
+        )
+        task_result = self._task_registry.execute(sub_state.action, exec_ctx, fields)
+        # 5a. Recargar state despues de la tarea (las tareas pueden modificar
+        # el estado). EXCEPCION (SPEC-013): si hubo forwarding NO recargar.
+        if not _did_forward:
             state = self._state_repo.load(chain_dir)
-            # Persistir resultado de la tarea como evidencia
-            task_data_structured = ""
-            if task_result.data:
-                try:
-                    task_data_structured = json.dumps(
-                        task_result.data, ensure_ascii=False
-                    )[:2000]
-                except (TypeError, ValueError):
-                    task_data_structured = str(task_result.data)[:1000]
 
-            state = state.record_submit(
-                state.current_sub_state,
-                {
-                    "task_action": sub_state.action,
-                    "task_ok": task_result.ok,
-                    "task_data": task_data_structured,
-                },
+        task_data_structured = ""
+        if task_result.data:
+            try:
+                task_data_structured = json.dumps(
+                    task_result.data, ensure_ascii=False
+                )[:2000]
+            except (TypeError, ValueError):
+                task_data_structured = str(task_result.data)[:1000]
+
+        state = state.record_submit(
+            state.current_sub_state,
+            {
+                "task_action": sub_state.action,
+                "task_ok": task_result.ok,
+                "task_data": task_data_structured,
+            },
+        )
+        self._state_repo.save(chain_dir, state)
+        if not task_result.ok:
+            error_msg = (
+                str(task_result.error) if task_result.error else "Unknown error"
             )
-            self._state_repo.save(chain_dir, state)
-            if not task_result.ok:
-                error_msg = (
-                    str(task_result.error) if task_result.error else "Unknown error"
+            raise AutoAdvanceError(state.current_node, sub_state.key, 1, error_msg)
+        result["task_executed"] = True
+        result["task_action"] = sub_state.action
+        result["task_result"] = (
+            str(task_result.data)[:500] if task_result.data else ""
+        )
+        return task_result
+
+    def _validate_output(
+        self,
+        sub_state: Any,
+        state: WorkflowState,
+        fields: dict,
+        task_result: Any,
+    ) -> None:
+        """Paso 6: ContractValidator.validate_output() — BLOQUEANTE."""
+        if not (sub_state.output_schema and self._contract_validator):
+            return
+        if sub_state.action:
+            if task_result and isinstance(task_result.data, dict):
+                output_data = task_result.data
+            elif task_result and task_result.data is not None:
+                raise ValidationError(
+                    f"Output validation failed for {state.current_node}."
+                    f"{state.current_sub_state}: task '{sub_state.action}' "
+                    f"retorno tipo {type(task_result.data).__name__}, "
+                    f"se esperaba dict para validar contra output_schema",
                 )
-                raise AutoAdvanceError(state.current_node, sub_state.key, 1, error_msg)
-            result["task_executed"] = True
-            result["task_action"] = sub_state.action
-            result["task_result"] = (
-                str(task_result.data)[:500] if task_result.data else ""
-            )
-
-        # ── 6. ContractValidator.validate_output() ──────────────
-        # PRINCIPIO: La validacion de output es BLOQUEANTE.
-        # Si el contrato de salida no se cumple, se lanza error.
-        # El workflow informa al agente exactamente que campos faltan
-        # y el agente reintenta.
-        if sub_state.output_schema and self._contract_validator:
-            # Determinar los datos de output a validar:
-            # - Si hay action + task_result: validar contra task_result.data
-            # - Si hay action + task_result pero no es dict: ERROR (no validar contra input)
-            # - Si NO hay action: validar contra fields (user submission es el output)
-            if sub_state.action:
-                if task_result and isinstance(task_result.data, dict):
-                    output_data = task_result.data
-                elif task_result and task_result.data is not None:
-                    # Task retorno datos pero no son dict -> no se puede validar output
-                    raise ValidationError(
-                        f"Output validation failed for {state.current_node}."
-                        f"{state.current_sub_state}: task '{sub_state.action}' "
-                        f"retorno tipo {type(task_result.data).__name__}, "
-                        f"se esperaba dict para validar contra output_schema",
-                    )
-                else:
-                    # Task no retorno datos -> no validar output (se valido con input_schema)
-                    output_data = None
             else:
-                # Sin action: el output son los campos que el agente submitio
-                output_data = fields
+                output_data = None
+        else:
+            output_data = fields
 
-            if output_data is not None:
-                contract = Contract.from_dict(sub_state.output_schema)
-                report = self._contract_validator.verify_post(contract, output_data)
-
-                if not report.passed:
-                    error_details = [v.message for v in report.errors]
-                    raise ValidationError(
-                        f"Output contract validation failed for "
-                        f"{state.current_node}.{state.current_sub_state}",
-                        error_details,
-                    )
-
-        # ── 7. SideEffectEngine.execute() ──────────────────────
-        if sub_state.side_effects and self._side_effect_engine:
-            exec_ctx = ctx or ExecutionContext.create(
-                session_id=chain_dir.split("/")[-1],
-                chain_dir=chain_dir,
-                task_id=task_id or "",
-            )
-            side_results = self._side_effect_engine.execute(
-                exec_ctx, sub_state.side_effects
-            )
-            # ── 7a. Recargar state DESPUES de side-effects ──────
-            # Las side-effects (advance_task, etc.) modifican
-            # sprint-state.json directamente. Recargar evita que
-            # el save() las sobreescriba.
-            state = self._state_repo.load(chain_dir)
-            state = state.record_submit(
-                state.current_sub_state,
-                {
-                    "side_effects": side_results,
-                },
-            )
-            self._state_repo.save(chain_dir, state)
-            result["side_effects"] = side_results
-
-        # ── 8. Auto-execute legacy script si mode=auto ──────────
-        # (para backward compat con workflows que usan auto_complete)
-        auto_result = None
-        if sub_state.is_auto() and sub_state.auto_complete_script:
-            auto_result = self._script_runner.run(
-                sub_state.auto_complete_script, chain_dir, task_id
-            )
-            state = state.record_submit(
-                state.current_sub_state,
-                {
-                    "auto_script": sub_state.auto_complete_script,
-                    "exit_code": auto_result["exit_code"],
-                    "stdout": (auto_result.get("stdout", "") or "")[:2000],
-                    "stderr": (auto_result.get("stderr", "") or "")[:1000],
-                },
-            )
-            self._state_repo.save(chain_dir, state)
-            if auto_result["exit_code"] != 0:
-                if sub_state.on_failure_loop:
-                    looped = AdvanceService.loop_back(state, workflow, sub_state.key)
-                    if looped:
-                        state = looped
-                        self._state_repo.save(chain_dir, state)
-                    self.events.append(
-                        DomainEvent(
-                            DomainEventType.FAILURE_LOOPED,
-                            data={
-                                "sub_state": sub_state.key,
-                                "exit_code": auto_result["exit_code"],
-                            },
-                        )
-                    )
-                    _flush_events(
-                        self.events,
-                        self._event_log,
-                        self._event_dispatcher,
-                        chain_dir,
-                        task_id,
-                    )
-                    result["looped_back"] = True
-                    result["auto_result"] = auto_result
-                    return result
-                else:
-                    raise AutoAdvanceError(
-                        state.current_node,
-                        sub_state.key,
-                        auto_result["exit_code"],
-                        auto_result.get("stderr", ""),
-                    )
-            self.events.append(
-                DomainEvent(
-                    DomainEventType.AUTO_ADVANCED,
-                    data={
-                        "sub_state": sub_state.key,
-                        "script": sub_state.auto_complete_script,
-                        "exit_code": auto_result["exit_code"],
-                    },
+        if output_data is not None:
+            contract = Contract.from_dict(sub_state.output_schema)
+            report = self._contract_validator.verify_post(contract, output_data)
+            if not report.passed:
+                error_details = [v.message for v in report.errors]
+                raise ValidationError(
+                    f"Output contract validation failed for "
+                    f"{state.current_node}.{state.current_sub_state}",
+                    error_details,
                 )
-            )
-            result["auto_executed"] = True
-            result["auto_result"] = auto_result
 
-        # ── 9. Auto-advance ─────────────────────────────────────
-        # Avanza si on_success está definido Y:
-        #   - execution=auto/bootstrap (siempre)
-        #   - execution=llm_task con action Y task ejecutada OK
-        #   - execution=llm_task sin action (solo output_schema)
-        # NOTA: user_input NO auto-avanza. Requiere transition explícita
-        # para forzar que el agente presente el prompt al usuario antes
-        # de decidir. Sin esto, el agente puede saltarse el prompt y
-        # auto-aprobar sin mostrar resultados.
+    def _execute_side_effects(
+        self,
+        sub_state: Any,
+        state: WorkflowState,
+        chain_dir: str,
+        task_id: str | None,
+        ctx: ExecutionContext | None,
+        result: dict,
+    ) -> tuple[WorkflowState, dict]:
+        """Paso 7: SideEffectEngine.execute() + recarga de estado."""
+        if not (sub_state.side_effects and self._side_effect_engine):
+            return state, result
+        exec_ctx = ctx or ExecutionContext.create(
+            session_id=chain_dir.split("/")[-1],
+            chain_dir=chain_dir,
+            task_id=task_id or "",
+        )
+        side_results = self._side_effect_engine.execute(
+            exec_ctx, sub_state.side_effects
+        )
+        # 7a. Recargar state despues de side-effects (modifican estado)
+        state = self._state_repo.load(chain_dir)
+        state = state.record_submit(
+            state.current_sub_state,
+            {"side_effects": side_results},
+        )
+        self._state_repo.save(chain_dir, state)
+        result["side_effects"] = side_results
+        return state, result
+
+    def _run_auto_script(
+        self,
+        sub_state: Any,
+        state: WorkflowState,
+        workflow: WorkflowGraph,
+        chain_dir: str,
+        task_id: str | None,
+        result: dict,
+    ) -> dict | None:
+        """Paso 8: auto-execute de script legacy (backward compat)."""
+        if not (sub_state.is_auto() and sub_state.auto_complete_script):
+            return None
+        auto_result = self._script_runner.run(
+            sub_state.auto_complete_script, chain_dir, task_id
+        )
+        state = state.record_submit(
+            state.current_sub_state,
+            {
+                "auto_script": sub_state.auto_complete_script,
+                "exit_code": auto_result["exit_code"],
+                "stdout": (auto_result.get("stdout", "") or "")[:2000],
+                "stderr": (auto_result.get("stderr", "") or "")[:1000],
+            },
+        )
+        self._state_repo.save(chain_dir, state)
+        if auto_result["exit_code"] != 0:
+            if sub_state.on_failure_loop:
+                looped = AdvanceService.loop_back(state, workflow, sub_state.key)
+                if looped:
+                    state = looped
+                    self._state_repo.save(chain_dir, state)
+                self.events.append(
+                    DomainEvent(
+                        DomainEventType.FAILURE_LOOPED,
+                        data={
+                            "sub_state": sub_state.key,
+                            "exit_code": auto_result["exit_code"],
+                        },
+                    )
+                )
+                _flush_events(
+                    self.events,
+                    self._event_log,
+                    self._event_dispatcher,
+                    chain_dir,
+                    task_id,
+                )
+                result["looped_back"] = True
+                result["auto_result"] = auto_result
+                return result
+            else:
+                raise AutoAdvanceError(
+                    state.current_node,
+                    sub_state.key,
+                    auto_result["exit_code"],
+                    auto_result.get("stderr", ""),
+                )
+        self.events.append(
+            DomainEvent(
+                DomainEventType.AUTO_ADVANCED,
+                data={
+                    "sub_state": sub_state.key,
+                    "script": sub_state.auto_complete_script,
+                    "exit_code": auto_result["exit_code"],
+                },
+            )
+        )
+        result["auto_executed"] = True
+        result["auto_result"] = auto_result
+        return None
+
+    def _auto_advance(
+        self,
+        sub_state: Any,
+        node: Any,
+        state: WorkflowState,
+        workflow: WorkflowGraph,
+        chain_dir: str,
+        task_id: str | None,
+        fields: dict,
+        result: dict,
+        task_result: Any,
+    ) -> tuple[str, bool, WorkflowState]:
+        """Paso 9: auto-advance a on_success (con guard de llm_task).
+
+        Retorna (advanced_to, node_complete, state): el estado de retorno es
+        el RESULTANTE del avance (ya guardado), para que el caller persista
+        sobre el estado avanzado y no sobre el previo (fix WF-7).
+        """
         task_success = task_result is not None and task_result.ok
         should_advance = sub_state.on_success and (
             sub_state.is_auto()
@@ -419,37 +563,78 @@ class SubmitDataUseCase:
         )
         advanced_to = ""
         node_complete = False
-        if should_advance:
-            advanced = AdvanceService.advance(state, workflow)
-            if advanced:
-                # Promover provides del sub-estado completado al contexto global
-                # para que el siguiente sub-estado (hermano) pueda acceder a los datos
-                from .context_resolver import ContextResolver
-
-                state = ContextResolver().promote_provides(advanced, node, sub_state)
-                self._state_repo.save(chain_dir, state)
-                self.events.append(
-                    DomainEvent(
-                        DomainEventType.STATE_TRANSITIONED,
-                        data={"from": sub_state.key, "to": state.current_sub_state},
-                    )
-                )
-                result["advanced_to"] = state.current_sub_state
-                advanced_to = state.current_sub_state
-                node_complete = ValidationService.is_node_complete(state, workflow)
-                result["node_complete"] = node_complete
-            else:
-                node_complete = True
-                result["node_complete"] = True
-        else:
-            # Sub-estados user_input o llm_task sin on_success no auto-avanzan
+        if not should_advance:
             node_complete = ValidationService.is_node_complete(state, workflow)
             result["node_complete"] = node_complete
+            return advanced_to, node_complete, state
 
-        # ── 9b. StepResult monádico: compone task + side-effects + señales
-        # de forma tipada para el PromptManager (sin JSON strings ni re-parseo).
+        advanced = AdvanceService.advance(state, workflow)
+        if advanced:
+            # Guard estructural: no auto-avanzar a un llm_task que requiere
+            # input si el submit actual no lo provee (evita REFINE en loop).
+            next_node = (
+                workflow.get_node(advanced.current_node)
+                if hasattr(advanced, "current_node")
+                else None
+            )
+            next_ss = (
+                next_node.find_sub_state(advanced.current_sub_state)
+                if next_node
+                else None
+            )
+            if next_ss and next_ss.execution == ExecutionType.LLM_TASK:
+                next_input = next_ss.input_schema or {}
+                next_required = next_input.get("required", []) if isinstance(
+                    next_input, dict
+                ) else []
+                if next_required and not fields:
+                    self._state_repo.save(chain_dir, state)
+                    result["advanced_to"] = state.current_sub_state
+                    result["node_complete"] = False
+                    result["waiting_for_input"] = True
+                    result["message"] = (
+                        f"{advanced.current_node}.{advanced.current_sub_state} "
+                        f"requiere input ({', '.join(next_required)}) — "
+                        f"completa los datos antes de avanzar."
+                    )
+                    return advanced_to, node_complete, state
+
+        if advanced:
+            # Promover provides del sub-estado completado al contexto global
+            from .context_resolver import ContextResolver
+
+            state = ContextResolver().promote_provides(advanced, node, sub_state)
+            self._state_repo.save(chain_dir, state)
+            self.events.append(
+                DomainEvent(
+                    DomainEventType.STATE_TRANSITIONED,
+                    data={"from": sub_state.key, "to": state.current_sub_state},
+                )
+            )
+            result["advanced_to"] = state.current_sub_state
+            advanced_to = state.current_sub_state
+            node_complete = ValidationService.is_node_complete(state, workflow)
+            result["node_complete"] = node_complete
+        else:
+            node_complete = True
+            result["node_complete"] = True
+        return advanced_to, node_complete, state
+
+    def _build_step_result(
+        self,
+        sub_state: Any,
+        state: WorkflowState,
+        chain_dir: str,
+        fields: dict,
+        result: dict,
+        task_result: Any,
+        advanced_to: str,
+        node_complete: bool,
+    ) -> tuple[WorkflowState, dict]:
+        """Paso 9b: StepResult monádico + persistencia tipada."""
         from ..domain.step_result import StepResult
 
+        task_success = task_result is not None and task_result.ok
         side_results = result.get("side_effects", []) or []
         step_result = StepResult(
             ok=task_success if sub_state.action else True,
@@ -462,59 +647,94 @@ class SubmitDataUseCase:
             error=result.get("error", ""),
         )
         result["step_result"] = step_result
-        # Placeholders tipados para templates (los arma StepResult)
         result["prompt_placeholders"] = step_result.to_prompt_dict()
 
-        # Persistencia tipada: el checkpoint (CON tipos) viaja al sub_state_data
-        # para que el siguiente sub-estado lo reconstruya validando (sin perder
-        # bool/list/dict). Se guardan también los placeholders step_* para los
-        # templates.
         state = state.record_submit(
-            state.current_sub_state,
+            sub_state.key,
             {
                 "step_checkpoint": step_result.to_checkpoint(),
                 "prompt_placeholders": step_result.to_prompt_dict(),
             },
         )
         self._state_repo.save(chain_dir, state)
+        return state, result
 
-        # ── 10. Dispatch events via EventDispatcher ─────────────
-        _flush_events(
-            self.events,
-            self._event_log,
-            self._event_dispatcher,
-            chain_dir,
-            task_id,
-        )
+    def _resolve_xor_selection(
+        self,
+        sub_state: Any,
+        state: WorkflowState,
+        workflow: WorkflowGraph,
+        chain_dir: str,
+        task_id: str | None,
+        fields: dict,
+        result: dict,
+    ) -> None:
+        """Paso 11: XOR-split resuelto por intent/decision."""
+        xor_selector = ""
+        gate_name = ""
+        if fields:
+            if fields.get("intent"):
+                xor_selector = str(fields["intent"])
+                gate_name = xor_selector
+            elif fields.get("decision"):
+                gate_name = _resolve_decision_gate(
+                    state, workflow, str(fields["decision"]), fields
+                )
+                if gate_name:
+                    xor_selector = gate_name
 
-        # ── 11. Teoría de grafos: XOR-split resuelto por intent ──
-        # Si el sub-estado actual es una eleccion exclusiva (varias salidas
-        # sin guardas, ej: SPRINT.ACTIVE con start_task/start_review/...),
-        # el agente avanza enviando submit '{"intent":"<gate>"}'.
-        # El engine mapea el intent a la arista y la dispara automaticamente.
-        if fields and fields.get("intent"):
-            intent = str(fields["intent"])
+        if xor_selector:
             graph_type = ValidationService.classify_sub_state(state, workflow)
-            if graph_type == "xor":
-                gate = ValidationService.resolve_xor_by_intent(state, workflow, intent)
+            if graph_type in ("xor", "guarded"):
+                gate = ValidationService.resolve_xor_by_intent(
+                    state, workflow, xor_selector
+                )
                 if gate:
-                    from .use_cases import TransitionUseCase  # local import
-
-                    TransitionUseCase(
-                        workflow_repo=self._workflow_repo,
-                        state_repo=self._state_repo,
-                        script_runner=self._script_runner,
-                        event_dispatcher=self._event_dispatcher,
-                        event_log=self._event_log,
-                    )
                     result["xor_resolved"] = True
-                    result["xor_gate"] = intent
+                    result["xor_gate"] = gate_name
                     result["xor_next"] = (
                         f"{gate.target_node}.{gate.target_sub_state or '*'}"
                     )
                     result["_auto_transition"] = True
-                    result["_gate"] = intent
-        return result
+                    result["_gate"] = gate_name
+        elif fields and fields.get("decision") and sub_state.on_success:
+            self._advance_decision_no_gate(
+                state, workflow, sub_state, chain_dir, task_id, result
+            )
+
+    def _advance_decision_no_gate(
+        self,
+        state: WorkflowState,
+        workflow: WorkflowGraph,
+        sub_state: Any,
+        chain_dir: str,
+        task_id: str | None,
+        result: dict,
+    ) -> None:
+        """Paso 11b: decision sin gate -> avance por on_success.
+
+        Un user_input que recibe decision pero cuyo override NO mapea a una
+        gate (ej: CONFIRM_GATE.approve -> '' para que ROUTE resuelva el
+        target dinamicamente) avanza por on_success. Sin esto, la decision
+        se capturaba pero el sub-estado quedaba bloqueado en user_input.
+        """
+        try:
+            advanced = AdvanceService.advance(state, workflow)
+            if advanced:
+                self._state_repo.save(chain_dir, advanced)
+                result["advanced_to"] = advanced.current_sub_state
+                result["_on_success_advance"] = True
+                self.events.append(
+                    DomainEvent(
+                        DomainEventType.STATE_TRANSITIONED,
+                        data={
+                            "from": sub_state.key,
+                            "to": advanced.current_sub_state,
+                        },
+                    )
+                )
+        except Exception:
+            pass
 
     def pop_events(self) -> list[DomainEvent]:
         events = list(self.events)
@@ -808,7 +1028,7 @@ class CheckSprintStatusUseCase:
     """Check sprint status: current node, sub-state, available gates.
 
     SRP: Single source of truth for sprint/workflow status.
-         No other feature module should read sprint-state.json directly.
+         No other feature module should read estado files directly.
     """
 
     @staticmethod
@@ -852,3 +1072,165 @@ class CheckSprintStatusUseCase:
                 "gates": [],
                 "error": str(e),
             }
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+
+def _sub_state_decision_prefix(sub_state_key: str) -> str:
+    """Deriva el prefijo de la gate de decision para un sub-estado user_input.
+
+    Convencion declarativa: un sub-estado con decision binaria
+    (approve/revise) expone gates XOR de la forma
+    '<prefix>_approved' y '<prefix>_revised'. El prefijo es el nombre
+    del sub-estado en snake_case.
+
+    Ejemplos:
+        PLAN_APPROVAL  -> plan_approval (gates plan_approval_approved/revised)
+        CLOSE_CONFIRM  -> close_confirm_approved / close_confirm_revised
+        TASK_REVIEW    -> task_review_approved / task_review_revised
+    """
+    import re
+
+    s = sub_state_key or ""
+    # CamelCase/SCREAMING -> snake_case: PLAN_APPROVAL -> plan_approval
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    s = s.replace("-", "_")
+    return s.lower()
+
+
+# Mapa de decisiones ESPECIFICAS por sub-estado (override de la convencion).
+# Un sub-estado puede declarar aqui como mapea cada decision a su gate.
+# Las gates de aprobacion de cada nodo tienen nombres propios (design_approved,
+# analysis_approved, task_complete) que NO se derivan por la convencion
+# <prefix>_approved — por eso se declaran explicitamente aqui.
+_DECISION_GATE_OVERRIDES: dict[str, dict[str, str]] = {
+    # TASK_REVIEW: approve -> next_task (o all_done si es la ultima), refine -> refine_task
+    "TASK_REVIEW": {
+        "approve": "next_task",
+        "refine": "refine_task",
+        "all_done": "all_done",
+    },
+    # DESIGN_REVIEW: approve -> design_approved (gate propia del nodo DESIGN)
+    "DESIGN_REVIEW": {
+        "approve": "design_approved",
+        "reject": "design_needs_refine",
+        "refine": "design_needs_refine",
+    },
+    # ANALYZE.REVIEW: approve -> analysis_approved (KNOWLEDGE_REVIEW fue
+    # fusionado en REVIEW — SPEC-005)
+    "REVIEW": {
+        "approve": "analysis_approved",
+        "reject": "needs_refine",
+        "refine": "needs_refine",
+    },
+    # IMPLEMENT gates: user gates de implementacion
+    "USER_GATE": {
+        "approve": "implementation_done",
+        "reject": "needs_refine",
+        "cancel": "cancel",
+    },
+    "CODE_REVIEW_RESULT": {
+        "approve": "implementation_done",
+        "reject": "needs_refine",
+        "refine": "needs_refine",
+    },
+    "REPORT_GATE": {
+        "approve": "implementation_done",
+        "reject": "needs_refine",
+        "refine": "needs_refine",
+    },
+    # VERIFY gates: QA y PO_ACCEPT -> task_complete
+    "QA": {
+        "approve": "task_complete",
+        "reject": "needs_refine",
+        "refine": "needs_refine",
+    },
+    "PO_ACCEPT": {
+        "approve": "task_complete",
+        "reject": "needs_refine",
+        "refine": "needs_refine",
+    },
+    # CLOSE_CONFIRM: close_sprint
+    "CLOSE_CONFIRM": {
+        "approve": "close_sprint",
+        "reject": "back_to_active",
+    },
+    # CONFIRM_GATE (REFINE): approve -> dejar que ROUTE (auto) resuelva el
+    # target del diagnostico dinamicamente (NO mapear a una gate fija);
+    # modify -> volver a DIAGNOSE, cancel -> volver a sprint.
+    "CONFIRM_GATE": {
+        "approve": "",
+        "modify": "reroute_design",
+        "cancel": "reroute_sprint",
+    },
+}
+
+
+def _resolve_decision_gate(
+    state: WorkflowState,
+    workflow: WorkflowGraph,
+    decision: str,
+    fields: dict,
+) -> str:
+    """Mapea una decision de user_input a la gate XOR a disparar.
+
+    Orden de resolucion:
+      1. Override declarativo por sub-estado (_DECISION_GATE_OVERRIDES):
+         - TASK_REVIEW.approve -> next_task (o all_done si es la ultima tarea)
+         - TASK_REVIEW.refine  -> refine_task
+      2. Convencion binaria generica: approve/confirm/yes/proceed/accept
+         -> <prefix>_approved; revise/reject/no/back/cancel -> <prefix>_revised.
+
+    Args:
+        state: Estado del workflow (sub-estado actual).
+        workflow: Grafo del workflow (para contar specs restantes).
+        decision: Valor del campo decision (approve, revise, refine, ...).
+        fields: Campos completos del submit (para contexto adicional).
+
+    Returns:
+        Nombre de la gate a disparar, o "" si no hay mapeo.
+    """
+    decision = (decision or "").lower().strip()
+    sub_key = state.current_sub_state
+    if not decision:
+        return ""
+
+    # 1. Override declarativo
+    override = _DECISION_GATE_OVERRIDES.get(sub_key)
+    if override and decision in override:
+        gate = override[decision]
+        # TASK_REVIEW.approve: si es la ultima tarea, all_done en vez de next_task
+        if sub_key == "TASK_REVIEW" and decision == "approve":
+            total = 0
+            current = 0
+            try:
+                chain_dir = state.context.get("chain_dir", "")
+                if chain_dir:
+                    from features.delta_tracking.application.spring_graph_service import (
+                        SpringGraphService,
+                    )
+
+                    spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+                    if spring_svc:
+                        spring_id = spring_svc.get_spring_id(chain_dir)
+                        spring_svc.ensure_spring_imported(chain_dir, spring_id)
+                        specs = spring_svc.get_specs(spring_id)
+                        total = len(specs)
+                        ctx_state = spring_svc.get_spring_context(spring_id)
+                        current = int(ctx_state.get("current_spec_index", 0))
+            except Exception:
+                pass
+            if total > 0 and current >= total - 1:
+                gate = "all_done"
+        return gate
+
+    # 2. Convencion binaria generica
+    prefix = _sub_state_decision_prefix(sub_key)
+    positive = {"approve", "confirm", "yes", "proceed", "accept"}
+    negative = {"revise", "reject", "no", "back", "cancel"}
+    if decision in positive:
+        return f"{prefix}_approved"
+    if decision in negative:
+        return f"{prefix}_revised"
+    return ""

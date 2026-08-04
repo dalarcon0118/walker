@@ -1,7 +1,6 @@
 """collector.py — Recolecta datos para inyectar en templates."""
 
 from __future__ import annotations
-import os
 from libs.infrastructure import CognitiveGraphSearcher
 from features.project import ProjectService
 

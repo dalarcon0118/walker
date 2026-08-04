@@ -388,33 +388,26 @@ class ProjectService:
                         if st in ("active", "in_progress", "planning"):
                             active_sprints.append(spring.get("_id", ""))
             except Exception:
-                # Fallback legacy: detectar via sprint-state.json
+                # Fallback legacy: detectar via plan.json (proyección del delta)
                 for sprint_dir_name in ["delta", "spring"]:
                     sd = projects_dir / sprint_dir_name
                     if sd.is_dir():
                         for sprint_entry in sorted(sd.iterdir()):
                             if sprint_entry.is_dir():
                                 try:
-                                    from features.spring.infrastructure.repositories import (
-                                        SprintStateRepository,
+                                    if not (sprint_entry / "plan.json").is_file():
+                                        continue
+                                    # Estado desde el delta si está indexado
+                                    from features.delta_tracking.application.spring_graph_service import (
+                                        SpringGraphService,
                                     )
 
-                                    state = SprintStateRepository().load_dict(
-                                        str(sprint_entry)
+                                    spring_svc = SpringGraphService(
+                                        str(projects_dir)
                                     )
-                                    if not state:
-                                        continue
-                                    status = (
-                                        state.get("status")
-                                        or state.get("sprint", {}).get("status", "")
-                                        or state.get("walker", {}).get("state", "")
-                                    )
-                                    if status in (
-                                        "active",
-                                        "in_progress",
-                                        "planning",
-                                        "",
-                                    ):
+                                    spring = spring_svc.get_spring(sprint_entry.name)
+                                    st = spring.get("status", "") if spring else ""
+                                    if st in ("active", "in_progress", "planning", ""):
                                         active_sprints.append(sprint_entry.name)
                                 except Exception:
                                     pass
@@ -442,7 +435,7 @@ class ProjectService:
 
         FUENTE UNICA: consulta el DeltaGraph (nodo spring con status active).
         Fallback: busca en delta/ y data/spring/ por sprints legacy con
-        estado activo (plan.json/sprint-state.json).
+        estado activo (plan.json + .workflow-state.json).
 
         Returns:
             Chain_dir del sprint activo, o None si no hay.
@@ -489,24 +482,33 @@ class ProjectService:
                 if not entry.is_dir():
                     continue
                 try:
-                    from features.spring.infrastructure.repositories import (
-                        SprintStateRepository,
+                    # PRINCIPIO: plan.json (proyección del delta) detecta un
+                    # chain_dir válido; .workflow-state.json da el estado del
+                    # motor. sprint-state.json fue eliminado.
+                    plan_path = entry / "plan.json"
+                    if not plan_path.is_file():
+                        continue
+                    from features.engine.infrastructure.repositories import (
+                        WorkflowStateRepository,
                     )
 
-                    state = SprintStateRepository().load_dict(str(entry))
-                    if not state:
+                    wf = WorkflowStateRepository().load(str(entry))
+                    node = wf.current_node or ""
+                    sub = wf.current_sub_state or ""
+                    if node == "SPRINT" and sub in ("CLOSE", "CLOSED"):
                         continue
-                    status = (
-                        state.get("status")
-                        or state.get("sprint", {}).get("status", "")
-                        or state.get("walker", {}).get("state", "")
+                    # Estado del spring desde el delta (si indexado)
+                    from features.delta_tracking.application.spring_graph_service import (
+                        SpringGraphService,
                     )
-                    if status in ("active", "in_progress", "planning", ""):
-                        # Verificar que no este cerrado
-                        node = state.get("current_node", "")
-                        sub = state.get("current_sub_state", "")
-                        if not (node == "SPRINT" and sub in ("CLOSE", "CLOSED")):
-                            return str(entry)
+
+                    spring_svc = SpringGraphService.from_chain_dir(str(entry))
+                    if spring_svc:
+                        spring = spring_svc.get_spring(entry.name)
+                        st = spring.get("status", "") if spring else ""
+                        if st and st not in ("active", "in_progress", "planning"):
+                            continue
+                    return str(entry)
                 except Exception:
                     continue
 

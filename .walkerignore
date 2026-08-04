@@ -24,6 +24,13 @@ coverage/
 tmp/
 .git/
 
+# Directorios legacy — codigo duplicado/abandonado que NO debe indexarse en el CPG
+# (GAP-0: el indice devolvia simbolos de to_clean_next/ en vez de features/)
+to_clean_next/
+legacy/
+_archive/
+.cognitive/legacy_to_delet/
+
 # Archivos por extensión
 *.pyc
 *.pyo

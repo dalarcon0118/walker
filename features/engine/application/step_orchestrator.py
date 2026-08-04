@@ -46,7 +46,6 @@ class StepOrchestrator:
     def step(self, ctx: Any) -> dict:
         """Evalúa el ExecutionType del sub-estado actual y decide la acción."""
         from ..domain.session import SessionStore
-        from ..domain.errors import WorkflowEngineError
 
         workflow = self._workflow_repo.load(ctx.chain_dir)
         state = self._state_repo.load(ctx.chain_dir)
@@ -103,165 +102,142 @@ class StepOrchestrator:
 
         # ── AUTO / BOOTSTRAP: ejecutar pipeline completo ────────────
         if execution in (ExecutionType.AUTO, ExecutionType.BOOTSTRAP):
-            try:
-                result = self._submit_uc.execute(ctx)
-                task_data = result.get("task_data", {})
-                self._tracer.trace_auto(
-                    ctx.chain_dir,
-                    state.current_sub_state,
-                    stdout=str(task_data.get("stdout", "")),
-                    stderr=str(task_data.get("stderr", "")),
-                    exit_code=result.get("exit_code", 0),
-                    task_id=ctx.task_id,
-                )
-                return {
-                    "action": "execute",
-                    "execution_type": execution.value,
-                    "sub_state": state.current_sub_state,
-                    "result": result,
-                    "message": result.get("advanced_to", "auto-completed"),
-                }
-            except WorkflowEngineError as e:
-                error_result = self._handle_error(ctx, e, sub_state)
-                error_result.update(
-                    {
-                        "execution_type": execution.value,
-                        "sub_state": state.current_sub_state,
-                    }
-                )
-                self._tracer.trace_error(
-                    ctx.chain_dir,
-                    type(e).__name__,
-                    str(e),
-                    task_id=ctx.task_id,
-                )
-                return error_result
+            return self._step_auto(ctx, state, sub_state, execution)
 
         # ── LLM_TASK: resolver prompt_id o mostrar on_entry_message ─
         if execution == ExecutionType.LLM_TASK:
-            if sub_state.prompt_id:
-                sprint_ctx = self._build_prompt_context(ctx.chain_dir, ctx.task_id)
-                context_config = getattr(sub_state, "context", None)
-                resolved = self._resolve_prompt(
-                    sub_state.prompt_id,
-                    ctx.chain_dir,
-                    task_id=ctx.task_id,
-                    context_config=context_config,
-                    execution_ctx=ctx,
-                    extra_data=sprint_ctx,
-                )
-                if node_briefing:
-                    resolved = f"{node_briefing}\n\n---\n\n{resolved}"
-                return {
-                    "action": "await_submit",
-                    "execution_type": execution.value,
-                    "sub_state": state.current_sub_state,
-                    "message": resolved,
-                    "resolved_prompt": True,
-                    "required_fields": sub_state.required_fields,
-                }
-            prompt = sub_state.prompt or sub_state.on_entry_message or ""
-            if node_briefing:
-                prompt = f"{node_briefing}\n\n---\n\n{prompt}"
-            return {
-                "action": "await_submit",
-                "execution_type": execution.value,
-                "sub_state": state.current_sub_state,
-                "message": prompt,
-                "resolved_prompt": False,
-                "required_fields": sub_state.required_fields,
-            }
+            return self._step_llm(ctx, state, sub_state, execution, node_briefing)
 
         # ── USER_INPUT: resolver prompt_id o mostrar on_entry_message ─
         if execution == ExecutionType.USER_INPUT:
-            options = [
-                {"value": o.value, "label": o.label, "description": o.description}
-                for o in (sub_state.options or [])
-            ]
-            if sub_state.prompt_id:
-                sprint_ctx = self._build_prompt_context(ctx.chain_dir, ctx.task_id)
-                context_config = getattr(sub_state, "context", None)
-                resolved = self._resolve_prompt(
-                    sub_state.prompt_id,
-                    ctx.chain_dir,
-                    task_id=ctx.task_id,
-                    context_config=context_config,
-                    execution_ctx=ctx,
-                    extra_data=sprint_ctx,
-                )
-                if node_briefing:
-                    resolved = f"{node_briefing}\n\n---\n\n{resolved}"
-                return {
-                    "action": "await_submit",
-                    "execution_type": execution.value,
-                    "sub_state": state.current_sub_state,
-                    "message": resolved,
-                    "resolved_prompt": True,
-                    "options": options,
-                    "required_fields": sub_state.required_fields,
-                }
-            msg = sub_state.on_entry_message or ""
-            if node_briefing:
-                msg = f"{node_briefing}\n\n---\n\n{msg}"
-            return {
-                "action": "await_submit",
-                "execution_type": execution.value,
-                "sub_state": state.current_sub_state,
-                "message": msg,
-                "resolved_prompt": False,
-                "options": options,
-                "required_fields": sub_state.required_fields,
-            }
+            return self._step_user_input(ctx, state, sub_state, node_briefing)
 
         # ── MANUAL: resolver prompt_id o mostrar on_entry_message ──
-        else:
-            # Verificar auto-transition: si el sub-estado no necesita más
-            # datos y hay exactamente una gate disponible, transicionar.
-            needs_input = bool(sub_state.required_fields)
-            state_after = self._state_repo.load(ctx.chain_dir)
-            wf_after = self._workflow_repo.load(ctx.chain_dir)
-            gates = wf_after.edges_by_source.get(state_after.current_node, [])
-            can_auto = not needs_input and len(gates) == 1
+        return self._step_manual(ctx, state, sub_state, execution, node_briefing)
 
-            if can_auto:
-                gate_name = gates[0].name
-                self._tracer.trace(
-                    ctx.chain_dir,
-                    "AUTO_TRANSITION",
-                    data={"gate": gate_name},
-                    task_id=ctx.task_id,
-                )
-                return self._transition(ctx, gate_name)
+    def _step_auto(self, ctx: Any, state: Any, sub_state: Any, execution: Any) -> dict:
+        """Ejecuta pipeline completo para sub-estados auto/bootstrap."""
+        from ..domain.errors import WorkflowEngineError
 
-            if sub_state.prompt_id:
-                sprint_ctx = self._build_prompt_context(ctx.chain_dir, ctx.task_id)
-                context_config = getattr(sub_state, "context", None)
-                resolved = self._resolve_prompt(
-                    sub_state.prompt_id,
-                    ctx.chain_dir,
-                    task_id=ctx.task_id,
-                    context_config=context_config,
-                    execution_ctx=ctx,
-                    extra_data=sprint_ctx,
-                )
-                if node_briefing:
-                    resolved = f"{node_briefing}\n\n---\n\n{resolved}"
-                return {
-                    "action": "manual",
-                    "execution_type": execution.value,
-                    "sub_state": state.current_sub_state,
-                    "message": resolved,
-                    "resolved_prompt": True,
-                    "required_fields": sub_state.required_fields,
-                }
-            msg = sub_state.on_entry_message or ""
-            if node_briefing:
-                msg = f"{node_briefing}\n\n---\n\n{msg}"
+        try:
+            result = self._submit_uc.execute(ctx)
+            task_data = result.get("task_data", {})
+            self._tracer.trace_auto(
+                ctx.chain_dir,
+                state.current_sub_state,
+                stdout=str(task_data.get("stdout", "")),
+                stderr=str(task_data.get("stderr", "")),
+                exit_code=result.get("exit_code", 0),
+                task_id=ctx.task_id,
+            )
             return {
-                "action": "manual",
+                "action": "execute",
                 "execution_type": execution.value,
                 "sub_state": state.current_sub_state,
-                "message": msg,
-                "resolved_prompt": False,
-                "required_fields": sub_state.required_fields,
+                "result": result,
+                "message": result.get("advanced_to", "auto-completed"),
             }
+        except WorkflowEngineError as e:
+            error_result = self._handle_error(ctx, e, sub_state)
+            error_result.update(
+                {
+                    "execution_type": execution.value,
+                    "sub_state": state.current_sub_state,
+                }
+            )
+            self._tracer.trace_error(
+                ctx.chain_dir,
+                type(e).__name__,
+                str(e),
+                task_id=ctx.task_id,
+            )
+            return error_result
+
+    def _resolve_and_prepend(
+        self, ctx: Any, sub_state: Any, node_briefing: str
+    ) -> tuple[str, bool]:
+        """Resuelve el prompt del sub-estado (con briefing prepended)."""
+        if not sub_state.prompt_id:
+            msg = sub_state.prompt or sub_state.on_entry_message or ""
+            if node_briefing:
+                msg = f"{node_briefing}\n\n---\n\n{msg}"
+            return msg, False
+
+        sprint_ctx = self._build_prompt_context(ctx.chain_dir, ctx.task_id)
+        context_config = getattr(sub_state, "context", None)
+        resolved = self._resolve_prompt(
+            sub_state.prompt_id,
+            ctx.chain_dir,
+            task_id=ctx.task_id,
+            context_config=context_config,
+            execution_ctx=ctx,
+            extra_data=sprint_ctx,
+        )
+        if node_briefing:
+            resolved = f"{node_briefing}\n\n---\n\n{resolved}"
+        return resolved, True
+
+    def _step_llm(
+        self, ctx: Any, state: Any, sub_state: Any, execution: Any, node_briefing: str
+    ) -> dict:
+        """Resuelve el prompt para un sub-estado LLM_TASK."""
+        message, resolved = self._resolve_and_prepend(ctx, sub_state, node_briefing)
+        return {
+            "action": "await_submit",
+            "execution_type": execution.value,
+            "sub_state": state.current_sub_state,
+            "message": message,
+            "resolved_prompt": resolved,
+            "required_fields": sub_state.required_fields,
+        }
+
+    def _step_user_input(
+        self, ctx: Any, state: Any, sub_state: Any, node_briefing: str
+    ) -> dict:
+        """Resuelve el prompt para un sub-estado USER_INPUT."""
+        options = [
+            {"value": o.value, "label": o.label, "description": o.description}
+            for o in (sub_state.options or [])
+        ]
+        message, resolved = self._resolve_and_prepend(ctx, sub_state, node_briefing)
+        return {
+            "action": "await_submit",
+            "execution_type": ExecutionType.USER_INPUT.value,
+            "sub_state": state.current_sub_state,
+            "message": message,
+            "resolved_prompt": resolved,
+            "options": options,
+            "required_fields": sub_state.required_fields,
+        }
+
+    def _step_manual(
+        self, ctx: Any, state: Any, sub_state: Any, execution: Any, node_briefing: str
+    ) -> dict:
+        """Maneja sub-estados MANUAL (con auto-transicion si aplica)."""
+        # Verificar auto-transition: si el sub-estado no necesita más
+        # datos y hay exactamente una gate disponible, transicionar.
+        needs_input = bool(sub_state.required_fields)
+        state_after = self._state_repo.load(ctx.chain_dir)
+        wf_after = self._workflow_repo.load(ctx.chain_dir)
+        gates = wf_after.edges_by_source.get(state_after.current_node, [])
+        can_auto = not needs_input and len(gates) == 1
+
+        if can_auto:
+            gate_name = gates[0].name
+            self._tracer.trace(
+                ctx.chain_dir,
+                "AUTO_TRANSITION",
+                data={"gate": gate_name},
+                task_id=ctx.task_id,
+            )
+            return self._transition(ctx, gate_name)
+
+        message, resolved = self._resolve_and_prepend(ctx, sub_state, node_briefing)
+        return {
+            "action": "manual",
+            "execution_type": execution.value,
+            "sub_state": state.current_sub_state,
+            "message": message,
+            "resolved_prompt": resolved,
+            "required_fields": sub_state.required_fields,
+        }

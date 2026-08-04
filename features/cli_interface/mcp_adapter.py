@@ -29,6 +29,48 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime
+
+
+# ── Serializador JSON robusto ──────────────────────────────────────────────
+# El workflow devuelve objetos tipados (StepResult, WorkflowState, SubStateData,
+# TaskResult, datetimes, etc.) dentro de los dicts de resultado. json.dumps
+# falla con 'Object of type X is not JSON serializable'. Este serializer
+# convierte recursivamente cualquier objeto con __dict__/to_dict()/dataclasses
+# a una representacion JSON-safe, de modo que el MCP NUNCA rompa por
+# serializacion (y el estado del workflow ya avanzo en disco de todos modos).
+
+
+def _json_safe(value):
+    """Convierte value en una representacion JSON-serializable."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    # Objetos con to_dict() (StepResult, WorkflowState, etc.)
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        try:
+            return _json_safe(to_dict())
+        except Exception:
+            pass
+    # Dataclasses y objetos con __dict__
+    dict_attr = getattr(value, "__dict__", None)
+    if isinstance(dict_attr, dict):
+        return _json_safe(dict_attr)
+    return str(value)
+
+
+def dumps(obj) -> str:
+    """json.dumps con fallback seguro (nunca lanza por serializacion)."""
+    try:
+        return json.dumps(obj, ensure_ascii=False, default=_json_safe)
+    except (TypeError, ValueError):
+        return json.dumps(_json_safe(obj), ensure_ascii=False)
 
 
 # ── Tools catalog (metadata; dispatch goes through the Router) ─────────────
@@ -125,6 +167,26 @@ _TOOLS = [
         },
     },
     {
+        "name": "cpg_unused_functions",
+        "description": "Detect unused functions via CPG (dead code). Public task — works on the project CPG, no workflow needed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "project_metrics",
+        "description": "Compute project quality metrics from CPG (dead_code, cyclo, security, per-file). Public task — works on the project CPG, no workflow needed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+            },
+        },
+    },
+    {
         "name": "analyze_code",
         "description": "CODE ANALYSIS (mandatory before touching code): query the project CPG for an area/file — symbols with signatures, imports, and business layer (pure functions, flows, patterns). Source of truth for the code. Do NOT read files directly.",
         "inputSchema": {
@@ -159,6 +221,61 @@ _TOOLS = [
         "description": "Walker protocol and available tasks",
         "inputSchema": {"type": "object", "properties": {}},
     },
+]
+
+
+def _public_task_tools() -> list[dict]:
+    """Genera tools MCP para las tasks PUBLICAS del registro de tareas.
+
+    PRINCIPIO (fix descubrimiento): en vez de hardcodear cada task publica en
+    _TOOLS (que se desactualiza y deja tasks fuera del catalogo MCP), se
+    descubren dinamicamente del registro via list_tasks_with_meta(scope='public').
+    Asi cualquier task publica nueva del engine queda expuesta en MCP sin
+    tocar el adapter.
+
+    Returns:
+        Lista de tools {name, description, inputSchema} para tasks publicas.
+    """
+    try:
+        from features.engine.application.workflow_api import bootstrap as _bs
+        from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
+        from features.engine.infrastructure.trace_log import TraceLogger
+
+        registry, _se = _bs(InMemoryTaskRegistry(tracer=TraceLogger()))
+        public_tasks = registry.list_tasks_with_meta(scope="public") or []
+    except Exception:
+        return []
+    tools = []
+    for t in public_tasks:
+        name = t.get("name", "")
+        if not name:
+            continue
+        desc = t.get("description") or f"Public walker task: {name}"
+        tools.append(
+            {
+                "name": name,
+                "description": f"{desc} (public task — works on the project, no workflow needed)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string"},
+                        "body": {
+                            "type": "object",
+                            "description": "Optional JSON body for the task",
+                        },
+                    },
+                },
+            }
+        )
+    return tools
+
+
+# Catalog final = tools fijas (workflow) + tasks publicas (registro).
+# Se deduplican por nombre: si una task publica coincide con una tool fija
+# (ej: cpg_business, kg_search), gana la definicion fija (mas completa).
+_TOOLS_BASE = _TOOLS
+_TOOLS = _TOOLS_BASE + [
+    t for t in _public_task_tools() if t["name"] not in {x["name"] for x in _TOOLS_BASE}
 ]
 
 _RESOURCES = [
@@ -289,6 +406,14 @@ _TOOL_ROUTES = {
         "{project_id}/cpg_business",
         lambda a: {"_payload": {"file": a.get("file", "")}},
     ),
+    "cpg_unused_functions": (
+        "{project_id}/cpg_unused_functions",
+        lambda a: {},
+    ),
+    "project_metrics": (
+        "{project_id}/project_metrics",
+        lambda a: {},
+    ),
     "analyze_code": (
         "{project_id}/analyze_code",
         lambda a: {"_payload": {"area": a.get("area", "")}},
@@ -306,6 +431,24 @@ def _call_tool(name: str, args: dict) -> dict:
     """
     if name == "analyze_code":
         return _analyze_code(args)
+
+    # Dispatch estandar: tool -> ruta REST mapeada en _TOOL_ROUTES.
+    # FALLBACK (fix descubrimiento de tasks publicas): si la tool no esta
+    # en el mapa (ej: cpg_unused_functions, project_metrics, kg_extract),
+    # se despacha como task publica del proyecto via {project_id}/<nombre>.
+    # Asi el MCP expone todas las tasks publicas del registro sin hardcodear.
+    if name not in _TOOL_ROUTES:
+        project_id = _resolve_project_id(args)
+        path = f"{project_id}/{name}"
+        flags = {"_payload": args.get("body", {})}
+        from . import _ROUTER
+
+        result = _ROUTER.dispatch(path, flags, method="POST")
+        if hasattr(result, "to_dict"):
+            return result.to_dict()
+        if isinstance(result, dict):
+            return result
+        return {"type": "ok", "data": {"result": result}}
 
     route_tpl, flags_builder = _TOOL_ROUTES[name]
     project_id = _resolve_project_id(args)
@@ -439,7 +582,7 @@ def _read_resource(uri: str) -> dict:
                 {
                     "uri": uri,
                     "mimeType": "application/json",
-                    "text": json.dumps(result, ensure_ascii=False),
+                    "text": dumps(result),
                 }
             ]
         }
@@ -448,7 +591,7 @@ def _read_resource(uri: str) -> dict:
             {
                 "uri": uri,
                 "mimeType": "application/json",
-                "text": json.dumps({"error": "resource no encontrado"}),
+                "text": dumps({"error": "resource no encontrado"}),
             }
         ]
     }
@@ -488,7 +631,7 @@ def _handle_request(msg: dict) -> dict:
                 "id": msg_id,
                 "result": {
                     "content": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False)}
+                        {"type": "text", "text": dumps(result)}
                     ],
                     "isError": result.get("status_code", 200) >= 400,
                 },
@@ -549,8 +692,78 @@ def _is_notification(msg: dict) -> bool:
     return "id" not in msg or msg.get("id") is None
 
 
+# ── Recarga de codigo (fix estructural 'server stale') ──────────────────────
+# El server MCP cargaba los modulos de features/ una vez al arrancar. Cualquier
+# fix en disco (engine, handlers) quedaba inactivo hasta reiniciar el proceso,
+# perdiendo la conexion MCP de la sesion. Este mecanismo recarga los modulos
+# cuando su source cambia, sin reiniciar.
+
+import importlib
+
+_FEATURES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "features"
+)
+_reload_cache: dict[str, tuple[float, int]] = {}
+
+
+def _reload_features_if_changed() -> None:
+    """Recarga modulos de features/ cuyo source cambio en disco.
+
+    Escanea recursivamente features/ buscando .py, compara (mtime, size)
+    contra la cache, y si cambio recarga el modulo via importlib.reload.
+    Best-effort: no rompe si un modulo no es recargable.
+    """
+    if not os.path.isdir(_FEATURES_DIR):
+        return
+    changed_files: list[str] = []
+    for root, dirs, files in os.walk(_FEATURES_DIR):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            path = os.path.join(root, f)
+            try:
+                st = os.stat(path)
+                sig = (st.st_mtime, st.st_size)
+            except OSError:
+                continue
+            if _reload_cache.get(path) == sig:
+                continue
+            _reload_cache[path] = sig
+            changed_files.append(path)
+
+    if not changed_files:
+        return
+
+    # Recargar los modulos de features/ que esten importados
+    import sys
+
+    changed_real = {os.path.realpath(p) for p in changed_files}
+    for mod_name, mod in list(sys.modules.items()):
+        if not mod_name.startswith("features."):
+            continue
+        mod_file = getattr(mod, "__file__", None)
+        if not mod_file:
+            continue
+        mod_path = mod_file.replace(".pyc", ".py")
+        try:
+            mod_path = os.path.realpath(mod_path)
+        except OSError:
+            continue
+        if mod_path in changed_real:
+            try:
+                importlib.reload(mod)
+            except Exception:
+                pass  # best-effort: si no recarga, sigue con la version actual
+
+
 def serve_stdio() -> int:
     """stdio JSON-RPC loop: reads requests line by line, responds.
+
+    RECARGA DE CODIGO (fix estructural 'server stale'): entre request y
+    request se verifica si los modulos de features/ cambiaron en disco.
+    Si cambian, se recargan via importlib.reload para que el server tome
+    los fixes SIN reiniciar el proceso ni perder la conexion MCP.
 
     Las NOTIFICACIONES (sin id) se procesan pero NO se responden — el
     protocolo MCP las usa como señales one-way (initialized, cancelled).
@@ -559,6 +772,16 @@ def serve_stdio() -> int:
         line = line.strip()
         if not line:
             continue
+        try:
+            _reload_features_if_changed()
+        except Exception as _reload_err:
+            # Recarga best-effort: si falla, se loggea y se continua con
+            # los modulos actuales (no romper el loop por un reload).
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Recarga de codigo fallo (best-effort): %s", _reload_err
+            )
         try:
             msg = json.loads(line)
             resp = _handle_request(msg)
@@ -570,7 +793,7 @@ def serve_stdio() -> int:
             }
         if _is_notification(msg):
             continue
-        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.write(dumps(resp) + "\n")
         sys.stdout.flush()
     return 0
 

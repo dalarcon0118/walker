@@ -206,7 +206,7 @@ def _install_qlty() -> bool:
             print(f"  ✅ qlty installed at {qlty_path}", file=sys.stderr)
             if not shutil.which("qlty"):
                 print("  💡 Add ~/.qlty/bin to your PATH:", file=sys.stderr)
-                print(f'     export PATH="$HOME/.qlty/bin:$PATH"', file=sys.stderr)
+                print('     export PATH="$HOME/.qlty/bin:$PATH"', file=sys.stderr)
             return True
 
         if r.returncode == 0 and is_available("qlty"):

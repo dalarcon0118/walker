@@ -1159,34 +1159,10 @@ def _extract_layer_6_principles(
             invariants.append(gp)
 
 
-def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
-    """Compila las 6 capas en plan.json + progress.json.
-
-    Returns (plan, progress, error_dict).
-    error_dict es None en éxito, o dict con mensaje de error.
-    """
-    meta = load_json(_get_meta_path(chain_dir))
-    if not meta:
-        return {}, {}, {"error": "No meta.json found"}
-
-    project_id = meta.get("project_id", "")
-    goal = meta.get("goal", "")
-    chain_id = _sanitize_chain_id(os.path.basename(os.path.normpath(chain_dir)))
-
-    # Cargar datos de todas las capas
-    layers: dict[str, dict] = {}
-    for layer_id in _LAYER_ORDER:
-        data = load_json(_get_layer_path(chain_dir, layer_id))
-        if data:
-            layers[layer_id] = data
-
-    # (FIX legacy) obs/struct/beh/caus se referenciaban sin definir → NameError
-    obs = layers.get("layer-01", {})
-    struct = layers.get("layer-02", {})
-    beh = layers.get("layer-03", {})
-    caus = layers.get("layer-04", {})
-
-    # ── Extraer predicates de todas las capas ─────────────────
+def _extract_all_predicates(
+    layers: dict[str, dict],
+) -> tuple[list[str], list[str], list[str]]:
+    """Extrae y deduplica predicates de las 6 capas."""
     must_exist: list[str] = []
     must_not_exist: list[str] = []
     invariants: list[str] = []
@@ -1202,56 +1178,66 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
         data = layers.get(layer_id, {})
         handler(data, must_exist, must_not_exist, invariants)
 
-    # Deduplicar
-    must_exist = list(dict.fromkeys(must_exist))
-    must_not_exist = list(dict.fromkeys(must_not_exist))
-    invariants = list(dict.fromkeys(invariants))
+    return (
+        list(dict.fromkeys(must_exist)),
+        list(dict.fromkeys(must_not_exist)),
+        list(dict.fromkeys(invariants)),
+    )
 
-    # ── Archivos conocidos de las capas ───────────────────────
-    _known_files: list[str] = []
+
+def _collect_known_files(obs: dict, struct: dict) -> list[str]:
+    """Recolecta archivos conocidos de las capas de observacion y estructura."""
+    known: list[str] = []
     for fact in obs.get("facts", []):
         p = fact.get("path", "")
-        if p and p not in _known_files:
-            _known_files.append(p)
+        if p and p not in known:
+            known.append(p)
     for comp in struct.get("components", []):
         p = comp.get("path", "")
-        if p and p not in _known_files:
-            _known_files.append(p)
+        if p and p not in known:
+            known.append(p)
     for f in obs.get("files_scanned", []):
-        if f not in _known_files:
-            _known_files.append(f)
+        if f not in known:
+            known.append(f)
+    return known
 
-    def _match_files(predicate: str) -> list[str]:
-        matched: list[str] = []
-        pred_lower = predicate.lower()
-        for f in _known_files:
-            parts = (
-                f.replace("/", " ")
-                .replace("\\", " ")
-                .replace("_", " ")
-                .replace("-", " ")
-                .lower()
-                .split()
-            )
-            if any(p in pred_lower for p in parts if len(p) > 2):
-                matched.append(f)
-            if len(matched) >= 3:
-                break
-        if not matched and _known_files:
-            matched = [_known_files[0]]
-        elif not matched:
-            matched = ["src/main.py"]
-        return matched
 
-    # ── Generar tareas desde predicates ───────────────────────
-    domains = [b.get("name", project_id) for b in struct.get("boundaries", [])]
-    if not domains:
-        domains = [project_id]
+def _match_files_for(predicate: str, known_files: list[str]) -> list[str]:
+    """Matchea un predicate contra los archivos conocidos (heuristica)."""
+    matched: list[str] = []
+    pred_lower = predicate.lower()
+    for f in known_files:
+        parts = (
+            f.replace("/", " ")
+            .replace("\\", " ")
+            .replace("_", " ")
+            .replace("-", " ")
+            .lower()
+            .split()
+        )
+        if any(p in pred_lower for p in parts if len(p) > 2):
+            matched.append(f)
+        if len(matched) >= 3:
+            break
+    if not matched and known_files:
+        matched = [known_files[0]]
+    elif not matched:
+        matched = ["src/main.py"]
+    return matched
 
+
+def _build_tasks_from_predicates(
+    must_exist: list[str],
+    must_not_exist: list[str],
+    invariants: list[str],
+    domains: list[str],
+    project_id: str,
+    match_files,
+) -> tuple[list[dict], int]:
+    """Genera tareas (feature/bugfix/test) desde los predicates."""
     tasks: list[dict] = []
     task_num = 1
 
-    # Tareas feature desde must_exist
     for p in must_exist:
         p_domain = domains[0] if domains else project_id
         for d in domains:
@@ -1276,14 +1262,13 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
                 "task_description": f"Implementar: {p}",
                 "domain": p_domain,
                 "validation": {"predicates": [p]},
-                "impacted_artifacts": {"files": _match_files(p)},
+                "impacted_artifacts": {"files": match_files(p)},
                 "risks": {"curvature": 0.15},
                 "acceptance_criteria": [f"{p} implementado y verificado"],
             }
         )
         task_num += 1
 
-    # Tareas bugfix desde must_not_exist
     for p in must_not_exist:
         p_domain = domains[0] if domains else project_id
         tasks.append(
@@ -1297,14 +1282,13 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
                 "task_description": f"Eliminar o migrar: {p}",
                 "domain": p_domain,
                 "validation": {"predicates": [f"NO {p}"]},
-                "impacted_artifacts": {"files": _match_files(p)},
+                "impacted_artifacts": {"files": match_files(p)},
                 "risks": {"curvature": 0.20},
                 "acceptance_criteria": [f"{p} eliminado"],
             }
         )
         task_num += 1
 
-    # Tareas test/validación desde invariants
     for inv in invariants:
         p_domain = domains[0] if domains else project_id
         tasks.append(
@@ -1318,33 +1302,41 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
                 "task_description": f"Verificar: {inv}",
                 "domain": p_domain,
                 "validation": {"predicates": [f"invariant: {inv}"]},
-                "impacted_artifacts": {"files": _match_files(inv)},
+                "impacted_artifacts": {"files": match_files(inv)},
                 "risks": {"curvature": 0.10},
                 "acceptance_criteria": [f"{inv} verificado"],
             }
         )
         task_num += 1
 
-    if not tasks:
-        fallback_files = _known_files[:1] if _known_files else ["src/main.py"]
-        tasks.append(
-            {
-                **_base_task_fields(),
-                "task_id": "TASK-001",
-                "type": "feature",
-                "work_type": "refactor",
-                "objective": goal[:200],
-                "result_state": f"{goal[:100]} completado",
-                "task_description": goal[:100],
-                "domain": project_id,
-                "validation": {"predicates": [goal[:200]]},
-                "impacted_artifacts": {"files": fallback_files},
-                "risks": {"curvature": 0.20},
-                "acceptance_criteria": [f"{goal[:100]} completado"],
-            }
-        )
+    return tasks, task_num
 
-    # ── task_context (requerido por schema) ───────────────────
+
+def _append_fallback_task(
+    tasks: list[dict], goal: str, project_id: str, known_files: list[str]
+) -> None:
+    """Agrega una tarea fallback cuando no hay predicates."""
+    fallback_files = known_files[:1] if known_files else ["src/main.py"]
+    tasks.append(
+        {
+            **_base_task_fields(),
+            "task_id": "TASK-001",
+            "type": "feature",
+            "work_type": "refactor",
+            "objective": goal[:200],
+            "result_state": f"{goal[:100]} completado",
+            "task_description": goal[:100],
+            "domain": project_id,
+            "validation": {"predicates": [goal[:200]]},
+            "impacted_artifacts": {"files": fallback_files},
+            "risks": {"curvature": 0.20},
+            "acceptance_criteria": [f"{goal[:100]} completado"],
+        }
+    )
+
+
+def _fill_task_contexts(tasks: list[dict], goal: str, project_id: str) -> None:
+    """Completa task_context de cada tarea (requerido por schema)."""
     for t in tasks:
         obj = t.get("objective", goal)[:100]
         files = t.get("impacted_artifacts", {}).get("files", [])
@@ -1363,66 +1355,78 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
         if not t.get("acceptance_criteria"):
             t["acceptance_criteria"] = [t.get("result_state", obj)]
 
-    # ── PRE-WRITE VALIDATION ──────────────────────────────────
-    _TASK_REQUIRED_FIELDS_LOCAL = [
-        "task_id",
-        "type",
-        "objective",
-        "result_state",
-        "task_description",
-        "domain",
-        "impacted_artifacts",
-        "risks",
-        "task_context",
-        "validation",
-        "role",
-        "scrum_role",
-        "work_type",
-        "importer_files",
-        "depends_on",
-        "preconditions",
-        "acceptance_criteria",
-        "quality_gates",
-        "loop_verification",
-        "loop_acceptance",
-        "decisions",
-        "refinement",
-    ]
-    _vw_errors: list[str] = []
+
+_TASK_REQUIRED_FIELDS_LOCAL = [
+    "task_id",
+    "type",
+    "objective",
+    "result_state",
+    "task_description",
+    "domain",
+    "impacted_artifacts",
+    "risks",
+    "task_context",
+    "validation",
+    "role",
+    "scrum_role",
+    "work_type",
+    "importer_files",
+    "depends_on",
+    "preconditions",
+    "acceptance_criteria",
+    "quality_gates",
+    "loop_verification",
+    "loop_acceptance",
+    "decisions",
+    "refinement",
+]
+
+
+def _validate_task_schema(tasks: list[dict]) -> list[str]:
+    """Valida que cada tarea tenga todos los campos requeridos del schema."""
+    errors: list[str] = []
     for t in tasks:
         tid = t.get("task_id", "?")
         for fld in _TASK_REQUIRED_FIELDS_LOCAL:
             if fld not in t:
-                _vw_errors.append(f"  ❌ Tarea {tid}: falta campo requerido '{fld}'")
+                errors.append(f"  ❌ Tarea {tid}: falta campo requerido '{fld}'")
             elif t[fld] is None:
-                _vw_errors.append(f"  ❌ Tarea {tid}: campo '{fld}' es null")
-    if _vw_errors:
-        eprint()
-        eprint("=" * 70)
-        eprint("❌ VALIDACIÓN PRE-WRITE: Faltan campos requeridos en tareas del análisis")
-        eprint("=" * 70)
-        for e in _vw_errors:
-            eprint(e)
-        eprint()
-        eprint("  Referencia: schema/plan.schema.json → $defs/task → required")
-        eprint("  Corrige las capas de análisis y reintenta.")
-        eprint("=" * 70)
-        return {}, {}, {"error": "Tareas no cumplen schema"}
+                errors.append(f"  ❌ Tarea {tid}: campo '{fld}' es null")
+    return errors
 
-    # ── Curvatura desde complejidad del análisis ──────────────
+
+def _compute_total_risk(
+    must_exist: list[str], must_not_exist: list[str], struct: dict, caus: dict
+) -> float:
+    """Calcula el riesgo arquitectónico compuesto del análisis."""
     base_curvature = min(0.05 + (len(must_exist) + len(must_not_exist)) * 0.02, 0.40)
     struct_complexity = min(len(struct.get("components", [])) * 0.01, 0.10)
     pain_risk = min(len(caus.get("pain_points", [])) * 0.02, 0.15)
-    total_risk = min(base_curvature + struct_complexity + pain_risk, 0.50)
+    return min(base_curvature + struct_complexity + pain_risk, 0.50)
 
-    # ── plan.json ─────────────────────────────────────────────
+
+def _build_plan_payload(
+    chain_id: str,
+    meta: dict,
+    project_id: str,
+    goal: str,
+    domains: list[str],
+    obs: dict,
+    struct: dict,
+    beh: dict,
+    must_exist: list[str],
+    must_not_exist: list[str],
+    invariants: list[str],
+    tasks: list[dict],
+) -> dict:
+    """Construye el payload de plan.json."""
     now = _now_iso()
     meta_project_type = meta.get("project_type", "backend")
     meta_tags = meta.get("tags", [])
     if not meta_tags:
         meta_tags = ["python"]
 
-    plan = {
+    return {
         "plan": {
             "meta": {
                 "chain_id": chain_id,
@@ -1454,7 +1458,19 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
         }
     }
 
-    # ── progress.json ─────────────────────────────────────────
+
+def _build_progress_payload(
+    chain_id: str,
+    project_id: str,
+    goal: str,
+    tasks: list[dict],
+    must_exist: list[str],
+    must_not_exist: list[str],
+    invariants: list[str],
+    total_risk: float,
+) -> dict:
+    """Construye el payload de progress.json."""
+    now = _now_iso()
     task_states: dict[str, str] = {}
     next_action = None
     for t in tasks:
@@ -1474,7 +1490,7 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
                 "rationale": f"Primera tarea del análisis profundo: {t.get('objective', '')[:60]}...",
             }
 
-    progress = {
+    return {
         "progress": {
             "meta": {
                 "chain_id": chain_id,
@@ -1511,6 +1527,88 @@ def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
             },
         }
     }
+
+
+def compile_analysis(chain_dir: str) -> tuple[dict, dict, dict | None]:
+    """Compila las 6 capas en plan.json + progress.json.
+
+    Returns (plan, progress, error_dict).
+    error_dict es None en éxito, o dict con mensaje de error.
+    """
+    meta = load_json(_get_meta_path(chain_dir))
+    if not meta:
+        return {}, {}, {"error": "No meta.json found"}
+
+    project_id = meta.get("project_id", "")
+    goal = meta.get("goal", "")
+    chain_id = _sanitize_chain_id(os.path.basename(os.path.normpath(chain_dir)))
+
+    # Cargar datos de todas las capas
+    layers: dict[str, dict] = {}
+    for layer_id in _LAYER_ORDER:
+        data = load_json(_get_layer_path(chain_dir, layer_id))
+        if data:
+            layers[layer_id] = data
+
+    # (FIX legacy) obs/struct/beh/caus se referenciaban sin definir → NameError
+    obs = layers.get("layer-01", {})
+    struct = layers.get("layer-02", {})
+    beh = layers.get("layer-03", {})
+    caus = layers.get("layer-04", {})
+
+    # ── Extraer predicates de todas las capas ─────────────────
+    must_exist, must_not_exist, invariants = _extract_all_predicates(layers)
+
+    # ── Archivos conocidos de las capas ───────────────────────
+    _known_files = _collect_known_files(obs, struct)
+
+    def _match_files(predicate: str) -> list[str]:
+        return _match_files_for(predicate, _known_files)
+
+    # ── Generar tareas desde predicates ───────────────────────
+    domains = [b.get("name", project_id) for b in struct.get("boundaries", [])]
+    if not domains:
+        domains = [project_id]
+
+    tasks, task_num = _build_tasks_from_predicates(
+        must_exist, must_not_exist, invariants, domains, project_id, _match_files
+    )
+
+    if not tasks:
+        _append_fallback_task(tasks, goal, project_id, _known_files)
+
+    # ── task_context (requerido por schema) ───────────────────
+    _fill_task_contexts(tasks, goal, project_id)
+
+    # ── PRE-WRITE VALIDATION ──────────────────────────────────
+    vw_errors = _validate_task_schema(tasks)
+    if vw_errors:
+        eprint()
+        eprint("=" * 70)
+        eprint("❌ VALIDACIÓN PRE-WRITE: Faltan campos requeridos en tareas del análisis")
+        eprint("=" * 70)
+        for e in vw_errors:
+            eprint(e)
+        eprint()
+        eprint("  Referencia: schema/plan.schema.json → $defs/task → required")
+        eprint("  Corrige las capas de análisis y reintenta.")
+        eprint("=" * 70)
+        return {}, {}, {"error": "Tareas no cumplen schema"}
+
+    # ── Curvatura desde complejidad del análisis ──────────────
+    total_risk = _compute_total_risk(must_exist, must_not_exist, struct, caus)
+
+    # ── plan.json ─────────────────────────────────────────────
+    plan = _build_plan_payload(
+        chain_id, meta, project_id, goal, domains, obs, struct, beh,
+        must_exist, must_not_exist, invariants, tasks,
+    )
+
+    # ── progress.json ─────────────────────────────────────────
+    progress = _build_progress_payload(
+        chain_id, project_id, goal, tasks,
+        must_exist, must_not_exist, invariants, total_risk,
+    )
 
     return plan, progress, None
 

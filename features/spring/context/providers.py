@@ -65,17 +65,26 @@ class TaskProvider(ContextProvider):
         if not specs:
             return None
 
-        # Indice de la spec actual (SSOT: sprint-state)
+        # Indice de la spec actual (SSOT: delta — nodo spring)
         current_idx = 0
         try:
-            from features.spring.infrastructure.repositories import (
-                SprintStateRepository,
+            from features.delta_tracking.application.spring_graph_service import (
+                SpringGraphService,
             )
 
-            sp = SprintStateRepository().load_dict(chain_dir)
-            current_idx = sp.get("context", {}).get(
-                "current_spec_index", sp.get("context", {}).get("current_task_index", 0)
-            )
+            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            if spring_svc:
+                import os
+
+                spring_id = os.path.basename(os.path.normpath(chain_dir))
+                spring_svc.ensure_spring_imported(chain_dir, spring_id)
+                ctx_state = spring_svc.get_spring_context(spring_id)
+                current_idx = int(
+                    ctx_state.get(
+                        "current_spec_index",
+                        ctx_state.get("current_task_index", 0),
+                    )
+                )
         except Exception:
             pass
         if current_idx >= len(specs):
@@ -119,7 +128,7 @@ class TaskProvider(ContextProvider):
 class StateProvider(ContextProvider):
     """Capa: estado del sprint actual. Layer: state.
 
-    Delega en QueryManager para consultar sprint-state.json.
+    Delega en QueryManager para consultar el estado del delta y workflow.
     """
 
     LAYER = "state"

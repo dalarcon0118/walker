@@ -246,9 +246,23 @@ class BuildGraphUseCase:
                         }
                     )
 
-            # unused_functions: nodos función sin CALLS incoming
+            # unused_functions: nodos función sin CALLS incoming.
+            # Filtra falsos positivos: fields de dataclass/ODM (firma sin
+            # 'def'), constantes de clase, dunders y test_* (pytest) +
+            # detección de referencias por texto (registry dinámico,
+            # imports lazy, dispatch intra-archivo).
+            from features.code_analysis.domain.analysis import (
+                DeadCodeReferenceScanner,
+                is_false_positive_dead_code,
+            )
+
             nodes = data.get("nodes", {})
             edges = data.get("edges", [])
+            scanner = DeadCodeReferenceScanner(
+                sorted(
+                    {n.get("path", "") for n in nodes.values() if isinstance(n, dict)}
+                )
+            )
             incoming_ids = {e.get("from") for e in edges if e.get("type") == "CALLS"}
             for nid, n in nodes.items():
                 if not isinstance(n, dict):
@@ -257,6 +271,17 @@ class BuildGraphUseCase:
                     if nid not in incoming_ids and not n.get("name", "").startswith(
                         "__"
                     ):
+                        if is_false_positive_dead_code(
+                            n.get("name", ""),
+                            n.get("type", ""),
+                            n.get("signature", ""),
+                            n.get("path", ""),
+                        ):
+                            continue
+                        if scanner.is_referenced(
+                            n.get("name", ""), n.get("path", ""), n.get("line", 0)
+                        ):
+                            continue
                         proposals["unused_functions"].append(
                             {
                                 "severity": "warning",
@@ -510,6 +535,113 @@ class BuildGraphUseCase:
             "bug_proposals": bp,
         }
 
+    def _process_call_edges(
+        self,
+        all_files: list[str],
+        defs_by_file: dict[str, list[dict]],
+        cpg_nodes: dict,
+        cpg_edges: list,
+        nodes_by_name_path: dict,
+        nodes_by_name: dict,
+        edge_set: set,
+        cfg_cache: Any,
+        _cpg_nid,
+    ) -> tuple[int, int]:
+        """Detecta calls multi-lenguaje y crea edges CALLS en el CPG.
+
+        Retorna (total_calls, cache_hits).
+        """
+        from features.code_analysis.infrastructure.ast_grep_calls import (
+            detect_calls_cached,
+        )
+
+        total_calls = 0
+        cache_hits = 0
+        for fp in all_files:
+            if not os.path.isfile(fp):
+                continue
+            definitions = defs_by_file.get(fp, [])
+            if not definitions:
+                continue  # Skip files without known function definitions
+
+            try:
+                calls, from_cache = detect_calls_cached(fp, definitions, cfg_cache)
+                if from_cache:
+                    cache_hits += 1
+            except Exception:
+                continue
+
+            for call in calls:
+                caller = call["caller"]
+                callee = call["callee"]
+                call_line = call["line"]
+
+                if not caller or not callee or caller.startswith("$"):
+                    continue
+
+                total_calls += 1
+
+                # Caller node: lookup O(1) por (name, path)
+                caller_nid = nodes_by_name_path.get((caller, fp))
+                if not caller_nid:
+                    caller_nid = _cpg_nid()
+                    cpg_nodes[caller_nid] = {
+                        "id": caller_nid,
+                        "type": "function",
+                        "name": caller,
+                        "path": fp,
+                        "line": call_line,
+                    }
+                    nodes_by_name_path[(caller, fp)] = caller_nid
+                    nodes_by_name.setdefault(caller, []).append(caller_nid)
+
+                # Callee node: buscar por nombre (cualquier archivo) O(1)
+                callee_nid = self._resolve_callee_node(
+                    callee, nodes_by_name, cpg_nodes, _cpg_nid, fp, call_line
+                )
+
+                # Edge (dedup O(1) via edge_set)
+                edge_key = (caller_nid, callee_nid, "CALLS")
+                if edge_key not in edge_set:
+                    edge_set.add(edge_key)
+                    cpg_edges.append(
+                        {"from": caller_nid, "to": callee_nid, "type": "CALLS"}
+                    )
+        return total_calls, cache_hits
+
+    @staticmethod
+    def _resolve_callee_node(
+        callee: str,
+        nodes_by_name: dict,
+        cpg_nodes: dict,
+        _cpg_nid,
+        fp: str,
+        call_line: int,
+    ) -> str:
+        """Resuelve (o crea) el nodo del callee por nombre, cualquier archivo."""
+        callee_nid = None
+        cands = nodes_by_name.get(callee, [])
+        if cands:
+            callee_nid = cands[0]
+        else:
+            simple_name = callee.split(".")[-1] if "." in callee else callee
+            if simple_name != callee:
+                cands = nodes_by_name.get(simple_name, [])
+                if cands:
+                    callee_nid = cands[0]
+        if not callee_nid:
+            callee_nid = _cpg_nid()
+            cpg_nodes[callee_nid] = {
+                "id": callee_nid,
+                "type": "function",
+                "name": callee,
+                "path": fp,
+                "line": call_line,
+                "kind": "external_call",
+            }
+            nodes_by_name.setdefault(callee, []).append(callee_nid)
+        return callee_nid
+
     def scan_cfg(self, scan_paths: list[str] | None = None) -> dict:
         """CFG analysis: detecta CALLS edges multi-lenguaje via ast-grep.
 
@@ -593,7 +725,6 @@ class BuildGraphUseCase:
         #    Con caché incremental por mtime: solo re-ejecuta ast-grep sobre
         #    archivos nuevos/modificados (evita N subprocess en cada build).
         from features.code_analysis.infrastructure.ast_grep_calls import (
-            detect_calls_cached,
             CallsCache,
         )
 
@@ -601,76 +732,17 @@ class BuildGraphUseCase:
 
         cfg_cache = CallsCache(_os.path.join(self.data_dir, "cfg_calls_cache.json"))
 
-        total_calls = 0
-        cache_hits = 0
-        for fp in all_files:
-            if not os.path.isfile(fp):
-                continue
-            definitions = defs_by_file.get(fp, [])
-            if not definitions:
-                continue  # Skip files without known function definitions
-
-            try:
-                calls, from_cache = detect_calls_cached(fp, definitions, cfg_cache)
-                if from_cache:
-                    cache_hits += 1
-            except Exception:
-                continue
-
-            for call in calls:
-                caller = call["caller"]
-                callee = call["callee"]
-                call_line = call["line"]
-
-                if not caller or not callee or caller.startswith("$"):
-                    continue
-
-                total_calls += 1
-
-                # Caller node: lookup O(1) por (name, path)
-                caller_nid = nodes_by_name_path.get((caller, fp))
-                if not caller_nid:
-                    caller_nid = _cpg_nid()
-                    cpg_nodes[caller_nid] = {
-                        "id": caller_nid,
-                        "type": "function",
-                        "name": caller,
-                        "path": fp,
-                        "line": call_line,
-                    }
-                    nodes_by_name_path[(caller, fp)] = caller_nid
-                    nodes_by_name.setdefault(caller, []).append(caller_nid)
-
-                # Callee node: buscar por nombre (cualquier archivo) O(1)
-                callee_nid = None
-                cands = nodes_by_name.get(callee, [])
-                if cands:
-                    callee_nid = cands[0]
-                else:
-                    simple_name = callee.split(".")[-1] if "." in callee else callee
-                    if simple_name != callee:
-                        cands = nodes_by_name.get(simple_name, [])
-                        if cands:
-                            callee_nid = cands[0]
-                if not callee_nid:
-                    callee_nid = _cpg_nid()
-                    cpg_nodes[callee_nid] = {
-                        "id": callee_nid,
-                        "type": "function",
-                        "name": callee,
-                        "path": fp,
-                        "line": call_line,
-                        "kind": "external_call",
-                    }
-                    nodes_by_name.setdefault(callee, []).append(callee_nid)
-
-                # Edge (dedup O(1) via edge_set)
-                edge_key = (caller_nid, callee_nid, "CALLS")
-                if edge_key not in edge_set:
-                    edge_set.add(edge_key)
-                    cpg_edges.append(
-                        {"from": caller_nid, "to": callee_nid, "type": "CALLS"}
-                    )
+        total_calls, cache_hits = self._process_call_edges(
+            all_files,
+            defs_by_file,
+            cpg_nodes,
+            cpg_edges,
+            nodes_by_name_path,
+            nodes_by_name,
+            edge_set,
+            cfg_cache,
+            _cpg_nid,
+        )
 
         self._repo.save(data)
         cfg_cache.save()
@@ -688,6 +760,81 @@ class BuildGraphUseCase:
             result["cfg_cache"] = cfg_cache.stats
             result["cfg_cache_hits"] = cache_hits
         return result
+
+    def _scan_dfg_files(
+        self,
+        scan_files: list[str],
+        all_results: dict,
+        dfg_cache: Any,
+        _detect_lang,
+        _run_ast_grep,
+        verbose: bool,
+    ) -> int:
+        """Escanea archivos con patrones de seguridad. Retorna cache_hits."""
+        from features.code_analysis.infrastructure.codereview.config import (
+            _DEEP_PATTERNS,
+        )
+
+        security_patterns = _DEEP_PATTERNS.get("danger", []) + _DEEP_PATTERNS.get(
+            "production-bugs", []
+        )
+
+        def _eprint(*a):
+            if verbose:
+                print(*a, file=sys.stderr, flush=True)
+
+        cache_hits = 0
+        total = len(scan_files)
+        for idx, fp in enumerate(scan_files, 1):
+            if not os.path.isfile(fp):
+                continue
+            lang = _detect_lang(fp)
+            if not lang:
+                continue
+
+            # 1. Caché: si el archivo no cambió, reusar hallazgos previos
+            cached = dfg_cache.get(fp)
+            if cached is not None:
+                cache_hits += 1
+                for k in (
+                    "hardcoded_secrets",
+                    "taint_paths",
+                    "uninitialized_vars",
+                    "data_gaps",
+                ):
+                    all_results[k].extend(cached.get(k, []))
+                if verbose and total > 20 and idx % 20 == 0:
+                    _eprint(f"  🔍 DFG [{idx}/{total}] (cache) {os.path.basename(fp)}")
+                continue
+
+            # 2. Correr patrones sobre este archivo
+            file_findings = {
+                "hardcoded_secrets": [],
+                "taint_paths": [],
+                "uninitialized_vars": [],
+                "data_gaps": [],
+            }
+            for pat in security_patterns:
+                matches = _run_ast_grep(pat["pattern"], fp, lang)
+                for m in matches:
+                    entry = {
+                        "file": fp,
+                        "line": m["line"],
+                        "detail": m.get("text", "")[:80],
+                        "severity": pat.get("severity", "medium"),
+                    }
+                    if pat.get("severity") in ("high", "critical"):
+                        file_findings["hardcoded_secrets"].append(entry)
+                    else:
+                        file_findings["taint_paths"].append(entry)
+
+            dfg_cache.set(fp, file_findings)
+            for k in file_findings:
+                all_results[k].extend(file_findings[k])
+
+            if verbose and (total <= 20 or idx % 20 == 0):
+                _eprint(f"  🔍 DFG [{idx}/{total}] {os.path.basename(fp)}")
+        return cache_hits
 
     def scan_dfg(
         self, scan_paths: list[str] | None = None, verbose: bool = False
@@ -753,71 +900,9 @@ class BuildGraphUseCase:
         cache_hits = 0
 
         try:
-            from features.code_analysis.infrastructure.codereview.config import (
-                _DEEP_PATTERNS,
+            cache_hits = self._scan_dfg_files(
+                scan_files, all_results, dfg_cache, _detect_lang, _run_ast_grep, verbose
             )
-
-            # Usar patterns de seguridad y producción
-            security_patterns = _DEEP_PATTERNS.get("danger", []) + _DEEP_PATTERNS.get(
-                "production-bugs", []
-            )
-
-            total = len(scan_files)
-            for idx, fp in enumerate(scan_files, 1):
-                if not os.path.isfile(fp):
-                    continue
-                lang = _detect_lang(fp)
-                if not lang:
-                    continue
-
-                # 1. Caché: si el archivo no cambió, reusar hallazgos previos
-                cached = dfg_cache.get(fp)
-                if cached is not None:
-                    cache_hits += 1
-                    all_results["hardcoded_secrets"].extend(
-                        cached.get("hardcoded_secrets", [])
-                    )
-                    all_results["taint_paths"].extend(cached.get("taint_paths", []))
-                    all_results["uninitialized_vars"].extend(
-                        cached.get("uninitialized_vars", [])
-                    )
-                    all_results["data_gaps"].extend(cached.get("data_gaps", []))
-                    if verbose and total > 20 and idx % 20 == 0:
-                        _eprint(
-                            f"  🔍 DFG [{idx}/{total}] (cache) {os.path.basename(fp)}"
-                        )
-                    continue
-
-                # 2. Correr patrones sobre este archivo
-                file_findings = {
-                    "hardcoded_secrets": [],
-                    "taint_paths": [],
-                    "uninitialized_vars": [],
-                    "data_gaps": [],
-                }
-                for pat in security_patterns:
-                    matches = _run_ast_grep(pat["pattern"], fp, lang)
-                    for m in matches:
-                        entry = {
-                            "file": fp,
-                            "line": m["line"],
-                            "detail": m.get("text", "")[:80],
-                            "severity": pat.get("severity", "medium"),
-                        }
-                        if pat.get("severity") in ("high", "critical"):
-                            file_findings["hardcoded_secrets"].append(entry)
-                        else:
-                            file_findings["taint_paths"].append(entry)
-
-                # Guardar en cache
-                dfg_cache.set(fp, file_findings)
-
-                # Acumular
-                for k in file_findings:
-                    all_results[k].extend(file_findings[k])
-
-                if verbose and (total <= 20 or idx % 20 == 0):
-                    _eprint(f"  🔍 DFG [{idx}/{total}] {os.path.basename(fp)}")
         except Exception:
             pass
         finally:

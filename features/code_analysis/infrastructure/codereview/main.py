@@ -58,24 +58,7 @@ def _update_progress(msg: str) -> None:
 
 def main() -> int:
     """CLI entry point."""
-    json_mode = False
-    fix_mode = False
-    deep_mode = False
-    fast_mode = False
-
-    args = sys.argv[1:]
-    if "--json" in args:
-        json_mode = True
-        args.remove("--json")
-    if "--fix" in args:
-        fix_mode = True
-        args.remove("--fix")
-    if "--deep" in args:
-        deep_mode = True
-        args.remove("--deep")
-    if "--fast" in args:
-        fast_mode = True
-        args.remove("--fast")
+    json_mode, fix_mode, deep_mode, fast_mode, args = _parse_cli_args()
     if deep_mode and fast_mode:
         print("❌ --fast y --deep son mutuamente excluyentes", file=sys.stderr)
         return 2
@@ -131,7 +114,6 @@ def main() -> int:
     # Run analysis
     output = run_analysis(files_to_analyze, mode=mode, cache=cache)
     results = output.get("files", [])
-    all_checks = []  # Filled during display
 
     total_loc = 0
     for fp in files_to_analyze:
@@ -140,114 +122,147 @@ def main() -> int:
         entry = next((r for r in results if fp.name in r.get("file", "")), None)
         if not entry:
             continue
-
-        cyclo = entry.get("cyclo", 0)
-        complexity = entry.get("complexity", 0)
-        lcom = entry.get("lcom", 0)
-        loc = entry.get("loc", 0)
-        func_count = entry.get("funcs", 0)
-        raw_loc = loc or len([l for l in fp.read_text().splitlines() if l.strip()])
-        total_loc += raw_loc
-
-        lang_tag = f"\033[90m{fp.suffix or '?'}\033[0m"
-        print(f"\n{'─' * 88}")
-        print(f"  \033[1m📄 {fp.name}\033[0m  {lang_tag}")
-        print(f"{'─' * 88}")
-        print(
-            f"  Qlty NLOC: {loc}  |  {c_lower_better('Cyclo', cyclo, 30, 60)}  |  "
-            f"{c_lower_better('Cog Cpx', complexity, 20, 50)}  |  "
-            f"Funcs: {func_count}  |  {c_lower_better('LCOM', lcom, 5, 20)}"
-        )
-
-        # Functions
-        funcs_data = entry.get("functions", [])
-        if funcs_data:
-            print(f"  Functions ({len(funcs_data)}):")
-            for f in funcs_data[:6]:
-                cc_s = c_lower_better("CC", f["cyclo"], 5, 10)
-                print(
-                    f"    {f['name']:<42} NLOC={f['loc']:<3}  {cc_s}  cog={f['cognitive']}  lines={f['lines']}"
-                )
-            if len(funcs_data) > 6:
-                print(f"    ... +{len(funcs_data) - 6} more")
-            for f in funcs_data:
-                if f["cyclo"] > 15:
-                    print(
-                        f"    \033[33m⚠️  HIGH CC: {f['name']} — CC={f['cyclo']} > 15\033[0m"
-                    )
-
-        # Coupling
-        print(f"  Coupling: Ce={entry.get('ce', 0)}, Ca={entry.get('ca', 0)}")
-
-        # Smells
-        file_smells = entry.get("smells", [])
-        if file_smells:
-            for s in file_smells[:5]:
-                rid = s["rule_id"].replace("qlty:", "")
-                print(f"  \033[33m🔍 {rid}\033[0m L{s['line']}: {s['message'][:100]}")
-            if len(file_smells) > 5:
-                print(f"    ... +{len(file_smells) - 5} more")
-
-        # Checks
-        file_checks = entry.get("checks", [])
-        if file_checks:
-            warnings = [c for c in file_checks if c["level"] == "warning"]
-            errors = [c for c in file_checks if c["level"] == "error"]
-            others = [c for c in file_checks if c["level"] not in ("warning", "error")]
-            if errors:
-                print(f"  \033[31m❌ Errors ({len(errors)}):\033[0m")
-                for c in errors[:3]:
-                    print(_format_check_issue(c))
-            if warnings:
-                print(f"  \033[33m⚠️  Warnings ({len(warnings)}):\033[0m")
-                for c in warnings[:5]:
-                    print(_format_check_issue(c))
-            if others:
-                print(f"  \033[90m💡 Notes ({len(others)}):\033[0m")
-                for c in others[:3]:
-                    print(_format_check_issue(c))
-
-        # Deep analysis findings
-        deep = entry.get("deep_analysis", {})
-        if deep.get("deep_findings"):
-            print(
-                f"  \033[1m🔬 Análisis profundo ({deep['total_deep']} hallazgos):\033[0m"
-            )
-            for df in deep["deep_findings"][:5]:
-                severity_color = {
-                    "critical": "\033[31m",
-                    "high": "\033[33m",
-                    "medium": "\033[33m",
-                    "low": "\033[90m",
-                }.get(df.get("severity", ""), "\033[90m")
-                print(
-                    f"    {severity_color}[{df.get('severity', '?')}]\033[0m {df['label']}"
-                )
-                for m in df.get("matches", [])[:2]:
-                    print(f"      L{m['line']}: {m['text'][:80]}")
-                if df.get("count", 0) > 2:
-                    print(f"      ... +{df['count'] - 2} more")
-
-        # Quality metrics
-        qm = entry.get("quality", {})
-        if qm:
-            qm_lines = qm.get("lines", 0)
-            qm_nloc = qm.get("nloc", 0)
-            qm_cyclo = qm.get("cyclomatic_complexity", 0)
-            qm_debt = qm.get("tech_debt_hours", 0)
-            qm_rating = qm.get("maintainability_rating", "?")
-            qm_sec = qm.get("security_rating", "?")
-            print(
-                f"  \033[1m📊 Quality:\033[0m Lines: {qm_lines}  |  NLOC: {qm_nloc}  |  "
-                f"Cyclo: {qm_cyclo}  |  Debt: {qm_debt}h  |  "
-                f"Maint: {format_rating(qm_rating)}  |  Security: {format_rating(qm_sec)}"
-            )
-            if qm.get("dup_blocks", 0) > 0:
-                print(
-                    f"    Duplication: {qm['dup_blocks']} blocks, {qm['dup_lines']} lines ({qm['dup_density']:.1%})"
-                )
+        total_loc += _display_file(fp, entry)
 
     # ── Summary ──
+    _display_summary(output, results, total_loc)
+    return 0
+
+
+def _parse_cli_args() -> tuple[bool, bool, bool, bool, list[str]]:
+    """Parsea flags de CLI: --json, --fix, --deep, --fast."""
+    json_mode = False
+    fix_mode = False
+    deep_mode = False
+    fast_mode = False
+
+    args = sys.argv[1:]
+    if "--json" in args:
+        json_mode = True
+        args.remove("--json")
+    if "--fix" in args:
+        fix_mode = True
+        args.remove("--fix")
+    if "--deep" in args:
+        deep_mode = True
+        args.remove("--deep")
+    if "--fast" in args:
+        fast_mode = True
+        args.remove("--fast")
+    return json_mode, fix_mode, deep_mode, fast_mode, args
+
+
+def _display_file(fp: Path, entry: dict) -> int:
+    """Imprime el reporte de un archivo. Devuelve su LOC contribuido."""
+    cyclo = entry.get("cyclo", 0)
+    complexity = entry.get("complexity", 0)
+    lcom = entry.get("lcom", 0)
+    loc = entry.get("loc", 0)
+    func_count = entry.get("funcs", 0)
+    raw_loc = loc or len([l for l in fp.read_text().splitlines() if l.strip()])
+
+    lang_tag = f"\033[90m{fp.suffix or '?'}\033[0m"
+    print(f"\n{'─' * 88}")
+    print(f"  \033[1m📄 {fp.name}\033[0m  {lang_tag}")
+    print(f"{'─' * 88}")
+    print(
+        f"  Qlty NLOC: {loc}  |  {c_lower_better('Cyclo', cyclo, 30, 60)}  |  "
+        f"{c_lower_better('Cog Cpx', complexity, 20, 50)}  |  "
+        f"Funcs: {func_count}  |  {c_lower_better('LCOM', lcom, 5, 20)}"
+    )
+
+    # Functions
+    funcs_data = entry.get("functions", [])
+    if funcs_data:
+        print(f"  Functions ({len(funcs_data)}):")
+        for f in funcs_data[:6]:
+            cc_s = c_lower_better("CC", f["cyclo"], 5, 10)
+            print(
+                f"    {f['name']:<42} NLOC={f['loc']:<3}  {cc_s}  cog={f['cognitive']}  lines={f['lines']}"
+            )
+        if len(funcs_data) > 6:
+            print(f"    ... +{len(funcs_data) - 6} more")
+        for f in funcs_data:
+            if f["cyclo"] > 15:
+                print(
+                    f"    \033[33m⚠️  HIGH CC: {f['name']} — CC={f['cyclo']} > 15\033[0m"
+                )
+
+    # Coupling
+    print(f"  Coupling: Ce={entry.get('ce', 0)}, Ca={entry.get('ca', 0)}")
+
+    # Smells
+    file_smells = entry.get("smells", [])
+    if file_smells:
+        for s in file_smells[:5]:
+            rid = s["rule_id"].replace("qlty:", "")
+            print(f"  \033[33m🔍 {rid}\033[0m L{s['line']}: {s['message'][:100]}")
+        if len(file_smells) > 5:
+            print(f"    ... +{len(file_smells) - 5} more")
+
+    # Checks
+    file_checks = entry.get("checks", [])
+    if file_checks:
+        warnings = [c for c in file_checks if c["level"] == "warning"]
+        errors = [c for c in file_checks if c["level"] == "error"]
+        others = [c for c in file_checks if c["level"] not in ("warning", "error")]
+        if errors:
+            print(f"  \033[31m❌ Errors ({len(errors)}):\033[0m")
+            for c in errors[:3]:
+                print(_format_check_issue(c))
+        if warnings:
+            print(f"  \033[33m⚠️  Warnings ({len(warnings)}):\033[0m")
+            for c in warnings[:5]:
+                print(_format_check_issue(c))
+        if others:
+            print(f"  \033[90m💡 Notes ({len(others)}):\033[0m")
+            for c in others[:3]:
+                print(_format_check_issue(c))
+
+    # Deep analysis findings
+    deep = entry.get("deep_analysis", {})
+    if deep.get("deep_findings"):
+        print(
+            f"  \033[1m🔬 Análisis profundo ({deep['total_deep']} hallazgos):\033[0m"
+        )
+        for df in deep["deep_findings"][:5]:
+            severity_color = {
+                "critical": "\033[31m",
+                "high": "\033[33m",
+                "medium": "\033[33m",
+                "low": "\033[90m",
+            }.get(df.get("severity", ""), "\033[90m")
+            print(
+                f"    {severity_color}[{df.get('severity', '?')}]\033[0m {df['label']}"
+            )
+            for m in df.get("matches", [])[:2]:
+                print(f"      L{m['line']}: {m['text'][:80]}")
+            if df.get("count", 0) > 2:
+                print(f"      ... +{df['count'] - 2} more")
+
+    # Quality metrics
+    qm = entry.get("quality", {})
+    if qm:
+        qm_lines = qm.get("lines", 0)
+        qm_nloc = qm.get("nloc", 0)
+        qm_cyclo = qm.get("cyclomatic_complexity", 0)
+        qm_debt = qm.get("tech_debt_hours", 0)
+        qm_rating = qm.get("maintainability_rating", "?")
+        qm_sec = qm.get("security_rating", "?")
+        print(
+            f"  \033[1m📊 Quality:\033[0m Lines: {qm_lines}  |  NLOC: {qm_nloc}  |  "
+            f"Cyclo: {qm_cyclo}  |  Debt: {qm_debt}h  |  "
+            f"Maint: {format_rating(qm_rating)}  |  Security: {format_rating(qm_sec)}"
+        )
+        if qm.get("dup_blocks", 0) > 0:
+            print(
+                f"    Duplication: {qm['dup_blocks']} blocks, {qm['dup_lines']} lines ({qm['dup_density']:.1%})"
+            )
+    return raw_loc
+
+
+def _display_summary(output: dict, results: list, total_loc: int) -> None:
+    """Imprime el resumen agregado al final del reporte."""
     print()
     print("=" * 88)
     print("  \033[1m📊 RESUMEN\033[0m")
@@ -284,7 +299,6 @@ def main() -> int:
             )
 
     print("=" * 88)
-    return 0
 
 
 if __name__ == "__main__":

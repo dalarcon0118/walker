@@ -147,7 +147,8 @@ class WorkflowAPI:
         # entrará al nodo START (initial_state) que permite al agente elegir.
         #
         # Usamos session_dir como chain_dir
-        # virtual para persistir SprintState hasta que se seleccione un proyecto.
+        # virtual para persistir el estado del motor (.workflow-state.json)
+        # hasta que se seleccione un proyecto.
         from ..infrastructure.repositories import (
             WorkflowRepository,
             WorkflowStateRepository,
@@ -161,7 +162,7 @@ class WorkflowAPI:
         self._chain_dir = record.chain_dir
         self._project_id = ""
 
-        # Inicializar SprintState desde workflow.initial_state
+        # Inicializar el estado del workflow desde workflow.initial_state
         try:
             wf_repo = WorkflowRepository()
             st_repo = WorkflowStateRepository()
@@ -274,8 +275,10 @@ class WorkflowAPI:
     def _build_context(self) -> ExecutionContext:
         """Construye ExecutionContext desde la sesión actual.
 
-        Lee task_id del sprint-state si está disponible para que
+        Lee task_id del DELTA (nodo spring) si está disponible para que
         _build_prompt_context() pueda identificar la tarea actual.
+        PRINCIPIO: el estado de negocio del spring vive en el delta;
+        sprint-state.json fue eliminado estructuralmente.
         """
         session_id = self.ensure_session()
         task_id = ""
@@ -295,15 +298,6 @@ class WorkflowAPI:
                         task_id = cur.get("spec_id", "")
             except Exception:
                 pass
-            if not task_id:
-                # Fallback: sprint-state legacy (task_id en context)
-                from features.spring.infrastructure.repositories import (
-                    SprintStateRepository,
-                )
-
-                sp_data = SprintStateRepository().load_dict(self._chain_dir)
-                if sp_data:
-                    task_id = sp_data.get("context", {}).get("task_id", "")
         return ExecutionContext(
             session_id=session_id,
             chain_dir=self._chain_dir or "",

@@ -38,9 +38,10 @@ class DeltaGraphService:
     def index_sprint(self, chain_dir: str) -> int:
         """Indexa un sprint en CognitiveGraph (indice delta).
 
-        Lee datos via SprintStateRepository (SSOT) y los almacena
-        en el indice delta de CognitiveGraph. CognitiveGraph se encarga
-        de construir el TokenIndex (full-text) y el grafo (relaciones).
+        Lee las specs del DeltaGraph (SpringGraphService — fuente unica)
+        y las almacena en el indice delta de CognitiveGraph.
+        CognitiveGraph se encarga de construir el TokenIndex (full-text)
+        y el grafo (relaciones).
 
         Args:
             chain_dir: Ruta al directorio del sprint

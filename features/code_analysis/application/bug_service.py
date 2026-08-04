@@ -130,11 +130,27 @@ class ScanBugsUseCase:
         }
 
     def _find_unused_functions(self, attr_filters: list[Filter]) -> list[dict]:
-        """Find functions with no incoming CALLS edges."""
-        from features.code_analysis.domain.analysis import DeadCodeCandidate
+        """Find functions with no incoming CALLS edges.
+
+        Filtra falsos positivos estructurales: fields de dataclass/ODM,
+        constantes de clase, dunders de framework y funciones test_*
+        (el CPG no las considera "usadas" porque se acceden por atributo,
+        por naming de pytest o por imports lazy).
+        """
+        from features.code_analysis.domain.analysis import (
+            DeadCodeCandidate,
+            DeadCodeReferenceScanner,
+            is_false_positive_dead_code,
+        )
 
         entry_points = {"main", "setup", "teardown", "__init__", "__main__"}
         results = []
+
+        # Scanner de referencias por texto: detecta usos que el CPG no
+        # conecta (registry dinámico, imports lazy, dispatch por nombre).
+        scanner = DeadCodeReferenceScanner(
+            sorted({n.path for n in self.graph.nodes.values() if n.path})
+        )
 
         for nid, node in self.graph.nodes.items():
             if node.type not in ("function", "method"):
@@ -144,12 +160,16 @@ class ScanBugsUseCase:
             name = node.name
             if name in entry_points:
                 continue
+            if is_false_positive_dead_code(name, node.type, node.signature, node.path):
+                continue
 
             incoming_calls = [
                 ie for ie in self.graph.get_incoming(nid) if ie["type"] == "CALLS"
             ]
             if incoming_calls:
                 continue
+            if scanner.is_referenced(name, node.path, node.line):
+                continue  # Referenciado por texto en otro archivo → vivo
 
             fpath = node.path
             if not match_file_filter(fpath, attr_filters):

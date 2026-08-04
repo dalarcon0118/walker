@@ -21,10 +21,8 @@ Relación:
 """
 from __future__ import annotations
 
-from .domain.models import SprintState
-from .infrastructure.repositories import SprintStateRepository
+from .infrastructure.repositories import PlanRepository
 
 __all__ = [
-    "SprintState",
-    "SprintStateRepository",
+    "PlanRepository",
 ]

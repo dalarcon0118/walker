@@ -43,23 +43,33 @@ def _detect_workflow_version(
 
 
 def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[str]]:
-    """Detect if sprint has pending tasks during close check."""
+    """Detect if sprint has pending tasks during close check.
+
+    PRINCIPIO: el estado de negocio del spring (specs y sus estados) vive
+    en el DELTA (SpringGraphService). No se lee sprint-state.json.
+    """
     if not chain_dir:
         return False, []
 
-    from features.spring.infrastructure.repositories import SprintStateRepository
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
 
-    raw = SprintStateRepository().load_dict(chain_dir)
-    if not raw:
+    try:
+        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        if not spring_svc:
+            return False, []
+        spring_id = spring_svc.get_spring_id(chain_dir)
+        spring_svc.ensure_spring_imported(chain_dir, spring_id)
+        specs = spring_svc.get_specs(spring_id)
+    except Exception:
         return False, []
-    prog = raw.get("progress", raw)
-    ts = prog.get("tasks", {})
+
     pending = [
-        tid
-        for tid, st in ts.items()
-        if isinstance(st, str)
-        and st.lower() not in _DONE_STATUSES
-        and st.lower() not in ("rejected", "backlog")
+        s.get("spec_id", s.get("task_id", ""))
+        for s in specs
+        if str(s.get("status", "")).lower()
+        not in _DONE_STATUSES | {"rejected", "backlog"}
     ]
     if pending:
         return True, pending
@@ -67,7 +77,7 @@ def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[
 
 
 def _detect_reconstructed_state(state: dict) -> bool:
-    """Detect if walker state was reconstructed from sprint-state.json."""
+    """Detect if walker state was reconstructed from .workflow-state.json."""
     return state.get("context", {}).get("reconstructed", False)
 
 
@@ -102,7 +112,7 @@ def _recent_commits_mention(tid: str, hours: int = 12) -> bool:
 
 
 def _detect_task_state_conflicts(chain_dir: str | None) -> list[dict]:
-    """Detect tasks pending in sprint-state.json but with recent commits.
+    """Detect tasks pending in el estado del motor but with recent commits.
 
     Un conflicto real = tarea 'pending' + commits recientes que la mencionan.
     Solo estas tareas pueden ser resueltas con resolve --apply.
@@ -114,7 +124,8 @@ def _detect_task_state_conflicts(chain_dir: str | None) -> list[dict]:
         WorkflowStateRepository as _SSR,
     )
 
-    load_state = lambda c: _SSR().load_dict(c) or {}
+    def load_state(c):
+        return _SSR().load(c).to_dict() or {}
 
     s = load_state(chain_dir)
     tasks = s.get("tasks", {})
@@ -151,7 +162,7 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
         WorkflowStateRepository as _SSR,
     )
 
-    load_state = lambda c: _SSR().load_dict(c) or {}, save_state
+    load_state = lambda c: _SSR().load(c).to_dict() or {}, save_state
 
     # ── Verificar que existe un conflicto real ─────────────────
     cpath = os.path.join(chain_dir, _CONFLICTS_FILE)
@@ -209,6 +220,89 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
     return 0
 
 
+def _detect_all_conflicts(
+    chain_dir: str,
+    state: dict,
+    workflow: dict,
+    current: str,
+    sub_key: str,
+    issues: list[str],
+    actions: list[str],
+) -> None:
+    """Detecta todos los conflictos del workflow (v4)."""
+    # 1. Workflow outdated?
+    needs_migrate, _missing = _detect_workflow_version(workflow, chain_dir)
+    if needs_migrate:
+        issues.append("Workflow desactualizado (v3). Migrando a v4...")
+        actions.append("Auto-migracion v3->v4 ejecutada.")
+        print("  ✅ Auto-migracion: workflow.json actualizado a v4")
+        print()
+    else:
+        print("  ✅ Workflow.json v4 actualizado")
+        print()
+
+    # 2. SPRINT.CLOSE_CHECK with pending tasks?
+    has_pending, pending_tasks = _detect_close_check_with_pending(chain_dir)
+    if current == "SPRINT" and sub_key == "CLOSE_CHECK" and has_pending:
+        issues.append(
+            Template("CLOSE_CHECK con $n tareas pendientes: $tasks").substitute(
+                n=str(len(pending_tasks)), tasks=", ".join(pending_tasks)
+            )
+        )
+        actions.append(
+            "Usa 'transition close_sprint' para ir a HANDLE_PENDING y decidir que hacer con las pendientes."
+        )
+    elif current == "SPRINT" and sub_key == "CLOSE_CHECK" and not has_pending:
+        actions.append(
+            "No hay tareas pendientes. Usa 'transition close_sprint' para cerrar."
+        )
+
+    # 3. Reconstructed state?
+    if _detect_reconstructed_state(state):
+        issues.append(
+            "Estado reconstruido desde .workflow-state.json — el historial puede estar incompleto"
+        )
+        actions.append("Ejecuta 'walker.py status' para ver el estado actual.")
+
+    # 4. Missing v4 flow steps?
+    missing_steps = _detect_missing_flow_steps(state)
+    if missing_steps and current not in ("SPRINT",):
+        issues.append(
+            Template("Pasos de flujo v4 no visitados: $steps").substitute(
+                steps=", ".join(missing_steps)
+            )
+        )
+        actions.append(
+            "El flujo v4 (5 nodos con sub-estados) requiere pasar por USER_GATE y REPORT_GATE."
+        )
+
+    # 5. Task state conflicts (tasks pending en el estado del motor but implemented in code)
+    task_conflicts = _detect_task_state_conflicts(chain_dir)
+    clog: list[dict] = []
+    cpath = os.path.join(chain_dir, _CONFLICTS_FILE)
+    if task_conflicts:
+        clog = load_json(cpath) if os.path.exists(cpath) else []
+        if not isinstance(clog, list):
+            clog = []
+    for conflict in task_conflicts:
+        issues.append(f"{conflict['task_id']}: {conflict['message']}")
+        actions.append(conflict["action"])
+        clog.append(
+            {
+                "task_id": conflict["task_id"],
+                "detected_at": datetime.now(timezone.utc).isoformat(),
+                "message": conflict["message"],
+                "resolved": False,
+            }
+        )
+    if task_conflicts:
+        try:
+            with open(cpath, "w") as f:
+                json.dump(clog, f, indent=2, ensure_ascii=False)
+        except OSError as e:
+            eprint(f"  [warn] No se pudo escribir conflict log {cpath}: {e}")
+
+
 def cmd_resolve(sub_args: list[str]) -> int:
     """walker resolve: detecta conflictos y aplica estrategias de resolucion.
 
@@ -240,20 +334,6 @@ def cmd_resolve(sub_args: list[str]) -> int:
     if not chain_dir:
         eprint("Uso: walker.py resolve [<chain_dir>]")
         return 2
-        if project_flag:
-            sprints = _find_active_sprints()
-            ps = [s for s in sprints if s["project_id"] == project_flag]
-            if not ps:
-                eprint(
-                    Template("No hay sprints activos para '$pid'.").substitute(
-                        pid=project_flag
-                    )
-                )
-                return 1
-            chain_dir = ps[0]["chain_dir"]
-        else:
-            eprint("Uso: walker.py resolve [<chain_dir> | --project <id>]")
-            return 2
 
     state = ensure_state(chain_dir)
     workflow = find_workflow(chain_dir)
@@ -283,81 +363,9 @@ def cmd_resolve(sub_args: list[str]) -> int:
     print()
 
     # ── Detection ──
-
-    # 1. Workflow outdated?
-    needs_migrate, missing = _detect_workflow_version(workflow, chain_dir)
-    if needs_migrate:
-        issues.append(
-            Template("Workflow desactualizado (v3). Migrando a v4...").substitute()
-        )
-        workflow = find_workflow(chain_dir)
-        actions.append("Auto-migracion v3->v4 ejecutada.")
-        print("  ✅ Auto-migracion: workflow.json actualizado a v4")
-        print()
-    else:
-        print("  ✅ Workflow.json v4 actualizado")
-        print()
-
-    # 2. SPRINT.CLOSE_CHECK with pending tasks?
-    has_pending, pending_tasks = _detect_close_check_with_pending(chain_dir)
-    if current == "SPRINT" and sub_key == "CLOSE_CHECK" and has_pending:
-        issues.append(
-            Template("CLOSE_CHECK con $n tareas pendientes: $tasks").substitute(
-                n=str(len(pending_tasks)), tasks=", ".join(pending_tasks)
-            )
-        )
-        actions.append(
-            "Usa 'transition close_sprint' para ir a HANDLE_PENDING y decidir que hacer con las pendientes."
-        )
-    elif current == "SPRINT" and sub_key == "CLOSE_CHECK" and not has_pending:
-        actions.append(
-            "No hay tareas pendientes. Usa 'transition close_sprint' para cerrar."
-        )
-
-    # 3. Reconstructed state?
-    if _detect_reconstructed_state(state):
-        issues.append(
-            "Estado reconstruido desde sprint-state.json — el historial puede estar incompleto"
-        )
-        actions.append("Ejecuta 'walker.py status' para ver el estado actual.")
-
-    # 4. Missing v4 flow steps?
-    missing_steps = _detect_missing_flow_steps(state)
-    if missing_steps and current not in ("SPRINT",):
-        issues.append(
-            Template("Pasos de flujo v4 no visitados: $steps").substitute(
-                steps=", ".join(missing_steps)
-            )
-        )
-        actions.append(
-            "El flujo v4 (5 nodos con sub-estados) requiere pasar por USER_GATE y REPORT_GATE."
-        )
-
-    # 5. Task state conflicts (tasks pending in sprint-state.json but implemented in code)
-    task_conflicts = _detect_task_state_conflicts(chain_dir)
-    if task_conflicts:
-        # Write/append to conflicts file
-        cpath = os.path.join(chain_dir, _CONFLICTS_FILE)
-        clog: list[dict] = load_json(cpath) if os.path.exists(cpath) else []
-        if not isinstance(clog, list):
-            clog = []
-    for conflict in task_conflicts:
-        issues.append(f"{conflict['task_id']}: {conflict['message']}")
-        actions.append(conflict["action"])
-        clog.append(
-            {
-                "task_id": conflict["task_id"],
-                "detected_at": datetime.now(timezone.utc).isoformat(),
-                "message": conflict["message"],
-                "resolved": False,
-            }
-        )
-    if task_conflicts:
-        try:
-            with open(cpath, "w") as f:
-                json.dump(clog, f, indent=2, ensure_ascii=False)
-        except OSError as e:
-            eprint(f"  [warn] No se pudo escribir conflict log {cpath}: {e}")
+    _detect_all_conflicts(
+        chain_dir, state, workflow, current, sub_key, issues, actions
+    )
 
     # ── Resolution strategies ──
 

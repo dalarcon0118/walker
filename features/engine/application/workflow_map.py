@@ -27,12 +27,17 @@ from ..domain.graph_analyzer import GraphAnalyzer
 def _sub_state_to_dict(ss: Any) -> dict:
     """Serializa un sub-estado a dict consumible (compacto)."""
     execution = ss.execution.value if ss.execution else "manual"
+    # PRINCIPIO (schema como autoridad): derivar required_fields desde el
+    # JSON Schema, no usar el campo legacy vacio (GAP-3/GAP-4).
+    from ..domain.services import RequiredFieldResolver
+
+    required = RequiredFieldResolver.derive(ss)
     return {
         "key": ss.key,
         "label": ss.label or ss.key,
         "execution": execution,
         "action": ss.action or "",
-        "required_fields": list(ss.required_fields),
+        "required_fields": required,
         "on_success": ss.on_success or "",
     }
 

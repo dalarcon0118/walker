@@ -146,11 +146,16 @@ class ValidationService:
     ) -> list[str]:
         """Valida que los campos requeridos del sub-estado esten presentes.
 
+        PRINCIPIO (schema como autoridad): los required se derivan del
+        JSON Schema via RequiredFieldResolver, no del campo legacy
+        required_fields (que esta vacio en los node.json v3).
+
         Returns:
             Lista de errores (vacia = valido).
         """
         errors: list[str] = []
-        for field in sub_state.required_fields:
+        required = RequiredFieldResolver.derive(sub_state)
+        for field in required:
             val = fields.get(field)
             if val is None or val == "":
                 errors.append(f"campo requerido '{field}' faltante o vacio")
@@ -179,17 +184,20 @@ class ValidationService:
         """Determina si un sub-estado especifico tiene sus datos completos.
 
         Un sub-estado esta completo si:
-          - no declara required_fields (no exige datos), O
-          - todos sus required_fields estan presentes en sub_state_data
+          - no declara required (no exige datos), O
+          - todos sus required (derivados del JSON Schema) estan presentes
         """
         node = graph.get_node(state.current_node)
         if not node:
             return True
         ss = node.find_sub_state(sub_state_key)
-        if not ss or not ss.required_fields:
+        if not ss:
+            return True
+        required = RequiredFieldResolver.derive(ss)
+        if not required:
             return True
         sub_data = state.get_sub_state_data(sub_state_key)
-        return all(sub_data.is_field_complete(f) for f in ss.required_fields)
+        return all(sub_data.is_field_complete(f) for f in required)
 
     @staticmethod
     def get_available_gates(
@@ -382,6 +390,58 @@ class ValidationService:
                 )
 
         return {"valid": not errors, "errors": errors, "warnings": warnings}
+
+
+class RequiredFieldResolver:
+    """Deriva los campos requeridos de un sub-estado desde su JSON Schema.
+
+    PRINCIPIO (schema como autoridad): el campo legacy `required_fields`
+    de los node.json v3 esta VACIO en todos los sub-estados (GAP-3/GAP-4).
+    La autoridad real de que campos se requieren es el JSON Schema:
+      - input_schema.required  → campos que el agente debe PROVEER (submit)
+      - output_schema.required → campos que el sub-estado debe PRODUCIR
+
+    Este resolver deriva required_fields desde el schema, eliminando la
+    dependencia del campo legacy. PURE: sin IO, no muta nada.
+
+    Ejemplos:
+      PLAN_APPROVAL.input_schema.required=['decision'] → ['decision']
+      ACTIVE.input_schema.required=['intent']          → ['intent']
+      KNOWLEDGE_CAPTURE.output_schema.required=['captured'] → ['captured']
+    """
+
+    @staticmethod
+    def derive(sub_state: SubState) -> list[str]:
+        """Deriva los campos requeridos del sub-estado.
+
+        Prioridad:
+          1. input_schema.required (campos a proveer en submit)
+          2. output_schema.required (campos que produce)
+          3. campo legacy required_fields (fallback si no hay schema)
+        """
+        if sub_state is None:
+            return []
+        # 1. input_schema.required (JSON Schema como autoridad)
+        in_schema = sub_state.input_schema or {}
+        in_required = in_schema.get("required", []) if isinstance(in_schema, dict) else []
+        if in_required:
+            return list(in_required)
+        # 2. output_schema.required
+        out_schema = sub_state.output_schema or {}
+        out_required = (
+            out_schema.get("required", []) if isinstance(out_schema, dict) else []
+        )
+        if out_required:
+            return list(out_required)
+        # 3. Fallback: campo legacy required_fields
+        if sub_state.required_fields:
+            return list(sub_state.required_fields)
+        return []
+
+    @staticmethod
+    def resolve_required(sub_state: SubState) -> list[str]:
+        """Alias explicito: deriva los required para validar un submit."""
+        return RequiredFieldResolver.derive(sub_state)
 
 
 class AdvanceService:

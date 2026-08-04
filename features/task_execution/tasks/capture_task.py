@@ -15,10 +15,14 @@ puede consultarlas como contexto historico con kg_search/kg_multi.
 FLUJO:
   1. Resolver project_id (desde ctx o data._project_id).
   2. Resolver/crear el sprint informal del dia: data/spring/session-YYYYMMDD/.
-     - Si no existe plan.json, crear plan + sprint-state (como PlanSprintUseCase).
+     - Si no existe en el delta, crear el nodo spring + specs (fuente unica).
      - Si existe, reutilizar (misma fecha = mismo sprint).
-  3. Agregar la tarea como spec via EditSprintUseCase (merge, no overwrite).
+  3. Agregar la tarea como spec via SpringGraphService.add_spec (merge, no overwrite).
   4. Reindexar el sprint en el indice delta via DeltaGraphService.index_sprint.
+
+PRINCIPIO estructural: el DeltaGraph es la fuente unica del spring.
+plan.json se regenera como proyeccion de compatibilidad; sprint-state.json
+fue eliminado.
 
 INVOCACION:
     walker <project>/capture_task '{"objective":"...", "domain":"...",
@@ -188,7 +192,7 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             description=inp.description,
         )
 
-        # 4. Proyecciones de compatibilidad (plan.json + sprint-state.json)
+        # 4. Proyeccion de compatibilidad (plan.json)
         _sync_legacy_projection(
             spring_svc, sprint_id, sprint_dir, project_id, ctx.session_id or "", created
         )
@@ -197,77 +201,16 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         #    - Si el agente reporta decisions[] → se registran con contexto.
         #    - Si NO reporta pero los files tocan arquitectura → el detector
         #      genera la decision automaticamente (objective como base).
-        captured_decisions = []
-        decisions = payload.get("decisions", []) or []
-        if not decisions and payload.get("decision"):
-            decisions = [
-                payload.get("decision")
-                if isinstance(payload["decision"], dict)
-                else {"statement": payload["decision"]}
-            ]
-
-        # Deteccion automatica: archivos de arquitectura → decision implicita
-        if not decisions:
-            try:
-                from features.task_execution.side_effects.decision_detector import (
-                    detect_decision_from_changes,
-                )
-
-                detected = detect_decision_from_changes(inp.files or [])
-                if detected:
-                    # Usar el objective del trabajo como base de la decision
-                    # (contexto real, no statement generico).
-                    decisions = [
-                        {
-                            "statement": (
-                                f"ADR: {objective} — afecta {det['area']} "
-                                f"({len(det['files'])} archivos de arquitectura)"
-                            ),
-                            "rationale": (
-                                f"Detectado automaticamente desde files de {det['area']}. "
-                                f"Archivos: {', '.join(det['files'][:5])}"
-                            ),
-                        }
-                        for det in detected
-                    ]
-            except Exception:
-                pass
-
-        for dec in decisions:
-            if isinstance(dec, str):
-                dec = {"statement": dec}
-            statement = dec.get("statement", "") or dec.get("title", "")
-            if not statement:
-                continue
-            try:
-                from features.cognitive_knowledge.application.ckg import (
-                    CodeKnowledgeGraph,
-                )
-
-                ckg = CodeKnowledgeGraph(project_root)
-                node = {
-                    "type": "decision",
-                    "label": f"decision:{statement[:40]}",
-                    "description": dec.get("rationale", "")
-                    or dec.get("description", ""),
-                    "metadata": {
-                        "task_id": result.get("spec_id", ""),
-                        "source": f"session:{ctx.session_id}",
-                        "session_sprint": sprint_id,
-                    },
-                }
-                if dec.get("supersedes"):
-                    node["supersedes"] = dec["supersedes"]
-                save_r = ckg.save_nodes([node])
-                captured_decisions.append(
-                    {
-                        "node_id": save_r.get("node_ids", [None])[0],
-                        "statement": statement[:60],
-                        "degraded": save_r.get("degraded", []),
-                    }
-                )
-            except Exception:
-                pass  # captura de decision best-effort; el trabajo ya quedo en delta
+        decisions = _resolve_decision_list(payload, inp)
+        captured_decisions = _capture_decisions(
+            decisions,
+            project_root,
+            result.get("spec_id", ""),
+            ctx.session_id or "",
+            sprint_id,
+            objective,
+            inp.files or [],
+        )
 
         return TaskResult.success(
             data={
@@ -294,6 +237,94 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
 
 
+def _resolve_decision_list(payload: dict, inp: "CaptureTaskInput") -> list:
+    """Resuelve la lista de decisiones: explícitas, de campo decision, o
+    detectadas automaticamente desde archivos de arquitectura."""
+    decisions = payload.get("decisions", []) or []
+    if not decisions and payload.get("decision"):
+        decisions = [
+            payload.get("decision")
+            if isinstance(payload["decision"], dict)
+            else {"statement": payload["decision"]}
+        ]
+
+    # Deteccion automatica: archivos de arquitectura → decision implicita
+    if not decisions:
+        try:
+            from features.task_execution.side_effects.decision_detector import (
+                detect_decision_from_changes,
+            )
+
+            detected = detect_decision_from_changes(inp.files or [])
+            if detected:
+                objective = inp.objective or inp.label or ""
+                decisions = [
+                    {
+                        "statement": (
+                            f"ADR: {objective} — afecta {det['area']} "
+                            f"({len(det['files'])} archivos de arquitectura)"
+                        ),
+                        "rationale": (
+                            f"Detectado automaticamente desde files de {det['area']}. "
+                            f"Archivos: {', '.join(det['files'][:5])}"
+                        ),
+                    }
+                    for det in detected
+                ]
+        except Exception:
+            pass
+    return decisions
+
+
+def _capture_decisions(
+    decisions: list,
+    project_root: str,
+    spec_id: str,
+    session_id: str,
+    sprint_id: str,
+    objective: str,
+    files: list,
+) -> list[dict]:
+    """Registra decisiones en el CKG (best-effort)."""
+    captured_decisions = []
+    for dec in decisions:
+        if isinstance(dec, str):
+            dec = {"statement": dec}
+        statement = dec.get("statement", "") or dec.get("title", "")
+        if not statement:
+            continue
+        try:
+            from features.cognitive_knowledge.application.ckg import (
+                CodeKnowledgeGraph,
+            )
+
+            ckg = CodeKnowledgeGraph(project_root)
+            node = {
+                "type": "decision",
+                "label": f"decision:{statement[:40]}",
+                "description": dec.get("rationale", "")
+                or dec.get("description", ""),
+                "metadata": {
+                    "task_id": spec_id,
+                    "source": f"session:{session_id}",
+                    "session_sprint": sprint_id,
+                },
+            }
+            if dec.get("supersedes"):
+                node["supersedes"] = dec["supersedes"]
+            save_r = ckg.save_nodes([node])
+            captured_decisions.append(
+                {
+                    "node_id": save_r.get("node_ids", [None])[0],
+                    "statement": statement[:60],
+                    "degraded": save_r.get("degraded", []),
+                }
+            )
+        except Exception:
+            pass  # captura de decision best-effort; el trabajo ya quedo en delta
+    return captured_decisions
+
+
 def _sync_legacy_projection(
     spring_svc,
     sprint_id: str,
@@ -302,38 +333,18 @@ def _sync_legacy_projection(
     session_id: str,
     created: bool,
 ) -> None:
-    """Regenera plan.json + sprint-state.json como PROYECCIONES del delta.
+    """Regenera plan.json como PROYECCION del delta.
 
-    El delta es la fuente unica; estos archivos se mantienen solo para
-    que consumidores legacy (prompt builders, workflow legacy) sigan
-    funcionando. Nunca se editan directamente: se derivan del grafo.
+    PRINCIPIO estructural: el DeltaGraph es la fuente unica del spring.
+    plan.json se mantiene solo para que consumidores legacy (prompt
+    builders, workflow legacy) sigan funcionando. Nunca se edita
+    directamente: se deriva del grafo. sprint-state.json fue ELIMINADO.
     """
     try:
         # plan.json: proyeccion via el servicio (formato legacy adaptado)
         spring_svc.sync_plan_projection(sprint_id)
-
-        # sprint-state.json: proyeccion de estado (para workflow legacy)
-        specs = spring_svc.get_specs(sprint_id)
-        spring = spring_svc.get_spring(sprint_id) or {}
-        os.makedirs(sprint_dir, exist_ok=True)
-        legacy_specs = spring_svc._to_legacy_specs(specs)
-        from features.spring.domain.services import SprintPlanBuilder
-        from features.spring.infrastructure.repositories import SprintStateRepository
-
-        state = SprintPlanBuilder.build_initial_state(
-            sprint_dir,
-            sprint_id,
-            spring.get("goal", ""),
-            project_id,
-            session_id or "",
-            legacy_specs,
-        )
-        state["sprint"]["status"] = spring.get("status", "active")
-        state["specifications"] = legacy_specs
-        state["spec_order"] = [s.get("spec_id", "") for s in legacy_specs]
-        SprintStateRepository().save_state_dict(sprint_dir, state)
     except Exception:
-        pass  # proyecciones best-effort; el delta es la fuente
+        pass  # proyeccion best-effort; el delta es la fuente
 
 
 def register(registry: Any) -> None:

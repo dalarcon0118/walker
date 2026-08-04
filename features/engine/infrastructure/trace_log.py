@@ -44,23 +44,40 @@ class TraceLogger:
             from libs import resolve_project_root
 
             proj_dir = resolve_project_root(chain_dir)
-            if proj_dir:
-                cg = CognitiveGraph(proj_dir)
-                event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-                cg.store(
-                    "trace",
-                    event_id,
-                    {
-                        "tool": data.get("tool", "") if data else "",
-                        "task_id": task_id or "",
-                        "session_id": session_id or "",
-                        "event_type": event_type,
-                        "timestamp": entry["timestamp"],
-                        "data": data or {},
-                    },
+            if not proj_dir:
+                # PRINCIPIO (fix estructural): una traza que se pierde por no
+                # poder resolver el proyecto NO debe silenciarse. El workflow
+                # debe saber que el tracking fallo para no dar por sentado
+                # un flujo limpio.
+                logger.error(
+                    "TRACE PERDIDA: no se pudo resolver project_root desde "
+                    "chain_dir=%r para evento %s — el TraceGraph queda incompleto",
+                    chain_dir,
+                    event_type,
                 )
+                return
+            cg = CognitiveGraph(proj_dir)
+            event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+            cg.store(
+                "trace",
+                event_id,
+                {
+                    "tool": data.get("tool", "") if data else "",
+                    "task_id": task_id or "",
+                    "session_id": session_id or "",
+                    "event_type": event_type,
+                    "timestamp": entry["timestamp"],
+                    "data": data or {},
+                },
+            )
         except Exception as e:
-            logger.warning("No se pudo escribir traza en CognitiveGraph: %s", e)
+            # PRINCIPIO: no silenciar la perdida de trazas. Registrar con
+            # logger.error (no warning) para que sea visible en el flujo.
+            logger.error(
+                "TRACE PERDIDA: fallo al persistir evento %s en CognitiveGraph: %s",
+                event_type,
+                e,
+            )
 
     def trace_auto(
         self,

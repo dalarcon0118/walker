@@ -17,9 +17,6 @@ que los datos producidos cumplan los contratos que cada sub-estado declaro
 en su output_schema. Si el contrato falla, bloquea e informa (doc-28).
 """
 
-import os
-import tempfile
-
 
 def _diagnose_schema() -> dict:
     """output_schema de REFINE.DIAGNOSE (JSON Schema real del workflow)."""

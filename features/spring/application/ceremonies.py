@@ -811,51 +811,21 @@ def planning_propose(
         predicates = {"must_exist": [], "must_not_exist": [], "invariants": []}
 
     # Load backlog items if specified
-    backlog_items = []
-    if backlog_dir and item_ids_raw:
-        item_ids = [i.strip() for i in item_ids_raw.split(",") if i.strip()]
-        items = _load_backlog(os.path.abspath(backlog_dir))
-        for iid in item_ids:
-            for it in items:
-                if it.get("id") == iid:
-                    backlog_items.append(it)
-                    break
+    backlog_items = _load_backlog_items(backlog_dir, item_ids_raw)
 
     # Validate tasks / generate from backlog
     if not tasks:
-        for item in backlog_items:
-            tid = f"TASK-{len(tasks) + 1:03d}"
-            item_role = item.get("scrum_role") or scrum_role_default or None
-            tasks.append(
-                {
-                    "task_id": tid,
-                    "type": "feature",
-                    "scrum_role": item_role,
-                    "domain": item.get("domain", "core"),
-                    "objective": item.get("title", ""),
-                    "result_state": (item.get("description") or item.get("title", ""))[:200],
-                    "impacted_artifacts": {"files": []},
-                    "risks": {"curvature": 0.20},
-                    "validation": {"predicates": []},
-                    "acceptance_criteria": item.get("acceptance_criteria", []),
-                }
-            )
-
+        tasks = _generate_tasks_from_backlog(
+            tasks, backlog_items, scrum_role_default
+        )
         if not tasks:
             eprint("❌ No hay tareas definidas ni backlog items seleccionados.")
             eprint("   Pasa --tasks '[...]' o --backlog-dir y --item-ids")
             return 2
 
     # Validate each task
-    for t in tasks:
-        obj = t.get("objective", "")
-        rs = t.get("result_state", "")
-        if len(obj) < 10:
-            eprint(f"❌ Tarea {t.get('task_id', '?')}: objective debe tener >= 10 caracteres")
-            return 2
-        if len(rs) < 10:
-            eprint(f"❌ Tarea {t.get('task_id', '?')}: result_state debe tener >= 10 caracteres")
-            return 2
+    if not _validate_tasks_min_length(tasks):
+        return 2
 
     # PRE-WRITE VALIDATION
     tasks = _add_task_context_to_tasks(tasks, goal)
@@ -875,16 +845,7 @@ def planning_propose(
         return 2
 
     # Normalize predicates
-    if isinstance(predicates, list):
-        predicates = {
-            "must_exist": [p for p in predicates if not p.startswith("NO ")],
-            "must_not_exist": [p[3:] for p in predicates if p.startswith("NO ")],
-            "invariants": [],
-        }
-    elif isinstance(predicates, dict):
-        predicates.setdefault("must_exist", [])
-        predicates.setdefault("must_not_exist", [])
-        predicates.setdefault("invariants", [])
+    predicates = _normalize_predicates(predicates)
 
     now = _now_iso()
     chain_id = _sanitize_chain_id(os.path.basename(os.path.normpath(chain_dir)))
@@ -913,6 +874,88 @@ def planning_propose(
     proposal_path = _proposal_path(chain_dir)
     write_json(proposal_path, proposal)
 
+    _print_proposal(chain_id, project_id, goal, tasks, predicates, backlog_items, proposal_path)
+
+    return 3
+
+
+def _load_backlog_items(backlog_dir: str, item_ids_raw: str) -> list[dict]:
+    """Carga los backlog items seleccionados por id."""
+    backlog_items = []
+    if backlog_dir and item_ids_raw:
+        item_ids = [i.strip() for i in item_ids_raw.split(",") if i.strip()]
+        items = _load_backlog(os.path.abspath(backlog_dir))
+        for iid in item_ids:
+            for it in items:
+                if it.get("id") == iid:
+                    backlog_items.append(it)
+                    break
+    return backlog_items
+
+
+def _generate_tasks_from_backlog(
+    tasks: list[dict], backlog_items: list[dict], scrum_role_default: str
+) -> list[dict]:
+    """Genera tareas desde los backlog items."""
+    for item in backlog_items:
+        tid = f"TASK-{len(tasks) + 1:03d}"
+        item_role = item.get("scrum_role") or scrum_role_default or None
+        tasks.append(
+            {
+                "task_id": tid,
+                "type": "feature",
+                "scrum_role": item_role,
+                "domain": item.get("domain", "core"),
+                "objective": item.get("title", ""),
+                "result_state": (item.get("description") or item.get("title", ""))[:200],
+                "impacted_artifacts": {"files": []},
+                "risks": {"curvature": 0.20},
+                "validation": {"predicates": []},
+                "acceptance_criteria": item.get("acceptance_criteria", []),
+            }
+        )
+    return tasks
+
+
+def _validate_tasks_min_length(tasks: list[dict]) -> bool:
+    """Valida que objective/result_state tengan >= 10 caracteres."""
+    for t in tasks:
+        obj = t.get("objective", "")
+        rs = t.get("result_state", "")
+        if len(obj) < 10:
+            eprint(f"❌ Tarea {t.get('task_id', '?')}: objective debe tener >= 10 caracteres")
+            return False
+        if len(rs) < 10:
+            eprint(f"❌ Tarea {t.get('task_id', '?')}: result_state debe tener >= 10 caracteres")
+            return False
+    return True
+
+
+def _normalize_predicates(predicates) -> dict:
+    """Normaliza predicates a dict {must_exist, must_not_exist, invariants}."""
+    if isinstance(predicates, list):
+        return {
+            "must_exist": [p for p in predicates if not p.startswith("NO ")],
+            "must_not_exist": [p[3:] for p in predicates if p.startswith("NO ")],
+            "invariants": [],
+        }
+    if isinstance(predicates, dict):
+        predicates.setdefault("must_exist", [])
+        predicates.setdefault("must_not_exist", [])
+        predicates.setdefault("invariants", [])
+    return predicates
+
+
+def _print_proposal(
+    chain_id: str,
+    project_id: str,
+    goal: str,
+    tasks: list[dict],
+    predicates: dict,
+    backlog_items: list[dict],
+    proposal_path: str,
+) -> None:
+    """Imprime el resumen de la propuesta de sprint."""
     print()
     print("=" * 70)
     print(f"📋 SPRINT PLAN PROPUESTO: {chain_id}")
@@ -939,15 +982,13 @@ def planning_propose(
     print("📋 DECISION PROTOCOL:")
     print()
     print("  ▶️  Para REFINAR el plan (cambiar goal, tareas, predicates):")
-    print(f'     spring.py planning refine {chain_dir} --edit "campo=valor"')
+    print(f'     spring.py planning refine {chain_id} --edit "campo=valor"')
     print()
     print("  ▶️  Para CONFIRMAR y crear el sprint:")
-    print(f"     spring.py planning commit {chain_dir}")
+    print(f"     spring.py planning commit {chain_id}")
     print()
     print("⚠️  El plan está en .planning/proposal.json. Usa commit para hacerlo efectivo.")
     print("=" * 70)
-
-    return 3
 
 
 def planning_refine(chain_dir: str, edit_value: str) -> int:

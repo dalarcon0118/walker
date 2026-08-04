@@ -447,7 +447,7 @@ def test_kg_extract_task():
             result.data.get("stats", {})
             questionnaire = result.data.get("questionnaire", {})
             assert len(questionnaire.get("questions", [])) == 6
-            print(f"  ✅ test_kg_extract_task: CPG stats + 6 questions")
+            print("  ✅ test_kg_extract_task: CPG stats + 6 questions")
         else:
             # Sin CPG es aceptable (proyecto de prueba no tiene CPG)
             print("  ✅ test_kg_extract_task: no CPG (expected in test env)")
@@ -773,10 +773,13 @@ def test_capture_task_creates_session_sprint():
         )
 
         # 3) El sprint informal persiste en el delta (fuente unica) y en
-        #    plan.json + sprint-state.json (proyecciones de compatibilidad)
+        #    plan.json (proyeccion de compatibilidad). sprint-state.json
+        #    fue ELIMINADO estructuralmente.
         spring_root = os.path.join(cog_proj, "data", "spring", sprint_id)
         assert os.path.exists(os.path.join(spring_root, "plan.json"))
-        assert os.path.exists(os.path.join(spring_root, "sprint-state.json"))
+        assert not os.path.exists(os.path.join(spring_root, "sprint-state.json")), (
+            "sprint-state.json fue eliminado (delta = fuente unica)"
+        )
         with open(os.path.join(spring_root, "plan.json")) as f:
             plan = json.load(f)
         specs = plan.get("specifications", [])
@@ -789,9 +792,8 @@ def test_capture_task_creates_session_sprint():
             "files", []
         )
         assert files == ["features/x.py"], f"files={files}"
-        with open(os.path.join(spring_root, "sprint-state.json")) as f:
-            state = json.load(f)
-        assert len(state.get("specifications", [])) == 2, "estado debe tener las specs"
+        # El estado de negocio (specs) vive en el delta, no en un archivo
+        # sprint-state.json paralelo.
 
         # 4) El delta (fuente unica) tiene nodo spring + specs con estado
         from libs.cognitive_graph import CognitiveGraph
@@ -833,11 +835,14 @@ def test_index_sprint_unique_ids():
         cog_proj = _create_test_project(tmpdir)
         cg = CognitiveGraph(cog_proj, auto_register=True)
 
-        # Crear dos sprints con la misma spec_id
+        # Crear dos sprints con la misma spec_id (via plan.json — proyeccion)
         for sprint_id in ("sprint-a", "sprint-b"):
             sprint_dir = os.path.join(cog_proj, "data", "spring", sprint_id)
             os.makedirs(sprint_dir, exist_ok=True)
-            state = {
+            plan = {
+                "version": "2.0",
+                "chain_id": sprint_id,
+                "goal": f"Goal {sprint_id}",
                 "specifications": [
                     {
                         "spec_id": "SPEC-001",
@@ -847,8 +852,8 @@ def test_index_sprint_unique_ids():
                     },
                 ],
             }
-            with open(os.path.join(sprint_dir, "sprint-state.json"), "w") as f:
-                json.dump(state, f)
+            with open(os.path.join(sprint_dir, "plan.json"), "w") as f:
+                json.dump(plan, f)
 
         # Indexar ambos
         index_sprint(os.path.join(cog_proj, "data", "spring", "sprint-a"), cg)
@@ -919,13 +924,17 @@ def test_spring_graph_service_unified_model():
 
 
 def test_spring_graph_import_legacy():
-    """import_spring: puente desde sprint-state.json/plan.json legacy al modelo unificado."""
+    """import_spring: puente desde plan.json legacy al modelo unificado.
+
+    PRINCIPIO estructural: sprint-state.json fue eliminado. El estado del
+    spring se deriva de .workflow-state.json (motor) o defaults a planning.
+    """
     from features.delta_tracking.application.spring_graph_service import (
         SpringGraphService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Crear un sprint legacy (plan.json + sprint-state.json)
+        # Crear un sprint legacy (plan.json + .workflow-state.json)
         sprint_dir = os.path.join(tmpdir, "data", "spring", "sprint-legacy")
         os.makedirs(sprint_dir, exist_ok=True)
         plan = {
@@ -950,14 +959,29 @@ def test_spring_graph_import_legacy():
         }
         with open(os.path.join(sprint_dir, "plan.json"), "w") as f:
             json.dump(plan, f)
-        with open(os.path.join(sprint_dir, "sprint-state.json"), "w") as f:
-            json.dump({"sprint": {"chain_id": "sprint-legacy", "status": "active"}}, f)
+        # Estado del motor: spring activo
+        with open(os.path.join(sprint_dir, ".workflow-state.json"), "w") as f:
+            json.dump(
+                {
+                    "current_node": "SPRINT",
+                    "current_sub_state": "ACTIVE",
+                    "sub_state_index": 0,
+                    "sub_state_data": {},
+                    "history": ["SPRINT.ACTIVE"],
+                    "context": {"chain_dir": sprint_dir},
+                    "sprint": {"chain_id": "sprint-legacy", "status": "active"},
+                },
+                f,
+            )
+        assert not os.path.exists(os.path.join(sprint_dir, "sprint-state.json")), (
+            "sprint-state.json fue eliminado"
+        )
 
         svc = SpringGraphService(tmpdir)
         r = svc.import_spring(sprint_dir)
         assert r["imported"] is True and r["specs"] == 2, f"import={r}"
 
-        # Spring en modelo unificado con estado importado
+        # Spring en modelo unificado con estado importado desde el motor
         spring = svc.get_spring("sprint-legacy")
         assert spring is not None and spring.get("status") == "active", (
             f"spring={spring}"

@@ -67,7 +67,8 @@ class SessionRecord:
         """Directorio de sesion, usado como chain_dir virtual durante bootstrap.
         
         Cuando no hay proyecto activo (START node), el engine usa este directorio
-        como chain_dir temporal para persistir SprintState.
+        como chain_dir temporal para persistir el estado del motor
+        (.workflow-state.json).
         """
         from ..infrastructure.config import get as cfg
         base = cfg("sessions_dir")

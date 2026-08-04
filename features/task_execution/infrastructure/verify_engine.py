@@ -998,94 +998,120 @@ def _batch_verify_symbols(
         by_file.setdefault(fpath, []).append((idx, symbol, p))
 
     for fpath, items in by_file.items():
-        ext = os.path.splitext(fpath)[1].lower()
-        lang = _AST_LANG_MAP.get(ext, "python")
-        patterns = _AST_DEF_PATTERNS.get(lang, ["def {name}($$$)", "class {name}"])
-        symbols_in_file = [s for _, s, _ in items]
-        symbol_found: dict[str, bool] = {s: False for s in symbols_in_file}
-
-        for tmpl in patterns:
-            if all(symbol_found.values()):
-                break
-            remaining = [s for s in symbols_in_file if not symbol_found[s]]
-            if not remaining:
-                continue
-            if _AST_GREP_AVAILABLE:
-                sg_args = [AST_GREP_BIN, "-l", lang, "--json"]
-                for s in remaining:
-                    sg_args.extend(["-p", tmpl.format(name=s)])
-                sg_args.append(fpath)
-                try:
-                    result = subprocess.run(
-                        sg_args, capture_output=True, text=True, timeout=10
-                    )
-                    if result.returncode == 0 and result.stdout.strip():
-                        try:
-                            matches = json.loads(result.stdout)
-                            if isinstance(matches, list):
-                                for match in matches:
-                                    match_text = match.get("text", "")
-                                    for s in remaining:
-                                        if not symbol_found.get(s, False) and (
-                                            f"def {s}(" in match_text
-                                            or f"class {s}" in match_text
-                                        ):
-                                            symbol_found[s] = True
-                        except json.JSONDecodeError:
-                            pass
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    pass
-            for s in remaining:
-                if not symbol_found.get(s, False):
-                    try:
-                        r = subprocess.run(
-                            ["grep", "-qn", f"def {s}(", fpath],
-                            capture_output=True,
-                            timeout=5,
-                        )
-                        if r.returncode == 0:
-                            symbol_found[s] = True
-                        else:
-                            r2 = subprocess.run(
-                                ["grep", "-qn", f"class {s}", fpath],
-                                capture_output=True,
-                                timeout=5,
-                            )
-                            if r2.returncode == 0:
-                                symbol_found[s] = True
-                    except (subprocess.TimeoutExpired, FileNotFoundError):
-                        pass
-
-        now = time.time()
-        for idx, s, p in items:
-            passed = symbol_found.get(s, False)
-            label = f"{s} en {os.path.basename(fpath)}"
-            info = {
-                "method": "ast-grep",
-                "symbol": s,
-                "file": fpath,
-                "found": passed,
-                "label": label,
-            }
-            key = _cache_key(all_predicates[idx], project_root)
-            _verify_cache[key] = (passed, info, now)
+        _verify_symbols_in_file(fpath, items, project_root, all_predicates)
 
     for idx in individual:
-        try:
-            pos = indices.index(idx)
-            orig_pred = symbol_preds[pos]
-            orig_raw = orig_pred.get("_original", "")
-            if orig_raw:
-                passed, info = verify_predicate(orig_raw, project_root)
-            else:
-                passed, info = verify_predicate(orig_pred, project_root)
-        except ValueError:
-            passed, info = (
-                False,
-                {"method": "error", "error": "idx not found", "label": "?"},
-            )
+        _verify_individual_symbol(idx, indices, symbol_preds, project_root, all_predicates)
+
+
+def _verify_symbols_in_file(
+    fpath: str,
+    items: list[tuple[int, str, dict]],
+    project_root: str,
+    all_predicates: list,
+) -> None:
+    """Verifica símbolos agrupados de un archivo via ast-grep batch."""
+    ext = os.path.splitext(fpath)[1].lower()
+    lang = _AST_LANG_MAP.get(ext, "python")
+    patterns = _AST_DEF_PATTERNS.get(lang, ["def {name}($$$)", "class {name}"])
+    symbols_in_file = [s for _, s, _ in items]
+    symbol_found: dict[str, bool] = {s: False for s in symbols_in_file}
+
+    for tmpl in patterns:
+        if all(symbol_found.values()):
+            break
+        remaining = [s for s in symbols_in_file if not symbol_found[s]]
+        if not remaining:
+            continue
+        if _AST_GREP_AVAILABLE:
+            sg_args = [AST_GREP_BIN, "-l", lang, "--json"]
+            for s in remaining:
+                sg_args.extend(["-p", tmpl.format(name=s)])
+            sg_args.append(fpath)
+            try:
+                result = subprocess.run(
+                    sg_args, capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    try:
+                        matches = json.loads(result.stdout)
+                        if isinstance(matches, list):
+                            for match in matches:
+                                match_text = match.get("text", "")
+                                for s in remaining:
+                                    if not symbol_found.get(s, False) and (
+                                        f"def {s}(" in match_text
+                                        or f"class {s}" in match_text
+                                    ):
+                                        symbol_found[s] = True
+                    except json.JSONDecodeError:
+                        pass
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+        for s in remaining:
+            if not symbol_found.get(s, False):
+                _grep_fallback_symbol(s, fpath, symbol_found)
+
+    now = time.time()
+    for idx, s, p in items:
+        passed = symbol_found.get(s, False)
+        label = f"{s} en {os.path.basename(fpath)}"
+        info = {
+            "method": "ast-grep",
+            "symbol": s,
+            "file": fpath,
+            "found": passed,
+            "label": label,
+        }
         key = _cache_key(all_predicates[idx], project_root)
-        _cache_set(key, passed, info, time.time())
+        _verify_cache[key] = (passed, info, now)
+
+
+def _grep_fallback_symbol(s: str, fpath: str, symbol_found: dict) -> None:
+    """Fallback con grep -n para símbolos no detectados por ast-grep."""
+    try:
+        r = subprocess.run(
+            ["grep", "-qn", f"def {s}(", fpath],
+            capture_output=True,
+            timeout=5,
+        )
+        if r.returncode == 0:
+            symbol_found[s] = True
+        else:
+            r2 = subprocess.run(
+                ["grep", "-qn", f"class {s}", fpath],
+                capture_output=True,
+                timeout=5,
+            )
+            if r2.returncode == 0:
+                symbol_found[s] = True
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+
+def _verify_individual_symbol(
+    idx: int,
+    indices: list[int],
+    symbol_preds: list[dict],
+    project_root: str,
+    all_predicates: list,
+) -> None:
+    """Verifica un símbolo sin file_hint resoluble de forma individual."""
+    try:
+        pos = indices.index(idx)
+        orig_pred = symbol_preds[pos]
+        orig_raw = orig_pred.get("_original", "")
+        if orig_raw:
+            passed, info = verify_predicate(orig_raw, project_root)
+        else:
+            passed, info = verify_predicate(orig_pred, project_root)
+    except ValueError:
+        passed, info = (
+            False,
+            {"method": "error", "error": "idx not found", "label": "?"},
+        )
+    key = _cache_key(all_predicates[idx], project_root)
+    _cache_set(key, passed, info, time.time())
 
 
 # ═══════════════════════════════════════════════════════════════════

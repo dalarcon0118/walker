@@ -66,35 +66,51 @@ class ReviewUseCase:
             self._graph = self.repo.load_graph(self._project_id)
         return self._graph
 
-    def review_files(
-        self, files: list[str] | None = None, thresholds: dict[str, Any] | None = None
-    ) -> ReviewResult:
-        """Code review: metrics + quality gates + smells + lint.
+    @property
+    def _qlty_cwd(self) -> str:
+        """Directorio de trabajo para qlty = repo real del código (donde vive
+        .qlty/), NO el data_dir del proyecto.
 
-        Todo en batch via qlty + CPG.
+        chain_dir puede apuntar al data_dir (.cognitive/projects/<pid>), donde
+        qlty no encuentra su config → metrics devuelve 0 files. Derivamos el
+        repo desde los source dirs absolutos (o del primer path escaneado).
         """
-        graph = self.graph
-        scan_paths = files or self._scan_paths or self._resolve_default_paths()
+        try:
+            paths = self._resolve_default_paths()
+            abs_paths = [p for p in paths if p and os.path.isabs(p)]
+            if abs_paths:
+                # Ancestro común de todos los source dirs = repo root
+                common = os.path.dirname(abs_paths[0])
+                for p in abs_paths[1:]:
+                    while not (os.path.realpath(p)).startswith(os.path.realpath(common)):
+                        parent = os.path.dirname(common)
+                        if parent == common:
+                            break
+                        common = parent
+                if os.path.isdir(os.path.join(common, ".qlty")):
+                    return common
+                # Si no hay .qlty en el ancestro, subir hasta encontrarlo
+                cur = common
+                while cur and cur != os.path.dirname(cur):
+                    if os.path.isdir(os.path.join(cur, ".qlty")):
+                        return cur
+                    cur = os.path.dirname(cur)
+                return common
+        except Exception:
+            pass
+        return self.chain_dir
 
-        # 1. Métricas qlty con caché incremental (si está disponible).
-        #    Solo re-ejecuta qlty sobre archivos nuevos/modificados; el resto
-        #    se reusa del cache por mtime/size. Ahorro ~4 invocaciones qlty
-        #    cuando el código no cambió.
-        if self._cache is not None:
-            qlty_metrics, qlty_funcs, smells, lint_issues, cache_stats = (
-                self._run_with_cache(scan_paths)
-            )
-        else:
-            # Flujo original: batch completo
-            qlty_metrics = run_metrics(scan_paths, cwd=self.chain_dir)
-            qlty_funcs = run_function_metrics(scan_paths, cwd=self.chain_dir)
-            smells = run_smells(scan_paths, cwd=self.chain_dir)
-            lint_issues = run_check(scan_paths, cwd=self.chain_dir)
-
-        # 2. Build per-file metrics
+    def _build_per_file_metrics(
+        self,
+        qlty_metrics: list[dict],
+        qlty_funcs: dict[str, list[dict]],
+        graph: Graph,
+        thresholds: dict[str, Any],
+    ) -> tuple[list, list]:
+        """Construye métricas por archivo + funciones de alta complejidad."""
         per_file = []
         high_cyclo_funcs = []
-        cyclo_threshold = (thresholds or {}).get("max_cyclo", 10)
+        cyclo_threshold = thresholds.get("max_cyclo", 10)
 
         for qf in qlty_metrics:
             fp = qf.get("file", "")
@@ -110,38 +126,48 @@ class ReviewUseCase:
             for fn in funcs:
                 cyclo = fn.get("cyclo", 0)
                 if cyclo > cyclo_threshold:
-                    # Enriquecer con contexto del CPG
-                    callers = []
-                    callees = []
-                    for nid, node in graph.nodes.items():
-                        if node.name == fn["function"] and node.path == fp:
-                            for oe in graph.get_outgoing(nid):
-                                if oe["type"] == "CALLS":
-                                    tgt = graph.get_node(oe["to"])
-                                    if tgt:
-                                        callees.append(tgt.name)
-                            for ie in graph.get_incoming(nid):
-                                if ie["type"] == "CALLS":
-                                    src = graph.get_node(ie["from"])
-                                    if src:
-                                        callers.append(src.name)
-                            break
-
                     high_cyclo_funcs.append(
-                        {
-                            "function": fn["function"],
-                            "file": fp,
-                            "line": fn.get("line", 0),
-                            "cyclo": cyclo,
-                            "cognitive": fn.get("cognitive", 0),
-                            "lines": fn.get("lines", 0),
-                            "loc": fn.get("loc", 0),
-                            "callers": callers[:10],
-                            "callees": callees[:15],
-                        }
+                        self._enrich_high_cyclo(fn, fp, graph)
                     )
+        return per_file, high_cyclo_funcs
 
-        # 3. Dead code from CPG
+    @staticmethod
+    def _enrich_high_cyclo(fn: dict, fp: str, graph: Graph) -> dict:
+        """Enriquece una funcion de alta complejidad con contexto del CPG."""
+        callers = []
+        callees = []
+        for nid, node in graph.nodes.items():
+            if node.name == fn["function"] and node.path == fp:
+                for oe in graph.get_outgoing(nid):
+                    if oe["type"] == "CALLS":
+                        tgt = graph.get_node(oe["to"])
+                        if tgt:
+                            callees.append(tgt.name)
+                for ie in graph.get_incoming(nid):
+                    if ie["type"] == "CALLS":
+                        src = graph.get_node(ie["from"])
+                        if src:
+                            callers.append(src.name)
+                break
+        return {
+            "function": fn["function"],
+            "file": fp,
+            "line": fn.get("line", 0),
+            "cyclo": fn.get("cyclo", 0),
+            "cognitive": fn.get("cognitive", 0),
+            "lines": fn.get("lines", 0),
+            "loc": fn.get("loc", 0),
+            "callers": callers[:10],
+            "callees": callees[:15],
+        }
+
+    def _scan_dead_code(
+        self,
+        graph: Graph,
+        scanner: DeadCodeReferenceScanner,
+        is_false_positive_dead_code,
+    ) -> list[dict]:
+        """Detecta dead code real desde el CPG con filtros de falsos positivos."""
         dead_code_list = []
         _main_guard_cache: dict[str, bool] = {}
 
@@ -170,6 +196,12 @@ class ReviewUseCase:
             incoming = [ie for ie in graph.get_incoming(nid) if ie["type"] == "CALLS"]
             if incoming or node.name.startswith("__"):
                 continue
+            if is_false_positive_dead_code(
+                node.name, node.type, node.signature, node.path
+            ):
+                continue
+            if scanner.is_referenced(node.name, node.path, node.line):
+                continue
             # Skip functions named 'main' in files with __name__ guard (CLI entry points)
             if node.name == "main" and _has_main_guard(node.path):
                 continue
@@ -181,6 +213,54 @@ class ReviewUseCase:
                     "is_private": node.name.startswith("_"),
                 }
             )
+        return dead_code_list
+
+    def review_files(
+        self, files: list[str] | None = None, thresholds: dict[str, Any] | None = None
+    ) -> ReviewResult:
+        """Code review: metrics + quality gates + smells + lint.
+
+        Todo en batch via qlty + CPG.
+        """
+        graph = self.graph
+        scan_paths = files or self._scan_paths or self._resolve_default_paths()
+
+        # 1. Métricas qlty con caché incremental (si está disponible).
+        #    Solo re-ejecuta qlty sobre archivos nuevos/modificados; el resto
+        #    se reusa del cache por mtime/size. Ahorro ~4 invocaciones qlty
+        #    cuando el código no cambió.
+        if self._cache is not None:
+            qlty_metrics, qlty_funcs, smells, lint_issues, cache_stats = (
+                self._run_with_cache(scan_paths)
+            )
+        else:
+            # Flujo original: batch completo
+            qlty_metrics = run_metrics(scan_paths, cwd=self._qlty_cwd)
+            qlty_funcs = run_function_metrics(scan_paths, cwd=self._qlty_cwd)
+            smells = run_smells(scan_paths, cwd=self._qlty_cwd)
+            lint_issues = run_check(scan_paths, cwd=self._qlty_cwd)
+
+        # 2. Build per-file metrics
+        per_file, high_cyclo_funcs = self._build_per_file_metrics(
+            qlty_metrics, qlty_funcs, graph, thresholds or {}
+        )
+
+        # 3. Dead code from CPG + filtro de falsos positivos
+        #    (fields de dataclass/ODM, test_*, dunders de framework) y
+        #    detección de referencias por texto (registry dinámico,
+        #    imports lazy, dispatch intra-archivo).
+        from features.code_analysis.domain.analysis import (
+            DeadCodeReferenceScanner,
+            is_false_positive_dead_code,
+        )
+
+        scanner = DeadCodeReferenceScanner(
+            sorted({n.path for n in graph.nodes.values() if n.path})
+        )
+
+        dead_code_list = self._scan_dead_code(
+            graph, scanner, is_false_positive_dead_code
+        )
 
         # 4. Smells + lint ya resueltos arriba (con o sin cache)
 
@@ -262,10 +342,10 @@ class ReviewUseCase:
         new_lint: list[dict] = []
 
         if stale:
-            new_metrics = run_metrics(stale, cwd=self.chain_dir)
-            new_funcs_map = run_function_metrics(stale, cwd=self.chain_dir)
-            new_smells = run_smells(stale, cwd=self.chain_dir)
-            new_lint = run_check(stale, cwd=self.chain_dir)
+            new_metrics = run_metrics(stale, cwd=self._qlty_cwd)
+            new_funcs_map = run_function_metrics(stale, cwd=self._qlty_cwd)
+            new_smells = run_smells(stale, cwd=self._qlty_cwd)
+            new_lint = run_check(stale, cwd=self._qlty_cwd)
 
         # 2. Actualizar cache por archivo. qlty devuelve paths RELATIVOS al
         #    repo (cwd). Se normalizan a absolutos respecto al repo para que
@@ -461,5 +541,45 @@ class ReviewUseCase:
         project_id = os.path.basename(proj_dir) if proj_dir else ""
         if project_id:
             dirs = resolve_source_code_dirs(project_id)
-            return [str(d) for d in dirs]
+            paths = [str(d) for d in dirs]
+            return self._apply_walker_ignore(paths)
         return [self.chain_dir]
+
+    def _apply_walker_ignore(self, paths: list[str]) -> list[str]:
+        """Filtra los paths escaneados contra .walkerignore del proyecto.
+
+        SSOT: el CPG (build_service) ya excluye to_clean_next/, legacy/, etc.
+        vía IgnoreRules. El review (qlty) debe respetar el MISMO contrato, o
+        las métricas incluirían código legacy duplicado (to_clean_next/...)
+        que infla cyclo_max, smells y lint.
+        """
+        try:
+            from features.project.infrastructure.watcher import IgnoreRules
+
+            root = self._repo_root_from_paths(paths)
+            if not root:
+                return paths
+            rules = IgnoreRules(root)
+            kept = []
+            for p in paths:
+                rel = os.path.relpath(p, root) if root else p
+                if not rules.is_ignored(rel):
+                    kept.append(p)
+            return kept
+        except Exception:
+            return paths
+
+    @staticmethod
+    def _repo_root_from_paths(paths: list[str]) -> str:
+        """Deriva el repo root (absoluto) como ancestro común de los paths."""
+        abs_paths = [p for p in paths if p and os.path.isabs(p)]
+        if not abs_paths:
+            return ""
+        common = os.path.dirname(abs_paths[0])
+        for p in abs_paths[1:]:
+            while not os.path.realpath(p).startswith(os.path.realpath(common)):
+                parent = os.path.dirname(common)
+                if parent == common:
+                    break
+                common = parent
+        return common

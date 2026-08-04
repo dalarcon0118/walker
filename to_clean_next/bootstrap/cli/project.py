@@ -298,7 +298,7 @@ def _show_project_status(pid: str) -> int:
         if not repo or not os.path.isdir(repo):
             print(f"\n  🛠  Project '{pid}' not configured.")
             print("  No repo_path to find the code.")
-            print(f"\n  ▶  Configure the project:")
+            print("\n  ▶  Configure the project:")
             print(f"       cd /path/to/your/code/{pid}")
             print(f"       walker prepare --name {pid}")
             print("  Or edit repo_path in:")
@@ -317,7 +317,7 @@ def _show_project_status(pid: str) -> int:
             print(f"  Code at: {repo}")
             print("\n  ▶  Scan the code to build the CPG:")
             print(f"       walker agents/kilocode/{pid}/task/scan_code_and_build_cpg")
-            print(f"\n  Then you can:")
+            print("\n  Then you can:")
             print(f"       walker agents/kilocode/{pid}/task/build_initial_ckg")
             return 0
 
@@ -334,8 +334,8 @@ def _show_project_status(pid: str) -> int:
             print(f"  CPG: {cpg_path}")
             print("\n  ▶  Build the initial knowledge graph:")
             print(f"       walker agents/kilocode/{pid}/task/build_initial_ckg")
-            print(f"\n  This will scan your code for libraries, classes,")
-            print(f"  functions, and conventions.")
+            print("\n  This will scan your code for libraries, classes,")
+            print("  functions, and conventions.")
             return 0
 
         # ── 4. Check sprints ──

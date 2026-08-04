@@ -342,16 +342,31 @@ class Index:
         took = time.time()
         filters = query if isinstance(query, dict) else {}
 
+        # Metacampos de control: "max_results"/"size" NO son filtros de datos
+        # (el filtro estructurado los compararia contra cada doc y daria 0 hits).
+        # Extraerlos antes de filtrar y aplicarlos al slice final.
+        max_results = (
+            filters.get("max_results")
+            or filters.get("size")
+            or filters.get("max_events")
+        )
+        try:
+            max_results = int(max_results) if max_results else 50
+        except (TypeError, ValueError):
+            max_results = 50
+
         # Extraer query de texto
         text_query = ""
         remaining = dict(filters)
+        for _mc in ("max_results", "size", "max_events", "_index", "query"):
+            remaining.pop(_mc, None)
         if "text" in remaining:
             text_query = remaining.pop("text", "")
 
         # 1. Busqueda full-text via TokenIndex
         text_matches: set[str] = set()
         if text_query and self._token_index is not None:
-            for entry in self._token_index.search(text_query, max_results=50):
+            for entry in self._token_index.search(text_query, max_results=max_results):
                 text_matches.add(entry.node_id)
 
         # 2. Filtro estructurado sobre _docs
@@ -379,7 +394,10 @@ class Index:
         return {
             "took": took,
             "index": self.name,
-            "hits": {"total": len(results), "hits": results[:50]},
+            "hits": {
+                "total": len(results),
+                "hits": results[:max_results],
+            },
             "schema": self._schema_info(),
         }
 
@@ -517,7 +535,14 @@ class CognitiveGraph:
         Delta usa storage interno nativo + fulltext search.
         Trace usa storage interno nativo.
         """
-        # CKG - storage nativo en CognitiveGraph
+        self._register_ckg_index()
+        self._register_cpg_index()
+        self._register_ref_indexes()
+        self._register_delta_index()
+        self._register_trace_index()
+
+    def _register_ckg_index(self) -> None:
+        """Registra el indice CKG (Knowledge Graph)."""
         self.register_index(
             "ckg",
             {
@@ -539,17 +564,44 @@ class CognitiveGraph:
             },
         )
 
-        # CPG - search_handler que consulta CpgFileRepository (legacy)
-        def _cpg_search(query):
-            from features.code_analysis.infrastructure.repository import CpgFileRepository
+    def _register_cpg_index(self) -> None:
+        """Registra el indice CPG con search_handler que lee CpgFileRepository."""
+        self.register_index(
+            "cpg",
+            {
+                "fields": {"function": "name", "file": "path", "type": "type"},
+                "types": {"function": {}, "class": {}, "file": {}, "module": {}},
+                "storage": {"path": "data/cpg.json.gz", "format": "json.gz"},
+                "description": "CPG: Code Property Graph - estructura del codigo fuente",
+            },
+            search_handler=self._make_cpg_search_handler(),
+        )
 
+    def _make_cpg_search_handler(self):
+        """Crea el handler de busqueda del indice CPG (legacy CpgFileRepository)."""
+        from features.code_analysis.infrastructure.repository import CpgFileRepository
+
+        def _cpg_search(query):
             repo = CpgFileRepository(os.path.join(self.chain_dir, "data"))
             g = repo.load_graph()
             results = []
             filters = query or {}
+            # Metacampos de control (max_results/size): no son filtros de datos.
+            max_results = (
+                filters.get("max_results")
+                or filters.get("size")
+                or filters.get("max_events")
+            )
+            try:
+                max_results = int(max_results) if max_results else 50
+            except (TypeError, ValueError):
+                max_results = 50
+            skip_keys = {"max_results", "size", "max_events", "_index", "query", "text"}
             for nid, node in g.nodes.items():
                 match = True
                 for k, v in filters.items():
+                    if k in skip_keys:
+                        continue
                     if k == "function" and v not in node.name:
                         match = False
                     elif k == "file" and v not in node.path:
@@ -577,25 +629,14 @@ class CognitiveGraph:
             return {
                 "took": 0,
                 "index": "cpg",
-                "hits": {"total": len(results), "hits": results[:50]},
+                "hits": {"total": len(results), "hits": results[:max_results]},
                 "schema": {},
             }
 
-        self.register_index(
-            "cpg",
-            {
-                "fields": {"function": "name", "file": "path", "type": "type"},
-                "types": {"function": {}, "class": {}, "file": {}, "module": {}},
-                "storage": {"path": "data/cpg.json.gz", "format": "json.gz"},
-                "description": "CPG: Code Property Graph - estructura del codigo fuente",
-            },
-            search_handler=_cpg_search,
-        )
+        return _cpg_search
 
-        # CPGs de referencia
-        self._register_ref_indexes()
-
-        # Delta - storage nativo en CognitiveGraph + fulltext search
+    def _register_delta_index(self) -> None:
+        """Registra el indice Delta (tareas y sprints) con fulltext search."""
         self.register_index(
             "delta",
             {
@@ -610,201 +651,8 @@ class CognitiveGraph:
             },
         )
 
-        # Trace - storage nativo + search_handler que combina NDJSON legacy
-        def _trace_search(query):
-            """Busca en trace: storage nativo (trace.json.gz) + NDJSON legacy (data/traces/)."""
-            import gzip as _gzip
-
-            filters = query or {}
-            events = []
-            # Dedupe global por _id: el mismo evento puede vivir en el storage
-            # nativo Y en el registry global (.cognitive/projects/{pid}/data/) —
-            # cuando chain_dir == project_root, ambas fuentes apuntan al MISMO
-            # archivo y sin este dedupe cada evento se devuelve duplicado.
-            seen_ids: set[str] = set()
-
-            # 1. Storage nativo (trace.json.gz via Index._load)
-            idx = self._get_index("trace")
-            idx._load()
-            for doc_id, doc in idx._docs.items():
-                if doc_id and doc_id in seen_ids:
-                    continue
-                if doc_id:
-                    seen_ids.add(doc_id)
-                events.append({"_id": doc_id, "_source": doc})
-
-            # 2. NDJSON legacy en data/traces/*.json.gz
-            # Busca en: chain_dir, y en el storage real del proyecto
-            # (resuelto via registry → repo_path, descentralizado).
-            traces_dirs = [os.path.join(self.chain_dir, "data", "traces")]
-            try:
-                from libs.path_resolver import get_project_dir
-                project_id = os.path.basename(self.chain_dir)
-                proj_dir = get_project_dir(project_id)
-                if proj_dir:
-                    traces_dirs.append(str(proj_dir / "data" / "traces"))
-            except Exception:
-                pass
-
-            seen_events = set()
-            for traces_dir in traces_dirs:
-                if not os.path.isdir(traces_dir):
-                    continue
-                for fname in sorted(os.listdir(traces_dir)):
-                    if not fname.endswith(".gz"):
-                        continue
-                    try:
-                        with _gzip.open(os.path.join(traces_dir, fname), "rt") as f:
-                            content = f.read()
-                        for line in content.strip().split("\n"):
-                            line = line.strip()
-                            if not line:
-                                continue
-                            try:
-                                doc = json.loads(line)
-                            except Exception:
-                                continue
-                            if not isinstance(doc, dict):
-                                continue
-                            # Dedupe por _id (global) antes del key local
-                            ndjson_id = doc.get("id", doc.get("_id", ""))
-                            if ndjson_id and ndjson_id in seen_ids:
-                                continue
-                            if ndjson_id:
-                                seen_ids.add(ndjson_id)
-                            # Dedupe por (timestamp, event_type, tool)
-                            dedupe_key = (
-                                doc.get("timestamp", ""),
-                                doc.get("event_type", ""),
-                                doc.get("tool", ""),
-                            )
-                            if dedupe_key in seen_events:
-                                continue
-                            seen_events.add(dedupe_key)
-                            events.append({"_id": doc.get("id", ""), "_source": doc})
-                    except Exception:
-                        continue
-
-            # 3. Storage nativo del proyecto real (descentralizado)
-            #    La fuente de verdad del trace es <repo_path>/.cognitive/projects/
-            #    {pid}/data/trace.json.gz, donde repo_path es la referencia que el
-            #    walker central mantiene en data/projects.json. get_project_dir()
-            #    resuelve esa ruta (registry → repo_path), con fallback al .cognitive
-            #    global del walker si el proyecto no tiene repo registrado.
-            try:
-                from libs.path_resolver import get_project_dir
-                project_id = os.path.basename(self.chain_dir)
-                proj_dir = get_project_dir(project_id)
-                if proj_dir:
-                    idx_path = proj_dir / "data" / "trace.json.gz"
-                    if idx_path.is_file():
-                        try:
-                            with _gzip.open(idx_path, "rt") as f:
-                                raw_idx = json.load(f)
-                            docs_idx = raw_idx.get("docs", []) if isinstance(raw_idx, dict) else raw_idx
-                            for doc in docs_idx:
-                                if isinstance(doc, dict):
-                                    doc_id = doc.get("_id", "")
-                                    # Dedupe global: si este _id ya vino del
-                                    # storage nativo (mismo archivo), se omite.
-                                    if doc_id and doc_id in seen_ids:
-                                        continue
-                                    if doc_id:
-                                        seen_ids.add(doc_id)
-                                    events.append({"_id": doc_id, "_source": doc})
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-            # 4. Filtrar
-            text_query = ""
-            remaining = dict(filters)
-            if "text" in remaining:
-                text_query = remaining.pop("text", "").lower()
-            # Metacampos de control: NO son filtros de datos. El searcher soporta
-            # paginación/limites via "max_results"/"size"/"max_events"; si quedan
-            # en remaining, el filtro estructurado los compara contra cada doc y
-            # devuelve 0 hits (ningún doc tiene esos campos). Extraerlos antes.
-            max_results = (
-                remaining.pop("max_results", None)
-                or remaining.pop("size", None)
-                or remaining.pop("max_events", None)
-            )
-            # "_index" es un selector de índice del protocolo CLI, no un filtro.
-            remaining.pop("_index", None)
-            # "query" es el wrapper ES-like {"match_all": {}} (o full-text):
-            # si su valor es un dict (ES semantics) no es un campo de datos.
-            es_query = remaining.pop("query", None)
-            if isinstance(es_query, dict) and text_query is None:
-                # {"match_all": {}} → sin filtro de texto
-                es_text = es_query.get("match_all") if isinstance(es_query, dict) else None
-                _ = es_text  # match_all = sin restricción
-
-            results = []
-            for item in events:
-                doc = item.get("_source", {})
-                match = True
-                if text_query:
-                    haystack = " ".join(str(v) for v in doc.values()).lower()
-                    if text_query not in haystack:
-                        match = False
-                if match and remaining:
-                    for k, v in remaining.items():
-                        # Mapear aliases del schema
-                        alias_map = {
-                            "task": "task_id", "tool": "tool",
-                            "type": "event_type", "agent": "agent_id",
-                            "session": "session_id", "sprint": "sprint_id",
-                            "node": "node", "sub_state": "sub_state",
-                            "source": "source", "file": "files",
-                        }
-                        field = alias_map.get(k, k)
-                        field_val = doc.get(field, "")
-                        needle = str(v)
-                        if isinstance(field_val, list):
-                            # Buscar el valor en cualquier elemento de la lista
-                            if not any(needle in str(item) for item in field_val):
-                                match = False
-                        else:
-                            if needle not in str(field_val):
-                                match = False
-                if match:
-                    results.append({
-                        "_id": item.get("_id", ""),
-                        "_index": "trace",
-                        "_score": 1.0,
-                        "_source": doc,
-                    })
-            # Aplicar límite de resultados (max_results/size)
-            if max_results:
-                results = results[: int(max_results)]
-
-            return {
-                "took": 0,
-                "index": "trace",
-                "hits": {
-                    "total": len(results),
-                    # Respetar el límite solicitado; por defecto 50 (como search())
-                    "hits": results[: max_results or 50],
-                },
-                "schema": {
-                    "fields": {
-                        "task": "task_id", "tool": "tool",
-                        "type": "event_type", "agent": "agent_id",
-                        "session": "session_id", "sprint": "sprint_id",
-                        "node": "node", "sub_state": "sub_state",
-                        "source": "source", "file": "files",
-                    },
-                    "types": {
-                        "workflow_state": {}, "task_execute": {},
-                        "agent_message": {}, "tool_call": {},
-                        "file_impact": {}, "kg_query": {},
-                    },
-                    "description": "TraceGraph: memoria de ejecucion (workflow + agente + tools)",
-                },
-            }
-
+    def _register_trace_index(self) -> None:
+        """Registra el indice Trace (memoria de ejecucion)."""
         self.register_index(
             "trace",
             {
@@ -831,8 +679,232 @@ class CognitiveGraph:
                 "storage": {"path": "data/trace.json.gz", "format": "json.gz"},
                 "description": "TraceGraph: memoria de ejecucion (workflow + agente + tools)",
             },
-            search_handler=_trace_search,
+            search_handler=self._make_trace_search_handler(),
         )
+
+    def _make_trace_search_handler(self):
+        """Crea el handler de busqueda del indice Trace (nativo + NDJSON legacy)."""
+
+        def _trace_search(query):
+            """Busca en trace: storage nativo (trace.json.gz) + NDJSON legacy (data/traces/)."""
+            filters = query or {}
+            events, seen_ids = self._collect_trace_events()
+            text_query, remaining, max_results = self._prepare_trace_filters(filters)
+            results = self._filter_trace_events(events, text_query, remaining)
+            if max_results:
+                results = results[: int(max_results)]
+
+            return {
+                "took": 0,
+                "index": "trace",
+                "hits": {
+                    "total": len(results),
+                    "hits": results[: max_results or 50],
+                },
+                "schema": {
+                    "fields": {
+                        "task": "task_id", "tool": "tool",
+                        "type": "event_type", "agent": "agent_id",
+                        "session": "session_id", "sprint": "sprint_id",
+                        "node": "node", "sub_state": "sub_state",
+                        "source": "source", "file": "files",
+                    },
+                    "types": {
+                        "workflow_state": {}, "task_execute": {},
+                        "agent_message": {}, "tool_call": {},
+                        "file_impact": {}, "kg_query": {},
+                    },
+                    "description": "TraceGraph: memoria de ejecucion (workflow + agente + tools)",
+                },
+            }
+
+        return _trace_search
+
+    def _collect_trace_events(self) -> tuple[list[dict], set[str]]:
+        """Recolecta eventos de trace desde: storage nativo, NDJSON legacy
+        (data/traces/) y storage del proyecto real (descentralizado).
+
+        Dedupe global por _id: el mismo evento puede vivir en el storage
+        nativo Y en el registry global — cuando chain_dir == project_root,
+        ambas fuentes apuntan al MISMO archivo.
+        """
+        import gzip as _gzip
+
+        events = []
+        seen_ids: set[str] = set()
+
+        # 1. Storage nativo (trace.json.gz via Index._load)
+        idx = self._get_index("trace")
+        idx._load()
+        for doc_id, doc in idx._docs.items():
+            if doc_id and doc_id in seen_ids:
+                continue
+            if doc_id:
+                seen_ids.add(doc_id)
+            events.append({"_id": doc_id, "_source": doc})
+
+        # 2. NDJSON legacy en data/traces/*.json.gz
+        self._collect_ndjson_traces(events, seen_ids)
+
+        # 3. Storage nativo del proyecto real (descentralizado)
+        self._collect_project_native_trace(events, seen_ids)
+
+        return events, seen_ids
+
+    def _collect_ndjson_traces(self, events: list, seen_ids: set) -> None:
+        """Recolecta eventos NDJSON legacy de data/traces/*.json.gz."""
+        import gzip as _gzip
+
+        traces_dirs = [os.path.join(self.chain_dir, "data", "traces")]
+        try:
+            from libs.path_resolver import get_project_dir
+            project_id = os.path.basename(self.chain_dir)
+            proj_dir = get_project_dir(project_id)
+            if proj_dir:
+                traces_dirs.append(str(proj_dir / "data" / "traces"))
+        except Exception:
+            pass
+
+        seen_events = set()
+        for traces_dir in traces_dirs:
+            if not os.path.isdir(traces_dir):
+                continue
+            for fname in sorted(os.listdir(traces_dir)):
+                if not fname.endswith(".gz"):
+                    continue
+                try:
+                    with _gzip.open(os.path.join(traces_dir, fname), "rt") as f:
+                        content = f.read()
+                    for line in content.strip().split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            doc = json.loads(line)
+                        except Exception:
+                            continue
+                        if not isinstance(doc, dict):
+                            continue
+                        ndjson_id = doc.get("id", doc.get("_id", ""))
+                        if ndjson_id and ndjson_id in seen_ids:
+                            continue
+                        if ndjson_id:
+                            seen_ids.add(ndjson_id)
+                        dedupe_key = (
+                            doc.get("timestamp", ""),
+                            doc.get("event_type", ""),
+                            doc.get("tool", ""),
+                        )
+                        if dedupe_key in seen_events:
+                            continue
+                        seen_events.add(dedupe_key)
+                        events.append({"_id": doc.get("id", ""), "_source": doc})
+                except Exception:
+                    continue
+
+    def _collect_project_native_trace(self, events: list, seen_ids: set) -> None:
+        """Recolecta eventos del storage nativo del proyecto real (descentralizado).
+
+        La fuente de verdad del trace es <repo_path>/.cognitive/projects/
+        {pid}/data/trace.json.gz, donde repo_path es la referencia que el
+        walker central mantiene en data/projects.json. get_project_dir()
+        resuelve esa ruta (registry → repo_path), con fallback al .cognitive
+        global del walker si el proyecto no tiene repo registrado.
+        """
+        import gzip as _gzip
+
+        try:
+            from libs.path_resolver import get_project_dir
+            project_id = os.path.basename(self.chain_dir)
+            proj_dir = get_project_dir(project_id)
+            if proj_dir:
+                idx_path = proj_dir / "data" / "trace.json.gz"
+                if idx_path.is_file():
+                    try:
+                        with _gzip.open(idx_path, "rt") as f:
+                            raw_idx = json.load(f)
+                        docs_idx = raw_idx.get("docs", []) if isinstance(raw_idx, dict) else raw_idx
+                        for doc in docs_idx:
+                            if isinstance(doc, dict):
+                                doc_id = doc.get("_id", "")
+                                if doc_id and doc_id in seen_ids:
+                                    continue
+                                if doc_id:
+                                    seen_ids.add(doc_id)
+                                events.append({"_id": doc_id, "_source": doc})
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        return events, seen_ids
+
+    def _prepare_trace_filters(
+        self, filters: dict
+    ) -> tuple[str, dict, int | None]:
+        """Separa text_query / metacampos de control / filtros estructurados."""
+        text_query = ""
+        remaining = dict(filters)
+        if "text" in remaining:
+            text_query = remaining.pop("text", "").lower()
+        # Metacampos de control: NO son filtros de datos. El searcher soporta
+        # paginación/limites via "max_results"/"size"/"max_events"; si quedan
+        # en remaining, el filtro estructurado los compara contra cada doc y
+        # devuelve 0 hits (ningún doc tiene esos campos). Extraerlos antes.
+        max_results = (
+            remaining.pop("max_results", None)
+            or remaining.pop("size", None)
+            or remaining.pop("max_events", None)
+        )
+        # "_index" es un selector de índice del protocolo CLI, no un filtro.
+        remaining.pop("_index", None)
+        # "query" es el wrapper ES-like {"match_all": {}} (o full-text):
+        # si su valor es un dict (ES semantics) no es un campo de datos.
+        es_query = remaining.pop("query", None)
+        if isinstance(es_query, dict) and text_query is None:
+            # {"match_all": {}} → sin filtro de texto
+            _ = es_query.get("match_all") if isinstance(es_query, dict) else None
+        return text_query, remaining, max_results
+
+    def _filter_trace_events(
+        self, events: list[dict], text_query: str, remaining: dict
+    ) -> list[dict]:
+        """Aplica filtros de texto y estructurados sobre los eventos."""
+        results = []
+        for item in events:
+            doc = item.get("_source", {})
+            match = True
+            if text_query:
+                haystack = " ".join(str(v) for v in doc.values()).lower()
+                if text_query not in haystack:
+                    match = False
+            if match and remaining:
+                for k, v in remaining.items():
+                    # Mapear aliases del schema
+                    alias_map = {
+                        "task": "task_id", "tool": "tool",
+                        "type": "event_type", "agent": "agent_id",
+                        "session": "session_id", "sprint": "sprint_id",
+                        "node": "node", "sub_state": "sub_state",
+                        "source": "source", "file": "files",
+                    }
+                    field = alias_map.get(k, k)
+                    field_val = doc.get(field, "")
+                    needle = str(v)
+                    if isinstance(field_val, list):
+                        if not any(needle in str(item) for item in field_val):
+                            match = False
+                    else:
+                        if needle not in str(field_val):
+                            match = False
+            if match:
+                results.append({
+                    "_id": item.get("_id", ""),
+                    "_index": "trace",
+                    "_score": 1.0,
+                    "_source": doc,
+                })
+        return results
 
     def _register_ref_indexes(self) -> None:
         """Descubre y registra CPGs de referencia (data/cpg.ref.*.json.gz)."""
@@ -876,10 +948,23 @@ class CognitiveGraph:
 
             nodes = data.get("nodes", {})
             filters = query or {}
+            # Metacampos de control (max_results/size): no son filtros.
+            max_results = (
+                filters.get("max_results")
+                or filters.get("size")
+                or filters.get("max_events")
+            )
+            try:
+                max_results = int(max_results) if max_results else 50
+            except (TypeError, ValueError):
+                max_results = 50
+            skip_keys = {"max_results", "size", "max_events", "_index", "query", "text"}
             results = []
             for nid, n in nodes.items():
                 match = True
                 for k, v in filters.items():
+                    if k in skip_keys:
+                        continue
                     if k == "function" and v not in n.get("name", ""):
                         match = False
                     elif k == "file" and v not in n.get("path", ""):
@@ -904,7 +989,7 @@ class CognitiveGraph:
                     )
             return {
                 "took": 0,
-                "hits": {"total": len(results), "hits": results[:50]},
+                "hits": {"total": len(results), "hits": results[:max_results]},
                 "schema": {},
             }
 
@@ -989,7 +1074,15 @@ class CognitiveGraph:
     COMPACT_FIELDS = {
         "ckg": ["_id", "type", "subject", "statement", "scope", "severity", "status"],
         "delta": ["_id", "task_id", "title", "objective", "status", "domain", "result_state"],
-        "trace": ["_id", "event_type", "timestamp", "task_id", "session_id", "tool"],
+        "trace": [
+            "_id",
+            "event_type",
+            "timestamp",
+            "task_id",
+            "session_id",
+            "tool",
+            "data",
+        ],
         "cpg": ["_id", "name", "type", "file", "line", "signature", "kind"],
     }
 

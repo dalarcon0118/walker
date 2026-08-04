@@ -84,7 +84,26 @@ class ProjectContextProvider(ContextProvider):
             return None
 
         parts: list[str] = []
+        parts += self._identity_parts(proj, project_id)
+        parts += self._location_parts(proj)
+        parts += self._design_parts(proj)
+        parts += self._coding_parts(proj)
+        parts += self._architecture_parts(proj)
 
+        content = "\n".join(parts)
+        return ContextPiece(
+            provider="project",
+            name=f"project context ({project_id})",
+            instructions=self.instructions(config, ctx),
+            content=content,
+            tokens=fmt_tokens(content),
+            priority=1,
+        )
+
+    @staticmethod
+    def _identity_parts(proj: dict, project_id: str) -> list[str]:
+        """Partes de identidad del proyecto: nombre/language/framework."""
+        parts: list[str] = []
         identity = proj.get("identity", {})
         name = identity.get("name", project_id)
         lang = identity.get("language", "")
@@ -94,7 +113,12 @@ class ProjectContextProvider(ContextProvider):
             parts.append(f"language: {lang}")
         if framework:
             parts.append(f"framework: {framework}")
+        return parts
 
+    @staticmethod
+    def _location_parts(proj: dict) -> list[str]:
+        """Partes de ubicacion: repo root y code_paths."""
+        parts: list[str] = []
         loc = proj.get("location", {})
         repo = loc.get("repo_path", "")
         code_paths = loc.get("code_paths", [])
@@ -102,7 +126,12 @@ class ProjectContextProvider(ContextProvider):
             parts.append(f"root: {repo}")
         if code_paths:
             parts.append(f"code_paths: {', '.join(code_paths[:5])}")
+        return parts
 
+    @staticmethod
+    def _design_parts(proj: dict) -> list[str]:
+        """Partes de diseno: patterns, layers, forbidden, decisions."""
+        parts: list[str] = []
         design = proj.get("design", {})
         patterns = design.get("patterns", [])
         if patterns:
@@ -115,6 +144,27 @@ class ProjectContextProvider(ContextProvider):
                 layer_desc.append(f"{layer}=[{','.join(dirs[:3])}]")
             parts.append(f"layers: {' '.join(layer_desc)}")
 
+        forbidden = design.get("forbidden_dependencies", [])
+        if forbidden:
+            for rule in forbidden[:5]:
+                parts.append(f"rule: {rule}")
+
+        decisions = design.get("decisions", [])
+        if decisions:
+            for d in decisions[:3]:
+                title = d.get("title", "")
+                decision = d.get("decision", "")
+                if title and decision:
+                    summary = (
+                        decision[:120] + "..." if len(decision) > 120 else decision
+                    )
+                    parts.append(f"adr: {title} — {summary}")
+        return parts
+
+    @staticmethod
+    def _coding_parts(proj: dict) -> list[str]:
+        """Partes de convenciones de codigo."""
+        parts: list[str] = []
         coding = proj.get("coding", {})
         coding_items = []
         for key in (
@@ -138,37 +188,17 @@ class ProjectContextProvider(ContextProvider):
                 coding_items.append(f"{label}={val}")
         if coding_items:
             parts.append(f"coding: {' '.join(coding_items)}")
+        return parts
 
-        forbidden = design.get("forbidden_dependencies", [])
-        if forbidden:
-            for rule in forbidden[:5]:
-                parts.append(f"rule: {rule}")
-
-        decisions = design.get("decisions", [])
-        if decisions:
-            for d in decisions[:3]:
-                title = d.get("title", "")
-                decision = d.get("decision", "")
-                if title and decision:
-                    summary = (
-                        decision[:120] + "..." if len(decision) > 120 else decision
-                    )
-                    parts.append(f"adr: {title} — {summary}")
-
+    @staticmethod
+    def _architecture_parts(proj: dict) -> list[str]:
+        """Partes de arquitectura (module organization)."""
+        parts: list[str] = []
         arch = proj.get("architecture", {})
         module_org = arch.get("module_organization", "")
         if module_org:
             parts.append(f"modules: {module_org[:200]}")
-
-        content = "\n".join(parts)
-        return ContextPiece(
-            provider="project",
-            name=f"project context ({project_id})",
-            instructions=self.instructions(config, ctx),
-            content=content,
-            tokens=fmt_tokens(content),
-            priority=1,
-        )
+        return parts
 
     def _list_all_projects(self) -> ContextPiece | None:
         """Lista todos los proyectos disponibles (modo bootstrap/START)."""

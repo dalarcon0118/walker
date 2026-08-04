@@ -1,4 +1,4 @@
-"""Side-effect: update_ckg_status — actualiza CKG status en sprint-state.
+"""Side-effect: update_ckg_status — actualiza el status CKG en el nodo spring del delta.
 
 Se invoca desde nodos del workflow para tracking cross-module:
   - IMPLEMENT.WORK → pending_update
@@ -6,7 +6,6 @@ Se invoca desde nodos del workflow para tracking cross-module:
 """
 
 from __future__ import annotations
-import os
 from typing import Any
 from features.engine.domain.models import ExecutionContext
 from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
