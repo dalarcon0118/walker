@@ -454,7 +454,7 @@ class SpringGraphService:
         la refina (merge); si no, la agrega al final (SPEC-014+).
 
         AMPLIFICACIÓN DE DOMINIO sobre la primitiva reusable de infra
-        (Entity.update_or_create / CognitiveGraphWriter.upsert): agrega la
+        (Entity.update_or_create / CognitiveGraph.upsert): agrega la
         regla delta de match por objective + preservación del spec_id local
         (convention-015: SPEC-001..N es el task_id del workflow).
 

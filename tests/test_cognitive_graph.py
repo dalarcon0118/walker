@@ -1288,19 +1288,19 @@ def test_odm_update_or_create():
         print("  ✅ test_odm_update_or_create: create + refine sin duplicar")
 
 
-def test_cognitive_graph_writer_upsert():
-    """CognitiveGraphWriter.upsert: distingue create de update (by key)."""
-    from libs.infrastructure import CognitiveGraphWriter
+def test_cognitive_graph_upsert():
+    """CognitiveGraph.upsert: distingue create de update (by key)."""
+    from libs.cognitive_graph import CognitiveGraph
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        writer = CognitiveGraphWriter(tmpdir)
+        cg = CognitiveGraph(tmpdir, auto_register=True)
 
         # Create
-        res = writer.upsert("ckg", "node-001", {"type": "decision", "statement": "A"})
+        res = cg.upsert("ckg", "node-001", {"type": "decision", "statement": "A"})
         assert res["created"] is True, res
 
         # Update (merge de campos: preserva campos no pisados)
-        res2 = writer.upsert(
+        res2 = cg.upsert(
             "ckg", "node-001", {"statement": "A (v2)", "scope": "security"}
         )
         assert res2["updated"] is True, res2
@@ -1312,7 +1312,7 @@ def test_cognitive_graph_writer_upsert():
         assert src["statement"] == "A (v2)", src
         assert src["type"] == "decision", "El merge no debe borrar campos previos"
         assert src["scope"] == "security"
-        print("  ✅ test_cognitive_graph_writer_upsert: create/update por key")
+        print("  ✅ test_cognitive_graph_upsert: create/update por key (via CognitiveGraph)")
 
 
 def test_fulltext_derived_from_fields():
@@ -1596,7 +1596,7 @@ def run_all():
         ("upsert_spec append no replace", test_upsert_spec_append_no_replace),
         ("upsert_spec refine no duplicate", test_upsert_spec_refine_no_duplicate),
         ("ODM update_or_create", test_odm_update_or_create),
-        ("CognitiveGraphWriter upsert", test_cognitive_graph_writer_upsert),
+        ("CognitiveGraph upsert", test_cognitive_graph_upsert),
         ("fulltext derived from fields", test_fulltext_derived_from_fields),
         ("atomic write no tmp leftover", test_atomic_write_no_tmp_leftover),
         ("index keys and max_key", test_index_keys_and_max_key),

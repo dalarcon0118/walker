@@ -2,16 +2,15 @@
 libs/infrastructure/ — Infrastructure utilities.
 
   CognitiveGraphSearcher → wrappers read para el CognitiveGraph (busqueda)
-  CognitiveGraphWriter   → wrappers write (store/upsert/delete por key)
 
-PRINCIPIO: las features acceden a los indices via el CognitiveGraph
-(ODM/Entity) o via estos wrappers — no existe otra capa de adaptadores.
+PRINCIPIO: CQRS para reads (Searcher da envolvente compartida con error
+handling para tasks MCP). Para writes: CognitiveGraph.upsert/store/store_many
+o Entity.save() directamente. No existe capa Writer extra.
 """
 from __future__ import annotations
 
-from .cognitive import CognitiveGraphSearcher, CognitiveGraphWriter
+from .cognitive import CognitiveGraphSearcher
 
 __all__ = [
     "CognitiveGraphSearcher",
-    "CognitiveGraphWriter",
 ]

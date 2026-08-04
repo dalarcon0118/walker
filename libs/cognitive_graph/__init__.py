@@ -1413,6 +1413,26 @@ class CognitiveGraph:
     def delete(self, index: str, doc_id: str) -> dict:
         return self._get_index(index).delete(doc_id)
 
+    def upsert(self, index: str, key: str, data: dict) -> dict:
+        """Upsert por key (primitiva reusable de infraestructura).
+
+        Distingue create de update: si el nodo ya existe, hace merge de
+        campos (los existentes se preservan salvo que data los pise);
+        si no existe, lo crea. Retorna {'created': bool, 'updated': bool,
+        'result': ...}.
+
+        Base para amplificaciones de dominio como upsert_spec del
+        DeltaGraph (que matchea por campo de negocio ademas de key).
+        """
+        existing = self.get(index, key)
+        if existing:
+            merged = dict(existing.get("_source") or {})
+            merged.update(data)
+            result = self.store(index, key, merged)
+            return {"created": False, "updated": True, "result": result}
+        result = self.store(index, key, data)
+        return {"created": True, "updated": False, "result": result}
+
     # ── Edges ──
 
     def add_edge(self, from_id: str, to_id: str, **attrs) -> dict:
