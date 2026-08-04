@@ -1417,6 +1417,101 @@ def test_ckg_next_id_no_collision_after_delete():
         print("  ✅ test_ckg_next_id_no_collision_after_delete: max_key evita colision")
 
 
+def test_val_contains_exact_no_substring_bug():
+    """G7: _val_contains exacto por defecto (no substring). 'active' no matchea 'inactive'."""
+    from libs.cognitive_graph import Index
+
+    # Exacto case-insensitive por defecto
+    assert Index._val_contains("active", "active"), "iguales"
+    assert Index._val_contains("ACTIVE", "active"), "case-insensitive"
+    assert Index._val_contains("active", "ACTIVE"), "case-insensitive reverse"
+    assert not Index._val_contains("inactive", "active"), "substring bug fix"
+    assert not Index._val_contains("active-pending", "active"), "prefix bug fix"
+
+    # Operadores explicitos
+    assert Index._val_contains("authentication", {"$contains": "auth"}), "$contains"
+    assert Index._val_contains("/src/auth.py", {"$prefix": "/src/"}), "$prefix"
+    assert not Index._val_contains("lib/auth.py", {"$prefix": "/src/"}), "$prefix fail"
+    assert Index._val_contains("active", {"$eq": "ACTIVE"}), "$eq case-insensitive"
+
+    # Listas: match exacto en cualquiera
+    assert Index._val_contains(["auth", "admin"], "auth")
+    assert not Index._val_contains(["auth", "admin"], "aut"), "no substring en lista"
+    print("  ✅ test_val_contains_exact_no_substring_bug: G7 arreglado")
+
+
+def test_search_pagination_with_from():
+    """G8: paginacion real con _from/from offset."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cg = CognitiveGraph(tmpdir, auto_register=True)
+        for i in range(10):
+            cg.store("ckg", f"doc-{i:03d}", {"type": "convention", "seq": i})
+
+        # Pagina 1: primeros 3
+        r1 = cg.search("ckg", {"type": "convention", "size": 3})
+        assert r1["hits"]["total"] == 10, r1["hits"]["total"]
+        assert len(r1["hits"]["hits"]) == 3
+        assert r1["hits"].get("from", 0) == 0
+
+        # Pagina 2: offset 3, size 3
+        r2 = cg.search("ckg", {"type": "convention", "_from": 3, "size": 3})
+        assert r2["hits"]["total"] == 10
+        assert len(r2["hits"]["hits"]) == 3
+        assert r2["hits"].get("from") == 3
+
+        # Pagina final: ultimos (solo 1)
+        r3 = cg.search("ckg", {"type": "convention", "_from": 9, "size": 3})
+        assert r3["hits"]["total"] == 10
+        assert len(r3["hits"]["hits"]) == 1
+        assert r3["hits"].get("from") == 9
+
+        # Sin _from: default 0
+        r4 = cg.search("ckg", {"type": "convention"})
+        assert r4["hits"].get("from", 0) == 0
+        print("  ✅ test_search_pagination_with_from: G8 paginacion real")
+
+
+def test_fulltext_nested_dict_fields():
+    """G9: fulltext indexa campos anidados como metadata.summary."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cg = CognitiveGraph(tmpdir, auto_register=True)
+
+        # Registrar indice con campo fulltext anidado
+        cg.register_index("nested", {
+            "fields": {"label": "statement"},
+            "search": {
+                "type": "fulltext",
+                "fields": ["summary", "metadata.description"],
+            },
+            "storage": {"path": os.path.join(tmpdir, "data", "nested.json.gz")},
+        })
+
+        cg.store("nested", "n1", {
+            "statement": "flat title",
+            "metadata": {"description": "deep auth description inside metadata"},
+        })
+        cg.store("nested", "n2", {
+            "statement": "flat title 2",
+            "metadata": {"description": "another topic"},
+        })
+
+        # Buscar fulltext: "auth" debe encontrar n1 via metadata.description
+        r = cg.search("nested", {"text": "auth"})
+        hits = r["hits"]["hits"]
+        ids = {h["_id"] for h in hits}
+        assert "n1" in ids, f"nested field no indexado: {ids}"
+
+        # "another" debe encontrar n2
+        r2 = cg.search("nested", {"text": "another"})
+        ids2 = {h["_id"] for h in r2["hits"]["hits"]}
+        assert "n2" in ids2, f"nested n2 no encontrado: {ids2}"
+        print("  ✅ test_fulltext_nested_dict_fields: G9 fulltext anidado")
+
+
 # ════════════════════════════════════════════════════════════════
 # Runner
 # ════════════════════════════════════════════════════════════════
@@ -1457,6 +1552,9 @@ def run_all():
         ("atomic write no tmp leftover", test_atomic_write_no_tmp_leftover),
         ("index keys and max_key", test_index_keys_and_max_key),
         ("ckg next_id no collision", test_ckg_next_id_no_collision_after_delete),
+        ("val_contains exact no substring", test_val_contains_exact_no_substring_bug),
+        ("search pagination with from", test_search_pagination_with_from),
+        ("fulltext nested dict fields", test_fulltext_nested_dict_fields),
     ]
 
     passed = 0

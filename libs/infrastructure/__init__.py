@@ -1,25 +1,17 @@
 """
 libs/infrastructure/ — Infrastructure utilities.
 
-Arquitectura ORM-like:
-  IndexAdapter   → interface que cada feature implementa
-  IndexRegistry  → registro central de adaptadores
-  SearchResult   → estructura de resultado comun
+  CognitiveGraphSearcher → wrappers read para el CognitiveGraph (busqueda)
+  CognitiveGraphWriter   → wrappers write (store/upsert/delete por key)
 
-  CognitiveGraphSearcher/Writer → wrappers para el CognitiveGraph legacy
-
-PRINCIPIO: Las features NO dependen de CognitiveGraph directamente.
-           Dependen de IndexAdapter que ellas mismas implementan.
+PRINCIPIO: las features acceden a los indices via el CognitiveGraph
+(ODM/Entity) o via estos wrappers — no existe otra capa de adaptadores.
 """
 from __future__ import annotations
 
-from .adapters import IndexAdapter, IndexRegistry, SearchResult
 from .cognitive import CognitiveGraphSearcher, CognitiveGraphWriter
 
 __all__ = [
-    "IndexAdapter",
-    "IndexRegistry",
-    "SearchResult",
     "CognitiveGraphSearcher",
     "CognitiveGraphWriter",
 ]

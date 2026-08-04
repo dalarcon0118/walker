@@ -188,6 +188,26 @@ class Index:
         finally:
             self._release_write_lock()
 
+    @staticmethod
+    def _resolve_field(doc: dict, field: str):
+        """Resuelve un campo top-level o anidado (ruta con puntos).
+
+        G9: los campos fulltext/schema pueden apuntar a dicts anidados
+        (ej: "metadata.task_id", "data.summary"). En vez de doc.get("a.b"),
+        que no existe, navega la ruta nivel por nivel.
+        """
+        if not isinstance(doc, dict) or not field:
+            return ""
+        value = doc
+        for part in field.split("."):
+            if isinstance(value, dict):
+                value = value.get(part, {})
+            else:
+                return ""
+        if isinstance(value, (dict, list)):
+            return value
+        return value
+
     def _acquire_write_lock(self) -> None:
         """Adquiere un lock exclusivo por indice (evita corrupcion concurrente).
 
@@ -234,10 +254,10 @@ class Index:
         # Guardar en docs + grafo
         self._docs[doc_id] = data
         self._graph.add_node(doc_id, **data)
-        # Indexar campos full-text
+        # Indexar campos full-text (G9: resuelve rutas anidadas)
         if self._token_index is not None:
             for field in self.schema.fulltext_fields:
-                value = data.get(field, "")
+                value = self._resolve_field(data, field)
                 if isinstance(value, str) and value:
                     self._token_index.index_node(doc_id, value, field)
                 elif isinstance(value, list):
@@ -262,7 +282,7 @@ class Index:
             self._graph.add_node(doc_id, **data)
             if self._token_index is not None:
                 for field in self.schema.fulltext_fields:
-                    value = data.get(field, "")
+                    value = self._resolve_field(data, field)
                     if isinstance(value, str) and value:
                         self._token_index.index_node(doc_id, value, field)
                     elif isinstance(value, list):
@@ -432,9 +452,9 @@ class Index:
         took = time.time()
         filters = query if isinstance(query, dict) else {}
 
-        # Metacampos de control: "max_results"/"size" NO son filtros de datos
-        # (el filtro estructurado los compararia contra cada doc y daria 0 hits).
-        # Extraerlos antes de filtrar y aplicarlos al slice final.
+        # Metacampos de control: "max_results"/"size"/"_from" NO son filtros
+        # de datos (el filtro estructurado los compararia contra cada doc y
+        # daria 0 hits). Extraerlos antes de filtrar y aplicarlos al slice.
         max_results = (
             filters.get("max_results")
             or filters.get("size")
@@ -445,10 +465,21 @@ class Index:
         except (TypeError, ValueError):
             max_results = 50
 
+        # Paginacion real (G8): offset _from/from para recorrer resultados
+        # sin depender del slice hardcodeado. total reporta TODOS los matches.
+        _from_raw = filters.get("_from") or filters.get("from") or 0
+        try:
+            _from = max(int(_from_raw), 0)
+        except (TypeError, ValueError):
+            _from = 0
+
         # Extraer query de texto
         text_query = ""
         remaining = dict(filters)
-        for _mc in ("max_results", "size", "max_events", "_index", "query"):
+        for _mc in (
+            "max_results", "size", "max_events", "_index", "query",
+            "_from", "from",
+        ):
             remaining.pop(_mc, None)
         if "text" in remaining:
             text_query = remaining.pop("text", "")
@@ -486,7 +517,9 @@ class Index:
             "index": self.name,
             "hits": {
                 "total": len(results),
-                "hits": results[:max_results],
+                "hits": results[_from : _from + max_results],
+                "from": _from,
+                "size": max_results,
             },
             "schema": self._schema_info(),
         }
@@ -546,13 +579,54 @@ class Index:
 
     @staticmethod
     def _val_contains(val, qvalue) -> bool:
-        """¿El valor contiene el query (case-insensitive)?"""
+        """¿El valor matchea el query?
+
+        SEMÁNTICA (G7): match EXACTO por defecto (case-insensitive) para
+        filtros estructurados — {"status": "active"} NO debe matchear
+        "inactive" ni "active-pending". Para substring explícito se usan
+        operadores de query:
+          - {"$contains": "auth"} → substring case-insensitive
+          - {"$prefix": "src/"}   → prefijo case-insensitive
+          - {"$eq": "auth"}       → exacto case-insensitive (default)
+        El fulltext ({"text": ...}) sigue cubriendo substring por tokens.
+        """
+        # Operadores de query
+        if isinstance(qvalue, dict):
+            if "$contains" in qvalue:
+                needle = str(qvalue["$contains"]).lower()
+                return Index._val_contains(val, {"$substr": needle})
+            if "$prefix" in qvalue:
+                needle = str(qvalue["$prefix"]).lower()
+                if isinstance(val, str):
+                    return val.lower().startswith(needle)
+                if isinstance(val, list):
+                    return any(
+                        str(item).lower().startswith(needle) for item in val
+                    )
+                return False
+            if "$eq" in qvalue:
+                return Index._val_contains(val, qvalue["$eq"])
+            # Operador interno $substr (substring case-insensitive)
+            if "$substr" in qvalue:
+                needle = str(qvalue["$substr"]).lower()
+                if isinstance(val, str):
+                    return needle in val.lower()
+                if isinstance(val, list):
+                    return any(needle in str(item).lower() for item in val)
+                return False
+            # Dict desconocido: comparar como exacto
+            return val == qvalue
+
         if val is None:
             return False
         if isinstance(val, str):
-            return qvalue.lower() in val.lower()
+            # Exacto case-insensitive (G7)
+            return val.lower() == str(qvalue).lower()
         if isinstance(val, list):
-            return any(qvalue.lower() in str(item).lower() for item in val)
+            return any(
+                Index._val_contains(item, qvalue)
+                for item in val
+            )
         return val == qvalue
 
     def schema_info(self) -> dict:
@@ -594,7 +668,7 @@ class Index:
         self._token_index = TokenIndex()
         for doc_id, doc in self._docs.items():
             for field in self.schema.fulltext_fields:
-                value = doc.get(field, "")
+                value = self._resolve_field(doc, field)
                 if isinstance(value, str) and value:
                     self._token_index.index_node(doc_id, value, field)
                 elif isinstance(value, list):
