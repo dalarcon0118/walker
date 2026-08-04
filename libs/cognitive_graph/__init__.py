@@ -210,7 +210,18 @@ class Index:
 
                 # Reconstruir indices secundarios (type + field) para
                 # busqueda O(1) sin iterar todos los docs.
-                self._rebuild_secondary_indexes()
+                # E6: cargar indices secundarios desde disco si existen.
+                # Si no (legacy), reconstruir desde _docs (backward-compat).
+                ti_raw = data.get("_type_index")
+                fi_raw = data.get("_field_index")
+                if ti_raw is not None and fi_raw is not None:
+                    self._type_index = {k: set(v) for k, v in ti_raw.items()}
+                    self._field_index = {}
+                    for k, v in fi_raw.items():
+                        field, val = k.split("\x00", 1)
+                        self._field_index[(field, val)] = set(v)
+                else:
+                    self._rebuild_secondary_indexes()
 
                 # G3: schema migration — si los campos fulltext cambiaron
                 # desde que se guardo el indice, el TokenIndex esta stale
@@ -282,6 +293,12 @@ class Index:
         }
         if self._token_index is not None:
             data["token_index"] = self._token_index.to_dict()
+        # E6: persistir indices secundarios para no reconstruir en _load()
+        if self._type_index:
+            data["_type_index"] = {k: sorted(v) for k, v in self._type_index.items()}
+        if self._field_index:
+            data["_field_index"] = {f"{k[0]}\x00{k[1]}": sorted(v)
+                                     for k, v in self._field_index.items()}
         payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         # G1: escritura atomica (temp + rename) + lock exclusivo.
         # Si el lock ya fue adquirido por store/store_many/delete (ciclo
