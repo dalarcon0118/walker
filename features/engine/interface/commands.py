@@ -922,11 +922,11 @@ def _query_task(
     status = "unknown"
     if chain_dir:
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
 
-            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            spring_svc = SpringService.from_chain_dir(chain_dir)
             if spring_svc:
                 spring_id = spring_svc.get_spring_id(chain_dir)
                 spring_svc.ensure_spring_imported(chain_dir, spring_id)
@@ -987,13 +987,13 @@ def _query_status(chain_dir: str, tasks: list[dict]) -> int:
 
     PRINCIPIO: el estado de negocio del spring vive en el DELTA.
     """
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     task_states = {}
     try:
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if spring_svc:
             spring_id = spring_svc.get_spring_id(chain_dir)
             spring_svc.ensure_spring_imported(chain_dir, spring_id)
@@ -1175,12 +1175,12 @@ def _check_task_status_relevance(
     chain_dir: str, task_id: str, warnings: list[str]
 ) -> None:
     """Warning si la task_id actual ya esta en estado done."""
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     try:
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if spring_svc:
             spring_id = spring_svc.get_spring_id(chain_dir)
             spring_svc.ensure_spring_imported(chain_dir, spring_id)
@@ -1387,11 +1387,11 @@ def cmd_backlog(sub_args: list[str]) -> int:
         _save_backlog(chain_dir, backlog)
         # Mark as backlog en el DELTA (nodo spec — fuente unica)
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
 
-            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            spring_svc = SpringService.from_chain_dir(chain_dir)
             if spring_svc:
                 spring_id = spring_svc.get_spring_id(chain_dir)
                 spring_svc.ensure_spring_imported(chain_dir, spring_id)

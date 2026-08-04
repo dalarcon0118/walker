@@ -1,20 +1,13 @@
 """
 features/delta_tracking/ — DeltaTracking: indice de tareas multi-sprint.
 
-Domain:     TokenIndex, IndexEntry (busqueda textual)
-Application: index_sprint, index_all, search_tasks
-Infrastructure: usa CognitiveGraph como almacenamiento (no persistencia propia)
-
-Uso:
-    from features.delta_tracking import DeltaGraphService
-
-    svc = DeltaGraphService(project_dir)
-    svc.index_sprint(chain_dir)
-    results = svc.search("authentication")
+Domain:     Spring, Spec (entidades puras)
+Application: SpringService (thin orchestrator), use cases
+Infrastructure: CognitiveDeltaRepository
 """
 from features.delta_tracking.application.index_service import index_sprint, index_all
 from features.delta_tracking.application.search_service import search_tasks
-from features.delta_tracking.domain.models import TokenIndex, IndexEntry
+from libs.cognitive_graph.models import TokenIndex, IndexEntry
 
 
 class DeltaGraphService:
@@ -38,7 +31,7 @@ class DeltaGraphService:
     def index_sprint(self, chain_dir: str) -> int:
         """Indexa un sprint en CognitiveGraph (indice delta).
 
-        Lee las specs del DeltaGraph (SpringGraphService — fuente unica)
+        Lee las specs del DeltaGraph (SpringService — fuente unica)
         y las almacena en el indice delta de CognitiveGraph.
         CognitiveGraph se encarga de construir el TokenIndex (full-text)
         y el grafo (relaciones).

@@ -1,9 +1,21 @@
-"""DeltaTracking domain — Modelos para el índice de contexto federado.
+"""DeltaTracking domain — Entidades y value objects del DeltaGraph.
 
-Cada entrada del índice asocia un token (palabra/clave) con una lista
-de referencias a objetos que lo contienen.
+Spring, Spec, valores de estado, tipos de edge.
 """
+from libs.cognitive_graph.models import TokenIndex, IndexEntry
+from features.delta_tracking.domain.entities import Spring, Spec
+from features.delta_tracking.domain.values import (
+    TYPE_SPRING, TYPE_SPEC,
+    EDGE_CONTAINS, EDGE_IMPACTS, EDGE_DEPENDS,
+    SPRING_STATUS_FLOW, SPEC_STATUS_FLOW,
+    spec_doc_id, spec_id_from_index,
+)
 
-from features.delta_tracking.domain.models import TokenIndex, IndexEntry
-
-__all__ = ["TokenIndex", "IndexEntry"]
+__all__ = [
+    "TokenIndex", "IndexEntry",
+    "Spring", "Spec",
+    "TYPE_SPRING", "TYPE_SPEC",
+    "EDGE_CONTAINS", "EDGE_IMPACTS", "EDGE_DEPENDS",
+    "SPRING_STATUS_FLOW", "SPEC_STATUS_FLOW",
+    "spec_doc_id", "spec_id_from_index",
+]

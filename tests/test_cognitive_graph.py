@@ -870,13 +870,13 @@ def test_index_sprint_unique_ids():
 
 
 def test_spring_graph_service_unified_model():
-    """SpringGraphService: modelo unificado (spring+spec+estados) sobre el delta."""
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    """SpringService: modelo unificado (spring+spec+estados) sobre el delta."""
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        svc = SpringGraphService(tmpdir)
+        svc = SpringService(tmpdir)
 
         # 1. Crear spring + specs
         svc.create_spring(
@@ -930,12 +930,12 @@ def test_get_active_spring_prioriza_formal():
     competia con el sprint formal como 'activo'. El informal no debe
     desplazar al formal; solo se usa como fallback si NO hay formal.
     """
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        svc = SpringGraphService(tmpdir)
+        svc = SpringService(tmpdir)
 
         # Sprint formal del workflow (sin informal)
         svc.create_spring(
@@ -980,12 +980,12 @@ def test_spec_key_unico_por_spring():
     spec_key debe ser unico para que las consultas distingan specs de
     springs diferentes sin colision.
     """
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        svc = SpringGraphService(tmpdir)
+        svc = SpringService(tmpdir)
 
         # Dos springs con la misma spec_id local
         for sid in ("sprint-a", "sprint-b"):
@@ -1016,12 +1016,12 @@ def test_spring_display_name():
     sprint-timestamp) heredado del directorio. display_name da un nombre
     sugerente de lo que se hizo, derivado del goal en backfill si falta.
     """
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        svc = SpringGraphService(tmpdir)
+        svc = SpringService(tmpdir)
 
         # Creación con display_name explícito
         svc.create_spring(
@@ -1101,8 +1101,8 @@ def test_spring_graph_import_legacy():
     PRINCIPIO estructural: sprint-state.json fue eliminado. El estado del
     spring se deriva de .workflow-state.json (motor) o defaults a planning.
     """
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1149,7 +1149,7 @@ def test_spring_graph_import_legacy():
             "sprint-state.json fue eliminado"
         )
 
-        svc = SpringGraphService(tmpdir)
+        svc = SpringService(tmpdir)
         r = svc.import_spring(sprint_dir)
         assert r["imported"] is True and r["specs"] == 2, f"import={r}"
 
@@ -1175,12 +1175,12 @@ def test_spring_graph_import_legacy():
 def test_upsert_spec_append_no_replace():
     """BUG re-planificación: upsert_spec debe APPENDEAR desde SPEC-014+
     cuando el spring ya tiene specs, NO sobrescribir SPEC-001..N."""
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        svc = SpringGraphService(tmpdir)
+        svc = SpringService(tmpdir)
         svc.create_spring("session-demo", goal="Sprint demo", status="active")
 
         # Spring con 13 specs (simula el caso real session-20260731)
@@ -1216,12 +1216,12 @@ def test_upsert_spec_append_no_replace():
 
 def test_upsert_spec_refine_no_duplicate():
     """Re-plan con el MISMO objetivo: refina la spec existente, no duplica."""
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        svc = SpringGraphService(tmpdir)
+        svc = SpringService(tmpdir)
         svc.create_spring("session-demo", goal="Sprint demo", status="active")
         svc.upsert_spec(
             "session-demo",

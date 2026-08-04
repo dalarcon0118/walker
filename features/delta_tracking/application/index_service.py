@@ -11,7 +11,7 @@ import os
 def index_sprint(chain_dir: str, cg) -> int:
     """Indexa las tareas de un sprint en CognitiveGraph via Task(entity).save().
 
-    Lee las specs del DELTA (SpringGraphService — fuente unica) y crea
+    Lee las specs del DELTA (SpringService — fuente unica) y crea
     entidades Task que se almacenan como nodos en el grafo delta de
     CognitiveGraph. El ODM maneja automaticamente el TokenIndex (full-text)
     y los edges.
@@ -34,11 +34,11 @@ def index_sprint(chain_dir: str, cg) -> int:
 
     tasks = []
     try:
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if spring_svc:
             spring_id = spring_svc.get_spring_id(chain_dir)
             spring_svc.ensure_spring_imported(chain_dir, spring_id)

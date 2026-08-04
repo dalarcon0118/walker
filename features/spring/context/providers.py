@@ -34,15 +34,15 @@ class TaskProvider(ContextProvider):
         if not chain_dir:
             return None
 
-        # Fuente unica: delta (SpringGraphService). Fallback a plan.json si
+        # Fuente unica: delta (SpringService). Fallback a plan.json si
         # el spring no esta en el delta.
         specs: list[dict] = []
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
 
-            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            spring_svc = SpringService.from_chain_dir(chain_dir)
             if spring_svc:
                 import os
 
@@ -68,11 +68,11 @@ class TaskProvider(ContextProvider):
         # Indice de la spec actual (SSOT: delta — nodo spring)
         current_idx = 0
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
 
-            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            spring_svc = SpringService.from_chain_dir(chain_dir)
             if spring_svc:
                 import os
 

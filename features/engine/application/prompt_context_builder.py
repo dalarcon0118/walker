@@ -1,7 +1,7 @@
 """application/prompt_context_builder.py — PromptContextBuilder.
 
 SRP: Unica responsabilidad = construir el contexto de placeholders para
-los prompts del workflow, desde el delta (SpringGraphService) y plan.json.
+los prompts del workflow, desde el delta (SpringService) y plan.json.
 
 Produce placeholders como: sprint_goal, task_count, completed_count,
 task_table, risk_table, dependency_graph, predicates_list, files_list,
@@ -79,8 +79,8 @@ class PromptContextBuilder:
 def _load_spring_data(chain_dir: str) -> tuple[dict | None, list[dict]]:
     """Carga spring y tasks desde el delta (fuente unica)."""
     try:
-        from features.delta_tracking.application.spring_graph_service import SpringGraphService
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        from features.delta_tracking.application.services.spring_service import SpringService
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if spring_svc:
             spring_id = os.path.basename(os.path.normpath(chain_dir))
             spring_svc.ensure_spring_imported(chain_dir, spring_id)
@@ -96,11 +96,11 @@ def _load_current_task_index(chain_dir: str) -> int:
     """Lee el indice de la tarea actual desde el contexto del spring."""
     current_idx = 0
     try:
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if spring_svc:
             spring_id = os.path.basename(os.path.normpath(chain_dir))
             spring_svc.ensure_spring_imported(chain_dir, spring_id)

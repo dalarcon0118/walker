@@ -141,8 +141,8 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
     """
     try:
         from libs.path_resolver import resolve_project_root
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
         # Resolver el project_root desde el project.json local (mismo
@@ -161,7 +161,7 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
         #    Usar el spring del chain_dir actual (get_spring_id) con fallback
         #    al activo global: get_active_spring() es ambiguo cuando hay
         #    varios springs con status "active".
-        spring_svc = SpringGraphService(project_root)
+        spring_svc = SpringService(project_root)
         covered, spring = _collect_covered_files(spring_svc, chain_dir)
 
         # 3. Diferencia → trabajo sin capturar

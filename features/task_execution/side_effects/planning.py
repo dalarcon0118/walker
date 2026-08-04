@@ -11,10 +11,10 @@ from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TR
 def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     sprint_dir = ctx.chain_dir or ""
     try:
-        from features.delta_tracking.application.spring_graph_service import SpringGraphService
-        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        from features.delta_tracking.application.services.spring_service import SpringService
+        spring_svc = SpringService.from_chain_dir(sprint_dir)
         if not spring_svc:
-            return {"ok": False, "error": "cannot resolve SpringGraphService"}
+            return {"ok": False, "error": "cannot resolve SpringService"}
         spring_id = spring_svc.get_spring_id(sprint_dir)
         spring = spring_svc.ensure_spring_imported(sprint_dir, spring_id)
         if not spring:
@@ -44,11 +44,11 @@ def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, A
 @as_side_effect(scope=SCOPE_TRACKING)
 def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     sprint_dir = ctx.chain_dir or ""
-    from features.delta_tracking.application.spring_graph_service import SpringGraphService
+    from features.delta_tracking.application.services.spring_service import SpringService
 
-    spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+    spring_svc = SpringService.from_chain_dir(sprint_dir)
     if not spring_svc:
-        return {"ok": False, "error": "cannot resolve SpringGraphService"}
+        return {"ok": False, "error": "cannot resolve SpringService"}
     spring_id = spring_svc.get_spring_id(sprint_dir)
 
     # ── Resolver total de specs ANTES de avanzar (para clamp) ──

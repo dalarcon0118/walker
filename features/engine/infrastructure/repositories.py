@@ -337,7 +337,7 @@ class WorkflowStateRepository:
     ELIMINADO — no hay fallback legacy.
 
     PRINCIPIO: No sabe de plan.json, tasks de sprint, ni nada de negocio.
-    Eso es responsabilidad del SpringGraphService en features/delta_tracking/.
+    Eso es responsabilidad del SpringService en features/delta_tracking/.
     """
 
     STATE_FILE = ".workflow-state.json"

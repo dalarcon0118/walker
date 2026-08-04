@@ -497,7 +497,7 @@ class WorkflowState:
     y saga/compensación natural.
 
     PURA: No contiene datos de negocio (sprint, tasks, project, etc.).
-    El estado de negocio del spring vive en el DeltaGraph (SpringGraphService),
+    El estado de negocio del spring vive en el DeltaGraph (SpringService),
     no en este modelo. sprint-state.json/SprintState fueron eliminados.
     """
 

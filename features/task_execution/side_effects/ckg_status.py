@@ -23,13 +23,13 @@ def update_ckg_status(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str
 
     @safe
     def _update() -> dict:
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if not spring_svc:
-            raise RuntimeError("cannot resolve SpringGraphService")
+            raise RuntimeError("cannot resolve SpringService")
 
         spring_id = spring_svc.get_spring_id(chain_dir)
         spring = spring_svc.ensure_spring_imported(chain_dir, spring_id)

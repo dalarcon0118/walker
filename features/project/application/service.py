@@ -375,14 +375,14 @@ class ProjectService:
             # ── Detectar sprints activos (fuente unica: delta) ──
             active_sprints: list[str] = []
             try:
-                from features.delta_tracking.application.spring_graph_service import (
-                    SpringGraphService,
+                from features.delta_tracking.application.services.spring_service import (
+                    SpringService,
                 )
                 from libs.path_resolver import get_project_dir
 
                 project_root = str(get_project_dir(pid))
                 if os.path.isdir(project_root):
-                    spring_svc = SpringGraphService(project_root)
+                    spring_svc = SpringService(project_root)
                     for spring in spring_svc.list_springs():
                         st = spring.get("status", "")
                         if st in ("active", "in_progress", "planning"):
@@ -398,11 +398,11 @@ class ProjectService:
                                     if not (sprint_entry / "plan.json").is_file():
                                         continue
                                     # Estado desde el delta si está indexado
-                                    from features.delta_tracking.application.spring_graph_service import (
-                                        SpringGraphService,
+                                    from features.delta_tracking.application.services.spring_service import (
+                                        SpringService,
                                     )
 
-                                    spring_svc = SpringGraphService(
+                                    spring_svc = SpringService(
                                         str(projects_dir)
                                     )
                                     spring = spring_svc.get_spring(sprint_entry.name)
@@ -442,14 +442,14 @@ class ProjectService:
         """
         # Fuente unica: delta — nodo spring con status active
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
             from libs.path_resolver import get_project_dir
 
             project_root = str(get_project_dir(project_id))
             if os.path.isdir(project_root):
-                spring_svc = SpringGraphService(project_root)
+                spring_svc = SpringService(project_root)
                 active = spring_svc.get_active_spring()
                 if active:
                     spring_id = active.get("_id", "")
@@ -498,11 +498,11 @@ class ProjectService:
                     if node == "SPRINT" and sub in ("CLOSE", "CLOSED"):
                         continue
                     # Estado del spring desde el delta (si indexado)
-                    from features.delta_tracking.application.spring_graph_service import (
-                        SpringGraphService,
+                    from features.delta_tracking.application.services.spring_service import (
+                        SpringService,
                     )
 
-                    spring_svc = SpringGraphService.from_chain_dir(str(entry))
+                    spring_svc = SpringService.from_chain_dir(str(entry))
                     if spring_svc:
                         spring = spring_svc.get_spring(entry.name)
                         st = spring.get("status", "") if spring else ""
@@ -687,12 +687,12 @@ class ProjectService:
             if os.path.exists(os.path.join(cwd, ".workflow-state.json")):
                 return cwd
             try:
-                from features.delta_tracking.application.spring_graph_service import (
-                    SpringGraphService,
+                from features.delta_tracking.application.services.spring_service import (
+                    SpringService,
                 )
 
-                if SpringGraphService.from_chain_dir(cwd) is not None:
-                    spring_svc = SpringGraphService.from_chain_dir(cwd)
+                if SpringService.from_chain_dir(cwd) is not None:
+                    spring_svc = SpringService.from_chain_dir(cwd)
                     if (
                         spring_svc
                         and spring_svc.get_spring(spring_svc.get_spring_id(cwd))

@@ -26,7 +26,7 @@ from ..infrastructure.repositories import PlanRepository
 class PlanSprintUseCase:
     """Creates a new sprint: spring + specs en el delta (fuente unica).
 
-    PRINCIPIO estructural: el DeltaGraph (SpringGraphService) es la unica
+    PRINCIPIO estructural: el DeltaGraph (SpringService) es la unica
     fuente de verdad del spring. Crea el nodo spring + nodos spec en el
     indice delta y regenera plan.json como proyeccion de compatibilidad.
     El estado del motor (.workflow-state.json) lo crea el engine.
@@ -56,14 +56,14 @@ class PlanSprintUseCase:
         project_id = record.project_id if record else ""
 
         # ── Fuente unica: crear spring + specs en el delta ────────────
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
         project_root = _resolve_project_root(project_id) or os.path.dirname(
             os.path.dirname(sprint_dir)
         )
-        spring_svc = SpringGraphService(project_root)
+        spring_svc = SpringService(project_root)
         spring_svc.create_spring(
             sprint_id,
             goal=goal,
@@ -72,7 +72,7 @@ class PlanSprintUseCase:
             session_id=ctx.session_id or "",
         )
         plan_specs = []
-        # Batch upsert via SpringGraphService (1 serializacion, no N)
+        # Batch upsert via SpringService (1 serializacion, no N)
         spring_svc.upsert_specs_batch(sprint_id, [
             {
                 "objective": item.get("objective", ""),
@@ -141,15 +141,15 @@ class SpecifySpecUseCase:
         sprint_dir = ctx.chain_dir or ""
         plan_repo = PlanRepository()
 
-        # Fuente unica: delta (SpringGraphService). Fallback a plan.json
+        # Fuente unica: delta (SpringService). Fallback a plan.json
         # si el spring no esta indexado en el delta.
         spring_svc = None
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
 
-            spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+            spring_svc = SpringService.from_chain_dir(sprint_dir)
             if spring_svc:
                 import os
 
@@ -294,11 +294,11 @@ class AdvanceSpecIndexUseCase:
         current_idx = _get_current_spec_index(sprint_dir)
         new_idx = current_idx + 1
         # SSOT: el contexto de negocio vive en el delta (nodo spring)
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        spring_svc = SpringService.from_chain_dir(sprint_dir)
         if spring_svc:
             spring_id = spring_svc.get_spring_id(sprint_dir)
             spring_svc.ensure_spring_imported(sprint_dir, spring_id)
@@ -336,7 +336,7 @@ class ShowDashboardUseCase:
     """Returns the current sprint dashboard state.
 
     PRINCIPIO: el estado del spring (goal, specs, estados) vive en el
-    DELTA (SpringGraphService), fuente unica. No lee sprint-state.json.
+    DELTA (SpringService), fuente unica. No lee sprint-state.json.
     """
 
     @staticmethod
@@ -351,11 +351,11 @@ class ShowDashboardUseCase:
                 "completed_count": 0,
             }
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
 
-            spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+            spring_svc = SpringService.from_chain_dir(sprint_dir)
             if not spring_svc:
                 return {
                     "sprint_id": "",
@@ -403,13 +403,13 @@ class CloseSprintUseCase:
         sprint_dir = ctx.chain_dir or ""
         if not sprint_dir:
             raise ValueError("chain_dir not available")
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        spring_svc = SpringService.from_chain_dir(sprint_dir)
         if not spring_svc:
-            raise ValueError("cannot resolve SpringGraphService")
+            raise ValueError("cannot resolve SpringService")
         spring_id = spring_svc.get_spring_id(sprint_dir)
         spring = spring_svc.ensure_spring_imported(sprint_dir, spring_id)
         if not spring:
@@ -466,7 +466,7 @@ class UpdateSprintStatusUseCase:
     """Updates sprint status: planning → active → reviewing → closed.
 
     PRINCIPIO: el estado del spring vive en el delta. Mutar el status del
-    nodo spring via SpringGraphService (fuente unica). No escribe
+    nodo spring via SpringService (fuente unica). No escribe
     sprint-state.json.
     """
 
@@ -476,13 +476,13 @@ class UpdateSprintStatusUseCase:
         new_status = data.get("status", "")
         if not new_status:
             raise ValueError("Requires --status")
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        spring_svc = SpringService.from_chain_dir(sprint_dir)
         if not spring_svc:
-            raise ValueError("cannot resolve SpringGraphService")
+            raise ValueError("cannot resolve SpringService")
         spring_id = spring_svc.get_spring_id(sprint_dir)
         spring = spring_svc.ensure_spring_imported(sprint_dir, spring_id)
         if not spring:
@@ -613,14 +613,14 @@ def _get_current_spec_index(sprint_dir: str) -> int:
     """Retorna el índice de la spec actual desde el DELTA (fuente unica).
 
     PRINCIPIO: el estado de negocio del spring vive en el nodo spring del
-    delta (SpringGraphService.get_spring_context). No se lee sprint-state.json.
+    delta (SpringService.get_spring_context). No se lee sprint-state.json.
     """
     try:
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(sprint_dir)
+        spring_svc = SpringService.from_chain_dir(sprint_dir)
         if not spring_svc:
             return 0
         spring_id = spring_svc.get_spring_id(sprint_dir)

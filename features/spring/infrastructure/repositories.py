@@ -3,7 +3,7 @@ infrastructure/repositories.py — Persistencia de plan.json.
 
 PRINCIPIO estructural: el estado de negocio del spring (goal, status,
 current_spec_index, task_id, specs con estado) vive en el DELTA
-(SpringGraphService — DeltaGraph). plan.json es la PROYECCION derivada
+(SpringService — DeltaGraph). plan.json es la PROYECCION derivada
 del delta (regenerada por sync_plan_projection). sprint-state.json fue
 ELIMINADO como archivo de estado.
 """

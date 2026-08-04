@@ -45,11 +45,11 @@ def _has_sprint_state(chain_dir: str) -> bool:
     aqui solo se confirma que el nodo spring existe.
     """
     try:
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if not spring_svc:
             return False
         spring_id = spring_svc.get_spring_id(chain_dir)

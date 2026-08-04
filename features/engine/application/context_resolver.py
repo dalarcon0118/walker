@@ -123,8 +123,8 @@ class ContextResolver:
         if not chain_dir:
             return None
         try:
-            from features.delta_tracking.application.spring_graph_service import SpringGraphService
-            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+            from features.delta_tracking.application.services.spring_service import SpringService
+            spring_svc = SpringService.from_chain_dir(chain_dir)
             if not spring_svc:
                 return None
             spring_id = spring_svc.get_spring_id(chain_dir)

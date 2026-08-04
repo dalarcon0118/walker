@@ -285,11 +285,11 @@ class WorkflowAPI:
         if self._chain_dir:
             # Fuente unica: el delta. task_id = spec actual del spring.
             try:
-                from features.delta_tracking.application.spring_graph_service import (
-                    SpringGraphService,
+                from features.delta_tracking.application.services.spring_service import (
+                    SpringService,
                 )
 
-                spring_svc = SpringGraphService.from_chain_dir(self._chain_dir)
+                spring_svc = SpringService.from_chain_dir(self._chain_dir)
                 if spring_svc:
                     spring_id = spring_svc.get_spring_id(self._chain_dir)
                     spring_svc.ensure_spring_imported(self._chain_dir, spring_id)

@@ -17,7 +17,7 @@ FLUJO:
   2. Resolver/crear el sprint informal del dia: data/spring/session-YYYYMMDD/.
      - Si no existe en el delta, crear el nodo spring + specs (fuente unica).
      - Si existe, reutilizar (misma fecha = mismo sprint).
-  3. Agregar la tarea como spec via SpringGraphService.add_spec (merge, no overwrite).
+  3. Agregar la tarea como spec via SpringService.add_spec (merge, no overwrite).
   4. Reindexar el sprint en el indice delta via DeltaGraphService.index_sprint.
 
 PRINCIPIO estructural: el DeltaGraph es la fuente unica del spring.
@@ -161,11 +161,11 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         sprint_id = f"session-{date_str}"
         sprint_dir = _sprint_dir(project_root, date_str)
 
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
-        spring_svc = SpringGraphService(project_root)
+        spring_svc = SpringService(project_root)
 
         # Crear/actualizar el nodo spring en el delta
         existing = spring_svc.get_spring(sprint_id)
@@ -186,7 +186,7 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             existing_data = dict(existing)
             if not existing_data.get("informal"):
                 existing_data["informal"] = True
-                spring_svc._store(sprint_id, existing_data)
+                spring_svc.update_spring(sprint_id, existing_data)
 
         # 3. Agregar la tarea como spec en el delta (fuente unica)
         result = spring_svc.add_spec(

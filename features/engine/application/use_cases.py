@@ -1121,15 +1121,15 @@ def _is_informal_sprint(chain_dir: str, project_id: str) -> bool:
         return False
     try:
         from libs.path_resolver import get_project_dir
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
         )
 
         project_root = str(get_project_dir(project_id))
         if not os.path.isdir(project_root):
             return False
         spring_id = _sprint_id_of(chain_dir)
-        spring_svc = SpringGraphService(project_root)
+        spring_svc = SpringService(project_root)
         spring = spring_svc.get_spring(spring_id)
         return bool(spring and spring.get("informal"))
     except Exception:
@@ -1244,11 +1244,11 @@ def _resolve_decision_gate(
             try:
                 chain_dir = state.context.get("chain_dir", "")
                 if chain_dir:
-                    from features.delta_tracking.application.spring_graph_service import (
-                        SpringGraphService,
+                    from features.delta_tracking.application.services.spring_service import (
+                        SpringService,
                     )
 
-                    spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+                    spring_svc = SpringService.from_chain_dir(chain_dir)
                     if spring_svc:
                         spring_id = spring_svc.get_spring_id(chain_dir)
                         spring_svc.ensure_spring_imported(chain_dir, spring_id)

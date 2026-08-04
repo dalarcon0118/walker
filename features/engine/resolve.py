@@ -46,17 +46,17 @@ def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[
     """Detect if sprint has pending tasks during close check.
 
     PRINCIPIO: el estado de negocio del spring (specs y sus estados) vive
-    en el DELTA (SpringGraphService). No se lee sprint-state.json.
+    en el DELTA (SpringService). No se lee sprint-state.json.
     """
     if not chain_dir:
         return False, []
 
-    from features.delta_tracking.application.spring_graph_service import (
-        SpringGraphService,
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
     )
 
     try:
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
+        spring_svc = SpringService.from_chain_dir(chain_dir)
         if not spring_svc:
             return False, []
         spring_id = spring_svc.get_spring_id(chain_dir)
