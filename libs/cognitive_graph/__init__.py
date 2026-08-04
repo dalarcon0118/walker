@@ -1017,7 +1017,6 @@ class CognitiveGraph:
             g = repo.load_graph()
             results = []
             filters = query or {}
-            # Metacampos de control (max_results/size): no son filtros de datos.
             max_results = (
                 filters.get("max_results")
                 or filters.get("size")
@@ -1027,7 +1026,13 @@ class CognitiveGraph:
                 max_results = int(max_results) if max_results else 50
             except (TypeError, ValueError):
                 max_results = 50
-            skip_keys = {"max_results", "size", "max_events", "_index", "query", "text"}
+            _from_raw = filters.get("_from") or filters.get("from") or 0
+            try:
+                _from = max(int(_from_raw), 0)
+            except (TypeError, ValueError):
+                _from = 0
+            skip_keys = {"max_results", "size", "max_events", "_index", "query",
+                         "text", "_from", "from"}
             for nid, node in g.nodes.items():
                 match = True
                 for k, v in filters.items():
@@ -1060,7 +1065,12 @@ class CognitiveGraph:
             return {
                 "took": 0,
                 "index": "cpg",
-                "hits": {"total": len(results), "hits": results[:max_results]},
+                "hits": {
+                    "total": len(results),
+                    "hits": results[_from : _from + max_results],
+                    "from": _from,
+                    "size": max_results,
+                },
                 "schema": {},
             }
 
@@ -1122,15 +1132,20 @@ class CognitiveGraph:
             events, seen_ids = self._collect_trace_events()
             text_query, remaining, max_results = self._prepare_trace_filters(filters)
             results = self._filter_trace_events(events, text_query, remaining)
-            if max_results:
-                results = results[: int(max_results)]
+            _from_raw = filters.get("_from") or filters.get("from") or 0
+            try:
+                _from = max(int(_from_raw), 0)
+            except (TypeError, ValueError):
+                _from = 0
 
             return {
                 "took": 0,
                 "index": "trace",
                 "hits": {
                     "total": len(results),
-                    "hits": results[: max_results or 50],
+                    "hits": results[_from : _from + (max_results or 50)],
+                    "from": _from,
+                    "size": max_results or 50,
                 },
                 "schema": {
                     "fields": {
