@@ -88,7 +88,8 @@ class Index:
         self._type_index: dict[str, set[str]] = {}
         self._field_index: dict[tuple[str, str], set[str]] = {}
         self._loaded = False
-        self._write_locked = False  # guarda reentrada de _save dentro de _load
+        self._write_locked = False
+        self._file_mtime: float = 0  # mtime del archivo al cargar (E3: stale detection)
 
     # ── Helpers de indices secundarios ──────────────────────────────
 
@@ -161,8 +162,22 @@ class Index:
             raise
 
     def _load(self) -> None:
+        # E3: si ya cargado, verificar si otro proceso escribio (stale
+        # detection via mtime). Si el archivo cambio, recargar para no
+        # leer datos viejos. Las escrituras son atomicas (tmp+replace)
+        # asi que el archivo nunca esta corrupto a medio escribir.
         if self._loaded:
+            path = self._path
+            if os.path.exists(path):
+                current_mtime = os.path.getmtime(path)
+                if current_mtime > self._file_mtime:
+                    self._loaded = False  # forzar recarga
             return
+        if not self._loaded:
+            self._do_load()
+
+    def _do_load(self) -> None:
+        """Carga real del indice desde disco (sin check de stale)."""
         path = self._path
         if os.path.exists(path):
             try:
@@ -249,6 +264,9 @@ class Index:
                 self._type_index.clear()
                 self._field_index.clear()
         self._loaded = True
+        # E3: track mtime para stale detection en multi-proceso
+        if os.path.exists(self._path):
+            self._file_mtime = os.path.getmtime(self._path)
 
     def _save(self) -> None:
         path = self._path
@@ -284,6 +302,8 @@ class Index:
                     f.flush()
                     os.fsync(f.fileno())
             os.replace(tmp_path, path)
+            # E3: actualizar mtime tras escritura (consistencia multi-proceso)
+            self._file_mtime = os.path.getmtime(path)
         finally:
             if not self._write_locked:
                 self._release_write_lock()
