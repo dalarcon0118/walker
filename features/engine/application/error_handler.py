@@ -4,13 +4,16 @@ SRP: Unica responsabilidad = manejar errores del workflow segun la
 estrategia configurada (TASK-009): retry, block+message, log+continue,
 compensate, escalate, on_failure.
 
-Extraido de OrchestrationService (god class). El OrchestrationService
-queda como fachada y delega aqui.
+Refactorizado para usar Result pattern (dry-python/returns) internamente.
+El API externo sigue retornando dicts para compatibilidad.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
+
+from returns.result import Success, Failure, safe
+from returns.pipeline import is_successful
 
 from libs.shared_domain import ExecutionContext
 from ..domain.errors import (
@@ -23,10 +26,6 @@ from ..domain.errors import (
 
 
 # ── Puente de nombres: excepciones del engine ↔ claves de la plantilla ──
-# La plantilla workflow.v3 usa nombres genericos en retry.on_error
-# (TaskFailedError, SchemaViolation, PreconditionError, ...). El engine
-# lanza clases concretas (AutoAdvanceError, ValidationError, ...).
-# Este mapa conecta ambas nomenclaturas.
 _ERROR_CLASS_BRIDGE: dict[str, str] = {
     "AutoAdvanceError": "TaskFailedError",
     "TaskNotFoundError": "TaskFailedError",
@@ -65,25 +64,13 @@ class ErrorHandler:
         sub_state: Any | None = None,
         error: Exception | None = None,
     ) -> ErrorStrategy:
-        """Resuelve la estrategia para un tipo de error.
-
-        Orden de precedencia:
-          1. sub_state.retry.on_error[error_type] (config del sub-estado)
-          2. sub_state.retry.on_error[class_name] (config por nombre de excepcion,
-             ej: 'TaskFailedError')
-          3. DEFAULT_STRATEGIES[error_type] (default global)
-          4. ErrorStrategy.ON_FAILURE (ultimo recurso)
-        """
+        """Resuelve la estrategia para un tipo de error."""
         if sub_state and sub_state.retry and sub_state.retry.on_error:
             on_error = sub_state.retry.on_error
-            # 1. Clave por ErrorType.value (ej: 'execution')
             strat_name = on_error.get(error_type.value)
-            # 2. Clave por nombre de clase de excepcion (ej: 'AutoAdvanceError')
             if not strat_name and error is not None:
                 class_name = type(error).__name__
                 strat_name = on_error.get(class_name)
-            # 3. Bridge: nombre del engine -> nombre generico de la plantilla
-            #    (AutoAdvanceError -> TaskFailedError, ValidationError -> SchemaViolation)
             if not strat_name and error is not None:
                 bridge_key = _ERROR_CLASS_BRIDGE.get(type(error).__name__)
                 if bridge_key:
@@ -102,7 +89,11 @@ class ErrorHandler:
         sub_state: Any | None = None,
         fields: dict | None = None,
     ) -> dict:
-        """Maneja un error segun la estrategia configurada."""
+        """Maneja un error segun la estrategia configurada.
+
+        Returns:
+            dict con ok, action, error_type, strategy, message, etc.
+        """
         error_type = self.classify(error)
         strategy = self.resolve_strategy(error_type, sub_state, error=error)
 
@@ -114,190 +105,27 @@ class ErrorHandler:
 
         # ── BLOCK+MESSAGE: retornar error al LLM ────────────────
         if strategy == ErrorStrategy.BLOCK_MESSAGE:
-            # Incluir contexto del error (details/errors/stderr) para que
-            # el agente sepa exactamente qué falló y cómo corregirlo.
-            details = error.context if isinstance(error, WorkflowEngineError) else {}
-            # Construir mensaje con detalles específicos cuando existan
-            msg = str(error)
-            if details:
-                # Detalls de TransitionBlockedError: lista de precondiciones fallidas
-                if "details" in details and isinstance(details["details"], list):
-                    msg += " — Fallaron: " + "; ".join(details["details"])
-                # Errores de ValidationError: campos inválidos
-                if "errors" in details and isinstance(details["errors"], list) and details["errors"]:
-                    msg += " — Errores: " + "; ".join(str(e) for e in details["errors"])
-                # Stderr de GateValidationError
-                if "stderr" in details and details["stderr"]:
-                    msg += f" — Stderr: {details['stderr'][:300]}"
-            return {
-                "ok": False,
-                "action": "error",
-                "error_type": error_type.value,
-                "strategy": "block+message",
-                "message": msg,
-                "error": msg,
-                "details": details,
-            }
+            return self._block_message(error, error_type, error_context)
 
         # ── LOG+CONTINUE: loggear y continuar ────────────────────
         if strategy == ErrorStrategy.LOG_CONTINUE:
-            logging.warning(
-                "Error continuado (log+continue): %s - %s",
-                error_type.value,
-                error,
-            )
-            return {
-                "ok": True,
-                "action": "continue",
-                "error_type": error_type.value,
-                "strategy": "log+continue",
-                "warning": str(error),
-            }
+            return self._log_continue(error, error_type)
 
-        # ── RETRY: reintentar (max sub_state.retry.max_attempts) ─
+        # ── RETRY: reintentar con Result pattern ─────────────────
         if strategy == ErrorStrategy.RETRY:
-            max_attempts = (
-                sub_state.retry.max_attempts if sub_state and sub_state.retry else 3
-            )
-            for attempt in range(max_attempts):
-                try:
-                    # Reintentar con LOS MISMOS fields (sin fields el retry
-                    # ejecutaria la task con data vacia y sobrescribiria el estado)
-                    result = self._submit_uc.execute(ctx, fields=fields or {})
-                    result["error_context"] = error_context
-                    result["retry_count"] = attempt + 1
-                    return result
-                except WorkflowEngineError:
-                    if attempt < max_attempts - 1:
-                        continue
-                    return {
-                        "ok": False,
-                        "action": "error",
-                        "error_type": error_type.value,
-                        "strategy": "retry_failed",
-                        "message": f"Retry agotado tras {max_attempts} intentos: {error}",
-                        "original_error": str(error),
-                    }
-                except Exception as e2:
-                    return {
-                        "ok": False,
-                        "action": "error",
-                        "error_type": error_type.value,
-                        "strategy": "retry_failed",
-                        "message": f"Retry fallo: {e2}",
-                        "original_error": str(error),
-                    }
-            return {
-                "ok": False,
-                "action": "error",
-                "error_type": error_type.value,
-                "strategy": "retry_failed",
-                "message": f"Retry agotado: {error}",
-            }
+            return self._retry(ctx, error, sub_state, fields, error_type, error_context)
 
         # ── COMPENSATE: compensar side-effects ───────────────────
         if strategy == ErrorStrategy.COMPENSATE:
-            if sub_state and sub_state.side_effects:
-                self._side_effect_engine.compensate(
-                    ctx,
-                    [],  # No previous results to compensate
-                    0,  # Failed at index 0
-                )
-            return {
-                "ok": False,
-                "action": "error",
-                "error_type": error_type.value,
-                "strategy": "compensate",
-                "message": f"Compensado tras error: {error}",
-            }
+            return self._compensate(ctx, error, sub_state, error_type)
 
         # ── ESCALATE: enviar a REFINE.ESCALATION ────────────────
         if strategy == ErrorStrategy.ESCALATE:
-            try:
-                transition_result = self._transition_uc.execute(
-                    ctx,
-                    gate_name="escalate",
-                    reason=f"Error {error_type.value}: {error}",
-                )
-                return {
-                    "ok": False,
-                    "action": "escalated",
-                    "error_type": error_type.value,
-                    "strategy": "escalate",
-                    "to_node": transition_result.get("to_node", "REFINE"),
-                    "message": f"Escalado a REFINE: {error}",
-                }
-            except Exception as e2:
-                return {
-                    "ok": False,
-                    "action": "error",
-                    "error_type": error_type.value,
-                    "strategy": "escalate_failed",
-                    "message": f"Escalation fallo: {e2}",
-                }
+            return self._escalate(ctx, error, error_type)
 
         # ── ON_FAILURE: saltar al sub-estado indicado ─────────────
-        # on_failure es un SUB-ESTADO destino (ej: PLAN_APPROVAL.on_failure=PLANNING),
-        # NO una gate de transicion. El workflow salta a ese sub-estado del
-        # mismo nodo (o al sub-estado del nodo REFINE si esta en otro nodo).
         if strategy == ErrorStrategy.ON_FAILURE:
-            if sub_state and sub_state.on_failure:
-                try:
-                    from ..domain.services import AdvanceService
-                    from ..infrastructure.repositories import WorkflowRepository, WorkflowStateRepository
-
-                    wf_repo = self._workflow_repo or WorkflowRepository()
-                    st_repo = self._state_repo or WorkflowStateRepository()
-                    graph = wf_repo.load(ctx.chain_dir)
-                    state = st_repo.load(ctx.chain_dir)
-
-                    # 1. Intentar saltar al sub-estado del MISMO nodo
-                    jumped = AdvanceService.jump_to_sub_state(
-                        state, graph, sub_state.on_failure
-                    )
-                    if jumped is not None:
-                        st_repo.save(ctx.chain_dir, jumped)
-                        return {
-                            "ok": False,
-                            "action": "on_failure",
-                            "error_type": error_type.value,
-                            "strategy": "on_failure",
-                            "to": sub_state.on_failure,
-                            "to_node": jumped.current_node,
-                            "message": f"Redirigido a {sub_state.on_failure} por on_failure: {error}",
-                        }
-
-                    # 2. Si no es sub-estado del nodo actual, intentar gate de
-                    #    transicion (ej: on_failure='DIAGNOSE' en otro nodo)
-                    of_result = self._transition_uc.execute(
-                        ctx,
-                        gate_name=sub_state.on_failure,
-                        reason=f"on_failure tras {error_type.value}: {error}",
-                    )
-                    return {
-                        "ok": False,
-                        "action": "on_failure",
-                        "error_type": error_type.value,
-                        "strategy": "on_failure",
-                        "to": sub_state.on_failure,
-                        "to_node": of_result.get("to_node", ""),
-                        "message": f"Redirigido por on_failure: {error}",
-                    }
-                except Exception as e2:
-                    return {
-                        "ok": False,
-                        "action": "error",
-                        "error_type": error_type.value,
-                        "strategy": "on_failure_failed",
-                        "message": f"on_failure fallo: {e2}",
-                    }
-            return {
-                "ok": False,
-                "action": "error",
-                "error_type": error_type.value,
-                "strategy": "on_failure_no_route",
-                "message": str(error),
-            }
+            return self._on_failure(ctx, error, sub_state, error_type)
 
         return {
             "ok": False,
@@ -306,3 +134,191 @@ class ErrorHandler:
             "strategy": strategy.value,
             "message": str(error),
         }
+
+    # ── Helpers privados (cada estrategia es un método SRP) ──────────
+
+    def _block_message(
+        self, error: Exception, error_type: ErrorType, error_context: dict
+    ) -> dict:
+        """BLOCK+MESSAGE: retornar error al LLM con contexto."""
+        details = error.context if isinstance(error, WorkflowEngineError) else {}
+        msg = str(error)
+        if details:
+            if "details" in details and isinstance(details["details"], list):
+                msg += " — Fallaron: " + "; ".join(details["details"])
+            if "errors" in details and isinstance(details["errors"], list) and details["errors"]:
+                msg += " — Errores: " + "; ".join(str(e) for e in details["errors"])
+            if "stderr" in details and details["stderr"]:
+                msg += f" — Stderr: {details['stderr'][:300]}"
+        return {
+            "ok": False,
+            "action": "error",
+            "error_type": error_type.value,
+            "strategy": "block+message",
+            "message": msg,
+            "error": msg,
+            "details": details,
+        }
+
+    def _log_continue(self, error: Exception, error_type: ErrorType) -> dict:
+        """LOG+CONTINUE: loggear y continuar."""
+        logging.warning(
+            "Error continuado (log+continue): %s - %s",
+            error_type.value,
+            error,
+        )
+        return {
+            "ok": True,
+            "action": "continue",
+            "error_type": error_type.value,
+            "strategy": "log+continue",
+            "warning": str(error),
+        }
+
+    def _retry(
+        self,
+        ctx: ExecutionContext,
+        error: Exception,
+        sub_state: Any | None,
+        fields: dict | None,
+        error_type: ErrorType,
+        error_context: dict,
+    ) -> dict:
+        """RETRY: reintentar con @safe para convertir excepciones en Failure."""
+        max_attempts = (
+            sub_state.retry.max_attempts if sub_state and sub_state.retry else 3
+        )
+
+        @safe
+        def _execute_retry(attempt_num: int) -> dict:
+            """Ejecuta el submit con @safe para capturar excepciones."""
+            result = self._submit_uc.execute(ctx, fields=fields or {})
+            result["error_context"] = error_context
+            result["retry_count"] = attempt_num + 1
+            return result
+
+        for attempt in range(max_attempts):
+            result = _execute_retry(attempt)
+
+            if is_successful(result):
+                return result.value_or({})
+
+        # Todos los reintentos fallaron
+        last_error = result.failure() if not is_successful(result) else error
+        return {
+            "ok": False,
+            "action": "error",
+            "error_type": error_type.value,
+            "strategy": "retry_failed",
+            "message": f"Retry agotado tras {max_attempts} intentos: {error}",
+            "original_error": str(error),
+        }
+
+    def _compensate(
+        self, ctx: ExecutionContext, error: Exception, sub_state: Any | None, error_type: ErrorType
+    ) -> dict:
+        """COMPENSATE: compensar side-effects."""
+        if sub_state and sub_state.side_effects:
+            self._side_effect_engine.compensate(ctx, [], 0)
+        return {
+            "ok": False,
+            "action": "error",
+            "error_type": error_type.value,
+            "strategy": "compensate",
+            "message": f"Compensado tras error: {error}",
+        }
+
+    def _escalate(self, ctx: ExecutionContext, error: Exception, error_type: ErrorType) -> dict:
+        """ESCALATE: enviar a REFINE.ESCALATION."""
+        @safe
+        def _do_escalate() -> dict:
+            return self._transition_uc.execute(
+                ctx,
+                gate_name="escalate",
+                reason=f"Error {error_type.value}: {error}",
+            )
+
+        result = _do_escalate()
+        if is_successful(result):
+            transition_result = result.value_or({})
+            return {
+                "ok": False,
+                "action": "escalated",
+                "error_type": error_type.value,
+                "strategy": "escalate",
+                "to_node": transition_result.get("to_node", "REFINE"),
+                "message": f"Escalado a REFINE: {error}",
+            }
+        else:
+            e2 = result.failure()
+            return {
+                "ok": False,
+                "action": "error",
+                "error_type": error_type.value,
+                "strategy": "escalate_failed",
+                "message": f"Escalation fallo: {e2}",
+            }
+
+    def _on_failure(
+        self, ctx: ExecutionContext, error: Exception, sub_state: Any | None, error_type: ErrorType
+    ) -> dict:
+        """ON_FAILURE: saltar al sub-estado indicado."""
+        if not sub_state or not sub_state.on_failure:
+            return {
+                "ok": False,
+                "action": "error",
+                "error_type": error_type.value,
+                "strategy": "on_failure_no_route",
+                "message": str(error),
+            }
+
+        @safe
+        def _do_jump() -> dict:
+            from ..domain.services import AdvanceService
+            from ..infrastructure.repositories import WorkflowRepository, WorkflowStateRepository
+
+            wf_repo = self._workflow_repo or WorkflowRepository()
+            st_repo = self._state_repo or WorkflowStateRepository()
+            graph = wf_repo.load(ctx.chain_dir)
+            state = st_repo.load(ctx.chain_dir)
+
+            jumped = AdvanceService.jump_to_sub_state(state, graph, sub_state.on_failure)
+            if jumped is not None:
+                st_repo.save(ctx.chain_dir, jumped)
+                return {
+                    "ok": False,
+                    "action": "on_failure",
+                    "error_type": error_type.value,
+                    "strategy": "on_failure",
+                    "to": sub_state.on_failure,
+                    "to_node": jumped.current_node,
+                    "message": f"Redirigido a {sub_state.on_failure} por on_failure: {error}",
+                }
+
+            of_result = self._transition_uc.execute(
+                ctx,
+                gate_name=sub_state.on_failure,
+                reason=f"on_failure tras {error_type.value}: {error}",
+            )
+            return {
+                "ok": False,
+                "action": "on_failure",
+                "error_type": error_type.value,
+                "strategy": "on_failure",
+                "to": sub_state.on_failure,
+                "to_node": of_result.get("to_node", ""),
+                "message": f"Redirigido por on_failure: {error}",
+            }
+
+        result = _do_jump()
+        if is_successful(result):
+            return result.value_or({})
+        else:
+            e2 = result.failure()
+            return {
+                "ok": False,
+                "action": "error",
+                "error_type": error_type.value,
+                "strategy": "on_failure_failed",
+                "message": f"on_failure fallo: {e2}",
+            }

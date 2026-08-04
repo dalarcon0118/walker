@@ -9,14 +9,17 @@ Pipeline:
   3. Teoria de grafos: XOR-split resuelto por intent (auto-transition)
   4. Registro NodeExecution (saga log) + tracing + eventos on:{}
 
-Extraido de OrchestrationService (god class). El OrchestrationService
-queda como fachada y delega aqui.
+Refactorizado para usar Result pattern (dry-python/returns) internamente.
+El API externo sigue retornando dicts para compatibilidad.
 """
 
 from __future__ import annotations
 
 import time
 from typing import Any
+
+from returns.result import Success, Failure, safe
+from returns.pipeline import is_successful
 
 from libs.shared_domain import ExecutionContext
 
@@ -43,40 +46,28 @@ class SubmitOrchestrator:
         self._dispatch_events_from_side_effects = dispatch_events_from_side_effects
 
     def _check_required_tools_gate(self, ctx: Any, sub_state: Any) -> dict:
-        """Verifica el gate de auto-consulta (required_tools) antes del submit.
-
-        Un sub-estado con required_tools declara capas que el agente DEBE
-        consultar antes de completar el paso (convención CKG doc-28:
-        "si el contrato falla, bloquea e informa; el agente reintenta").
-
-        La evidencia se lee del TraceGraph via TraceLogger.has_kg_query()
-        (sin IO directo en el engine — convención CKG doc-25): si existe un
-        evento kg_query para las capas requeridas asociado a la task/session
-        actual, el gate pasa. Si no, se bloquea con un mensaje que indica
-        qué herramientas invocar y cómo.
-
-        Returns:
-            {"ok": True} si cumple, o un dict de bloqueo con
-            action="gate_blocked", message y error_type.
-        """
+        """Verifica el gate de auto-consulta (required_tools) antes del submit."""
         required = [t for t in (sub_state.required_tools or []) if isinstance(t, dict)]
         layers = {t.get("id", "") for t in required if t.get("id")}
         if not layers:
             return {"ok": True}
 
-        try:
-            satisfied = self._tracer.has_kg_query(
+        @safe
+        def _check_trace() -> bool:
+            return self._tracer.has_kg_query(
                 ctx.chain_dir,
                 task_id=ctx.task_id or "",
                 session_id=ctx.session_id or "",
                 layers=layers,
             )
-        except Exception as e:
-            # Fail-open en errores del tracer (no bloquear por infra)
-            return {"ok": True, "warn": f"trace check failed: {e}"}
 
-        if satisfied:
+        result = _check_trace()
+        if is_successful(result) and result.value_or(False):
             return {"ok": True, "layers_checked": sorted(layers)}
+
+        # Fail-open en errores del tracer
+        if not is_successful(result):
+            return {"ok": True, "warn": f"trace check failed: {result.failure()}"}
 
         hints = "; ".join(
             f"{t.get('id', '?')}: {t.get('command_hint', '')}" for t in required
@@ -103,7 +94,7 @@ class SubmitOrchestrator:
         """Ejecuta el pipeline completo de submit."""
         _start_ts = time.time()
 
-        # ── Capturar sub-estado ORIGEN antes de ejecutar (puede auto-avanzar) ─
+        # ── Capturar sub-estado ORIGEN antes de ejecutar ──────────────
         _before_state = self._state_repo.load(ctx.chain_dir)
         _orig_node = _before_state.current_node
         _orig_sub = _before_state.current_sub_state
@@ -115,7 +106,7 @@ class SubmitOrchestrator:
         _orig_exec_type = _orig_sub_def.execution.value if _orig_sub_def else "manual"
         _orig_action = _orig_sub_def.action if _orig_sub_def else ""
 
-        # ── GATE: required_tools (auto-consulta obligatoria) ──────────────
+        # ── GATE: required_tools ─────────────────────────────────────
         if _orig_sub_def and _orig_sub_def.required_tools:
             gate_check = self._check_required_tools_gate(ctx, _orig_sub_def)
             if not gate_check.get("ok", False):
@@ -129,7 +120,7 @@ class SubmitOrchestrator:
                 )
                 return gate_check
 
-        # ── GATE: trabajo sin capturar (anti-pérdida al salir del sprint) ──
+        # ── GATE: trabajo sin capturar ───────────────────────────────
         _SPRINT_EXIT_SUBSTATES = {"REVIEW", "CLOSE_CONFIRM"}
         if _orig_node == "SPRINT" and _orig_sub in _SPRINT_EXIT_SUBSTATES:
             blocked = self._check_uncaptured_work_gate(
@@ -138,20 +129,24 @@ class SubmitOrchestrator:
             if blocked:
                 return blocked
 
-        # ── Ejecutar submit (TASK-009: try/except con estrategia de error) ──
-        from ..domain.errors import WorkflowEngineError
+        # ── Ejecutar submit con @safe ────────────────────────────────
+        @safe
+        def _execute_submit() -> dict:
+            return self._submit_uc.execute(ctx, fields=fields or {})
 
-        try:
-            result = self._submit_uc.execute(ctx, fields=fields or {})
-        except WorkflowEngineError as e:
+        submit_result = _execute_submit()
+
+        if not is_successful(submit_result):
+            # Error capturado por @safe
+            error = submit_result.failure()
             return self._handle_submit_error(
-                ctx, e, _start_ts, fields or {}, _orig_node, _orig_sub,
+                ctx, error, _start_ts, fields or {}, _orig_node, _orig_sub,
                 _orig_exec_type, _orig_action,
             )
 
-        # ── Superficie fallos de side-effects al agente ──
-        # Si alguna side-effect reporta ok=False, el agente debe verlo
-        # para saber qué corregir (ej: validate_plan con specs vacías).
+        result = submit_result.value_or({})
+
+        # ── Superficie fallos de side-effects al agente ──────────────
         _failed_ses = [
             se for se in result.get("side_effects", [])
             if isinstance(se, dict) and se.get("ok") is False
@@ -172,19 +167,17 @@ class SubmitOrchestrator:
             )
             if errors:
                 result["errors"] = errors
-            # No retornar aquí — el result se procesa normalmente
-            # pero con ok=False para que handle_submit lo surface.
 
-        # ── Cargar state para tracing (puede haber auto-avanzado) ────
+        # ── Cargar state para tracing ────────────────────────────────
         duration_ms = int((time.time() - _start_ts) * 1000)
         state = self._state_repo.load(ctx.chain_dir)
 
-        # ── Teoría de grafos: XOR-split resuelto por intent ─────────
+        # ── Teoría de grafos: XOR-split ──────────────────────────────
         state = self._resolve_xor_auto_transition(
             ctx, result, state, _orig_node, _orig_sub, fields or {}
         )
 
-        # ── Registrar NodeExecution (ELM: state inmutable) ─
+        # ── Registrar NodeExecution ──────────────────────────────────
         state = state.record_node_execution(
             node=_orig_node,
             sub_state=_orig_sub,
@@ -198,14 +191,12 @@ class SubmitOrchestrator:
         )
         self._state_repo.save(ctx.chain_dir, state)
 
-        # ── Trazar submit con decision/evidence ──────────────────────
+        # ── Trazar submit ────────────────────────────────────────────
         self._trace_submit(ctx, state, fields)
-        # ── Trazar auto-advance si ocurrio ──────────────────────────
         self._trace_auto_advance(ctx, result, _orig_node, _orig_sub, state)
-        # ── Trazar side-effects ejecutados ──────────────────────────
         self._trace_side_effects(ctx, result)
 
-        # ── Disparar eventos on:{} por side-effects emit_event ──
+        # ── Disparar eventos on:{} ───────────────────────────────────
         event_count = self._dispatch_events_from_side_effects(ctx, result)
         if event_count > 0:
             self._tracer.trace(
@@ -221,8 +212,9 @@ class SubmitOrchestrator:
     def _trace_gate_blocked(
         self, ctx: ExecutionContext, _orig_sub: str, sub_def: Any
     ) -> None:
-        """Traza un bloqueo de gate (visibilidad en TraceGraph)."""
-        try:
+        """Traza un bloqueo de gate."""
+        @safe
+        def _do_trace():
             self._tracer.trace(
                 ctx.chain_dir,
                 "GATE_BLOCKED",
@@ -234,13 +226,8 @@ class SubmitOrchestrator:
                 task_id=ctx.task_id,
                 session_id=ctx.session_id,
             )
-        except Exception as _trace_err:
-            import logging
 
-            logging.getLogger(__name__).error(
-                "GATE_BLOCKED (required_tools): fallo al trazar: %s",
-                _trace_err,
-            )
+        _do_trace()  # Best-effort, no falla el submit por tracing
 
     def _check_uncaptured_work_gate(
         self, ctx: ExecutionContext, _orig_node: str, _orig_sub: str, exec_type: str
@@ -251,7 +238,9 @@ class SubmitOrchestrator:
         uw = detect_uncaptured_work(ctx.chain_dir)
         if not uw.should_block:
             return None
-        try:
+
+        @safe
+        def _do_trace():
             self._tracer.trace(
                 ctx.chain_dir,
                 "GATE_BLOCKED",
@@ -264,13 +253,9 @@ class SubmitOrchestrator:
                 task_id=ctx.task_id,
                 session_id=ctx.session_id,
             )
-        except Exception as _trace_err:
-            import logging
 
-            logging.getLogger(__name__).error(
-                "GATE_BLOCKED (uncaptured_work): fallo al trazar: %s",
-                _trace_err,
-            )
+        _do_trace()  # Best-effort
+
         return {
             "ok": False,
             "action": "gate_blocked",
@@ -334,15 +319,21 @@ class SubmitOrchestrator:
         """Aplica la auto-transicion XOR si el submit resolvio un intent/gate."""
         if not (result.get("_auto_transition") and result.get("_gate")):
             return state
-        try:
-            trans_result = self._transition(ctx, result["_gate"])
-            result["advanced_to"] = trans_result.get("to_sub_state", "")
+
+        @safe
+        def _do_transition() -> dict:
+            return self._transition(ctx, result["_gate"])
+
+        trans_result = _do_transition()
+        if is_successful(trans_result):
+            trans = trans_result.value_or({})
+            result["advanced_to"] = trans.get("to_sub_state", "")
             result["xor_next"] = (
-                f"{trans_result.get('to_node', '')}.{trans_result.get('to_sub_state', '')}"
+                f"{trans.get('to_node', '')}.{trans.get('to_sub_state', '')}"
             )
             result["xor_done"] = True
 
-            if trans_result.get("to_node") == "REFINE":
+            if trans.get("to_node") == "REFINE":
                 self._tracer.trace(
                     ctx.chain_dir,
                     "REFINE_ENTRY",
@@ -352,7 +343,7 @@ class SubmitOrchestrator:
                         "gate": result.get("_gate", ""),
                         "decision": fields.get("decision", ""),
                         "intent": fields.get("intent", ""),
-                        "target": trans_result.get("to_sub_state", ""),
+                        "target": trans.get("to_sub_state", ""),
                         "reason": (
                             "nodeworkflow incompleto o decision de "
                             "reject/refine"
@@ -362,11 +353,10 @@ class SubmitOrchestrator:
                     session_id=ctx.session_id,
                 )
 
-            # La transicion persiste el nuevo estado; recargar para
-            # no sobrescribirlo con el node_execution posterior.
             state = self._state_repo.load(ctx.chain_dir)
-        except Exception as e:
-            result["xor_error"] = str(e)
+        else:
+            result["xor_error"] = str(trans_result.failure())
+
         return state
 
     def _trace_submit(
@@ -391,7 +381,7 @@ class SubmitOrchestrator:
         _orig_sub: str,
         state: Any,
     ) -> None:
-        """Traza el auto-advance (from = sub-estado ORIGEN, no el recargado)."""
+        """Traza el auto-advance."""
         advanced_to = result.get("advanced_to", "")
         if not advanced_to:
             return
