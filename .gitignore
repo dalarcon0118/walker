@@ -40,6 +40,9 @@ Thumbs.db
 **/quality_report.json
 **/bug_proposals.json
 
+# Lock files de escritura atómica (runtime del CognitiveGraph, se recrean al escribir)
+**/*.json.gz.lock
+
 # Sesiones de agentes
 .cognitive/sessions/
 .cognitive/projects/*/data/spring/

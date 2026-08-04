@@ -735,6 +735,78 @@ class TestScanDfg:
             assert st.get("summary")
 
 
+# ── 8b. Result pattern en build_service (G2: sin excepts silenciosos) ──
+class TestBuildServiceResultPattern:
+    def test_sync_core_devuelve_result_con_nodes(self):
+        """_sync_core (@safe) sincroniza nodos CPG al indice cpg sin excepcion."""
+        from features.code_analysis.application.build_service import (
+            BuildGraphUseCase,
+            _sync_core,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            builder = BuildGraphUseCase(
+                project_id="smoke",
+                data_dir=os.path.join(tmp, "data"),
+                code_root=tmp,
+            )
+            data = {
+                "nodes": {
+                    "n1": {
+                        "name": "run",
+                        "type": "function",
+                        "path": "src/mod.py",
+                        "line": 3,
+                    },
+                    "n2": {"name": "x", "type": "var", "path": "src/mod.py", "line": 1},
+                },
+                "edges": [],
+            }
+            result = _sync_core(builder.data_dir, data)
+            from returns.pipeline import is_successful
+
+            assert is_successful(result), f"sync fallo: {result.failure()}"
+            stored = result.value_or({})
+            assert stored.get("stored") == 2, stored
+
+            # Verificar que los nodos quedaron en el indice cpg
+            from libs.cognitive_graph import CognitiveGraph
+
+            cg = CognitiveGraph(builder.data_dir, auto_register=True)
+            keys = cg.keys("cpg")
+            assert set(keys) >= {"n1", "n2"}, keys
+
+    def test_sync_core_failure_se_loggea_no_silencioso(self, caplog):
+        """_sync_to_cognitive ante failure loggea (convention-001, G2)."""
+        import logging
+
+        from features.code_analysis.application.build_service import (
+            BuildGraphUseCase,
+            _sync_core,
+        )
+        from returns.pipeline import is_successful
+
+        # Forzar error en el core: un node_data None lanza AttributeError
+        # dentro de _sync_core (atrapado por @safe -> Failure)
+        with tempfile.TemporaryDirectory() as tmp:
+            builder = BuildGraphUseCase(
+                project_id="smoke",
+                data_dir=os.path.join(tmp, "data"),
+                code_root=tmp,
+            )
+            data = {"nodes": {"n1": None}, "edges": []}
+            result = _sync_core(builder.data_dir, data)
+            assert not is_successful(result), "node_data None debe fallar"
+
+            # El wrapper de instancia loggea el error (no silencioso)
+            with caplog.at_level(
+                logging.ERROR, logger="features.code_analysis.application.build_service"
+            ):
+                out = builder._sync_to_cognitive(data)
+            assert out.get("ok") is False, out
+            assert caplog.records, "debe haber loggeado el error"
+
+
 # ── 9. Contrato estándar de side-effects ────────────────────────
 class TestSideEffectContract:
     def test_envelope_estandar(self):

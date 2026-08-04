@@ -4,13 +4,14 @@ application/use_cases.py — Cognitive Knowledge domain use cases.
 Refactorizado para usar Result pattern (dry-python/returns).
 Cada use case retorna Result[T, Exception] en vez de dicts con ok/error.
 """
+
 from __future__ import annotations
 
 import gzip
 import json
 import os
 
-from returns.result import Result, Success, Failure, safe
+from returns.result import Result, Success, safe
 from returns.pipeline import is_successful
 
 from features.project import ProjectService
@@ -32,6 +33,7 @@ class CheckCkgHealthUseCase:
         Returns:
             Result[dict, Exception] con status y node_count
         """
+
         @safe
         def _read_ckg() -> dict:
             # Try .json.gz first (canonical), then .json (legacy)
@@ -129,7 +131,9 @@ class CollectKnowledgeUseCase:
     """Collect and persist knowledge from task execution."""
 
     @staticmethod
-    def execute(chain_dir: str, data: dict, task_id: str = "") -> Result[dict, Exception]:
+    def execute(
+        chain_dir: str, data: dict, task_id: str = ""
+    ) -> Result[dict, Exception]:
         @safe
         def _collect() -> dict:
             ckg = _get_ckg(chain_dir)
@@ -179,7 +183,9 @@ class GetCkgNodesForTaskUseCase:
     """
 
     @staticmethod
-    def execute(chain_dir: str, task_id: str, task_files: list[str]) -> Result[list[dict], Exception]:
+    def execute(
+        chain_dir: str, task_id: str, task_files: list[str]
+    ) -> Result[list[dict], Exception]:
         if not task_files:
             return Success([])
 
@@ -223,7 +229,9 @@ class IndexRepoUseCase:
     """Index an external repo as reference in CKG."""
 
     @staticmethod
-    def execute(chain_dir: str, url: str, name: str, branch: str = "main") -> Result[dict, Exception]:
+    def execute(
+        chain_dir: str, url: str, name: str, branch: str = "main"
+    ) -> Result[dict, Exception]:
         import shutil
         import subprocess
         import tempfile
@@ -244,7 +252,16 @@ class IndexRepoUseCase:
             try:
                 print(f"  Cloning {url}...")
                 subprocess.run(
-                    ["git", "clone", "--depth", "1", "--branch", branch, url, repo_path],
+                    [
+                        "git",
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--branch",
+                        branch,
+                        url,
+                        repo_path,
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=120,
@@ -256,7 +273,11 @@ class IndexRepoUseCase:
                 results = run_outline([repo_path])
                 graph = parse_outline(results) if results else None
                 if not graph:
-                    return {"ok": True, "message": "No parseable files found", "url": url}
+                    return {
+                        "ok": True,
+                        "message": "No parseable files found",
+                        "url": url,
+                    }
 
                 types = {}
                 for n in graph.nodes.values():

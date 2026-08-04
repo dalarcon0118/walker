@@ -7,7 +7,6 @@ y permite usar las relaciones del grafo.
 """
 
 from __future__ import annotations
-import json
 from pathlib import Path
 from libs.cognitive_graph import CognitiveGraph
 from features.cognitive_knowledge.entities import KnowledgeFact
@@ -56,32 +55,11 @@ class CodeKnowledgeGraph:
         decision-063 (por un borrado previo), el siguiente seria decision-063
         de nuevo y SOBRESCRIBIRIA el existente.
 
-        NO se usa search({}) para descubrir IDs: CognitiveGraph limita a 50
-        hits y el max detectado quedaria corto, generando IDs que colisionan.
-        Se lee el storage del indice directamente (ruta configurada en
-        CKG_INDEX_CONFIG.storage.path) y se parsea el max ID con el prefijo.
+        Usa la primitiva de infra Index.max_key() que lee el indice en
+        memoria (sin limites de search ni parseo manual del storage).
         """
-        max_num = 0
-        try:
-            import gzip
-            storage = CKG_INDEX_CONFIG.get("storage", {})
-            rel = storage.get("path", "data/ckg.json.gz")
-            path = self.project_dir / rel
-            if path.exists():
-                if path.name.endswith(".gz"):
-                    with gzip.open(str(path), "rt") as f:
-                        raw = json.load(f)
-                else:
-                    with open(str(path)) as f:
-                        raw = json.load(f)
-                for d in raw.get("docs", []) or []:
-                    _id = d.get("_id", "") if isinstance(d, dict) else str(d)
-                    if _id.startswith(prefix + "-"):
-                        num = _id.rsplit("-", 1)[-1]
-                        if num.isdigit():
-                            max_num = max(max_num, int(num))
-        except Exception:
-            pass
+        found = self._cg.max_key("ckg", prefix)
+        max_num = found[1] if found else 0
         return f"{prefix}-{max_num + 1:03d}"
 
     def save_decision(

@@ -72,13 +72,12 @@ class PlanSprintUseCase:
             session_id=ctx.session_id or "",
         )
         plan_specs = []
-        for i, item in enumerate(specs_raw):
-            spring_svc.add_spec(
+        for item in specs_raw:
+            spring_svc.upsert_spec(
                 sprint_id,
                 objective=item.get("objective", ""),
                 domain=item.get("domain", ""),
                 spec_type=item.get("type", "feature"),
-                spec_index=i,
                 result_state=item.get("result_state", ""),
                 files=(
                     item.get("impacted_artifacts", {}).get("files", [])

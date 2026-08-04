@@ -137,7 +137,18 @@ class Index:
                 ti_data = data.get("token_index")
                 if ti_data and self._token_index is not None:
                     self._token_index = TokenIndex.from_dict(ti_data)
-            except Exception:
+            except Exception as e:
+                # G2: error no-silencioso — un indice corrupto se reporta en vez
+                # de resetear a vacio silenciosamente (convention-001: nunca
+                # 'except Exception: pass'). El agente debe poder diagnosticar.
+                logger = __import__("logging").getLogger(__name__)
+                logger.error(
+                    "CognitiveGraph: indice '%s' corrupto o ilegible (%s: %s). "
+                    "Se carga vacio para no romper el flujo, pero se pierde data.",
+                    self.name,
+                    type(e).__name__,
+                    e,
+                )
                 self._docs = {}
                 self._graph = nx.DiGraph()
                 self._token_index = TokenIndex() if self.schema.has_fulltext() else None
@@ -157,10 +168,56 @@ class Index:
         if self._token_index is not None:
             data["token_index"] = self._token_index.to_dict()
         payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-        if path.endswith(".gz"):
-            open(path, "wb").write(gzip.compress(payload.encode()))
-        else:
-            open(path, "w").write(payload)
+        # G1: escritura atomica (temp + rename) + lock exclusivo. Evita que un
+        # indice quede corrupto si dos procesos MCP escriben concurrentemente
+        # o si el proceso muere a mitad de escritura.
+        self._acquire_write_lock()
+        try:
+            tmp_path = path + ".tmp"
+            if path.endswith(".gz"):
+                with open(tmp_path, "wb") as f:
+                    f.write(gzip.compress(payload.encode()))
+                    f.flush()
+                    os.fsync(f.fileno())
+            else:
+                with open(tmp_path, "w") as f:
+                    f.write(payload)
+                    f.flush()
+                    os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            self._release_write_lock()
+
+    def _acquire_write_lock(self) -> None:
+        """Adquiere un lock exclusivo por indice (evita corrupcion concurrente).
+
+        Usa un archivo .lock separado del indice. Best-effort: si el sistema
+        no soporta fcntl (Windows) o falla el lock, se continua sin el —
+        la escritura atomica (temp+rename) sigue protegiendo la integridad.
+        """
+        import fcntl
+
+        lock_path = self._path + ".lock"
+        try:
+            os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+            self._lock_fd = open(lock_path, "a")
+            fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            self._lock_fd = None
+
+    def _release_write_lock(self) -> None:
+        """Libera el lock de escritura (si se adquirio)."""
+        import fcntl
+
+        fd = getattr(self, "_lock_fd", None)
+        if fd is None:
+            return
+        try:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+            fd.close()
+        except Exception:
+            pass
+        self._lock_fd = None
 
     # ── CRUD ──
 
@@ -221,6 +278,39 @@ class Index:
         if doc is None:
             return None
         return {"_id": doc_id, "_index": self.name, "_source": doc}
+
+    def keys(self) -> list[str]:
+        """Devuelve TODOS los IDs del indice (sin limites de search).
+
+        Primitiva de infra para casos que necesitan inventario completo
+        (ej: generar IDs secuenciales sin colision, backup, auditorias).
+        Reemplaza el workaround de parsear el storage (.json.gz) a mano.
+        """
+        self._load()
+        return list(self._docs.keys())
+
+    def max_key(self, prefix: str = "") -> tuple[str, int] | None:
+        """Devuelve (id, numero) del ID con mayor numero para un prefijo.
+
+        Ej: prefix="decision" sobre IDs "decision-012" -> ("decision-012", 12).
+        Los IDs que no matchean el prefijo o no terminan en numero se ignoran.
+        """
+        self._load()
+        best_id: str | None = None
+        best_num = -1
+        for doc_id in self._docs:
+            if prefix and not doc_id.startswith(prefix + "-"):
+                continue
+            tail = doc_id.rsplit("-", 1)[-1] if "-" in doc_id else ""
+            if tail.isdigit():
+                num = int(tail)
+                if num > best_num:
+                    best_num = num
+                    best_id = doc_id
+        if best_id is None:
+            return None
+        return best_id, best_num
+
 
     def delete(self, doc_id: str) -> dict:
         self._load()
@@ -1189,6 +1279,14 @@ class CognitiveGraph:
 
     def get(self, index: str, doc_id: str) -> dict | None:
         return self._get_index(index).get(doc_id)
+
+    def keys(self, index: str) -> list[str]:
+        """Devuelve TODOS los IDs de un indice (sin limites de search)."""
+        return self._get_index(index).keys()
+
+    def max_key(self, index: str, prefix: str = "") -> tuple[str, int] | None:
+        """Devuelve (id, numero) del ID con mayor numero para un prefijo."""
+        return self._get_index(index).max_key(prefix)
 
     def delete(self, index: str, doc_id: str) -> dict:
         return self._get_index(index).delete(doc_id)

@@ -1168,6 +1168,256 @@ def test_spring_graph_import_legacy():
 
 
 # ════════════════════════════════════════════════════════════════
+# 12. Infra gaps: upsert, update_or_create, fulltext unificado, atomic write
+# ════════════════════════════════════════════════════════════════
+
+
+def test_upsert_spec_append_no_replace():
+    """BUG re-planificación: upsert_spec debe APPENDEAR desde SPEC-014+
+    cuando el spring ya tiene specs, NO sobrescribir SPEC-001..N."""
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = SpringGraphService(tmpdir)
+        svc.create_spring("session-demo", goal="Sprint demo", status="active")
+
+        # Spring con 13 specs (simula el caso real session-20260731)
+        for i in range(13):
+            svc.add_spec(
+                "session-demo",
+                f"Objetivo viejo {i + 1}",
+                domain="legacy",
+                spec_index=i,
+            )
+        assert len(svc.get_specs("session-demo")) == 13
+
+        # Re-plan con 9 tasks NUEVAS (objetivos distintos)
+        for i in range(9):
+            svc.upsert_spec(
+                "session-demo",
+                objective=f"Objetivo NUEVO {i + 1}",
+                domain="code-analysis",
+                spec_type="feature",
+            )
+
+        specs = svc.get_specs("session-demo")
+        assert len(specs) == 22, f"Esperaba 22 specs (13+9), got {len(specs)}"
+        # Las viejas siguen intactas
+        assert specs[0]["objective"] == "Objetivo viejo 1"
+        assert specs[12]["objective"] == "Objetivo viejo 13"
+        # Las nuevas continuan desde SPEC-014+
+        assert specs[13]["spec_id"] == "SPEC-014", specs[13]["spec_id"]
+        assert specs[13]["objective"] == "Objetivo NUEVO 1"
+        assert specs[21]["spec_id"] == "SPEC-022", specs[21]["spec_id"]
+        print("  ✅ test_upsert_spec_append_no_replace: no reemplaza, appendea SPEC-014+")
+
+
+def test_upsert_spec_refine_no_duplicate():
+    """Re-plan con el MISMO objetivo: refina la spec existente, no duplica."""
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = SpringGraphService(tmpdir)
+        svc.create_spring("session-demo", goal="Sprint demo", status="active")
+        svc.upsert_spec(
+            "session-demo",
+            objective="Fix auth bug",
+            domain="security",
+            status="draft",
+        )
+
+        # Re-plan con el mismo objetivo pero estado distinto
+        svc.upsert_spec(
+            "session-demo",
+            objective="Fix auth bug",
+            domain="security",
+            status="specified",
+            result_state="auth fixed",
+        )
+
+        specs = svc.get_specs("session-demo")
+        assert len(specs) == 1, f"Esperaba 1 spec (sin duplicar), got {len(specs)}"
+        assert specs[0]["spec_id"] == "SPEC-001"
+        assert specs[0]["status"] == "specified", specs[0]["status"]
+        assert specs[0]["result_state"] == "auth fixed"
+        print("  ✅ test_upsert_spec_refine_no_duplicate: refina, no duplica")
+
+
+def test_odm_update_or_create():
+    """update_or_create: primitiva reusable por campo de negocio."""
+    from libs.cognitive_graph import CognitiveGraph
+    from libs.cognitive_graph.odm import Entity, fields
+
+    class Doc(Entity):
+        __index__ = "odm_uoc"
+        __id_field__ = "doc_id"
+
+        doc_id: str = fields.String()
+        objective: str = fields.Text(fulltext=True)
+        status: str = fields.String()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cg = CognitiveGraph(tmpdir, auto_register=True)
+        Doc.bind(cg)
+
+        # Create
+        obj, created = Doc.update_or_create(
+            filters={"objective": "Crear nodo spring"},
+            defaults={"doc_id": "TASK-1", "status": "draft"},
+            cg=cg,
+        )
+        assert created is True, "Primer call debe crear"
+        assert obj._id == "TASK-1"
+
+        # Update (mismo objective → refine, no crear)
+        obj2, created2 = Doc.update_or_create(
+            filters={"objective": "Crear nodo spring"},
+            defaults={"status": "completed"},
+            cg=cg,
+        )
+        assert created2 is False, "Segundo call debe refinar"
+        assert obj2._id == "TASK-1", "Debe conservar el id del nodo existente"
+        assert obj2.status == "completed"
+
+        docs = Doc.all(cg=cg)
+        assert len(docs) == 1, f"Esperaba 1 doc, got {len(docs)}"
+        print("  ✅ test_odm_update_or_create: create + refine sin duplicar")
+
+
+def test_cognitive_graph_writer_upsert():
+    """CognitiveGraphWriter.upsert: distingue create de update (by key)."""
+    from libs.infrastructure import CognitiveGraphWriter
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        writer = CognitiveGraphWriter(tmpdir)
+
+        # Create
+        res = writer.upsert("ckg", "node-001", {"type": "decision", "statement": "A"})
+        assert res["created"] is True, res
+
+        # Update (merge de campos: preserva campos no pisados)
+        res2 = writer.upsert(
+            "ckg", "node-001", {"statement": "A (v2)", "scope": "security"}
+        )
+        assert res2["updated"] is True, res2
+        from libs.infrastructure import CognitiveGraphSearcher
+
+        searcher = CognitiveGraphSearcher(tmpdir)
+        hit = searcher.search("ckg", {"_id": "node-001"})["hits"]["hits"]
+        src = hit[0]["_source"]
+        assert src["statement"] == "A (v2)", src
+        assert src["type"] == "decision", "El merge no debe borrar campos previos"
+        assert src["scope"] == "security"
+        print("  ✅ test_cognitive_graph_writer_upsert: create/update por key")
+
+
+def test_fulltext_derived_from_fields():
+    """G5: __search__ se deriva automaticamente de fields.fulltext=True."""
+    from libs.cognitive_graph.odm import Entity, fields
+
+    class SearchDoc(Entity):
+        __index__ = "odm_ft"
+
+        title: str = fields.Text(fulltext=True)
+        body: str = fields.Text()
+        status: str = fields.String()
+
+    # Sin __search__ explicito, debe derivarse de fulltext=True
+    assert SearchDoc.__search__ == ["title"], SearchDoc.__search__
+
+    class ExplicitDoc(Entity):
+        __index__ = "odm_ft2"
+        __search__ = ["status"]
+
+        title: str = fields.Text(fulltext=True)
+        status: str = fields.String()
+
+    # Fusiona explicito + derivado, sin duplicados
+    assert ExplicitDoc.__search__ == ["status", "title"], ExplicitDoc.__search__
+    print("  ✅ test_fulltext_derived_from_fields: __search__ derivado + fusionado")
+
+
+def test_atomic_write_no_tmp_leftover():
+    """G1: _save escribe atomico (temp+rename); no quedan .tmp huerfanos."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cg = CognitiveGraph(tmpdir, auto_register=True)
+        cg.store("ckg", "n1", {"type": "decision", "statement": "x"})
+        cg.store("ckg", "n2", {"type": "convention", "statement": "y"})
+
+        # No deben quedar archivos .tmp ni .lock corruptos
+        leftovers = [
+            f for f in os.listdir(os.path.join(tmpdir, "data")) if ".tmp" in f
+        ]
+        assert leftovers == [], f"Quedaron temporales: {leftovers}"
+
+        # El indice persiste integro tras multiple writes
+        result = cg.search("ckg", {})
+        assert result["hits"]["total"] == 2, result["hits"]["total"]
+        print("  ✅ test_atomic_write_no_tmp_leftover: escritura atomica sin tmp")
+
+
+def test_index_keys_and_max_key():
+    """Primitiva keys()/max_key(): inventario completo sin limites de search."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cg = CognitiveGraph(tmpdir, auto_register=True)
+        cg.store("ckg", "decision-001", {"type": "decision", "statement": "a"})
+        cg.store("ckg", "decision-013", {"type": "decision", "statement": "b"})
+        cg.store("ckg", "convention-002", {"type": "convention", "statement": "c"})
+        cg.store("ckg", "other", {"type": "note", "statement": "d"})
+
+        # keys() devuelve todos los IDs (sin top 50 de search)
+        keys = cg.keys("ckg")
+        assert len(keys) == 4, keys
+        assert "decision-013" in keys
+
+        # max_key con prefijo: ignora IDs no numericos y otros prefijos
+        found = cg.max_key("ckg", "decision")
+        assert found == ("decision-013", 13), found
+
+        # max_key sin prefijo: el maximo numerico global
+        found_all = cg.max_key("ckg")
+        assert found_all == ("decision-013", 13), found_all
+
+        # max_key sin coincidencias numericas
+        assert cg.max_key("ckg", "rule") is None
+        print("  ✅ test_index_keys_and_max_key: inventario completo sin top-50")
+
+
+def test_ckg_next_id_no_collision_after_delete():
+    """Bug CKG: _next_id usa max_key (no count+1) para no colisionar tras borrados."""
+    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ckg = CodeKnowledgeGraph(tmpdir)
+        ids = []
+        for i in range(3):
+            r = ckg.save_nodes([{"label": f"Decision {i}", "type": "decision"}])
+            ids.append(r["node_ids"][0])
+        assert ids == ["decision-001", "decision-002", "decision-003"], ids
+
+        # Borrar el doc intermedio
+        ckg._cg.delete("ckg", "decision-002")
+
+        # El siguiente ID debe ser 004 (MAX, no count+1=003 que colisionaria
+        # con decision-003 existente)
+        r = ckg.save_nodes([{"label": "Decision 4", "type": "decision"}])
+        assert r["node_ids"][0] == "decision-004", r["node_ids"]
+
+        # Los IDs son unicos
+        all_ids = ckg._cg.keys("ckg")
+        assert len(all_ids) == len(set(all_ids)), "IDs duplicados"
+        print("  ✅ test_ckg_next_id_no_collision_after_delete: max_key evita colision")
+
+
+# ════════════════════════════════════════════════════════════════
 # Runner
 # ════════════════════════════════════════════════════════════════
 
@@ -1199,6 +1449,14 @@ def run_all():
         ("index_sprint unique ids", test_index_sprint_unique_ids),
         ("SpringGraph unified model", test_spring_graph_service_unified_model),
         ("SpringGraph import legacy", test_spring_graph_import_legacy),
+        ("upsert_spec append no replace", test_upsert_spec_append_no_replace),
+        ("upsert_spec refine no duplicate", test_upsert_spec_refine_no_duplicate),
+        ("ODM update_or_create", test_odm_update_or_create),
+        ("CognitiveGraphWriter upsert", test_cognitive_graph_writer_upsert),
+        ("fulltext derived from fields", test_fulltext_derived_from_fields),
+        ("atomic write no tmp leftover", test_atomic_write_no_tmp_leftover),
+        ("index keys and max_key", test_index_keys_and_max_key),
+        ("ckg next_id no collision", test_ckg_next_id_no_collision_after_delete),
     ]
 
     passed = 0

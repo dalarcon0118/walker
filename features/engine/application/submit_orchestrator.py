@@ -18,7 +18,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from returns.result import Success, Failure, safe
+from returns.result import safe
 from returns.pipeline import is_successful
 
 from libs.shared_domain import ExecutionContext
@@ -140,15 +140,22 @@ class SubmitOrchestrator:
             # Error capturado por @safe
             error = submit_result.failure()
             return self._handle_submit_error(
-                ctx, error, _start_ts, fields or {}, _orig_node, _orig_sub,
-                _orig_exec_type, _orig_action,
+                ctx,
+                error,
+                _start_ts,
+                fields or {},
+                _orig_node,
+                _orig_sub,
+                _orig_exec_type,
+                _orig_action,
             )
 
         result = submit_result.value_or({})
 
         # ── Superficie fallos de side-effects al agente ──────────────
         _failed_ses = [
-            se for se in result.get("side_effects", [])
+            se
+            for se in result.get("side_effects", [])
             if isinstance(se, dict) and se.get("ok") is False
         ]
         if _failed_ses:
@@ -158,13 +165,13 @@ class SubmitOrchestrator:
                 if isinstance(se, dict)
             ]
             errors = [
-                e for se in _failed_ses if isinstance(se, dict)
+                e
+                for se in _failed_ses
+                if isinstance(se, dict)
                 for e in se.get("errors", [])
             ]
             result["ok"] = False
-            result["error"] = (
-                "Side-effect(s) fallaron: " + "; ".join(summaries)
-            )
+            result["error"] = "Side-effect(s) fallaron: " + "; ".join(summaries)
             if errors:
                 result["errors"] = errors
 
@@ -213,6 +220,7 @@ class SubmitOrchestrator:
         self, ctx: ExecutionContext, _orig_sub: str, sub_def: Any
     ) -> None:
         """Traza un bloqueo de gate."""
+
         @safe
         def _do_trace():
             self._tracer.trace(
@@ -345,8 +353,7 @@ class SubmitOrchestrator:
                         "intent": fields.get("intent", ""),
                         "target": trans.get("to_sub_state", ""),
                         "reason": (
-                            "nodeworkflow incompleto o decision de "
-                            "reject/refine"
+                            "nodeworkflow incompleto o decision de reject/refine"
                         ),
                     },
                     task_id=ctx.task_id,

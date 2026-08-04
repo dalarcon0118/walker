@@ -53,6 +53,15 @@ class EntityMeta(type):
                 fields[attr_name] = attr_value
 
         cls._fields = fields
+
+        # G5: unificar fulltext — derivar __search__ desde fields.fulltext=True
+        # y fusionarlo con el __search__ declarado explícitamente (si existe).
+        # Antes coexistían dos mecanismos paralelos que se ignoraban mutuamente.
+        declared = list(getattr(cls, "__search__", None) or [])
+        derived = [
+            fname for fname, f in fields.items() if getattr(f, "fulltext", False)
+        ]
+        cls.__search__ = list(dict.fromkeys(declared + derived))
         return cls
 
 
@@ -244,6 +253,51 @@ class Entity(metaclass=EntityMeta):
             )
         result = instance.search(cls.__index__, filters)
         return [cls._from_cg_result(h) for h in result.get("hits", {}).get("hits", [])]
+
+    @classmethod
+    def update_or_create(cls, cg=None, **kwargs):
+        """Upsert por campo de negocio: busca por filters, refina o crea.
+
+        PRIMITIVA REUSABLE de infraestructura (GAP 1). Cualquier feature que
+        extienda el grafo (delta, ckg, cpg, trace) puede hacer "match por
+        campo -> update : create" sin duplicar la logica.
+
+        La convención de uso: pasar los filtros de match en 'filters' (dict)
+        y los campos a actualizar/crear en 'defaults' (dict). Ambos opcionales:
+
+            Task.update_or_create(
+                filters={"objective": obj},
+                defaults={"status": "draft", "domain": "code-analysis"},
+                cg=cg,
+            )
+
+        Returns:
+            tuple[Entity, bool]: (instancia, created) donde created=True si
+            se creo un nodo nuevo y False si se refino uno existente.
+        """
+        instance = cg or cls._get_cg_class()
+        if instance is None:
+            raise RuntimeError(
+                f"{cls.__name__}.update_or_create() requiere CognitiveGraph. "
+                "Usa bind(cg) o pasa cg=..."
+            )
+        filters = dict(kwargs.get("filters") or {})
+        defaults = dict(kwargs.get("defaults") or {})
+        match = cls.find_by(cg=instance, **filters)
+        if match:
+            obj = match[0]
+            for k, v in defaults.items():
+                setattr(obj, k, v)
+            obj._cg_instance = instance
+            obj.save()
+            return obj, False
+        # Crear con filters + defaults (filters son identidad del nodo)
+        data = dict(filters)
+        data.update(defaults)
+        obj = cls(**data)
+        obj._cg_instance = instance
+        obj.save()
+        return obj, True
 
     @classmethod
     def search(cls, text: str, cg=None, **filters):

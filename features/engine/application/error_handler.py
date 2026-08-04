@@ -7,12 +7,13 @@ compensate, escalate, on_failure.
 Refactorizado para usar Result pattern (dry-python/returns) internamente.
 El API externo sigue retornando dicts para compatibilidad.
 """
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from returns.result import Success, Failure, safe
+from returns.result import safe
 from returns.pipeline import is_successful
 
 from libs.shared_domain import ExecutionContext
@@ -146,7 +147,11 @@ class ErrorHandler:
         if details:
             if "details" in details and isinstance(details["details"], list):
                 msg += " — Fallaron: " + "; ".join(details["details"])
-            if "errors" in details and isinstance(details["errors"], list) and details["errors"]:
+            if (
+                "errors" in details
+                and isinstance(details["errors"], list)
+                and details["errors"]
+            ):
                 msg += " — Errores: " + "; ".join(str(e) for e in details["errors"])
             if "stderr" in details and details["stderr"]:
                 msg += f" — Stderr: {details['stderr'][:300]}"
@@ -204,7 +209,6 @@ class ErrorHandler:
                 return result.value_or({})
 
         # Todos los reintentos fallaron
-        last_error = result.failure() if not is_successful(result) else error
         return {
             "ok": False,
             "action": "error",
@@ -215,7 +219,11 @@ class ErrorHandler:
         }
 
     def _compensate(
-        self, ctx: ExecutionContext, error: Exception, sub_state: Any | None, error_type: ErrorType
+        self,
+        ctx: ExecutionContext,
+        error: Exception,
+        sub_state: Any | None,
+        error_type: ErrorType,
     ) -> dict:
         """COMPENSATE: compensar side-effects."""
         if sub_state and sub_state.side_effects:
@@ -228,8 +236,11 @@ class ErrorHandler:
             "message": f"Compensado tras error: {error}",
         }
 
-    def _escalate(self, ctx: ExecutionContext, error: Exception, error_type: ErrorType) -> dict:
+    def _escalate(
+        self, ctx: ExecutionContext, error: Exception, error_type: ErrorType
+    ) -> dict:
         """ESCALATE: enviar a REFINE.ESCALATION."""
+
         @safe
         def _do_escalate() -> dict:
             return self._transition_uc.execute(
@@ -260,7 +271,11 @@ class ErrorHandler:
             }
 
     def _on_failure(
-        self, ctx: ExecutionContext, error: Exception, sub_state: Any | None, error_type: ErrorType
+        self,
+        ctx: ExecutionContext,
+        error: Exception,
+        sub_state: Any | None,
+        error_type: ErrorType,
     ) -> dict:
         """ON_FAILURE: saltar al sub-estado indicado."""
         if not sub_state or not sub_state.on_failure:
@@ -275,14 +290,19 @@ class ErrorHandler:
         @safe
         def _do_jump() -> dict:
             from ..domain.services import AdvanceService
-            from ..infrastructure.repositories import WorkflowRepository, WorkflowStateRepository
+            from ..infrastructure.repositories import (
+                WorkflowRepository,
+                WorkflowStateRepository,
+            )
 
             wf_repo = self._workflow_repo or WorkflowRepository()
             st_repo = self._state_repo or WorkflowStateRepository()
             graph = wf_repo.load(ctx.chain_dir)
             state = st_repo.load(ctx.chain_dir)
 
-            jumped = AdvanceService.jump_to_sub_state(state, graph, sub_state.on_failure)
+            jumped = AdvanceService.jump_to_sub_state(
+                state, graph, sub_state.on_failure
+            )
             if jumped is not None:
                 st_repo.save(ctx.chain_dir, jumped)
                 return {

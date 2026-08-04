@@ -438,6 +438,72 @@ class SpringGraphService:
         self._store(doc_id, data)
         return data
 
+    def upsert_spec(
+        self,
+        spring_id: str,
+        objective: str,
+        domain: str = "",
+        spec_type: str = "feature",
+        result_state: str = "",
+        files: list[str] | None = None,
+        status: str = "draft",
+        description: str = "",
+        **extra,
+    ) -> dict:
+        """Upsert por objetivo: si existe una spec con el mismo objective,
+        la refina (merge); si no, la agrega al final (SPEC-014+).
+
+        AMPLIFICACIÓN DE DOMINIO sobre la primitiva reusable de infra
+        (Entity.update_or_create / CognitiveGraphWriter.upsert): agrega la
+        regla delta de match por objective + preservación del spec_id local
+        (convention-015: SPEC-001..N es el task_id del workflow).
+
+        CORRECCIÓN del bug de re-planificación: PlanSprintUseCase e
+        import_sprint antes pasaban spec_index desde 0, sobrescribiendo
+        SPEC-001..N. Aquí el spec_index se continúa desde len(get_specs)
+        (auto-append) y el dedupe es por objective (sin duplicados).
+        """
+        if not objective:
+            raise ValueError("upsert_spec requiere 'objective'")
+        existing = self._find_spec_by_objective(spring_id, objective)
+        if existing is not None:
+            updates = {
+                "domain": domain,
+                "type": spec_type,
+                "result_state": result_state,
+                "status": status,
+                "task_description": description,
+            }
+            if files:
+                updates["impacted_artifacts"] = {"files": files}
+            return self.update_spec(spring_id, existing, updates)
+        return self.add_spec(
+            spring_id,
+            objective=objective,
+            domain=domain,
+            spec_type=spec_type,
+            spec_index=None,  # auto-append desde len(get_specs)
+            result_state=result_state,
+            files=files or [],
+            status=status,
+            description=description,
+            **extra,
+        )
+
+    def _find_spec_by_objective(self, spring_id: str, objective: str) -> str | None:
+        """Busca una spec del spring por objetivo (match normalizado).
+
+        Retorna el spec_id local (SPEC-00X) de la primera spec cuyo
+        objective coincida (exacto tras strip), o None.
+        """
+        target = objective.strip()
+        if not target:
+            return None
+        for spec in self.get_specs(spring_id):
+            if spec.get("objective", "").strip() == target:
+                return spec.get("spec_id", spec.get("task_id", ""))
+        return None
+
     def get_specs(self, spring_id: str, status: str = "") -> list[dict]:
         """Retorna las specs del spring, ordenadas por spec_index.
 
@@ -535,13 +601,12 @@ class SpringGraphService:
         self.create_spring(spring_id, goal=goal, status=status)
 
         specs = plan.get("specifications", plan.get("tasks", []))
-        for i, item in enumerate(specs):
-            self.add_spec(
+        for item in specs:
+            self.upsert_spec(
                 spring_id,
                 objective=item.get("objective", ""),
                 domain=item.get("domain", ""),
                 spec_type=item.get("type", "feature"),
-                spec_index=i,
                 result_state=item.get("result_state", ""),
                 files=(
                     item.get("impacted_artifacts", {}).get("files", [])

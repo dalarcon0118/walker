@@ -6,10 +6,11 @@ para que el agente sepa exactamente que esta mal y como corregirlo.
 
 Refactorizado para usar Result pattern (dry-python/returns).
 """
+
 from __future__ import annotations
 from typing import Any
 
-from returns.result import Success, Failure, safe
+from returns.result import safe
 from returns.pipeline import is_successful
 
 from features.engine.domain.models import ExecutionContext

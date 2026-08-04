@@ -7,14 +7,260 @@ Orchestrates the CPG build pipeline:
 """
 
 from __future__ import annotations
+import logging
 import os
 from typing import Any
+
+from returns.result import safe
+from returns.pipeline import is_successful
 
 from features.code_analysis.infrastructure.repository import (
     CpgFileRepository,
     CPG_VERSION,
     _now,
 )
+
+logger = logging.getLogger(__name__)
+
+
+@safe
+def _analyze_business(data: dict) -> dict:
+    """Core puro de la capa de negocio (puede lanzar).
+
+    Result pattern (dry-python/returns): convierte excepciones en Failure
+    para que el caller decida (fail-open con log, nunca silencioso).
+    """
+    from features.code_analysis.application.business_analyzer import analyze
+
+    return analyze(data.get("nodes", {}), data.get("edges", []))
+
+
+@safe
+def _load_ignore_core(root: str) -> Any | None:
+    """Core puro de carga de .walkerignore (puede lanzar)."""
+    from features.project.infrastructure.watcher import IgnoreRules
+
+    return IgnoreRules(str(root)) if root else None
+
+
+@safe
+def _watcher_fingerprint_core(root: str) -> str:
+    """Core puro del fingerprint del codigo (puede lanzar)."""
+    from features.project.infrastructure.watcher import FileWatcher
+
+    return FileWatcher(root).compute_fingerprint()
+
+
+@safe
+def _auto_fix_core(paths: list[str]) -> None:
+    """Core puro del auto-fix qlty (puede lanzar)."""
+    import subprocess
+
+    subprocess.run(
+        ["qlty", "check", "--fix", "--no-fail"] + list(paths),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+@safe
+def _resolve_project_root_core(root: str) -> str | None:
+    """Core puro de resolucion de project_root (puede lanzar)."""
+    from features.project import ProjectService
+
+    resolved = ProjectService.resolve_paths(root)
+    if resolved and resolved.project_root:
+        return str(resolved.project_root)
+    return None
+
+
+@safe
+def _ensure_qlty_config_core(qlty_root: str) -> bool:
+    """Core puro de setup qlty (puede lanzar)."""
+    import subprocess
+
+    check = subprocess.run(
+        ["qlty", "metrics", "--quiet", qlty_root],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if check.returncode != 0 and "No qlty config" in check.stderr:
+        subprocess.run(
+            ["qlty", "init", "--yes"],
+            cwd=qlty_root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    return True
+
+
+@safe
+def _write_json_file(path: str, payload: dict) -> None:
+    """Core puro de escritura de reporte JSON (puede lanzar)."""
+    import json as _json
+    import os as _os
+
+    _os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        _json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
+
+
+@safe
+def _detect_calls_safe(fp: str, definitions: list, cfg_cache: Any) -> tuple[list, bool]:
+    """Core puro de deteccion de calls por archivo (puede lanzar)."""
+    from features.code_analysis.infrastructure.ast_grep_calls import (
+        detect_calls_cached,
+    )
+
+    return detect_calls_cached(fp, definitions, cfg_cache)
+
+
+@safe
+def _sync_core(data_dir: str, data: dict) -> dict:
+    """Core puro de la sync CPG -> CognitiveGraph (puede lanzar)."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    cg = CognitiveGraph(data_dir, auto_register=True)
+
+    nodes = data.get("nodes", {})
+    docs = {}
+    for nid, node_data in nodes.items():
+        docs[nid] = {
+            "name": node_data.get("name", ""),
+            "type": node_data.get("type", ""),
+            "file": node_data.get("path", ""),
+            "line": node_data.get("line", 0),
+        }
+    return cg.store_many("cpg", docs)
+
+
+@safe
+def _scan_dfg_safe(
+    self: Any,
+    scan_files: list,
+    all_results: dict,
+    dfg_cache: Any,
+    _detect_lang: Any,
+    _run_ast_grep: Any,
+    verbose: bool,
+) -> int:
+    """Core puro del scan DFG por archivos (puede lanzar)."""
+    return self._scan_dfg_files(
+        scan_files, all_results, dfg_cache, _detect_lang, _run_ast_grep, verbose
+    )
+
+
+@safe
+def _write_status_core(status_path: str, payload: dict) -> None:
+    """Core puro de persistencia de dfg_scan_status (puede lanzar)."""
+    import json as _json
+
+    os.makedirs(os.path.dirname(status_path), exist_ok=True)
+    with open(status_path, "w") as f:
+        _json.dump(payload, f, indent=2, ensure_ascii=False)
+
+
+@safe
+def _read_status_core(status_path: str) -> dict:
+    """Core puro de lectura de dfg_scan_status (puede lanzar)."""
+    import json as _json
+
+    with open(status_path) as f:
+        return _json.load(f)
+
+
+@safe
+def _collect_bug_proposals_core(data: dict) -> dict[str, list[dict]]:
+    """Core puro del analisis de bug_proposals (puede lanzar)."""
+    proposals: dict[str, list[dict]] = {
+        "dead_branches": [],
+        "missing_returns": [],
+        "infinite_loops": [],
+        "unused_functions": [],
+        "hardcoded_secrets": [],
+        "taint_paths": [],
+    }
+    analysis = data.get("analysis_results", {}) or {}
+    dfg = data.get("dfg", {}) or {}
+
+    for key in ("dead_branches", "missing_returns", "infinite_loops"):
+        for item in analysis.get(key, []) or []:
+            proposals[key].append(
+                {
+                    "severity": "critical" if key == "infinite_loops" else "warning",
+                    "label": key.replace("_", " "),
+                    "file": item.get("file", ""),
+                    "line": item.get("line", 0),
+                    "detail": str(item.get("detail", ""))[:120],
+                }
+            )
+
+    # unused_functions: nodos función sin CALLS incoming.
+    # Filtra falsos positivos: fields de dataclass/ODM (firma sin
+    # 'def'), constantes de clase, dunders y test_* (pytest) +
+    # detección de referencias por texto (registry dinámico,
+    # imports lazy, dispatch intra-archivo).
+    from features.code_analysis.domain.analysis import (
+        DeadCodeReferenceScanner,
+        is_false_positive_dead_code,
+    )
+
+    nodes = data.get("nodes", {})
+    edges = data.get("edges", [])
+    scanner = DeadCodeReferenceScanner(
+        sorted({n.get("path", "") for n in nodes.values() if isinstance(n, dict)})
+    )
+    incoming_ids = {e.get("from") for e in edges if e.get("type") == "CALLS"}
+    for nid, n in nodes.items():
+        if not isinstance(n, dict):
+            continue
+        if n.get("type") in ("function", "method") and not n.get("is_import"):
+            if nid not in incoming_ids and not n.get("name", "").startswith("__"):
+                if is_false_positive_dead_code(
+                    n.get("name", ""),
+                    n.get("type", ""),
+                    n.get("signature", ""),
+                    n.get("path", ""),
+                ):
+                    continue
+                if scanner.is_referenced(
+                    n.get("name", ""), n.get("path", ""), n.get("line", 0)
+                ):
+                    continue
+                proposals["unused_functions"].append(
+                    {
+                        "severity": "warning",
+                        "label": f"función sin llamadas: {n.get('name')}",
+                        "file": n.get("path", ""),
+                        "line": n.get("line", 0),
+                        "detail": f"{n.get('name')} no tiene callers en el CPG",
+                    }
+                )
+
+    for item in dfg.get("hardcoded_secrets", []) or []:
+        proposals["hardcoded_secrets"].append(
+            {
+                "severity": "critical",
+                "label": "hardcoded secret",
+                "file": item.get("file", ""),
+                "line": item.get("line", 0),
+                "detail": str(item.get("detail", item.get("text", "")))[:120],
+            }
+        )
+    for item in dfg.get("taint_paths", []) or []:
+        proposals["taint_paths"].append(
+            {
+                "severity": "high",
+                "label": "taint path",
+                "file": item.get("file", ""),
+                "line": item.get("line", 0),
+                "detail": str(item.get("detail", item.get("text", "")))[:120],
+            }
+        )
+    return proposals
 
 
 class BuildGraphUseCase:
@@ -42,14 +288,19 @@ class BuildGraphUseCase:
 
         El watcher ya respeta .walkerignore; el CPG debe hacer lo mismo
         para que el build escanee SOLO lo que el proyecto decide indexar.
-        """
-        try:
-            from features.project.infrastructure.watcher import IgnoreRules
 
-            root = self.repo_path or self.code_root
-            return IgnoreRules(str(root)) if root else None
-        except Exception:
-            return None
+        Result pattern: fail-open con log (nunca silencioso, convention-001).
+        """
+        result = _load_ignore_core(self.repo_path or self.code_root)
+        if is_successful(result):
+            return result.value_or(None)
+        error = result.failure()
+        logger.error(
+            "Carga de .walkerignore fallo (%s: %s); se indexa sin exclusiones",
+            type(error).__name__,
+            error,
+        )
+        return None
 
     def resolve_code_paths(self, paths: list[str] | None = None) -> list[str]:
         """Resuelve los paths a escanear, igual que el CPGBuilder original."""
@@ -69,32 +320,37 @@ class BuildGraphUseCase:
         Esto garantiza que el source_fingerprint almacenado en CPG sea
         compatible con el que compute el watcher en cada scan(), permitiendo
         verificar si CPG es espejo del código actual.
-        """
-        try:
-            from features.project.infrastructure.watcher import FileWatcher
 
-            root = self.repo_path or self.code_root
-            return FileWatcher(root).compute_fingerprint()
-        except Exception:
-            return ""
+        Result pattern: fail-open con log (nunca silencioso, convention-001).
+        """
+        result = _watcher_fingerprint_core(self.repo_path or self.code_root)
+        if is_successful(result):
+            return result.value_or("")
+        error = result.failure()
+        logger.error(
+            "Fingerprint del codigo fallo (%s: %s); se guarda vacio",
+            type(error).__name__,
+            error,
+        )
+        return ""
 
     def _auto_fix(self, paths: list[str]) -> None:
         """Auto-fix lint issues antes de escanear.
 
         Interno: usa qlty check --fix. Nadie fuera de este método
         necesita saber qué herramienta se usa.
-        """
-        try:
-            import subprocess
 
-            subprocess.run(
-                ["qlty", "check", "--fix", "--no-fail"] + paths[:10],
-                capture_output=True,
-                text=True,
-                timeout=120,
+        Best-effort con log: si qlty falla no rompe el build (convention-001:
+        nunca except silencioso).
+        """
+        result = _auto_fix_core(paths[:10])
+        if not is_successful(result):
+            error = result.failure()
+            logger.error(
+                "Auto-fix qlty fallo (%s: %s); build continua sin fix",
+                type(error).__name__,
+                error,
             )
-        except Exception:
-            pass  # Auto-fix es best-effort, no debe romper el build
 
     def _persist_quality_report(self, paths: list[str]) -> dict:
         """Corre code review (métricas + quality gates) y lo persiste como
@@ -117,36 +373,28 @@ class BuildGraphUseCase:
         code_paths: list[str] = (
             list(paths or []) if paths else self.resolve_code_paths()
         )
-        try:
-            from features.project import ProjectService
-
-            resolved = ProjectService.resolve_paths(self.repo_path or self.code_root)
-            if resolved.project_root and os.path.isdir(resolved.project_root):
-                project_root = resolved.project_root
-        except Exception:
-            pass
+        resolved = _resolve_project_root_core(self.repo_path or self.code_root)
+        if is_successful(resolved):
+            found = resolved.value_or(None)
+            if found and os.path.isdir(found):
+                project_root = found
+        else:
+            error = resolved.failure()
+            logger.error(
+                "Resolucion de project_root fallo (%s: %s); se usa code_root",
+                type(error).__name__,
+                error,
+            )
 
         # 1. Asegurar qlty config (best-effort: qlty init --yes en repo real)
-        try:
-            import subprocess as _sp
-
-            qlty_root = project_root
-            check = _sp.run(
-                ["qlty", "metrics", "--quiet", qlty_root],
-                capture_output=True,
-                text=True,
-                timeout=30,
+        qlty_setup = _ensure_qlty_config_core(project_root)
+        if not is_successful(qlty_setup):
+            error = qlty_setup.failure()
+            logger.error(
+                "Setup de qlty fallo (%s: %s); quality report puede degradarse",
+                type(error).__name__,
+                error,
             )
-            if check.returncode != 0 and "No qlty config" in check.stderr:
-                _sp.run(
-                    ["qlty", "init", "--yes"],
-                    cwd=qlty_root,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-        except Exception:
-            pass
 
         try:
             from features.code_analysis.application.review_service import ReviewUseCase
@@ -194,18 +442,18 @@ class BuildGraphUseCase:
                 "files_scanned": [],
             }
 
-        import json as _json
-
         report["generated_at"] = _now()
         report["scope"] = "build"
-        try:
-            import os as _os
-
-            _os.makedirs(self.data_dir, exist_ok=True)
-            with open(_os.path.join(self.data_dir, "quality_report.json"), "w") as f:
-                _json.dump(report, f, indent=2, ensure_ascii=False, default=str)
-        except Exception:
-            pass
+        saved = _write_json_file(
+            os.path.join(self.data_dir, "quality_report.json"), report
+        )
+        if not is_successful(saved):
+            error = saved.failure()
+            logger.error(
+                "Persist de quality_report fallo (%s: %s); reporte solo en memoria",
+                type(error).__name__,
+                error,
+            )
         return report
 
     def _persist_bug_proposals(self) -> dict:
@@ -219,104 +467,17 @@ class BuildGraphUseCase:
         El reporte se persiste para que status lo muestre al usuario/agente sin
         que tengan que consultar el estado del código.
         """
-        proposals: dict[str, list[dict]] = {
-            "dead_branches": [],
-            "missing_returns": [],
-            "infinite_loops": [],
-            "unused_functions": [],
-            "hardcoded_secrets": [],
-            "taint_paths": [],
-        }
-        try:
-            data = self._repo.load(self.project_id)
-            analysis = data.get("analysis_results", {}) or {}
-            dfg = data.get("dfg", {}) or {}
-
-            for key in ("dead_branches", "missing_returns", "infinite_loops"):
-                for item in analysis.get(key, []) or []:
-                    proposals[key].append(
-                        {
-                            "severity": "critical"
-                            if key == "infinite_loops"
-                            else "warning",
-                            "label": key.replace("_", " "),
-                            "file": item.get("file", ""),
-                            "line": item.get("line", 0),
-                            "detail": str(item.get("detail", ""))[:120],
-                        }
-                    )
-
-            # unused_functions: nodos función sin CALLS incoming.
-            # Filtra falsos positivos: fields de dataclass/ODM (firma sin
-            # 'def'), constantes de clase, dunders y test_* (pytest) +
-            # detección de referencias por texto (registry dinámico,
-            # imports lazy, dispatch intra-archivo).
-            from features.code_analysis.domain.analysis import (
-                DeadCodeReferenceScanner,
-                is_false_positive_dead_code,
+        proposals = _collect_bug_proposals_core(self._repo.load(self.project_id))
+        if not is_successful(proposals):
+            error = proposals.failure()
+            logger.error(
+                "Analisis de bug_proposals fallo (%s: %s); reporte vacio",
+                type(error).__name__,
+                error,
             )
-
-            nodes = data.get("nodes", {})
-            edges = data.get("edges", [])
-            scanner = DeadCodeReferenceScanner(
-                sorted(
-                    {n.get("path", "") for n in nodes.values() if isinstance(n, dict)}
-                )
-            )
-            incoming_ids = {e.get("from") for e in edges if e.get("type") == "CALLS"}
-            for nid, n in nodes.items():
-                if not isinstance(n, dict):
-                    continue
-                if n.get("type") in ("function", "method") and not n.get("is_import"):
-                    if nid not in incoming_ids and not n.get("name", "").startswith(
-                        "__"
-                    ):
-                        if is_false_positive_dead_code(
-                            n.get("name", ""),
-                            n.get("type", ""),
-                            n.get("signature", ""),
-                            n.get("path", ""),
-                        ):
-                            continue
-                        if scanner.is_referenced(
-                            n.get("name", ""), n.get("path", ""), n.get("line", 0)
-                        ):
-                            continue
-                        proposals["unused_functions"].append(
-                            {
-                                "severity": "warning",
-                                "label": f"función sin llamadas: {n.get('name')}",
-                                "file": n.get("path", ""),
-                                "line": n.get("line", 0),
-                                "detail": f"{n.get('name')} no tiene callers en el CPG",
-                            }
-                        )
-
-            for item in dfg.get("hardcoded_secrets", []) or []:
-                proposals["hardcoded_secrets"].append(
-                    {
-                        "severity": "critical",
-                        "label": "hardcoded secret",
-                        "file": item.get("file", ""),
-                        "line": item.get("line", 0),
-                        "detail": str(item.get("detail", item.get("text", "")))[:120],
-                    }
-                )
-            for item in dfg.get("taint_paths", []) or []:
-                proposals["taint_paths"].append(
-                    {
-                        "severity": "high",
-                        "label": "taint path",
-                        "file": item.get("file", ""),
-                        "line": item.get("line", 0),
-                        "detail": str(item.get("detail", item.get("text", "")))[:120],
-                    }
-                )
-        except Exception:
-            pass
 
         findings = []
-        for key, items in proposals.items():
+        for key, items in proposals.value_or({}).items():
             for it in items:
                 it["type"] = key
                 findings.append(it)
@@ -324,18 +485,19 @@ class BuildGraphUseCase:
         payload = {
             "generated_at": _now(),
             "total_findings": len(findings),
-            "by_type": {k: len(v) for k, v in proposals.items() if v},
+            "by_type": {k: len(v) for k, v in proposals.value_or({}).items() if v},
             "findings": findings[:200],
         }
-        try:
-            import json as _json
-            import os as _os
-
-            _os.makedirs(self.data_dir, exist_ok=True)
-            with open(_os.path.join(self.data_dir, "bug_proposals.json"), "w") as f:
-                _json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
-        except Exception:
-            pass
+        saved = _write_json_file(
+            os.path.join(self.data_dir, "bug_proposals.json"), payload
+        )
+        if not is_successful(saved):
+            error = saved.failure()
+            logger.error(
+                "Persist de bug_proposals fallo (%s: %s); reporte solo en memoria",
+                type(error).__name__,
+                error,
+            )
         return payload
 
     def _build_business_layer(self, data: dict) -> dict:
@@ -347,42 +509,45 @@ class BuildGraphUseCase:
           - architecture_patterns: TEA, hooks, redux, pure_domain
           - metrics: acoplamiento, funciones huerfanas, etc.
         """
-        try:
-            from features.code_analysis.application.business_analyzer import analyze
+        result = _analyze_business(data)
+        if is_successful(result):
+            return result.value_or({})
+        error = result.failure()
+        # G2/convention-001: fail-open con log (no silencioso)
+        logger.error(
+            "BuildGraphUseCase.analyze fallo (%s: %s); se retorna analisis vacio",
+            type(error).__name__,
+            error,
+        )
+        return {
+            "pure_functions": [],
+            "business_flows": [],
+            "architecture_patterns": [],
+            "metrics": {},
+        }
 
-            return analyze(data.get("nodes", {}), data.get("edges", []))
-        except Exception:
-            return {
-                "pure_functions": [],
-                "business_flows": [],
-                "architecture_patterns": [],
-                "metrics": {},
-            }
-
-    def _sync_to_cognitive(self, data: dict) -> None:
+    def _sync_to_cognitive(self, data: dict) -> dict:
         """Sincroniza nodos CPG a CognitiveGraph via batch store.
 
         Usa store_many (escritura UNICA) en vez de save() por nodo,
         que recargaba y reescribia el indice completo por cada nodo
         (O(n²) — hacia el build inviable con miles de nodos).
+
+        Result pattern (dry-python/returns): el core con @safe convierte
+        excepciones en Failure; aqui se decide loggear (G2/convention-001:
+        un fallo silencioso enmascararia un indice cpg desincronizado).
         """
-        try:
-            from libs.cognitive_graph import CognitiveGraph
-
-            cg = CognitiveGraph(self.data_dir, auto_register=True)
-
-            nodes = data.get("nodes", {})
-            docs = {}
-            for nid, node_data in nodes.items():
-                docs[nid] = {
-                    "name": node_data.get("name", ""),
-                    "type": node_data.get("type", ""),
-                    "file": node_data.get("path", ""),
-                    "line": node_data.get("line", 0),
-                }
-            cg.store_many("cpg", docs)
-        except Exception:
-            pass  # sync best-effort
+        result = _sync_core(self.data_dir, data)
+        if is_successful(result):
+            return result.value_or({})
+        error = result.failure()
+        logger.error(
+            "Sync CPG a CognitiveGraph fallo (%s: %s); el indice cpg puede "
+            "quedar desincronizado",
+            type(error).__name__,
+            error,
+        )
+        return {"ok": False, "error": str(error)}
 
     def build(self, scan_paths: list[str] | None = None) -> dict:
         """Full rebuild via ast-grep + CFG analysis (CALLS edges).
@@ -551,9 +716,6 @@ class BuildGraphUseCase:
 
         Retorna (total_calls, cache_hits).
         """
-        from features.code_analysis.infrastructure.ast_grep_calls import (
-            detect_calls_cached,
-        )
 
         total_calls = 0
         cache_hits = 0
@@ -564,12 +726,20 @@ class BuildGraphUseCase:
             if not definitions:
                 continue  # Skip files without known function definitions
 
-            try:
-                calls, from_cache = detect_calls_cached(fp, definitions, cfg_cache)
-                if from_cache:
-                    cache_hits += 1
-            except Exception:
+            detected = _detect_calls_safe(fp, definitions, cfg_cache)
+            if not is_successful(detected):
+                error = detected.failure()
+                logger.error(
+                    "Deteccion de calls fallo para %s (%s: %s); se continua con "
+                    "el siguiente archivo",
+                    fp,
+                    type(error).__name__,
+                    error,
+                )
                 continue
+            calls, from_cache = detected.value_or(([], False))
+            if from_cache:
+                cache_hits += 1
 
             for call in calls:
                 caller = call["caller"]
@@ -899,14 +1069,25 @@ class BuildGraphUseCase:
         dfg_cache = CallsCache(os.path.join(self.data_dir, "dfg_cache.json"))
         cache_hits = 0
 
-        try:
-            cache_hits = self._scan_dfg_files(
-                scan_files, all_results, dfg_cache, _detect_lang, _run_ast_grep, verbose
+        scanned = _scan_dfg_safe(
+            self,
+            scan_files,
+            all_results,
+            dfg_cache,
+            _detect_lang,
+            _run_ast_grep,
+            verbose,
+        )
+        if is_successful(scanned):
+            cache_hits = scanned.value_or(0)
+        else:
+            error = scanned.failure()
+            logger.error(
+                "Scan DFG fallo (%s: %s); se guarda resultado parcial",
+                type(error).__name__,
+                error,
             )
-        except Exception:
-            pass
-        finally:
-            dfg_cache.save()
+        dfg_cache.save()
 
         data = self._repo.load(self.project_id)
         data["dfg"] = all_results
@@ -943,14 +1124,14 @@ class BuildGraphUseCase:
         status_path = os.path.join(self.data_dir, "dfg_scan_status.json")
 
         def _write_status(payload: dict) -> None:
-            try:
-                import json as _json
-
-                os.makedirs(self.data_dir, exist_ok=True)
-                with open(status_path, "w") as f:
-                    _json.dump(payload, f, indent=2, ensure_ascii=False)
-            except OSError:
-                pass
+            result = _write_status_core(status_path, payload)
+            if not is_successful(result):
+                error = result.failure()
+                logger.error(
+                    "Persist de dfg_scan_status fallo (%s: %s)",
+                    type(error).__name__,
+                    error,
+                )
 
         _write_status(
             {
@@ -999,12 +1180,18 @@ class BuildGraphUseCase:
         return {"ok": True, "status": "running", "status_path": status_path}
 
     def dfg_scan_status(self) -> dict:
-        """Lee el estado del scan_dfg asíncrono (si existe)."""
-        status_path = os.path.join(self.data_dir, "dfg_scan_status.json")
-        try:
-            import json as _json
+        """Lee el estado del scan_dfg asíncrono (si existe).
 
-            with open(status_path) as f:
-                return _json.load(f)
-        except Exception:
-            return {"status": "not_started"}
+        Result pattern: fail-open con log si el status no existe o es ilegible.
+        """
+        status_path = os.path.join(self.data_dir, "dfg_scan_status.json")
+        loaded = _read_status_core(status_path)
+        if is_successful(loaded):
+            return loaded.value_or({"status": "not_started"})
+        error = loaded.failure()
+        logger.error(
+            "Lectura de dfg_scan_status fallo (%s: %s); se reporta not_started",
+            type(error).__name__,
+            error,
+        )
+        return {"status": "not_started"}
