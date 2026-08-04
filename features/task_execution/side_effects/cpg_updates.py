@@ -50,8 +50,9 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
             data = builder.build(paths=paths)
             files_updated = data.get("stats", {}).get("files_scanned", 0)
         else:
+            # incremental: usa watcher + delta sync (BuildGraphUseCase.update)
             data = builder.update()
-            files_updated = len(data.get("tracked_files", {}))
+            files_updated = data.get("files_updated", 0)
         # Mark CPG as up_to_date in watcher (SSOT: project owns watcher state)
         try:
             from features.project.infrastructure.watcher import FileWatcher
@@ -77,8 +78,14 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
                 else "indexar_ok"
             ),
             "files_updated": files_updated,
-            "total_nodes": data.get("stats", {}).get("total_nodes", 0),
-            "total_edges": data.get("stats", {}).get("total_edges", 0),
+            "total_nodes": (
+                data.get("stats", {}).get("total_nodes", 0)
+                or data.get("nodes_added", 0)
+            ),
+            "total_edges": (
+                data.get("stats", {}).get("total_edges", 0)
+                or 0
+            ),
         }
 
         if quality_degraded:
