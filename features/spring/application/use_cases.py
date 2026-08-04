@@ -72,22 +72,24 @@ class PlanSprintUseCase:
             session_id=ctx.session_id or "",
         )
         plan_specs = []
-        for item in specs_raw:
-            spring_svc.upsert_spec(
-                sprint_id,
-                objective=item.get("objective", ""),
-                domain=item.get("domain", ""),
-                spec_type=item.get("type", "feature"),
-                result_state=item.get("result_state", ""),
-                files=(
+        # Batch upsert via SpringGraphService (1 serializacion, no N)
+        spring_svc.upsert_specs_batch(sprint_id, [
+            {
+                "objective": item.get("objective", ""),
+                "domain": item.get("domain", ""),
+                "type": item.get("type", "feature"),
+                "result_state": item.get("result_state", ""),
+                "files": (
                     item.get("impacted_artifacts", {}).get("files", [])
                     if isinstance(item.get("impacted_artifacts"), dict)
                     else []
                 ),
-                status=item.get("status", "draft"),
-                description=item.get("task_description", ""),
-            )
-            plan_specs.append(item)
+                "status": item.get("status", "draft"),
+                "description": item.get("task_description", ""),
+            }
+            for item in specs_raw
+        ])
+        plan_specs = list(specs_raw)
 
         # plan.json como PROYECCION del delta (compatibilidad legacy)
         spring_svc.sync_plan_projection(sprint_id)

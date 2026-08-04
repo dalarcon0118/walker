@@ -490,6 +490,73 @@ class SpringGraphService:
             **extra,
         )
 
+    def upsert_specs_batch(self, spring_id: str, items: list[dict]) -> dict:
+        """Upsert batch: resuelve dominio (create vs update por objective)
+        pero persiste con un solo store_many (1 serializacion, no N).
+
+        Optimizacion para re-planificar (PlanSprintUseCase) e importar
+        sprints donde varios specs se procesan juntos.
+        """
+        existing_specs = self.get_specs(spring_id)
+        obj_to_spec = {
+            s.get("objective", "").strip(): s
+            for s in existing_specs
+            if s.get("objective", "").strip()
+        }
+
+        batch_docs: dict[str, dict] = {}
+        created = 0
+        refined = 0
+
+        for item in items:
+            objective = item.get("objective", "").strip()
+            if not objective:
+                continue
+            existing = obj_to_spec.get(objective)
+
+            if existing is not None:
+                # Refinar existente: merge de campos
+                spec_id = existing.get("spec_id", "")
+                doc_id = self._spec_doc_id(spring_id, spec_id)
+                merged = dict(existing)
+                for k, v in item.items():
+                    if v is not None and k not in ("objective", "spec_id", "spec_key"):
+                        merged[k] = v
+                merged["updated_at"] = datetime.now(timezone.utc).isoformat()
+                batch_docs[doc_id] = merged
+                refined += 1
+            else:
+                # Nuevo spec
+                spec_index = len(existing_specs) + created
+                spec_id = f"SPEC-{spec_index + 1:03d}"
+                doc_id = self._spec_doc_id(spring_id, spec_id)
+                batch_docs[doc_id] = {
+                    "type": self.TYPE_SPEC,
+                    "spring_id": spring_id,
+                    "spec_id": spec_id,
+                    "spec_key": doc_id,
+                    "spec_index": spec_index,
+                    "objective": objective,
+                    "domain": item.get("domain", ""),
+                    "spec_type": item.get("type", "feature"),
+                    "status": item.get("status", "draft"),
+                    "result_state": item.get("result_state", ""),
+                    "files": item.get("files", []),
+                    "description": item.get("description", ""),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                # Agregar al indice en memoria para resolucion duplicada
+                obj_to_spec[objective] = batch_docs[doc_id]
+                created += 1
+
+        if batch_docs:
+            self.cg.store_many("delta", batch_docs)
+            for doc_id in batch_docs:
+                self.cg.add_edge(spring_id, doc_id, type=self.EDGE_CONTAINS)
+
+        return {"ok": True, "created": created, "refined": refined,
+                "total": len(batch_docs)}
+
     def _find_spec_by_objective(self, spring_id: str, objective: str) -> str | None:
         """Busca una spec del spring por objetivo (match normalizado).
 
