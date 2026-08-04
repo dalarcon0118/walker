@@ -24,6 +24,9 @@ import os
 import time
 from typing import Any
 
+from returns.result import safe
+from returns.pipeline import is_successful
+
 import networkx as nx
 
 from .models import TokenIndex
@@ -85,6 +88,7 @@ class Index:
         self._type_index: dict[str, set[str]] = {}
         self._field_index: dict[tuple[str, str], set[str]] = {}
         self._loaded = False
+        self._write_locked = False  # guarda reentrada de _save dentro de _load
 
     # ── Helpers de indices secundarios ──────────────────────────────
 
@@ -261,10 +265,12 @@ class Index:
         if self._token_index is not None:
             data["token_index"] = self._token_index.to_dict()
         payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-        # G1: escritura atomica (temp + rename) + lock exclusivo. Evita que un
-        # indice quede corrupto si dos procesos MCP escriben concurrentemente
-        # o si el proceso muere a mitad de escritura.
-        self._acquire_write_lock()
+        # G1: escritura atomica (temp + rename) + lock exclusivo.
+        # Si el lock ya fue adquirido por store/store_many/delete (ciclo
+        # completo read-modify-write), no re-adquirir — el fd seria otro
+        # y el lock no serializaria (Unix: flock por fd, no por proceso).
+        if not self._write_locked:
+            self._acquire_write_lock()
         try:
             tmp_path = path + ".tmp"
             if path.endswith(".gz"):
@@ -279,7 +285,8 @@ class Index:
                     os.fsync(f.fileno())
             os.replace(tmp_path, path)
         finally:
-            self._release_write_lock()
+            if not self._write_locked:
+                self._release_write_lock()
 
     @staticmethod
     def _resolve_field(doc: dict, field: str):
@@ -350,22 +357,30 @@ class Index:
     # ── CRUD ──
 
     def store(self, doc_id: str, data: dict) -> dict:
-        """Indexa o actualiza un nodo en el grafo.
+        """Indexa o actualiza un nodo con lock de ciclo completo.
 
-        Si el schema tiene fulltext configurado, tokeniza los campos
-        especificados y los agrega al TokenIndex (solo si el doc cambio).
-        Mantiene indices secundarios O(1) para busqueda estructurada.
+        Result pattern: el core lockeado convierte excepciones en Failure.
         """
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            result = self._store_core(doc_id, data)
+            if is_successful(result):
+                return result.value_or({"ok": False, "_id": doc_id})
+            return {"ok": False, "_id": doc_id, "error": str(result.failure())}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    @safe
+    def _store_core(self, doc_id: str, data: dict) -> dict:
+        """Core puro del store (puede lanzar)."""
         self._load()
         old = self._docs.get(doc_id)
         changed = old != data if old is not None else True
-
-        # Indices secundarios: remover viejo, insertar nuevo
         if old is not None:
             self._deindex_doc(doc_id)
         self._index_doc(doc_id, data)
-
-        # TokenIndex: solo si el doc cambio (tenia datos distintos)
         if changed and self._token_index is not None and old is not None:
             self._token_index.remove_node(doc_id)
         self._docs[doc_id] = data
@@ -383,16 +398,24 @@ class Index:
         return {"ok": True, "_id": doc_id, "_index": self.name}
 
     def store_many(self, docs: dict[str, dict]) -> dict:
-        """Indexa muchos nodos en UNA sola carga + UNA sola escritura.
+        """Indexa muchos nodos en batch con lock de ciclo completo.
 
-        Evita el O(n²) de store() individual (que recargaba y reescribe
-        el índice completo por cada nodo). Para sincronizaciones masivas
-        (ej: sync CPG -> CognitiveGraph con miles de nodos).
-
-        OPTIMIZACION: si un doc es identico al que ya esta en _docs, se
-        salta todo (token index, graph, secondary indexes). Solo se tocan
-        los docs nuevos o cambiados.
+        Result pattern: el core lockeado convierte excepciones en Failure.
         """
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            result = self._store_many_core(docs)
+            if is_successful(result):
+                return result.value_or({"ok": False, "stored": 0})
+            return {"ok": False, "stored": 0, "error": str(result.failure())}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    @safe
+    def _store_many_core(self, docs: dict[str, dict]) -> dict:
+        """Core puro de store_many (puede lanzar)."""
         self._load()
         skipped = 0
         touched = 0
@@ -400,13 +423,11 @@ class Index:
             old = self._docs.get(doc_id)
             if old == data:
                 skipped += 1
-                continue  # doc identico: nada que hacer
+                continue
             touched += 1
-            # Indices secundarios
             if old is not None:
                 self._deindex_doc(doc_id)
             self._index_doc(doc_id, data)
-            # TokenIndex
             if old is not None and self._token_index is not None:
                 self._token_index.remove_node(doc_id)
             self._docs[doc_id] = data
@@ -423,7 +444,7 @@ class Index:
         if skipped:
             logger = __import__("logging").getLogger(__name__)
             logger.debug(
-                "store_many('%s'): %d docs skipped (identical), %d processed",
+                "store_many('%s'): %d docs skipped, %d touched",
                 self.name, skipped, touched,
             )
         self._save()
@@ -471,6 +492,21 @@ class Index:
 
 
     def delete(self, doc_id: str) -> dict:
+        """Elimina un nodo con lock de ciclo completo (Result pattern)."""
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            result = self._delete_core(doc_id)
+            if is_successful(result):
+                return result.value_or({"ok": False, "deleted": False})
+            return {"ok": False, "deleted": False, "error": str(result.failure())}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    @safe
+    def _delete_core(self, doc_id: str) -> dict:
+        """Core puro de delete (puede lanzar)."""
         self._load()
         existed = doc_id in self._docs
         if existed:

@@ -1598,6 +1598,53 @@ def test_store_many_skip_identical_docs():
         print("  ✅ test_store_many_skip_identical_docs: skip unchanged docs")
 
 
+def test_concurrent_store_many_no_deadlock():
+    """store_many concurrente sobre el mismo indice: sin deadlock ni corrupcion."""
+    import threading
+
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Pre-poblar el indice con docs iniciales
+        cg0 = CognitiveGraph(tmpdir, auto_register=True)
+        for i in range(20):
+            cg0.store("ckg", f"doc-{i:03d}", {"type": "task", "seq": i})
+
+        errors = []
+        results = []
+
+        def worker(wid):
+            try:
+                cg = CognitiveGraph(tmpdir, auto_register=True)
+                batch = {}
+                for i in range(5):
+                    kid = f"doc-w{wid}-{i:03d}"
+                    batch[kid] = {"type": "task", "seq": wid * 100 + i}
+                r = cg.store_many("ckg", batch)
+                results.append((wid, r))
+            except Exception as e:
+                errors.append((wid, str(e)))
+
+        # 5 workers concurrentes
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert not errors, f"Errores en workers concurrentes: {errors}"
+        assert len(results) == 5, f"Faltan resultados: {len(results)}"
+
+        # Verificar integridad: ningun doc se perdio
+        final_cg = CognitiveGraph(tmpdir, auto_register=True)
+        all_ids = final_cg.keys("ckg")
+        assert len(all_ids) == 20 + 25, f"Total docs: {len(all_ids)}"
+        assert final_cg.search("ckg", {})["hits"]["total"] == len(all_ids), (
+            "search y keys deben coincidir"
+        )
+        print("  ✅ test_concurrent_store_many_no_deadlock: 5 workers OK")
+
+
 # ════════════════════════════════════════════════════════════════
 # Runner
 # ════════════════════════════════════════════════════════════════
@@ -1643,6 +1690,7 @@ def run_all():
         ("fulltext nested dict fields", test_fulltext_nested_dict_fields),
         ("schema migration on fulltext change", test_schema_migration_on_fulltext_change),
         ("store_many skip identical docs", test_store_many_skip_identical_docs),
+        ("concurrent store_many no deadlock", test_concurrent_store_many_no_deadlock),
     ]
 
     passed = 0
