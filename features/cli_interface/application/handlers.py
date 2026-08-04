@@ -694,6 +694,36 @@ def handle_help(req: Request) -> Response:
     return _safe_execute(_exec)
 
 
+def _load_protocol_rest() -> str:
+    """Carga el protocolo REST desde el template canónico (SSOT).
+
+    SSOT: features/prompts/templates/protocol/rest.md (mismo root único de
+    templates que el resto de prompts). Fallback: constante del código.
+    """
+    try:
+        from features.prompts.loader import load_static
+        text = load_static("protocol/rest")
+        return text or _PROTOCOL_REST_FALLBACK
+    except Exception:
+        return _PROTOCOL_REST_FALLBACK
+
+
+_PROTOCOL_REST_FALLBACK = (
+    "PROTOCOLO REST OBLIGATORIO PARA EL AGENTE:\n"
+    "El walker se consume como una ruta REST: walker /recurso/recurso2/recurso3\n"
+    "Cada respuesta incluye 'Next Actions' con los comandos exactos para continuar.\n"
+    "Para avanzar en el workflow SOLO hay dos comandos: submit y transition.\n"
+    "  - walker <project>/submit '{\"campos del nodo\"}' → envia datos y el workflow avanza\n"
+    "  - walker <project>/transition <gate> → avanza por una gate\n"
+    "Las tareas del workflow (plan_sprint, spec_task, etc.) son INTERNAS: el workflow\n"
+    "las ejecuta al recibir los datos. El agente no las llama directamente.\n"
+    "Las tareas PUBLICAS (memorias kg_search/kg_schema/cpg/ckg) si se llaman directo:\n"
+    "  walker <project>/kg_schema → descubre los indices disponibles\n"
+    '  walker <project>/kg_search \'{"text":"..."}\' → busca en las memorias\n'
+    "Antes de leer archivos del codigo fuente, consulta las memorias.\n"
+)
+
+
 def _build_help() -> dict:
     """Construye la ayuda completa: comandos fijos + tasks + indices discoverables.
 
@@ -745,20 +775,7 @@ def _build_help() -> dict:
 
     return {
         "type": "help",
-        "protocol": (
-            "PROTOCOLO REST OBLIGATORIO PARA EL AGENTE:\n"
-            "El walker se consume como una ruta REST: walker /recurso/recurso2/recurso3\n"
-            "Cada respuesta incluye 'Next Actions' con los comandos exactos para continuar.\n"
-            "Para avanzar en el workflow SOLO hay dos comandos: submit y transition.\n"
-            "  - walker <project>/submit '{\"campos del nodo\"}' → envia datos y el workflow avanza\n"
-            "  - walker <project>/transition <gate> → avanza por una gate\n"
-            "Las tareas del workflow (plan_sprint, spec_task, etc.) son INTERNAS: el workflow\n"
-            "las ejecuta al recibir los datos. El agente no las llama directamente.\n"
-            "Las tareas PUBLICAS (memorias kg_search/kg_schema/cpg/ckg) si se llaman directo:\n"
-            "  walker <project>/kg_schema → descubre los indices disponibles\n"
-            '  walker <project>/kg_search \'{"text":"..."}\' → busca en las memorias\n'
-            "Antes de leer archivos del codigo fuente, consulta las memorias."
-        ),
+        "protocol": _load_protocol_rest(),
         "sprint_lifecycle": {
             "description": "El walker gestiona proyectos mediante sprints con un workflow determinista.",
             "como_crear_un_sprint": (

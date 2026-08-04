@@ -183,7 +183,7 @@ _PROMPTS = [
     },
 ]
 
-_PROTOCOL_TEXT = (
+_PROTOCOL_FALLBACK = (
     "WALKER PROTOCOL (MCP) — MANDATORY BEHAVIOR CONTRACT:\n"
     "\n"
     "1. GIT-LIKE: the walker operates on the current directory. Each project\n"
@@ -232,6 +232,23 @@ _PROTOCOL_TEXT = (
     "   repositories, providers), capture_task detects it and generates the\n"
     "   decision automatically using your objective as context.\n"
 )
+
+
+def _load_protocol_text() -> str:
+    """Carga el contrato MCP desde el template canónico (SSOT).
+
+    SSOT: features/prompts/templates/protocol/mcp.md (mismo path único de
+    templates que el resto de prompts). Fallback: constante del código.
+    """
+    try:
+        from features.prompts.loader import load_static
+        text = load_static("protocol/mcp")
+        return text or _PROTOCOL_FALLBACK
+    except Exception:
+        return _PROTOCOL_FALLBACK
+
+
+_PROTOCOL_TEXT = _load_protocol_text()
 
 
 # ── Project resolution (git-like: from CWD) ───────────────────────────────────

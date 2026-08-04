@@ -88,8 +88,21 @@ class PromptManager:
         return result
 
     def available_templates(self) -> list[str]:
-        prompt_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "prompt", "templates")
-        return os.listdir(prompt_dir) if os.path.isdir(prompt_dir) else []
+        """Lista los templates del ROOT CANÓNICO features/prompts/templates/.
+
+        Recorre subpaths (gates/, protocol/, ...) y devuelve rutas relativas
+        como IDs (ej. 'protocol/mcp.md', 'gates/gate-briefing.md').
+        """
+        from .loader import canonical_templates_dir
+        root = canonical_templates_dir()
+        if not os.path.isdir(root):
+            return []
+        result = []
+        for dirpath, _dirs, files in os.walk(root):
+            for f in sorted(files):
+                rel = os.path.relpath(os.path.join(dirpath, f), root)
+                result.append(rel.replace(os.sep, "/"))
+        return sorted(result)
 
     def compose(self, node_config: dict, prompt_template: str, ctx: Any, chain_dir: str | None = None, extra_data: dict | None = None) -> str:
         from features.engine.context.composer import ContextComposer

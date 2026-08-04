@@ -19,20 +19,19 @@ import os
 import tempfile
 from types import SimpleNamespace
 
-PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", ".cognitive", "projects", "walker", "data")
-)
-NODE_PATH = os.path.join(PROJECT_ROOT, "workflow.v3", "nodes", "implement.node.json")
-PROMPT_PATH = os.path.join(PROJECT_ROOT, "workflow.v3", "prompts", "implement", "work.prompt.json")
+NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "implement.node.json")
+
+
+def _load_prompt() -> dict:
+    """Resuelve implement/work vía TemplateLoader (SSOT: templates/nodes/)."""
+    from features.prompts.loader import TemplateLoader
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        return {"template": TemplateLoader(tmpdir).load("implement/work")}
 
 
 def _load_node() -> dict:
     with open(NODE_PATH) as f:
-        return json.load(f)
-
-
-def _load_prompt() -> dict:
-    with open(PROMPT_PATH) as f:
         return json.load(f)
 
 
@@ -47,8 +46,15 @@ def _work_substate(node: dict) -> dict:
 #  Gate en DESIGN.DESIGN_GATHER (extensión del paso 2)
 # ════════════════════════════════════════════════════════════════════
 
-DESIGN_NODE_PATH = os.path.join(PROJECT_ROOT, "workflow.v3", "nodes", "design.node.json")
-GATHER_PROMPT_PATH = os.path.join(PROJECT_ROOT, "workflow.v3", "prompts", "design", "design-gather.prompt.json")
+DESIGN_NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "design.node.json")
+
+
+def _load_gather_prompt() -> dict:
+    """Resuelve design/design-gather vía TemplateLoader (SSOT: templates/nodes/)."""
+    from features.prompts.loader import TemplateLoader
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        return {"template": TemplateLoader(tmpdir).load("design/design-gather")}
 
 
 def _design_gather(node: dict) -> dict:
@@ -70,8 +76,7 @@ def test_design_gather_declara_capas_conocimiento():
 
 def test_design_gather_prompt_menciona_gate_y_capas():
     """El prompt de DESIGN_GATHER debe describir el gate de auto-consulta."""
-    with open(GATHER_PROMPT_PATH) as f:
-        tmpl = json.load(f)["template"]
+    tmpl = _load_gather_prompt()["template"]
     assert "GATE DE AUTO-CONSULTA" in tmpl
     for layer in ("<< ckg >>", "<< cpg >>", "<< delta >>"):
         assert layer in tmpl, f"prompt no describe capa {layer}"
@@ -111,8 +116,7 @@ def test_composer_inyecta_capas_en_design_gather():
         composer = ContextComposer(registry)
         node = _load_node_design()
         gather = _design_gather(node)
-        with open(GATHER_PROMPT_PATH) as f:
-            template = json.load(f)["template"]
+        template = _load_gather_prompt()["template"]
         ctx = SimpleNamespace(
             chain_dir=chain_dir,
             task_id="TASK-001",

@@ -290,13 +290,14 @@ def get_workflow_dir(project_id: str) -> Path:
 
 
 def get_engine_workflow_dir() -> Path:
-    """Directorio workflow canónico del motor walker (SSOT).
+    """Directorio workflow canónico del motor (SSOT) — CÓDIGO, no data.
 
-    El workflow es del motor, no del proyecto. La plantilla canónica
-    v3.1 vive en la data del proyecto 'walker' (el motor registrado).
+    El workflow es maquinaria interna del motor walker, NO config de un
+    proyecto: vive versionado en features/engine/workflow/ del repo.
+    (.cognitive/projects/<pid>/data/ es solo data de cada proyecto.)
     NO hay fallback: si no existe, los llamadores deben ERROR.
     """
-    return get_data_dir("walker") / _get_cfg("workflow_dir", "workflow.v3")
+    return Path(__file__).resolve().parents[2] / "features" / "engine" / "workflow"
 
 
 def get_engine_workflow_path() -> Path:

@@ -16,14 +16,23 @@ from typing import Any
 
 
 def _load_template() -> str:
-    """Carga el template gate-briefing.md desde features/prompts/templates."""
+    """Carga el template gate-briefing.md desde el root canónico de templates.
+
+    Root único: features/prompts/templates/ (subpath gates/).
+    Fallbacks: ubicación legacy (templates/gate-briefing.md) y constante.
+    """
     tpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
-    path = os.path.join(tpl_dir, "gate-briefing.md")
-    try:
-        with open(path) as f:
-            return f.read()
-    except OSError:
-        return _FALLBACK_TEMPLATE
+    candidates = [
+        os.path.join(tpl_dir, "gates", "gate-briefing.md"),
+        os.path.join(tpl_dir, "gate-briefing.md"),
+    ]
+    for path in candidates:
+        try:
+            with open(path) as f:
+                return f.read()
+        except OSError:
+            continue
+    return _FALLBACK_TEMPLATE
 
 
 _FALLBACK_TEMPLATE = (

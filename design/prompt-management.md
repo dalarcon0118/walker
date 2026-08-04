@@ -1,5 +1,11 @@
 # Prompt Management — Módulo Centralizado
 
+> **ESTADO (2026-08):** implementado en `features/prompts/`. Root único de
+> templates: `features/prompts/templates/` (subpaths `nodes/`, `protocol/`,
+> `gates/`). La plantilla del workflow del motor vive en código:
+> `features/engine/workflow/` (no en `.cognitive/projects/<pid>/data/`).
+> Este documento conserva el diseño original.
+
 ## 1. Situación Actual (dispersión)
 
 ```
@@ -7,7 +13,7 @@
 📁 templates/                        → templates del spring
 📁 _internal/templates/              → templates duplicados
 📁 task-manifests/                   → metadata de tareas
-📁 .cognitive/.../workflow.v3/prompts/ → prompts de nodos del workflow
+📁 features/prompts/templates/nodes/ → prompts de nodos del workflow (SSOT)
 
 📄 _walker/workflow_engine/application/orchestrator.py  → resolve_prompt()
 📄 _walker/workflow_engine/context/composer.py          → ContextComposer

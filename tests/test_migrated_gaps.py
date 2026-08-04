@@ -1015,39 +1015,36 @@ class TestMonadicPipeline:
 
 
 class TestPromptTemplatesStepPlaceholders:
-    def test_work_template_tiene_step_placeholders(self):
+    @staticmethod
+    def _load(prompt_id: str) -> dict:
+        """Resuelve el prompt vía TemplateLoader (SSOT: features/prompts/templates/nodes/)."""
         import json
+        from features.prompts.loader import TemplateLoader
 
-        path = ".cognitive/projects/walker/data/workflow.v3/prompts/implement/work.prompt.json"
-        with open(path) as f:
-            t = json.load(f)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text = TemplateLoader(tmpdir).load(prompt_id)
+        return json.loads(text) if text.lstrip().startswith("{") else {"template": text}
+
+    def test_work_template_tiene_step_placeholders(self):
+        t = self._load("implement/work")
         tmpl = t["template"]
         assert "{step_quality_summary}" in tmpl
         assert "{step_failed_gates}" in tmpl
         assert "{step_recommend}" in tmpl
 
     def test_code_review_scan_template_tiene_step_placeholders(self):
-        import json
-
-        path = ".cognitive/projects/walker/data/workflow.v3/prompts/implement/code-review-scan.prompt.json"
-        with open(path) as f:
-            t = json.load(f)
+        t = self._load("implement/code-review-scan")
         tmpl = t["template"]
         assert "{step_quality_passed}" in tmpl
         assert "{step_failed_gates}" in tmpl
 
     def test_refine_diagnose_template_tiene_step_placeholders(self):
-        import json
-
-        path = ".cognitive/projects/walker/data/workflow.v3/prompts/refine/diagnose.prompt.json"
-        with open(path) as f:
-            t = json.load(f)
+        t = self._load("refine/diagnose")
         tmpl = t["template"]
         assert "{step_quality_summary}" in tmpl
         assert "{step_recommend}" in tmpl
 
     def test_renderer_resuelve_y_no_deja_rotos(self):
-        import json
         from features.prompts.renderer import TemplateRenderer
 
         r = TemplateRenderer()
@@ -1060,14 +1057,12 @@ class TestPromptTemplatesStepPlaceholders:
             # engine en vez de {step_failed_gates}
             "failed_gates": "cyclomatic_complexity",
         }
-        for rel in (
-            "implement/work.prompt.json",
-            "implement/code-review-scan.prompt.json",
-            "refine/diagnose.prompt.json",
+        for prompt_id in (
+            "implement/work",
+            "implement/code-review-scan",
+            "refine/diagnose",
         ):
-            path = f".cognitive/projects/walker/data/workflow.v3/prompts/{rel}"
-            with open(path) as f:
-                t = json.load(f)
+            t = self._load(prompt_id)
             rendered_fail = r.render(t["template"], data_fail)
             rendered_empty = r.render(t["template"], {})
             assert "{step_" not in rendered_empty  # sin datos no deja rotos

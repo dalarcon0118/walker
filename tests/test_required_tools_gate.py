@@ -23,10 +23,7 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", ".cognitive", "projects", "walker", "data")
-)
-NODE_PATH = os.path.join(PROJECT_ROOT, "workflow.v3", "nodes", "implement.node.json")
+NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "implement.node.json")
 
 # chain_dir real del walker para que WorkflowRepository.load() resuelva al
 # workflow.v3 canónico del proyecto.

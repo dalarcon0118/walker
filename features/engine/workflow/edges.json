@@ -1,0 +1,321 @@
+[
+ {
+  "from": "START",
+  "to": "SPRINT",
+  "gate": "project_selected",
+  "sub_state_gate": "ACTIVE",
+  "description": "Existing project selected. Transform resolves ACTIVE or PLANNING based on active sprint.",
+  "context_updates": [
+   {
+    "from": "START.SELECT.project_id",
+    "to": "context.project_id"
+   }
+  ],
+  "transform": {
+   "action": "resolve_project_sprint",
+   "input": [
+    "SELECT.fields"
+   ],
+   "output": "context.sprint_resolution"
+  }
+ },
+ {
+  "from": "START",
+  "to": "PROJECT_INIT",
+  "gate": "create_project",
+  "sub_state_gate": "DETECT",
+  "description": "Create new project. Delegates to PROJECT_INIT (sibling node)."
+ },
+ {
+  "from": "START",
+  "to": "START",
+  "gate": "refresh",
+  "sub_state_gate": "LIST",
+  "description": "Refresh project list."
+ },
+ {
+  "from": "SPRINT",
+  "to": "START",
+  "gate": "back_to_start",
+  "sub_state_gate": "LIST",
+  "description": "Return to start to switch projects."
+ },
+ {
+  "from": "PROJECT_INIT",
+  "to": "START",
+  "gate": "back_to_start",
+  "sub_state_gate": "LIST",
+  "description": "Return to start from PROJECT_INIT (cancel creation)."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "plan_approval_approved",
+  "source_sub_state": "PLAN_APPROVAL",
+  "sub_state_gate": "TASK_SPEC",
+  "description": "Sprint plan approved by PO. Proceed to task specification.",
+  "contract": {
+   "pre": "ckg_has_decision('approve')",
+   "post": "SPRINT.TASK_SPEC.status == 'pending'"
+  }
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "plan_approval_revised",
+  "source_sub_state": "PLAN_APPROVAL",
+  "sub_state_gate": "PLANNING",
+  "description": "Sprint plan needs revision. Return to planning.",
+  "contract": {
+   "pre": "ckg_has_decision('revise')"
+  }
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "refine_task",
+  "sub_state_gate": "TASK_SPEC",
+  "description": "Re-specify current task (from TASK_REVIEW)."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "next_task",
+  "sub_state_gate": "TASK_SPEC",
+  "description": "Next task specification (from TASK_REVIEW)."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "all_done",
+  "sub_state_gate": "ACTIVE",
+  "description": "All tasks specified, go to sprint dashboard."
+ },
+ {
+  "from": "SPRINT",
+  "to": "DESIGN",
+  "gate": "start_task",
+  "sub_state_gate": "DESIGN_GATHER",
+  "description": "Start task: design phase first (from ACTIVE)."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "edit_plan",
+  "sub_state_gate": "PLANNING",
+  "description": "Return to sprint planning to adjust backlog (from ACTIVE)."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "start_review",
+  "sub_state_gate": "REVIEW",
+  "description": "Start sprint review (from ACTIVE)."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "back_to_active",
+  "sub_state_gate": "ACTIVE",
+  "description": "Return to sprint dashboard."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "close_sprint",
+  "sub_state_gate": "CLOSE",
+  "description": "Close sprint directly (from ACTIVE)."
+ },
+ {
+  "from": "DESIGN",
+  "to": "ANALYZE",
+  "gate": "design_approved",
+  "sub_state_gate": "GATHER",
+  "description": "Design approved, proceed to task analysis.",
+  "contract": {
+   "pre": "ckg_has_decision('approve')",
+   "post": "ANALYZE.GATHER.status == 'pending'"
+  },
+  "transform": {
+   "action": "prepare_analysis_context",
+   "input": [
+    "DESIGN.CKG_SAVE.status"
+   ],
+   "output": "ANALYZE.context.design"
+  }
+ },
+ {
+  "from": "DESIGN",
+  "to": "REFINE",
+  "gate": "design_needs_refine",
+  "sub_state_gate": "DIAGNOSE",
+  "description": "Design needs refinement.",
+  "contract": {
+   "pre": "ckg_has_decision('refine')"
+  }
+ },
+ {
+  "from": "ANALYZE",
+  "to": "IMPLEMENT",
+  "gate": "analysis_approved",
+  "sub_state_gate": "USER_GATE",
+  "description": "Analysis approved, proceed to implementation.",
+  "contract": {
+   "pre": "ckg_has_decision('approve')",
+   "post": "IMPLEMENT.USER_GATE.status == 'pending'",
+   "invariants": [
+    "No pending tasks in ANALYZE phase"
+   ]
+  },
+  "context_updates": [
+   {
+    "from": "ANALYZE.ANALYZE.summary",
+    "to": "context.analysis"
+   },
+   {
+    "from": "ANALYZE.ANALYZE.q1",
+    "to": "context.analysis_q1"
+   },
+   {
+    "from": "ANALYZE.ANALYZE.summary",
+    "to": "context.analysis_summary"
+   }
+  ],
+  "transform": {
+   "action": "build_task_briefing",
+   "input": [
+    "ANALYZE.ANALYZE.summary",
+    "ANALYZE.KNOWLEDGE_CAPTURE.*"
+   ],
+   "output": "IMPLEMENT.context.briefing"
+  }
+ },
+ {
+  "from": "ANALYZE",
+  "to": "REFINE",
+  "gate": "needs_refine",
+  "sub_state_gate": "DIAGNOSE",
+  "description": "Analysis needs refinement."
+ },
+ {
+  "from": "IMPLEMENT",
+  "to": "VERIFY",
+  "gate": "implementation_done",
+  "sub_state_gate": "QA_RUN",
+  "description": "Implementation completed, proceed to verification.",
+  "contract": {
+   "pre": "ckg_has_decision('proceed')",
+   "post": "VERIFY.QA_RUN.status == 'pending'",
+   "invariants": [
+    "CODE_REVIEW_SCAN.passed == true"
+   ]
+  },
+  "transform": {
+   "action": "build_verification_context",
+   "input": [
+    "IMPLEMENT.WORK.result",
+    "IMPLEMENT.CODE_REVIEW_SCAN.findings"
+   ],
+   "output": "VERIFY.context"
+  }
+ },
+ {
+  "from": "IMPLEMENT",
+  "to": "REFINE",
+  "gate": "needs_refine",
+  "sub_state_gate": "DIAGNOSE",
+  "description": "Implementation needs refinement."
+ },
+ {
+  "from": "IMPLEMENT",
+  "to": "SPRINT",
+  "gate": "cancel",
+  "sub_state_gate": "ACTIVE",
+  "description": "Task cancelled. Return to sprint dashboard."
+ },
+ {
+  "from": "VERIFY",
+  "to": "SPRINT",
+  "gate": "task_complete",
+  "sub_state_gate": "ACTIVE",
+  "description": "Task completed, return to sprint dashboard.",
+  "contract": {
+   "pre": "ckg_has_decision('accept')",
+   "post": "SPRINT.ACTIVE.status == 'ready'",
+   "invariants": [
+    "Task marked complete in sprint-state",
+    "CKG.status == up_to_date"
+   ]
+  }
+ },
+ {
+  "from": "VERIFY",
+  "to": "REFINE",
+  "gate": "needs_refine",
+  "sub_state_gate": "DIAGNOSE",
+  "description": "Verification needs refinement."
+ },
+ {
+  "from": "REFINE",
+  "to": "DESIGN",
+  "gate": "reroute_design",
+  "sub_state_gate": "DESIGN_GATHER",
+  "description": "Refine from design phase."
+ },
+ {
+  "from": "REFINE",
+  "to": "ANALYZE",
+  "gate": "reroute_analyze",
+  "sub_state_gate": "GATHER",
+  "description": "Refine from analysis phase."
+ },
+ {
+  "from": "REFINE",
+  "to": "IMPLEMENT",
+  "gate": "reroute_implement",
+  "sub_state_gate": "WORK",
+  "description": "Refine from implementation phase."
+ },
+ {
+  "from": "REFINE",
+  "to": "VERIFY",
+  "gate": "reroute_verify",
+  "sub_state_gate": "QA_RUN",
+  "description": "Refine from verification phase."
+ },
+ {
+  "from": "REFINE",
+  "to": "SPRINT",
+  "gate": "reroute_sprint",
+  "sub_state_gate": "ACTIVE",
+  "description": "Return to sprint (task not refinable)."
+ },
+ {
+  "from": "REFINE",
+  "to": "SPRINT",
+  "gate": "escalation",
+  "sub_state_gate": "ACTIVE",
+  "description": "Refinement limit reached (3 attempts). Escalate to sprint for manual review."
+ },
+ {
+  "from": "SPRINT",
+  "to": "PROJECT_INIT",
+  "gate": "init_project",
+  "sub_state_gate": "DETECT",
+  "description": "Initialize a new project from scratch (from ACTIVE)."
+ },
+ {
+  "from": "PROJECT_INIT",
+  "to": "SPRINT",
+  "gate": "project_ready",
+  "sub_state_gate": "ACTIVE",
+  "description": "Project initialized, return to sprint dashboard."
+ },
+ {
+  "from": "PROJECT_INIT",
+  "to": "PROJECT_INIT",
+  "gate": "revise_specs",
+  "sub_state_gate": "GATHER_SPECS",
+  "description": "Revise project specifications."
+ }
+]

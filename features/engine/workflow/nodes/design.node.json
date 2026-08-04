@@ -289,16 +289,18 @@
             }
           }
         ],
-        "focus": {
-          "role": "reviewing architectural design for task {task_id}",
-          "constraints": [
-            "Present the 6->3 design analysis from the STATE layer",
-            "Show task objective and impact analysis from TASK layer",
-            "Show project architecture patterns from PROJECT layer",
-            "Ask user to approve, reject, or refine"
-          ],
-          "context_priority": "project → task → state"
-        }
+ "focus": {
+  "role": "reviewing architectural design for task {task_id} — build an ADR-lite decision report",
+  "constraints": [
+   "Construir INFORME DE DECISION (ADR-lite): contexto, decision propuesta, alternativas, consecuencias, recomendacion",
+   "Citar el analisis 6->3 del STATE layer (q1-a1, q2-a2, q3-a3) como evidencia",
+   "Dar recomendacion approve/reject/refine CON justificacion",
+   "Verificar alineacion con convenciones del CKG (scope, capas, patrones)",
+   "Evaluar impacto en capas y dependencias del TASK layer",
+   "Ask user to approve, reject, or refine"
+  ],
+  "context_priority": "project → task → ckg → state"
+ }
       },
       "audit": {
         "capture_decision": true,
