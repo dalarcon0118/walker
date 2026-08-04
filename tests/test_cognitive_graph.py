@@ -1512,6 +1512,55 @@ def test_fulltext_nested_dict_fields():
         print("  ✅ test_fulltext_nested_dict_fields: G9 fulltext anidado")
 
 
+def test_schema_migration_on_fulltext_change():
+    """G3: al cambiar fulltext_fields, el TokenIndex se reconstruye automaticamente."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Fase 1: crear indice con schema v1 (campo "title")
+        cg1 = CognitiveGraph(tmpdir, auto_register=True)
+        cg1.register_index("mig", {
+            "fields": {"label": "statement"},
+            "search": {
+                "type": "fulltext",
+                "fields": ["title"],
+            },
+            "storage": {"path": os.path.join(tmpdir, "data", "mig.json.gz")},
+        })
+        cg1.store("mig", "d1", {"title": "authentication module", "body": "jwt"})
+        cg1.store("mig", "d2", {"title": "user profile", "body": "avatar"})
+
+        # Fase 2: schema v2 — agrega campo "body" al fulltext
+        cg2 = CognitiveGraph(tmpdir, auto_register=False)
+        cg2.register_index("mig", {
+            "fields": {"label": "statement"},
+            "search": {
+                "type": "fulltext",
+                "fields": ["title", "body"],  # ← nuevo campo
+            },
+            "storage": {"path": os.path.join(tmpdir, "data", "mig.json.gz")},
+        })
+
+        # Al hacer la primera busqueda (o cualquier operacion que dispare
+        # _load), la migracion debe detectarse y el TokenIndex reconstruido.
+        r = cg2.search("mig", {"text": "jwt"})
+        hits = r["hits"]["hits"]
+        ids = {h["_id"] for h in hits}
+        assert "d1" in ids, (
+            f"Migracion G3 fallo: 'jwt' en campo 'body' no indexado. ids={ids}"
+        )
+
+        # El campo title sigue funcionando
+        r2 = cg2.search("mig", {"text": "authentication"})
+        ids2 = {h["_id"] for h in r2["hits"]["hits"]}
+        assert "d1" in ids2, f"Campo title roto tras migracion: {ids2}"
+
+        # El schema_hash quedo guardado (proximo load no migra de nuevo)
+        idx = cg2._get_index("mig")
+        assert idx._loaded, "indice deberia estar cargado despues de search"
+        print("  ✅ test_schema_migration_on_fulltext_change: G3 migracion automatica")
+
+
 # ════════════════════════════════════════════════════════════════
 # Runner
 # ════════════════════════════════════════════════════════════════
@@ -1555,6 +1604,7 @@ def run_all():
         ("val_contains exact no substring", test_val_contains_exact_no_substring_bug),
         ("search pagination with from", test_search_pagination_with_from),
         ("fulltext nested dict fields", test_fulltext_nested_dict_fields),
+        ("schema migration on fulltext change", test_schema_migration_on_fulltext_change),
     ]
 
     passed = 0

@@ -137,6 +137,38 @@ class Index:
                 ti_data = data.get("token_index")
                 if ti_data and self._token_index is not None:
                     self._token_index = TokenIndex.from_dict(ti_data)
+
+                # G3: schema migration — si los campos fulltext cambiaron
+                # desde que se guardo el indice, el TokenIndex esta stale
+                # (faltan/sobran tokens). Reconstruir inline (sin llamar a
+                # rebuild_token_index() que llama a _load() → recursion).
+                stored_hash = data.get("schema_hash", "")
+                current_hash = self._schema_hash
+                if stored_hash != current_hash and self._token_index is not None:
+                    logger = __import__("logging").getLogger(__name__)
+                    logger.warning(
+                        "CognitiveGraph: schema del indice '%s' cambio "
+                        "(hash %s -> %s). Reconstruyendo TokenIndex...",
+                        self.name,
+                        stored_hash[:8],
+                        current_hash[:8],
+                    )
+                    self._token_index = TokenIndex()
+                    for doc_id, doc in self._docs.items():
+                        for field in self.schema.fulltext_fields:
+                            value = self._resolve_field(doc, field)
+                            if isinstance(value, str) and value:
+                                self._token_index.index_node(doc_id, value, field)
+                            elif isinstance(value, list):
+                                for item in value:
+                                    if isinstance(item, str):
+                                        self._token_index.index_node(doc_id, item, field)
+                    logger.info(
+                        "CognitiveGraph: TokenIndex de '%s' reconstruido "
+                        "(%d docs indexados) tras migracion de schema",
+                        self.name,
+                        len(self._docs),
+                    )
             except Exception as e:
                 # G2: error no-silencioso — un indice corrupto se reporta en vez
                 # de resetear a vacio silenciosamente (convention-001: nunca
@@ -159,6 +191,7 @@ class Index:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         data = {
             "index": self.name,
+            "schema_hash": self._schema_hash,
             "docs": [{"_id": doc_id, **doc} for doc_id, doc in self._docs.items()],
             "edges": [
                 {"from": u, "to": v, **data}
@@ -207,6 +240,21 @@ class Index:
         if isinstance(value, (dict, list)):
             return value
         return value
+
+    @property
+    def _schema_hash(self) -> str:
+        """Hash del schema relevante para la estructura de datos (fulltext).
+
+        G3: cuando los campos fulltext cambian (se agregan/quitan fields
+        en search.fields del config), el hash difiere del almacenado y se
+        dispara una migracion automatica (rebuild del TokenIndex).
+        """
+        import hashlib
+
+        ft = sorted(self.schema.fulltext_fields)
+        return hashlib.md5(
+            json.dumps(ft, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()[:16]
 
     def _acquire_write_lock(self) -> None:
         """Adquiere un lock exclusivo por indice (evita corrupcion concurrente).
