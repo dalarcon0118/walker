@@ -310,6 +310,7 @@ class SpringGraphService:
         data = {
             "type": self.TYPE_SPEC,
             "spec_id": spec_id,
+            "spec_key": doc_id,  # Identificador global unico: {spring_id}:{spec_id}
             "spec_index": spec_index,
             "objective": objective,
             "domain": domain,
@@ -400,7 +401,9 @@ class SpringGraphService:
         """Retorna las specs del spring, ordenadas por spec_index.
 
         Compatible con docs legacy (type 'delta' con sprint_id) y nuevos
-        (type 'spec' con spring_id).
+        (type 'spec' con spring_id). Cada spec incluye spec_key global
+        único ({spring_id}:{spec_id}) para distinguir specs de springs
+        distintos que comparten spec_id local (SPEC-001..N).
         """
         all_specs = self._search({"type": self.TYPE_SPEC})
         # Incluir docs legacy de tareas (type delta) de este spring
@@ -415,6 +418,14 @@ class SpringGraphService:
             for s in all_specs
             if s.get("spring_id") == spring_id or s.get("sprint_id") == spring_id
         ]
+        # Normalizar spec_key (backfill para docs sin el campo)
+        for s in specs:
+            s.setdefault(
+                "spec_key",
+                self._spec_doc_id(
+                    spring_id, s.get("spec_id", s.get("task_id", ""))
+                ),
+            )
         if status:
             specs = [s for s in specs if s.get("status") == status]
         specs.sort(

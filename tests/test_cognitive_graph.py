@@ -973,6 +973,42 @@ def test_get_active_spring_prioriza_formal():
         )
 
 
+def test_spec_key_unico_por_spring():
+    """spec_key identifica globalmente una spec ({spring_id}:{spec_id}).
+
+    Regression: dos springs distintos comparten spec_id local (SPEC-001..N).
+    spec_key debe ser unico para que las consultas distingan specs de
+    springs diferentes sin colision.
+    """
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = SpringGraphService(tmpdir)
+
+        # Dos springs con la misma spec_id local
+        for sid in ("sprint-a", "sprint-b"):
+            svc.create_spring(sid, goal=f"Goal {sid}", status="active")
+            svc.add_spec(sid, f"Tarea de {sid}", domain="test", spec_index=0)
+
+        keys_a = [s["spec_key"] for s in svc.get_specs("sprint-a")]
+        keys_b = [s["spec_key"] for s in svc.get_specs("sprint-b")]
+
+        # spec_id local es identico (SPEC-001) pero spec_key es unico
+        assert keys_a == ["sprint-a:SPEC-001"], f"keys_a={keys_a}"
+        assert keys_b == ["sprint-b:SPEC-001"], f"keys_b={keys_b}"
+        assert keys_a != keys_b, "spec_key debe diferenciar springs"
+
+        # El doc_id del delta coincide con spec_key
+        spec_a = svc.get_spec("sprint-a", "SPEC-001")
+        assert spec_a is not None
+        assert spec_a.get("spec_key") == "sprint-a:SPEC-001"
+        print(
+            "  ✅ test_spec_key_unico_por_spring: spec_key identifica spring+spec"
+        )
+
+
 def test_spring_graph_import_legacy():
     """import_spring: puente desde plan.json legacy al modelo unificado.
 
