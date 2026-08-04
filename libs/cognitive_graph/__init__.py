@@ -58,6 +58,9 @@ class Index:
       - Nodos: _docs (dict id -> data) + _graph (nx.DiGraph)
       - Edges: _graph edges con atributos
       - Busqueda textual: _token_index (TokenIndex) si el schema lo configura
+      - Indices secundarios O(1): _type_index (type -> set[id]),
+        _field_index ((field, value) -> set[id]) para busqueda estructurada
+        sin iterar todos los docs.
     """
 
     def __init__(
@@ -76,7 +79,55 @@ class Index:
         self._token_index: TokenIndex | None = (
             TokenIndex() if schema.has_fulltext() else None
         )
+        # Indices secundarios: O(1) lookup por type y por field=value.
+        # self._type_index[type] = set of doc_ids
+        # self._field_index[(field, value)] = set of doc_ids
+        self._type_index: dict[str, set[str]] = {}
+        self._field_index: dict[tuple[str, str], set[str]] = {}
         self._loaded = False
+
+    # ── Helpers de indices secundarios ──────────────────────────────
+
+    def _index_doc(self, doc_id: str, data: dict) -> None:
+        """Registra doc en indices secundarios (type + fields del schema)."""
+        dtype = data.get("type", "")
+        if dtype:
+            self._type_index.setdefault(dtype, set()).add(doc_id)
+        for qfield, rfield in self.schema.fields.items():
+            if rfield == "type":
+                continue  # ya indexado arriba
+            val = self._resolve_field(data, rfield)
+            if isinstance(val, str) and val:
+                key = (rfield, val.lower() if isinstance(val, str) else val)
+                self._field_index.setdefault(key, set()).add(doc_id)
+
+    def _deindex_doc(self, doc_id: str, data: dict | None = None) -> None:
+        """Remueve doc de indices secundarios. Si data=None, busca en _docs."""
+        src = data or self._docs.get(doc_id)
+        if not src:
+            return
+        dtype = src.get("type", "")
+        if dtype and dtype in self._type_index:
+            self._type_index[dtype].discard(doc_id)
+            if not self._type_index[dtype]:
+                del self._type_index[dtype]
+        for qfield, rfield in self.schema.fields.items():
+            if rfield == "type":
+                continue
+            val = self._resolve_field(src, rfield)
+            if isinstance(val, str) and val:
+                key = (rfield, val.lower())
+                if key in self._field_index:
+                    self._field_index[key].discard(doc_id)
+                    if not self._field_index[key]:
+                        del self._field_index[key]
+
+    def _rebuild_secondary_indexes(self) -> None:
+        """Reconstruye _type_index y _field_index desde _docs."""
+        self._type_index.clear()
+        self._field_index.clear()
+        for doc_id, data in self._docs.items():
+            self._index_doc(doc_id, data)
 
     @property
     def _path(self) -> str:
@@ -138,6 +189,10 @@ class Index:
                 if ti_data and self._token_index is not None:
                     self._token_index = TokenIndex.from_dict(ti_data)
 
+                # Reconstruir indices secundarios (type + field) para
+                # busqueda O(1) sin iterar todos los docs.
+                self._rebuild_secondary_indexes()
+
                 # G3: schema migration — si los campos fulltext cambiaron
                 # desde que se guardo el indice, el TokenIndex esta stale
                 # (faltan/sobran tokens). Reconstruir inline (sin llamar a
@@ -184,6 +239,8 @@ class Index:
                 self._docs = {}
                 self._graph = nx.DiGraph()
                 self._token_index = TokenIndex() if self.schema.has_fulltext() else None
+                self._type_index.clear()
+                self._field_index.clear()
         self._loaded = True
 
     def _save(self) -> None:
@@ -293,17 +350,24 @@ class Index:
         """Indexa o actualiza un nodo en el grafo.
 
         Si el schema tiene fulltext configurado, tokeniza los campos
-        especificados y los agrega al TokenIndex.
+        especificados y los agrega al TokenIndex (solo si el doc cambio).
+        Mantiene indices secundarios O(1) para busqueda estructurada.
         """
         self._load()
-        # Eliminar entries previos si ya existia
-        if doc_id in self._docs and self._token_index is not None:
+        old = self._docs.get(doc_id)
+        changed = old != data if old is not None else True
+
+        # Indices secundarios: remover viejo, insertar nuevo
+        if old is not None:
+            self._deindex_doc(doc_id)
+        self._index_doc(doc_id, data)
+
+        # TokenIndex: solo si el doc cambio (tenia datos distintos)
+        if changed and self._token_index is not None and old is not None:
             self._token_index.remove_node(doc_id)
-        # Guardar en docs + grafo
         self._docs[doc_id] = data
         self._graph.add_node(doc_id, **data)
-        # Indexar campos full-text (G9: resuelve rutas anidadas)
-        if self._token_index is not None:
+        if changed and self._token_index is not None:
             for field in self.schema.fulltext_fields:
                 value = self._resolve_field(data, field)
                 if isinstance(value, str) and value:
@@ -318,13 +382,29 @@ class Index:
     def store_many(self, docs: dict[str, dict]) -> dict:
         """Indexa muchos nodos en UNA sola carga + UNA sola escritura.
 
-        Evita el O(n²) de store() individual (que recarga y reescribe
+        Evita el O(n²) de store() individual (que recargaba y reescribe
         el índice completo por cada nodo). Para sincronizaciones masivas
         (ej: sync CPG -> CognitiveGraph con miles de nodos).
+
+        OPTIMIZACION: si un doc es identico al que ya esta en _docs, se
+        salta todo (token index, graph, secondary indexes). Solo se tocan
+        los docs nuevos o cambiados.
         """
         self._load()
+        skipped = 0
+        touched = 0
         for doc_id, data in docs.items():
-            if doc_id in self._docs and self._token_index is not None:
+            old = self._docs.get(doc_id)
+            if old == data:
+                skipped += 1
+                continue  # doc identico: nada que hacer
+            touched += 1
+            # Indices secundarios
+            if old is not None:
+                self._deindex_doc(doc_id)
+            self._index_doc(doc_id, data)
+            # TokenIndex
+            if old is not None and self._token_index is not None:
                 self._token_index.remove_node(doc_id)
             self._docs[doc_id] = data
             self._graph.add_node(doc_id, **data)
@@ -337,8 +417,15 @@ class Index:
                         for item in value:
                             if isinstance(item, str):
                                 self._token_index.index_node(doc_id, item, field)
+        if skipped:
+            logger = __import__("logging").getLogger(__name__)
+            logger.debug(
+                "store_many('%s'): %d docs skipped (identical), %d processed",
+                self.name, skipped, touched,
+            )
         self._save()
-        return {"ok": True, "stored": len(docs), "_index": self.name}
+        return {"ok": True, "stored": len(docs), "_index": self.name,
+                "skipped": skipped, "touched": touched}
 
     def get(self, doc_id: str) -> dict | None:
         self._load()
@@ -383,6 +470,8 @@ class Index:
     def delete(self, doc_id: str) -> dict:
         self._load()
         existed = doc_id in self._docs
+        if existed:
+            self._deindex_doc(doc_id)
         self._docs.pop(doc_id, None)
         if doc_id in self._graph:
             self._graph.remove_node(doc_id)
@@ -538,14 +627,66 @@ class Index:
             for entry in self._token_index.search(text_query, max_results=max_results):
                 text_matches.add(entry.node_id)
 
-        # 2. Filtro estructurado sobre _docs
+        # 2. Filtro estructurado usando indices secundarios O(1) en vez
+        #    de iterar todos los docs O(n). Cada filtro resuelto por
+        #    indice reduce el conjunto de candidatos (interseccion).
+        candidates: set[str] | None = None  # None = potencialmente todos
+        unresolved: dict = {}               # filtros no resueltos por indice
+
+        for qfield, qvalue in remaining.items():
+            rfield = self.schema.resolve_field(qfield)
+            if rfield == "_id" or qfield == "_id":
+                # Primary key: O(1) directo, no necesita indices
+                doc = self._docs.get(qvalue)
+                if doc and (not text_query or qvalue in text_matches):
+                    entry = {"_id": qvalue, "_index": self.name,
+                             "_score": 1.0, "_source": doc}
+                    results = [entry]
+                else:
+                    results = []
+                # Shortcut: si pidieron _id, no hay mas filtros que aplicar
+                took = int((time.time() - took) * 1000)
+                return {"took": took, "index": self.name,
+                        "hits": {"total": len(results), "hits": results,
+                                 "from": 0, "size": 1},
+                        "schema": self._schema_info()}
+
+            qv_lower = str(qvalue).lower() if isinstance(qvalue, str) else qvalue
+
+            if rfield == "type":
+                idx_set = self._type_index.get(qvalue)
+            elif not isinstance(qvalue, (dict, list)):
+                idx_set = self._field_index.get((rfield, qv_lower))
+            else:
+                idx_set = None  # operadores ($contains, etc.) no indexados
+
+            if idx_set is not None:
+                if candidates is None:
+                    candidates = set(idx_set)
+                else:
+                    candidates &= idx_set
+            else:
+                # Este filtro no se pudo resolver por indice — aplicar con _match
+                unresolved[qfield] = qvalue
+
+        # Si ningun filtro se resolvio por indice, escanear todos los docs
+        if candidates is None:
+            candidates = set(self._docs.keys())
+
+        # Si hay text_query, intersectar con matches fulltext
+        if text_query:
+            candidates &= text_matches
+            if not unresolved:
+                # Sin filtros adicionales: todos los candidates son hits
+                unresolved = None
+
         results = []
-        for doc_id, doc in self._docs.items():
-            # Si hay text_query, solo considerar nodos que matcheen
-            if text_query and doc_id not in text_matches:
+        for doc_id in candidates:
+            doc = self._docs.get(doc_id)
+            if doc is None:
                 continue
-            # Aplicar filtros estructurados
-            if remaining and not self._match(doc, remaining):
+            # Filtros no resueltos: check con _match
+            if unresolved and not self._match(doc, unresolved):
                 continue
             # Obtener vecinos del grafo para contexto
             related = self._get_neighbor_ids(doc_id, depth=1) if text_query else []

@@ -8,6 +8,8 @@ y permite usar las relaciones del grafo.
 
 from __future__ import annotations
 from pathlib import Path
+from returns.result import safe
+from returns.pipeline import is_successful
 from libs.cognitive_graph import CognitiveGraph
 from features.cognitive_knowledge.entities import KnowledgeFact
 
@@ -84,7 +86,7 @@ class CodeKnowledgeGraph:
         return {"ok": True, "node_id": doc_id, "label": label}
 
     def save_nodes(self, nodes_data: list[dict]) -> dict:
-        """Persiste multiples nodos como KnowledgeFact entities.
+        """Persiste multiples nodos en batch con store_many (1 escritura).
 
         CICLO DE VIDA DEL CONOCIMIENTO: si un nodo declara 'supersedes'
         (lista de IDs o de statements), las decisiones anteriores que
@@ -93,6 +95,9 @@ class CodeKnowledgeGraph:
         """
         created = []
         degraded = []
+        new_docs: dict[str, dict] = {}
+        degraded_docs: dict[str, dict] = {}
+
         for item in nodes_data:
             if not isinstance(item, dict) or "label" not in item:
                 continue
@@ -101,7 +106,7 @@ class CodeKnowledgeGraph:
                 continue
             doc_id = self._next_id(item.get("type", "node"))
 
-            # ── Resolver supersedes: IDs directos o labels/statements ──
+            # ── Resolver supersedes ──
             supersedes = list(item.get("supersedes", []) or [])
             if supersedes:
                 existing = self.query({})
@@ -112,19 +117,14 @@ class CodeKnowledgeGraph:
                         if old_id not in supersedes:
                             supersedes.append(old_id)
 
-            # ── Normalizar campos extra a metadata ──────────────────
-            # KnowledgeFact no tiene campos top-level para scope/severity
-            # u otros atributos de dominio. Se mueven a metadata para que
-            # _match (CognitiveGraph) pueda filtrar por ellos (top-level
-            # o metadata.scope). Sin esto, un save_nodes con 'scope'
-            # persiste un doc que luego es inconsultable por scope.
+            # ── Serializar sin persistir ──
+            fact_meta = dict(item.get("metadata", {}) or {})
             _FACT_FIELDS = {
                 "label", "description", "rationale", "type", "tags",
                 "metadata", "supersedes", "subject", "statement",
                 "context", "query_hints", "location", "api", "status",
                 "author", "source", "confidence",
             }
-            fact_meta = dict(item.get("metadata", {}) or {})
             for k, v in item.items():
                 if k not in _FACT_FIELDS and v is not None:
                     fact_meta.setdefault(k, v)
@@ -139,10 +139,10 @@ class CodeKnowledgeGraph:
                 tags=item.get("tags", []),
             )
             fact._cg_instance = self._cg
-            fact.save()
+            new_docs[doc_id] = dict(fact._data)
             created.append(doc_id)
 
-            # ── Degradar decisiones que esta reemplaza ──────────────
+            # ── Degradar decisiones que esta reemplaza ──
             if supersedes:
                 existing = self.query({})
                 for old in existing:
@@ -156,12 +156,23 @@ class CodeKnowledgeGraph:
                                 __import__("datetime").timezone.utc
                             ).isoformat()
                         )
-                        self._cg.store("ckg", old_id, {
+                        degraded_docs[old_id] = {
                             **old,
                             "status": "superseded",
                             "metadata": old_meta,
-                        })
+                        }
                         degraded.append(old_id)
+
+        # Batch persist: 1 serializacion para todos
+        all_docs = {**new_docs, **degraded_docs}
+        if all_docs:
+            store_result = _store_batch(self._cg, all_docs)
+            if not is_successful(store_result):
+                return {
+                    "ok": False, "nodes_created": 0, "node_ids": [],
+                    "degraded": [], "error": str(store_result.failure()),
+                }
+
         return {
             "ok": True, "nodes_created": len(created), "node_ids": created,
             "degraded": degraded,
@@ -204,3 +215,9 @@ class CodeKnowledgeGraph:
             self._cg.delete("ckg", h["_id"])
             removed += 1
         return {"ok": True, "nodes_removed": removed}
+
+
+@safe
+def _store_batch(cg: CognitiveGraph, docs: dict[str, dict]) -> dict:
+    """Core puro del batch persist via store_many (puede lanzar)."""
+    return cg.store_many("ckg", docs)

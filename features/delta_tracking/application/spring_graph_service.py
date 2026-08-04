@@ -601,21 +601,34 @@ class SpringGraphService:
         self.create_spring(spring_id, goal=goal, status=status)
 
         specs = plan.get("specifications", plan.get("tasks", []))
-        for item in specs:
-            self.upsert_spec(
-                spring_id,
-                objective=item.get("objective", ""),
-                domain=item.get("domain", ""),
-                spec_type=item.get("type", "feature"),
-                result_state=item.get("result_state", ""),
-                files=(
+        # Batch import: store_many + edges en vez de N x upsert_spec()
+        batch_docs = {}
+        for i, item in enumerate(specs):
+            spec_id = f"SPEC-{i + 1:03d}"
+            doc_id = self._spec_doc_id(spring_id, spec_id)
+            batch_docs[doc_id] = {
+                "type": self.TYPE_SPEC,
+                "spring_id": spring_id,
+                "spec_id": spec_id,
+                "spec_key": doc_id,
+                "spec_index": i,
+                "objective": item.get("objective", ""),
+                "domain": item.get("domain", ""),
+                "spec_type": item.get("type", "feature"),
+                "result_state": item.get("result_state", ""),
+                "files": (
                     item.get("impacted_artifacts", {}).get("files", [])
                     if isinstance(item.get("impacted_artifacts"), dict)
                     else []
                 ),
-                status=item.get("status", "draft"),
-                description=item.get("task_description", ""),
-            )
+                "status": item.get("status", "draft"),
+                "description": item.get("task_description", ""),
+            }
+        if batch_docs:
+            self.cg.store_many("delta", batch_docs)
+            # Crear edges spring -> spec
+            for doc_id in batch_docs:
+                self.cg.add_edge(spring_id, doc_id, type=self.EDGE_CONTAINS)
         return {"imported": True, "spring_id": spring_id, "specs": len(specs)}
 
     # ── Proyeccion legacy (plan.json) ───────────────────────────────

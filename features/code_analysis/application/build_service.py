@@ -138,6 +138,26 @@ def _sync_core(data_dir: str, data: dict) -> dict:
 
 
 @safe
+def _sync_core_delta(
+    data_dir: str,
+    add_or_update: dict[str, dict],
+    remove: set[str],
+) -> dict:
+    """Sync incremental: solo nodos cambiados + removidos. No envia todos."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    cg = CognitiveGraph(data_dir, auto_register=True)
+    deleted = 0
+    for nid in remove:
+        r = cg.delete("cpg", nid)
+        if r.get("deleted"):
+            deleted += 1
+    stored = cg.store_many("cpg", add_or_update) if add_or_update else {"stored": 0}
+    return {"ok": True, "stored": stored.get("stored", 0),
+            "deleted": deleted, "index": "cpg"}
+
+
+@safe
 def _scan_dfg_safe(
     self: Any,
     scan_files: list,
@@ -611,8 +631,38 @@ class BuildGraphUseCase:
         return data
 
     def update(self, refresh: bool = False) -> dict:
-        """Incremental = full rebuild (por ahora)."""
-        return self.build()
+        """Incremental via watcher: solo archivos cambiados desde el ultimo scan.
+
+        Si el watcher detecta que no hay cambios y el CPG ya es espejo
+        del codigo (fingerprint coincide), retorna los datos cacheados
+        sin re-scan. Si hay cambios, usa index_task_files() con solo
+        los archivos modificados.
+
+        Para rebuild forzado: usar build() o refresh=True.
+        """
+        if refresh:
+            return self.build()
+
+        try:
+            from features.project.infrastructure.watcher import FileWatcher
+
+            watcher = FileWatcher(self.repo_path or self.code_root)
+            status = watcher.scan()
+        except Exception:
+            # Watcher no disponible: fallback a full build
+            logger.warning("Watcher no disponible, fallback a full build")
+            return self.build()
+
+        changed = status.get("files_changed", [])
+        if not changed and status.get("cpg_status") == "up_to_date":
+            return self._repo.load(self.project_id)
+
+        result = self.index_task_files(changed)
+        try:
+            watcher.mark_indexed("cpg")
+        except Exception:
+            pass
+        return result
 
     def index_task_files(self, task_files: list[str]) -> dict:
         """Re-indexa solo los archivos cambiados o eliminados.
@@ -684,8 +734,17 @@ class BuildGraphUseCase:
         data["source_fingerprint"] = self._watcher_fingerprint()
 
         self._repo.save(data)
-        # Sync a CognitiveGraph via CodeNode entities
-        self._sync_to_cognitive(data)
+        # Sync incremental: solo nodos nuevos/cambiados, no los 5396
+        cpg_docs = {}
+        for nid, node_data in new_nodes.items():
+            cpg_docs[nid] = {
+                "name": node_data.get("name", ""),
+                "type": node_data.get("type", ""),
+                "file": node_data.get("path", ""),
+                "line": node_data.get("line", 0),
+            }
+        _sync_core_delta(self.data_dir, add_or_update=cpg_docs,
+                         remove=paths_to_remove)
         # Quality report sobre los archivos re-indexados
         qr = self._persist_quality_report(existing)
         # Post-index bug proposals (para status)
