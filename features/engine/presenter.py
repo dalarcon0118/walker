@@ -355,7 +355,11 @@ def _inject_knowledge_facts(chain_dir: str, task_id: str) -> None:
 
     # ── Get relevant CKG nodes (delegates to cognitive_knowledge — SSOT) ──
     from features.cognitive_knowledge.application.use_cases import GetCkgNodesForTaskUseCase
-    relevant = GetCkgNodesForTaskUseCase.execute(chain_dir, task_id, task_files)
+    from returns.pipeline import is_successful
+    relevant_result = GetCkgNodesForTaskUseCase.execute(chain_dir, task_id, task_files)
+    if not is_successful(relevant_result):
+        return
+    relevant = relevant_result.value_or([])
     if not relevant:
         return
 

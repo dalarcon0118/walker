@@ -2,8 +2,17 @@
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
+from libs.result_types import is_successful
 from features.code_analysis.application.use_cases import GatherCpgContextUseCase
 from features.cognitive_knowledge.application.use_cases import GatherCkgContextUseCase
+
+
+def _ckg_context(chain_dir: str, task_id: str = "") -> list:
+    """Unwrap GatherCkgContextUseCase Result → list, tolerando Failure."""
+    result = GatherCkgContextUseCase.execute(chain_dir, task_id=task_id)
+    if not is_successful(result):
+        return []
+    return result.value_or([])
 
 
 def gather_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -13,7 +22,7 @@ def gather_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     files = data.get("files", [])
     context = {
         "cpg": GatherCpgContextUseCase.execute(chain_dir, files),
-        "ckg": GatherCkgContextUseCase.execute(chain_dir),
+        "ckg": _ckg_context(chain_dir),
         "input": data.get("context", {}),
     }
     return TaskResult.success(data={"task_id": data.get("task_id", ctx.task_id),
@@ -28,7 +37,7 @@ def gather_task_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResu
     task_id = data.get("task_id", ctx.task_id)
     context = {
         "cpg": GatherCpgContextUseCase.execute(chain_dir, files) if files else {},
-        "ckg": GatherCkgContextUseCase.execute(chain_dir, task_id=task_id),
+        "ckg": _ckg_context(chain_dir, task_id),
         "task_id": task_id, "input": data.get("context", {}),
     }
     return TaskResult.success(data={"task_id": task_id, "context": context,

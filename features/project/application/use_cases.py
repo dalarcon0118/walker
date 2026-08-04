@@ -12,6 +12,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from returns.pipeline import is_successful
+
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -462,10 +464,15 @@ class PrepareProjectUseCase:
             CheckCkgHealthUseCase,
         )
 
-        ckg_health = CheckCkgHealthUseCase.execute(projects_data_dir)
-        if ckg_health["node_count"] == 0 and ckg_health["status"] != "not scanned":
+        ckg_health_result = CheckCkgHealthUseCase.execute(projects_data_dir)
+        ckg_health = (
+            ckg_health_result.value_or({})
+            if is_successful(ckg_health_result)
+            else {}
+        )
+        if ckg_health.get("node_count", 0) == 0 and ckg_health.get("status") != "not scanned":
             setup_warnings.append("CKG is empty. Agent should capture knowledge")
-        elif ckg_health["status"] == "empty":
+        elif ckg_health.get("status") == "empty":
             setup_warnings.append("CKG not initialized. Agent should capture knowledge")
 
         # 9. Init watcher baseline
@@ -708,11 +715,16 @@ class CheckHealthUseCase:
             )
 
         # 4. Check CKG (delegates to cognitive_knowledge — SSOT)
-        ckg_health = CheckCkgHealthUseCase.execute(projects_data_dir)
-        health["checks"]["ckg"] = ckg_health["status"]
-        if ckg_health["node_count"] == 0 and ckg_health["status"] != "not scanned":
+        ckg_health_result = CheckCkgHealthUseCase.execute(projects_data_dir)
+        ckg_health = (
+            ckg_health_result.value_or({})
+            if is_successful(ckg_health_result)
+            else {}
+        )
+        health["checks"]["ckg"] = ckg_health.get("status", "unknown")
+        if ckg_health.get("node_count", 0) == 0 and ckg_health.get("status") != "not scanned":
             health["warnings"].append("CKG is empty. Agent should capture knowledge")
-        elif ckg_health["status"] == "empty":
+        elif ckg_health.get("status") == "empty":
             health["warnings"].append(
                 "CKG not initialized. Agent should capture knowledge"
             )

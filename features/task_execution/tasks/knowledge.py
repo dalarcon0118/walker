@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
+from libs.result_types import is_successful
 from features.cognitive_knowledge.application.use_cases import SaveToCkgUseCase, CollectKnowledgeUseCase
 
 
@@ -18,7 +19,9 @@ def save_to_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         nodes = [{"label": data["label"], "description": data.get("description", ""),
                    "type": data.get("type", "decision")}]
     result = SaveToCkgUseCase.execute(chain_dir, nodes, task_id=ctx.task_id, session_id=ctx.session_id)
-    return TaskResult.success(data={"task_id": data.get("task_id", ctx.task_id), **result})
+    if not is_successful(result):
+        return TaskResult.failure(str(result.failure()))
+    return TaskResult.success(data={"task_id": data.get("task_id", ctx.task_id), **result.value_or({})})
 
 
 def close_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -30,7 +33,9 @@ def collect_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
     result = CollectKnowledgeUseCase.execute(chain_dir, data, task_id=ctx.task_id)
-    return TaskResult.success(data={"task_id": data.get("task_id", ctx.task_id), **result})
+    if not is_successful(result):
+        return TaskResult.failure(str(result.failure()))
+    return TaskResult.success(data={"task_id": data.get("task_id", ctx.task_id), **result.value_or({})})
 
 
 def analyze_capas(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

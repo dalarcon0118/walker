@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
 from libs.shared_domain.validated_vo import TaskInput
+from libs.result_types import is_successful
 from features.cognitive_knowledge.application.use_cases import IndexRepoUseCase
 
 
@@ -37,7 +38,10 @@ def kg_index_repo(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
     result = IndexRepoUseCase.execute(chain_dir, url, name, inp.branch)
-    return TaskResult.success(data=result) if result.get("ok", True) else TaskResult.failure(result.get("error", ""))
+    if not is_successful(result):
+        return TaskResult.failure(str(result.failure()))
+    data_res = result.value_or({})
+    return TaskResult.success(data=data_res) if data_res.get("ok", True) else TaskResult.failure(data_res.get("error", ""))
 
 
 def register(registry: Any) -> None:
