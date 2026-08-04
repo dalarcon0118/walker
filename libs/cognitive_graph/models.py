@@ -54,12 +54,36 @@ def tokenize(text: str) -> list[str]:
 
 @dataclass
 class TokenIndex:
-    """Índice invertido: token → lista de nodos que lo contienen.
+    """Índice invertido con bigramas para busqueda full-text O(1).
 
-    Permite búsqueda full-text sobre campos de nodos en el grafo.
+    entries: token → lista de IndexEntry (match exacto)
+    _bigrams: bigrama → set de tokens (substring O(1) via interseccion)
     """
 
     entries: dict[str, list[IndexEntry]] = field(default_factory=dict)
+    _bigrams: dict[str, set[str]] = field(default_factory=dict)
+
+    # ── Helpers de bigramas ──
+
+    @staticmethod
+    def _bigrams_of(token: str) -> set[str]:
+        """Bigramas de un token (ej: 'auth' → {'au','ut','th'})."""
+        return {token[i:i + 2] for i in range(len(token) - 1)} if len(token) >= 2 else set()
+
+    def _add_bigrams(self, token: str) -> None:
+        """Registra bigramas de un token en el indice."""
+        for bg in self._bigrams_of(token):
+            self._bigrams.setdefault(bg, set()).add(token)
+
+    def _remove_bigrams(self, token: str) -> None:
+        """Elimina bigramas de un token. Si el set queda vacio, borra la key."""
+        for bg in self._bigrams_of(token):
+            if bg in self._bigrams:
+                self._bigrams[bg].discard(token)
+                if not self._bigrams[bg]:
+                    del self._bigrams[bg]
+
+    # ── CRUD ──
 
     def add(self, token: str, entry: IndexEntry) -> None:
         token = token.lower().strip()
@@ -71,6 +95,7 @@ class TokenIndex:
             if existing.node_id == entry.node_id and existing.field == entry.field:
                 return
         self.entries[token].append(entry)
+        self._add_bigrams(token)
 
     def index_node(self, node_id: str, text: str, field: str) -> None:
         """Tokeniza un texto y lo indexa para un nodo."""
@@ -88,22 +113,34 @@ class TokenIndex:
             self.entries[token] = [
                 e for e in self.entries[token] if e.node_id != node_id
             ]
-            removed += before - len(self.entries[token])
+            after = len(self.entries[token])
+            removed += before - after
             if not self.entries[token]:
                 del self.entries[token]
+                self._remove_bigrams(token)
         return removed
 
-    def search(self, query: str, max_results: int = 20) -> list[IndexEntry]:
-        """Busca tokens que coincidan con la query (exacto + substring)."""
+    def search(
+        self, query: str, max_results: int = 20, fields: list[str] | None = None,
+    ) -> list[IndexEntry]:
+        """Busca tokens que coincidan con la query.
+
+        - Match exacto: O(1) lookup via entries[token]
+        - Match substring: O(1) via indice de bigramas (interseccion de sets)
+          en vez de O(|entries|) scan lineal por token
+        - fields: filtro opcional por campo (E1: field-scoped search)
+        """
         tokens = tokenize(query)
         if not tokens:
             return []
         results: dict[str, IndexEntry] = {}
 
         for token in tokens:
-            # Match exacto
+            # Match exacto: O(1)
             if token in self.entries:
                 for entry in self.entries[token]:
+                    if fields is not None and entry.field not in fields:
+                        continue
                     key = f"{entry.node_id}:{entry.field}"
                     if key not in results:
                         results[key] = entry
@@ -111,10 +148,26 @@ class TokenIndex:
                     else:
                         results[key].score += entry.score * 3.0
 
-            # Match substring
-            for idx_token, entries in self.entries.items():
-                if token in idx_token and idx_token != token:
-                    for entry in entries:
+            # Match substring via bigramas: O(1) interseccion
+            query_bigrams = self._bigrams_of(token)
+            if not query_bigrams:
+                continue
+            candidate_tokens = None
+            for bg in query_bigrams:
+                matched = self._bigrams.get(bg, set())
+                if candidate_tokens is None:
+                    candidate_tokens = set(matched)
+                else:
+                    candidate_tokens &= matched
+                if not candidate_tokens:
+                    break
+            if candidate_tokens:
+                for idx_token in candidate_tokens:
+                    if idx_token == token or token not in idx_token:
+                        continue
+                    for entry in self.entries.get(idx_token, []):
+                        if fields is not None and entry.field not in fields:
+                            continue
                         key = f"{entry.node_id}:{entry.field}"
                         if key not in results:
                             results[key] = entry

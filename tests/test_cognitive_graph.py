@@ -1645,6 +1645,63 @@ def test_concurrent_store_many_no_deadlock():
         print("  ✅ test_concurrent_store_many_no_deadlock: 5 workers OK")
 
 
+def test_fulltext_field_scoped_search():
+    """E1: fulltext field-scoped search — buscar solo en un campo especifico."""
+    from libs.cognitive_graph import CognitiveGraph
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cg = CognitiveGraph(tmpdir, auto_register=True)
+        # CKG de auto_register no tiene search config. Re-registrar con fulltext.
+        cg.register_index("ckg", {
+            "fields": {"type": "type", "label": "statement"},
+            "types": {"decision": {}, "convention": {}},
+            "search": {"type": "fulltext", "fields": ["statement", "rationale"]},
+            "storage": {"path": os.path.join(tmpdir, "data", "ckg.json.gz")},
+        })
+
+        # Docs con "auth" en statement pero no en rationale
+        cg.store("ckg", "n1", {
+            "type": "decision",
+            "statement": "Add authentication module",
+            "rationale": "Security requirements for the new module",
+        })
+        cg.store("ckg", "n2", {
+            "type": "decision",
+            "statement": "Auth is already covered",
+            "rationale": "The authentication system uses JWT tokens",
+        })
+        cg.store("ckg", "n3", {
+            "type": "convention",
+            "statement": "Use type hints everywhere",
+            "rationale": "Static analysis via mypy for type safety",
+        })
+
+        # Sin scope: "auth" aparece en statement (n1, n2)
+        r = cg.search("ckg", {"text": "auth"})
+        assert r["hits"]["total"] == 2, f"sin scope: {r['hits']['total']}"
+
+        # Scoped a rationale: solo n2 tiene "authentication" en rationale
+        r = cg.search("ckg", {"text": {"query": "authentication", "fields": ["rationale"]}})
+        assert r["hits"]["total"] == 1, f"scoped rationale: {r['hits']['total']}"
+        assert r["hits"]["hits"][0]["_id"] == "n2"
+
+        # Scoped a statement: "type" aparece en statement de n3
+        r = cg.search("ckg", {
+            "text": {"query": "type", "fields": ["statement"]},
+        })
+        assert r["hits"]["total"] == 1, f"scoped statement: {r['hits']['total']}"
+        assert r["hits"]["hits"][0]["_id"] == "n3"
+
+        # text_fields como clave separada: "auth" en rationale = n2
+        r = cg.search("ckg", {
+            "text": "auth",
+            "text_fields": ["rationale"],
+        })
+        assert r["hits"]["total"] == 1, f"separate text_fields: {r['hits']['total']}"
+        assert r["hits"]["hits"][0]["_id"] == "n2"
+        print("  ✅ test_fulltext_field_scoped_search: E1 field-scoped search")
+
+
 # ════════════════════════════════════════════════════════════════
 # Runner
 # ════════════════════════════════════════════════════════════════
@@ -1691,6 +1748,7 @@ def run_all():
         ("schema migration on fulltext change", test_schema_migration_on_fulltext_change),
         ("store_many skip identical docs", test_store_many_skip_identical_docs),
         ("concurrent store_many no deadlock", test_concurrent_store_many_no_deadlock),
+        ("fulltext field scoped search", test_fulltext_field_scoped_search),
     ]
 
     passed = 0

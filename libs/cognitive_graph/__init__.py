@@ -674,21 +674,35 @@ class Index:
         except (TypeError, ValueError):
             _from = 0
 
-        # Extraer query de texto
+        # Extraer query de texto (E1: soporta field-scoped search)
+        #   {"text": "auth"}                          → todos los campos
+        #   {"text": {"query": "auth", "fields": ["rationale"]}} → solo rationale
         text_query = ""
+        text_fields: list[str] | None = None
         remaining = dict(filters)
         for _mc in (
             "max_results", "size", "max_events", "_index", "query",
-            "_from", "from",
+            "_from", "from", "text_fields",
         ):
             remaining.pop(_mc, None)
         if "text" in remaining:
-            text_query = remaining.pop("text", "")
+            raw = remaining.pop("text", "")
+            if isinstance(raw, dict):
+                text_query = raw.get("query", "")
+                text_fields = raw.get("fields")
+            else:
+                text_query = str(raw)
+        # text_fields tambien puede venir como clave separada
+        tf_raw = filters.get("text_fields")
+        if tf_raw and text_fields is None:
+            text_fields = tf_raw if isinstance(tf_raw, list) else [tf_raw]
 
         # 1. Busqueda full-text via TokenIndex
         text_matches: set[str] = set()
         if text_query and self._token_index is not None:
-            for entry in self._token_index.search(text_query, max_results=max_results):
+            for entry in self._token_index.search(
+                text_query, max_results=max_results, fields=text_fields,
+            ):
                 text_matches.add(entry.node_id)
 
         # 2. Filtro estructurado usando indices secundarios O(1) en vez
