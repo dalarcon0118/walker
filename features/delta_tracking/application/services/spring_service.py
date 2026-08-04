@@ -68,8 +68,8 @@ class SpringService:
     # ── Spring lifecycle ──
 
     def create_spring(self, spring_id: str, goal: str = "", status: str = "planning",
-                      project_id: str = "", session_id: str = "") -> dict:
-        spring = self._create.execute(spring_id, goal, status, project_id, session_id)
+                      project_id: str = "", session_id: str = "", **extra) -> dict:
+        spring = self._create.execute(spring_id, goal, status, project_id, session_id, **extra)
         return _spring_to_dict(spring)
 
     def get_spring(self, spring_id: str) -> dict | None:

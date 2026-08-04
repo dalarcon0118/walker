@@ -21,6 +21,7 @@ class CreateSpringUseCase:
         status: str = "planning",
         project_id: str = "",
         session_id: str = "",
+        **extra,
     ) -> Spring:
         spring = Spring(
             spring_id=spring_id,
@@ -29,6 +30,7 @@ class CreateSpringUseCase:
             active=(status == "active"),
             project_id=project_id,
             session_id=session_id,
+            **{k: v for k, v in extra.items() if hasattr(Spring, k)},
         )
         self._repo.save_spring(spring)
         return spring
