@@ -1514,3 +1514,22 @@ class TestHelpDiscoverability:
         routes = ci._ROUTER.list_routes()
         patterns = [r.get("pattern", "") for r in routes]
         assert "mcp-config" in patterns
+
+    def test_sprint_status_route_resuelve_sprint_id(self):
+        """GET /:projectId/:sprintId/status debe resolver el sprint_id."""
+        import features.cli_interface as ci
+        from features.cli_interface.infrastructure.contracts import Request
+
+        # La ruta de 3 segmentos existe y extrae projectId + sprintId
+        h, params, _, _ = ci._ROUTER.resolve(
+            "walker/session-20260731/status", {}, "GET"
+        )
+        assert h is not None, "ruta :projectId/:sprintId/status debe existir"
+        assert params.get("projectId") == "walker"
+        assert params.get("sprintId") == "session-20260731"
+
+        # Request.sprint_id lee desde params (ruta) y desde flags (query)
+        req = Request(params=params, flags={})
+        assert req.sprint_id == "session-20260731"
+        req2 = Request(params={}, flags={"sprint_id": "session-20260804"})
+        assert req2.sprint_id == "session-20260804"

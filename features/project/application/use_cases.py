@@ -752,6 +752,8 @@ class CheckHealthUseCase:
                 "required_fields": sprint_health.get("required_fields", []),
                 "execution_type": sprint_health.get("execution_type", ""),
                 "graph_progress": sprint_health.get("graph_progress", {}),
+                "informal": sprint_health.get("informal", False),
+                "sprint_id": sprint_health.get("sprint_id", ""),
             }
         else:
             health["sprint"] = None

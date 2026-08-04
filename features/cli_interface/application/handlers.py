@@ -364,22 +364,34 @@ def handle_status(req: Request) -> Response:
                 ]
                 if instr:
                     instructions = " | ".join(instr[:3])
-            message = (
-                f"Project '{project_id}' at {node}.{sub} — "
-                f"gates available: {gate_names}"
-            )
-            if sprint.get("execution_type") == "user_input":
-                # User gate: la decision la toma el PO respondiendo (submit),
-                # no con transition directa. Explicitar la via correcta.
+            if sprint.get("informal") and not node:
+                # Sprint informal (session log de captura): no tiene estado
+                # de workflow. Es historico del agente, no del workflow.
+                sprint_id = sprint.get("sprint_id") or "?"
+                message = (
+                    f"Project '{project_id}' — sprint informal '{sprint_id}' "
+                    f"(session log de captura). No tiene estado de workflow; "
+                    f"consulta su historico con "
+                    f"walker {project_id}/kg_search "
+                    f"'{{\"_index\":\"delta\",\"text\":\"{sprint_id}\"}}'"
+                )
+            else:
                 message = (
                     f"Project '{project_id}' at {node}.{sub} — "
-                    f"awaiting your decision. Submit your response with the "
-                    f"fields the prompt asks for (e.g. "
-                    f'\'walker {project_id}/submit {{"decision":"...","evidence":"..."}}\'). '
-                    f"Node gates ({gate_names}) are triggered by the submitted decision."
+                    f"gates available: {gate_names}"
                 )
-            if instructions:
-                message += f". {instructions}"
+                if sprint.get("execution_type") == "user_input":
+                    # User gate: la decision la toma el PO respondiendo (submit),
+                    # no con transition directa. Explicitar la via correcta.
+                    message = (
+                        f"Project '{project_id}' at {node}.{sub} — "
+                        f"awaiting your decision. Submit your response with the "
+                        f"fields the prompt asks for (e.g. "
+                        f'\'walker {project_id}/submit {{"decision":"...","evidence":"..."}}\'). '
+                        f"Node gates ({gate_names}) are triggered by the submitted decision."
+                    )
+                if instructions:
+                    message += f". {instructions}"
         else:
             message = f"Project '{project_id}' — no active sprint"
 

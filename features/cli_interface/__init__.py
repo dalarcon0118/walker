@@ -58,6 +58,11 @@ def _as_request(params: dict, flags: dict, context: Any) -> Request:
 def _register_project_controller(router: Router) -> None:
     """GET /status — estado de salud del proyecto (resuelve desde CWD)."""
     router.get(
+        ":projectId/:sprintId/status",
+        lambda p, f, c: handle_status(_as_request(p, f, c)),
+        metadata={"description": "GET /:projectId/:sprintId/status — health + status de un sprint especifico"},
+    )
+    router.get(
         ":projectId/status",
         lambda p, f, c: handle_status(_as_request(p, f, c)),
         metadata={"description": "GET /:projectId/status — health + workflow status"},

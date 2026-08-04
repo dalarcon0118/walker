@@ -41,7 +41,7 @@ class Request:
 
     @property
     def sprint_id(self) -> str:
-        return self.flags.get("sprint_id", "")
+        return self.params.get("sprintId", self.flags.get("sprint_id", ""))
 
     @property
     def positional(self) -> list[str]:

@@ -1063,6 +1063,8 @@ class CheckSprintStatusUseCase:
                 "required_fields": sprint_status.get("required_fields", []),
                 "execution_type": sprint_status.get("execution_type", ""),
                 "graph_progress": sprint_status.get("graph_progress", {}),
+                "informal": _is_informal_sprint(chain_dir, project_id),
+                "sprint_id": _sprint_id_of(chain_dir),
             }
         except Exception as e:
             return {
@@ -1097,6 +1099,41 @@ def _sub_state_decision_prefix(sub_state_key: str) -> str:
     s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
     s = s.replace("-", "_")
     return s.lower()
+
+
+def _sprint_id_of(chain_dir: str) -> str:
+    """Deriva el spring_id del chain_dir (nombre del directorio)."""
+    import os
+
+    return os.path.basename(os.path.normpath(chain_dir or ""))
+
+
+def _is_informal_sprint(chain_dir: str, project_id: str) -> bool:
+    """Detecta si el sprint del chain_dir es informal (session log).
+
+    Un sprint informal (session-YYYYMMDD) se crea por capture_task con el
+    flag informal=true en el nodo spring del delta. Consulta el delta para
+    distinguirlo del sprint formal del workflow.
+    """
+    import os
+
+    if not chain_dir or not project_id:
+        return False
+    try:
+        from libs.path_resolver import get_project_dir
+        from features.delta_tracking.application.spring_graph_service import (
+            SpringGraphService,
+        )
+
+        project_root = str(get_project_dir(project_id))
+        if not os.path.isdir(project_root):
+            return False
+        spring_id = _sprint_id_of(chain_dir)
+        spring_svc = SpringGraphService(project_root)
+        spring = spring_svc.get_spring(spring_id)
+        return bool(spring and spring.get("informal"))
+    except Exception:
+        return False
 
 
 # Mapa de decisiones ESPECIFICAS por sub-estado (override de la convencion).
