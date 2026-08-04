@@ -144,6 +144,7 @@ class SpringGraphService:
         project_id: str = "",
         session_id: str = "",
         informal: bool = False,
+        display_name: str = "",
     ) -> dict:
         """Crea (o actualiza) un nodo spring en el delta.
 
@@ -151,6 +152,9 @@ class SpringGraphService:
             informal: Marca el spring como informal (session log de captura
                 de tareas). Los springs informales NO compiten como "activo"
                 frente a los formales del workflow (ver get_active_spring).
+            display_name: Nombre legible/sugerente del spring (el spring_id
+                es un identificador técnico, derivado del directorio). Si se
+                omite, se deriva del goal (primera frase) o del spring_id.
         """
         self._validate_spring_status(status)
         doc = self._get(spring_id)
@@ -167,6 +171,12 @@ class SpringGraphService:
             )
             if informal:
                 data["informal"] = True
+            if display_name:
+                data["display_name"] = display_name
+            elif not data.get("display_name"):
+                data["display_name"] = self._derive_display_name(
+                    data.get("goal", ""), spring_id
+                )
         else:
             data = {
                 "type": self.TYPE_SPRING,
@@ -176,6 +186,8 @@ class SpringGraphService:
                 "project_id": project_id,
                 "session_id": session_id,
                 "informal": informal,
+                "display_name": display_name
+                or self._derive_display_name(goal, spring_id),
                 "current_spec_index": 0,
                 "current_task_index": 0,
                 "task_id": "",
@@ -184,6 +196,26 @@ class SpringGraphService:
             }
         self._store(spring_id, data)
         return data
+
+    @staticmethod
+    def _derive_display_name(goal: str, spring_id: str) -> str:
+        """Deriva un nombre legible del goal del spring.
+
+        Toma la primera frase del goal (hasta ':', ';' o '.'), recortada a
+        60 chars. Fallback al spring_id si no hay goal.
+        """
+        import re
+
+        text = (goal or "").strip()
+        if text:
+            for sep in (":", ";", ".", "—", "-"):
+                if sep in text:
+                    text = text.split(sep, 1)[0].strip()
+                    break
+            text = re.sub(r"\s+", " ", text).strip(" ,.")
+        if not text:
+            return spring_id
+        return text if len(text) <= 60 else text[:57].rstrip() + "..."
 
     def set_spring_status(self, spring_id: str, status: str) -> dict:
         """Actualiza el estado de un spring (planning→active→reviewing→closed)."""
@@ -263,11 +295,20 @@ class SpringGraphService:
             return None
         formals = [r for r in results if not r.get("informal")]
         if formals:
-            return formals[0]
-        return results[0]
+            return self._with_display_name(formals[0])
+        return self._with_display_name(results[0])
+
+    def _with_display_name(self, spring: dict) -> dict:
+        """Backfill de display_name en lecturas (docs legacy sin el campo)."""
+        if not spring.get("display_name"):
+            spring["display_name"] = self._derive_display_name(
+                spring.get("goal", ""), spring.get("_id", "")
+            )
+        return spring
 
     def get_spring(self, spring_id: str) -> dict | None:
-        return self._get(spring_id)
+        spring = self._get(spring_id)
+        return self._with_display_name(spring) if spring else None
 
     def get_spring_id(self, chain_dir: str) -> str:
         """Deriva el spring_id de un chain_dir (directorio del sprint)."""
@@ -278,7 +319,7 @@ class SpringGraphService:
         filters = {"type": self.TYPE_SPRING}
         if status:
             filters["status"] = status
-        return self._search(filters)
+        return [self._with_display_name(s) for s in self._search(filters)]
 
     # ── Spec CRUD ─────────────────────────────────────────────────────
 

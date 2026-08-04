@@ -1009,6 +1009,64 @@ def test_spec_key_unico_por_spring():
         )
 
 
+def test_spring_display_name():
+    """display_name: nombre legible del spring, derivado del goal.
+
+    El spring_id es un identificador técnico (session-YYYYMMDD o
+    sprint-timestamp) heredado del directorio. display_name da un nombre
+    sugerente de lo que se hizo, derivado del goal en backfill si falta.
+    """
+    from features.delta_tracking.application.spring_graph_service import (
+        SpringGraphService,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = SpringGraphService(tmpdir)
+
+        # Creación con display_name explícito
+        svc.create_spring(
+            "spring-redesign",
+            goal="Rediseño del contrato autoritativo del workflow",
+            status="active",
+            display_name="Workflow contract redesign",
+        )
+        spring = svc.get_spring("spring-redesign")
+        assert spring["display_name"] == "Workflow contract redesign"
+
+        # Derivación automática del goal (sin display_name)
+        svc.create_spring(
+            "session-20260804",
+            goal="Session log session-20260804 — trabajo del agente",
+            status="active",
+            informal=True,
+        )
+        spring = svc.get_spring("session-20260804")
+        assert spring["display_name"] == "Session log session-20260804", (
+            f"derivado del goal, got {spring['display_name']}"
+        )
+
+        # Backfill: spring legacy sin display_name obtiene el derivado
+        svc._store(
+            "sprint-legacy",
+            {
+                "type": "spring",
+                "goal": "Refactor estructural Fase 3: DeltaGraph como fuente",
+                "status": "active",
+            },
+        )
+        spring = svc.get_spring("sprint-legacy")
+        assert spring["display_name"] == (
+            "Refactor estructural Fase 3"
+        ), f"backfill del goal, got {spring['display_name']}"
+
+        # get_active_spring expone display_name
+        active = svc.get_active_spring()
+        assert active is not None and active.get("display_name")
+        print(
+            "  ✅ test_spring_display_name: display_name explícito, derivado y backfill"
+        )
+
+
 def test_spring_graph_import_legacy():
     """import_spring: puente desde plan.json legacy al modelo unificado.
 
