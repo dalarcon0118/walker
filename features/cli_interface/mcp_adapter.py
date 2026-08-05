@@ -133,24 +133,58 @@ _TOOLS = [
     },
     {
         "name": "kg_search",
-        "description": "Search project memory (cpg/ckg/delta/trace). QUERY before touching code",
+        "description": "Search project memory (CPG code, CKG knowledge, Delta tasks, Trace events). QUERY before reading code files.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string"},
-                "query": {"type": "object"},
+                "project_id": {"type": "string", "description": "Project ID (auto-detected from CWD if omitted)"},
+                "query": {
+                    "type": "object",
+                    "description": "Query filters. Supports structured + fulltext combined.",
+                    "properties": {
+                        "text": {"type": "string", "description": "Fulltext search across all fulltext fields. Use this for keyword search. Can be string or {\"query\":\"...\",\"fields\":[\"rationale\"]} for field-scoped"},
+                        "_index": {"type": "string", "description": "Which index to search: ckg (knowledge), cpg (code), delta (tasks/sprints), trace (execution history). Default: ckg"},
+                        "type": {"type": "string", "description": "Filter by type. CKG: decision|convention|refactor|pattern|rule. CPG: file|class|function|method. Delta: spring|spec"},
+                        "file": {"type": "string", "description": "Filter by file path (substring match). CPG: 'features/delta_tracking'"},
+                        "scope": {"type": "string", "description": "CKG scope filter: architecture|security|infrastructure|testing"},
+                        "status": {"type": "string", "description": "Delta spec status: draft|specified|in_progress|completed"},
+                        "size": {"type": "integer", "description": "Max results to return (default 50)"},
+                        "_from": {"type": "integer", "description": "Pagination offset (0-based)"},
+                        "text_fields": {"type": "array", "items": {"type": "string"}, "description": "Limit fulltext to specific fields (E1: field-scoped)"},
+                    },
+                },
             },
             "required": ["query"],
+        },
+        "outputSchema": {
+            "description": "Search result with hits and schema metadata. hits.hits[] contains {_id, _index, _source: {field values}}",
+            "type": "object",
+            "properties": {
+                "took": {"type": "integer", "description": "Query time in ms"},
+                "hits": {
+                    "type": "object",
+                    "properties": {
+                        "total": {"type": "integer", "description": "Total matching docs"},
+                        "hits": {"type": "array", "description": "Result documents"},
+                        "from": {"type": "integer", "description": "Pagination offset used"},
+                        "size": {"type": "integer", "description": "Page size used"},
+                    },
+                },
+                "schema": {"type": "object", "description": "Index schema (fields, types, total_docs)"},
+            },
         },
     },
     {
         "name": "kg_multi",
-        "description": "Federated query across multiple indices at once",
+        "description": "Federated query across multiple indices at once. Query CPG+CKG+Delta in one call.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "project_id": {"type": "string"},
-                "layers": {"type": "object"},
+                "layers": {
+                    "type": "object",
+                    "description": '{"ckg": {"text":"auth"}, "cpg": {"file":"src/auth.py"}, "delta": {"text":"login"}} — one query per index',
+                },
             },
             "required": ["layers"],
         },
@@ -203,14 +237,31 @@ _TOOLS = [
     },
     {
         "name": "kg_store",
-        "description": "Register a knowledge/decision node in the project CKG (type, statement, rationale). Use it to persist decisions, conventions and patterns in the project where you are actually working.",
+        "description": "Register a knowledge/decision/convention node in the project CKG. Use after making architecture decisions or discovering patterns.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string"},
+                "project_id": {"type": "string", "description": "Project ID (auto-detected)"},
                 "body": {
                     "type": "object",
-                    "description": "{'type':'decision','statement':'...','metadata':{...}}",
+                    "description": "Knowledge node to register",
+                    "required": ["type", "statement"],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "description": "Node type: decision (architecture decision), convention (code style/pattern), refactor (applied refactoring), pattern (design pattern), rule (technical rule)",
+                            "enum": ["decision", "convention", "refactor", "pattern", "rule", "component"],
+                        },
+                        "statement": {"type": "string", "description": "The knowledge statement. For decisions: 'Decision: <what>'. For conventions: 'Convention: <rule>'. REQUIRED"},
+                        "rationale": {"type": "string", "description": "Why this decision/convention was made (context, tradeoffs)"},
+                        "scope": {"type": "string", "description": "Domain scope: architecture, security, infrastructure, testing, code_analysis, delta_tracking, cognitive_knowledge"},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for filtering: ['performance', 'cache', 'redis']"},
+                        "metadata": {
+                            "type": "object",
+                            "description": "Extra metadata: {task_id: 'TASK-042', severity: 'high', status: 'active'}",
+                        },
+                        "supersedes": {"type": "array", "items": {"type": "string"}, "description": "IDs or statements of previous decisions this replaces"},
+                    },
                 },
             },
             "required": ["body"],
@@ -225,17 +276,103 @@ _TOOLS = [
 
 
 def _public_task_tools() -> list[dict]:
-    """Genera tools MCP para las tasks PUBLICAS del registro de tareas.
+    """Genera tools MCP para las tasks PUBLICAS con input schemas ricos.
 
-    PRINCIPIO (fix descubrimiento): en vez de hardcodear cada task publica en
-    _TOOLS (que se desactualiza y deja tasks fuera del catalogo MCP), se
-    descubren dinamicamente del registro via list_tasks_with_meta(scope='public').
-    Asi cualquier task publica nueva del engine queda expuesta en MCP sin
-    tocar el adapter.
-
-    Returns:
-        Lista de tools {name, description, inputSchema} para tasks publicas.
+    Las tasks frecuentes (kg_schema, kg_extract, etc.) reciben schemas
+    enriquecidos para que el agente sepa exactamente que enviar y recibir.
     """
+    # Schemas enriquecidos por task (evita que el agente adivine formatos)
+    _RICH_SCHEMAS: dict[str, dict] = {
+        "kg_schema": {
+            "description": "Discover available memory indices and their fields/types. Use BEFORE kg_search to know what to query. No body needed.",
+            "body_desc": 'Optional: {"index":"ckg"} to see one index. Omit for all indices.',
+        },
+        "kg_extract": {
+            "description": "Extract knowledge from the CKG using a query. Returns relevant facts, decisions, and patterns.",
+            "body_desc": '{"query":{"text":"authentication","type":"decision"},"max_results":20}',
+        },
+        "kg_research": {
+            "description": "Deep research across multiple sources (CPG + CKG). Combines code structure with knowledge facts.",
+            "body_desc": '{"topic":"authentication flow","depth":2,"max_results":10}',
+        },
+        "kg_index_repo": {
+            "description": "Index a code repository into the CPG. Builds code property graph.",
+            "body_desc": '{"repo_path":"/path/to/repo"} or omit for current project.',
+        },
+        "cpg_business": {
+            "description": "Analyze business layer: pure functions, architecture patterns, flows, metrics from CPG.",
+            "body_desc": '{"file":"features/auth"} to scope analysis to a directory.',
+        },
+        "cpg_unused_functions": {
+            "description": "Find unused functions in the CPG (dead code detection).",
+            "body_desc": 'Omit for all files, or {"file":"features/auth"} for directory.',
+        },
+        "cpg_dfg_scan": {
+            "description": "Scan for data flow issues: hardcoded secrets, taint paths, uninitialized variables.",
+            "body_desc": 'Omit for full scan, or {"paths":["src/auth.py"]} for specific files.',
+        },
+        "project_metrics": {
+            "description": "Get project metrics: code size, complexity, test coverage, quality gates.",
+            "body_desc": "No body needed.",
+        },
+        "build_initial_ckg": {
+            "description": "Build the initial CKG from the project codebase. Run once when starting a new project.",
+            "body_desc": "No body needed.",
+        },
+        "import_legacy_tasks": {
+            "description": "Import legacy sprint tasks into the DeltaGraph.",
+            "body_desc": '{"path":"data/delta/sprint-id"} — path to sprint directory.',
+        },
+        "import_legacy_history": {
+            "description": "Import legacy sprint history (completed sprints) into the DeltaGraph.",
+            "body_desc": '{"path":"data/delta"} — path to delta directory.',
+        },
+        "detect_legacy": {
+            "description": "Detect legacy sprints that have not been imported into the DeltaGraph.",
+            "body_desc": "No body needed — auto-detects from project.",
+        },
+        "map_legacy_workflow": {
+            "description": "Map legacy workflow state to new format.",
+            "body_desc": '{"sprint_id":"session-20260731"}',
+        },
+        "capture_task": {
+            "description": "Capture a task from context and add it as a spec to the active sprint.",
+            "body_desc": '{"objective":"Add login endpoint","domain":"authentication","files":["src/auth.py"]}',
+        },
+        "trace_push": {
+            "description": "Push a trace event to the execution history (for debugging/monitoring).",
+            "body_desc": '{"event_type":"tool_call","tool":"Write","files":["src/auth.py"]}',
+        },
+        "scan_code_and_build_cpg": {
+            "description": "Full rebuild of the CPG from source code. Use after major code changes or first setup.",
+            "body_desc": "No body needed.",
+        },
+        "update_project": {
+            "description": "Update project metadata (name, code_paths, etc).",
+            "body_desc": '{"name":"My Project","code_paths":["src"]}',
+        },
+        "resolve_project_sprint": {
+            "description": "Resolve the current project and sprint ID from context.",
+            "body_desc": "No body needed — auto-detects from CWD or chain_dir.",
+        },
+        "list_projects": {
+            "description": "List all registered projects in the walker.",
+            "body_desc": "No body needed.",
+        },
+        "cpg_index_ref": {
+            "description": "Index a reference library (e.g., framework docs) as a CPG reference index.",
+            "body_desc": '{"name":"expressjs","path":"/path/to/docs"}',
+        },
+        "analyze_code": {
+            "description": "Analyze code using the CPG for deep insights.",
+            "body_desc": '{"query":"auth","depth":"deep"}',
+        },
+        "query": {
+            "description": "Generic query across memories.",
+            "body_desc": '{"text":"authentication","indices":["ckg","cpg"]}',
+        },
+    }
+
     try:
         from features.engine.application.workflow_api import bootstrap as _bs
         from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
@@ -245,28 +382,29 @@ def _public_task_tools() -> list[dict]:
         public_tasks = registry.list_tasks_with_meta(scope="public") or []
     except Exception:
         return []
+
     tools = []
     for t in public_tasks:
         name = t.get("name", "")
         if not name:
             continue
-        desc = t.get("description") or f"Public walker task: {name}"
-        tools.append(
-            {
-                "name": name,
-                "description": f"{desc} (public task — works on the project, no workflow needed)",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_id": {"type": "string"},
-                        "body": {
-                            "type": "object",
-                            "description": "Optional JSON body for the task",
-                        },
+        rich = _RICH_SCHEMAS.get(name, {})
+        desc = rich.get("description") or t.get("description") or f"Public walker task: {name}"
+        body_desc = rich.get("body_desc", "Optional JSON body for the task")
+        tools.append({
+            "name": name,
+            "description": f"{desc} (public task — works on the project, no workflow needed)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": "string", "description": "Project ID (auto-detected from CWD if omitted)"},
+                    "body": {
+                        "type": "object",
+                        "description": body_desc,
                     },
                 },
-            }
-        )
+            },
+        })
     return tools
 
 
