@@ -121,8 +121,13 @@ class SpringService:
         spring = self._repo.get_spring(spring_id)
         if spring:
             for k, v in data.items():
+                if k in ("type", "_id", "spring_id", "spec_key"):
+                    continue  # campos inmutables
                 if hasattr(spring, k) and v is not None:
-                    setattr(spring, k, v)
+                    try:
+                        setattr(spring, k, v)
+                    except AttributeError:
+                        pass
             self._repo.save_spring(spring)
 
     # ── Specs ──

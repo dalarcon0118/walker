@@ -222,67 +222,34 @@ def handle_project_info(req: Request) -> Response:
             except Exception:
                 pass
 
-        # ── Memory stats ──
+        # ── Memory stats via MemoryQueryService (no acceso directo a JSON) ──
         if os.path.isdir(cog_data_dir):
-            # CPG
-            cpg_path = os.path.join(cog_data_dir, "cpg.json.gz")
-            if os.path.exists(cpg_path):
-                import gzip
+            try:
+                from libs.memories import MemoryQueryService
 
-                try:
-                    cpg_data = json.loads(
-                        gzip.decompress(open(cpg_path, "rb").read()).decode()
-                    )
-                    info["cpg_nodes"] = len(cpg_data.get("nodes", {}))
-                    info["cpg_edges"] = len(cpg_data.get("edges", []))
-                except Exception:
-                    pass
+                mqs = MemoryQueryService(cog_data_dir)
+                mem_status = mqs.status()
+                info["cpg_nodes"] = mem_status.get("cpg", {}).get("total_docs", 0)
+                info["cpg_edges"] = mem_status.get("cpg", {}).get("total_edges", 0)
+                info["ckg_docs"] = mem_status.get("ckg", {}).get("total_docs", 0)
+                dt = mem_status.get("delta", {})
+                info["delta_tasks"] = dt.get("total_docs", 0)
+                info["cognitive_indices"] = mqs.list_indexes()
+            except Exception:
+                pass
 
-            # CKG
-            ckg_path = os.path.join(cog_data_dir, "ckg.json.gz")
-            if os.path.exists(ckg_path):
-                try:
-                    ckg_data = json.loads(
-                        gzip.decompress(open(ckg_path, "rb").read()).decode()
-                    )
-                    docs = ckg_data.get("docs", [])
-                    info["ckg_docs"] = len(docs)
-                except Exception:
-                    pass
+        # Watcher: change_detected
+        change_path = os.path.join(cog_data_dir, "change_detected.json")
+        if os.path.exists(change_path):
+            try:
+                info["watcher"] = json.loads(open(change_path).read())
+            except Exception:
+                pass
 
-            # Delta
-            delta_path = os.path.join(cog_data_dir, "delta.json.gz")
-            if os.path.exists(delta_path):
-                try:
-                    delta_data = json.loads(
-                        gzip.decompress(open(delta_path, "rb").read()).decode()
-                    )
-                    info["delta_tasks"] = len(delta_data.get("docs", []))
-                except Exception:
-                    pass
-
-            # Change detected
-            change_path = os.path.join(cog_data_dir, "change_detected.json")
-            if os.path.exists(change_path):
-                try:
-                    info["watcher"] = json.loads(open(change_path).read())
-                except Exception:
-                    pass
-
-        # ── Active sprints ──
+        # Active sprints
         from features.project.application.service import ProjectService
-
         active = ProjectService.find_active_sprint(project_id)
         info["active_sprint"] = active if active else None
-
-        # ── CognitiveGraph schemas ──
-        try:
-            from libs.cognitive_graph import CognitiveGraph
-
-            cg = CognitiveGraph(cog_data_dir, auto_register=True)
-            info["cognitive_indices"] = cg.list_indexes()
-        except Exception:
-            pass
 
         return Response.ok(
             "project_info",
