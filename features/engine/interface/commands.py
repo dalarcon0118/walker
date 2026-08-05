@@ -991,18 +991,30 @@ def _query_status(chain_dir: str, tasks: list[dict]) -> int:
         SpringService,
     )
 
-    task_states = {}
+    progress = None
+    task_states: dict[str, str] = {}
     try:
         spring_svc = SpringService.from_chain_dir(chain_dir)
         if spring_svc:
             spring_id = spring_svc.get_spring_id(chain_dir)
             spring_svc.ensure_spring_imported(chain_dir, spring_id)
+            progress = spring_svc.get_sprint_progress(spring_id)
             task_states = {
                 s.get("spec_id", s.get("task_id", "")): s.get("status", "")
                 for s in spring_svc.get_specs(spring_id)
             }
     except Exception:
         pass
+
+    if progress:
+        print(Template(
+            "  Progress: $completed/$total completed ($pct%), $in_progress in progress"
+        ).substitute(
+            total=progress["total_specs"],
+            completed=progress["completed"],
+            in_progress=progress["in_progress"],
+            pct=progress["progress_pct"],
+        ))
 
     by_status: dict[str, list[str]] = {}
     for t in tasks:
