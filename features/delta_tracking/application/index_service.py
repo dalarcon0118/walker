@@ -17,7 +17,7 @@ def index_sprint(chain_dir: str, cg) -> int:
     y los edges.
 
     PRINCIPIO estructural: las specs del spring viven en el DeltaGraph;
-    sprint-state.json fue eliminado. Fallback a plan.json (proyección).
+    sprint-state.json y plan.json fueron eliminados (ADR-WALKER-013/014).
 
     Args:
         chain_dir: Ruta al directorio del sprint
@@ -45,19 +45,6 @@ def index_sprint(chain_dir: str, cg) -> int:
             tasks = spring_svc.get_specs_legacy(spring_id)
     except Exception:
         tasks = []
-    if not tasks:
-        # Fallback: plan.json (proyección del delta)
-        import json
-
-        plan_path = os.path.join(chain_dir, "plan.json")
-        if not os.path.exists(plan_path):
-            return 0
-        try:
-            with open(plan_path) as f:
-                plan = json.load(f)
-            tasks = plan.get("specifications", plan.get("tasks", []))
-        except (json.JSONDecodeError, OSError):
-            return 0
     if not tasks:
         return 0
 

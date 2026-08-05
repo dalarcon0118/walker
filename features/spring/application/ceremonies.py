@@ -8,12 +8,14 @@ Product Backlog management + Sprint Planning ceremony + Human Confirm gate.
 Backlog items se almacenan en JSONL en <project>/delta/backlog.jsonl.
 Planning proposals se almacenan en <chain_dir>/.planning/proposal.json.
 
-Correcciones aplicadas durante la migración (vs legacy):
-  - ``write_json`` con checksum: se reutiliza ``features.code_analysis.application
-    .deep_analysis`` (checksum SHA-256 local) en lugar de ``_internal.progress_checksum``.
-  - Validación de schemas post-write: se usa ``_run_schema_validation`` (jsonschema
-    contra ``schema/*.json``) en lugar del subprocess ``validate-schema.py``.
-  - ``source`` de plan/progress es ``delta-skill`` (schema vigente), no ``{project}:planning``.
+PRINCIPIO: el estado de negocio del spring (goal, specs, status) vive en
+el DELTA (SpringService — features/delta_tracking/). plan.json NO existe
+como fuente paralela (ADR-WALKER-013); el commit crea spring + specs en
+el DeltaGraph.
+
+La síntesis de tareas desde predicates (tipada + files reales + riesgo)
+vive en ``features/spring/application/task_synthesis.py`` (port desde el
+legacy ``deep_analysis``). El protocolo de 6 capas interactivo NO se porta.
 """
 
 from __future__ import annotations
@@ -25,10 +27,11 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from features.code_analysis.application.deep_analysis import (
-    _run_schema_validation,
-    _sanitize_chain_id,
-    write_json,
+from features.spring.application.task_synthesis import (
+    collect_known_files,
+    compute_total_risk,
+    enrich_tasks_with_predicates,
+    sanitize_chain_id,
 )
 
 
@@ -49,6 +52,13 @@ def load_json(path: str) -> dict | None:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return None
+
+
+def write_json(path: str, data: dict) -> None:
+    """Escribe un dict como JSON indentado (proposal del planning)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 # ── Backlog IDs ────────────────────────────────────────────────
@@ -772,6 +782,38 @@ def _proposal_path(chain_dir: str) -> str:
     return os.path.join(chain_dir, ".planning", "proposal.json")
 
 
+def _resolve_project_root(project_id: str, chain_dir: str) -> str:
+    """Resuelve el directorio cognitivo del proyecto (proyecto activo del chain_dir).
+
+    Preferencia:
+      1. ProjectService.resolve_paths(chain_dir) → project_root del proyecto
+         que contiene al sprint (mismo rail que usa SpringService.from_chain_dir).
+      2. Fallback: get_project_dir(project_id) si el proyecto está registrado.
+      3. Fallback último: padre del delta desde chain_dir.
+    """
+    try:
+        from features.project import ProjectService
+
+        paths = ProjectService.resolve_paths(chain_dir)
+        data_dir = getattr(paths, "data_dir", "") or ""
+        root = os.path.dirname(data_dir) if data_dir else ""
+        if root and os.path.isdir(root):
+            return root
+    except Exception:
+        pass
+    if project_id:
+        try:
+            from libs.path_resolver import get_project_dir
+
+            root = str(get_project_dir(project_id))
+            if root and os.path.isdir(root):
+                return root
+        except Exception:
+            pass
+    parent = os.path.dirname(os.path.abspath(chain_dir))
+    return parent if os.path.isdir(parent) else ""
+
+
 def _load_proposal(chain_dir: str) -> dict | None:
     return load_json(_proposal_path(chain_dir))
 
@@ -810,18 +852,46 @@ def planning_propose(
     except json.JSONDecodeError:
         predicates = {"must_exist": [], "must_not_exist": [], "invariants": []}
 
+    # Normalize predicates
+    predicates = _normalize_predicates(predicates)
+
     # Load backlog items if specified
     backlog_items = _load_backlog_items(backlog_dir, item_ids_raw)
 
-    # Validate tasks / generate from backlog
-    if not tasks:
+    # Validate tasks / generate from backlog o desde predicates (síntesis)
+    has_predicates = any(
+        predicates.get(k) for k in ("must_exist", "must_not_exist", "invariants")
+    )
+    if not tasks and has_predicates:
+        # Síntesis tipada desde predicates (feature/bugfix/test + files + riesgo)
+        known_files = collect_known_files(
+            [it.get("files", []) for it in backlog_items], []
+        )
+        from features.spring.application.task_synthesis import (
+            generate_tasks_from_predicates,
+            fill_task_contexts,
+        )
+
+        tasks = generate_tasks_from_predicates(
+            predicates, project_id, known_files=known_files
+        )
+        fill_task_contexts(tasks, goal, project_id)
+    elif not tasks:
         tasks = _generate_tasks_from_backlog(
             tasks, backlog_items, scrum_role_default
         )
         if not tasks:
             eprint("❌ No hay tareas definidas ni backlog items seleccionados.")
-            eprint("   Pasa --tasks '[...]' o --backlog-dir y --item-ids")
+            eprint("   Pasa --tasks '[...]', --backlog-dir y --item-ids,")
+            eprint("   o --predicates con must_exist/must_not_exist/invariants")
             return 2
+
+    # Enriquecer tasks con predicates (type/files/riesgo derivados)
+    if has_predicates:
+        known_files = collect_known_files(
+            [it.get("files", []) for it in backlog_items], []
+        )
+        enrich_tasks_with_predicates(tasks, predicates, known_files=known_files)
 
     # Validate each task
     if not _validate_tasks_min_length(tasks):
@@ -848,7 +918,7 @@ def planning_propose(
     predicates = _normalize_predicates(predicates)
 
     now = _now_iso()
-    chain_id = _sanitize_chain_id(os.path.basename(os.path.normpath(chain_dir)))
+    chain_id = sanitize_chain_id(os.path.basename(os.path.normpath(chain_dir)))
 
     proposal = {
         "meta": {
@@ -1134,7 +1204,12 @@ def planning_refine(chain_dir: str, edit_value: str) -> int:
 
 
 def planning_commit(chain_dir: str) -> int:
-    """Commit the planning proposal: create plan.json + progress.json."""
+    """Commit the planning proposal into the DELTA (fuente unica).
+
+    PRINCIPIO: plan.json no existe como fuente paralela (ADR-WALKER-013).
+    El spring + specs se crean en el DeltaGraph via SpringService.
+    progress.json/plan.json NO se escriben.
+    """
     chain_dir = os.path.abspath(chain_dir)
     proposal_path = _proposal_path(chain_dir)
 
@@ -1176,100 +1251,35 @@ def planning_commit(chain_dir: str) -> int:
         eprint("=" * 70)
         return 2
 
-    # ── Build plan.json ───────────────────────────────────────
-    plan = {
-        "plan": {
-            "meta": {
-                "chain_id": chain_id,
-                "generated_at": now,
-                "version": "1.0",
-                "source": "delta-skill",
-                "type": "plan",
-            },
-            "project": {
-                "project_id": project_id,
-                "project_type": "backend",
-                "domains": list(set(t.get("domain", "core") for t in tasks)),
-                "tags": ["python"],
-            },
-            "goal": {
-                "description": goal,
-                "path_summary": "",
-                "predicates": predicates,
-                "signatures": [],
-            },
-            "tasks": tasks,
-            "parameters": {},
+    # ── Persistir en el DELTA (fuente unica) ─────────────────────
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
+    )
+
+    project_root = _resolve_project_root(project_id, chain_dir)
+    spring_svc = SpringService(project_root)
+    spring_svc.create_spring(
+        chain_id,
+        goal=goal,
+        status="planning",
+        project_id=project_id,
+    )
+    spring_svc.upsert_specs_batch(chain_id, [
+        {
+            "objective": t.get("objective", ""),
+            "domain": t.get("domain", ""),
+            "type": t.get("type", "feature"),
+            "result_state": t.get("result_state", ""),
+            "files": (
+                t.get("impacted_artifacts", {}).get("files", [])
+                if isinstance(t.get("impacted_artifacts"), dict)
+                else []
+            ),
+            "status": "draft",
+            "description": t.get("task_description", ""),
         }
-    }
-
-    # ── Build progress.json ───────────────────────────────────
-    next_action = None
-    task_states = {}
-    for t in tasks:
-        tid = t.get("task_id", "")
-        task_states[tid] = "pending"
-        if next_action is None:
-            next_action = {
-                "task_id": tid,
-                "type": t.get("type", "feature"),
-                "work_type": t.get("work_type", "refactor"),
-                "target": "",
-                "delta": 0.0,
-                "confidence": t.get("risks", {}).get("commit_trust", 0.70),
-                "risk": t.get("risks", {}).get("curvature", 0.20),
-                "score": 0.0,
-                "candidate": t.get("objective", "")[:100],
-                "rationale": f"Planning: {t.get('objective', '')[:60]}...",
-            }
-
-    progress = {
-        "progress": {
-            "meta": {
-                "chain_id": chain_id,
-                "generated_at": now,
-                "version": "1.0",
-                "source": "delta-skill",
-                "type": "progress",
-                "status": "active",
-            },
-            "plan_ref": chain_id,
-            "trail": [],
-            "current": {
-                "task_states": task_states,
-                "next_action": next_action,
-                "alternatives": [],
-                "risks": [],
-                "delta_metrics": {},
-            },
-        }
-    }
-
-    # ── Write files ───────────────────────────────────────────
-    os.makedirs(chain_dir, exist_ok=True)
-    plan_path = os.path.join(chain_dir, "plan.json")
-    progress_path = os.path.join(chain_dir, "progress.json")
-
-    write_json(plan_path, plan)
-    write_json(progress_path, progress)
-
-    # ── ENFORCEMENT: Validate schemas post-write ────────────────
-    plan_valid = _run_schema_validation(plan_path, "plan.schema.json")
-    prog_valid = _run_schema_validation(progress_path, "progress.schema.json")
-
-    if not plan_valid or not prog_valid:
-        eprint()
-        eprint("=" * 70)
-        eprint("❌ ENFORCEMENT BLOCKED: Schema validation failed")
-        eprint("=" * 70)
-        try:
-            if os.path.exists(plan_path):
-                os.remove(plan_path)
-            if os.path.exists(progress_path):
-                os.remove(progress_path)
-        except OSError:
-            pass
-        return 2
+        for t in tasks
+    ])
 
     # ── Update proposal status ────────────────────────────────
     proposal["meta"]["status"] = "committed"
@@ -1308,10 +1318,6 @@ def planning_commit(chain_dir: str) -> int:
     )
     print()
     print("📋 DECISION PROTOCOL:")
-    print()
-    print("  ▶️  Primera tarea:")
-    if next_action:
-        print(f"     python3 scripts/task.py advance {chain_dir} {next_action['task_id']}")
     print()
     print("  ▶️  Para ver estado:")
     print(f"     python3 scripts/spring.py status {chain_dir}")
@@ -1381,7 +1387,8 @@ def cmd_planning(args: list[str]) -> int:
         print("    Exit 0: propuesta actualizada.")
         print()
         print("  commit <chain_dir>")
-        print("    Convierte .planning/ en sprint real (plan.json + progress.json).")
+        print("    Crea el sprint en el DELTA (SpringService — fuente unica).")
+        print("    plan.json no se escribe (ADR-WALKER-013).")
         print("    Exit 0: sprint creado. Exit 2: error de validacion.")
         print()
         print("  El flujo completo: propose → refine (opcional) → commit")

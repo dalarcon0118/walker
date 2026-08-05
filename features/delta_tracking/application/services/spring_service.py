@@ -47,6 +47,7 @@ class SpringService:
     """Orquestador delgado: delega en use cases via DeltaRepository."""
 
     def __init__(self, project_root: str = "", repo: DeltaRepository | None = None):
+        self.project_root = os.path.normpath(project_root) if project_root else ""
         self._repo = repo or CognitiveDeltaRepository(project_root)
         self._create = CreateSpringUseCase(self._repo)
         self._query = QueryDeltaUseCase(self._repo)
@@ -73,23 +74,62 @@ class SpringService:
             pass
         return None
 
+    @staticmethod
+    def _derive_display_name(goal: str, spring_id: str) -> str:
+        """Deriva un nombre legible del goal del spring.
+
+        Toma la primera frase del goal (hasta ':', ';', '.', '—' o '-'),
+        recortada a 60 chars. Fallback al spring_id si no hay goal.
+        """
+        import re
+
+        text = (goal or "").strip()
+        if text:
+            for sep in (":", ";", ".", "—", "-"):
+                if sep in text:
+                    text = text.split(sep, 1)[0].strip()
+                    break
+            text = re.sub(r"\s+", " ", text).strip(" ,.")
+        if not text:
+            return spring_id
+        return text if len(text) <= 60 else text[:57].rstrip() + "..."
+
+    def _store(self, doc_id: str, data: dict) -> None:
+        """Almacena un doc raw en el indice delta (backfill/legacy)."""
+        self._repo.cg.store(self._repo.INDEX, doc_id, data)
+
     # ── Spring lifecycle ──
 
     def create_spring(self, spring_id: str, goal: str = "", status: str = "planning",
                       project_id: str = "", session_id: str = "", **extra) -> dict:
+        # display_name opcional: si no se provee, se deriva del goal.
+        if not extra.get("display_name"):
+            extra["display_name"] = self._derive_display_name(goal, spring_id)
         spring = self._create.execute(spring_id, goal, status, project_id, session_id, **extra)
         return _spring_to_dict(spring)
 
+    def _with_display_name(self, spring: dict | None) -> dict | None:
+        """Backfill de display_name en lecturas (docs legacy sin el campo)."""
+        if spring and not spring.get("display_name"):
+            spring["display_name"] = self._derive_display_name(
+                spring.get("goal", ""),
+                spring.get("_id") or spring.get("spring_id", ""),
+            )
+        return spring
+
     def get_spring(self, spring_id: str) -> dict | None:
         s = self._query.get_spring(spring_id)
-        return _spring_to_dict(s) if s else None
+        return self._with_display_name(_spring_to_dict(s) if s else None)
 
     def get_active_spring(self) -> dict | None:
         s = self._query.get_active_spring()
-        return _spring_to_dict(s) if s else None
+        return self._with_display_name(_spring_to_dict(s) if s else None)
 
     def list_springs(self, status: str = "") -> list[dict]:
-        return [_spring_to_dict(s) for s in self._query.list_springs(status)]
+        return [
+            self._with_display_name(_spring_to_dict(s))
+            for s in self._query.list_springs(status)
+        ]
 
     def get_spring_id(self, chain_dir: str) -> str:
         return os.path.basename(os.path.normpath(chain_dir))
@@ -223,42 +263,22 @@ class SpringService:
     def import_spring(self, sprint_dir: str) -> dict:
         return self._import_legacy.execute(sprint_dir)
 
-    # ── Proyeccion legacy ──
+    # ── Lectura unica para el engine (tasks desde chain_dir) ──
 
-    def sync_plan_projection(self, spring_id: str) -> None:
-        """Regenera plan.json (proyeccion de specs) para consumidores legacy."""
-        from features.spring.infrastructure.repositories import PlanRepository
+    def load_tasks(self, chain_dir: str) -> list[dict]:
+        """Tasks del sprint desde el DELTA (fuente unica, ADR-WALKER-013).
 
-        spring = self._repo.get_spring(spring_id)
-        specs = self._repo.get_specs(spring_id)
-
-        legacy_specs = []
-        for spec in specs:
-            legacy_specs.append({
-                "task_id": spec.spec_id,
-                "objective": spec.objective,
-                "domain": spec.domain,
-                "type": spec.spec_type,
-                "status": spec.status,
-                "result_state": spec.result_state,
-                "task_description": spec.description,
-                "impacted_artifacts": {"files": spec.files},
-                "predicates": spec.predicates or {},
-                "depends_on": spec.depends_on or [],
-            })
-
-        plan = {
-            "version": "2.0",
-            "chain_id": spring_id,
-            "goal": spring.goal if spring else "",
-            "specifications": legacy_specs,
-        }
-        import json
-        sprint_dir = os.path.join(
-            os.path.dirname(os.path.dirname(spring_id)),
-            "delta", spring_id,
-        ) if spring else ""
-        if sprint_dir and os.path.isdir(sprint_dir):
-            plan_path = os.path.join(sprint_dir, "plan.json")
-            with open(plan_path, "w") as f:
-                json.dump(plan, f, indent=2)
+        Resuelve el rail del chain_dir y devuelve las specs como tasks
+        (task_id, objective, domain, type, status, result_state,
+        impacted_artifacts.files, ...). No lee plan.json.
+        """
+        if not chain_dir:
+            return []
+        try:
+            spring_id = self.get_spring_id(chain_dir)
+            if not spring_id:
+                return []
+            self.ensure_spring_imported(chain_dir, spring_id)
+            return self.get_specs_legacy(spring_id)
+        except Exception:
+            return []

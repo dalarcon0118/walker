@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
 from libs.shared_domain.validated_vo import TaskInput
-from features.project.application.use_cases import DetectProjectContextUseCase
+from features.project import ProjectService
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class ProjectInitInput(TaskInput):
 def detect_project_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     try:
         project_path = data.get("path", ctx.chain_dir or __import__("os").getcwd())
-        result = DetectProjectContextUseCase.execute(project_path)
+        result = ProjectService.detect_context(project_path)
         return TaskResult.success(data=result)
     except Exception as e:
         return TaskResult.success(data={"detected": False, "error": str(e)})

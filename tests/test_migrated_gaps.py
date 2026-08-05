@@ -1,12 +1,11 @@
 """
 Test: Migración de gaps desde to_clean_next/ a features/.
 
-Valida los 5 módulos migrados:
+Valida los módulos migrados:
   1. features/code_analysis/infrastructure/hallucination.py — detector de imports alucinados
-  2. features/code_analysis/application/deep_analysis.py — protocolo de 6 capas → plan/progress
-  3. features/engine/domain/enforce.py — capa de coerción del skill delta
-  4. features/spring/application/ceremonies.py — backlog JSONL + planning ceremony
-  5. features/task_execution/infrastructure/verify_engine.py — motor unificado de verificación
+  2. features/spring/application/task_synthesis.py — síntesis de tareas desde predicates
+  3. features/spring/application/ceremonies.py — backlog JSONL + planning ceremony
+  4. features/task_execution/infrastructure/verify_engine.py — motor unificado de verificación
 
 Cada test usa directorios temporales (no toca el proyecto real).
 """
@@ -49,183 +48,113 @@ class TestHallucination:
         assert status != "HALLUCINATION"
 
 
-# ── 2. deep_analysis ───────────────────────────────────────────
+# ── 2. task_synthesis (port del sub-pipeline deep_analysis) ────
 
 
-LAYER_DATA = [
-    (
-        "layer-01",
-        {
-            "layer": "observation",
-            "facts": [{"type": "class", "name": "Foo", "path": "src/foo.py"}],
-            "files_scanned": ["src/foo.py"],
-            "symptoms": ["warning"],
-        },
-    ),
-    (
-        "layer-02",
-        {
-            "layer": "structure",
-            "components": [
-                {"name": "mod", "type": "module", "status": "existing"},
-                {"name": "mod2", "type": "module", "status": "missing"},
-            ],
-            "boundaries": [{"name": "core"}],
-        },
-    ),
-    (
-        "layer-03",
-        {
-            "layer": "behavior",
-            "flows": [{"name": "main-flow", "steps": ["a", "b"]}],
-            "contracts": [{"interface": "I", "invariants": ["sempre true"]}],
-        },
-    ),
-    (
-        "layer-04",
-        {
-            "layer": "causality",
-            "pain_points": [{"description": "lento", "impact": "high"}],
-            "invariants": [{"rule": "inv-x", "current_status": "satisfied"}],
-        },
-    ),
-    (
-        "layer-05",
-        {
-            "layer": "purpose",
-            "objectives": [{"goal": "mejorar rendimiento", "priority": 3}],
-            "non_goals": ["no ui"],
-        },
-    ),
-    (
-        "layer-06",
-        {
-            "layer": "principles",
-            "heuristics": [{"rule": "kiss"}],
-            "governing_principles": ["clean arch"],
-        },
-    ),
-]
+class TestTaskSynthesis:
+    """Valida la síntesis de tareas desde predicates (port del sub-pipeline
+    valioso de deep_analysis; el protocolo de 6 capas es legacy y se eliminó)."""
 
+    def _predicates(self) -> dict:
+        return {
+            "must_exist": ["module auth"],
+            "must_not_exist": ["legacy config (deprecated)"],
+            "invariants": ["sempre true"],
+        }
 
-def _run_deep_cycle(tmp: str) -> tuple[str, str]:
-    """Ejecuta init → 6 capas → finalize. Retorna rutas de plan/progress."""
-    from features.code_analysis.application.deep_analysis import (
-        init_analysis,
-        submit_layer,
-        finalize_analysis,
-    )
-
-    init_analysis(tmp, "test-proj", "Implementar un modulo de analisis profundo")
-    for layer_id, data in LAYER_DATA:
-        rc = submit_layer(tmp, layer_id, data)
-        assert rc == 0, f"{layer_id} rc={rc}"
-    rc = finalize_analysis(tmp)
-    assert rc == 0, f"finalize rc={rc}"
-    return os.path.join(tmp, "plan.json"), os.path.join(tmp, "progress.json")
-
-
-class TestDeepAnalysis:
-    def test_ciclo_completo_genera_plan_y_progress(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            plan_path, progress_path = _run_deep_cycle(tmp)
-            plan = json.loads(Path(plan_path).read_text())
-            progress = json.loads(Path(progress_path).read_text())
-            assert plan["plan"]["meta"]["source"] == "delta-skill"
-            assert len(plan["plan"]["tasks"]) >= 1
-            assert progress["progress"]["current"]["task_states"]
-
-    def test_secuencia_forzada_bloquea(self):
-        from features.code_analysis.application.deep_analysis import (
-            init_analysis,
-            submit_layer,
+    def test_genera_tareas_tipadas_desde_predicates(self):
+        from features.spring.application.task_synthesis import (
+            generate_tasks_from_predicates,
         )
 
-        with tempfile.TemporaryDirectory() as tmp:
-            init_analysis(tmp, "p", "goal con suficientes caracteres")
-            # Saltar layer-01 e intentar layer-02 debe bloquear
-            rc = submit_layer(tmp, "layer-02", LAYER_DATA[1][1])
-            assert rc == 2
+        tasks = generate_tasks_from_predicates(
+            self._predicates(), "proj", known_files=["src/auth.py", "src/config.py"]
+        )
+        types = {t["type"] for t in tasks}
+        assert types == {"feature", "bugfix", "test"}
+        # must_exist → feature; must_not_exist → bugfix; invariants → test
+        feature = next(t for t in tasks if t["type"] == "feature")
+        assert "auth" in feature["objective"]
+        assert feature["impacted_artifacts"]["files"]  # files matcheados, no []
+        bugfix = next(t for t in tasks if t["type"] == "bugfix")
+        assert bugfix["validation"]["predicates"][0].startswith("NO ")
+        test = next(t for t in tasks if t["type"] == "test")
+        assert test["validation"]["predicates"][0].startswith("invariant:")
 
-    def test_checksum_progress_json(self):
-        from features.code_analysis.application.deep_analysis import verify_checksum
+    def test_fallback_task_sin_predicates(self):
+        from features.spring.application.task_synthesis import (
+            generate_tasks_from_predicates,
+        )
 
-        with tempfile.TemporaryDirectory() as tmp:
-            _, progress_path = _run_deep_cycle(tmp)
-            progress = json.loads(Path(progress_path).read_text())
-            # El checksum se aplica al dict top-level (que envuelve "progress")
-            assert "_checksum" in progress
-            assert verify_checksum(progress)
-            # Alterar contenido debe romper el checksum
-            progress["progress"]["current"]["task_states"]["TASK-001"] = "tampered"
-            assert not verify_checksum(progress)
+        tasks = generate_tasks_from_predicates(
+            {"must_exist": [], "must_not_exist": [], "invariants": []},
+            "proj",
+        )
+        assert len(tasks) == 1
+        assert tasks[0]["task_id"] == "TASK-001"
+        assert tasks[0]["type"] == "feature"
 
+    def test_fill_task_contexts_completa_campos(self):
+        from features.spring.application.task_synthesis import (
+            fill_task_contexts,
+            generate_tasks_from_predicates,
+        )
 
-# ── 3. enforce ─────────────────────────────────────────────────
+        tasks = generate_tasks_from_predicates(self._predicates(), "proj")
+        fill_task_contexts(tasks, "mejorar auth", "proj")
+        for t in tasks:
+            assert t["task_context"]["observation"]
+            assert t["task_description"]
+            assert t["acceptance_criteria"]
 
+    def test_enrich_tasks_asigna_type_files_riesgo(self):
+        from features.spring.application.task_synthesis import (
+            enrich_tasks_with_predicates,
+        )
 
-class TestEnforce:
-    @pytest.fixture
-    def plan_progress(self):
-        plan = {
-            "plan": {
-                "goal": {"predicates": {"must_exist": ["P1", "P2"]}},
-                "tasks": [
-                    {
-                        "task_id": "TASK-001",
-                        "risks": {"curvature": 0.10},
-                        "validation": {"predicates": ["P1"]},
-                    },
-                    {
-                        "task_id": "TASK-002",
-                        "risks": {"curvature": 0.80},
-                        "validation": {"predicates": ["P2"]},
-                    },
-                ],
+        # Task genérica desde backlog (type fijo feature, sin files)
+        tasks = [
+            {
+                "task_id": "TASK-001",
+                "type": "feature",
+                "objective": "Implementar module auth",
+                "result_state": "done",
+                "domain": "core",
+                "validation": {"predicates": []},
+                "impacted_artifacts": {"files": []},
+                "risks": {"curvature": 0.20},
             }
-        }
-        progress = {
-            "progress": {
-                "current": {
-                    "task_states": {"TASK-001": "pending", "TASK-002": "pending"},
-                    "next_action": {"task_id": "TASK-001"},
-                }
+        ]
+        tasks = enrich_tasks_with_predicates(
+            tasks, self._predicates(), known_files=["src/auth.py"]
+        )
+        assert tasks[0]["validation"]["predicates"]
+        assert tasks[0]["impacted_artifacts"]["files"] == ["src/auth.py"]
+
+    def test_compute_total_risk_escalable(self):
+        from features.spring.application.task_synthesis import compute_total_risk
+
+        low = compute_total_risk(
+            {"must_exist": ["a"], "must_not_exist": [], "invariants": []}
+        )
+        high = compute_total_risk(
+            {
+                "must_exist": ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+                "must_not_exist": ["x", "y"],
+                "invariants": [],
             }
-        }
-        return plan, progress
+        )
+        assert 0.0 < low <= 0.50
+        assert low < high
+        assert high <= 0.50
 
-    def test_next_action_pasa(self, plan_progress):
-        from features.engine.domain.enforce import enforce_task
+    def test_collect_known_files_aplana_y_dedup(self):
+        from features.spring.application.task_synthesis import collect_known_files
 
-        ok, reasons, _ = enforce_task(*plan_progress, "TASK-001")
-        assert ok and not reasons
-
-    def test_fuera_de_orden_bloquea(self, plan_progress):
-        from features.engine.domain.enforce import enforce_task
-
-        ok, reasons, _ = enforce_task(*plan_progress, "TASK-002")
-        assert not ok
-        assert any(r["rule"] == "next_action" for r in reasons)
-
-    def test_force_override(self, plan_progress):
-        from features.engine.domain.enforce import enforce_task
-
-        ok, _, _ = enforce_task(*plan_progress, "TASK-002", force=True)
-        assert ok
-
-    def test_curvature_budget(self, plan_progress):
-        from features.engine.domain.enforce import enforce_task
-
-        ok, reasons, _ = enforce_task(*plan_progress, "TASK-002")
-        assert any(r["rule"] == "curvature_budget" for r in reasons)
-
-    def test_ready_for_review_salta_next_action(self, plan_progress):
-        from features.engine.domain.enforce import enforce_task
-
-        plan, progress = plan_progress
-        progress["progress"]["current"]["task_states"]["TASK-002"] = "ready_for_review"
-        ok, reasons, _ = enforce_task(plan, progress, "TASK-002", curvature_budget=1.0)
-        assert ok
+        known = collect_known_files(
+            [["src/a.py", "src/b.py"], "src/a.py"], [{"impacted_artifacts": {"files": ["src/c.py"]}}]
+        )
+        assert known == ["src/a.py", "src/b.py", "src/c.py"]
 
 
 # ── 4. ceremonies ──────────────────────────────────────────────
@@ -281,10 +210,18 @@ class TestCeremonies:
 
     def test_planning_propose_refine_commit(self, capsys):
         from features.spring.application.ceremonies import cmd_planning, _load_backlog
+        from libs.cognitive_graph import CognitiveGraph
 
         with tempfile.TemporaryDirectory() as tmp:
+            # Proyecto real: chip cognitivo en <tmp>/proj con data/project.json
+            proj = os.path.join(tmp, "proj")
+            data_dir = os.path.join(proj, "data")
+            os.makedirs(data_dir, exist_ok=True)
+            with open(os.path.join(data_dir, "project.json"), "w") as f:
+                json.dump({"project_id": "projX", "name": "Test"}, f)
+            CognitiveGraph(proj, auto_register=True)
+            chain = os.path.join(data_dir, "spring", "chain-proj")
             backlog_dir = self._make_backlog(tmp)
-            chain = os.path.join(tmp, "chain-proj")
 
             rc = cmd_planning(
                 [
@@ -320,10 +257,27 @@ class TestCeremonies:
             rc = cmd_planning(["commit", chain])
             assert rc == 0
 
-            # plan.json válido contra schema (source delta-skill)
-            plan = json.loads(Path(chain, "plan.json").read_text())
-            assert plan["plan"]["meta"]["source"] == "delta-skill"
-            assert len(plan["plan"]["tasks"]) == 3
+            # plan.json NO existe: el delta es la fuente unica
+            # (ADR-WALKER-013)
+            assert not Path(chain, "plan.json").exists(), (
+                "plan.json no existe: el delta es la unica fuente"
+            )
+            assert not Path(chain, "progress.json").exists()
+            # El spring + specs viven en el DeltaGraph (rail del proyecto).
+            # Se consulta con el mismo project_root que resolvio el commit.
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
+            )
+            from features.spring.application.ceremonies import _resolve_project_root
+
+            project_root = _resolve_project_root("projX", chain)
+            assert project_root, "project_root debe resolverse"
+            spring_svc = SpringService(project_root)
+            chain_id = os.path.basename(chain)
+            spring = spring_svc.ensure_spring_imported(chain, chain_id)
+            assert spring is not None, "spring debe existir en el delta"
+            specs = spring_svc.get_specs_legacy(chain_id)
+            assert len(specs) == 3, f"delta debe tener 3 specs, got {len(specs)}"
             # backlog items marcados in-sprint
             items = _load_backlog(backlog_dir)
             assert all(it["status"] == "in-sprint" for it in items)

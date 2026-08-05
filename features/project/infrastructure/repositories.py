@@ -1,8 +1,11 @@
 """
-infrastructure/repositories.py — Implementaciones concretas de ProjectRepository.
+infrastructure/repositories.py — File-based ProjectRepository implementation.
 
-SRP: Unica responsabilidad = leer/escribir proyectos desde el sistema de archivos.
-SSOT: Delega en libs.path_resolver para descubrir paths canonicos.
+Implements the ProjectRepository port (domain/ports.py).
+Pure IO: reads/writes project.json from .cognitive/projects/<pid>/.
+
+Return-pattern: every method returns (result, errors) tuple.
+Does NOT import the application layer (SRP compliance).
 """
 
 from __future__ import annotations
@@ -10,165 +13,131 @@ from __future__ import annotations
 import json
 import os
 
-from ..domain.models import ProjectId, ProjectPaths, Project, ProjectRepository
+from ..domain.entities import Project
+from ..domain.values import ProjectId, ProjectManifest, ProjectPaths
+from ..domain.ports import ProjectRepository
+from ..domain.errors import ProjectNotFoundError
 
 
 class CognitiveProjectRepository(ProjectRepository):
-    """Repositorio de proyectos basado en .cognitive/projects/<pid>/.
+    """File-based repo: .cognitive/projects/<pid>/project.json."""
 
-    Lee project.json del directorio data/ del proyecto.
-    Escribe project.json cuando se guarda un proyecto.
-    """
+    # ── ProjectRepository interface ──
 
-    def load(self, project_id: ProjectId | str) -> Project | None:
-        """Carga un proyecto desde .cognitive/projects/<pid>/.
+    def save(self, project: Project) -> tuple[Project | None, list[str]]:
+        """Persist a Project aggregate to project.json.
 
-        Args:
-            project_id: ProjectId o string con el ID del proyecto.
-
-        Returns:
-            Project si existe, None si no.
+        Returns (saved, errors).
         """
-        pid = project_id if isinstance(project_id, ProjectId) else ProjectId(project_id)
-        return self._load_from_path(pid)
+        errors: list[str] = []
+        pid_str = project.project_id.value
+        proj_root = project.paths.project_root if project.paths else ""
+        manifest_path = project.paths.project_json_path if project.paths else ""
 
-    def _load_from_path(self, project_id: ProjectId) -> Project | None:
-        """Carga proyecto desde su directorio en projects/."""
-        from libs.path_resolver import get_project_dir, get_data_dir, get_delta_dir
+        if not manifest_path:
+            manifest_path = _resolve_manifest_path(pid_str)
+            if not manifest_path:
+                return None, [f"No project.json path for '{pid_str}'"]
 
-        pid_str = project_id.value
-        proj_dir = str(get_project_dir(pid_str))
-
-        # Buscar project.json
-        manifest_path = os.path.join(proj_dir, "data", "project.json")
-        if not os.path.exists(manifest_path):
-            manifest_path = os.path.join(proj_dir, "project.json")
-            if not os.path.exists(manifest_path):
-                return None
-
-        try:
-            with open(manifest_path) as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return None
-
-        proj_data = data.get("project", data)
-        identity = proj_data.get("identity", {})
-        loc = proj_data.get("location", {})
-
-        # Construir paths
-        from ..application.service import ProjectService
-
-        try:
-            active_sprint = ProjectService.find_active_sprint(pid_str)
-        except Exception:
-            active_sprint = None
-
-        if active_sprint:
-            paths = ProjectService.resolve_paths(active_sprint)
-        else:
-            data_dir = str(get_data_dir(pid_str))
-            delta_dir = str(get_delta_dir(pid_str))
-            traces_dir = os.path.join(data_dir, "traces")
-            paths = ProjectPaths(
-                chain_dir="",
-                project_root=proj_dir,
-                project_id=pid_str,
-                data_dir=data_dir,
-                delta_dir=delta_dir,
-                workflow_dir=os.path.join(proj_dir, "workflow.v3"),
-                traces_dir=traces_dir,
-                cpg_path=os.path.join(data_dir, "cpg.json.gz"),
-                ckg_path=os.path.join(data_dir, "ckg.json.gz"),
-                project_json_path=manifest_path,
-                workflow_json_path=os.path.join(
-                    proj_dir, "workflow.v3", "workflow.json"
-                ),
-                repo_path=loc.get("repo_path", ""),
-                code_paths=tuple(loc.get("code_paths", [])),
-                cognitive_dir="",
-                walker_root="",
-            )
-
-        return Project(
-            project_id=project_id,
-            name=identity.get("name", pid_str),
-            language=identity.get("language", ""),
-            framework=identity.get("framework", ""),
-            repo_path=loc.get("repo_path", ""),
-            code_paths=loc.get("code_paths", []),
-            paths=paths,
-            active_sprint_id=os.path.basename(active_sprint) if active_sprint else "",
-        )
-
-    def save(self, project: Project) -> None:
-        """Persiste un proyecto a project.json.
-
-        Crea el directorio data/ si no existe.
-        """
-        if not project.paths or not project.paths.project_json_path:
-            raise ValueError("Project sin paths resueltos — no se puede guardar")
-
-        path = project.paths.project_json_path
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-
-        # Construir estructura project.json
         data = {
             "project": {
                 "meta": {
-                    "project_id": project.project_id.value,
+                    "project_id": pid_str,
                     "version": "1.0",
                     "updated_at": _now_iso(),
                 },
                 "identity": {
-                    "name": project.name or project.project_id.value,
-                    "language": project.language,
-                    "framework": project.framework,
+                    "name": project.manifest.name or pid_str,
+                    "language": project.manifest.language,
+                    "framework": project.manifest.framework,
                 },
                 "location": {
-                    "repo_path": project.repo_path,
-                    "code_paths": project.code_paths,
+                    "repo_path": project.manifest.repo_path,
+                    "code_paths": project.manifest.code_paths,
                 },
             }
         }
 
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        try:
+            os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+            with open(manifest_path, "w") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return project, []
+        except (OSError, IOError) as e:
+            return None, [str(e)]
 
-    def list_all(self) -> list[Project]:
-        """Lista todos los proyectos registrados."""
+    def load(self, project_id: ProjectId | str) -> tuple[Project | None, list[str]]:
+        """Load a Project by id. Returns (project, errors)."""
+        pid = project_id if isinstance(project_id, ProjectId) else ProjectId(str(project_id))
+        pid_str = pid.value
+
+        manifest_path = _resolve_manifest_path(pid_str)
+        if not manifest_path:
+            return None, [f"Project not found: '{pid_str}'"]
+
+        try:
+            with open(manifest_path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            return None, [f"Cannot read manifest for '{pid_str}': {e}"]
+
+        manifest, errors = ProjectManifest.create(data)
+        if errors:
+            return None, errors
+
+        project = Project(project_id=pid, manifest=manifest)
+        return project, []
+
+    def list_all(self) -> tuple[list[Project], list[str]]:
+        """List all registered projects. Returns (projects, errors)."""
         from libs.path_resolver import get_projects_dir
 
         projects_dir = get_projects_dir()
         if not projects_dir.is_dir():
-            return []
+            return [], []
 
         result: list[Project] = []
+        errors: list[str] = []
         for entry in sorted(projects_dir.iterdir()):
             if not entry.is_dir():
                 continue
             pid = ProjectId(entry.name)
-            project = self._load_from_path(pid)
+            project, proj_errors = self.load(pid)
             if project:
                 result.append(project)
+            else:
+                errors.extend(proj_errors)
 
-        return result
+        return result, errors
 
-    def exists(self, project_id: ProjectId | str) -> bool:
-        """Verifica si un proyecto existe consultando project.json."""
-        pid = project_id if isinstance(project_id, ProjectId) else ProjectId(project_id)
-        from libs.path_resolver import get_project_dir
+    def exists(self, project_id: ProjectId | str) -> tuple[bool, list[str]]:
+        """Check if a project exists. Returns (exists, errors)."""
+        pid = project_id if isinstance(project_id, ProjectId) else ProjectId(str(project_id))
+        manifest_path = _resolve_manifest_path(pid.value)
+        return bool(manifest_path), []
 
-        proj_dir = get_project_dir(pid.value)
-        manifest = proj_dir / "data" / "project.json"
-        if manifest.exists():
-            return True
-        legacy = proj_dir / "project.json"
-        return legacy.exists()
+
+# ── Helpers ──
+
+def _resolve_manifest_path(project_id: str) -> str | None:
+    """Find project.json for a given project_id. No IO to application layer."""
+    from libs.path_resolver import get_project_dir
+
+    proj_dir = get_project_dir(project_id)
+    if not proj_dir.is_dir():
+        return None
+
+    for candidate in (
+        proj_dir / "data" / "project.json",
+        proj_dir / "project.json",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def _now_iso() -> str:
-    """Timestamp ISO 8601 actual."""
+    """Current ISO 8601 timestamp."""
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat()

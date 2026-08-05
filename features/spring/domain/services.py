@@ -103,17 +103,6 @@ class SpecBuilder:
         }
 
     @staticmethod
-    def create_from_plan(index: int, plan_item: dict) -> dict:
-        """Create a spec from sprint planning input (objective, type, domain)."""
-        return {
-            "spec_id": f"SPEC-{index + 1:03d}",
-            "objective": plan_item.get("objective", ""),
-            "type": plan_item.get("type", "feature"),
-            "domain": plan_item.get("domain", ""),
-            **{k: v for k, v in SPEC_DEFAULTS.items() if k != "domain" and k != "type"},
-        }
-
-    @staticmethod
     def refine(existing: dict, data: dict) -> dict:
         """Refine an existing specification with new field values.
 
@@ -154,24 +143,6 @@ class SpecBuilder:
             "loop_verification": _parse_field(data, "loop_verification", existing.get("loop_verification", [])),
             "loop_acceptance": data.get("loop_acceptance", existing.get("loop_acceptance", "all")),
             "status": "specified" if data.get("result_state") or data.get("task_description") else "draft",
-        }
-
-
-# ── SprintPlanBuilder ─────────────────────────────────────────────────────
-
-class SprintPlanBuilder:
-    """Builds sprint plan structure. PURE."""
-
-    @staticmethod
-    def build_plan(sprint_id: str, goal: str, specs_raw: list) -> dict:
-        """Build the complete plan.json structure with specifications."""
-        plan_specs = [SpecBuilder.create_from_plan(i, s) for i, s in enumerate(specs_raw)]
-        return {
-            "version": "2.0",
-            "chain_id": sprint_id,
-            "goal": goal,
-            "workflow": "workflow.v3/",
-            "specifications": plan_specs,
         }
 
 

@@ -29,24 +29,91 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime
 
 from libs.mcp_server import McpServer
+from .infrastructure.serializer import dumps
+from .infrastructure.reloader import reload_features_if_changed
 
 
 # ── Composite server: compone todos los modulos MCP ──
 
 def _build_server() -> McpServer:
-    """Construye el servidor MCP compositing todos los modulos."""
+    """Construye el servidor MCP compositing todos los modulos.
+
+    Cada modulo register() devuelve (count, errors) via return-pattern.
+    Los errores se loguean — no se tragan silenciosamente.
+    """
     server = McpServer()
-    # Core memories (CKG, CPG, Delta, Trace)
-    server.compose(_load_module("features.cognitive_knowledge.mcp"))
-    server.compose(_load_module("features.code_analysis.mcp"))
-    server.compose(_load_module("features.delta_tracking.mcp"))
-    server.compose(_load_module("features.event_tracing.mcp"))
-    # Workflow engine
-    server.compose(_load_module("features.engine.mcp"))
+    modules = [
+        "features.cognitive_knowledge.mcp",
+        "features.code_analysis.mcp",
+        "features.delta_tracking.mcp",
+        "features.event_tracing.mcp",
+        "features.engine.mcp",
+    ]
+    for mod in modules:
+        try:
+            result = _load_module(mod)(server)
+        except Exception as e:
+            _log_module_error(mod, e)
+            continue
+        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], list):
+            count, errors = result
+            if errors:
+                _log_module_errors(mod, count, errors)
+
+    # ── Tools REST del workflow (F7, ADR-016) ──
+    # status/submit/transition/prepare/list/help son endpoints REST del
+    # adapter (mapeados en _TOOL_ROUTES → Router → handlers), NO tasks del
+    # registry. Se registran aquí con _call_tool para que el MCP los exponga
+    # con el dispatch correcto (antes engine/mcp.py los mandaba al TaskRegistry
+    # y fallaban con "task no registrada").
+    _register_rest_tools(server)
     return server
+
+
+def _register_rest_tools(server: McpServer) -> None:
+    """Registra los tools REST del workflow con dispatch via _call_tool."""
+    rest_tools = [
+        (
+            "status",
+            "Project workflow state + memory stats: node, sub_state, instructions, gates, CPG/CKG/Delta counts.",
+        ),
+        (
+            "submit",
+            "Send data to current sub-state. ADVANCES the workflow. Body: node fields.",
+        ),
+        (
+            "transition",
+            "Transition through a gate (admin/emergency).",
+        ),
+        ("prepare", "Initialize project at path (creates .cognitive/)."),
+        ("list", "List projects managed by walker."),
+        ("help", "Walker protocol and available tasks."),
+    ]
+    for name, desc in rest_tools:
+        server.tool(
+            name=name,
+            description=desc,
+            handler=_call_tool_handler(name),
+        )
+
+
+def _call_tool_handler(name: str):
+    def handler(args: dict) -> dict:
+        return _call_tool(name, args)
+    return handler
+
+
+def _log_module_error(mod: str, err: Exception) -> None:
+    import sys
+    print(f"[MCP] module '{mod}' registration failed: {err}", file=sys.stderr)
+
+
+def _log_module_errors(mod: str, count: int, errors: list[str]) -> None:
+    import sys
+    for e in errors:
+        print(f"[MCP] module '{mod}' ({count} tools): {e}", file=sys.stderr)
 
 
 def _load_module(module_name: str):
@@ -68,385 +135,10 @@ def _get_server() -> McpServer:
     return _SERVER
 
 
-# ── Serializador JSON robusto ──────────────────────────────────────────────
-# El workflow devuelve objetos tipados (StepResult, WorkflowState, SubStateData,
-# TaskResult, datetimes, etc.) dentro de los dicts de resultado. json.dumps
-# falla con 'Object of type X is not JSON serializable'. Este serializer
-# convierte recursivamente cualquier objeto con __dict__/to_dict()/dataclasses
-# a una representacion JSON-safe, de modo que el MCP NUNCA rompa por
-# serializacion (y el estado del workflow ya avanzo en disco de todos modos).
-
-
-def _json_safe(value):
-    """Convierte value en una representacion JSON-serializable."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe(v) for v in value]
-    if isinstance(value, datetime):
-        return value.isoformat()
-    # Objetos con to_dict() (StepResult, WorkflowState, etc.)
-    to_dict = getattr(value, "to_dict", None)
-    if callable(to_dict):
-        try:
-            return _json_safe(to_dict())
-        except Exception:
-            pass
-    # Dataclasses y objetos con __dict__
-    dict_attr = getattr(value, "__dict__", None)
-    if isinstance(dict_attr, dict):
-        return _json_safe(dict_attr)
-    return str(value)
-
-
-def dumps(obj) -> str:
-    """json.dumps con fallback seguro (nunca lanza por serializacion)."""
-    try:
-        return json.dumps(obj, ensure_ascii=False, default=_json_safe)
-    except (TypeError, ValueError):
-        return json.dumps(_json_safe(obj), ensure_ascii=False)
-
-
-# ── Tools catalog (metadata; dispatch goes through the Router) ─────────────
-
-_TOOLS = [
-    {
-        "name": "prepare",
-        "description": "Initialize a project at a path (creates .cognitive/ + registers in data/projects.json). Git init of the walker. If no path given, uses CWD",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Project path (optional; default: CWD)",
-                },
-            },
-        },
-    },
-    {
-        "name": "list",
-        "description": "List projects managed by walker (data/projects.json)",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "status",
-        "description": "Project workflow state: node, sub_state, instructions, gates, GPS progress. Detects project from CWD if no project_id given",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {
-                    "type": "string",
-                    "description": "Project ID (optional; detected from CWD)",
-                },
-            },
-        },
-    },
-    {
-        "name": "submit",
-        "description": "Send data to the current sub-state. ADVANCES the workflow. Body: node fields or intent for XOR",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-                "body": {"type": "object"},
-            },
-            "required": ["body"],
-        },
-    },
-    {
-        "name": "transition",
-        "description": "Transition through a gate (admin/emergency only; the agent advances with submit)",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-                "gate": {"type": "string"},
-            },
-            "required": ["gate"],
-        },
-    },
-    {
-        "name": "kg_search",
-        "description": "Search project memory (CPG/CKG/Delta/Trace). PROTOCOL: first call kg_schema to discover which fields each index supports, then query with those fields. Read walker://help/kg_search for examples.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-                "query": {"type": "object"},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "kg_multi",
-        "description": "Federated query across multiple indices at once. Query CPG+CKG+Delta in one call.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-                "layers": {
-                    "type": "object",
-                    "description": '{"ckg": {"text":"auth"}, "cpg": {"file":"src/auth.py"}, "delta": {"text":"login"}} — one query per index',
-                },
-            },
-            "required": ["layers"],
-        },
-    },
-    {
-        "name": "cpg_business",
-        "description": "CPG business layer: reusable pure functions, business flows, architecture patterns",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-                "file": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "cpg_unused_functions",
-        "description": "Detect unused functions via CPG (dead code). Public task — works on the project CPG, no workflow needed.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "project_metrics",
-        "description": "Compute project quality metrics from CPG (dead_code, cyclo, security, per-file). Public task — works on the project CPG, no workflow needed.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "analyze_code",
-        "description": "CODE ANALYSIS (mandatory before touching code): query the project CPG for an area/file — symbols with signatures, imports, and business layer (pure functions, flows, patterns). Source of truth for the code. Do NOT read files directly.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string"},
-                "area": {
-                    "type": "string",
-                    "description": "File/area substring (e.g. 'win-win', 'domain.ts')",
-                },
-            },
-            "required": ["area"],
-        },
-    },
-    {
-        "name": "kg_store",
-        "description": "Register a knowledge/decision/convention node in the project CKG. Use after making architecture decisions or discovering patterns.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_id": {"type": "string", "description": "Project ID (auto-detected)"},
-                "body": {
-                    "type": "object",
-                    "description": "Knowledge node to register",
-                    "required": ["type", "statement"],
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "description": "Node type: decision (architecture decision), convention (code style/pattern), refactor (applied refactoring), pattern (design pattern), rule (technical rule)",
-                            "enum": ["decision", "convention", "refactor", "pattern", "rule", "component"],
-                        },
-                        "statement": {"type": "string", "description": "The knowledge statement. For decisions: 'Decision: <what>'. For conventions: 'Convention: <rule>'. REQUIRED"},
-                        "rationale": {"type": "string", "description": "Why this decision/convention was made (context, tradeoffs)"},
-                        "scope": {"type": "string", "description": "Domain scope: architecture, security, infrastructure, testing, code_analysis, delta_tracking, cognitive_knowledge"},
-                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for filtering: ['performance', 'cache', 'redis']"},
-                        "metadata": {
-                            "type": "object",
-                            "description": "Extra metadata: {task_id: 'TASK-042', severity: 'high', status: 'active'}",
-                        },
-                        "supersedes": {"type": "array", "items": {"type": "string"}, "description": "IDs or statements of previous decisions this replaces"},
-                    },
-                },
-            },
-            "required": ["body"],
-        },
-    },
-    {
-        "name": "help",
-        "description": "Walker protocol and available tasks",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-]
-
-
-def _public_task_tools() -> list[dict]:
-    """Genera tools MCP para las tasks PUBLICAS con input schemas ricos.
-
-    Las tasks frecuentes (kg_schema, kg_extract, etc.) reciben schemas
-    enriquecidos para que el agente sepa exactamente que enviar y recibir.
-    """
-    # Schemas enriquecidos por task (evita que el agente adivine formatos)
-    _RICH_SCHEMAS: dict[str, dict] = {
-        "kg_schema": {
-            "description": "Discover available memory indices and their fields/types. Use BEFORE kg_search to know what to query. No body needed.",
-            "body_desc": 'Optional: {"index":"ckg"} to see one index. Omit for all indices.',
-        },
-        "kg_extract": {
-            "description": "Extract knowledge from the CKG using a query. Returns relevant facts, decisions, and patterns.",
-            "body_desc": '{"query":{"text":"authentication","type":"decision"},"max_results":20}',
-        },
-        "kg_research": {
-            "description": "Deep research across multiple sources (CPG + CKG). Combines code structure with knowledge facts.",
-            "body_desc": '{"topic":"authentication flow","depth":2,"max_results":10}',
-        },
-        "kg_index_repo": {
-            "description": "Index a code repository into the CPG. Builds code property graph.",
-            "body_desc": '{"repo_path":"/path/to/repo"} or omit for current project.',
-        },
-        "cpg_business": {
-            "description": "Analyze business layer: pure functions, architecture patterns, flows, metrics from CPG.",
-            "body_desc": '{"file":"features/auth"} to scope analysis to a directory.',
-        },
-        "cpg_unused_functions": {
-            "description": "Find unused functions in the CPG (dead code detection).",
-            "body_desc": 'Omit for all files, or {"file":"features/auth"} for directory.',
-        },
-        "cpg_dfg_scan": {
-            "description": "Scan for data flow issues: hardcoded secrets, taint paths, uninitialized variables.",
-            "body_desc": 'Omit for full scan, or {"paths":["src/auth.py"]} for specific files.',
-        },
-        "project_metrics": {
-            "description": "Get project metrics: code size, complexity, test coverage, quality gates.",
-            "body_desc": "No body needed.",
-        },
-        "build_initial_ckg": {
-            "description": "Build the initial CKG from the project codebase. Run once when starting a new project.",
-            "body_desc": "No body needed.",
-        },
-        "import_legacy_tasks": {
-            "description": "Import legacy sprint tasks into the DeltaGraph.",
-            "body_desc": '{"path":"data/delta/sprint-id"} — path to sprint directory.',
-        },
-        "import_legacy_history": {
-            "description": "Import legacy sprint history (completed sprints) into the DeltaGraph.",
-            "body_desc": '{"path":"data/delta"} — path to delta directory.',
-        },
-        "detect_legacy": {
-            "description": "Detect legacy sprints that have not been imported into the DeltaGraph.",
-            "body_desc": "No body needed — auto-detects from project.",
-        },
-        "map_legacy_workflow": {
-            "description": "Map legacy workflow state to new format.",
-            "body_desc": '{"sprint_id":"session-20260731"}',
-        },
-        "capture_task": {
-            "description": "Capture a task from context and add it as a spec to the active sprint.",
-            "body_desc": '{"objective":"Add login endpoint","domain":"authentication","files":["src/auth.py"]}',
-        },
-        "trace_push": {
-            "description": "Push a trace event to the execution history (for debugging/monitoring).",
-            "body_desc": '{"event_type":"tool_call","tool":"Write","files":["src/auth.py"]}',
-        },
-        "scan_code_and_build_cpg": {
-            "description": "Full rebuild of the CPG from source code. Use after major code changes or first setup.",
-            "body_desc": "No body needed.",
-        },
-        "update_project": {
-            "description": "Update project metadata (name, code_paths, etc).",
-            "body_desc": '{"name":"My Project","code_paths":["src"]}',
-        },
-        "resolve_project_sprint": {
-            "description": "Resolve the current project and sprint ID from context.",
-            "body_desc": "No body needed — auto-detects from CWD or chain_dir.",
-        },
-        "list_projects": {
-            "description": "List all registered projects in the walker.",
-            "body_desc": "No body needed.",
-        },
-        "cpg_index_ref": {
-            "description": "Index a reference library (e.g., framework docs) as a CPG reference index.",
-            "body_desc": '{"name":"expressjs","path":"/path/to/docs"}',
-        },
-        "analyze_code": {
-            "description": "Analyze code using the CPG for deep insights.",
-            "body_desc": '{"query":"auth","depth":"deep"}',
-        },
-        "query": {
-            "description": "Generic query across memories.",
-            "body_desc": '{"text":"authentication","indices":["ckg","cpg"]}',
-        },
-    }
-
-    try:
-        from features.engine.application.workflow_api import bootstrap as _bs
-        from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
-        from features.engine.infrastructure.trace_log import TraceLogger
-
-        registry, _se = _bs(InMemoryTaskRegistry(tracer=TraceLogger()))
-        public_tasks = registry.list_tasks_with_meta(scope="public") or []
-    except Exception:
-        return []
-
-    tools = []
-    for t in public_tasks:
-        name = t.get("name", "")
-        if not name:
-            continue
-        rich = _RICH_SCHEMAS.get(name, {})
-        desc = rich.get("description") or t.get("description") or f"Public walker task: {name}"
-        body_desc = rich.get("body_desc", "Optional JSON body for the task")
-        tools.append({
-            "name": name,
-            "description": f"{desc} (public task — works on the project, no workflow needed)",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "project_id": {"type": "string", "description": "Project ID (auto-detected from CWD if omitted)"},
-                    "body": {
-                        "type": "object",
-                        "description": body_desc,
-                    },
-                },
-            },
-        })
-    return tools
-
-
-# Catalog final = tools fijas (workflow) + tasks publicas (registro).
-# Se deduplican por nombre: si una task publica coincide con una tool fija
-# (ej: cpg_business, kg_search), gana la definicion fija (mas completa).
-_TOOLS_BASE = _TOOLS
-_TOOLS = _TOOLS_BASE + [
-    t for t in _public_task_tools() if t["name"] not in {x["name"] for x in _TOOLS_BASE}
-]
-
-_RESOURCES = [
-    {
-        "uri": "walker://status/{project_id}",
-        "name": "Sprint Status",
-        "description": "Workflow snapshot: where you are, instructions, gates, GPS progress",
-        "mimeType": "application/json",
-    },
-    {
-        "uri": "walker://memory/{project_id}",
-        "name": "Project Memory",
-        "description": "CKG + business layer: decisions, conventions, reusable functions",
-        "mimeType": "application/json",
-    },
-    {
-        "uri": "walker://schema/{index}",
-        "name": "Index Schema",
-        "description": "Dynamic schema for any memory index. GET walker://schema/ckg to discover fields, types, and queryable attributes before calling kg_search. Use as auto-discovery: the schema tells you what fields to filter on.",
-        "mimeType": "application/json",
-    },
-    {
-        "uri": "walker://help/{tool}",
-        "name": "Tool Help",
-        "description": "Dynamic help for any tool. GET walker://help/kg_search to see query format and examples. No fixed schemas to maintain — auto-discovered.",
-        "mimeType": "application/json",
-    },
-]
+# ── Tools metadata ─────────────────────────────────────────────────────────
+# El catalogo _TOOLS/_RESOURCES fue eliminado (ADR-WALKER-016): el schema SSOT
+# de cada tool vive en McpServer/ToolRegistry (registrado por cada feature
+# via server.tool()). tools/list lee _get_server().list_tools() — unica fuente.
 
 _PROMPTS = [
     {
@@ -516,7 +208,10 @@ def _load_protocol_text() -> str:
         from features.prompts.loader import load_static
         text = load_static("protocol/mcp")
         return text or _PROTOCOL_FALLBACK
-    except Exception:
+    except Exception as e:
+        import sys
+
+        print(f"[MCP] protocol/mcp load failed (using fallback): {e}", file=sys.stderr)
         return _PROTOCOL_FALLBACK
 
 
@@ -538,8 +233,10 @@ def _resolve_project_id(args: dict) -> str:
         resolved = ProjectService.resolve_from_registry()
         if resolved:
             return resolved.get("project_id", "")
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+
+        print(f"[MCP] project resolution failed: {e}", file=sys.stderr)
     return ""
 
 
@@ -840,65 +537,8 @@ def _is_notification(msg: dict) -> bool:
 # El server MCP cargaba los modulos de features/ una vez al arrancar. Cualquier
 # fix en disco (engine, handlers) quedaba inactivo hasta reiniciar el proceso,
 # perdiendo la conexion MCP de la sesion. Este mecanismo recarga los modulos
-# cuando su source cambia, sin reiniciar.
-
-import importlib
-
-_FEATURES_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "features"
-)
-_reload_cache: dict[str, tuple[float, int]] = {}
-
-
-def _reload_features_if_changed() -> None:
-    """Recarga modulos de features/ cuyo source cambio en disco.
-
-    Escanea recursivamente features/ buscando .py, compara (mtime, size)
-    contra la cache, y si cambio recarga el modulo via importlib.reload.
-    Best-effort: no rompe si un modulo no es recargable.
-    """
-    if not os.path.isdir(_FEATURES_DIR):
-        return
-    changed_files: list[str] = []
-    for root, dirs, files in os.walk(_FEATURES_DIR):
-        dirs[:] = [d for d in dirs if d != "__pycache__"]
-        for f in files:
-            if not f.endswith(".py"):
-                continue
-            path = os.path.join(root, f)
-            try:
-                st = os.stat(path)
-                sig = (st.st_mtime, st.st_size)
-            except OSError:
-                continue
-            if _reload_cache.get(path) == sig:
-                continue
-            _reload_cache[path] = sig
-            changed_files.append(path)
-
-    if not changed_files:
-        return
-
-    # Recargar los modulos de features/ que esten importados
-    import sys
-
-    changed_real = {os.path.realpath(p) for p in changed_files}
-    for mod_name, mod in list(sys.modules.items()):
-        if not mod_name.startswith("features."):
-            continue
-        mod_file = getattr(mod, "__file__", None)
-        if not mod_file:
-            continue
-        mod_path = mod_file.replace(".pyc", ".py")
-        try:
-            mod_path = os.path.realpath(mod_path)
-        except OSError:
-            continue
-        if mod_path in changed_real:
-            try:
-                importlib.reload(mod)
-            except Exception:
-                pass  # best-effort: si no recarga, sigue con la version actual
+# cuando su source cambia, sin reiniciar. Implementado en
+# infrastructure/reloader.py (F4 — thin adapters).
 
 
 def serve_stdio() -> int:
@@ -912,12 +552,16 @@ def serve_stdio() -> int:
     Las NOTIFICACIONES (sin id) se procesan pero NO se responden — el
     protocolo MCP las usa como señales one-way (initialized, cancelled).
     """
+    def _reset_server_cache() -> None:
+        global _SERVER
+        _SERVER = None
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
             continue
         try:
-            _reload_features_if_changed()
+            reload_features_if_changed(on_changed=_reset_server_cache)
         except Exception as _reload_err:
             # Recarga best-effort: si falla, se loggea y se continua con
             # los modulos actuales (no romper el loop por un reload).

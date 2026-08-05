@@ -41,7 +41,7 @@ def save_ckg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
         pr = _get_project_root(ctx.chain_dir)
         if pr:
             try:
-                from features.project.infrastructure.watcher import FileWatcher
+                from features.project import FileWatcher
                 FileWatcher(pr).mark_indexed("ckg")
             except Exception:
                 pass

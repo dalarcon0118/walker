@@ -30,7 +30,7 @@ class CreateSpringUseCase:
             active=(status == "active"),
             project_id=project_id,
             session_id=session_id,
-            **{k: v for k, v in extra.items() if hasattr(Spring, k)},
+            **{k: v for k, v in extra.items() if k in Spring.__dataclass_fields__},
         )
         self._repo.save_spring(spring)
         return spring

@@ -1,6 +1,5 @@
 """Sprint planning side-effects: save_task_spec, advance_task."""
 from __future__ import annotations
-import json
 import os
 from typing import Any
 from libs.shared_domain import ExecutionContext
@@ -59,14 +58,7 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
         specs = spring_svc.get_specs_legacy(spring_id)
     except Exception:
         specs = []
-    if not specs:
-        # Fallback legacy: plan.json
-        plan_path = os.path.join(sprint_dir, "plan.json")
-        try:
-            with open(plan_path) as f: plan = json.load(f)
-            specs = plan.get("specifications", plan.get("tasks", []))
-        except Exception:
-            specs = []
+    # Fuente unica: delta. No hay fallback a plan.json (ADR-WALKER-013).
     total_specs = len(specs)
 
     # ── Contexto actual desde el DELTA (nodo spring) ──

@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 
 from features.project import ProjectService
-from features.project.application.use_cases import (
+from features.cli_interface.application.project_use_cases import (
     PrepareProjectUseCase,
     CheckHealthUseCase,
 )
@@ -23,12 +23,18 @@ from libs.shared_domain import ExecutionContext
 from ..infrastructure.contracts import Request, Response, action
 
 
+from .error_mapping import map_engine_error
+from . import presenter
+
+
 def _safe_execute(fn, *args, **kwargs) -> Response:
     """Execute fn and capture errors into a Response estándar.
 
     SSOT for error handling across all handlers.
     Cada error se traduce a un Response REST con status_code HTTP:
       404 → recurso no encontrado, 400 → validación, 500 → interno.
+    Los WorkflowEngineError se mapean con la taxonomía del dominio
+    (patrón Result) preservando details/errors para el agente.
     """
     try:
         return fn(*args, **kwargs)
@@ -37,7 +43,51 @@ def _safe_execute(fn, *args, **kwargs) -> Response:
     except ValueError as e:
         return Response.error(f"Validation error: {e}", status_code=400)
     except Exception as e:
-        return Response.error(str(e), status_code=500)
+        payload = map_engine_error(e)
+        return Response.error(
+            payload["message"],
+            status_code=payload["status_code"],
+            errors=payload["errors"],
+        )
+
+
+def _record_forced_transition(
+    req: Request, gate: str, reason: str, result: dict
+) -> None:
+    """Registra en trace una transición forzada (GAP-4).
+
+    Analogía git --force-with-lease: la fuerza de precondiciones siempre
+    queda documentada y recuperable. Usa patrón Result (returns): si falla,
+    se loggea el Failure, nunca rompe el flujo.
+    """
+    from returns.result import safe
+    from returns.pipeline import is_successful
+
+    @safe
+    def _trace() -> bool:
+        from features.engine.infrastructure.trace_log import TraceLogger
+
+        TraceLogger().trace(
+            req.flags.get("_chain_dir", ""),
+            "WORKFLOW_FORCED",
+            data={
+                "gate": gate,
+                "reason": reason,
+                "from": f"{result.get('from_node', '?')}.{result.get('from_sub', '')}",
+                "to": f"{result.get('to_node', '?')}.{result.get('to_sub', '')}",
+            },
+        )
+        return True
+
+    outcome = _trace()
+    if not is_successful(outcome):
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "No se pudo trazar transición forzada (best-effort): %s — %s",
+            gate,
+            outcome.failure(),
+        )
 
 
 def _sync_watcher(project_id: str) -> None:
@@ -45,17 +95,22 @@ def _sync_watcher(project_id: str) -> None:
 
     Se ejecuta al inicio de cada comando que opera sobre un proyecto,
     manteniendo el FileWatcher sincronizado sin necesidad de daemon.
+
+    Best-effort: si el watcher falla, loguea el error a stderr — nunca
+    rompe el flujo del llamador (return pattern: el error es observable).
     """
     if not project_id:
         return
     try:
         repo_path = _resolve_repo_path_from_registry(project_id)
         if repo_path and os.path.isdir(repo_path):
-            from features.project.infrastructure.watcher import FileWatcher
+            from features.project import FileWatcher
 
             FileWatcher(repo_path).scan()
-    except Exception:
-        pass  # best-effort
+    except Exception as e:
+        import sys
+
+        print(f"[walker] watcher sync failed for '{project_id}': {e}", file=sys.stderr)
 
 
 def _ensure_chain_dir(project_id: str, sprint_id: str = "") -> str:
@@ -74,7 +129,11 @@ def _ensure_chain_dir(project_id: str, sprint_id: str = "") -> str:
 
 
 def _list_from_global_registry() -> dict:
-    """Read projects from global registry data/projects.json."""
+    """Read projects from global registry data/projects.json.
+
+    Return-pattern: devuelve (projects, error) embebido en el dict —
+    nunca traga el fallo en silencio.
+    """
     from libs.path_resolver import get_walker_root
     import json
 
@@ -95,8 +154,8 @@ def _list_from_global_registry() -> dict:
                 )
             if projects_list:
                 return {"type": "projects_list", "projects": projects_list}
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            return {"type": "projects_list", "projects": [], "error": str(e)}
     return {"type": "projects_list", "projects": []}
 
 
@@ -113,8 +172,8 @@ def _list_from_global_registry_with_prompt() -> Response:
         message="No project detected at current directory",
         data=result,
         next_actions=[
-            action("walker list", "see all registered projects"),
-            action("walker prepare .", "register the current directory as a project"),
+            presenter.go_list(),
+            presenter.go_prepare(),
         ],
     )
 
@@ -132,8 +191,8 @@ def _resolve_repo_path_from_registry(project_id: str) -> str:
             projects = registry.get("projects", {})
             if project_id in projects:
                 return projects[project_id].get("repo_path", "")
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            return ""  # error propagado via _last_registry_error
     return ""
 
 
@@ -175,13 +234,14 @@ def handle_project_info(req: Request) -> Response:
         info = {
             "type": "project_info",
             "project_id": project_id,
+            "warnings": [],
         }
 
         if not repo_path:
             return Response.error(
                 f"Project '{project_id}' not found in registry",
                 status_code=404,
-                next_actions=[action("walker list", "see all registered projects")],
+                next_actions=[presenter.go_list()],
             )
 
         import json
@@ -200,8 +260,8 @@ def handle_project_info(req: Request) -> Response:
                     info["name"] = reg.get("name", project_id)
                     info["registered_at"] = reg.get("registered_at", "")
                     info["last_accessed"] = reg.get("last_accessed", "")
-            except Exception:
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                info["warnings"].append(f"registry read failed: {e}")
 
         # ── Project metadata ──
         cog_data_dir = os.path.join(
@@ -219,8 +279,8 @@ def handle_project_info(req: Request) -> Response:
                 info["language"] = identity.get("language", "")
                 info["framework"] = identity.get("framework", "")
                 info["code_paths"] = identity.get("code_paths", [])
-            except Exception:
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                info["warnings"].append(f"project.json read failed: {e}")
 
         # ── Memory stats via MemoryQueryService (no acceso directo a JSON) ──
         if os.path.isdir(cog_data_dir):
@@ -235,16 +295,16 @@ def handle_project_info(req: Request) -> Response:
                 dt = mem_status.get("delta", {})
                 info["delta_tasks"] = dt.get("total_docs", 0)
                 info["cognitive_indices"] = mqs.list_indexes()
-            except Exception:
-                pass
+            except Exception as e:
+                info["warnings"].append(f"memory stats failed: {e}")
 
         # Watcher: change_detected
         change_path = os.path.join(cog_data_dir, "change_detected.json")
         if os.path.exists(change_path):
             try:
                 info["watcher"] = json.loads(open(change_path).read())
-            except Exception:
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                info["warnings"].append(f"watcher file read failed: {e}")
 
         # Active sprints
         from features.project.application.service import ProjectService
@@ -255,9 +315,7 @@ def handle_project_info(req: Request) -> Response:
             "project_info",
             message=f"Project '{project_id}' information",
             data=info,
-            next_actions=[
-                action(f"walker {project_id}/status", "see project health and workflow")
-            ],
+            next_actions=presenter.project_actions(project_id),
         )
 
     return _safe_execute(_exec)
@@ -513,18 +571,32 @@ def handle_transition(req: Request) -> Response:
         chain_dir = _ensure_chain_dir(req.project_id, req.sprint_id)
         if not chain_dir:
             return Response.error("Could not resolve chain_dir", status_code=404)
+        req.set_repo_path(chain_dir)
+        req.flags["_chain_dir"] = chain_dir
         gate = req.gate
         if not gate:
             return Response.error(
                 "Missing gate — usage: walker transition <gate>",
                 status_code=400,
-                next_actions=[
-                    action(f"walker {req.project_id}/status", "see the available gates")
-                ],
+                next_actions=[presenter.go_status(req.project_id)],
             )
         api = WorkflowAPI(chain_dir=chain_dir, project_id=req.project_id)
         api.ensure_session()
-        result = api.transition(gate)
+        # ── GAP-4: force documentado (analogía git --force-with-lease) ──
+        force = bool(req.flags.get("force") or req.flags.get("f"))
+        force_reason = req.flags.get("reason", "") or req.flags.get("force_reason", "")
+        if force and not force_reason:
+            return Response.error(
+                "Force transition requiere --reason obligatorio (documenta "
+                "la decisión de saltar las precondiciones). Ej: "
+                "walker walker/transition <gate> --force --reason '...'",
+                status_code=400,
+            )
+        result = api.transition(
+            gate,
+            reason=force_reason or "",
+            skip_preconditions=bool(force),
+        )
 
         if not result.get("ok", True) or result.get("error"):
             return Response.error(
@@ -537,6 +609,8 @@ def handle_transition(req: Request) -> Response:
                     )
                 ],
             )
+        if force:
+            _record_forced_transition(req, gate, force_reason, result)
         return Response.ok(
             "transition_result",
             message=(
@@ -568,7 +642,7 @@ def handle_task(req: Request) -> Response:
             return Response.error(
                 "Requires a task name — usage: walker <project>/<task_name>",
                 status_code=400,
-                next_actions=[action("walker help", "list all registered tasks")],
+                next_actions=[presenter.go_help()],
             )
         ctx = ExecutionContext.create(session_id="cli", chain_dir=chain_dir)
         # Pasar project_id a la task para que pueda resolver paths sin chain_dir
@@ -622,7 +696,7 @@ def handle_task(req: Request) -> Response:
             )
         # Task exitosa: sugerir siguiente acción según el tipo de task
         next_actions = [
-            action(f"walker {req.project_id}/status", "verify the new project state"),
+            presenter.go_status(req.project_id),
         ]
         if task_name == "kg_schema":
             next_actions.insert(
@@ -665,8 +739,8 @@ def handle_help(req: Request) -> Response:
             message="Walker REST protocol — consume the walker as /recurso/recurso2",
             data=data,
             next_actions=[
-                action("walker routes", "list all REST endpoints"),
-                action("walker list", "see registered projects"),
+                presenter.go_routes(),
+                presenter.go_list(),
             ],
         )
 
@@ -683,7 +757,10 @@ def _load_protocol_rest() -> str:
         from features.prompts.loader import load_static
         text = load_static("protocol/rest")
         return text or _PROTOCOL_REST_FALLBACK
-    except Exception:
+    except Exception as e:
+        import sys
+
+        print(f"[walker] protocol/rest load failed (using fallback): {e}", file=sys.stderr)
         return _PROTOCOL_REST_FALLBACK
 
 
@@ -711,17 +788,18 @@ def _build_help() -> dict:
     - CognitiveGraph.schema() para indices y campos
     """
     # ── Tasks desde registry (dinamico, las tareas se auto-documentan) ──
-    task_catalog = {"total": 0, "tasks": []}
+    task_catalog = {"total": 0, "tasks": [], "errors": []}
     try:
         from features.engine.bootstrap import bootstrap
 
         registry, _ = bootstrap()
         task_catalog = registry.discover()
-    except Exception:
-        pass
+    except Exception as e:
+        task_catalog["errors"].append(f"task registry discover failed: {e}")
 
     # ── Indices desde CognitiveGraph (dinamico, los indices se auto-documentan) ──
     indices_info = []
+    index_errors: list[str] = []
     try:
         from libs.cognitive_graph import CognitiveGraph
 
@@ -738,10 +816,11 @@ def _build_help() -> dict:
                         "total_docs": schema.get("total_docs", 0),
                     }
                 )
-            except Exception:
+            except Exception as e:
+                index_errors.append(f"schema '{name}' failed: {e}")
                 indices_info.append({"name": name, "description": "", "fields": []})
-    except Exception:
-        pass
+    except Exception as e:
+        index_errors.append(f"cognitive graph open failed: {e}")
 
     # ── Mapa del workflow (dinamico, desde el grafo SSOT) ──
     workflow_map = {}
@@ -749,7 +828,10 @@ def _build_help() -> dict:
         from features.engine.application.workflow_map import compose_workflow_map
 
         workflow_map = compose_workflow_map()
-    except Exception:
+    except Exception as e:
+        import sys
+
+        print(f"[walker] workflow map compose failed: {e}", file=sys.stderr)
         workflow_map = {}
 
     return {
@@ -842,6 +924,7 @@ def _build_help() -> dict:
         ],
         "task_catalog": task_catalog,
         "indices": indices_info,
+        "index_errors": index_errors,
     }
 
 
@@ -878,12 +961,12 @@ def handle_mcp_config(req: Request) -> Response:
             ),
             data=data,
             next_actions=[
-                action("walker mcp-config --format=opencode", "config para opencode"),
+                presenter.go_mcp_config("opencode"),
                 action(
                     "walker mcp-config --format=claude", "config para Claude Desktop"
                 ),
-                action("walker mcp-config --format=cursor", "config para Cursor"),
-                action("walker routes", "list all REST endpoints"),
+                presenter.go_mcp_config("cursor"),
+                presenter.go_routes(),
             ],
         )
 

@@ -145,7 +145,7 @@ class TestValidatePlanErrors:
 
     def test_validate_plan_reports_errors_on_failure(self):
         """Cuando validate_plan falla, ok=False y errors no esta vacio."""
-        from unittest.mock import patch
+        from unittest.mock import patch, MagicMock
         from features.task_execution.side_effects.validate import validate_plan
         from features.engine.domain.models import ExecutionContext
 
@@ -153,25 +153,26 @@ class TestValidatePlanErrors:
             session_id="test",
             chain_dir="/tmp/fake",
         )
-        # Mock PlanRepository para retornar specs con errores
-        mock_plan = {
-            "specifications": [
-                {
-                    "spec_id": "SPEC-001",
-                    "status": "draft",  # Debe ser "specified"
-                    "result_state": "",  # Vacio = error
-                    "task_description": "",
-                },
-                {
-                    "spec_id": "SPEC-002",
-                    "status": "draft",
-                    "result_state": "",
-                    "task_description": "",
-                },
-            ]
-        }
-        with patch("features.spring.application.use_cases.PlanRepository") as mock_repo:
-            mock_repo.return_value.load.return_value = mock_plan
+        # Mock delta (SpringService) para retornar specs con errores
+        mock_svc = MagicMock()
+        mock_svc.get_spring_id.return_value = "test-sprint"
+        mock_svc.get_specs_legacy.return_value = [
+            {
+                "spec_id": "SPEC-001",
+                "status": "draft",  # Debe ser "specified"
+                "result_state": "",  # Vacio = error
+                "task_description": "",
+            },
+            {
+                "spec_id": "SPEC-002",
+                "status": "draft",
+                "result_state": "",
+                "task_description": "",
+            },
+        ]
+        with patch(
+            "features.spring.application.use_cases._spring_svc", return_value=mock_svc
+        ):
             result = validate_plan(ctx, {})
 
         assert result["ok"] is False
@@ -183,7 +184,7 @@ class TestValidatePlanErrors:
 
     def test_validate_plan_success(self):
         """Cuando validate_plan pasa, ok=True."""
-        from unittest.mock import patch
+        from unittest.mock import patch, MagicMock
         from features.task_execution.side_effects.validate import validate_plan
         from features.engine.domain.models import ExecutionContext
 
@@ -191,25 +192,26 @@ class TestValidatePlanErrors:
             session_id="test",
             chain_dir="/tmp/fake",
         )
-        # Mock PlanRepository para retornar specs validos
-        mock_plan = {
-            "specifications": [
-                {
-                    "spec_id": "SPEC-001",
-                    "status": "specified",
-                    "result_state": "implemented",
-                    "task_description": "Test feature",
-                    "validation": {"predicates": ["works"]},
-                    "impacted_artifacts": {"files": ["test.py"]},
-                    "preconditions": ["none"],
-                    "acceptance_criteria": ["passes tests"],
-                    "quality_gates": ["lint"],
-                    "objective": "Test objective",
-                },
-            ]
-        }
-        with patch("features.spring.application.use_cases.PlanRepository") as mock_repo:
-            mock_repo.return_value.load.return_value = mock_plan
+        # Mock delta (SpringService) para retornar specs validos
+        mock_svc = MagicMock()
+        mock_svc.get_spring_id.return_value = "test-sprint"
+        mock_svc.get_specs_legacy.return_value = [
+            {
+                "spec_id": "SPEC-001",
+                "status": "specified",
+                "result_state": "implemented",
+                "task_description": "Test feature",
+                "validation": {"predicates": ["works"]},
+                "impacted_artifacts": {"files": ["test.py"]},
+                "preconditions": ["none"],
+                "acceptance_criteria": ["passes tests"],
+                "quality_gates": ["lint"],
+                "objective": "Test objective",
+            },
+        ]
+        with patch(
+            "features.spring.application.use_cases._spring_svc", return_value=mock_svc
+        ):
             result = validate_plan(ctx, {})
 
         assert result["ok"] is True
@@ -217,7 +219,7 @@ class TestValidatePlanErrors:
         assert result["metadata"]["errors"] == []
 
     def test_validate_plan_on_exception(self):
-        """Cuando plan.json no existe, ok=False."""
+        """Cuando el spring no esta en el delta, ok=False."""
         from unittest.mock import patch
         from features.task_execution.side_effects.validate import validate_plan
         from features.engine.domain.models import ExecutionContext
@@ -226,8 +228,10 @@ class TestValidatePlanErrors:
             session_id="test",
             chain_dir="/tmp/fake",
         )
-        with patch("features.spring.application.use_cases.PlanRepository") as mock_repo:
-            mock_repo.return_value.load.side_effect = FileNotFoundError("not found")
+        with patch(
+            "features.spring.application.use_cases._spring_svc",
+            side_effect=ValueError("spring not found"),
+        ):
             result = validate_plan(ctx, {})
 
         assert result["ok"] is False

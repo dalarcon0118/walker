@@ -17,7 +17,7 @@ Validates:
 
 def test_analyzer_resolves_task_by_purpose():
     """El health analyzer debe descubrir tasks por capacidad, no hardcodear nombres."""
-    from features.project.application.use_cases import HealthReportAnalyzer
+    from features.project import HealthReportAnalyzer
 
     catalog = [
         {"name": "generate_kg", "purpose": ["ckg_populate"]},
@@ -41,7 +41,7 @@ def test_analyzer_resolves_task_by_purpose():
 
 def test_analyzer_no_invalid_commands_when_catalog_empty():
     """Con catalogo vacio no debe emitir comandos de task inexistentes."""
-    from features.project.application.use_cases import HealthReportAnalyzer
+    from features.project import HealthReportAnalyzer
 
     health = {
         "checks": {
@@ -60,7 +60,7 @@ def test_analyzer_no_invalid_commands_when_catalog_empty():
 
 def test_analyzer_renamed_task_still_resolved():
     """Si una task se renombra, el analyzer la descubre por su purpose."""
-    from features.project.application.use_cases import HealthReportAnalyzer
+    from features.project import HealthReportAnalyzer
 
     catalog = [
         {"name": "super_scan_v2", "purpose": ["cpg_build", "code_index"]},

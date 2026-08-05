@@ -44,18 +44,27 @@ def register(server: McpServer) -> None:
 # ── Tool handlers ──
 
 def _kg_search(args: dict) -> dict:
-    from features.cli_interface.application.handlers import _run_public_task
-    return _run_public_task("kg_search", args.get("query", {}))
+    from features.engine.application.task_dispatcher import dispatch_public_task
+    return dispatch_public_task("kg_search", args.get("query", {}))
 
 
 def _kg_multi(args: dict) -> dict:
-    from features.cli_interface.application.handlers import _run_public_task
-    return _run_public_task("kg_multi", args.get("layers", {}))
+    from features.engine.application.task_dispatcher import dispatch_public_task
+    return dispatch_public_task("kg_multi", args.get("layers", args.get("query", {})))
 
 
 def _kg_store(args: dict) -> dict:
-    from features.cli_interface.application.handlers import _run_public_task
-    return _run_public_task("kg_store", args.get("body", {}))
+    from features.engine.application.task_dispatcher import dispatch_public_task
+
+    body = (
+        args.get("body")
+        or args.get("query")
+        or args.get("search")
+        or args
+    )
+    if not isinstance(body, dict):
+        body = dict(body or {})
+    return dispatch_public_task("kg_store", body)
 
 
 # ── Resource handlers (dynamic, no schemas to maintain) ──

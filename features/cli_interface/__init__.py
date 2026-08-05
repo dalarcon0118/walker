@@ -233,7 +233,11 @@ def _exec_task(params: dict, flags: dict, context: Any = None) -> Response:
 
 
 def _json_body(flags: dict) -> dict | None:
-    """Extrae JSON body del primer positional si tiene formato {..}."""
+    """Extrae JSON body del primer positional si tiene formato {..}.
+
+    Return-pattern: devuelve None si no hay body o el JSON es inválido
+    (el llamador decide si es error). Nunca traga el fallo silenciosamente.
+    """
     positional = flags.get("positional", [])
     if positional and not any(f.startswith("--") for f in positional):
         import json
@@ -241,8 +245,11 @@ def _json_body(flags: dict) -> dict | None:
         if non_flag and len(non_flag) == 1 and non_flag[0].startswith("{"):
             try:
                 return json.loads(non_flag[0])
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError):
+                import sys
+
+                print(f"[walker] invalid JSON body: {non_flag[0][:80]}", file=sys.stderr)
+                return None
     return None
 
 

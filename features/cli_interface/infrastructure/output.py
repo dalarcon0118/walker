@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..infrastructure.contracts import Response
+from .contracts import Response
 
 
 def help_output(data: dict) -> None:
@@ -42,7 +42,10 @@ def help_output(data: dict) -> None:
             nodo = n.get("nodo", "?")
             desc = n.get("desc", "")
             task = n.get("task", "")
-            if task:
+            substates = n.get("sub_states", [])
+            if substates:
+                print(f"    {nodo:<30} {desc}  [{', '.join(substates)}]")
+            elif task:
                 print(f"    {nodo:<30} {desc} (task: {task})")
             else:
                 print(f"    {nodo:<30} {desc}")
@@ -51,6 +54,32 @@ def help_output(data: dict) -> None:
             print()
             for line in trans.split("\n"):
                 print(f"    {line.strip()}")
+        print()
+
+    # ── Mapa de navegación del workflow (dinámico, desde el grafo SSOT) ──
+    # Expone los gates/edges reales: what gates exist, desde dónde, hacia dónde.
+    # Si hornear esto en el texto del help, el agente puede navegar sin re-inferir.
+    wm = data.get("workflow_map") or {}
+    edges = wm.get("edges") or []
+    if edges:
+        print("  ── Mapa de navegación (gates del workflow) ──")
+        print("  (consulta el mapa real del grafo; usable para planear transiciones)")
+        # Agrupar por nodo origen para que el agente vea las rutas desde cada nodo
+        by_source: dict[str, list[dict]] = {}
+        for e in edges:
+            by_source.setdefault(e.get("from", "?"), []).append(e)
+        for source in sorted(by_source):
+            print(f"    Desde {source}:")
+            for e in by_source[source]:
+                dest = e.get("to", "?")
+                sub = e.get("sub_state_gate", "")
+                gate = e.get("gate", "?")
+                desc = e.get("description", "")
+                target = f"{dest}.{sub}" if sub else str(dest)
+                line = f"      --{gate}--> {target}"
+                if desc:
+                    line = f"{line}  ({desc})"
+                print(line)
         print()
 
     # Comandos basicos (fijos del CLI)

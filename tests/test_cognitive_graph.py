@@ -772,28 +772,17 @@ def test_capture_task_creates_session_sprint():
             f"debe haber 2 specs, got {r2.data['spec_count']}"
         )
 
-        # 3) El sprint informal persiste en el delta (fuente unica) y en
-        #    plan.json (proyeccion de compatibilidad). sprint-state.json
-        #    fue ELIMINADO estructuralmente.
+        # 3) El sprint informal persiste SOLO en el delta (fuente unica).
+        #    plan.json NO existe: un plan es un estado del spring en el
+        #    DeltaGraph (draft/planning), no un archivo paralelo.
+        #    sprint-state.json fue ELIMINADO estructuralmente.
         spring_root = os.path.join(cog_proj, "data", "spring", sprint_id)
-        assert os.path.exists(os.path.join(spring_root, "plan.json"))
+        assert not os.path.exists(os.path.join(spring_root, "plan.json")), (
+            "plan.json no existe: el delta es la unica fuente del spring"
+        )
         assert not os.path.exists(os.path.join(spring_root, "sprint-state.json")), (
             "sprint-state.json fue eliminado (delta = fuente unica)"
         )
-        with open(os.path.join(spring_root, "plan.json")) as f:
-            plan = json.load(f)
-        specs = plan.get("specifications", [])
-        assert len(specs) == 2, f"plan debe tener 2 specs, got {len(specs)}"
-        assert specs[0]["domain"] == "test-domain", (
-            f"domain se debe preservar: {specs[0].get('domain')}"
-        )
-        assert specs[0]["result_state"] == "Feature X funcionando"
-        files = specs[0].get("files") or specs[0].get("impacted_artifacts", {}).get(
-            "files", []
-        )
-        assert files == ["features/x.py"], f"files={files}"
-        # El estado de negocio (specs) vive en el delta, no en un archivo
-        # sprint-state.json paralelo.
 
         # 4) El delta (fuente unica) tiene nodo spring + specs con estado
         from libs.cognitive_graph import CognitiveGraph
@@ -821,6 +810,17 @@ def test_capture_task_creates_session_sprint():
         assert all(t.startswith(f"{sprint_id}:") or t == sprint_id for t in task_ids), (
             f"ids={task_ids}"
         )
+        # Campos de negocio de las specs preservados en el delta (fuente unica)
+        spec_docs = [d for d in session_docs if d.get("type") == "spec"]
+        assert len(spec_docs) == 2, f"delta debe tener 2 specs, got {len(spec_docs)}"
+        first = next(
+            (d for d in spec_docs if d.get("objective") == "Implementar feature X"),
+            None,
+        )
+        assert first is not None, "spec 'Implementar feature X' debe existir en el delta"
+        assert first.get("domain") == "test-domain", f"domain={first.get('domain')}"
+        assert first.get("result_state") == "Feature X funcionando"
+        assert first.get("files") == ["features/x.py"], f"files={first.get('files')}"
         print(
             "  ✅ test_capture_task_creates_session_sprint: spring informal + delta fuente unica"
         )
@@ -829,31 +829,32 @@ def test_capture_task_creates_session_sprint():
 def test_index_sprint_unique_ids():
     """index_sprint debe usar IDs unicos por sprint (evita colision entre sprints)."""
     from features.delta_tracking.application.index_service import index_sprint
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
+    )
     from libs.cognitive_graph import CognitiveGraph
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cog_proj = _create_test_project(tmpdir)
         cg = CognitiveGraph(cog_proj, auto_register=True)
 
-        # Crear dos sprints con la misma spec_id (via plan.json — proyeccion)
+        # Sembrar dos sprints con la misma spec_id via DeltaGraph (fuente unica;
+        # plan.json fue eliminado — ADR-WALKER-014)
+        svc = SpringService(cog_proj)
         for sprint_id in ("sprint-a", "sprint-b"):
-            sprint_dir = os.path.join(cog_proj, "data", "spring", sprint_id)
-            os.makedirs(sprint_dir, exist_ok=True)
-            plan = {
-                "version": "2.0",
-                "chain_id": sprint_id,
-                "goal": f"Goal {sprint_id}",
-                "specifications": [
-                    {
-                        "spec_id": "SPEC-001",
-                        "objective": f"Tarea de {sprint_id}",
-                        "domain": "test",
-                        "type": "feature",
-                    },
-                ],
-            }
-            with open(os.path.join(sprint_dir, "plan.json"), "w") as f:
-                json.dump(plan, f)
+            svc.create_spring(
+                sprint_id,
+                goal=f"Goal {sprint_id}",
+                status="planning",
+                project_id="test-project",
+            )
+            svc.add_spec(
+                sprint_id,
+                f"Tarea de {sprint_id}",
+                domain="test",
+                spec_type="feature",
+                spec_index=0,
+            )
 
         # Indexar ambos
         index_sprint(os.path.join(cog_proj, "data", "spring", "sprint-a"), cg)
@@ -1403,8 +1404,8 @@ def test_ckg_next_id_no_collision_after_delete():
             ids.append(r["node_ids"][0])
         assert ids == ["decision-001", "decision-002", "decision-003"], ids
 
-        # Borrar el doc intermedio
-        ckg._cg.delete("ckg", "decision-002")
+        # Borrar el doc intermedio (decision-002, label "Decision 1")
+        ckg.delete_by_metadata("statement", "Decision 1")
 
         # El siguiente ID debe ser 004 (MAX, no count+1=003 que colisionaria
         # con decision-003 existente)
@@ -1412,7 +1413,7 @@ def test_ckg_next_id_no_collision_after_delete():
         assert r["node_ids"][0] == "decision-004", r["node_ids"]
 
         # Los IDs son unicos
-        all_ids = ckg._cg.keys("ckg")
+        all_ids = [n["_id"] for n in ckg.query({})]
         assert len(all_ids) == len(set(all_ids)), "IDs duplicados"
         print("  ✅ test_ckg_next_id_no_collision_after_delete: max_key evita colision")
 

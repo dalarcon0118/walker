@@ -107,6 +107,7 @@ class Spring:
     created_at: str = ""
     updated_at: str = ""
     context: dict | None = None
+    informal: bool = False
 
     def __post_init__(self):
         if not is_valid_spring_status(self.status):
@@ -129,6 +130,7 @@ class Spring:
             "created_at": self.created_at or _now(),
             "updated_at": self.updated_at or _now(),
             "context": self.context or {},
+            "informal": self.informal,
         }
 
     @classmethod
@@ -144,6 +146,7 @@ class Spring:
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
             context=data.get("context"),
+            informal=data.get("informal", False),
         )
 
 

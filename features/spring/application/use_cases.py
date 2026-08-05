@@ -18,9 +18,26 @@ from libs.shared_domain import ExecutionContext
 from ..domain.services import (
     SpecValidator,
     SpecBuilder,
-    SpecStatusUpdater,
 )
-from ..infrastructure.repositories import PlanRepository
+
+
+def _spring_svc(sprint_dir: str):
+    """Resuelve SpringService (delta) o levanta error claro.
+
+    PRINCIPIO: el DELTA (SpringService) es la unica fuente del spring.
+    No existe plan.json como fuente paralela (ADR-WALKER-013).
+    """
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
+    )
+
+    spring_svc = SpringService.from_chain_dir(sprint_dir)
+    if spring_svc is None:
+        raise ValueError(
+            f"Spring no indexado en el delta para '{sprint_dir}'. "
+            "Fuente unica: DeltaGraph (SpringService)."
+        )
+    return spring_svc
 
 
 class PlanSprintUseCase:
@@ -28,8 +45,9 @@ class PlanSprintUseCase:
 
     PRINCIPIO estructural: el DeltaGraph (SpringService) es la unica
     fuente de verdad del spring. Crea el nodo spring + nodos spec en el
-    indice delta y regenera plan.json como proyeccion de compatibilidad.
-    El estado del motor (.workflow-state.json) lo crea el engine.
+    indice delta. plan.json NO existe como fuente paralela
+    (ADR-WALKER-013). El estado del motor (.workflow-state.json) lo crea
+    el engine.
     """
 
     @staticmethod
@@ -91,9 +109,6 @@ class PlanSprintUseCase:
         ])
         plan_specs = list(specs_raw)
 
-        # plan.json como PROYECCION del delta (compatibilidad legacy)
-        spring_svc.sync_plan_projection(sprint_id)
-
         # Sincronizar .workflow-state.json (canonico del engine) con el
         # estado inicial del sprint (PLANNING). El motor no lee
         # sprint-state.json: el estado de negocio vive en el delta.
@@ -131,7 +146,7 @@ class PlanSprintUseCase:
 
 
 class SpecifySpecUseCase:
-    """Creates or refines a specification in plan.json.
+    """Creates or refines a specification in the delta (fuente unica).
 
     Called by spec_task workflow action.
     """
@@ -139,34 +154,14 @@ class SpecifySpecUseCase:
     @staticmethod
     def execute(ctx: ExecutionContext, data: dict) -> dict:
         sprint_dir = ctx.chain_dir or ""
-        plan_repo = PlanRepository()
+        if not sprint_dir:
+            raise ValueError("chain_dir not available")
 
-        # Fuente unica: delta (SpringService). Fallback a plan.json
-        # si el spring no esta indexado en el delta.
-        spring_svc = None
-        try:
-            from features.delta_tracking.application.services.spring_service import (
-                SpringService,
-            )
-
-            spring_svc = SpringService.from_chain_dir(sprint_dir)
-            if spring_svc:
-                import os
-
-                spring_id = os.path.basename(os.path.normpath(sprint_dir))
-                spring_svc.ensure_spring_imported(sprint_dir, spring_id)
-                specs = spring_svc.get_specs_legacy(spring_id)
-            else:
-                specs = []
-        except Exception:
-            spring_svc = None
-            specs = []
-        if spring_svc is None:
-            try:
-                plan = plan_repo.load(sprint_dir)
-                specs = plan.get("specifications", plan.get("tasks", []))
-            except Exception:
-                specs = []
+        # Fuente unica: delta (SpringService). No hay plan.json paralelo.
+        spring_svc = _spring_svc(sprint_dir)
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+        specs = spring_svc.get_specs_legacy(spring_id)
 
         # Phase 1: Create initial spec if plan is empty
         is_initial = data.get("spec_id", data.get("task_id")) and not data.get(
@@ -174,29 +169,18 @@ class SpecifySpecUseCase:
         )
         if not specs and is_initial:
             new_spec = SpecBuilder.create_default(0, data)
-            if spring_svc:
-                spring_svc.add_spec(
-                    spring_svc.get_spring_id(sprint_dir)
-                    or os.path.basename(os.path.normpath(sprint_dir)),
-                    objective=new_spec.get("objective", ""),
-                    domain=new_spec.get("domain", ""),
-                    spec_type=new_spec.get("type", "feature"),
-                    spec_index=0,
-                    status="draft",
-                )
-            else:
-                specs.append(new_spec)
-                plan = plan_repo.load(sprint_dir)
-                plan["specifications"] = specs
-                plan_repo.save(sprint_dir, plan)
+            spring_svc.add_spec(
+                spring_id,
+                objective=new_spec.get("objective", ""),
+                domain=new_spec.get("domain", ""),
+                spec_type=new_spec.get("type", "feature"),
+                spec_index=0,
+                status="draft",
+            )
             # SSOT: el contexto de negocio vive en el delta (nodo spring)
-            if spring_svc:
-                spring_svc.set_spring_context(
-                    spring_svc.get_spring_id(sprint_dir)
-                    or os.path.basename(os.path.normpath(sprint_dir)),
-                    current_spec_index=0,
-                    current_task_index=0,
-                )
+            spring_svc.set_spring_context(
+                spring_id, context={"current_spec_index": 0, "current_task_index": 0}
+            )
             return {
                 "spec_id": new_spec["spec_id"],
                 "status": "draft",
@@ -206,7 +190,9 @@ class SpecifySpecUseCase:
         # Phase 2: Get current index
         current_idx = _get_current_spec_index(sprint_dir)
         if not specs:
-            raise ValueError("No specifications in plan.json")
+            raise ValueError(
+                "No specifications in spring; use plan_sprint first."
+            )
         current_idx = min(current_idx, len(specs) - 1)
         current_spec = specs[current_idx]
 
@@ -238,23 +224,8 @@ class SpecifySpecUseCase:
 
         refined = SpecBuilder.refine(current_spec, data)
         specs[current_idx] = refined
-        if spring_svc:
-            spring_id = spring_svc.get_spring_id(sprint_dir) or os.path.basename(
-                os.path.normpath(sprint_dir)
-            )
-            spec_id = refined.get(
-                "spec_id", refined.get("task_id", f"SPEC-{current_idx + 1:03d}")
-            )
-            spring_svc.update_spec(spring_id, spec_id, refined)
-            # Proyeccion de compatibilidad
-            try:
-                spring_svc.sync_plan_projection(spring_id)
-            except Exception:
-                pass
-        else:
-            plan = plan_repo.load(sprint_dir)
-            plan["specifications"] = specs
-            plan_repo.save(sprint_dir, plan)
+        spec_id = refined.get("spec_id", refined.get("task_id", f"SPEC-{current_idx + 1:03d}"))
+        spring_svc.update_spec(spring_id, spec_id, refined)
 
         # ── Phase 5: Validar la spec COMPLETA antes de permitir avanzar ──
         # Regla del workflow: el sprint solo avanza de TASK_SPEC si la spec
@@ -321,15 +292,15 @@ class UpdateSpecStatusUseCase:
         new_status = data.get("status", "")
         if not spec_id or not new_status:
             raise ValueError("Requires spec_id and status")
-        plan = PlanRepository().load(sprint_dir)
-        specs = plan.get("specifications", plan.get("tasks", []))
-        for i, spec in enumerate(specs):
+        spring_svc = _spring_svc(sprint_dir)
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+        specs = spring_svc.get_specs_legacy(spring_id)
+        for spec in specs:
             if spec.get("spec_id", spec.get("task_id")) == spec_id:
-                specs[i] = SpecStatusUpdater.update(spec, new_status)
-                plan["specifications"] = specs
-                PlanRepository().save(sprint_dir, plan)
+                spring_svc.update_spec_status(spring_id, spec_id, new_status)
                 return {"spec_id": spec_id, "status": new_status}
-        raise ValueError(f"Spec {spec_id} not found in plan")
+        raise ValueError(f"Spec {spec_id} not found in delta")
 
 
 class ShowDashboardUseCase:
@@ -428,37 +399,52 @@ class EditSprintUseCase:
     @staticmethod
     def execute(ctx: ExecutionContext, data: dict) -> dict:
         sprint_dir = ctx.chain_dir or ""
-        plan = PlanRepository().load(sprint_dir)
-        specs = plan.get("specifications", plan.get("tasks", []))
+        spring_svc = _spring_svc(sprint_dir)
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+        spring = spring_svc.get_spring(spring_id) or {}
+        specs = spring_svc.get_specs_legacy(spring_id)
 
         # Update goal if provided
         if data.get("goal"):
-            plan["goal"] = data["goal"]
+            spring_svc.update_spring(spring_id, {"goal": data["goal"]})
 
-        # Add new specs from planning input
+        # Add new specs from planning input (upsert al delta)
         specs_raw = data.get("tasks", data.get("specifications", []))
         if specs_raw:
-            existing_count = len(specs)
-            for i, item in enumerate(specs_raw):
-                spec = SpecBuilder.create_from_plan(existing_count + i, item)
-                specs.append(spec)
-            plan["specifications"] = specs
+            items = [
+                {
+                    "objective": item.get("objective", ""),
+                    "domain": item.get("domain", ""),
+                    "type": item.get("type", "feature"),
+                    "result_state": item.get("result_state", ""),
+                    "files": (
+                        item.get("impacted_artifacts", {}).get("files", [])
+                        if isinstance(item.get("impacted_artifacts"), dict)
+                        else []
+                    ),
+                    "status": item.get("status", "draft"),
+                    "description": item.get("task_description", ""),
+                }
+                for item in specs_raw
+            ]
+            spring_svc.upsert_specs_batch(spring_id, items)
 
         # Update existing spec if spec_id matches
         spec_updates = data.get("spec_updates", [])
         for update in spec_updates:
             update_id = update.get("spec_id", update.get("task_id", ""))
-            for i, s in enumerate(specs):
+            for s in specs:
                 if s.get("spec_id", s.get("task_id", "")) == update_id:
-                    specs[i] = SpecBuilder.refine(s, update)
+                    spring_svc.update_spec(spring_id, update_id, update)
                     break
 
-        plan["specifications"] = specs
-        PlanRepository().save(sprint_dir, plan)
+        updated_specs = spring_svc.get_specs_legacy(spring_id)
+        goal = spring_svc.get_spring(spring_id) or {}
         return {
             "modified": True,
-            "spec_count": len(specs),
-            "goal": plan.get("goal", ""),
+            "spec_count": len(updated_specs),
+            "goal": goal.get("goal", ""),
         }
 
 
@@ -498,20 +484,26 @@ class UpdateSprintStatusUseCase:
 
 
 class ValidatePlanUseCase:
-    """Validates all specifications in plan.json."""
+    """Validates all specifications from the delta (fuente unica)."""
 
     @staticmethod
     def execute(ctx: ExecutionContext, data: dict) -> dict:
         sprint_dir = ctx.chain_dir or ""
         try:
-            plan = PlanRepository().load(sprint_dir)
-        except FileNotFoundError:
-            return {"valid": False, "errors": ["plan.json not found"], "spec_count": 0}
-        specs = plan.get("specifications", plan.get("tasks", []))
+            spring_svc = _spring_svc(sprint_dir)
+            spring_id = spring_svc.get_spring_id(sprint_dir)
+            spring_svc.ensure_spring_imported(sprint_dir, spring_id)
+            specs = spring_svc.get_specs_legacy(spring_id)
+        except ValueError:
+            return {
+                "valid": False,
+                "errors": ["spring not found in delta"],
+                "spec_count": 0,
+            }
         if not specs:
             return {
                 "valid": False,
-                "errors": ["No specifications in plan.json"],
+                "errors": ["No specifications in spring"],
                 "spec_count": 0,
             }
         all_errors: list[str] = []
@@ -538,17 +530,16 @@ def _resolve_chain_dir(
     Usa project_id de data cuando no hay sesion activa (CLI directo).
 
     PRINCIPIO: un chain_dir válido se detecta por .workflow-state.json
-    (estado del motor) o plan.json (proyección del delta). sprint-state.json
-    fue eliminado estructuralmente.
+    (estado del motor). plan.json no existe como fuente paralela
+    (ADR-WALKER-013): el estado de negocio vive en el delta.
 
     NAMING: los springs formales se nombran con un slug descriptivo del goal
     (sprint-{slug}, ej: sprint-workflow-contract-redesign). El nombre del
     directorio es el spring_id (get_spring_id deriva el id del basename).
     """
     cd = ctx.chain_dir or ""
-    if cd and os.path.isdir(cd) and (
-        os.path.exists(os.path.join(cd, ".workflow-state.json"))
-        or os.path.exists(os.path.join(cd, "plan.json"))
+    if cd and os.path.isdir(cd) and os.path.exists(
+        os.path.join(cd, ".workflow-state.json")
     ):
         return cd
 

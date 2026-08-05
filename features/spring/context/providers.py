@@ -4,12 +4,11 @@ Providers de negocio de spring. SE REGISTRAN EXTERNAMENTE
 via register_providers() — el engine NO los conoce.
 
 Incluye:
-  - TaskProvider:  la tarea actual desde plan.json (specifications)
+  - TaskProvider:  la tarea actual desde el delta (specifications)
   - StateProvider: estado del sprint (via QueryManager)
 """
 
 from __future__ import annotations
-import json
 from typing import Any
 
 from features.engine.context.models import ContextPiece
@@ -18,7 +17,7 @@ from features.engine.context.format import fmt_tokens, format_state_result
 
 
 class TaskProvider(ContextProvider):
-    """Capa: task — la tarea actual del sprint (desde plan.json).
+    """Capa: task — la tarea actual del sprint (desde el delta).
 
     Entrega la spec activa (por current_spec_index) con todos sus campos:
     objective, type, domain, result_state, predicates, files, risks, etc.
@@ -30,63 +29,35 @@ class TaskProvider(ContextProvider):
     def collect(
         self, config: dict, ctx: Any, query_manager: Any = None
     ) -> ContextPiece | None:
+        import os
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
+        )
+
         chain_dir = getattr(ctx, "chain_dir", None)
         if not chain_dir:
             return None
 
-        # Fuente unica: delta (SpringService). Fallback a plan.json si
-        # el spring no esta en el delta.
-        specs: list[dict] = []
-        try:
-            from features.delta_tracking.application.services.spring_service import (
-                SpringService,
-            )
-
-            spring_svc = SpringService.from_chain_dir(chain_dir)
-            if spring_svc:
-                import os
-
-                spring_id = os.path.basename(os.path.normpath(chain_dir))
-                spring_svc.ensure_spring_imported(chain_dir, spring_id)
-                specs = spring_svc.get_specs_legacy(spring_id)
-        except Exception:
-            pass
-        if not specs:
-            # Fallback legacy: plan.json
-            plan_path = os.path.join(chain_dir, "plan.json")
-            if not os.path.exists(plan_path):
-                return None
-            try:
-                with open(plan_path) as f:
-                    plan = json.load(f)
-                specs = plan.get("specifications", plan.get("tasks", []))
-            except (json.JSONDecodeError, OSError):
-                return None
+        # Fuente unica: delta (SpringService). plan.json NO existe como
+        # fuente: un plan es un estado del spring en el delta, no un
+        # archivo paralelo (ADR-WALKER-013).
+        spring_svc = SpringService.from_chain_dir(chain_dir)
+        if spring_svc is None:
+            return None
+        spring_id = os.path.basename(os.path.normpath(chain_dir))
+        spring_svc.ensure_spring_imported(chain_dir, spring_id)
+        specs = spring_svc.get_specs_legacy(spring_id)
         if not specs:
             return None
 
         # Indice de la spec actual (SSOT: delta — nodo spring)
-        current_idx = 0
-        try:
-            from features.delta_tracking.application.services.spring_service import (
-                SpringService,
+        ctx_state = spring_svc.get_spring_context(spring_id)
+        current_idx = int(
+            ctx_state.get(
+                "current_spec_index",
+                ctx_state.get("current_task_index", 0),
             )
-
-            spring_svc = SpringService.from_chain_dir(chain_dir)
-            if spring_svc:
-                import os
-
-                spring_id = os.path.basename(os.path.normpath(chain_dir))
-                spring_svc.ensure_spring_imported(chain_dir, spring_id)
-                ctx_state = spring_svc.get_spring_context(spring_id)
-                current_idx = int(
-                    ctx_state.get(
-                        "current_spec_index",
-                        ctx_state.get("current_task_index", 0),
-                    )
-                )
-        except Exception:
-            pass
+        )
         if current_idx >= len(specs):
             current_idx = len(specs) - 1
 

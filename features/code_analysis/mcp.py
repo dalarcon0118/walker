@@ -42,20 +42,20 @@ def register(server: McpServer) -> None:
 
 
 def _cpg_business(args: dict) -> dict:
-    from features.cli_interface.application.handlers import _run_public_task
-    return _run_public_task("cpg_business", args.get("query", args))
+    from features.engine.application.task_dispatcher import dispatch_public_task
+    return dispatch_public_task("cpg_business", args.get("query", args))
 
 
 def _analyze_code(args: dict) -> dict:
-    from features.cli_interface.application.handlers import _run_public_task
+    from features.engine.application.task_dispatcher import dispatch_public_task
     area = args.get("area", args.get("query", ""))
     if isinstance(area, str):
         area = {"area": area}
-    return _run_public_task("analyze_code", area)
+    return dispatch_public_task("analyze_code", area)
 
 
 def _public_task(name: str):
     def handler(args: dict) -> dict:
-        from features.cli_interface.application.handlers import _run_public_task
-        return _run_public_task(name, args.get("body", args))
+        from features.engine.application.task_dispatcher import dispatch_public_task
+        return dispatch_public_task(name, args.get("body", args))
     return handler

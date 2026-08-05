@@ -511,8 +511,41 @@ class WorkflowState:
     updated_at: str = ""
     node_executions: list[NodeExecution] = field(default_factory=list)
 
-    def current_key(self) -> SubStateKey:
-        return SubStateKey(self.current_node, self.current_sub_state)
+    def reconcile_index(self, graph: WorkflowGraph) -> tuple["WorkflowState", list[str]]:
+        """Reconcilia el invariante sub_state_index ↔ current_sub_state (GAP-1).
+
+        Analogía git: al cargar el "repo" del workflow, validamos que la
+        rama apunte a un commit coherente. Si `current_sub_state` no se
+        corresponde con `sub_state_index` en el nodo actual, corregimos el
+        índice a partir del nombre (autoridad = current_sub_state, que es
+        el sub-estado real donde dejó el agente).
+
+        Inmutable (ELM): retorna (nuevo estado, warnings). No muta self.
+
+        Returns:
+            (WorkflowState reconciliado, lista de warnings de reconciliación)
+        """
+        if not graph or not self.current_node or not self.current_sub_state:
+            return self, []
+        node = graph.get_node(self.current_node)
+        if not node:
+            return self, []
+        expected = node.sub_state_index(self.current_sub_state)
+        if expected < 0:
+            # El nombre no está en el nodo → no podemos reconciliar de forma segura.
+            return self, [
+                f"[reconcile] sub-estado '{self.current_sub_state}' no existe "
+                f"en nodo '{self.current_node}'"
+            ]
+        if self.sub_state_index == expected:
+            return self, []
+        return (
+            replace(self, sub_state_index=expected, updated_at=_now()),
+            [
+                f"[reconcileIndex] corrió ({self.current_node}: "
+                f"'{self.current_sub_state}' index {self.sub_state_index} → {expected})"
+            ],
+        )
 
     def get_sub_state_data(self, key: str | None = None) -> SubStateData:
         k = key or self.current_sub_state

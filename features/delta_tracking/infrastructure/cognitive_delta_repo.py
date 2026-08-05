@@ -54,12 +54,55 @@ class CognitiveDeltaRepository(DeltaRepository):
         return springs
 
     def get_active_spring(self) -> Spring | None:
+        """Obtiene el spring activo con prioridad FORMAL y el mas reciente.
+
+        Reglas (anti-secuestro del sprint activo):
+          1. Los springs INFORMALES (session-YYYYMMDD) NUNCA ganan la
+             resolucion si existe un formal activo: son logs de sesion,
+             no sprints de workflow. Si no hay formal activo, se usa el
+             informal mas reciente (fallback).
+          2. Entre los activos del mismo tipo se elige el ULTIMO (mas
+             reciente por updated_at/created_at), no el primero del index.
+          3. Si hay mas de 2 springs FORMALES activos, es anomalo: emite
+             una alerta (log warning) para que el usuario cierre uno.
+        """
         hits = self._search({"type": TYPE_SPRING, "status": "active"})
-        for h in hits:
-            src = h["_source"]
-            if src.get("active"):
-                return Spring.from_dict(src)
-        return None
+        springs = [
+            Spring.from_dict(h["_source"])
+            for h in hits
+            if h["_source"].get("active")
+            or h["_source"].get("status") == "active"
+        ]
+        if not springs:
+            return None
+
+        def _recency(s: Spring) -> str:
+            return s.updated_at or s.created_at or ""
+
+        # Prioridad: formales (flag informal=False) sobre informales.
+        # Se usa el campo Spring.informal (ya persistido), NO el prefijo
+        # del id: los sprints formales legacy pueden llamarse session-* pero
+        # no tienen informal=True (ver _is_informal_sprint).
+        formal = [s for s in springs if not s.informal]
+        informal = [s for s in springs if s.informal]
+
+        # Alerta: mas de 2 formales activos es anomalo
+        if len(formal) > 2:
+            try:
+                import logging
+
+                logging.warning(
+                    "DeltaGraph: %d springs FORMALES activos (%s). "
+                    "Es anomalo tener mas de 2 abiertos — cerrar los que no se usen.",
+                    len(formal),
+                    ", ".join(s.spring_id for s in formal),
+                )
+            except Exception:
+                pass
+
+        pool = formal or informal
+        pool.sort(key=_recency, reverse=True)
+        return pool[0]
 
     # ── Spec ──
 

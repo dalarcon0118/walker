@@ -327,10 +327,19 @@ class WorkflowAPI:
         ctx = self._build_context()
         return self._get_orch().advance_sub_state(ctx)
 
-    def transition(self, gate: str) -> dict:
-        """Transiciona al siguiente nodo."""
+    def transition(
+        self, gate: str, reason: str = "", skip_preconditions: bool = False
+    ) -> dict:
+        """Transiciona al siguiente nodo.
+
+        skip_preconditions=True (GAP-4, analogía git --force): salta las
+        precondiciones SOLO con una razón documentada. La decisión de forzar
+        queda registrada (el caller debe persistirla en CKG/trace).
+        """
         ctx = self._build_context()
-        return self._get_orch().transition(ctx, gate)
+        return self._get_orch().transition(
+            ctx, gate, reason=reason, skip_preconditions=skip_preconditions
+        )
 
     def status(self) -> dict:
         """Snapshot del estado actual."""

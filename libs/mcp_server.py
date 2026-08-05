@@ -37,12 +37,20 @@ class McpServer:
         description: str,
         handler: Callable[[dict], dict],
         input_schema: dict | None = None,
-    ) -> None:
+    ) -> tuple[bool, list[str]]:
         """Register a tool with optional input schema.
+
+        Return-pattern: (ok, errors). Bloquea shadowing — si el tool name
+        ya está registrado, devuelve (False, [error]) sin sobreescribir.
 
         If input_schema is None, the tool accepts any dict as query.
         The schema can be discovered at runtime via walker://help/{name}.
         """
+        if not name or not str(name).strip():
+            return False, ["tool name cannot be empty"]
+        if name in self._tool_handlers:
+            return False, [f"Tool '{name}' already registered (shadowing blocked)"]
+
         schema = input_schema or {"type": "object", "properties": {"query": {"type": "object"}}}
         self._tools.append({
             "name": name,
@@ -50,6 +58,28 @@ class McpServer:
             "inputSchema": schema,
         })
         self._tool_handlers[name] = handler
+        return True, []
+
+    def register_tools(self, registry: Any) -> tuple[int, list[str]]:
+        """Adopta los tools de un ToolRegistry (domain) como SSOT unico.
+
+        Cada tool del registry se re-registra via self.tool() con su schema.
+        Returns (count, errors). Única fuente de verdad: el registry.
+        """
+        errors: list[str] = []
+        count = 0
+        for definition in registry.list_tools():
+            ok, errs = self.tool(
+                name=definition["name"],
+                description=definition["description"],
+                input_schema=definition["inputSchema"],
+                handler=registry.get_handler(definition["name"]),
+            )
+            if not ok:
+                errors.extend(errs)
+                continue
+            count += 1
+        return count, errors
 
     def resource(
         self,

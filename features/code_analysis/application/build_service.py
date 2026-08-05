@@ -38,7 +38,7 @@ def _analyze_business(data: dict) -> dict:
 @safe
 def _load_ignore_core(root: str) -> Any | None:
     """Core puro de carga de .walkerignore (puede lanzar)."""
-    from features.project.infrastructure.watcher import IgnoreRules
+    from features.project import IgnoreRules
 
     return IgnoreRules(str(root)) if root else None
 
@@ -46,7 +46,7 @@ def _load_ignore_core(root: str) -> Any | None:
 @safe
 def _watcher_fingerprint_core(root: str) -> str:
     """Core puro del fingerprint del codigo (puede lanzar)."""
-    from features.project.infrastructure.watcher import FileWatcher
+    from features.project import FileWatcher
 
     return FileWatcher(root).compute_fingerprint()
 
@@ -644,7 +644,7 @@ class BuildGraphUseCase:
             return self.build()
 
         try:
-            from features.project.infrastructure.watcher import FileWatcher
+            from features.project import FileWatcher
 
             watcher = FileWatcher(self.repo_path or self.code_root)
             status = watcher.scan()

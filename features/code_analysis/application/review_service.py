@@ -554,7 +554,7 @@ class ReviewUseCase:
         que infla cyclo_max, smells y lint.
         """
         try:
-            from features.project.infrastructure.watcher import IgnoreRules
+            from features.project import IgnoreRules
 
             root = self._repo_root_from_paths(paths)
             if not root:

@@ -3,8 +3,8 @@ application/service.py — Application service for project operations.
 
 SRP: Unica responsabilidad = orquestar operaciones de proyecto.
 SSOT: Delega en libs.path_resolver para resolucion de paths (la unica
-      fuente de verdad). Delega en domain/models.py y domain/services.py
-      para logica pura.
+      fuente de verdad). Delega en domain (values/entities/ports) y
+      domain/services.py para logica pura.
 
 TODA resolucion de paths en el codebase debe pasar por esta clase.
 NADIE debe importar libs.path_resolver directamente desde ahora.
@@ -17,7 +17,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..domain.models import ProjectId, ProjectPaths, Project, ProjectRepository
+from ..domain.values import ProjectId, ProjectPaths
+from ..domain.entities import Project
+from ..domain.ports import ProjectRepository
 from ..domain import services as domain_services
 
 
@@ -293,7 +295,6 @@ class ProjectService:
         return str(result) if result else None
 
     @staticmethod
-    @staticmethod
     def _verify_registration(repo_path: str) -> bool:
         """Verifica que un proyecto registrado sea valido: path existe y tiene .cognitive/."""
         if not repo_path:
@@ -327,13 +328,19 @@ class ProjectService:
                 pass
         return {}
 
-    def list_available() -> list[dict[str, Any]]:
+    @staticmethod
+    def list_available(
+        spring_service=None,
+    ) -> list[dict[str, Any]]:
         """Lista todos los proyectos registrados y verificados.
 
         Solo incluye proyectos que cumplan TRES condiciones:
           1. Existen en el registro global (data/projects.json)
           2. Su repo_path existe en disco
           3. Tienen directorio .cognitive/ en su repo_path
+
+        Args:
+            spring_service: Optional SpringService for DI (lazy import if None).
 
         Returns:
             Lista de dicts con: project_id, name, language, active_sprints, status.
@@ -372,45 +379,23 @@ class ProjectService:
                 except (json.JSONDecodeError, OSError):
                     pass
 
-            # ── Detectar sprints activos (fuente unica: delta) ──
+            # ── Detectar sprints activos (via delta) ──
             active_sprints: list[str] = []
             try:
-                from features.delta_tracking.application.services.spring_service import (
-                    SpringService,
-                )
-                from libs.path_resolver import get_project_dir
-
-                project_root = str(get_project_dir(pid))
-                if os.path.isdir(project_root):
-                    spring_svc = SpringService(project_root)
-                    for spring in spring_svc.list_springs():
+                svc = spring_service
+                if svc is None:
+                    from features.delta_tracking.application.services.spring_service import SpringService
+                    from libs.path_resolver import get_project_dir
+                    project_root = str(get_project_dir(pid))
+                    if os.path.isdir(project_root):
+                        svc = SpringService(project_root)
+                if svc:
+                    for spring in svc.list_springs():
                         st = spring.get("status", "")
                         if st in ("active", "in_progress", "planning"):
                             active_sprints.append(spring.get("_id", ""))
             except Exception:
-                # Fallback legacy: detectar via plan.json (proyección del delta)
-                for sprint_dir_name in ["delta", "spring"]:
-                    sd = projects_dir / sprint_dir_name
-                    if sd.is_dir():
-                        for sprint_entry in sorted(sd.iterdir()):
-                            if sprint_entry.is_dir():
-                                try:
-                                    if not (sprint_entry / "plan.json").is_file():
-                                        continue
-                                    # Estado desde el delta si está indexado
-                                    from features.delta_tracking.application.services.spring_service import (
-                                        SpringService,
-                                    )
-
-                                    spring_svc = SpringService(
-                                        str(projects_dir)
-                                    )
-                                    spring = spring_svc.get_spring(sprint_entry.name)
-                                    st = spring.get("status", "") if spring else ""
-                                    if st in ("active", "in_progress", "planning", ""):
-                                        active_sprints.append(sprint_entry.name)
-                                except Exception:
-                                    pass
+                pass
 
             result.append(
                 {
@@ -430,88 +415,41 @@ class ProjectService:
     # ── Sprint discovery ──────────────────────────────────────────────
 
     @staticmethod
-    def find_active_sprint(project_id: str) -> str | None:
+    def find_active_sprint(
+        project_id: str,
+        spring_service=None,
+    ) -> str | None:
         """Encuentra el sprint activo de un proyecto.
 
         FUENTE UNICA: consulta el DeltaGraph (nodo spring con status active).
-        Fallback: busca en delta/ y data/spring/ por sprints legacy con
-        estado activo (plan.json + .workflow-state.json).
+        plan.json/progress.json fueron eliminados (ADR-WALKER-014).
+
+        Args:
+            project_id: Project identifier.
+            spring_service: Optional SpringService for DI (lazy import if None).
 
         Returns:
             Chain_dir del sprint activo, o None si no hay.
         """
-        # Fuente unica: delta — nodo spring con status active
         try:
-            from features.delta_tracking.application.services.spring_service import (
-                SpringService,
-            )
-            from libs.path_resolver import get_project_dir
-
-            project_root = str(get_project_dir(project_id))
-            if os.path.isdir(project_root):
-                spring_svc = SpringService(project_root)
-                active = spring_svc.get_active_spring()
+            svc = spring_service
+            if svc is None:
+                from features.delta_tracking.application.services.spring_service import SpringService
+                from libs.path_resolver import get_project_dir
+                project_root = str(get_project_dir(project_id))
+                if os.path.isdir(project_root):
+                    svc = SpringService(project_root)
+            if svc:
+                active = svc.get_active_spring()
                 if active:
                     spring_id = active.get("_id", "")
                     if spring_id:
                         from libs.path_resolver import get_sprint_dir
-
                         sprint_dir = str(get_sprint_dir(project_id, spring_id))
                         if os.path.isdir(sprint_dir):
                             return sprint_dir
         except Exception:
             pass
-
-        from libs.path_resolver import get_delta_dir
-
-        # Fallback legacy: delta/ y data/spring/
-        delta_base = get_delta_dir(project_id)
-        candidates = [delta_base]
-
-        # Si delta_dir es diferente de data/spring, buscar ahi tambien
-        from libs.path_resolver import get_data_dir
-
-        spring_dir = get_data_dir(project_id) / "spring"
-        if spring_dir != delta_base and spring_dir.is_dir():
-            candidates.append(spring_dir)
-
-        for base in candidates:
-            if not base.is_dir():
-                continue
-            for entry in sorted(base.iterdir(), reverse=True):
-                if not entry.is_dir():
-                    continue
-                try:
-                    # PRINCIPIO: plan.json (proyección del delta) detecta un
-                    # chain_dir válido; .workflow-state.json da el estado del
-                    # motor. sprint-state.json fue eliminado.
-                    plan_path = entry / "plan.json"
-                    if not plan_path.is_file():
-                        continue
-                    from features.engine.infrastructure.repositories import (
-                        WorkflowStateRepository,
-                    )
-
-                    wf = WorkflowStateRepository().load(str(entry))
-                    node = wf.current_node or ""
-                    sub = wf.current_sub_state or ""
-                    if node == "SPRINT" and sub in ("CLOSE", "CLOSED"):
-                        continue
-                    # Estado del spring desde el delta (si indexado)
-                    from features.delta_tracking.application.services.spring_service import (
-                        SpringService,
-                    )
-
-                    spring_svc = SpringService.from_chain_dir(str(entry))
-                    if spring_svc:
-                        spring = spring_svc.get_spring(entry.name)
-                        st = spring.get("status", "") if spring else ""
-                        if st and st not in ("active", "in_progress", "planning"):
-                            continue
-                    return str(entry)
-                except Exception:
-                    continue
-
         return None
 
     @staticmethod
@@ -664,48 +602,46 @@ class ProjectService:
     def resolve_chain_dir(
         project_id: str | None = None,
         start: str | None = None,
+        spring_service=None,
     ) -> str | None:
         """Resuelve un chain_dir desde un project_id o directorio de trabajo.
 
         Si no se especifica project_id, busca el proyecto activo desde CWD.
 
+        Args:
+            project_id: Optional project identifier.
+            start: Optional starting directory.
+            spring_service: Optional SpringService for DI (lazy import if None).
+
         Returns:
             Chain_dir del sprint activo, o None si no se encuentra.
         """
         if project_id:
-            chain = ProjectService.find_active_sprint(project_id)
-            if chain:
-                return chain
-            return None
+            return ProjectService.find_active_sprint(project_id)
 
         # Buscar .cognitive/ desde CWD
         cognitive = ProjectService.find_cognitive_root(start)
         if cognitive:
-            # El CWD puede estar dentro de un sprint
             cwd = os.path.abspath(start or os.getcwd())
-            # Detectar si estamos en un chain_dir (workflow-state o delta spring)
             if os.path.exists(os.path.join(cwd, ".workflow-state.json")):
                 return cwd
             try:
-                from features.delta_tracking.application.services.spring_service import (
-                    SpringService,
-                )
-
-                if SpringService.from_chain_dir(cwd) is not None:
-                    spring_svc = SpringService.from_chain_dir(cwd)
-                    if (
-                        spring_svc
-                        and spring_svc.get_spring(spring_svc.get_spring_id(cwd))
-                        is not None
-                    ):
+                svc = spring_service
+                if svc is None:
+                    from features.delta_tracking.application.services.spring_service import SpringService
+                if svc and svc.from_chain_dir(cwd) is not None:
+                    svc2 = svc.from_chain_dir(cwd)
+                    if svc2 and svc2.get_spring(svc2.get_spring_id(cwd)) is not None:
                         return cwd
             except Exception:
                 pass
             # Buscar proyecto activo en el cognitive root
-            projects = ProjectService.list_available()
+            projects = ProjectService.list_available(spring_service=spring_service)
             for p in projects:
                 if p.get("status") == "active" and p.get("active_sprints"):
-                    chain = ProjectService.find_active_sprint(p["project_id"])
+                    chain = ProjectService.find_active_sprint(
+                        p["project_id"], spring_service=spring_service
+                    )
                     if chain:
                         return chain
         return None
@@ -782,6 +718,38 @@ class ProjectService:
             repo.save(project)
 
         return project
+
+    # ── Proxies to use cases (single public API) ──────────────────────
+
+    @staticmethod
+    def detect_context(project_path: str) -> dict:
+        """Detect project context: languages, frameworks, git, code paths."""
+        from .use_cases import DetectProjectContextUseCase
+        return DetectProjectContextUseCase.execute(project_path)
+
+    @staticmethod
+    def detect_legacy(project_path: str) -> dict:
+        """Detect legacy walker project structure."""
+        from .use_cases import DetectLegacyUseCase
+        return DetectLegacyUseCase.execute(project_path)
+
+    @staticmethod
+    def update_project(chain_dir: str, data: dict) -> dict:
+        """Update project.json with schema validation."""
+        from .use_cases import UpdateProjectUseCase
+        return UpdateProjectUseCase.execute(chain_dir, data)
+
+    @staticmethod
+    def import_legacy_history(project_path: str, project_id: str, chains: list[str]) -> dict:
+        """Import legacy chain history to trace files."""
+        from .use_cases import ImportLegacyHistoryUseCase
+        return ImportLegacyHistoryUseCase.execute(project_path, project_id, chains)
+
+    @staticmethod
+    def import_legacy_tasks(project_path: str, project_id: str, chains: list[str]) -> dict:
+        """Import legacy tasks from plan.json format."""
+        from .use_cases import ImportLegacyTasksUseCase
+        return ImportLegacyTasksUseCase.execute(project_path, project_id, chains)
 
 
 # ── Convenience re-exports ──────────────────────────────────────────────

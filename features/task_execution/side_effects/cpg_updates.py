@@ -55,7 +55,7 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
             files_updated = data.get("files_updated", 0)
         # Mark CPG as up_to_date in watcher (SSOT: project owns watcher state)
         try:
-            from features.project.infrastructure.watcher import FileWatcher
+            from features.project import FileWatcher
             FileWatcher(str(project_root)).mark_indexed("cpg")
         except Exception:
             pass

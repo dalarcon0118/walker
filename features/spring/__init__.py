@@ -8,6 +8,11 @@ PRINCIPIO: El workflow engine NO sabe de spring. Solo sabe de nodos,
 transiciones, gates y contratos (BPMN-like). Spring es el "negocio"
 que el workflow orquesta sin conocer.
 
+PRINCIPIO estructural: el estado de negocio del spring (goal, status,
+current_spec_index, task_id, specs con estado) vive en el DELTA
+(SpringService — DeltaGraph, features/delta_tracking/). plan.json NO
+existe como fuente paralela (ADR-WALKER-013).
+
 Relación:
   - Los nodos en workflow.v3/ declaran action: "spec_task" (por ejemplo)
   - El engine busca "spec_task" en el TaskRegistry
@@ -21,8 +26,4 @@ Relación:
 """
 from __future__ import annotations
 
-from .infrastructure.repositories import PlanRepository
-
-__all__ = [
-    "PlanRepository",
-]
+__all__: list[str] = []

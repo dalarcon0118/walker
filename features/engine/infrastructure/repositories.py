@@ -345,16 +345,51 @@ class WorkflowStateRepository:
     def load(self, chain_dir: str) -> WorkflowState:
         """Carga WorkflowState desde .workflow-state.json.
 
+        Incluye reconciliación por invariante (GAP-1): al cargar se valida
+        que sub_state_index ↔ current_sub_state sean coherentes con el nodo
+        actual del workflow. Si el archivo quedó desfasado (p.ej. al pausar
+        la especificación para editar el backlog), el índice se corrige a
+        partir del sub-estado real, evitando que las gates queden bloqueadas.
+
+        Patrón Result (returns): los fallos de lectura se loggean y se
+        degradan a estado vacío; nunca se silencian ni impiden la carga.
+
         Si no existe, retorna vacío (el estado se crea al iniciar el sprint).
         """
-        path = os.path.join(chain_dir, self.STATE_FILE)
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    return WorkflowState.from_dict(json.load(f))
-            except (json.JSONDecodeError, OSError):
-                pass
-        return WorkflowState()
+        import logging
+
+        log = logging.getLogger(__name__)
+        from returns.result import safe
+        from returns.pipeline import is_successful
+
+        @safe
+        def _read() -> WorkflowState:
+            path = os.path.join(chain_dir, self.STATE_FILE)
+            with open(path) as f:
+                return WorkflowState.from_dict(json.load(f))
+
+        read_result = _read()
+        if not is_successful(read_result):
+            log.error("WorkflowState corrupto o ilegible: %s", read_result.failure())
+            return WorkflowState()
+        state = read_result.value_or(WorkflowState())
+        if not state.current_node:
+            return state
+
+        @safe
+        def _reconcile() -> tuple[WorkflowState, list[str]]:
+            graph = WorkflowRepository().load(chain_dir)
+            return state.reconcile_index(graph)
+
+        rec_result = _reconcile()
+        if is_successful(rec_result):
+            reconciled, warnings = rec_result.value_or((state, []))
+            for w in warnings:
+                log.warning("%s", w)
+            return reconciled
+        # Reconciliación best-effort: nunca impide la carga del estado.
+        log.error("Reconciliación de estado falló (se usa estado crudo): %s", rec_result.failure())
+        return state
 
     def save(self, chain_dir: str, state: WorkflowState) -> None:
         """Persiste WorkflowState a .workflow-state.json (solo campos engine)."""

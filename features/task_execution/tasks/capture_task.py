@@ -21,8 +21,8 @@ FLUJO:
   4. Reindexar el sprint en el indice delta via DeltaGraphService.index_sprint.
 
 PRINCIPIO estructural: el DeltaGraph es la fuente unica del spring.
-plan.json se regenera como proyeccion de compatibilidad; sprint-state.json
-fue eliminado.
+plan.json NO se escribe (un plan es un estado del spring en el delta,
+no un dato paralelo); sprint-state.json fue eliminado.
 
 INVOCACION:
     walker <project>/capture_task '{"objective":"...", "domain":"...",
@@ -174,19 +174,21 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             spring_svc.create_spring(
                 sprint_id,
                 goal=f"Session log {sprint_id} — trabajo del agente",
-                status="active",
+                status="planning",
                 project_id=project_id,
-                session_id=ctx.session_id or "",
+                session_id=ctx.session_id or "cli",
                 informal=True,
             )
         else:
-            spring_svc.set_spring_status(sprint_id, "active")
-            # Marcar como informal si no lo estaba (backfill): los session logs
-            # NO deben competir como "activo" frente al sprint formal.
+            # Los session logs NUNCA compiten como sprint activo del workflow:
+            # se mantienen en planning (no activos) y siempre informales.
             existing_data = dict(existing)
-            if not existing_data.get("informal"):
-                existing_data["informal"] = True
-                spring_svc.update_spring(sprint_id, existing_data)
+            if existing_data.get("status") == "active":
+                existing_data["status"] = "planning"
+                existing_data["active"] = False
+            existing_data.setdefault("informal", True)
+            existing_data.setdefault("session_id", ctx.session_id or "cli")
+            spring_svc.update_spring(sprint_id, existing_data)
 
         # 3. Agregar la tarea como spec en el delta (fuente unica)
         result = spring_svc.add_spec(
@@ -197,11 +199,6 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             result_state=inp.result_state,
             files=inp.files or [],
             description=inp.description,
-        )
-
-        # 4. Proyeccion de compatibilidad (plan.json)
-        _sync_legacy_projection(
-            spring_svc, sprint_id, sprint_dir, project_id, ctx.session_id or "", created
         )
 
         # 5. Captura de DECISIONES en el CKG (estructural, no manual):
@@ -330,28 +327,6 @@ def _capture_decisions(
         except Exception:
             pass  # captura de decision best-effort; el trabajo ya quedo en delta
     return captured_decisions
-
-
-def _sync_legacy_projection(
-    spring_svc,
-    sprint_id: str,
-    sprint_dir: str,
-    project_id: str,
-    session_id: str,
-    created: bool,
-) -> None:
-    """Regenera plan.json como PROYECCION del delta.
-
-    PRINCIPIO estructural: el DeltaGraph es la fuente unica del spring.
-    plan.json se mantiene solo para que consumidores legacy (prompt
-    builders, workflow legacy) sigan funcionando. Nunca se edita
-    directamente: se deriva del grafo. sprint-state.json fue ELIMINADO.
-    """
-    try:
-        # plan.json: proyeccion via el servicio (formato legacy adaptado)
-        spring_svc.sync_plan_projection(sprint_id)
-    except Exception:
-        pass  # proyeccion best-effort; el delta es la fuente
 
 
 def register(registry: Any) -> None:

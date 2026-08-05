@@ -47,6 +47,7 @@ Thumbs.db
 .cognitive/sessions/
 .cognitive/projects/*/data/spring/
 .cognitive/projects/*/data/data/
+.cognitive/docs/
 
 # Herramientas de análisis (runtime)
 .qlty/results/

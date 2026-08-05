@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
-from features.project.application.use_cases import UpdateProjectUseCase
+from features.project import ProjectService
 
 
 def update_project(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -18,7 +18,7 @@ def update_project(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                 update_data.setdefault(section, {})[field] = val
             else:
                 update_data.setdefault("identity", {})[key] = val
-        result = UpdateProjectUseCase.execute(chain_dir, update_data)
+        result = ProjectService.update_project(chain_dir, update_data)
         return TaskResult.success(data=result)
     except (FileNotFoundError, ValueError) as e:
         return TaskResult.failure(str(e))

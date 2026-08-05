@@ -7,7 +7,6 @@ hacer su trabajo, ERROR — nunca fallback silencioso.
 """
 from __future__ import annotations
 
-import glob
 import json
 import os
 import shlex
@@ -121,12 +120,10 @@ def _is_chain_dir(path: str) -> bool:
     """Check if path looks like a valid sprint chain directory.
 
     PRINCIPIO estructural: un chain_dir se reconoce por .workflow-state.json
-    (estado del motor) o plan.json (proyección del delta). sprint-state.json
-    fue eliminado.
+    (estado del motor). plan.json/sprint-state.json fueron eliminados
+    (ADR-WALKER-014) — el estado del spring vive en el DeltaGraph.
     """
-    return os.path.isfile(os.path.join(path, ".workflow-state.json")) or os.path.isfile(
-        os.path.join(path, "plan.json")
-    )
+    return os.path.isfile(os.path.join(path, ".workflow-state.json"))
 
 
 # ── Parsing utilities ───────────────────────────────────────────────────────
@@ -246,14 +243,25 @@ def _find_target(workflow: dict, node_id: str, gate: str) -> str | None:
 
 
 def _load_tasks(chain_dir: str) -> tuple[list[dict], str]:
-    """Load task list from plan.json. Returns (tasks, error_msg)."""
-    plan_path = os.path.join(chain_dir, "plan.json")
-    if not os.path.exists(plan_path):
-        return [], "plan.json no encontrado."
-    pd = load_json(plan_path)
-    if not pd:
-        return [], "Error leyendo plan.json."
-    return pd.get("plan", pd).get("tasks", []), ""
+    """Load task list from the DeltaGraph (SpringService). Returns (tasks, error_msg).
+
+    PRINCIPIO: plan.json/progress.json fueron eliminados (ADR-WALKER-014);
+    las tasks del spring viven en el DeltaGraph.
+    """
+    if not chain_dir:
+        return [], "chain_dir vacio."
+    try:
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
+        )
+
+        spring_svc = SpringService.from_chain_dir(chain_dir)
+        if not spring_svc:
+            return [], "No se pudo resolver SpringService."
+        tasks = spring_svc.load_tasks(chain_dir)
+        return tasks or [], ""
+    except Exception as e:
+        return [], f"Error leyendo tareas del delta: {e}"
 
 
 # ── Constants ───────────────────────────────────────────────────────────────
@@ -348,7 +356,9 @@ def canonical_workflow_path(project_id: str | None = None) -> str:
 def _resolve_chain_id(chain_id: str) -> str | None:
     """Resolve a chain_id (e.g. 'workflow-engine-v2-20260723') to its full path.
 
-    Scans .cognitive/projects/*/data/spring/*/ for matching chain directories.
+    Consulta el DeltaGraph (SpringService) de cada proyecto para encontrar
+    el spring con ese id y deriva su chain_dir. plan.json fue eliminado
+    (ADR-WALKER-014) — el registro de springs vive en el DeltaGraph.
     Supports 'project_id:chain_id' format for disambiguation.
     Returns the full path or None if not found.
     """
@@ -366,25 +376,28 @@ def _resolve_chain_id(chain_id: str) -> str | None:
         return None
 
     matches = []
-    # Scanea el layout canónico: <projects_dir>/<pid>/data/<sprint_dir>/*/plan.json
-    # PRINCIPIO: plan.json es la proyección del delta; sprint-state.json fue eliminado.
-    pattern = os.path.join(projects_dir, "*", "data", "*", "*", "plan.json")
-    for sprint_state_path in glob.glob(pattern):
-        chain_dir = os.path.dirname(sprint_state_path)
-        parts = chain_dir.split(os.sep)
-        try:
-            proj_idx = parts.index("projects")
-            project_id = parts[proj_idx + 1]
-            cid = parts[-1]
-        except (ValueError, IndexError):
-            continue
-
-        if cid != search_id:
-            continue
+    for project_id in sorted(os.listdir(projects_dir)):
         if project_filter and project_id != project_filter:
             continue
+        project_root = os.path.join(projects_dir, project_id)
+        if not os.path.isdir(project_root):
+            continue
+        try:
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
+            )
+            from libs.path_resolver import get_sprint_dir
 
-        matches.append((project_id, cid, chain_dir))
+            spring_svc = SpringService(project_root)
+            for spring in spring_svc.list_springs():
+                spring_id = spring.get("_id", "")
+                if spring_id != search_id:
+                    continue
+                chain_dir = str(get_sprint_dir(project_id, spring_id))
+                if os.path.isdir(chain_dir):
+                    matches.append((project_id, spring_id, chain_dir))
+        except Exception:
+            continue
 
     if len(matches) == 0:
         return None
@@ -476,23 +489,24 @@ def _list_project_sprints(project_path: str) -> int:
         # Maybe the path IS a delta dir
         delta_dir = project_path
 
+    # Fuente unica: DeltaGraph (SpringService). plan.json fue eliminado (ADR-014).
     sprints = []
-    if os.path.isdir(delta_dir):
-        for entry in sorted(os.listdir(delta_dir)):
-            # PRINCIPIO: plan.json es la proyección del delta; sprint-state eliminado.
-            prog = os.path.join(delta_dir, entry, "plan.json")
-            if os.path.isfile(prog):
-                import json as _json
+    project_root = os.path.dirname(delta_dir)
+    try:
+        from features.delta_tracking.application.services.spring_service import (
+            SpringService,
+        )
 
-                try:
-                    with open(prog) as f:
-                        data = _json.load(f)
-                    tasks = len(data.get("specifications", data.get("tasks", [])))
-                    status = "unknown"
-                except (json.JSONDecodeError, KeyError, OSError):
-                    status = "error"
-                    tasks = 0
-                sprints.append((entry, status, tasks, os.path.join(delta_dir, entry)))
+        spring_svc = SpringService(project_root)
+        for spring in spring_svc.list_springs():
+            spring_id = spring.get("_id", "")
+            status = spring.get("status", "unknown")
+            tasks = len(spring_svc.get_specs(spring_id))
+            sprints.append(
+                (spring_id, status, tasks, os.path.join(delta_dir, spring_id))
+            )
+    except Exception:
+        sprints = []
 
     print()
     print("=" * 70)
@@ -500,7 +514,7 @@ def _list_project_sprints(project_path: str) -> int:
     print("=" * 70)
     print()
     print(Template("  Path: $p").substitute(p=project_path))
-    print("  Un chain_dir debe ser un directorio de sprint con plan.json,")
+    print("  Un chain_dir debe ser un directorio de sprint con .workflow-state.json,")
     print("  ej: .../delta/skill-spring-delta")
     print()
 
@@ -623,8 +637,9 @@ def _find_active_sprints() -> list[dict]:
     """Scan all projects for active sprints with walker state.
 
     PRINCIPIO estructural: el estado del spring (status) vive en el DELTA
-    (SpringGraphService); el estado del workflow (.workflow-state.json) lo
-    maneja WorkflowStateRepository. sprint-state.json fue eliminado.
+    (SpringService); el estado del workflow (.workflow-state.json) lo
+    maneja WorkflowStateRepository. sprint-state.json y plan.json fueron
+    eliminados (ADR-WALKER-014).
     """
     from libs.path_resolver import get_projects_dir
 
@@ -635,69 +650,57 @@ def _find_active_sprints() -> list[dict]:
     results = []
     seen_chains = set()
 
-    # Escanear chain_dirs via plan.json (proyección del delta)
-    for plan_path in glob.glob(
-        os.path.join(projects_dir, "*", "data", "*", "*", "plan.json")
-    ):
-        chain_dir = os.path.dirname(plan_path)
-        parts = chain_dir.split(os.sep)
-        # parts = [..., "projects", "<pid>", "data", "<sprint_dir>", "<cid>"]
-        try:
-            proj_idx = parts.index("projects")
-            project_id = parts[proj_idx + 1]
-            chain_id = parts[-1]
-        except (ValueError, IndexError):
-            project_id = "?"
-            chain_id = os.path.basename(chain_dir)
-
-        if chain_id in seen_chains:
+    # Iterar proyectos del DeltaGraph (fuente unica). plan.json fue eliminado.
+    for project_id in sorted(os.listdir(projects_dir)):
+        project_root = os.path.join(projects_dir, project_id)
+        if not os.path.isdir(project_root):
             continue
-        seen_chains.add(chain_id)
-
-        # Estado del spring desde el DELTA (fuente unica)
-        status = "unknown"
-        tasks = 0
         try:
-            from features.delta_tracking.application.spring_graph_service import (
-                SpringGraphService,
+            from features.delta_tracking.application.services.spring_service import (
+                SpringService,
             )
+            from libs.path_resolver import get_sprint_dir
 
-            spring_svc = SpringGraphService.from_chain_dir(chain_dir)
-            if spring_svc:
-                spring = spring_svc.get_spring(chain_id)
-                if spring:
-                    status = spring.get("status", "unknown")
-                    tasks = len(spring_svc.get_specs(chain_id))
+            spring_svc = SpringService(project_root)
+            for spring in spring_svc.list_springs():
+                chain_id = spring.get("_id", "")
+                if not chain_id or chain_id in seen_chains:
+                    continue
+                seen_chains.add(chain_id)
+
+                status = spring.get("status", "unknown")
+                tasks = len(spring_svc.get_specs(chain_id))
+                chain_dir = str(get_sprint_dir(project_id, chain_id))
+
+                # Filter: solo incluir sprints con estado activo
+                if status != "active":
+                    continue
+
+                # Walk state (v4: current_node.current_sub_state desde .workflow-state.json)
+                walker_state = None
+                state_file = os.path.join(chain_dir, ".workflow-state.json")
+                if os.path.exists(state_file):
+                    try:
+                        with open(state_file) as f:
+                            ss = json.load(f)
+                        node = ss.get("current_node", "?")
+                        sub = ss.get("current_sub_state", "")
+                        walker_state = f"{node}.{sub}" if sub else node
+                    except (json.JSONDecodeError, OSError) as e:
+                        eprint(f"  [warn] Error leyendo walker state {state_file}: {e}")
+
+                results.append(
+                    {
+                        "project_id": project_id,
+                        "chain_id": chain_id,
+                        "chain_dir": chain_dir,
+                        "status": status,
+                        "tasks": tasks,
+                        "walker_state": walker_state,
+                    }
+                )
         except Exception:
-            pass
-
-        # Filter: solo incluir sprints con estado activo
-        if status != "active":
             continue
-
-        # Walk state (v4: current_node.current_sub_state desde .workflow-state.json)
-        walker_state = None
-        state_file = os.path.join(chain_dir, ".workflow-state.json")
-        if os.path.exists(state_file):
-            try:
-                with open(state_file) as f:
-                    ss = json.load(f)
-                node = ss.get("current_node", "?")
-                sub = ss.get("current_sub_state", "")
-                walker_state = f"{node}.{sub}" if sub else node
-            except (json.JSONDecodeError, OSError) as e:
-                eprint(f"  [warn] Error leyendo walker state {state_file}: {e}")
-
-        results.append(
-            {
-                "project_id": project_id,
-                "chain_id": chain_id,
-                "chain_dir": chain_dir,
-                "status": status,
-                "tasks": tasks,
-                "walker_state": walker_state,
-            }
-        )
 
     results.sort(key=lambda r: (r["project_id"], r["chain_id"]))
     return results

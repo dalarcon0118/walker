@@ -2,15 +2,13 @@
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
-from features.project.application.use_cases import (
-    DetectLegacyUseCase, ImportLegacyHistoryUseCase, ImportLegacyTasksUseCase,
-)
+from features.project import ProjectService
 
 
 def detect_legacy(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     path = data.get("path", ctx.chain_dir or __import__("os").getcwd())
     try:
-        result = DetectLegacyUseCase.execute(path)
+        result = ProjectService.detect_legacy(path)
         return TaskResult.success(data=result)
     except Exception as e:
         return TaskResult.success(data={"is_legacy": False, "error": str(e)})
@@ -25,7 +23,7 @@ def import_legacy_history(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRe
     project_id = data.get("project_id", "")
     chains = data.get("chains", [])
     try:
-        result = ImportLegacyHistoryUseCase.execute(path, project_id, chains)
+        result = ProjectService.import_legacy_history(path, project_id, chains)
         return TaskResult.success(data=result)
     except Exception as e:
         return TaskResult.failure(str(e))
@@ -36,7 +34,7 @@ def import_legacy_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResu
     project_id = data.get("project_id", "")
     chains = data.get("chains", [])
     try:
-        result = ImportLegacyTasksUseCase.execute(path, project_id, chains)
+        result = ProjectService.import_legacy_tasks(path, project_id, chains)
         return TaskResult.success(data=result)
     except Exception as e:
         return TaskResult.failure(str(e))

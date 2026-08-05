@@ -37,6 +37,6 @@ def register(server: McpServer) -> None:
 
 def _public_task(name: str):
     def handler(args: dict) -> dict:
-        from features.cli_interface.application.handlers import _run_public_task
-        return _run_public_task(name, args.get("body", args))
+        from features.engine.application.task_dispatcher import dispatch_public_task
+        return dispatch_public_task(name, args.get("body", args))
     return handler

@@ -306,7 +306,7 @@ def test_health_analyzer_sugiere_submit_en_user_gate():
     Las gates del grafo (ej. analysis_approved) se disparan con el decision
     que el PO envía por submit; sugerir 'transition <gate>' confunde al PO.
     """
-    from features.project.application.use_cases import HealthReportAnalyzer
+    from features.project import HealthReportAnalyzer
 
     health = {
         "checks": {"ckg": "13 nodes", "cpg": "16891 nodes", "files": "up to date"},
@@ -335,7 +335,7 @@ def test_health_analyzer_sugiere_submit_en_user_gate():
 
 def test_health_analyzer_mantiene_transition_en_gates_de_nodo():
     """Sin execution_type=user_input, las gates del nodo siguen usando transition."""
-    from features.project.application.use_cases import HealthReportAnalyzer
+    from features.project import HealthReportAnalyzer
 
     health = {
         "checks": {"ckg": "13 nodes", "cpg": "16891 nodes", "files": "up to date"},
