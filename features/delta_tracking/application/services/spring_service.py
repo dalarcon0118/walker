@@ -22,6 +22,11 @@ from features.delta_tracking.application.use_cases.manage_specs import (
 from features.delta_tracking.application.use_cases.import_legacy import (
     ImportLegacySprintUseCase,
 )
+from features.delta_tracking.application.use_cases.progress import (
+    GetSprintProgressUseCase,
+    GetTaskContextUseCase,
+    ListCompletedTasksUseCase,
+)
 from features.delta_tracking.domain.entities import Spring, Spec
 from features.delta_tracking.domain.values import EDGE_CONTAINS, EDGE_IMPACTS
 
@@ -49,6 +54,9 @@ class SpringService:
         self._update_spec = UpdateSpecUseCase(self._repo)
         self._upsert = UpsertSpecsUseCase(self._repo)
         self._import_legacy = ImportLegacySprintUseCase(self._repo)
+        self._progress = GetSprintProgressUseCase(self._repo)
+        self._task_ctx = GetTaskContextUseCase(self._repo)
+        self._completed = ListCompletedTasksUseCase(self._repo)
 
     @classmethod
     def from_chain_dir(cls, chain_dir: str) -> "SpringService | None":
@@ -198,6 +206,17 @@ class SpringService:
     def get_current_spec(self, spring_id: str) -> dict | None:
         s = self._query.get_current_spec(spring_id)
         return _spec_to_dict(s) if s else None
+
+    # ── Progress & context ──
+
+    def get_sprint_progress(self, spring_id: str) -> dict:
+        return self._progress.execute(spring_id)
+
+    def get_task_context(self, spring_id: str, spec_id: str) -> dict | None:
+        return self._task_ctx.execute(spring_id, spec_id)
+
+    def list_completed_tasks(self, spring_id: str) -> list[dict]:
+        return self._completed.execute(spring_id)
 
     # ── Import legacy ──
 
