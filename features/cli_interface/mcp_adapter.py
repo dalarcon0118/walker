@@ -31,6 +31,42 @@ import os
 import sys
 from datetime import datetime
 
+from libs.mcp_server import McpServer
+
+
+# ── Composite server: compone todos los modulos MCP ──
+
+def _build_server() -> McpServer:
+    """Construye el servidor MCP compositing todos los modulos."""
+    server = McpServer()
+    # Core memories (CKG, CPG, Delta, Trace)
+    server.compose(_load_module("features.cognitive_knowledge.mcp"))
+    server.compose(_load_module("features.code_analysis.mcp"))
+    server.compose(_load_module("features.delta_tracking.mcp"))
+    server.compose(_load_module("features.event_tracing.mcp"))
+    # Workflow engine
+    server.compose(_load_module("features.engine.mcp"))
+    return server
+
+
+def _load_module(module_name: str):
+    """Lazy load a module's register function."""
+    def register(server: McpServer) -> None:
+        import importlib
+        mod = importlib.import_module(module_name)
+        mod.register(server)
+    return register
+
+
+_SERVER: McpServer | None = None
+
+
+def _get_server() -> McpServer:
+    global _SERVER
+    if _SERVER is None:
+        _SERVER = _build_server()
+    return _SERVER
+
 
 # ── Serializador JSON robusto ──────────────────────────────────────────────
 # El workflow devuelve objetos tipados (StepResult, WorkflowState, SubStateData,
@@ -133,45 +169,14 @@ _TOOLS = [
     },
     {
         "name": "kg_search",
-        "description": "Search project memory (CPG code, CKG knowledge, Delta tasks, Trace events). QUERY before reading code files.",
+        "description": "Search project memory (CPG/CKG/Delta/Trace). PROTOCOL: first call kg_schema to discover which fields each index supports, then query with those fields. Read walker://help/kg_search for examples.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID (auto-detected from CWD if omitted)"},
-                "query": {
-                    "type": "object",
-                    "description": "Query filters. Supports structured + fulltext combined.",
-                    "properties": {
-                        "text": {"type": "string", "description": "Fulltext search across all fulltext fields. Use this for keyword search. Can be string or {\"query\":\"...\",\"fields\":[\"rationale\"]} for field-scoped"},
-                        "_index": {"type": "string", "description": "Which index to search: ckg (knowledge), cpg (code), delta (tasks/sprints), trace (execution history). Default: ckg"},
-                        "type": {"type": "string", "description": "Filter by type. CKG: decision|convention|refactor|pattern|rule. CPG: file|class|function|method. Delta: spring|spec"},
-                        "file": {"type": "string", "description": "Filter by file path (substring match). CPG: 'features/delta_tracking'"},
-                        "scope": {"type": "string", "description": "CKG scope filter: architecture|security|infrastructure|testing"},
-                        "status": {"type": "string", "description": "Delta spec status: draft|specified|in_progress|completed"},
-                        "size": {"type": "integer", "description": "Max results to return (default 50)"},
-                        "_from": {"type": "integer", "description": "Pagination offset (0-based)"},
-                        "text_fields": {"type": "array", "items": {"type": "string"}, "description": "Limit fulltext to specific fields (E1: field-scoped)"},
-                    },
-                },
+                "project_id": {"type": "string"},
+                "query": {"type": "object"},
             },
             "required": ["query"],
-        },
-        "outputSchema": {
-            "description": "Search result with hits and schema metadata. hits.hits[] contains {_id, _index, _source: {field values}}",
-            "type": "object",
-            "properties": {
-                "took": {"type": "integer", "description": "Query time in ms"},
-                "hits": {
-                    "type": "object",
-                    "properties": {
-                        "total": {"type": "integer", "description": "Total matching docs"},
-                        "hits": {"type": "array", "description": "Result documents"},
-                        "from": {"type": "integer", "description": "Pagination offset used"},
-                        "size": {"type": "integer", "description": "Page size used"},
-                    },
-                },
-                "schema": {"type": "object", "description": "Index schema (fields, types, total_docs)"},
-            },
         },
     },
     {
@@ -427,6 +432,18 @@ _RESOURCES = [
         "uri": "walker://memory/{project_id}",
         "name": "Project Memory",
         "description": "CKG + business layer: decisions, conventions, reusable functions",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "walker://schema/{index}",
+        "name": "Index Schema",
+        "description": "Dynamic schema for any memory index. GET walker://schema/ckg to discover fields, types, and queryable attributes before calling kg_search. Use as auto-discovery: the schema tells you what fields to filter on.",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "walker://help/{tool}",
+        "name": "Tool Help",
+        "description": "Dynamic help for any tool. GET walker://help/kg_search to see query format and examples. No fixed schemas to maintain — auto-discovered.",
         "mimeType": "application/json",
     },
 ]
@@ -758,45 +775,34 @@ def _handle_request(msg: dict) -> dict:
             },
         }
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": _TOOLS}}
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": _get_server().list_tools()}}
     if method == "tools/call":
         name = params.get("name", "")
         args = params.get("arguments", {}) or {}
         try:
-            result = _call_tool(name, args)
+            result = _get_server().call_tool(name, args)
             return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "content": [
-                        {"type": "text", "text": dumps(result)}
-                    ],
-                    "isError": result.get("status_code", 200) >= 400,
-                },
+                "jsonrpc": "2.0", "id": msg_id,
+                "result": {"content": [{"type": "text", "text": dumps(result)}],
+                           "isError": result.get("status_code", 200) >= 400},
             }
         except Exception as e:
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
-                "result": {
-                    "content": [{"type": "text", "text": str(e)}],
-                    "isError": True,
-                },
+                "result": {"content": [{"type": "text", "text": str(e)}], "isError": True},
             }
     if method == "resources/list":
-        return {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": _RESOURCES}}
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": _get_server().list_resources()}}
     if method == "resources/read":
         uri = params.get("uri", "")
         try:
-            return {"jsonrpc": "2.0", "id": msg_id, "result": _read_resource(uri)}
+            result = _get_server().read_resource(uri)
+            return {"jsonrpc": "2.0", "id": msg_id, "result": result}
         except Exception as e:
             return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "contents": [{"uri": uri, "mimeType": "text/plain", "text": str(e)}]
-                },
-            }
+                "jsonrpc": "2.0", "id": msg_id,
+                "result": {"contents": [{"uri": uri, "mimeType": "text/plain", "text": str(e)}]}}
     if method == "prompts/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": _PROMPTS}}
     if method == "prompts/get":
