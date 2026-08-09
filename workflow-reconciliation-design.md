@@ -1,6 +1,6 @@
 # Workflow Reconciliation — Diseño (Analogía git → walker)
 
-> **Estado:** diseño — en implementación directa para desbloquear el sprint formal `session-20260731`.
+> **Estado:** SUPERSEDIDO — los 4 gaps fueron atendidos por ADR-WALKER-042 (implementado 2026-08-07/08) + `WorkflowState.reconcile_index()`. Ver §7. Este doc queda como registro del análisis git→walker; no reimplementar.
 > **Fecha:** 2026-08-05
 > **Problema que resuelve:** el árbol del workflow puede quedar en estado "roto" (sin mecanismos de reconciliación) cuando el agente pausa el flujo para cambiar de contexto, y ninguna gate puede volver a dispararse.
 
@@ -103,6 +103,37 @@ En vez de tratar "especificar" y "agregar tareas" como estados excluyentes, se m
 ## 6. Registro en sprint
 
 Estas tareas son **prerrequisito para continuar** el sprint formal `session-20260731`. Al completarlas, se registrarán en el plan del sprint con estado **resuelta** (done), sin necesidad de re-especificarlas por el flujo completo.
+
+---
+
+## 7. Estado de implementación (verificado 2026-08-09)
+
+> Este doc (2026-08-05) propuso un plan de 4 gaps. Posteriormente, ADR-WALKER-042
+> (Workflow Block Resolution, Status: **Implemented** 2026-08-08) lo sustituyó con
+> mecanismos first-class. Verificación de cada gap contra el código:
+
+| Gap del diseño | Implementación real | Referencia |
+|---|---|---|
+| **GAP-1** — invariante `sub_state_index ↔ current_sub_state` | `reconcile_index()` corrige el índice a partir del nombre (autoridad = current_sub_state) | `features/engine/domain/entities.py:559` |
+| GAP-1 (conexión) | `WorkflowStateRepository.load()` reconcilia al cargar, best-effort (nunca impide la carga) | `features/engine/infrastructure/repositories.py:395` |
+| **GAP-2/3** — suspender/reanudar especificación | Sustituido por el modelo wait-state de ADR-042 (`blocked_at`, `block_reason`, `pending_events`, `block_timeout_ms` en WorkflowState) | `docs/ADR-WALKER-042.md` §1–§3 |
+| **GAP-4** — force documentado | `BlockResolver.resolve(state, "force", {"reason": ...})` guarda `_forced` + `_force_reason` y loguea `force_resolved` | `features/engine/domain/services/block_resolver.py:130` + `features/engine/application/submit_orchestrator.py:83` |
+| GAP-4 (escalate) | Transición con `reason` + `BlockResolver.resolve(..., "escalate", ...)` desde `TransitionOrchestrator` | `features/engine/application/transition_orchestrator.py:63` |
+| Introspectable | `ConflictDetector` (delta_tracking) + `BlockResolver` (engine) separan detección de resolución | `docs/ADR-WALKER-042.md` § Architecture Boundaries |
+
+**Estado de los sprints en disco (verificado 2026-08-09, sin `blocked_at` activos):**
+
+| Sprint | Estado | Índice |
+|---|---|---|
+| `session-20260731` | SPRINT/ACTIVE | 4 (coherente — el estado corrupto documentado ya no existe) |
+| `taskregistry-migration-20260724` | SPRINT/ACTIVE | 4 |
+| `session-20260801` | SPRINT/ACTIVE | 0 |
+| `session-20260804` | vacío (inicial) | 0 |
+| `migrate-scripts-to-features` | presente | — |
+
+**Conclusión:** no implementar gates `suspend_specification`/`resume_specification` ni force propio.
+El sprint `session-20260731` está desbloqueado y el motor ya autocorrige estados corruptos
+(`reconcile_index`) y ofrece salida ante gates bloqueadas (`BlockResolver` skip/force/escalate).
 
 ---
 
