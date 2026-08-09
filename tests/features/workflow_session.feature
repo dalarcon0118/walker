@@ -40,3 +40,11 @@ Característica: WorkflowAPI reutiliza la sesión de un chain_dir
     Cuando aseguro sesión
     Cuando un nuevo WorkflowAPI con otro chain_dir asegura sesión
     Entonces el sessions_dir tiene 2 sesiones
+
+  @contrato
+  Escenario: GC borra sesiones stale conservando la activa
+    Dado un sessions_dir temporal con una sesión stale
+    Y una sesión activa reciente
+    Cuando el GC de sesiones corre
+    Entonces la sesión stale se elimina
+    Y la sesión activa se conserva

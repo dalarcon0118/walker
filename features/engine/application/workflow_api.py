@@ -95,6 +95,13 @@ class WorkflowAPI:
         self.status_message = ""
         self.suggestion = ""
 
+        # GC periódico de sesiones stale (throttle horario interno): evita
+        # que <sessions_dir> vuelva a acumular huérfanas con el tiempo.
+        try:
+            self._session_store.gc_stale()
+        except Exception:
+            pass  # best-effort: el GC nunca debe bloquear el flujo
+
         # 1. Usar session_id explícito si existe
         if self._session_id:
             record = self._session_store.load(self._session_id)

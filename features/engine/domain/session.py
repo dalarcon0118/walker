@@ -210,3 +210,59 @@ class SessionStore:
             if record.chain_dir == chain_dir:
                 return record
         return None
+
+    # Última corrida de GC (timestamp epoch). Throttle horario para no
+    # escanear el directorio en cada llamada CLI/MCP.
+    _LAST_GC: float = 0.0
+    GC_THROTTLE_SECONDS: float = 3600.0
+    # Guarda de seguridad: el GC nunca actúa sobre directorios con menos
+    # sesiones que este umbral. Evita borrado destructivo en dirs sanos
+    # (p.ej. el productivo con una docena de sesiones) cuando el acceso
+    # es solo metadata incidental (corridas de tests, etc.).
+    GC_STALE_MIN_SESSIONS: int = 50
+
+    @classmethod
+    def gc_stale(cls, max_hours: int = 168, min_sessions: int = 0) -> int:
+        """Borra sesiones stale que no son la activa (GC periódico).
+
+        Complementa el reuso por chain_dir: cuando una sesión del mismo
+        chain_dir supera is_stale (2h) se crea una nueva, y la anterior
+        quedaría huérfana. Este GC elimina esas huérfanas para evitar
+        que <sessions_dir> vuelva a acumular archivos con el tiempo.
+
+        Seguridad (evita pérdida accidental de datos reales):
+        - Protege SIEMPRE la sesión activa (agents/<id>/active_session).
+        - min_sessions (default 0): con el valor por defecto de
+          GC_STALE_MIN_SESSIONS se usa un umbral alto (50) para que el GC
+          jamás actúe sobre un directorio sano. La invocación automática
+          desde ensure_session usa este default.
+        - max_hours default alto (168h = 7 días): las sesiones con menos
+          de una semana de inactividad se conservan aunque no sean la
+          activa.
+        - Throttle horario (GC_THROTTLE_SECONDS): una sola corrida por hora.
+
+        Returns:
+            Cantidad de sesiones eliminadas.
+        """
+        import time as _time
+
+        now = _time.time()
+        if now - cls._LAST_GC < cls.GC_THROTTLE_SECONDS:
+            return 0
+        cls._LAST_GC = now
+
+        sessions = cls.list_sessions()
+        limit = min_sessions or cls.GC_STALE_MIN_SESSIONS
+        if len(sessions) < limit:
+            return 0
+
+        active = cls.get_active()
+        active_id = active.session_id if active else ""
+        removed = 0
+        for record in sessions:
+            if record.session_id == active_id:
+                continue
+            if record.is_stale(max_hours=max_hours):
+                cls.delete(record.session_id)
+                removed += 1
+        return removed

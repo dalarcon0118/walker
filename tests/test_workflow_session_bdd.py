@@ -45,6 +45,29 @@ def _tmp_sessions_dir(wf_ctx: dict, tmp_path):
     wf_ctx["sessions_dir"] = str(tmp_path / "sessions")
 
 
+@given("un sessions_dir temporal con una sesión stale")
+def _tmp_sessions_stale(wf_ctx: dict, tmp_path):
+    _install_sessions_dir(tmp_path)
+    wf_ctx["sessions_dir"] = str(tmp_path / "sessions")
+    from datetime import datetime, timedelta, timezone
+
+    stale = SessionRecord.create(chain_dir="/proj/data/spring/sprint-stale")
+    stale.last_read_at = (
+        datetime.now(timezone.utc) - timedelta(hours=48)
+    ).isoformat()
+    stale.updated_at = stale.last_read_at
+    SessionStore.save(stale)
+    wf_ctx["stale_id"] = stale.session_id
+
+
+@given("una sesión activa reciente")
+def _active_recent(wf_ctx: dict):
+    active = SessionRecord.create(chain_dir="/proj/data/spring/sprint-active")
+    SessionStore.save(active)
+    SessionStore.set_active(active.session_id)
+    wf_ctx["active_id"] = active.session_id
+
+
 @given("un WorkflowAPI con chain_dir explícito")
 def _api_with_chain(wf_ctx: dict):
     wf_ctx["chain_dir"] = "/proj/data/spring/sprint-001"
@@ -73,6 +96,14 @@ def _ensure_other_chain(wf_ctx: dict):
     api = WorkflowAPI(chain_dir="/proj/data/spring/sprint-002", project_id="test-proj")
     wf_ctx["session_id_2"] = api.ensure_session()
     wf_ctx["api"] = api
+
+
+@when("el GC de sesiones corre")
+def _gc_runs(wf_ctx: dict):
+    # min_sessions=1 y max_hours=48: en escenarios de prueba se anulan
+    # los defaults de seguridad (GC_STALE_MIN_SESSIONS=50, max_hours=168)
+    # para ejercitar la lógica con un umbral controlado.
+    wf_ctx["gc_removed"] = SessionStore.gc_stale(max_hours=48, min_sessions=1)
 
 
 # ── Then ──────────────────────────────────────────────────────────
@@ -112,9 +143,24 @@ def _same_active(wf_ctx: dict):
     assert wf_ctx["session_id_2"] == wf_ctx["session_id"]
 
 
+@then("la sesión stale se elimina")
+def _stale_removed(wf_ctx: dict):
+    assert SessionStore.load(wf_ctx["stale_id"]) is None
+    assert wf_ctx["gc_removed"] >= 1
+
+
+@then("la sesión activa se conserva")
+def _active_kept(wf_ctx: dict):
+    assert SessionStore.load(wf_ctx["active_id"]) is not None
+    active = SessionStore.get_active()
+    assert active is not None
+    assert active.session_id == wf_ctx["active_id"]
+
+
 @pytest.fixture(autouse=True)
 def _reset_session_store(tmp_path):
     """Restaura SessionStore.SESSIONS_DIR entre tests (evita contaminación)."""
     yield
     SessionStore.SESSIONS_DIR = None
     SessionStore.ACTIVE_FILE = None
+    SessionStore._LAST_GC = 0.0
