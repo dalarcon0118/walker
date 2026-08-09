@@ -1,30 +1,32 @@
 """
 features/event_tracing/ — TraceGraph: historial de eventos del workflow.
 
-Domain:     TraceEvent (ODM entity)
-Application: search_traces
-Infrastructure: CognitiveGraph (storage canonical) + legacy fallback
+Domain:     TraceEvent (dataclass — SSOT del modelo, ADR-WALKER-018)
+Application: search_traces (fail-closed)
+Infrastructure: CognitiveTraceRepository (indice trace canonical) + legacy
+                migrado on-demand (migrate_legacy_traces, idempotente)
 
 Uso:
-    from features.event_tracing import search, TraceEvent
+    from features.event_tracing import search, TraceEvent, migrate_legacy_traces
 
-    # Via CognitiveGraph
-    TraceEvent.bind(cg)
-    events = TraceEvent.search("Write")
-
-    # Via funcion legacy (soporta ambos backends)
+    # Buscar eventos (canonical + legacy deduped)
     events = search(chain_dir, {"tool": "Write"})
+
+    # Consolidar legacy al indice trace (una sola vez)
+    migrated = migrate_legacy_traces(chain_dir)
 """
 from features.event_tracing.application.search_service import search_traces
-from features.event_tracing.infrastructure.repository import load_traces
-from features.event_tracing.domain.models import TraceEvent as TraceEventModel
-from features.event_tracing.entities import TraceEvent
+from features.event_tracing.infrastructure.repository import (
+    load_traces,
+    migrate_legacy_traces,
+)
+from features.event_tracing.domain.models import TraceEvent
 
 
 def search(chain_dir: str, filters: dict | None = None) -> list[dict]:
     """Busca eventos en los traces.
 
-    Primary: CognitiveGraph. Fallback: legacy files.
+    Primary: CognitiveGraph. Fallback: legacy (deduped, ADR-WALKER-018).
     """
     events = load_traces(chain_dir)
     return search_traces(events, filters or {})

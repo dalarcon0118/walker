@@ -1,27 +1,28 @@
 """
-resolve — recent commits mention module
+resolve — Workflow conflict detection and resolution.
 
-Extracted from walker.py.
+Refactored: conflicts are derived from current state (workflow + delta + trace)
+instead of a separate .delta-conflicts.json file. Conflict detection and
+resolution logic lives in delta_tracking/domain/services/conflict_resolver.py.
 """
+from __future__ import annotations
 
 import os
-import json
 import subprocess
 from datetime import datetime, timezone
 from string import Template
 from libs.infrastructure.utils import (
     eprint,
-    load_json,
     extract_chain_dir,
     _is_chain_dir,
     _list_project_sprints,
     _get_current_node,
     _get_current_sub_key,
-    _CONFLICTS_FILE,
 )
 from .loader import find_workflow, ensure_state
 
-# ── Detection helpers (antes en engine.py) ──────────────────────────
+
+# ── Detection helpers ─────────────────────────────────────────────────────────
 
 
 def _detect_workflow_version(
@@ -43,20 +44,14 @@ def _detect_workflow_version(
 
 
 def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[str]]:
-    """Detect if sprint has pending tasks during close check.
-
-    PRINCIPIO: el estado de negocio del spring (specs y sus estados) vive
-    en el DELTA (SpringService). No se lee sprint-state.json.
-    """
+    """Detect if sprint has pending tasks during close check."""
     if not chain_dir:
         return False, []
 
-    from features.delta_tracking.application.services.spring_service import (
-        SpringService,
-    )
+    from features.delta_tracking import SpringService, spring_service
 
     try:
-        spring_svc = SpringService.from_chain_dir(chain_dir)
+        spring_svc = spring_service(chain_dir=chain_dir)
         if not spring_svc:
             return False, []
         spring_id = spring_svc.get_spring_id(chain_dir)
@@ -69,7 +64,7 @@ def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[
         s.get("spec_id", s.get("task_id", ""))
         for s in specs
         if str(s.get("status", "")).lower()
-        not in _DONE_STATUSES | {"rejected", "backlog"}
+        not in {"completed", "closed", "rejected", "backlog"}
     ]
     if pending:
         return True, pending
@@ -115,7 +110,6 @@ def _detect_task_state_conflicts(chain_dir: str | None) -> list[dict]:
     """Detect tasks pending in el estado del motor but with recent commits.
 
     Un conflicto real = tarea 'pending' + commits recientes que la mencionan.
-    Solo estas tareas pueden ser resueltas con resolve --apply.
     """
     if not chain_dir:
         return []
@@ -124,10 +118,7 @@ def _detect_task_state_conflicts(chain_dir: str | None) -> list[dict]:
         WorkflowStateRepository as _SSR,
     )
 
-    def load_state(c):
-        return _SSR().load(c).to_dict() or {}
-
-    s = load_state(chain_dir)
+    s = _SSR().load(chain_dir).to_dict() or {}
     tasks = s.get("tasks", {})
     if not tasks:
         return []
@@ -142,82 +133,10 @@ def _detect_task_state_conflicts(chain_dir: str | None) -> list[dict]:
                 {
                     "task_id": tid,
                     "message": f"Commits recientes mencionan {tid} pero estado='pending'",
-                    "action": f"walker.py resolve --apply {tid} <chain_dir>",
+                    "action": f"walker resolve --apply {tid} {chain_dir}",
                 }
             )
     return conflicts
-
-
-def _resolve_conflict(chain_dir: str, tid: str) -> int:
-    """Mark a task as completed, only if a conflict was previously detected.
-
-    VALIDACIONES:
-    1. Debe existir un conflicto NO RESUELTO en .delta-conflicts.json
-    2. El conflicto debe haber sido detectado por resolve (no inventado)
-    3. La tarea debe estar 'pending' todavia
-
-    Si no hay conflicto, BLOQUEA: el LLM no puede saltarse el workflow.
-    """
-    from features.engine.infrastructure.repositories import (
-        WorkflowStateRepository as _SSR,
-    )
-
-    load_state = lambda c: _SSR().load(c).to_dict() or {}, save_state
-
-    # ── Verificar que existe un conflicto real ─────────────────
-    cpath = os.path.join(chain_dir, _CONFLICTS_FILE)
-    clog: list[dict] = load_json(cpath) if os.path.exists(cpath) else []
-    if not isinstance(clog, list):
-        clog = []
-
-    has_conflict = any(e.get("task_id") == tid and not e.get("resolved") for e in clog)
-
-    if not has_conflict:
-        print()
-        print("=" * 70)
-        print(f"  ❌ RESOLVE BLOQUEADO: No hay conflicto detectado para {tid}")
-        print()
-        print("  resolve --apply solo puede usarse cuando hay un conflicto")
-        print("  detectado por 'walker.py resolve'. No puedes marcar tareas")
-        print("  como completadas sin pasar por el workflow.")
-        print()
-        print("  Ejecuta 'walker.py resolve <chain_dir>' para detectar conflictos.")
-        print("  Si no hay conflictos, la tarea debe completarse via el workflow.")
-        print("=" * 70)
-        print()
-        return 1
-
-    # ── Verificar que la tarea aun esta 'pending' ─────────────
-    s = load_state(chain_dir)
-    current = s.get("tasks", {}).get(tid, {}).get("status", "unknown")
-    if current == "completed":
-        print(f"  [resolve] {tid} ya esta 'completed'")
-        return 0
-
-    # ── Aplicar resolucion ────────────────────────────────────
-    s.setdefault("tasks", {})[tid] = s["tasks"].get(tid, {})
-    s["tasks"][tid]["status"] = "completed"
-    s.setdefault("audit", {}).setdefault("trail", []).append(
-        {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "event": f"{tid} marcada completed via resolve --apply (conflicto validado)",
-        }
-    )
-    save_state(s, chain_dir)
-
-    # Marcar conflicto como resuelto
-    for e in clog:
-        if e.get("task_id") == tid and not e.get("resolved"):
-            e["resolved"] = True
-            e["resolved_at"] = datetime.now(timezone.utc).isoformat()
-    try:
-        with open(cpath, "w") as f:
-            json.dump(clog, f, indent=2, ensure_ascii=False)
-    except OSError as e:
-        eprint(f"  [warn] No se pudo escribir conflict log {cpath}: {e}")
-
-    print(f"  ✅ [resolve] {tid} marcada como 'completed' (conflicto resuelto)")
-    return 0
 
 
 def _detect_all_conflicts(
@@ -278,29 +197,9 @@ def _detect_all_conflicts(
 
     # 5. Task state conflicts (tasks pending en el estado del motor but implemented in code)
     task_conflicts = _detect_task_state_conflicts(chain_dir)
-    clog: list[dict] = []
-    cpath = os.path.join(chain_dir, _CONFLICTS_FILE)
-    if task_conflicts:
-        clog = load_json(cpath) if os.path.exists(cpath) else []
-        if not isinstance(clog, list):
-            clog = []
     for conflict in task_conflicts:
         issues.append(f"{conflict['task_id']}: {conflict['message']}")
         actions.append(conflict["action"])
-        clog.append(
-            {
-                "task_id": conflict["task_id"],
-                "detected_at": datetime.now(timezone.utc).isoformat(),
-                "message": conflict["message"],
-                "resolved": False,
-            }
-        )
-    if task_conflicts:
-        try:
-            with open(cpath, "w") as f:
-                json.dump(clog, f, indent=2, ensure_ascii=False)
-        except OSError as e:
-            eprint(f"  [warn] No se pudo escribir conflict log {cpath}: {e}")
 
 
 def cmd_resolve(sub_args: list[str]) -> int:
@@ -311,8 +210,8 @@ def cmd_resolve(sub_args: list[str]) -> int:
     - Tareas implementadas pero no registradas
 
     Uso:
-      walker.py resolve [<chain_dir>]
-      walker.py resolve --apply <task_id> <chain_dir>
+      walker resolve [<chain_dir>]
+      walker resolve --apply <task_id> <chain_dir>
     """
     sub_args, chain_dir = extract_chain_dir(sub_args)
     if chain_dir and not _is_chain_dir(chain_dir):
@@ -321,7 +220,7 @@ def cmd_resolve(sub_args: list[str]) -> int:
     # --apply <task_id> [<chain_dir>]
     if sub_args and sub_args[0] == "--apply":
         if len(sub_args) < 2:
-            eprint("Uso: walker.py resolve --apply <task_id> <chain_dir>")
+            eprint("Uso: walker resolve --apply <task_id> <chain_dir>")
             return 2
         tid = sub_args[1]
         if not chain_dir and len(sub_args) >= 3:
@@ -332,7 +231,7 @@ def cmd_resolve(sub_args: list[str]) -> int:
         return _resolve_conflict(chain_dir, tid)
 
     if not chain_dir:
-        eprint("Uso: walker.py resolve [<chain_dir>]")
+        eprint("Uso: walker resolve [<chain_dir>]")
         return 2
 
     state = ensure_state(chain_dir)
@@ -397,3 +296,183 @@ def cmd_resolve(sub_args: list[str]) -> int:
     print("=" * 70)
     print()
     return 1 if issues else 0
+
+
+def _resolve_conflict(chain_dir: str, tid: str) -> int:
+    """Mark a task as completed, only if a conflict was previously detected.
+
+    Ahora usa WorkflowConflictResolver de engine en lugar de ConflictResolver
+    legacy para estrategias de workflow.
+    """
+    from features.delta_tracking.domain.services.conflict_resolver import ConflictResolver
+    from features.engine.domain.services.conflict_resolver import WorkflowConflictResolver
+    from features.engine.infrastructure.repositories import (
+        WorkflowStateRepository as _SSR,
+    )
+    from returns.result import Success
+
+    s = _SSR().load(chain_dir).to_dict() or {}
+    current = s.get("current_node", "")
+    sub_key = s.get("current_sub_state", "")
+
+    workflow = find_workflow(chain_dir)
+    from features.delta_tracking import SpringService, spring_service
+    try:
+        spring_svc = spring_service(chain_dir=chain_dir)
+        if spring_svc:
+            spring_id = spring_svc.get_spring_id(chain_dir)
+            specs = spring_svc.get_specs(spring_id)
+        else:
+            specs = []
+    except Exception:
+        specs = []
+
+    trace_events = []
+    try:
+        from features.engine.infrastructure.trace_log import TraceLogger
+        tracer = TraceLogger()
+        trace_events = tracer.replay(chain_dir)
+    except Exception:
+        pass
+
+    conflicts = ConflictResolver.detect(s, workflow, specs, trace_events)
+    task_conflict = next((c for c in conflicts if c.spec_id == tid), None)
+
+    if not task_conflict:
+        print()
+        print("=" * 70)
+        print(f"  ❌ RESOLVE BLOQUEADO: No hay conflicto detectado para {tid}")
+        print()
+        print("  resolve --apply solo puede usarse cuando hay un conflicto")
+        print("  detectado por 'walker resolve'. No puedes marcar tareas")
+        print("  como completadas sin pasar por el workflow.")
+        print()
+        print("  Ejecuta 'walker resolve <chain_dir>' para detectar conflictos.")
+        print("  Si no hay conflictos, la tarea debe completarse via el workflow.")
+        print("=" * 70)
+        print()
+        return 1
+
+    current_status = "unknown"
+    for spec in specs:
+        if spec.get("spec_id") == tid or spec.get("task_id") == tid:
+            current_status = spec.get("status", "unknown")
+            break
+
+    if current_status == "completed":
+        print(f"  [resolve] {tid} ya esta 'completed'")
+        return 0
+
+    from features.engine.domain.models import WorkflowState, WorkflowGraph
+    state = WorkflowState.from_dict(s)
+    graph = WorkflowGraph.from_dict(workflow)
+
+    result = WorkflowConflictResolver.resolve(
+        state, "skip", {"task_id": tid}, graph=graph
+    )
+
+    if isinstance(result, Success):
+        new_state = result.unwrap()
+    else:
+        print(f"  ❌ RESOLVE FALLO: {result.failure() if hasattr(result, 'failure') else result}")
+        return 1
+
+    new_state_dict = new_state.to_dict() if hasattr(new_state, "to_dict") else new_state
+
+    from features.engine.infrastructure.repositories import WorkflowStateRepository
+    WorkflowStateRepository().save(chain_dir, type("WS", (), {"to_dict": lambda self: new_state_dict, "version": "5.0"})())
+
+    if spring_svc:
+        spring_id = spring_svc.get_spring_id(chain_dir)
+        spring_svc.update_spec_status(spring_id, tid, "completed")
+
+    print(f"  ✅ [resolve] {tid} marcada como 'completed' (conflicto resuelto)")
+    return 0
+
+
+def cmd_resolve(sub_args: list[str]) -> int:
+    """walker resolve: detecta conflictos y aplica estrategias de resolucion."""
+    sub_args, chain_dir = extract_chain_dir(sub_args)
+    if chain_dir and not _is_chain_dir(chain_dir):
+        return _list_project_sprints(chain_dir)
+
+    # --apply <task_id> [<chain_dir>]
+    if sub_args and sub_args[0] == "--apply":
+        if len(sub_args) < 2:
+            eprint("Uso: walker resolve --apply <task_id> <chain_dir>")
+            return 2
+        tid = sub_args[1]
+        if not chain_dir and len(sub_args) >= 3:
+            chain_dir = os.path.abspath(sub_args[2])
+        if not chain_dir:
+            eprint("  [resolve] Se requiere <chain_dir>")
+            return 2
+        return _resolve_conflict(chain_dir, tid)
+
+    if not chain_dir:
+        eprint("Uso: walker resolve [<chain_dir>]")
+        return 2
+
+    state = ensure_state(chain_dir)
+    workflow = find_workflow(chain_dir)
+    current = _get_current_node(state)
+    sub_key = _get_current_sub_key(state)
+    task_id = state.get("context", {}).get("task_id")
+    issues: list[str] = []
+    actions: list[str] = []
+
+    print("=" * 70)
+    print("  WALKER RESOLVE v4 — Diagnostico de conflictos")
+    print("=" * 70)
+    print()
+    print(Template("  Sprint:   $d").substitute(d=os.path.basename(chain_dir)))
+    print(
+        Template("  Current:  [$current.$sub_key]").substitute(
+            current=current, sub_key=sub_key
+        )
+    )
+    print(Template("  Task ID:  $tid").substitute(tid=task_id or "(ninguno)"))
+    print(
+        Template("  Workflow: $n nodos, $e edges").substitute(
+            n=str(len(workflow.get("nodes", {}))),
+            e=str(len(workflow.get("edges", []))),
+        )
+    )
+    print()
+
+    # ── Detection ──
+    _detect_all_conflicts(
+        chain_dir, state, workflow, current, sub_key, issues, actions
+    )
+
+    # ── Resolution strategies ──
+
+    if not issues:
+        print("  ✅ No se detectaron conflictos.")
+        print()
+        print("  El workflow esta en un estado consistente (v4).")
+        print(
+            Template("  Current: [$current.$sub_key]").substitute(
+                current=current, sub_key=sub_key
+            )
+        )
+        print("  Usa 'walker.py status' para ver las transiciones disponibles.")
+        print()
+        return 0
+
+    print("─" * 70)
+    print("  PROBLEMAS DETECTADOS:")
+    for i, issue in enumerate(issues, 1):
+        print(Template("  $i. $issue").substitute(i=i, issue=issue))
+    print()
+
+    print("─" * 70)
+    print("  ACCIONES EJECUTADAS / RECOMENDADAS:")
+    for i, action in enumerate(actions, 1):
+        print(Template("  $i. $action").substitute(i=i, action=action))
+    print()
+
+    print("=" * 70)
+    print()
+    return 1 if issues else 0
+

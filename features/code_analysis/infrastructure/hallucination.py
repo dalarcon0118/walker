@@ -14,21 +14,65 @@ Algoritmo por import:
   5. Reportar cualquier import irresoluble como HALLUCINATION
 
 Migrado desde to_clean_next/_internal/hallucination.py (legacy).
+
+Result pattern (dry-python/returns): los cores puros con @safe nunca lanzan;
+los wrappers deciden con is_successful y hacen fallback explícito con log
+(convention-001: nunca except silencioso).
 """
 from __future__ import annotations
 
 import ast
 import importlib.util
+import logging
 import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
+logger = logging.getLogger(__name__)
 
 # ── Python stdlib module names (Python 3.10+) ────────────────
+# Detección de versión en import-time: fallback documentado a None (no es
+# un error del sistema, sino detección de capacidad del runtime).
 try:
     _STDLIB = sys.stdlib_module_names
 except AttributeError:
     _STDLIB = None
+
+
+@safe
+def _parse_module_core(mod_path: Path) -> ast.AST:
+    """Core puro: parsea un módulo Python (puede lanzar).
+
+    Nota: @safe captura TODAS las excepciones (fail-open), no solo las
+    que el original contemplaba (SyntaxError/FileNotFoundError).
+    """
+    return ast.parse(mod_path.read_text())
+
+
+@safe
+def _find_spec_core(module_name: str) -> Any:
+    """Core puro: importlib.util.find_spec (puede lanzar ImportError/ValueError).
+
+    Nota: @safe captura TODAS las excepciones (fail-open amplía el contrato
+    original de (ImportError, ValueError)).
+    """
+    return importlib.util.find_spec(module_name)
+
+
+@safe
+def _import_module_core(module_name: str) -> Any:
+    """Core puro: importlib.import_module (puede lanzar ImportError).
+
+    Nota: @safe captura TODAS las excepciones (fail-open): un módulo con
+    error de import distinto a ImportError ahora devuelve RESOLVED en vez
+    de propagar.
+    """
+    return importlib.import_module(module_name)
 
 # ── Helpers ──────────────────────────────────────────────────
 
@@ -153,10 +197,17 @@ def _symbol_in_module(symbol: str, mod_path: Path) -> bool:
     if mod_path.suffix != ".py":
         return True  # Módulo no-Python, asumir OK
 
-    try:
-        tree = ast.parse(mod_path.read_text())
-    except (SyntaxError, FileNotFoundError):
-        return True  # No se puede parsear, asumir OK para evitar falsos positivos
+    parsed = _parse_module_core(mod_path)
+    if not is_successful(parsed):
+        error = parsed.failure()
+        logger.warning(
+            "Módulo %s no parseable (%s); se asume OK para evitar falsos positivos",
+            mod_path, error,
+        )
+        return True
+    tree = parsed.value_or(None)
+    if tree is None:
+        return True
 
     names = _collect_public_names(tree)
 
@@ -204,13 +255,17 @@ def _resolve_project_import(
         return "RESOLVED", None
 
     # Comprobación final: import dinámico
-    try:
-        full_name = f"{module_name}.{symbol}"
-        spec = importlib.util.find_spec(full_name)
-        if spec is not None:
-            return "RESOLVED", None
-    except (ImportError, ValueError):
-        pass
+    full_name = f"{module_name}.{symbol}"
+    spec_result = _find_spec_core(full_name)
+    if not is_successful(spec_result):
+        error = spec_result.failure()
+        logger.debug(
+            "find_spec(%s) fallo (%s); se reporta no resuelto",
+            full_name, error,
+        )
+        return "HALLUCINATION", f"Symbol '{symbol}' not found in module '{module_name}'"
+    if spec_result.value_or(None) is not None:
+        return "RESOLVED", None
 
     return "HALLUCINATION", f"Symbol '{symbol}' not found in module '{module_name}'"
 
@@ -227,49 +282,61 @@ def _is_stdlib(module_name: str) -> bool:
         return top in _STDLIB
 
     # Fallback: probar importlib y comprobar la ruta
-    try:
-        spec = importlib.util.find_spec(top)
-        if spec is None:
-            return False
-        if (
-            spec.origin
-            and "site-packages" not in spec.origin
-            and "dist-packages" not in spec.origin
-        ):
-            return True
-        return spec.origin is None  # namespace packages
-    except (ImportError, ValueError):
+    spec_result = _find_spec_core(top)
+    if not is_successful(spec_result):
+        error = spec_result.failure()
+        logger.debug(
+            "find_spec(%s) fallo (%s); se asume no-stdlib", top, error,
+        )
         return False
+    spec = spec_result.value_or(None)
+    if spec is None:
+        return False
+    if (
+        spec.origin
+        and "site-packages" not in spec.origin
+        and "dist-packages" not in spec.origin
+    ):
+        return True
+    return spec.origin is None  # namespace packages
 
 
 def _resolve_third_party(
     module_name: str, symbol: str | None
 ) -> tuple[str, str | None]:
-    """Resuelve un import de terceros vía importlib."""
-    try:
-        spec = importlib.util.find_spec(module_name)
-        if spec is None:
-            return "HALLUCINATION", f"Third-party module '{module_name}' not installed"
+    """Resuelve un import de terceros vía importlib (Result pattern: @safe)."""
+    spec_result = _find_spec_core(module_name)
+    if not is_successful(spec_result):
+        error = spec_result.failure()
+        logger.debug(
+            "find_spec(%s) fallo (%s); se reporta no instalado",
+            module_name, error,
+        )
+        return "HALLUCINATION", str(error)
+    spec = spec_result.value_or(None)
+    if spec is None:
+        return "HALLUCINATION", f"Third-party module '{module_name}' not installed"
 
-        if symbol:
-            # Cargar el módulo y comprobar el atributo
-            try:
-                mod = importlib.import_module(module_name)
-                if hasattr(mod, symbol):
-                    return "RESOLVED", None
-                return (
-                    "HALLUCINATION",
-                    f"Symbol '{symbol}' not found in third-party module '{module_name}'",
-                )
-            except ImportError:
-                return (
-                    "RESOLVED",
-                    None,
-                )  # El módulo existe pero no puede importarse completo (C extension, etc.)
+    if symbol:
+        # Cargar el módulo y comprobar el atributo
+        mod_result = _import_module_core(module_name)
+        if not is_successful(mod_result):
+            error = mod_result.failure()
+            logger.debug(
+                "import_module(%s) fallo (%s); el módulo existe pero no puede "
+                "importarse completo (C extension, etc.)",
+                module_name, error,
+            )
+            return "RESOLVED", None
+        mod = mod_result.value_or(None)
+        if mod is not None and hasattr(mod, symbol):
+            return "RESOLVED", None
+        return (
+            "HALLUCINATION",
+            f"Symbol '{symbol}' not found in third-party module '{module_name}'",
+        )
 
-        return "RESOLVED", None
-    except (ImportError, ValueError) as e:
-        return "HALLUCINATION", str(e)
+    return "RESOLVED", None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -349,23 +416,27 @@ def check_python_import(
     # 2. Librería estándar
     if _is_stdlib(module_name):
         if symbol:
-            try:
-                mod = importlib.import_module(module_name)
-                if hasattr(mod, symbol) or symbol in getattr(mod, "__all__", []):
-                    return "RESOLVED", None
-                # Comprobar submódulo
-                try:
-                    sub_spec = importlib.util.find_spec(f"{module_name}.{symbol}")
-                    if sub_spec is not None:
-                        return "RESOLVED", None
-                except (ImportError, ValueError):
-                    pass
-                return (
-                    "HALLUCINATION",
-                    f"Symbol '{symbol}' not found in stdlib module '{module_name}'",
+            mod_result = _import_module_core(module_name)
+            if not is_successful(mod_result):
+                error = mod_result.failure()
+                logger.debug(
+                    "import_module(%s) fallo (%s); se asume stdlib sin verificar",
+                    module_name, error,
                 )
-            except ImportError:
-                pass
+                return "RESOLVED_STDLIB", None
+            mod = mod_result.value_or(None)
+            if mod is not None and (
+                hasattr(mod, symbol) or symbol in getattr(mod, "__all__", [])
+            ):
+                return "RESOLVED", None
+            # Comprobar submódulo
+            sub_result = _find_spec_core(f"{module_name}.{symbol}")
+            if is_successful(sub_result) and sub_result.value_or(None) is not None:
+                return "RESOLVED", None
+            return (
+                "HALLUCINATION",
+                f"Symbol '{symbol}' not found in stdlib module '{module_name}'",
+            )
         return "RESOLVED_STDLIB", None
 
     # 3. Terceros
@@ -400,11 +471,18 @@ def _resolve_package_for_file(filepath: Path, level: int) -> Path | None:
 
 def scan_python_file(filepath: Path, project_root: str) -> list[dict]:
     """Parsear el AST de un archivo Python y verificar que todos los imports resuelvan."""
-    try:
-        source = filepath.read_text()
-        tree = ast.parse(source)
-    except SyntaxError as e:
-        return [{"line": 1, "type": "parse_error", "error": f"SyntaxError: {e}"}]
+    parsed = _parse_module_core(filepath)
+    if not is_successful(parsed):
+        error = parsed.failure()
+        logger.warning(
+            "Archivo %s no parseable (%s)", filepath, error,
+        )
+        return [
+            {"line": 1, "type": "parse_error", "error": f"{type(error).__name__}: {error}"}
+        ]
+    tree = parsed.value_or(None)
+    if tree is None:
+        return []
 
     issues: list[dict] = []
 

@@ -15,7 +15,7 @@ from returns.pipeline import is_successful
 
 from features.engine.domain.models import ExecutionContext
 from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
-from features.spring.application.use_cases import ValidatePlanUseCase
+from features.delta_tracking.application.use_cases_sprint import ValidatePlanUseCase
 
 
 @safe
@@ -26,7 +26,7 @@ def _validate_core(chain_dir: str) -> dict[str, Any]:
         dict con valid, errors, spec_count, specified_count
 
     Raises:
-        FileNotFoundError: si plan.json no existe
+        FileNotFoundError: si el spring no existe en el DeltaGraph
         Exception: otros errores de validacion
     """
     ctx = ExecutionContext.create(session_id="", chain_dir=chain_dir)

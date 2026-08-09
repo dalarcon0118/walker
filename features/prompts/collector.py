@@ -1,13 +1,28 @@
 """collector.py — Recolecta datos para inyectar en templates."""
 
 from __future__ import annotations
-from libs.infrastructure import CognitiveGraphSearcher
+
+import logging
+from typing import Any
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
+from features.engine.bootstrap import get_module_service
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
+
+
+def _build_cg(chain_dir: str) -> Any:
+    """Construye el searcher vía DI (key "cognitive_searcher") para el chain_dir."""
+    paths = ProjectService.resolve_paths(chain_dir)
+    searcher_factory = get_module_service("cognitive_searcher")
+    return searcher_factory(paths.project_root)
 
 
 def collect_activity(chain_dir: str, node_id: str | None = None) -> dict:
-    paths = ProjectService.resolve_paths(chain_dir)
-    cg = CognitiveGraphSearcher(paths.project_root)
+    cg = _build_cg(chain_dir)
     activity = {"id": node_id or "unknown", "description": ""}
     if node_id:
         r = cg.search("ckg", {"tag": node_id.lower()})
@@ -19,8 +34,7 @@ def collect_activity(chain_dir: str, node_id: str | None = None) -> dict:
 
 
 def collect_project_info(chain_dir: str) -> dict:
-    paths = ProjectService.resolve_paths(chain_dir)
-    cg = CognitiveGraphSearcher(paths.project_root)
+    cg = _build_cg(chain_dir)
     info = {"language": "", "architecture": "", "patterns": [], "quality_gates": []}
     r = cg.search("ckg", {"tag": "architecture"})
     if r["hits"]["total"] > 0:
@@ -54,8 +68,7 @@ def collect_available_tasks(chain_dir: str, node_id: str | None = None) -> list[
 
 
 def collect_knowledge(chain_dir: str, context: dict | None = None) -> dict:
-    paths = ProjectService.resolve_paths(chain_dir)
-    cg = CognitiveGraphSearcher(paths.project_root)
+    cg = _build_cg(chain_dir)
     ctx = context or {}
     global_knowledge = cg.search("ckg", {"tag": "global"})
     task_type = ctx.get("task_type", ctx.get("node_id", ""))
@@ -71,36 +84,35 @@ def collect_knowledge(chain_dir: str, context: dict | None = None) -> dict:
 
 
 def collect_state(chain_dir: str) -> dict:
+    """Estado del contexto: workflow (motor) + sprint (delta, fuente unica).
+
+    Result pattern (convention-001): cada fuente degrada con log observable
+    — debug para el workflow (la ausencia de .workflow-state.json es
+    rutinaria en flujos sin motor) y warning para el delta (fallo real).
+    """
     # Node/history: workflow (motor). Sprint status: delta (fuente unica).
     node, sub_state, history = "", "", []
-    try:
-        from features.engine.infrastructure.repositories import WorkflowStateRepository
-
-        wf = WorkflowStateRepository().load(chain_dir)
-        node = wf.current_node
-        sub_state = wf.current_sub_state
-        history = wf.history[-5:] or []
-    except Exception:
-        pass
-    sprint_id, status, task_id = "", "", ""
-    try:
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
+    result = _load_workflow_state_core(chain_dir)
+    if is_successful(result):
+        wf = result.value_or(None)
+        if wf:
+            node = wf.current_node
+            sub_state = wf.current_sub_state
+            history = wf.history[-5:] or []
+    else:
+        logger.debug(
+            "workflow state no disponible (%s); node/sub_state vacios",
+            result.failure(),
         )
-
-        spring_svc = SpringService.from_chain_dir(chain_dir)
-        if spring_svc:
-            spring_id = spring_svc.get_spring_id(chain_dir)
-            spring_svc.ensure_spring_imported(chain_dir, spring_id)
-            spring = spring_svc.get_spring(spring_id)
-            if spring:
-                sprint_id = spring.get("_id", spring_id)
-                status = spring.get("status", "")
-            cur = spring_svc.get_current_spec(spring_id)
-            if cur:
-                task_id = cur.get("spec_id", "")
-    except Exception:
-        pass
+    sprint_id, status, task_id = "", "", ""
+    result = _load_spring_state_core(chain_dir)
+    if is_successful(result):
+        sprint_id, status, task_id = result.value_or(("", "", ""))
+    else:
+        logger.warning(
+            "estado spring no disponible (%s); contexto de sprint vacio",
+            result.failure(),
+        )
     return {
         "node": node,
         "sub_state": sub_state,
@@ -135,3 +147,40 @@ def collect_all(
         "chain_dir": chain_dir,
     }
     return data
+
+
+# ── Cores @safe (Result pattern, convention-001) ─────────────────
+
+@safe
+def _load_workflow_state_core(chain_dir: str) -> Any | None:
+    """Core puro: estado del workflow (.workflow-state.json, puede lanzar)."""
+    from features.engine.infrastructure.repositories import WorkflowStateRepository
+
+    return WorkflowStateRepository().load(chain_dir)
+
+
+@safe
+def _load_spring_state_core(chain_dir: str) -> tuple[str, str, str]:
+    """Core puro: (sprint_id, status, task_id) desde el DELTA (puede lanzar).
+
+    Fuente unica del spring (ADR-WALKER-013): resolve → ensure import →
+    spring + spec actual. Devuelve ("", "", "") si el chain_dir no
+    resuelve a un proyecto (caso esperable).
+    """
+    from features.delta_tracking import SpringService, spring_service
+
+    spring_svc = spring_service(chain_dir=chain_dir)
+    if not spring_svc:
+        return "", "", ""
+    spring_id = spring_svc.get_spring_id(chain_dir)
+    spring_svc.ensure_spring_imported(chain_dir, spring_id)
+    spring = spring_svc.get_spring(spring_id)
+    # Semantica original: si el spring no existe (import fallido), los
+    # campos quedan vacios (no se usa el basename del chain como fallback).
+    sprint_id = spring.get("_id", spring_id) if spring else ""
+    status = spring.get("status", "") if spring else ""
+    task_id = ""
+    cur = spring_svc.get_current_spec(spring_id)
+    if cur:
+        task_id = cur.get("spec_id", "")
+    return sprint_id, status, task_id

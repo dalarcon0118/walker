@@ -75,6 +75,22 @@
         "placeholders"
       ]
     },
+    "context_schema": {
+      "type": "object",
+      "description": "SSOT del contexto de entrada (F2 SPEC-043 / ADR-043 §9.2-A): mapa provider → JSON Schema de la capa que el agente recibe. Se deriva de engine/context/contracts CONTEXT_SCHEMAS (9 providers).",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "providers": {
+          "type": "object",
+          "description": "Clave = nombre del provider (business, ckg, cpg, delta, diff, project, reflection, test_results, trace). Valor = JSON Schema de la capa.",
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      }
+    },
     "initial_state": {
       "type": "string",
       "minLength": 1,

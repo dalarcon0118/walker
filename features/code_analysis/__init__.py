@@ -26,11 +26,21 @@ class CPGBuilder:
         from features.project import ProjectService
 
         self.project_dir = Path(project_dir).expanduser().resolve()
+
+        # project_id: derivar del manifest local (SSOT) con fallback al
+        # basename. El basename puede NO coincidir con el project_id lógico
+        # (ej: repo descentralizado cuyo dir ≠ project_id registrado).
         self.project_id: str = self.project_dir.name
+        manifest = ProjectService.resolve_manifest(self.project_dir)
+        if manifest:
+            self.project_id = (
+                manifest.get("project", manifest).get("meta", {}).get("project_id", "")
+                or self.project_id
+            )
 
         project = ProjectService.from_project_id(self.project_id)
-        self.repo_path = project.repo_path
-        self.code_paths = project.code_paths
+        self.repo_path = project.manifest.repo_path or str(self.project_dir)
+        self.code_paths = list(project.manifest.code_paths)
         self.cognitive_subdir = ""
 
         code_root = self.project_dir

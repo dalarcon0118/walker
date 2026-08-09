@@ -17,11 +17,14 @@ Usage:
 """
 
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
 from libs.shared_domain.validated_vo import TaskInput
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,21 +45,22 @@ class KgExtractInput(TaskInput):
 
 
 def _get_cg(chain_dir: str):
-    """Return CognitiveGraphSearcher from chain_dir."""
-    from libs.infrastructure import CognitiveGraphSearcher
+    """Return searcher from chain_dir, resuelto por DI (clave cognitive_searcher)."""
+    from features.engine.bootstrap import get_module_service
 
     paths = ProjectService.resolve_paths(chain_dir)
-    return CognitiveGraphSearcher(paths.project_root)
+    searcher_factory = get_module_service("cognitive_searcher")
+    return searcher_factory(paths.project_root)
 
 
 def _project_cg(project_id: str):
-    """Resolve CognitiveGraph from project_id (no chain_dir needed)."""
-    from libs.infrastructure import CognitiveGraphSearcher
-    from libs.path_resolver import get_walker_root
+    """Resolve searcher from project_id (no chain_dir needed) via path_resolver DI."""
+    from features.engine.bootstrap import get_module_service
     import json
     import os
 
-    registry_path = get_walker_root() / "data" / "projects.json"
+    path_resolver = get_module_service("path_resolver")
+    registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
         with open(registry_path) as f:
             reg = json.load(f).get("projects", {}).get(project_id, {})
@@ -64,7 +68,8 @@ def _project_cg(project_id: str):
         if repo_path:
             cog_path = os.path.join(repo_path, ".cognitive", "projects", project_id)
             if os.path.isdir(cog_path):
-                return CognitiveGraphSearcher(str(cog_path))
+                searcher_factory = get_module_service("cognitive_searcher")
+                return searcher_factory(str(cog_path))
     return None
 
 
@@ -168,8 +173,11 @@ def _query_project_stats(cg: Any, analysis: dict, existing_facts: list) -> dict:
         try:
             r = cg.search("cpg", {"type": ntype})
             counts[ntype] = r.get("hits", {}).get("total", totals[ntype])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "kg_extract: total de '%s' fallo (%s: %s); se usa el local",
+                ntype, type(e).__name__, e,
+            )
     return {
         "total_functions": counts["function"],
         "total_classes": counts["class"],
@@ -362,5 +370,13 @@ def register(registry: Any) -> None:
             },
             "tags": ["kg", "cognitive-graph", "ckg", "extract"],
             "purpose": ["ckg_populate", "ckg_extract"],
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": "string", "description": "ID del proyecto (alternativa a chain_dir)", "example": "mi-proyecto"},
+                    "scope": {"type": "string", "description": "Alcance del análisis: all | functions | classes | files (default all)", "example": "functions"},
+                },
+                "required": [],
+            },
         },
     )

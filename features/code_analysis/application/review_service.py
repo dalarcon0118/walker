@@ -3,11 +3,17 @@
 Usa qlty para métricas numéricas (cyclo, LOC, smells, lint).
 Usa CPG para análisis estructural (dead code, call graph).
 Todo en batch, no por archivo.
+
+Return pattern: las operaciones fallibles dejan de tragarse errores con
+`except: pass`; los fallos se loggean (convention-001: nunca silencioso).
 """
 
 from __future__ import annotations
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from features.code_analysis.domain.graph import Graph
 from features.code_analysis.domain.metrics import ReviewResult, ProjectMetrics
@@ -96,8 +102,11 @@ class ReviewUseCase:
                         return cur
                     cur = os.path.dirname(cur)
                 return common
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "No se pudo resolver el cwd de qlty (%s: %s); fallback a chain_dir",
+                type(e).__name__, e,
+            )
         return self.chain_dir
 
     def _build_per_file_metrics(
@@ -186,7 +195,11 @@ class ReviewUseCase:
                 )
                 _main_guard_cache[filepath] = has_guard
                 return has_guard
-            except (OSError, IOError):
+            except (OSError, IOError) as e:
+                logger.debug(
+                    "No se pudo leer %s para main-guard check (%s); se asume sin guard",
+                    filepath, e,
+                )
                 _main_guard_cache[filepath] = False
                 return False
 
@@ -234,7 +247,7 @@ class ReviewUseCase:
                 self._run_with_cache(scan_paths)
             )
         else:
-            # Flujo original: batch completo
+            # Flujo original: batch completo (los wrappers loggean sus fallos)
             qlty_metrics = run_metrics(scan_paths, cwd=self._qlty_cwd)
             qlty_funcs = run_function_metrics(scan_paths, cwd=self._qlty_cwd)
             smells = run_smells(scan_paths, cwd=self._qlty_cwd)
@@ -535,6 +548,29 @@ class ReviewUseCase:
         return recs
 
     def _resolve_default_paths(self) -> list[str]:
+        """Resuelve los paths de código a escanear (repo real del manifest).
+
+        SSOT local via ProjectService.resolve_paths — NO depende del registro
+        global (fallaba: devolvía el dir cognitivo sin código → qlty 0 files).
+        """
+        try:
+            from features.project import ProjectService
+
+            paths = ProjectService.resolve_paths(self.chain_dir)
+            repo = paths.repo_path or paths.project_root
+            if repo and os.path.isdir(repo):
+                base = [repo]
+                if paths.code_paths:
+                    base = [os.path.join(repo, p) for p in paths.code_paths]
+                existing = [p for p in base if os.path.isdir(p)]
+                if existing:
+                    return self._apply_walker_ignore(existing)
+        except Exception as e:
+            logger.warning(
+                "ProjectService.resolve_paths fallo en review (%s: %s); fallback legacy",
+                type(e).__name__, e,
+            )
+        # Fallback legacy
         from libs.path_resolver import resolve_project_root, resolve_source_code_dirs
 
         proj_dir = resolve_project_root(self.chain_dir)
@@ -566,7 +602,11 @@ class ReviewUseCase:
                 if not rules.is_ignored(rel):
                     kept.append(p)
             return kept
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "_apply_walker_ignore fallo (%s: %s); se usan paths sin filtrar",
+                type(e).__name__, e,
+            )
             return paths
 
     @staticmethod

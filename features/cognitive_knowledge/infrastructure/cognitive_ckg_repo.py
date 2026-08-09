@@ -8,17 +8,21 @@ from __future__ import annotations
 from returns.result import safe
 from returns.pipeline import is_successful
 
-from libs.cognitive_graph import CognitiveGraph
+from features.engine.bootstrap import get_module_service
 
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
 from features.cognitive_knowledge.entities import KnowledgeFact
 
 
 class CognitiveCkgRepository(CkgRepository):
-    """Implementacion sobre CognitiveGraph (indice 'ckg')."""
+    """Implementacion sobre CognitiveGraph (indice 'ckg').
+
+    El orquestador CognitiveGraph se resuelve por DI (key "cognitive_graph").
+    """
 
     def __init__(self, project_root: str):
-        self._cg = CognitiveGraph(project_root, auto_register=True)
+        graph_factory = get_module_service("cognitive_graph")
+        self._cg = graph_factory(project_root)
         if "ckg" not in self._cg.list_indexes():
             self._cg.register_index("ckg", {
                 "fields": {

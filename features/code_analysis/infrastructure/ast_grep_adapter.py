@@ -3,16 +3,26 @@
 Usa `ast-grep outline --json` multi-lenguaje (20+ via tree-sitter).
 Proporciona símbolos (funciones, clases, imports, exports, miembros).
 Reemplaza tanto a sg_adapter.py como a los patterns manuales.
+
+Result pattern: los cores puros con @safe devuelven Result (nunca lanzan);
+los wrappers públicos deciden con is_successful y hacen fallback explícito
+con log (convention-001: nunca except silencioso).
 """
 from __future__ import annotations
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path, PurePath
 from typing import Any
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from features.code_analysis.domain.graph import Node, Edge, Graph
 from features.dependency_checker import ensure_tools
+
+logger = logging.getLogger(__name__)
 
 
 AST_GREP_BIN = os.environ.get("AST_GREP_BIN") or "ast-grep"
@@ -43,17 +53,32 @@ def run_outline(paths: list[str]) -> list[dict]:
 
     Multi-lenguaje: detecta el lenguaje automáticamente por extensión.
     Retorna símbolos, imports, exports, miembros por archivo.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve []
+    y loggea el error (convention-001: nunca silencioso).
     """
-    try:
-        r = subprocess.run(
-            [AST_GREP_BIN, "outline", "--json", "--items", "all"] + paths,
-            capture_output=True, text=True, timeout=120,
-        )
-        if r.returncode != 0:
-            return []
-        return json.loads(r.stdout)
-    except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired):
+    result = _run_outline_core(paths)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "ast-grep outline fallo (%s: %s); se devuelve outline vacio",
+        type(error).__name__,
+        error,
+    )
+    return []
+
+
+@safe
+def _run_outline_core(paths: list[str]) -> list[dict]:
+    """Core puro de run_outline (puede lanzar)."""
+    r = subprocess.run(
+        [AST_GREP_BIN, "outline", "--json", "--items", "all"] + paths,
+        capture_output=True, text=True, timeout=120,
+    )
+    if r.returncode != 0:
         return []
+    return json.loads(r.stdout)
 
 
 def parse_outline(results: list[dict]) -> Graph:
@@ -64,7 +89,25 @@ def parse_outline(results: list[dict]) -> Graph:
       - Por cada símbolo (function, class, module, etc.) crea un nodo
       - Crea edges CONTAINS e IMPORTS entre file y símbolos
       - Si el símbolo tiene miembros (métodos de clase), crea edges CONTAINS
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve un
+    grafo vacio y loggea el error (convention-001).
     """
+    result = _parse_outline_core(results)
+    if is_successful(result):
+        return result.value_or(Graph({}, []))
+    error = result.failure()
+    logger.error(
+        "Parse de outline fallo (%s: %s); se devuelve grafo vacio",
+        type(error).__name__,
+        error,
+    )
+    return Graph({}, [])
+
+
+@safe
+def _parse_outline_core(results: list[dict]) -> Graph:
+    """Core puro de parse_outline (puede lanzar)."""
     nodes: dict[str, Node] = {}
     edges: list[Edge] = []
     counter = [0]
@@ -167,7 +210,25 @@ def scan_files(paths: list[str], ignore: Any | None = None) -> Graph:
         paths: Archivos o directorios a escanear.
         ignore: Opcional. Instancia de IgnoreRules (proyecto .walkerignore).
                 Si se provee, es la SSOT de exclusión (además de IGNORED_DIRS).
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve un
+    grafo vacio y loggea el error (convention-001).
     """
+    result = _scan_files_core(paths, ignore)
+    if is_successful(result):
+        return result.value_or(Graph({}, []))
+    error = result.failure()
+    logger.error(
+        "scan_files fallo (%s: %s); se devuelve grafo vacio",
+        type(error).__name__,
+        error,
+    )
+    return Graph({}, [])
+
+
+@safe
+def _scan_files_core(paths: list[str], ignore: Any | None) -> Graph:
+    """Core puro de scan_files (puede lanzar)."""
     ensure_tools(["ast-grep"])
 
     # Root del proyecto para resolver rutas relativas de IgnoreRules
@@ -254,26 +315,41 @@ def _project_root_of(path: str) -> str:
 
 
 def _run_ast_grep(pattern: str, filepath: str, lang: str | None = None) -> list[dict]:
-    """Run ast-grep pattern search (para deep patterns en review_service)."""
+    """Run ast-grep pattern search (para deep patterns en review_service).
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve []
+    y loggea el error (convention-001).
+    """
     if not lang:
         lang = _detect_lang(filepath)
     if not lang or not os.path.exists(filepath):
         return []
-    try:
-        r = subprocess.run(
-            [AST_GREP_BIN, "run", "--json", "-l", lang, "-p", pattern, filepath],
-            capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode != 0:
-            return []
-        data = json.loads(r.stdout)
-        if not isinstance(data, list):
-            return []
-        results = []
-        for m in data:
-            rng = m.get("range", {})
-            start = rng.get("start", {})
-            results.append({"line": start.get("line", 0) + 1, "col": start.get("col", 0) + 1, "text": m.get("text", "").strip()})
-        return results
-    except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired):
+    result = _run_ast_grep_core(pattern, filepath, lang)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "ast-grep pattern '%s' en %s fallo (%s: %s); sin matches",
+        pattern, filepath, type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _run_ast_grep_core(pattern: str, filepath: str, lang: str) -> list[dict]:
+    """Core puro de _run_ast_grep (puede lanzar)."""
+    r = subprocess.run(
+        [AST_GREP_BIN, "run", "--json", "-l", lang, "-p", pattern, filepath],
+        capture_output=True, text=True, timeout=30,
+    )
+    if r.returncode != 0:
         return []
+    data = json.loads(r.stdout)
+    if not isinstance(data, list):
+        return []
+    results = []
+    for m in data:
+        rng = m.get("range", {})
+        start = rng.get("start", {})
+        results.append({"line": start.get("line", 0) + 1, "col": start.get("col", 0) + 1, "text": m.get("text", "").strip()})
+    return results

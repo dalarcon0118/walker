@@ -7,20 +7,25 @@ SRP:
 PRINCIPIO: Separated by CQRS for READS. A feature that only reads
 depends only on Searcher, not on CognitiveGraph directly.
 Writes van por CognitiveGraph.upsert/store/store_many o Entity.save().
+
+DI: el CognitiveGraph se INYECTA por constructor (no se construye aquí), así
+el Searcher no sabe cómo se arma el grafo. La composición vive en el compose
+root (bootstrap) → registry key "cognitive_searcher".
 """
 from __future__ import annotations
-
-from libs.cognitive_graph import CognitiveGraph
 
 
 class CognitiveGraphSearcher:
     """Read-only access to indexed data (CPG, CKG, Delta, Trace).
 
     SRP: Single responsibility = search and schema queries.
+
+    Args:
+        graph: instancia de CognitiveGraph ya compuesta (inyectada por DI).
     """
 
-    def __init__(self, project_root: str):
-        self._cg = CognitiveGraph(project_root) if project_root else CognitiveGraph(".")
+    def __init__(self, graph):
+        self._cg = graph
 
     def search(self, index: str, query: dict) -> dict:
         try:

@@ -251,11 +251,9 @@ def _load_tasks(chain_dir: str) -> tuple[list[dict], str]:
     if not chain_dir:
         return [], "chain_dir vacio."
     try:
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
+        from features.delta_tracking import SpringService, spring_service
 
-        spring_svc = SpringService.from_chain_dir(chain_dir)
+        spring_svc = spring_service(chain_dir=chain_dir)
         if not spring_svc:
             return [], "No se pudo resolver SpringService."
         tasks = spring_svc.load_tasks(chain_dir)
@@ -383,9 +381,7 @@ def _resolve_chain_id(chain_id: str) -> str | None:
         if not os.path.isdir(project_root):
             continue
         try:
-            from features.delta_tracking.application.services.spring_service import (
-                SpringService,
-            )
+            from features.delta_tracking import SpringService, spring_service
             from libs.path_resolver import get_sprint_dir
 
             spring_svc = SpringService(project_root)
@@ -433,49 +429,6 @@ def extract_chain_dir(args: list[str]) -> tuple[list[str], str | None]:
     return args, None
 
 
-def _resolve_task_id(
-    chain_dir: str | None, skip_tasks: set[str] | None = None
-) -> str | None:
-    """Read the first pending task_id from the DELTA (nodo spring), skipping done/blocked tasks.
-
-    PRINCIPIO estructural: el estado de negocio del spring (specs y sus
-    estados) vive en el DeltaGraph (SpringGraphService), no en sprint-state.json.
-
-    Salta:
-    - Tareas en _DONE_STATUSES (completed, etc.)
-    - Tareas en _BLOCKED_STATUSES (rejected, needs_revision, blocked)
-    - Tareas en skip_tasks (rejected_tasks del walker state)
-    """
-    if not chain_dir:
-        return None
-    try:
-        from features.delta_tracking.application.spring_graph_service import (
-            SpringGraphService,
-        )
-
-        spring_svc = SpringGraphService.from_chain_dir(chain_dir)
-        if not spring_svc:
-            return None
-        spring_id = spring_svc.get_spring_id(chain_dir)
-        spring_svc.ensure_spring_imported(chain_dir, spring_id)
-        specs = spring_svc.get_specs(spring_id)
-    except Exception:
-        return None
-    if not specs:
-        return None
-
-    skip = skip_tasks or set()
-    blocked = _DONE_STATUSES | {"rejected", "needs_revision", "blocked", "backlog"}
-    for spec in specs:
-        tid = spec.get("spec_id", spec.get("task_id", ""))
-        if not tid or tid in skip:
-            continue
-        status = str(spec.get("status", "")).lower()
-        if status not in blocked:
-            return tid
-    return None
-
-
 def _list_project_sprints(project_path: str) -> int:
     """Show available sprints in a project directory. Returns 1 (not a chain_dir)."""
     from libs.path_resolver import get_delta_dir
@@ -493,9 +446,7 @@ def _list_project_sprints(project_path: str) -> int:
     sprints = []
     project_root = os.path.dirname(delta_dir)
     try:
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
+        from features.delta_tracking import SpringService, spring_service
 
         spring_svc = SpringService(project_root)
         for spring in spring_svc.list_springs():
@@ -546,7 +497,7 @@ def _list_project_sprints(project_path: str) -> int:
 
 def _get_task_schema_requirements() -> tuple[set[str], dict]:
     """Load plan.schema.json and extract required fields + defaults for tasks."""
-    schema_path = os.path.join(_BASE_DIR, "..", "schema", "plan.schema.json")
+    schema_path = os.path.join(_BASE_DIR, "..", "features", "delta_tracking", "schema", "plan.schema.json")
     required = {"task_id", "objective", "result_state", "type", "domain"}
     defaults = {}
     if os.path.exists(schema_path):
@@ -656,9 +607,7 @@ def _find_active_sprints() -> list[dict]:
         if not os.path.isdir(project_root):
             continue
         try:
-            from features.delta_tracking.application.services.spring_service import (
-                SpringService,
-            )
+            from features.delta_tracking import SpringService, spring_service
             from libs.path_resolver import get_sprint_dir
 
             spring_svc = SpringService(project_root)

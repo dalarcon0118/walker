@@ -1,11 +1,21 @@
-"""Project init tasks — thin adapters to project/ + spring use cases."""
+"""Project init tasks — thin adapters to project/ + spring use cases.
+
+Result pattern (dry-python/returns): los cores con @safe nunca lanzan; los
+wrappers deciden con is_successful y degradan con fallback explícito + log
+(convention-001: nunca except silencioso).
+"""
 
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from typing import Any
+from returns.pipeline import is_successful
+from returns.result import safe
 from libs.shared_domain import ExecutionContext, TaskResult
 from libs.shared_domain.validated_vo import TaskInput
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,13 +41,35 @@ class ProjectInitInput(TaskInput):
         return ""
 
 
+@safe
+def _detect_context_core(project_path: str) -> dict:
+    """Core puro: detecta el contexto del proyecto (puede lanzar)."""
+    return ProjectService.detect_context(project_path)
+
+
 def detect_project_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    try:
-        project_path = data.get("path", ctx.chain_dir or __import__("os").getcwd())
-        result = ProjectService.detect_context(project_path)
-        return TaskResult.success(data=result)
-    except Exception as e:
-        return TaskResult.success(data={"detected": False, "error": str(e)})
+    project_path = data.get("path", ctx.chain_dir or __import__("os").getcwd())
+    result = _detect_context_core(project_path)
+    if is_successful(result):
+        return TaskResult.success(data=result.value_or({}))
+    error = result.failure()
+    logger.warning(
+        "detect_project_context fallo (%s: %s); degrada a detected=False",
+        type(error).__name__, error,
+    )
+    return TaskResult.success(data={"detected": False, "error": str(error)})
+
+
+@safe
+def _create_project_core(project_id: str, repo_path: str, name: str, language: str, framework: str) -> None:
+    """Core puro: crea el proyecto (puede lanzar ValueError)."""
+    ProjectService.create_project(
+        project_id=project_id,
+        repo_path=repo_path,
+        name=name,
+        language=language,
+        framework=framework,
+    )
 
 
 def build_project_config(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -52,17 +84,16 @@ def build_project_config(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRes
     repo_path = inp.repo_path or ctx.chain_dir or __import__("os").getcwd()
     language = inp.language
     framework = inp.framework
-    try:
-        ProjectService.create_project(
-            project_id=project_id,
-            repo_path=repo_path,
-            name=name,
-            language=language,
-            framework=framework,
-        )
+
+    created = _create_project_core(project_id, repo_path, name, language, framework)
+    if is_successful(created):
         return TaskResult.success(data={"project_id": project_id, "created": True})
-    except ValueError as e:
-        return TaskResult.failure(str(e))
+    error = created.failure()
+    logger.warning(
+        "build_project_config fallo (%s: %s)",
+        type(error).__name__, error,
+    )
+    return TaskResult.failure(str(error))
 
 
 def _resolve_project_root(project_id: str) -> str:
@@ -83,58 +114,69 @@ def _resolve_project_root(project_id: str) -> str:
     return ""
 
 
+@safe
+def _init_ckg_core(project_root: str) -> str:
+    """Core puro: inicializa el archivo CKG vacío (puede lanzar)."""
+    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+    import gzip
+    import json
+    import os
+
+    CodeKnowledgeGraph(project_root)
+    ckg_path = os.path.join(project_root, "data", "ckg.json.gz")
+    os.makedirs(os.path.dirname(ckg_path), exist_ok=True)
+    empty_ckg = {"index": "ckg", "docs": [], "edges": [], "token_index": {}}
+    with open(ckg_path, "wb") as f:
+        f.write(gzip.compress(json.dumps(empty_ckg).encode()))
+    return ckg_path
+
+
 def build_initial_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    try:
-        chain_dir = ctx.chain_dir or ""
-        project_root = ""
+    chain_dir = ctx.chain_dir or ""
+    project_root = ""
 
-        if chain_dir:
-            from features.project import ProjectService
+    if chain_dir:
+        from features.project import ProjectService
 
-            paths = ProjectService.resolve_paths(chain_dir)
-            project_root = str(paths.project_root)
-        else:
-            project_id = data.get("_project_id", "")
-            if project_id:
-                project_root = _resolve_project_root(project_id)
+        paths = ProjectService.resolve_paths(chain_dir)
+        project_root = str(paths.project_root)
+    else:
+        project_id = data.get("_project_id", "")
+        if project_id:
+            project_root = _resolve_project_root(project_id)
 
-        if not project_root:
-            return TaskResult.failure(
-                "Project not found",
-                data={
-                    "error": "No active sprint and no project context available",
-                    "next_step": "Run 'walker prepare <path>' first, or 'walker <project>/status' if already registered",
-                },
-            )
-
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
-        import gzip
-        import json
-        import os
-
-        CodeKnowledgeGraph(project_root)
-        # Crear archivo CKG vacio con estructura limpia (sin nodos marcadores)
-        ckg_path = os.path.join(project_root, "data", "ckg.json.gz")
-        os.makedirs(os.path.dirname(ckg_path), exist_ok=True)
-        empty_ckg = {"index": "ckg", "docs": [], "edges": [], "token_index": {}}
-        with open(ckg_path, "wb") as f:
-            f.write(gzip.compress(json.dumps(empty_ckg).encode()))
-        return TaskResult.success(
+    if not project_root:
+        return TaskResult.failure(
+            "Project not found",
             data={
-                "initialized": True,
-                "ok": True,
-                "message": f"CKG initialized at {ckg_path}",
-                "next_step": "Run 'walker <project>/kg_extract' to populate CKG from code analysis",
-            }
+                "error": "No active sprint and no project context available",
+                "next_step": "Run 'walker prepare <path>' first, or 'walker <project>/status' if already registered",
+            },
         )
-    except Exception as e:
+
+    init_result = _init_ckg_core(project_root)
+    if not is_successful(init_result):
+        error = init_result.failure()
+        logger.warning(
+            "build_initial_ckg fallo (%s: %s)",
+            type(error).__name__, error,
+        )
         return TaskResult.success(
             data={
                 "initialized": False,
-                "error": str(e),
+                "error": str(error),
                 "next_step": "Run 'walker prepare <path>' to set up the project first",
             }
         )
+    ckg_path = init_result.value_or("")
+    return TaskResult.success(
+        data={
+            "initialized": True,
+            "ok": True,
+            "message": f"CKG initialized at {ckg_path}",
+            "next_step": "Run 'walker <project>/kg_extract' to populate CKG from code analysis",
+        }
+    )
 
 
 def create_first_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -145,32 +187,27 @@ def create_first_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResu
 
 def scan_code_and_build_cpg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     chain_dir = ctx.chain_dir or ""
-    try:
-        from features.code_analysis import CPGBuilder
-        from features.project import ProjectService
-        from libs.path_resolver import get_project_dir
+    from features.project import ProjectService
+    from libs.path_resolver import get_project_dir
 
-        if chain_dir:
-            paths = ProjectService.resolve_paths(chain_dir)
-            project_root = paths.project_root
-        elif data.get("project_id"):
-            project_root = str(get_project_dir(data["project_id"]))
-        else:
-            return TaskResult.success(
-                data={"built": False, "error": "No chain_dir or project_id"}
-            )
-
-        builder = CPGBuilder(project_root)
-        result = builder.build()
+    if chain_dir:
+        paths = ProjectService.resolve_paths(chain_dir)
+        project_root = paths.repo_path or paths.project_root
+    elif data.get("project_id"):
+        project_root = str(get_project_dir(data["project_id"]))
+    else:
         return TaskResult.success(
-            data={
-                "built": True,
-                "nodes": result.get("nodes", 0),
-                "edges": result.get("edges", 0),
-            }
+            data={"built": False, "error": "No chain_dir or project_id"}
         )
-    except Exception as e:
-        return TaskResult.success(data={"built": False, "error": str(e)})
+
+    # Delegar en cpg_analyze (unificación ADR-021): no duplicar CPGBuilder
+    from features.task_execution.tasks.cpg_analyze import cpg_analyze
+    result = cpg_analyze(ctx, {"scope": project_root, "build": True})
+    if result.ok:
+        return TaskResult.success(data=result.data or {"built": True})
+    error = result.error or "cpg build fallo"
+    logger.warning("scan_code_and_build_cpg fallo: %s", error)
+    return TaskResult.success(data={"built": False, "error": error})
 
 
 def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -179,7 +216,7 @@ def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     REST: walker <project>/addSpec '{"tasks":[{"objective":"...","domain":"..."}]}'
     Legacy: walker <project>/add_spec '{"tasks":[...]}'
     """
-    from features.spring.application.use_cases import EditSprintUseCase
+    from features.delta_tracking.application.use_cases_sprint import EditSprintUseCase
 
     chain_dir = ctx.chain_dir or ""
     if not chain_dir:
@@ -211,23 +248,35 @@ def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             },
         )
 
-    try:
-        result = EditSprintUseCase.execute(ctx, {"tasks": specs})
-        return TaskResult.success(
-            data={
-                "specs_added": len(specs),
-                "total_specs": result.get("spec_count", 0),
-                "next_step": "Run 'walker <project>/status' to see the updated sprint",
-            }
+    result = _add_specs_core(ctx, specs)
+    if not is_successful(result):
+        error = result.failure()
+        logger.warning(
+            "add_tasks fallo (%s: %s)",
+            type(error).__name__, error,
         )
-    except Exception as e:
         return TaskResult.failure(
-            str(e),
+            str(error),
             data={
-                "error": f"Failed to add specifications: {e}",
+                "error": f"Failed to add specifications: {error}",
                 "next_step": "Run 'walker <project>/status' to check sprint state",
             },
         )
+    value = result.value_or({})
+    return TaskResult.success(
+        data={
+            "specs_added": len(specs),
+            "total_specs": value.get("spec_count", 0),
+            "next_step": "Run 'walker <project>/status' to see the updated sprint",
+        }
+    )
+
+
+@safe
+def _add_specs_core(ctx: ExecutionContext, specs: list) -> dict:
+    """Core puro: agrega specs al sprint vía EditSprintUseCase (puede lanzar)."""
+    from features.delta_tracking.application.use_cases_sprint import EditSprintUseCase
+    return EditSprintUseCase.execute(ctx, {"tasks": specs})
 
 
 def map_legacy(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

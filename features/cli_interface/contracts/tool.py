@@ -8,7 +8,6 @@ para construir llamadas. Sin lógica — puros dataclasses.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -45,31 +44,3 @@ class ToolDefinition:
             "description": self.description,
             "inputSchema": self.input_schema,
         }
-
-
-@dataclass(frozen=True)
-class ResourceDefinition:
-    """DTO — recurso dinámico expuesto al agente (resources/list)."""
-
-    uri: str
-    name: str
-    description: str = ""
-    mime_type: str = "application/json"
-
-    def to_dict(self) -> dict:
-        return {
-            "uri": self.uri,
-            "name": self.name,
-            "description": self.description,
-            "mimeType": self.mime_type,
-        }
-
-
-@dataclass(frozen=True)
-class ToolCallArgument:
-    """DTO — argumentos de una invocación de tool (tools/call)."""
-
-    values: dict[str, Any] = field(default_factory=dict)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.values.get(key, default)

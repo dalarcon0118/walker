@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from ..domain.values import RpcMethod
 
 
@@ -31,14 +34,17 @@ class JsonRpcRequest:
 
     @staticmethod
     def create(method: str, id_value: str | int | None, params: dict | None = None) -> tuple["JsonRpcRequest | None", list[str]]:
-        errors: list[str] = []
-        try:
-            rpc_method = RpcMethod(method)
-        except ValueError:
+        method_outcome = _parse_rpc_method_core(method)
+        if not is_successful(method_outcome):
             return None, [f"Unsupported method '{method}'"]
-        if errors:
-            return None, errors
+        rpc_method = method_outcome.value_or(RpcMethod(method))
         return JsonRpcRequest(method=rpc_method, id=id_value, params=params or {}), []
+
+
+@safe
+def _parse_rpc_method_core(method: str) -> RpcMethod:
+    """Core puro: parsea el método JSON-RPC (puede lanzar ValueError)."""
+    return RpcMethod(method)
 
 
 @dataclass(frozen=True)
@@ -73,17 +79,6 @@ class ToolCallRequest:
             name=params.get("name", ""),
             arguments=params.get("arguments", {}) or {},
         )
-
-
-@dataclass(frozen=True)
-class ReadResourceRequest:
-    """DTO — `resources/read`."""
-
-    uri: str
-
-    @staticmethod
-    def from_params(params: dict) -> "ReadResourceRequest":
-        return ReadResourceRequest(uri=params.get("uri", ""))
 
 
 # ── Results ──

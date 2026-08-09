@@ -3,13 +3,17 @@
 Providers de negocio de code_analysis. SE REGISTRAN EXTERNAMENTE
 (ver features/engine/bootstrap.build_context_registry) y el engine
 NO los conoce: solo los consume si el nodo los declara en context.sources.
+
+Return pattern: ante fallo los providers devuelven None con log
+(convention-001: nunca except silencioso).
 """
 from __future__ import annotations
+import logging
 from typing import Any
 
-from features.engine.context.models import ContextPiece
-from features.engine.context.registry import ContextProvider
-from features.engine.context.format import fmt_tokens, format_cpg_results
+logger = logging.getLogger(__name__)
+
+from libs.context import ContextPiece, ContextProvider, fmt_tokens, format_cpg_results
 
 
 class CPGProvider(ContextProvider):
@@ -99,7 +103,11 @@ class BusinessProvider(ContextProvider):
                 data_dir=paths.data_dir if paths.data_dir else None,
             )
             layer = q.business_layer(focus=focus)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "BusinessProvider.collect fallo (%s: %s); sin capa business",
+                type(e).__name__, e,
+            )
             return None
 
         lines: list[str] = []

@@ -84,14 +84,6 @@ class Spec:
             updated_at=data.get("updated_at", ""),
         )
 
-    def merge(self, other: dict) -> Spec:
-        """Refina campos desde un dict (legacy o partial update)."""
-        data = self.to_dict()
-        data.update({k: v for k, v in other.items() if v is not None})
-        if "status" in other and other["status"] is not None:
-            data["status"] = other["status"]
-        return Spec.from_dict(data)
-
 
 @dataclass
 class Spring:
@@ -108,6 +100,7 @@ class Spring:
     updated_at: str = ""
     context: dict | None = None
     informal: bool = False
+    ckg_status: str = "up_to_date"
 
     def __post_init__(self):
         if not is_valid_spring_status(self.status):
@@ -131,6 +124,7 @@ class Spring:
             "updated_at": self.updated_at or _now(),
             "context": self.context or {},
             "informal": self.informal,
+            "ckg_status": self.ckg_status,
         }
 
     @classmethod
@@ -147,6 +141,7 @@ class Spring:
             updated_at=data.get("updated_at", ""),
             context=data.get("context"),
             informal=data.get("informal", False),
+            ckg_status=data.get("ckg_status", "up_to_date"),
         )
 
 

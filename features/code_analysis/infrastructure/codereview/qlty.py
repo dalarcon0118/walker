@@ -1,11 +1,22 @@
-"""Wrappers para comandos qlty (metrics, smells, check)."""
+"""Wrappers para comandos qlty (metrics, smells, check).
+
+Result pattern: los cores puros con @safe devuelven Result (nunca lanzan);
+los wrappers deciden con is_successful y hacen fallback explícito con log
+(convention-001: nunca except silencioso).
+"""
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from pathlib import Path
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from .config import QLTY, QLTY_AVAILABLE, _METRICS_HEADERS, _FUNC_HEADERS, split_pipe
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -13,19 +24,34 @@ from .config import QLTY, QLTY_AVAILABLE, _METRICS_HEADERS, _FUNC_HEADERS, split
 # ═══════════════════════════════════════════════════════════════
 
 def run_metrics(filepath: Path) -> dict:
-    """Run `qlty metrics <file>` and return file-level summary."""
+    """Run `qlty metrics <file>` and return file-level summary.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve {}
+    y loggea el error (convention-001).
+    """
     if not QLTY_AVAILABLE:
         return {}
-    try:
-        r = subprocess.run(
-            [QLTY, "metrics", "--quiet", str(filepath)],
-            capture_output=True, text=True, timeout=60,
-        )
-        if r.returncode != 0:
-            return {}
-        return _parse_metrics_table(r.stdout)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    result = _run_metrics_core(filepath)
+    if is_successful(result):
+        return result.value_or({})
+    error = result.failure()
+    logger.error(
+        "qlty metrics en %s fallo (%s: %s); sin métricas",
+        filepath, type(error).__name__, error,
+    )
+    return {}
+
+
+@safe
+def _run_metrics_core(filepath: Path) -> dict:
+    """Core puro de run_metrics (puede lanzar)."""
+    r = subprocess.run(
+        [QLTY, "metrics", "--quiet", str(filepath)],
+        capture_output=True, text=True, timeout=60,
+    )
+    if r.returncode != 0:
         return {}
+    return _parse_metrics_table(r.stdout)
 
 
 def _parse_metrics_table(stdout: str) -> dict:
@@ -52,19 +78,34 @@ def _parse_metrics_table(stdout: str) -> dict:
 
 
 def run_metrics_functions(filepath: Path) -> list[dict]:
-    """Run `qlty metrics --functions <file>` and return per-function list."""
+    """Run `qlty metrics --functions <file>` and return per-function list.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve []
+    y loggea el error (convention-001).
+    """
     if not QLTY_AVAILABLE:
         return []
-    try:
-        r = subprocess.run(
-            [QLTY, "metrics", "--functions", "--quiet", str(filepath)],
-            capture_output=True, text=True, timeout=60,
-        )
-        if r.returncode != 0:
-            return []
-        return _parse_func_table(r.stdout)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    result = _run_metrics_functions_core(filepath)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "qlty metrics --functions en %s fallo (%s: %s); sin funciones",
+        filepath, type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _run_metrics_functions_core(filepath: Path) -> list[dict]:
+    """Core puro de run_metrics_functions (puede lanzar)."""
+    r = subprocess.run(
+        [QLTY, "metrics", "--functions", "--quiet", str(filepath)],
+        capture_output=True, text=True, timeout=60,
+    )
+    if r.returncode != 0:
         return []
+    return _parse_func_table(r.stdout)
 
 
 def _parse_func_table(stdout: str) -> list[dict]:
@@ -91,27 +132,42 @@ def _parse_func_table(stdout: str) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════
 
 def run_smells(target: Path | None = None) -> list[dict]:
-    """Run `qlty smells --json` and return structured results."""
+    """Run `qlty smells --json` and return structured results.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve []
+    y loggea el error (convention-001).
+    """
     if not QLTY_AVAILABLE:
         return []
+    result = _run_smells_core(target)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "qlty smells fallo (%s: %s); sin smells",
+        type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _run_smells_core(target: Path | None) -> list[dict]:
+    """Core puro de run_smells (puede lanzar)."""
     cmd = [QLTY, "smells", "--json"]
     if target:
         cmd.append(str(target))
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if r.returncode not in (0, 1):
-            return []
-        # Try JSON first (qlty smells --json outputs an array)
-        results = _parse_smells_json(r.stdout)
-        if results is not None:
-            return results
-        # Fall back to SARIF
-        sarif = _parse_sarif(r.stdout)
-        if sarif:
-            return sarif
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if r.returncode not in (0, 1):
         return []
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return []
+    # Try JSON first (qlty smells --json outputs an array)
+    results = _parse_smells_json(r.stdout)
+    if results is not None:
+        return results
+    # Fall back to SARIF
+    sarif = _parse_sarif(r.stdout)
+    if sarif:
+        return sarif
+    return []
 
 
 def _parse_smells_json(stdout: str) -> list[dict] | None:
@@ -119,10 +175,21 @@ def _parse_smells_json(stdout: str) -> list[dict] | None:
     
     Returns list (possibly empty) on success, None if JSON is not valid array.
     """
-    try:
-        data = json.loads(stdout)
-    except json.JSONDecodeError:
-        return None
+    result = _parse_smells_json_core(stdout)
+    if is_successful(result):
+        return result.value_or(None)
+    error = result.failure()
+    logger.error(
+        "Parse de qlty smells --json fallo (%s: %s); sin smells",
+        type(error).__name__, error,
+    )
+    return None
+
+
+@safe
+def _parse_smells_json_core(stdout: str) -> list[dict] | None:
+    """Core puro de _parse_smells_json (puede lanzar)."""
+    data = json.loads(stdout)
     if not isinstance(data, list):
         return None
     results = []
@@ -142,10 +209,26 @@ def _parse_smells_json(stdout: str) -> list[dict] | None:
 
 
 def _parse_sarif(sarif_text: str) -> list[dict]:
-    try:
-        data = json.loads(sarif_text)
-    except json.JSONDecodeError:
-        return []
+    """Parse SARIF output.
+
+    Result pattern: el core @safe nunca lanza; ante JSON invalido
+    devuelve [] y loggea el error (convention-001).
+    """
+    result = _parse_sarif_core(sarif_text)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "Parse de SARIF de qlty fallo (%s: %s); sin findings",
+        type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _parse_sarif_core(sarif_text: str) -> list[dict]:
+    """Core puro de _parse_sarif (puede lanzar)."""
+    data = json.loads(sarif_text)
     if not isinstance(data, dict):
         return []
     findings = []
@@ -175,29 +258,60 @@ def _parse_sarif(sarif_text: str) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════
 
 def run_check(filepaths: list[Path]) -> list[dict]:
-    """Run `qlty check --level note --sarif` on given files."""
+    """Run `qlty check --level note --sarif` on given files.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve []
+    y loggea el error (convention-001).
+    """
     if not QLTY_AVAILABLE or not filepaths:
         return []
     paths = [str(f) for f in filepaths if f.exists()]
     if not paths:
         return []
-    try:
-        r = subprocess.run(
-            [QLTY, "check", "--level", "note", "--no-error", "--sarif", "--no-progress"] + paths,
-            capture_output=True, text=True, timeout=180,
-        )
-        if r.returncode not in (0, 1):
-            return []
-        return _parse_check_sarif(r.stdout)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    result = _run_check_core(paths)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "qlty check fallo (%s: %s); sin issues",
+        type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _run_check_core(paths: list[str]) -> list[dict]:
+    """Core puro de run_check (puede lanzar)."""
+    r = subprocess.run(
+        [QLTY, "check", "--level", "note", "--no-error", "--sarif", "--no-progress"] + paths,
+        capture_output=True, text=True, timeout=180,
+    )
+    if r.returncode not in (0, 1):
         return []
+    return _parse_check_sarif(r.stdout)
 
 
 def _parse_check_sarif(sarif_text: str) -> list[dict]:
-    try:
-        data = json.loads(sarif_text)
-    except json.JSONDecodeError:
-        return []
+    """Parse SARIF de `qlty check`.
+
+    Result pattern: el core @safe nunca lanza; ante JSON invalido
+    devuelve [] y loggea el error (convention-001).
+    """
+    result = _parse_check_sarif_core(sarif_text)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "Parse de SARIF de qlty check fallo (%s: %s); sin issues",
+        type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _parse_check_sarif_core(sarif_text: str) -> list[dict]:
+    """Core puro de _parse_check_sarif (puede lanzar)."""
+    data = json.loads(sarif_text)
     issues = []
     for run in data.get("runs", []):
         for result in run.get("results", []):
@@ -222,17 +336,32 @@ def _parse_check_sarif(sarif_text: str) -> list[dict]:
 
 
 def run_fix(filepaths: list[Path]) -> bool:
-    """Auto-apply fixes via `qlty check --fix`."""
+    """Auto-apply fixes via `qlty check --fix`.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve False
+    y loggea el error (convention-001).
+    """
     if not QLTY_AVAILABLE or not filepaths:
         return False
     paths = [str(f) for f in filepaths if f.exists()]
     if not paths:
         return False
-    try:
-        r = subprocess.run(
-            [QLTY, "check", "--fix", "--no-progress"] + paths,
-            capture_output=True, text=True, timeout=180,
-        )
-        return r.returncode in (0, 1)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
+    result = _run_fix_core(paths)
+    if is_successful(result):
+        return result.value_or(False)
+    error = result.failure()
+    logger.error(
+        "qlty check --fix fallo (%s: %s); fixes no aplicados",
+        type(error).__name__, error,
+    )
+    return False
+
+
+@safe
+def _run_fix_core(paths: list[str]) -> bool:
+    """Core puro de run_fix (puede lanzar)."""
+    r = subprocess.run(
+        [QLTY, "check", "--fix", "--no-progress"] + paths,
+        capture_output=True, text=True, timeout=180,
+    )
+    return r.returncode in (0, 1)

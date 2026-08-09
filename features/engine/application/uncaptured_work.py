@@ -141,9 +141,7 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
     """
     try:
         from libs.path_resolver import resolve_project_root
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
+        from features.delta_tracking import SpringService, spring_service
 
         # Resolver el project_root desde el project.json local (mismo
         # mecanismo que TraceLogger.replay). NO usar ProjectService.resolve_paths
@@ -191,6 +189,7 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
 def _collect_impacted_files(data_dir: str, project_root: str) -> list[str]:
     """Archivos modificados desde change_detected.json + eventos file_impact."""
     from ..infrastructure.trace_log import TraceLogger
+    from ..domain.ports import ITracer
 
     impacted: list[str] = []
     _change_file = os.path.join(data_dir, "change_detected.json")
@@ -206,7 +205,7 @@ def _collect_impacted_files(data_dir: str, project_root: str) -> list[str]:
         except Exception:
             pass  # change_detected corrupto/ausente → seguir con trace
 
-    tracer = TraceLogger()
+    tracer: ITracer = TraceLogger()
     events = tracer.replay(project_root)
     for ev in events:
         if not isinstance(ev, dict):

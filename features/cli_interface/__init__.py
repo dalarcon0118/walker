@@ -24,17 +24,23 @@ Request explícito:
 """
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Any
+
+from returns.pipeline import is_successful
+from returns.result import safe
 
 from libs.router import Router
 from features.cli_interface.application.handlers import (
     handle_list_projects, handle_status, handle_submit,
     handle_transition, handle_task, handle_help, handle_prepare,
-    handle_project_info, handle_mcp_config,
+    handle_project_info, handle_mcp_config, handle_mcp_tools, handle_mcp_routes,
 )
 from features.cli_interface.infrastructure.output import format_result
 from features.cli_interface.infrastructure.contracts import Request, Response, action
+
+logger = logging.getLogger(__name__)
 
 # Verbos HTTP soportados (convención REST clásica)
 HTTP_VERBS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
@@ -174,6 +180,16 @@ def _register_system_controller(router: Router) -> None:
         lambda p, f, c: handle_mcp_config(_as_request(p, f, c)),
         metadata={"description": "GET /mcp-config — MCP config portable para cualquier agente IA"},
     )
+    router.get(
+        "mcp-tools",
+        lambda p, f, c: handle_mcp_tools(_as_request(p, f, c)),
+        metadata={"description": "GET /mcp-tools — list all MCP tools from ModuleRegistry"},
+    )
+    router.get(
+        "mcp-routes",
+        lambda p, f, c: handle_mcp_routes(_as_request(p, f, c)),
+        metadata={"description": "GET /mcp-routes — list all REST routes from ModuleRegistry"},
+    )
     # Autodocumentación de endpoints (estilo /docs de FastAPI)
     router.get(
         "routes",
@@ -243,14 +259,24 @@ def _json_body(flags: dict) -> dict | None:
         import json
         non_flag = [a for a in positional if not a.startswith("--") and "--" not in a]
         if non_flag and len(non_flag) == 1 and non_flag[0].startswith("{"):
-            try:
-                return json.loads(non_flag[0])
-            except (json.JSONDecodeError, TypeError):
-                import sys
-
-                print(f"[walker] invalid JSON body: {non_flag[0][:80]}", file=sys.stderr)
-                return None
+            parse_outcome = _parse_json_body_core(non_flag[0])
+            if is_successful(parse_outcome):
+                return parse_outcome.value_or(None)
+            error = parse_outcome.failure()
+            logger.warning(
+                "invalid JSON body: %s (%s: %s)",
+                non_flag[0][:80], type(error).__name__, error,
+            )
+            return None
     return None
+
+
+@safe
+def _parse_json_body_core(raw: str) -> dict:
+    """Core puro de _json_body (puede lanzar JSONDecodeError/TypeError)."""
+    import json
+
+    return json.loads(raw)
 
 
 def _submit_with_payload(params: dict, flags: dict, context: Any = None) -> Response:

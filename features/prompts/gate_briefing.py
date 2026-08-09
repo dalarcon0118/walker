@@ -11,8 +11,14 @@ placeholders {gate_briefing} o por composición.
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
+logger = logging.getLogger(__name__)
 
 
 def _load_template() -> str:
@@ -27,11 +33,13 @@ def _load_template() -> str:
         os.path.join(tpl_dir, "gate-briefing.md"),
     ]
     for path in candidates:
-        try:
-            with open(path) as f:
-                return f.read()
-        except OSError:
-            continue
+        result = _read_gate_template_core(path)
+        if is_successful(result):
+            return result.value_or("")
+        logger.debug(
+            "gate template %s ilegible (%s); probando siguiente",
+            path, result.failure(),
+        )
     return _FALLBACK_TEMPLATE
 
 
@@ -95,11 +103,16 @@ def render_gate_briefing(
         "options": options or _options_from_gates(gates or []),
     }
     template = _load_template()
-    try:
-        from features.prompts.renderer import TemplateRenderer
-        return TemplateRenderer().render(template, data)
-    except Exception:
-        return template
+    result = _render_gate_core(template, data)
+    if is_successful(result):
+        return result.value_or(template)
+    # Degradacion observable: el briefing crudo (sin render) es mejor que
+    # romper el gate; el fallo queda registrado (convention-001).
+    logger.warning(
+        "render del gate briefing fallo (%s); se devuelve el template crudo",
+        result.failure(),
+    )
+    return template
 
 
 def what_happened_from_state(last_fields: dict | None) -> str:
@@ -150,3 +163,20 @@ def what_happened_from_state(last_fields: dict | None) -> str:
     # Genérico
     pairs = [f"{k}: {_fmt(v, 120)}" for k, v in list(lf.items())[:5]]
     return "\n".join(pairs) if pairs else "(sin resultado)"
+
+
+# ── Cores @safe (Result pattern, convention-001) ─────────────────
+
+@safe
+def _read_gate_template_core(path: str) -> str:
+    """Core puro: lee el template de gate briefing (puede lanzar)."""
+    with open(path) as f:
+        return f.read()
+
+
+@safe
+def _render_gate_core(template: str, data: dict) -> str:
+    """Core puro: renderiza el briefing (puede lanzar)."""
+    from features.prompts.renderer import TemplateRenderer
+
+    return TemplateRenderer().render(template, data)

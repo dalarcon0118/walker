@@ -19,11 +19,17 @@ Uso:
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from .mcp_adapter import _handle_request, serve_stdio
+
+logger = logging.getLogger(__name__)
 
 
 def _kill_previous_instances() -> None:
@@ -43,28 +49,51 @@ def _kill_previous_instances() -> None:
     self_pid = os.getpid()
     parent_pid = os.getppid()
     pattern = "features.cli_interface.mcp"
-    try:
-        out = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return  # sin pgrep o timeout: no forzar
-    if out.returncode != 0 or not out.stdout.strip():
+    pgrep_outcome = _pgrep_core(pattern)
+    if not is_successful(pgrep_outcome):
+        # Sin pgrep o timeout: no forzar
+        logger.debug("pgrep no disponible (%s: %s); guard omitido",
+                     type(pgrep_outcome.failure()).__name__, pgrep_outcome.failure())
+        return
+    out = pgrep_outcome.value_or(None)
+    if out is None or out.returncode != 0 or not out.stdout.strip():
         return  # no hay procesos previos
     for pid_str in out.stdout.strip().splitlines():
-        try:
-            pid = int(pid_str.strip())
-        except ValueError:
-            continue
+        pid_outcome = _parse_pid_core(pid_str)
+        if not is_successful(pid_outcome):
+            continue  # pid no numérico: se omite
+        pid = pid_outcome.value_or(0)
         if pid in (self_pid, parent_pid):
             continue  # no matarse ni matar al dueño
-        try:
-            os.kill(pid, 15)  # SIGTERM
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        kill_outcome = _terminate_core(pid)
+        if not is_successful(kill_outcome):
+            logger.debug(
+                "no se pudo terminar %s (%s: %s); ya murio o sin permisos",
+                pid, type(kill_outcome.failure()).__name__, kill_outcome.failure(),
+            )
+
+
+@safe
+def _pgrep_core(pattern: str):
+    """Core puro: lista procesos del entry point (puede lanzar OSError/Timeout)."""
+    return subprocess.run(
+        ["pgrep", "-f", pattern],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+
+@safe
+def _parse_pid_core(pid_str: str) -> int:
+    """Core puro: parsea un pid (puede lanzar ValueError)."""
+    return int(pid_str.strip())
+
+
+@safe
+def _terminate_core(pid: int) -> None:
+    """Core puro: termina un proceso huerfano (puede lanzar)."""
+    os.kill(pid, 15)  # SIGTERM
 
 
 def _self_test() -> int:

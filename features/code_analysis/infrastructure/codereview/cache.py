@@ -6,12 +6,17 @@ Uso:
     if metrics is None:
         metrics = run_metrics(filepath)
         cache.set_metrics(filepath, metrics)
+
+Return pattern: ante cache corrupto se reinicia con log (convention-001).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class MetricsCache:
@@ -47,8 +52,13 @@ class MetricsCache:
                 data = json.load(f)
             if data.get("version") == 1:
                 return data
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        except FileNotFoundError:
+            pass  # cache nuevo — no es un error
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                "Codereview cache ilegible (%s: %s); se reinicia",
+                type(e).__name__, e,
+            )
         return {"version": 1, "files": {}}
 
     def _save(self) -> None:

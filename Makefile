@@ -25,15 +25,15 @@ install-deps:
 	@echo "  ║   Installing CLI dependencies...              ║"
 	@echo "  ╚═══════════════════════════════════════════════╝"
 	@echo ""
-	@bash scripts/install-deps.sh
+	@bash bin/install-deps.sh
 	@echo ""
 
 # ── Dependencia específica ────────────────────────────────────
 install-ast-grep:
-	@bash scripts/install-deps.sh ast-grep
+	@bash bin/install-deps.sh ast-grep
 
 install-qlty:
-	@bash scripts/install-deps.sh qlty
+	@bash bin/install-deps.sh qlty
 
 # ── Paquete Python ────────────────────────────────────────────
 pip-install:

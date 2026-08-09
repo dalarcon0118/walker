@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
 # ── Patrones ──
 
 _TOOL_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
-_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26"}
+# Versiones del protocolo MCP soportadas. opencode moderno envía la versión
+# más reciente del spec: 2024-11-05 → 2025-03-26 → 2025-06-18 → 2025-11-25.
+_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -88,9 +90,7 @@ class ToolName:
         if not value or not str(value).strip():
             errors.append("tool name cannot be empty")
         elif not _TOOL_NAME_RE.match(value):
-            errors.append(
-                f"Invalid tool name '{value}': must match [a-z_][a-z0-9_]*"
-            )
+            errors.append(f"Invalid tool name '{value}': must match [a-z_][a-z0-9_]*")
         if errors:
             return None, errors
         return ToolName(value), []
@@ -109,7 +109,9 @@ class ProtocolVersion:
     def create(value: str) -> tuple["ProtocolVersion | None", list[str]]:
         errors: list[str] = []
         if value not in _PROTOCOL_VERSIONS:
-            errors.append(f"Unsupported protocol version '{value}'. Supported: {sorted(_PROTOCOL_VERSIONS)}")
+            errors.append(
+                f"Unsupported protocol version '{value}'. Supported: {sorted(_PROTOCOL_VERSIONS)}"
+            )
         if errors:
             return None, errors
         return ProtocolVersion(value), []
@@ -140,23 +142,6 @@ class UriPattern:
 
     def __str__(self) -> str:
         return self.value
-
-
-@dataclass(frozen=True)
-class JsonRpcId:
-    """VO — id JSON-RPC 2.0.
-
-    None = notificación (no debe recibir respuesta).
-    """
-
-    value: str | int | None
-
-    @property
-    def is_notification(self) -> bool:
-        return self.value is None
-
-    def __str__(self) -> str:
-        return str(self.value)
 
 
 @dataclass(frozen=True)

@@ -1,38 +1,76 @@
-"""CPG side-effects: update_cpg, build_project_graph, update_code_index, update_delta_graph."""
+"""CPG side-effects: update_cpg, build_project_graph, update_code_index, update_delta_graph.
+
+Result pattern (dry-python/returns): los cores con @safe nunca lanzan; los
+wrappers degradan con fallback explícito + log (convention-001).
+"""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from typing import Any
+from returns.pipeline import is_successful
+from returns.result import safe
 from libs.shared_domain import ExecutionContext
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
+
+
+@safe
+def _resolve_project_root_core(chain_dir: str) -> Path:
+    """Core puro: resuelve el project_root desde chain_dir (puede lanzar)."""
+    paths = ProjectService.resolve_paths(chain_dir)
+    return Path(paths.project_root)
 
 
 def _resolve_project_root(ctx: ExecutionContext) -> Path:
     if ctx.chain_dir:
-        try:
-            paths = ProjectService.resolve_paths(ctx.chain_dir)
-            return Path(paths.project_root)
-        except Exception:
-            return Path(ctx.chain_dir).parent.parent
+        result = _resolve_project_root_core(ctx.chain_dir)
+        if is_successful(result):
+            return result.value_or(Path(ctx.chain_dir).parent.parent)
+        logger.warning(
+            "cpg_updates: resolve_paths fallo (%s: %s); fallback a parent.parent",
+            type(result.failure()).__name__, result.failure(),
+        )
+        return Path(ctx.chain_dir).parent.parent
     return Path.cwd()
+
+
+@safe
+def _load_project_config_core(proj_file: Path) -> dict:
+    """Core puro: carga la config del project.json (puede lanzar JSONDecodeError)."""
+    with open(proj_file) as f:
+        data = json.load(f)
+    loc = data.get("project", {}).get("location", {})
+    return {"code_paths": loc.get("code_paths", []),
+            "code_extensions": loc.get("code_extensions",
+                                       ["py", "js", "ts", "tsx", "css", "json", "md"])}
 
 
 def _load_project_config(project_root: Path) -> dict:
     proj_file = project_root / "project.json"
     config = {"code_paths": [], "code_extensions": ["py", "js", "ts", "tsx", "css", "json", "md"]}
     if proj_file.exists():
-        try:
-            with open(proj_file) as f: data = json.load(f)
-            loc = data.get("project", {}).get("location", {})
-            config["code_paths"] = loc.get("code_paths", [])
-            config["code_extensions"] = loc.get("code_extensions", config["code_extensions"])
-        except Exception: pass
+        result = _load_project_config_core(proj_file)
+        if is_successful(result):
+            return result.value_or(config)
+        logger.warning(
+            "cpg_updates: project.json ilegible (%s: %s); config por defecto",
+            type(result.failure()).__name__, result.failure(),
+        )
     return config
 
 
 def _cpg_build_paths(config: dict, project_root: Path) -> list[str]:
     code_paths = config.get("code_paths", [])
     return [str(project_root / p) for p in code_paths] if code_paths else [str(project_root)]
+
+
+@safe
+def _mark_cpg_indexed_core(project_root: Path) -> None:
+    """Core puro: marca CPG como up_to_date en el watcher (puede lanzar)."""
+    from features.project import FileWatcher
+    FileWatcher(str(project_root)).mark_indexed("cpg")
 
 
 def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
@@ -53,12 +91,13 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
             # incremental: usa watcher + delta sync (BuildGraphUseCase.update)
             data = builder.update()
             files_updated = data.get("files_updated", 0)
-        # Mark CPG as up_to_date in watcher (SSOT: project owns watcher state)
-        try:
-            from features.project import FileWatcher
-            FileWatcher(str(project_root)).mark_indexed("cpg")
-        except Exception:
-            pass
+        # Mark CPG as up_to_date in watcher (best-effort con log)
+        marked = _mark_cpg_indexed_core(project_root)
+        if not is_successful(marked):
+            logger.warning(
+                "cpg_updates: mark_indexed('cpg') fallo (%s: %s)",
+                type(marked.failure()).__name__, marked.failure(),
+            )
 
         # ── Contrato estándar: el workflow lee signals (no metadata interna).
         quality_report = data.get("quality_report", {})

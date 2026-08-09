@@ -1,18 +1,21 @@
-"""Context gathering tasks — thin adapters to code_analysis/ + cognitive_knowledge/ use cases."""
+"""Context gathering tasks — internal workflow steps via ICpgAnalysisPort + CKG."""
 from __future__ import annotations
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
 from libs.result_types import is_successful
-from features.code_analysis.application.use_cases import GatherCpgContextUseCase
 from features.cognitive_knowledge.application.use_cases import GatherCkgContextUseCase
 
 
 def _ckg_context(chain_dir: str, task_id: str = "") -> list:
-    """Unwrap GatherCkgContextUseCase Result → list, tolerando Failure."""
     result = GatherCkgContextUseCase.execute(chain_dir, task_id=task_id)
     if not is_successful(result):
         return []
     return result.value_or([])
+
+
+def _cpg_port(chain_dir: str) -> Any:
+    from features.task_execution.application.cpg_port_resolver import resolve_cpg_port
+    return resolve_cpg_port(chain_dir)
 
 
 def gather_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -20,8 +23,10 @@ def gather_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
     files = data.get("files", [])
+    port = _cpg_port(chain_dir)
+    cpg_result = port.gather_context(files) if port else {}
     context = {
-        "cpg": GatherCpgContextUseCase.execute(chain_dir, files),
+        "cpg": cpg_result,
         "ckg": _ckg_context(chain_dir),
         "input": data.get("context", {}),
     }
@@ -35,8 +40,10 @@ def gather_task_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResu
         return TaskResult.failure("chain_dir not available")
     files = data.get("files", [])
     task_id = data.get("task_id", ctx.task_id)
+    port = _cpg_port(chain_dir)
+    cpg_result = port.gather_context(files) if (files and port) else {}
     context = {
-        "cpg": GatherCpgContextUseCase.execute(chain_dir, files) if files else {},
+        "cpg": cpg_result,
         "ckg": _ckg_context(chain_dir, task_id),
         "task_id": task_id, "input": data.get("context", {}),
     }
@@ -45,7 +52,6 @@ def gather_task_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResu
 
 
 def register(registry: Any) -> None:
-    # Acciones del workflow (DESIGN_GATHER, etc.) — internas: solo el motor las ejecuta
     registry.register("gather_context", gather_context,
                       metadata={"description": "Gather context from CPG + CKG", "tags": ["gathering"], "scope": "internal"})
     registry.register("gather_task_context", gather_task_context,

@@ -2,30 +2,51 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
 from pathlib import Path
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
+logger = logging.getLogger(__name__)
+
+
+def _probe_binary(bin_name: str) -> bool:
+    """Detecta si un binario está disponible en el PATH.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve False
+    y loggea en debug (convention-001).
+    """
+    result = _probe_binary_core(bin_name)
+    if is_successful(result):
+        return result.value_or(False)
+    error = result.failure()
+    logger.debug(
+        "binario %s no disponible (%s: %s)",
+        bin_name, type(error).__name__, error,
+    )
+    return False
+
+
+@safe
+def _probe_binary_core(bin_name: str) -> bool:
+    """Core puro de _probe_binary (puede lanzar FileNotFoundError/TimeoutExpired)."""
+    r = subprocess.run(
+        [bin_name, "--version"], capture_output=True, text=True, timeout=5
+    )
+    return r.returncode == 0
+
+
 # ── Qlty binary ──────────────────────────────────────────────
 QLTY = os.environ.get("QLTY_BIN") or "qlty"
-QLTY_AVAILABLE = False
-try:
-    r = subprocess.run([QLTY, "--version"], capture_output=True, text=True, timeout=5)
-    QLTY_AVAILABLE = r.returncode == 0
-except (FileNotFoundError, subprocess.TimeoutExpired):
-    QLTY_AVAILABLE = False
+QLTY_AVAILABLE = _probe_binary(QLTY)
 
 # ── ast-grep binary ─────────────────────────────────────────
 AST_GREP = os.environ.get("AST_GREP_BIN") or "ast-grep"
-AST_GREP_AVAILABLE = False
-try:
-    r = subprocess.run(
-        [AST_GREP, "--version"], capture_output=True, text=True, timeout=5
-    )
-    AST_GREP_AVAILABLE = r.returncode == 0
-except (FileNotFoundError, subprocess.TimeoutExpired):
-    AST_GREP_AVAILABLE = False
+AST_GREP_AVAILABLE = _probe_binary(AST_GREP)
 
 # ── ANSI escape stripping ───────────────────────────────────
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")

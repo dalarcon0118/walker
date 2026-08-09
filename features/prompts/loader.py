@@ -1,9 +1,17 @@
 """loader.py — Carga templates de múltiples fuentes."""
 from __future__ import annotations
+
 import json
+import logging
 import os
 from typing import Any
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateNotFound(Exception):
@@ -41,11 +49,13 @@ def load_static(template_id: str) -> str:
     )
     for path in candidates:
         if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    return f.read()
-            except OSError:
-                continue
+            result = _read_text_core(path)
+            if is_successful(result):
+                return result.value_or("")
+            logger.debug(
+                "template %s ilegible (%s); probando siguiente fuente",
+                path, result.failure(),
+            )
     raise TemplateNotFound(f"Template '{template_id}' no encontrado en {root}")
 
 
@@ -56,36 +66,62 @@ class TemplateLoader:
         if project_dir:
             self.project_dir = project_dir
         else:
-            try:
-                paths = ProjectService.resolve_paths(chain_dir)
-                self.project_dir = paths.project_root
-            except Exception:
+            result = _resolve_project_dir_core(chain_dir)
+            if is_successful(result):
+                self.project_dir = result.value_or("")
+            else:
+                logger.debug(
+                    "project_dir no resuelto (%s); usando fallback estructural",
+                    result.failure(),
+                )
                 self.project_dir = os.path.dirname(os.path.dirname(chain_dir))
         self._script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     def load(self, template_id: str) -> str:
+        """Carga el template desde la primera fuente legible.
+
+        Result pattern (convention-001): las fuentes ilegibles se loggean en
+        debug y se salta a la siguiente — la resolucion multi-fuente no
+        silencia errores, los hace visibles por fuente.
+        """
         sources = self._resolve_sources(template_id)
         for path, fmt in sources:
             if path and os.path.exists(path):
-                try:
+                result = _read_source_core(path, fmt)
+                if is_successful(result):
+                    data = result.value_or(None)
+                    if data is None:
+                        continue
                     if fmt == "json":
-                        data = json.load(open(path))
+                        # JSON valido pero no objeto (lista/int): fuente invalida.
+                        # En el original este caso saltaba de fuente via except;
+                        # aqui la guarda explicita preserva esa semantica.
+                        if not isinstance(data, dict):
+                            continue
                         return data.get("template", data.get("prompt", ""))
-                    return open(path).read()
-                except Exception:
-                    continue
+                    return data
+                logger.debug(
+                    "fuente %s ilegible (%s); probando siguiente",
+                    path, result.failure(),
+                )
         raise TemplateNotFound(f"Template '{template_id}' no encontrado en ninguna fuente")
 
     def load_with_meta(self, template_id: str) -> dict[str, Any]:
         sources = self._resolve_sources(template_id)
         for path, fmt in sources:
             if path and os.path.exists(path):
-                try:
+                result = _read_source_core(path, fmt)
+                if is_successful(result):
+                    data = result.value_or(None)
+                    if data is None:
+                        continue
                     if fmt == "json":
-                        return json.load(open(path))
-                    return {"template": open(path).read()}
-                except Exception:
-                    continue
+                        return data
+                    return {"template": data}
+                logger.debug(
+                    "fuente %s ilegible (%s); probando siguiente",
+                    path, result.failure(),
+                )
         raise TemplateNotFound(f"Template '{template_id}' no encontrado")
 
     def _node_prompt_sources(self, wf: str, template_id: str) -> list[tuple[str | None, str]]:
@@ -105,12 +141,12 @@ class TemplateLoader:
         wf_dir = os.path.join(self.project_dir, "workflow.v3", "prompts")
         nodes_dir = canonical_nodes_dir()  # SSOT del motor: templates/nodes/
         # Fallback legacy: prompts del workflow v3.1 que aún viven en la data del motor
-        try:
-            from libs.path_resolver import get_engine_workflow_dir
-            engine_wf_dir = str(get_engine_workflow_dir() / "prompts")
-        except Exception:
+        result = _engine_wf_dir_core()
+        if is_successful(result):
+            engine_wf_dir = result.value_or("")
+        else:
+            logger.debug("engine workflow dir no resuelto (%s)", result.failure())
             engine_wf_dir = ""
-        tm_dir = os.path.join(self.project_dir, "task-manifests")
         tpl_dir = os.path.join(self.project_dir, "templates")
         legacy_tpl = os.path.join(self._script_dir, "templates")
         internal_tpl = os.path.join(self._script_dir, "_internal", "templates")
@@ -128,7 +164,6 @@ class TemplateLoader:
         # Precedencia de prompts de nodo: proyecto-local > templates/nodes/ (motor) > data del motor
         for wf in (wf_dir, nodes_dir, engine_wf_dir):
             sources.extend(self._node_prompt_sources(wf, template_id))
-        sources.append((os.path.join(tm_dir, f"{template_id}.json"), "json"))
         sources.append((os.path.join(tpl_dir, template_id), "text"))
         sources.append((os.path.join(tpl_dir, f"{template_id}.txt"), "text"))
         sources.append((os.path.join(tpl_dir, f"{template_id}.md"), "text"))
@@ -138,3 +173,37 @@ class TemplateLoader:
         sources.append((os.path.join(internal_tpl, f"{template_id}.txt"), "text"))
         sources.append((os.path.join(prompts_dir, f"{template_id}.md"), "text"))
         return sources
+
+
+# ── Cores @safe (Result pattern, convention-001) ─────────────────
+
+@safe
+def _read_text_core(path: str) -> str:
+    """Core puro: lee un archivo de texto (puede lanzar)."""
+    with open(path) as f:
+        return f.read()
+
+
+@safe
+def _read_source_core(path: str, fmt: str) -> dict | str:
+    """Core puro: lee una fuente de template (puede lanzar)."""
+    if fmt == "json":
+        with open(path) as f:
+            return json.load(f)
+    with open(path) as f:
+        return f.read()
+
+
+@safe
+def _resolve_project_dir_core(chain_dir: str) -> str:
+    """Core puro de TemplateLoader.__init__ (puede lanzar)."""
+    paths = ProjectService.resolve_paths(chain_dir)
+    return paths.project_root
+
+
+@safe
+def _engine_wf_dir_core() -> str:
+    """Core puro: dir de prompts del engine workflow (puede lanzar)."""
+    from libs.path_resolver import get_engine_workflow_dir
+
+    return str(get_engine_workflow_dir() / "prompts")

@@ -5,8 +5,15 @@ SRP: Match CPG nodes against query filters.
 
 from __future__ import annotations
 
+import logging
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from features.code_analysis.domain.graph import Graph
 from features.code_analysis.domain.query import Filter
+
+logger = logging.getLogger(__name__)
 
 
 def match_node(node: dict, filters: list[Filter]) -> bool:
@@ -56,18 +63,33 @@ def _match_file_node(node: dict, val: str) -> bool:
 
 
 def _match_threshold(node_val, val: str) -> bool:
-    """Matchea un filtro numerico de umbral (>, <, o igualdad de presencia)."""
+    """Matchea un filtro numerico de umbral (>, <, o igualdad de presencia).
+
+    Result pattern: el core @safe nunca lanza; ante umbral no numérico
+    devuelve True (match por presencia) y loggea en debug (convention-001).
+    """
     if node_val is None:
         return False
-    try:
-        threshold = int(val.replace(">", "").replace("<", ""))
-        node_val = int(node_val)
-        if ">" in val and not (node_val > threshold):
-            return False
-        if "<" in val and not (node_val < threshold):
-            return False
-    except (ValueError, TypeError):
-        pass
+    result = _match_threshold_core(node_val, val)
+    if is_successful(result):
+        return result.value_or(True)
+    error = result.failure()
+    logger.debug(
+        "umbral '%s' no numérico para %r (%s); match por presencia",
+        val, node_val, type(error).__name__,
+    )
+    return True
+
+
+@safe
+def _match_threshold_core(node_val, val: str) -> bool:
+    """Core puro de _match_threshold (puede lanzar ValueError/TypeError)."""
+    threshold = int(val.replace(">", "").replace("<", ""))
+    node_val = int(node_val)
+    if ">" in val and not (node_val > threshold):
+        return False
+    if "<" in val and not (node_val < threshold):
+        return False
     return True
 
 

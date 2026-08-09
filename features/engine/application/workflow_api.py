@@ -20,19 +20,14 @@ from typing import Any
 
 from ..domain.models import ExecutionContext
 from ..domain.session import SessionRecord, SessionStore
+from ..domain.ports import ITracer
 from ..infrastructure.repositories import WorkflowStateRepository, WorkflowRepository
 from ..bootstrap import bootstrap
 from .orchestrator import OrchestrationService
 
 
 class WorkflowAPI:
-    """API Surface del workflow con manejo de sesión.
-
-    Uso:
-        api = WorkflowAPI()
-        result = api.status()           # usa sesión activa o bootstrap
-        result = api.submit(data=...)   # opera sobre la misma sesión
-    """
+    """API Surface del workflow con manejo de sesión."""
 
     def __init__(
         self,
@@ -40,7 +35,7 @@ class WorkflowAPI:
         chain_dir: str | None = None,
         project_id: str | None = None,
         session_store: Any = None,
-        tracer: Any = None,
+        tracer: ITracer | None = None,
     ):
         self._session_store = session_store or SessionStore
         self._session_id = session_id
@@ -285,11 +280,9 @@ class WorkflowAPI:
         if self._chain_dir:
             # Fuente unica: el delta. task_id = spec actual del spring.
             try:
-                from features.delta_tracking.application.services.spring_service import (
-                    SpringService,
-                )
+                from features.delta_tracking import SpringService, spring_service
 
-                spring_svc = SpringService.from_chain_dir(self._chain_dir)
+                spring_svc = spring_service(chain_dir=self._chain_dir)
                 if spring_svc:
                     spring_id = spring_svc.get_spring_id(self._chain_dir)
                     spring_svc.ensure_spring_imported(self._chain_dir, spring_id)

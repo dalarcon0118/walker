@@ -2,15 +2,23 @@
 
 SRP: Unica responsabilidad = leer/escribir el grafo CPG del filesystem.
 Usa path_resolver para ubicar el archivo.
+
+Result pattern (dry-python/returns): el core @safe nunca lanza; load()
+falla abierto con log (convention-001: nunca except silencioso).
 """
 from __future__ import annotations
 import gzip
 import json
+import logging
 import os
 from typing import Any
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from features.code_analysis.domain.graph import Graph
 
+logger = logging.getLogger(__name__)
 
 CPG_FILENAME = "cpg.json.gz"
 CPG_VERSION = "2.0"
@@ -32,25 +40,33 @@ class CpgFileRepository:
     def cpg_path(self) -> str:
         return os.path.join(self._data_dir, CPG_FILENAME)
 
+    @property
+    def data_dir(self) -> str:
+        return self._data_dir
+
     def exists(self) -> bool:
         return os.path.exists(self.cpg_path) or os.path.exists(
             self.cpg_path.replace(".gz", "")
         )
 
     def load(self, project_id: str = "") -> dict[str, Any]:
-        """Carga el CPG del filesystem. Retorna dict con nodes, edges, metadata."""
+        """Carga el CPG del filesystem. Retorna dict con nodes, edges, metadata.
+
+        Result pattern: el core @safe nunca lanza; si el CPG está corrupto se
+        intenta el siguiente formato (.json legacy) y se loggea (convention-001).
+        """
         path = self.cpg_path
         # Try .gz first, then .json
         for p in [path, path.replace(".gz", ".json")]:
             if os.path.exists(p):
-                try:
-                    if p.endswith(".gz"):
-                        raw = json.loads(gzip.decompress(open(p, "rb").read()).decode())
-                    else:
-                        raw = json.loads(open(p).read())
-                    return raw
-                except Exception:
-                    pass
+                result = _read_cpg_raw_core(p)
+                if is_successful(result):
+                    return result.value_or({})
+                error = result.failure()
+                logger.warning(
+                    "CPG ilegible en %s (%s: %s); se intenta el siguiente",
+                    p, type(error).__name__, error,
+                )
         return {
             "version": CPG_VERSION,
             "project_id": project_id,
@@ -94,3 +110,13 @@ class CpgFileRepository:
         })
         self.save(data)
         return data
+
+
+@safe
+def _read_cpg_raw_core(p: str) -> dict:
+    """Core puro de lectura de un archivo CPG (puede lanzar)."""
+    if p.endswith(".gz"):
+        raw = json.loads(gzip.decompress(open(p, "rb").read()).decode())
+    else:
+        raw = json.loads(open(p).read())
+    return raw

@@ -11,7 +11,11 @@ Each handler:
 
 from __future__ import annotations
 
+import logging
 import os
+
+from returns.pipeline import is_successful
+from returns.result import safe
 
 from features.project import ProjectService
 from features.cli_interface.application.project_use_cases import (
@@ -26,6 +30,8 @@ from ..infrastructure.contracts import Request, Response, action
 from .error_mapping import map_engine_error
 from . import presenter
 
+logger = logging.getLogger(__name__)
+
 
 def _safe_execute(fn, *args, **kwargs) -> Response:
     """Execute fn and capture errors into a Response estándar.
@@ -36,19 +42,26 @@ def _safe_execute(fn, *args, **kwargs) -> Response:
     Los WorkflowEngineError se mapean con la taxonomía del dominio
     (patrón Result) preservando details/errors para el agente.
     """
-    try:
-        return fn(*args, **kwargs)
-    except FileNotFoundError as e:
-        return Response.error(f"File not found: {e}", status_code=404)
-    except ValueError as e:
-        return Response.error(f"Validation error: {e}", status_code=400)
-    except Exception as e:
-        payload = map_engine_error(e)
-        return Response.error(
-            payload["message"],
-            status_code=payload["status_code"],
-            errors=payload["errors"],
-        )
+    outcome = _execute_core(fn, *args, **kwargs)
+    if is_successful(outcome):
+        return outcome.value_or(Response.error("Empty result", status_code=500))
+    error = outcome.failure()
+    if isinstance(error, FileNotFoundError):
+        return Response.error(f"File not found: {error}", status_code=404)
+    if isinstance(error, ValueError):
+        return Response.error(f"Validation error: {error}", status_code=400)
+    payload = map_engine_error(error)
+    return Response.error(
+        payload["message"],
+        status_code=payload["status_code"],
+        errors=payload["errors"],
+    )
+
+
+@safe
+def _execute_core(fn, *args, **kwargs) -> Response:
+    """Core puro de _safe_execute (puede lanzar)."""
+    return fn(*args, **kwargs)
 
 
 def _record_forced_transition(
@@ -101,16 +114,24 @@ def _sync_watcher(project_id: str) -> None:
     """
     if not project_id:
         return
-    try:
-        repo_path = _resolve_repo_path_from_registry(project_id)
-        if repo_path and os.path.isdir(repo_path):
-            from features.project import FileWatcher
+    outcome = _sync_watcher_core(project_id)
+    if is_successful(outcome):
+        return
+    error = outcome.failure()
+    logger.warning(
+        "watcher sync failed for '%s' (%s: %s)",
+        project_id, type(error).__name__, error,
+    )
 
-            FileWatcher(repo_path).scan()
-    except Exception as e:
-        import sys
 
-        print(f"[walker] watcher sync failed for '{project_id}': {e}", file=sys.stderr)
+@safe
+def _sync_watcher_core(project_id: str) -> None:
+    """Core puro de _sync_watcher (puede lanzar)."""
+    repo_path = _resolve_repo_path_from_registry(project_id)
+    if repo_path and os.path.isdir(repo_path):
+        from features.project import FileWatcher
+
+        FileWatcher(repo_path).scan()
 
 
 def _ensure_chain_dir(project_id: str, sprint_id: str = "") -> str:
@@ -139,9 +160,9 @@ def _list_from_global_registry() -> dict:
 
     registry_path = get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
-        try:
-            with open(registry_path) as f:
-                registry = json.load(f)
+        outcome = _read_registry_core(registry_path)
+        if is_successful(outcome):
+            registry = outcome.value_or({})
             projects_list = []
             for pid, info in registry.get("projects", {}).items():
                 projects_list.append(
@@ -154,8 +175,9 @@ def _list_from_global_registry() -> dict:
                 )
             if projects_list:
                 return {"type": "projects_list", "projects": projects_list}
-        except (json.JSONDecodeError, OSError) as e:
-            return {"type": "projects_list", "projects": [], "error": str(e)}
+        else:
+            error = outcome.failure()
+            return {"type": "projects_list", "projects": [], "error": str(error)}
     return {"type": "projects_list", "projects": []}
 
 
@@ -185,14 +207,11 @@ def _resolve_repo_path_from_registry(project_id: str) -> str:
 
     registry_path = get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
-        try:
-            with open(registry_path) as f:
-                registry = json.load(f)
-            projects = registry.get("projects", {})
+        outcome = _read_registry_core(registry_path)
+        if is_successful(outcome):
+            projects = outcome.value_or({}).get("projects", {})
             if project_id in projects:
                 return projects[project_id].get("repo_path", "")
-        except (json.JSONDecodeError, OSError) as e:
-            return ""  # error propagado via _last_registry_error
     return ""
 
 
@@ -217,6 +236,29 @@ def _resolve_project_from_cwd(req: Request) -> bool:
     if warning:
         req.flags["_legacy_warning"] = warning
     return True
+
+
+# ── Cores @safe (IO) ────────────────────────────────────────────────
+
+@safe
+def _read_registry_core(registry_path) -> dict:
+    """Core puro: lee y parsea un JSON (puede lanzar)."""
+    import json
+
+    with open(registry_path) as f:
+        return json.load(f)
+
+
+@safe
+def _memory_stats_core(cog_data_dir: str) -> dict:
+    """Core puro: stats de memoria + indices (puede lanzar)."""
+    from libs.memories import MemoryQueryService
+
+    mqs = MemoryQueryService(cog_data_dir)
+    return {
+        "status": mqs.status(),
+        "indexes": mqs.list_indexes(),
+    }
 
 
 def handle_project_info(req: Request) -> Response:
@@ -254,14 +296,15 @@ def handle_project_info(req: Request) -> Response:
 
         registry_path = get_walker_root() / "data" / "projects.json"
         if registry_path.exists():
-            try:
-                with open(registry_path) as f:
-                    reg = json.load(f).get("projects", {}).get(project_id, {})
-                    info["name"] = reg.get("name", project_id)
-                    info["registered_at"] = reg.get("registered_at", "")
-                    info["last_accessed"] = reg.get("last_accessed", "")
-            except (json.JSONDecodeError, OSError) as e:
-                info["warnings"].append(f"registry read failed: {e}")
+            reg_outcome = _read_registry_core(registry_path)
+            if is_successful(reg_outcome):
+                reg = reg_outcome.value_or({}).get("projects", {}).get(project_id, {})
+                info["name"] = reg.get("name", project_id)
+                info["registered_at"] = reg.get("registered_at", "")
+                info["last_accessed"] = reg.get("last_accessed", "")
+            else:
+                error = reg_outcome.failure()
+                info["warnings"].append(f"registry read failed: {error}")
 
         # ── Project metadata ──
         cog_data_dir = os.path.join(
@@ -271,43 +314,46 @@ def handle_project_info(req: Request) -> Response:
         if not os.path.exists(proj_json):
             proj_json = os.path.join(repo_path, "project.json")
         if os.path.exists(proj_json):
-            try:
-                with open(proj_json) as f:
-                    pdata = json.load(f)
+            proj_outcome = _read_registry_core(proj_json)
+            if is_successful(proj_outcome):
+                pdata = proj_outcome.value_or({})
                 proj = pdata.get("project", pdata)
                 identity = proj.get("identity", {})
                 info["language"] = identity.get("language", "")
                 info["framework"] = identity.get("framework", "")
                 info["code_paths"] = identity.get("code_paths", [])
-            except (json.JSONDecodeError, OSError) as e:
-                info["warnings"].append(f"project.json read failed: {e}")
+            else:
+                error = proj_outcome.failure()
+                info["warnings"].append(f"project.json read failed: {error}")
 
         # ── Memory stats via MemoryQueryService (no acceso directo a JSON) ──
         if os.path.isdir(cog_data_dir):
-            try:
-                from libs.memories import MemoryQueryService
-
-                mqs = MemoryQueryService(cog_data_dir)
-                mem_status = mqs.status()
-                info["cpg_nodes"] = mem_status.get("cpg", {}).get("total_docs", 0)
-                info["cpg_edges"] = mem_status.get("cpg", {}).get("total_edges", 0)
-                info["ckg_docs"] = mem_status.get("ckg", {}).get("total_docs", 0)
-                dt = mem_status.get("delta", {})
+            mem_outcome = _memory_stats_core(cog_data_dir)
+            if is_successful(mem_outcome):
+                mem = mem_outcome.value_or({})
+                info["cpg_nodes"] = mem.get("status", {}).get("cpg", {}).get("total_docs", 0)
+                info["cpg_edges"] = mem.get("status", {}).get("cpg", {}).get("total_edges", 0)
+                info["ckg_docs"] = mem.get("status", {}).get("ckg", {}).get("total_docs", 0)
+                dt = mem.get("status", {}).get("delta", {})
                 info["delta_tasks"] = dt.get("total_docs", 0)
-                info["cognitive_indices"] = mqs.list_indexes()
-            except Exception as e:
-                info["warnings"].append(f"memory stats failed: {e}")
+                info["cognitive_indices"] = mem.get("indexes", [])
+            else:
+                error = mem_outcome.failure()
+                info["warnings"].append(f"memory stats failed: {error}")
 
         # Watcher: change_detected
         change_path = os.path.join(cog_data_dir, "change_detected.json")
         if os.path.exists(change_path):
-            try:
-                info["watcher"] = json.loads(open(change_path).read())
-            except (json.JSONDecodeError, OSError) as e:
-                info["warnings"].append(f"watcher file read failed: {e}")
+            watcher_outcome = _read_registry_core(change_path)
+            if is_successful(watcher_outcome):
+                info["watcher"] = watcher_outcome.value_or({})
+            else:
+                error = watcher_outcome.failure()
+                info["warnings"].append(f"watcher file read failed: {error}")
 
         # Active sprints
         from features.project.application.service import ProjectService
+
         active = ProjectService.find_active_sprint(project_id)
         info["active_sprint"] = active if active else None
 
@@ -322,7 +368,14 @@ def handle_project_info(req: Request) -> Response:
 
 
 def handle_list_projects(req: Request) -> Response:
-    """Use case: list available projects."""
+    """Use case: list available projects.
+
+    Lee el registro global directamente (_list_from_global_registry) en vez
+    de rondar por el tool MCP interno: el CLI es solo un formateador.
+    (El circuito CLI->MCP->REST envolvia el payload bajo "data", por lo que
+    la salida humana mostraba "0 registered projects" aunque el registro
+    tuviera proyectos.)
+    """
 
     def _exec():
         data = _list_from_global_registry()
@@ -346,19 +399,18 @@ def handle_list_projects(req: Request) -> Response:
 def handle_status(req: Request) -> Response:
     """Use case: show project health + workflow status.
 
-    Thin wrapper over CheckHealthUseCase. Devuelve un Response REST
-    con next_actions para que el agente sepa exactamente qué hacer.
+    Llama a CheckHealthUseCase directamente (el CLI es solo formateador).
+    NOTA: el MCP es el SSOT para el agente (LLM). El CLI no debe consumir
+    el tool MCP 'status' internamente: el circuito CLI->MCP->REST->CLI
+    recaia en si mismo (recursion hasta "maximum recursion depth exceeded")
+    y ademas envolvia el payload bajo 'data', dejando la salida en '?'.
     """
 
     def _exec():
-        # If no project_id given, try to resolve from CWD or registry
         if not _resolve_project_from_cwd(req):
-            # No project found: show list with two options
             return _list_from_global_registry_with_prompt()
         project_id = req.project_id
         repo_path = req.repo_path
-
-        # If we have a project_id but no repo_path, resolve from global registry
         if not repo_path:
             repo_path = _resolve_repo_path_from_registry(project_id)
             if repo_path:
@@ -367,12 +419,12 @@ def handle_status(req: Request) -> Response:
         health = CheckHealthUseCase.execute(
             project_id=project_id,
             repo_path=repo_path,
-            sprint_id=req.sprint_id,
         )
+
         if req.flags.get("_legacy_warning"):
+            health["warnings"] = health.get("warnings", [])
             health["warnings"].insert(0, req.flags["_legacy_warning"])
 
-        # ── Response REST: message + next_actions (qué hacer ahora) ──
         sprint = health.get("sprint")
         if sprint:
             node = sprint.get("node", "?")
@@ -382,23 +434,18 @@ def handle_status(req: Request) -> Response:
             prompt = sprint.get("prompt", "")
             instructions = ""
             if prompt:
-                # Resumir instrucciones accionables: primeras lineas no vacias
                 lines = [l.strip() for l in prompt.split("\n") if l.strip()]
-                instr = [
-                    l for l in lines if not l.startswith("{") and not l.endswith("}")
-                ]
+                instr = [l for l in lines if not l.startswith("{") and not l.endswith("}")]
                 if instr:
                     instructions = " | ".join(instr[:3])
             if sprint.get("informal") and not node:
-                # Sprint informal (session log de captura): no tiene estado
-                # de workflow. Es historico del agente, no del workflow.
                 sprint_id = sprint.get("sprint_id") or "?"
                 message = (
                     f"Project '{project_id}' — sprint informal '{sprint_id}' "
                     f"(session log de captura). No tiene estado de workflow; "
                     f"consulta su historico con "
                     f"walker {project_id}/kg_search "
-                    f"'{{\"_index\":\"delta\",\"text\":\"{sprint_id}\"}}'"
+                    f'\'{{"_index":"delta","text":"{sprint_id}"}}\''
                 )
             else:
                 message = (
@@ -406,8 +453,6 @@ def handle_status(req: Request) -> Response:
                     f"gates available: {gate_names}"
                 )
                 if sprint.get("execution_type") == "user_input":
-                    # User gate: la decision la toma el PO respondiendo (submit),
-                    # no con transition directa. Explicitar la via correcta.
                     message = (
                         f"Project '{project_id}' at {node}.{sub} — "
                         f"awaiting your decision. Submit your response with the "
@@ -425,7 +470,6 @@ def handle_status(req: Request) -> Response:
             cmd = step.get("command", "")
             if cmd:
                 actions.append(action(cmd, step.get("reason", "")))
-        # Fallback: sugerir consultar memorias si no hay next_steps
         if not actions:
             actions.append(
                 action(
@@ -447,17 +491,22 @@ def handle_status(req: Request) -> Response:
 def handle_prepare(req: Request) -> Response:
     """Use case: prepare project (walker prepare).
 
-    Thin wrapper over PrepareProjectUseCase.
+    Llama a PrepareProjectUseCase directamente (el CLI es solo formateador).
+    El antiguo circuito CLI->MCP->REST envolvia el payload del use case bajo
+    'data' del Response, y prepare_output leía claves planas -> todo '?'
+    aunque el manifest se hubiera creado correctamente.
     """
 
     def _exec():
         project_path = os.path.abspath(
             req.project_id or req.flags.get("path", os.getcwd())
         )
+
         result = PrepareProjectUseCase.execute(
             project_path=project_path,
             args_flags=req.flags,
         )
+
         if result.get("error"):
             return Response.error(
                 result["error"],
@@ -503,26 +552,23 @@ def handle_prepare(req: Request) -> Response:
 
 
 def handle_submit(req: Request) -> Response:
-    """Use case: submit data to current sub-state.
+    """Use case: submit data to current sub-state via MCP.
 
-    REST: walker <project>/submit '{"field1":"value1","field2":"value2"}'
-    Legacy: walker <project>/submit --field1 value1 --field2 value2
+    Consume el MCP tool 'submit' en lugar de REST directo.
     """
 
     def _exec():
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
-        chain_dir = _ensure_chain_dir(req.project_id, req.sprint_id)
-        if not chain_dir:
-            return Response.error("Could not resolve chain_dir", status_code=404)
-        # Usar _payload (REST body) como datos a submitir
+        project_id = req.project_id
         payload = req.flags.get("_payload", {})
         submit_data = payload if isinstance(payload, dict) else req.flags
-        api = WorkflowAPI(chain_dir=chain_dir, project_id=req.project_id)
-        api.ensure_session()
-        result = api.submit(**submit_data)
 
-        # ── Response REST con next_actions ──
+        from features.cli_interface.application.mcp_client import get_mcp_client
+        mcp = get_mcp_client()
+        mcp_result = mcp.call_tool("submit", {"project_id": project_id, "body": submit_data})
+        result = mcp_result.get("result", mcp_result)
+
         if not result.get("ok", True) or result.get("error"):
             msg = result.get("error") or result.get("message", "Submit failed")
             return Response.error(
@@ -531,16 +577,14 @@ def handle_submit(req: Request) -> Response:
                 errors=result.get("errors", []),
                 next_actions=[
                     action(
-                        f"walker {req.project_id}/status",
+                        f"walker {project_id}/status",
                         "check which fields the current sub-state requires",
                     ),
                 ],
             )
         sub_state = result.get("sub_state", "?")
         fields = list(submit_data.keys())
-        message = f"Submitted {len(fields)} field(s) to {req.project_id} @ {sub_state}"
-        # Teoria de grafos: si el submit resolvio un XOR-split por intent,
-        # mostrar el avance automatico al nodo destino.
+        message = f"Submitted {len(fields)} field(s) to {project_id} @ {sub_state}"
         if result.get("xor_done") and result.get("xor_next"):
             message += f" → avanzado a {result['xor_next']}"
         return Response.ok(
@@ -549,11 +593,11 @@ def handle_submit(req: Request) -> Response:
             data={"sub_state": sub_state, "field_count": len(fields), **result},
             next_actions=[
                 action(
-                    f"walker {req.project_id}/status",
+                    f"walker {project_id}/status",
                     "verify new workflow state and available gates",
                 ),
                 action(
-                    f"walker {req.project_id}/transition <gate>",
+                    f"walker {project_id}/transition <gate>",
                     "move to the next node if ready",
                 ),
             ],
@@ -563,16 +607,12 @@ def handle_submit(req: Request) -> Response:
 
 
 def handle_transition(req: Request) -> Response:
-    """Use case: transition between nodes."""
+    """Use case: transition between nodes via MCP."""
 
     def _exec():
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
-        chain_dir = _ensure_chain_dir(req.project_id, req.sprint_id)
-        if not chain_dir:
-            return Response.error("Could not resolve chain_dir", status_code=404)
-        req.set_repo_path(chain_dir)
-        req.flags["_chain_dir"] = chain_dir
+        project_id = req.project_id
         gate = req.gate
         if not gate:
             return Response.error(
@@ -580,23 +620,23 @@ def handle_transition(req: Request) -> Response:
                 status_code=400,
                 next_actions=[presenter.go_status(req.project_id)],
             )
-        api = WorkflowAPI(chain_dir=chain_dir, project_id=req.project_id)
-        api.ensure_session()
-        # ── GAP-4: force documentado (analogía git --force-with-lease) ──
         force = bool(req.flags.get("force") or req.flags.get("f"))
         force_reason = req.flags.get("reason", "") or req.flags.get("force_reason", "")
         if force and not force_reason:
             return Response.error(
-                "Force transition requiere --reason obligatorio (documenta "
-                "la decisión de saltar las precondiciones). Ej: "
-                "walker walker/transition <gate> --force --reason '...'",
+                "Force transition requires --reason (documenta "
+                "la decisión). Ej: walker transition <gate> --force --reason '...'",
                 status_code=400,
             )
-        result = api.transition(
-            gate,
-            reason=force_reason or "",
-            skip_preconditions=bool(force),
-        )
+
+        from features.cli_interface.application.mcp_client import get_mcp_client
+        mcp = get_mcp_client()
+        body = {"gate": gate}
+        if force:
+            body["force"] = True
+            body["reason"] = force_reason
+        mcp_result = mcp.call_tool("transition", {"project_id": project_id, "body": body})
+        result = mcp_result.get("result", mcp_result)
 
         if not result.get("ok", True) or result.get("error"):
             return Response.error(
@@ -604,7 +644,7 @@ def handle_transition(req: Request) -> Response:
                 status_code=400,
                 next_actions=[
                     action(
-                        f"walker {req.project_id}/status",
+                        f"walker {project_id}/status",
                         "check current state and gates",
                     )
                 ],
@@ -614,7 +654,7 @@ def handle_transition(req: Request) -> Response:
         return Response.ok(
             "transition_result",
             message=(
-                f"Transitioned {req.project_id} "
+                f"Transitioned {project_id} "
                 f"{result.get('from_node', '?')}.{result.get('from_sub', '')} → "
                 f"{result.get('to_node', '?')}.{result.get('to_sub', '')} "
                 f"via '{gate}'"
@@ -622,7 +662,8 @@ def handle_transition(req: Request) -> Response:
             data={"gate": gate, **result},
             next_actions=[
                 action(
-                    f"walker {req.project_id}/status", "see the new state and its gates"
+                    f"walker {project_id}/status",
+                    "verify new workflow state",
                 ),
             ],
         )
@@ -733,7 +774,12 @@ def handle_help(req: Request) -> Response:
     """Use case: show help with CognitiveGraph documentation."""
 
     def _exec():
+        from features.cli_interface.application.mcp_client import get_mcp_client
+        mcp = get_mcp_client()
+        mcp_tools = mcp.list_tools()
         data = _build_help()
+        data["mcp_tools_count"] = len(mcp_tools)
+        data["mcp_tools"] = [t.get("name") for t in mcp_tools[:10]]
         return Response.ok(
             "help",
             message="Walker REST protocol — consume the walker as /recurso/recurso2",
@@ -747,21 +793,69 @@ def handle_help(req: Request) -> Response:
     return _safe_execute(_exec)
 
 
+def handle_mcp_tools(req: Request) -> Response:
+    """Use case: list all MCP tools from ModuleRegistry via MCP client."""
+
+    def _exec():
+        from features.cli_interface.application.mcp_client import get_mcp_client
+        mcp = get_mcp_client()
+        tools = mcp.list_tools()
+        return Response.ok(
+            "mcp_tools",
+            message=f"{len(tools)} MCP tool(s) available",
+            data={"tools": tools},
+            next_actions=[
+                action("walker help", "see full help"),
+                action("walker routes", "see REST routes"),
+            ],
+        )
+
+    return _safe_execute(_exec)
+
+
+def handle_mcp_routes(req: Request) -> Response:
+    """Use case: list all REST routes from ModuleRegistry."""
+
+    def _exec():
+        from features.cli_interface.application.mcp_client import get_mcp_client
+        mcp = get_mcp_client()
+        routes = mcp.list_tools()
+        return Response.ok(
+            "mcp_routes",
+            message=f"{len(routes)} REST route(s) available",
+            data={"routes": routes},
+            next_actions=[
+                action("walker help", "see full help"),
+                action("walker mcp-tools", "see MCP tools"),
+            ],
+        )
+
+    return _safe_execute(_exec)
+
+
 def _load_protocol_rest() -> str:
     """Carga el protocolo REST desde el template canónico (SSOT).
 
     SSOT: features/prompts/templates/protocol/rest.md (mismo root único de
     templates que el resto de prompts). Fallback: constante del código.
     """
-    try:
-        from features.prompts.loader import load_static
-        text = load_static("protocol/rest")
-        return text or _PROTOCOL_REST_FALLBACK
-    except Exception as e:
-        import sys
+    outcome = _load_protocol_rest_core()
+    if is_successful(outcome):
+        return outcome.value_or(_PROTOCOL_REST_FALLBACK) or _PROTOCOL_REST_FALLBACK
+    error = outcome.failure()
+    logger.warning(
+        "protocol/rest load failed (%s: %s); usando fallback",
+        type(error).__name__, error,
+    )
+    return _PROTOCOL_REST_FALLBACK
 
-        print(f"[walker] protocol/rest load failed (using fallback): {e}", file=sys.stderr)
-        return _PROTOCOL_REST_FALLBACK
+
+@safe
+def _load_protocol_rest_core() -> str:
+    """Core puro de _load_protocol_rest (puede lanzar)."""
+    from features.prompts.loader import load_static
+
+    return load_static("protocol/rest")
 
 
 _PROTOCOL_REST_FALLBACK = (
@@ -789,49 +883,51 @@ def _build_help() -> dict:
     """
     # ── Tasks desde registry (dinamico, las tareas se auto-documentan) ──
     task_catalog = {"total": 0, "tasks": [], "errors": []}
-    try:
-        from features.engine.bootstrap import bootstrap
-
-        registry, _ = bootstrap()
-        task_catalog = registry.discover()
-    except Exception as e:
-        task_catalog["errors"].append(f"task registry discover failed: {e}")
+    catalog_outcome = _discover_task_catalog_core()
+    if is_successful(catalog_outcome):
+        task_catalog = catalog_outcome.value_or(task_catalog)
+    else:
+        error = catalog_outcome.failure()
+        task_catalog["errors"].append(f"task registry discover failed: {error}")
 
     # ── Indices desde CognitiveGraph (dinamico, los indices se auto-documentan) ──
     indices_info = []
     index_errors: list[str] = []
-    try:
-        from libs.cognitive_graph import CognitiveGraph
-
-        cg = CognitiveGraph(".", auto_register=True)
-        for name in sorted(cg.list_indexes()):
-            try:
-                schema = cg.schema(name)
-                indices_info.append(
-                    {
-                        "name": name,
-                        "description": schema.get("description", ""),
-                        "fields": list(schema.get("fields", {}).keys()),
-                        "types": list(schema.get("types", {}).keys()),
-                        "total_docs": schema.get("total_docs", 0),
-                    }
-                )
-            except Exception as e:
-                index_errors.append(f"schema '{name}' failed: {e}")
-                indices_info.append({"name": name, "description": "", "fields": []})
-    except Exception as e:
-        index_errors.append(f"cognitive graph open failed: {e}")
+    cg_outcome = _open_cognitive_graph_core()
+    if is_successful(cg_outcome):
+        cg = cg_outcome.value_or(None)
+        if cg is not None:
+            for name in sorted(cg.list_indexes()):
+                schema_outcome = _index_schema_core(cg, name)
+                if is_successful(schema_outcome):
+                    schema = schema_outcome.value_or({})
+                    indices_info.append(
+                        {
+                            "name": name,
+                            "description": schema.get("description", ""),
+                            "fields": list(schema.get("fields", {}).keys()),
+                            "types": list(schema.get("types", {}).keys()),
+                            "total_docs": schema.get("total_docs", 0),
+                        }
+                    )
+                else:
+                    error = schema_outcome.failure()
+                    index_errors.append(f"schema '{name}' failed: {error}")
+                    indices_info.append({"name": name, "description": "", "fields": []})
+    else:
+        error = cg_outcome.failure()
+        index_errors.append(f"cognitive graph open failed: {error}")
 
     # ── Mapa del workflow (dinamico, desde el grafo SSOT) ──
     workflow_map = {}
-    try:
-        from features.engine.application.workflow_map import compose_workflow_map
-
-        workflow_map = compose_workflow_map()
-    except Exception as e:
-        import sys
-
-        print(f"[walker] workflow map compose failed: {e}", file=sys.stderr)
+    wf_outcome = _compose_workflow_map_core()
+    if is_successful(wf_outcome):
+        workflow_map = wf_outcome.value_or({})
+    else:
+        error = wf_outcome.failure()
+        logger.warning(
+            "workflow map compose failed (%s: %s)", type(error).__name__, error,
+        )
         workflow_map = {}
 
     return {
@@ -971,3 +1067,34 @@ def handle_mcp_config(req: Request) -> Response:
         )
 
     return _safe_execute(_exec)
+
+
+@safe
+def _discover_task_catalog_core() -> dict:
+    """Core puro: descubre el task registry (puede lanzar)."""
+    from features.engine.bootstrap import bootstrap
+
+    registry, _ = bootstrap()
+    return registry.discover()
+
+
+@safe
+def _open_cognitive_graph_core():
+    """Core puro: abre CognitiveGraph (puede lanzar)."""
+    from features.engine.bootstrap import get_module_service
+
+    return get_module_service("cognitive_graph")(".")
+
+
+@safe
+def _index_schema_core(cg, name: str) -> dict:
+    """Core puro: schema de un índice (puede lanzar)."""
+    return cg.schema(name)
+
+
+@safe
+def _compose_workflow_map_core() -> dict:
+    """Core puro: compone el mapa del workflow (puede lanzar)."""
+    from features.engine.application.workflow_map import compose_workflow_map
+
+    return compose_workflow_map()

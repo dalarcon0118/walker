@@ -14,9 +14,8 @@ import json
 import os
 
 from ..domain.entities import Project
-from ..domain.values import ProjectId, ProjectManifest, ProjectPaths
+from ..domain.values import ProjectId, ProjectManifest
 from ..domain.ports import ProjectRepository
-from ..domain.errors import ProjectNotFoundError
 
 
 class CognitiveProjectRepository(ProjectRepository):
@@ -29,9 +28,7 @@ class CognitiveProjectRepository(ProjectRepository):
 
         Returns (saved, errors).
         """
-        errors: list[str] = []
         pid_str = project.project_id.value
-        proj_root = project.paths.project_root if project.paths else ""
         manifest_path = project.paths.project_json_path if project.paths else ""
 
         if not manifest_path:
@@ -68,7 +65,11 @@ class CognitiveProjectRepository(ProjectRepository):
 
     def load(self, project_id: ProjectId | str) -> tuple[Project | None, list[str]]:
         """Load a Project by id. Returns (project, errors)."""
-        pid = project_id if isinstance(project_id, ProjectId) else ProjectId(str(project_id))
+        pid = (
+            project_id
+            if isinstance(project_id, ProjectId)
+            else ProjectId(str(project_id))
+        )
         pid_str = pid.value
 
         manifest_path = _resolve_manifest_path(pid_str)
@@ -112,12 +113,17 @@ class CognitiveProjectRepository(ProjectRepository):
 
     def exists(self, project_id: ProjectId | str) -> tuple[bool, list[str]]:
         """Check if a project exists. Returns (exists, errors)."""
-        pid = project_id if isinstance(project_id, ProjectId) else ProjectId(str(project_id))
+        pid = (
+            project_id
+            if isinstance(project_id, ProjectId)
+            else ProjectId(str(project_id))
+        )
         manifest_path = _resolve_manifest_path(pid.value)
         return bool(manifest_path), []
 
 
 # ── Helpers ──
+
 
 def _resolve_manifest_path(project_id: str) -> str | None:
     """Find project.json for a given project_id. No IO to application layer."""

@@ -34,11 +34,13 @@ from ..infrastructure.side_effects import SideEffectEngine
 from ..infrastructure.task_registry import InMemoryTaskRegistry
 from ..infrastructure.trace_log import TraceLogger
 from ..domain.registry import TaskRegistry
+from ..domain.ports import ITracer
+from ..domain.services.signal_bus import SignalBus
 from ..context import (
     ContextComposer,
     ContextProviderRegistry,
 )
-from libs.contracts import ContractValidator
+from features.engine.domain.contract_validator import ContractValidator
 from .use_cases import (
     SubmitDataUseCase,
     TransitionUseCase,
@@ -88,7 +90,8 @@ class OrchestrationService:
         side_effect_engine: SideEffectEngine | None = None,
         event_dispatcher: Any = None,
         event_log: Any = None,
-        tracer: TraceLogger | None = None,
+        tracer: ITracer | None = None,
+        signal_bus: SignalBus | None = None,
     ):
         self._workflow_repo = workflow_repo or WorkflowRepository()
         self._state_repo = state_repo or WorkflowStateRepository()
@@ -101,6 +104,7 @@ class OrchestrationService:
         )
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
+        self._signal_bus = signal_bus or SignalBus()
 
         # Context Composer (Fase 1: opt-in, backwards compat)
         # Registry armado EXTERNAMENTE por el bootstrap (engine puro:
@@ -130,11 +134,21 @@ class OrchestrationService:
 
     @property
     def prompt_manager(self):
-        """PromptManager: único responsable de prompts, templates y contexto."""
-        if self._prompt_manager is None:
-            from features.prompts import PromptManager
+        """PromptManager (IPromptManager): resuelto por DI, no por import directo.
 
-            self._prompt_manager = PromptManager
+        Se obtiene del ModuleRegistry (clave "prompt_manager"). Fallback: se
+        construye en sitio si el servicio no está registrado (tests unit) —
+        el contrato (IPromptManager) lo respetan siempre.
+        """
+        if self._prompt_manager is None:
+            try:
+                from features.engine.bootstrap import get_module_service
+
+                self._prompt_manager = get_module_service("prompt_manager")
+            except Exception:
+                from features.prompts import PromptManager
+
+                self._prompt_manager = PromptManager
         return self._prompt_manager
 
     @property
@@ -322,6 +336,15 @@ class OrchestrationService:
 
         SRP: delega en StepOrchestrator (componente de decisión de paso).
         """
+        blocked = self._ensure_not_blocked(ctx, strategy="wait")
+        if blocked.get("blocked") and not blocked.get("resolved"):
+            return {
+                "ok": False,
+                "action": "blocked",
+                "message": blocked.get("message", "Workflow is blocked"),
+                "blocked_at": blocked.get("state", {}).get("blocked_at", ""),
+            }
+
         from .step_orchestrator import StepOrchestrator
 
         orch = StepOrchestrator(
@@ -334,6 +357,7 @@ class OrchestrationService:
             build_prompt_context=self._build_prompt_context,
             resolve_prompt=self.resolve_prompt,
             transition=self.transition,
+            signal_bus=self._signal_bus,
         )
         return orch.step(ctx)
 
@@ -346,6 +370,15 @@ class OrchestrationService:
 
         SRP: delega en SubmitOrchestrator (componente de submit).
         """
+        blocked = self._ensure_not_blocked(ctx, strategy="wait")
+        if blocked.get("blocked") and not blocked.get("resolved"):
+            return {
+                "ok": False,
+                "action": "blocked",
+                "message": blocked.get("message", "Workflow is blocked"),
+                "blocked_at": blocked.get("state", {}).get("blocked_at", ""),
+            }
+
         from .submit_orchestrator import SubmitOrchestrator
 
         orch = SubmitOrchestrator(
@@ -356,6 +389,7 @@ class OrchestrationService:
             tracer=self._tracer,
             transition=self.transition,
             dispatch_events_from_side_effects=self._dispatch_events_from_side_effects,
+            signal_bus=self._signal_bus,
         )
         return orch.submit(ctx, fields=fields)
 
@@ -384,6 +418,15 @@ class OrchestrationService:
 
         SRP: delega en TransitionOrchestrator (componente de transiciones).
         """
+        blocked = self._ensure_not_blocked(ctx, strategy="wait")
+        if blocked.get("blocked") and not blocked.get("resolved"):
+            return {
+                "ok": False,
+                "action": "blocked",
+                "message": blocked.get("message", "Workflow is blocked"),
+                "blocked_at": blocked.get("state", {}).get("blocked_at", ""),
+            }
+
         from .transition_orchestrator import TransitionOrchestrator
 
         orch = TransitionOrchestrator(
@@ -393,10 +436,49 @@ class OrchestrationService:
             read_edge_transform=self._read_edge_transform,
             execute_edge_transform=self._execute_edge_transform,
             dispatch_event=self._dispatch_event,
+            workflow_repo=self._workflow_repo,
         )
         return orch.transition(
             ctx, gate, reason=reason, skip_preconditions=skip_preconditions
         )
+
+    def _ensure_not_blocked(
+        self, ctx: ExecutionContext, strategy: str = "wait", payload: dict | None = None
+    ) -> dict:
+        """Verifica bloqueo y resuelve si es posible.
+
+        Returns:
+            dict con blocked, resolved, state, action, message
+        """
+        try:
+            from returns.result import Success
+            from ..domain.services.block_resolver import BlockResolver
+
+            state = self._state_repo.load(ctx.chain_dir)
+            workflow = self._workflow_repo.load(ctx.chain_dir)
+            if isinstance(workflow, dict):
+                from ..domain.models import WorkflowGraph
+                workflow = WorkflowGraph.from_dict(workflow)
+
+            if not BlockResolver.is_blocked(state):
+                return {"blocked": False, "resolved": False}
+
+            result = BlockResolver.resolve(
+                state, strategy, payload or {}, graph=workflow
+            )
+            if isinstance(result, Success):
+                new_state = result.unwrap()
+                self._state_repo.save(ctx.chain_dir, new_state)
+                return {
+                    "blocked": True,
+                    "resolved": True,
+                    "state": new_state.to_dict(),
+                    "action": strategy,
+                    "message": f"Block resolved with strategy '{strategy}'",
+                }
+            return {"blocked": True, "resolved": False}
+        except Exception as e:
+            return {"blocked": True, "resolved": False, "message": str(e)}
 
     def status(
         self,
@@ -430,6 +512,7 @@ class OrchestrationService:
                 side_effect_engine=self._side_effect_engine,
                 workflow_repo=self._workflow_repo,
                 state_repo=self._state_repo,
+                tracer=self._tracer,
             )
         return self.__error_handler
 

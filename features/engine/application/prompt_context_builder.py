@@ -1,7 +1,8 @@
 """application/prompt_context_builder.py — PromptContextBuilder.
 
 SRP: Unica responsabilidad = construir el contexto de placeholders para
-los prompts del workflow, desde el delta (SpringService) y plan.json.
+los prompts del workflow, desde el delta (SpringService — fuente unica,
+ADR-WALKER-013). plan.json/sprint-state.json no existen como fuentes.
 
 Produce placeholders como: sprint_goal, task_count, completed_count,
 task_table, risk_table, dependency_graph, predicates_list, files_list,
@@ -16,7 +17,7 @@ import os
 
 
 class PromptContextBuilder:
-    """Construye contexto de placeholders desde el delta y plan.json."""
+    """Construye contexto de placeholders desde el delta (fuente unica)."""
 
     def build(self, chain_dir: str, task_id: str = "") -> dict:
         """Construye el dict de placeholders para resolver prompts."""
@@ -79,8 +80,8 @@ class PromptContextBuilder:
 def _load_spring_data(chain_dir: str) -> tuple[dict | None, list[dict]]:
     """Carga spring y tasks desde el delta (fuente unica)."""
     try:
-        from features.delta_tracking.application.services.spring_service import SpringService
-        spring_svc = SpringService.from_chain_dir(chain_dir)
+        from features.delta_tracking import SpringService, spring_service
+        spring_svc = spring_service(chain_dir=chain_dir)
         if spring_svc:
             spring_id = os.path.basename(os.path.normpath(chain_dir))
             spring_svc.ensure_spring_imported(chain_dir, spring_id)
@@ -96,11 +97,9 @@ def _load_current_task_index(chain_dir: str) -> int:
     """Lee el indice de la tarea actual desde el contexto del spring."""
     current_idx = 0
     try:
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
+        from features.delta_tracking import SpringService, spring_service
 
-        spring_svc = SpringService.from_chain_dir(chain_dir)
+        spring_svc = spring_service(chain_dir=chain_dir)
         if spring_svc:
             spring_id = os.path.basename(os.path.normpath(chain_dir))
             spring_svc.ensure_spring_imported(chain_dir, spring_id)

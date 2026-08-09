@@ -4,9 +4,7 @@ import json
 import os
 from typing import Any
 
-from features.engine.context.models import ContextPiece
-from features.engine.context.registry import ContextProvider
-from features.engine.context.format import fmt_tokens
+from libs.context import ContextPiece, ContextProvider, fmt_tokens
 
 
 def _derive_project_id(chain_dir: str) -> str | None:

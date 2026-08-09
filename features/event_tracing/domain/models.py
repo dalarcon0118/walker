@@ -11,16 +11,32 @@ Fixes:
   - Agregado from_ndjson() classmethod para parsear NDJSON
   - Agregado from_dict() para formato index
   - Agregado field 'tool' para compatibilidad con datos reales
+  - ADR-WALKER-018: serializacion simetrica (to_dict <-> from_* conservan identidad)
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 import json
+import logging
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+@safe
+def _parse_ndjson_line(line: str) -> dict | None:
+    """Core puro de TraceEvent.from_ndjson (puede lanzar JSONDecodeError/TypeError)."""
+    raw = json.loads(line)
+    if not isinstance(raw, dict):
+        return None
+    return raw
 
 
 @dataclass
@@ -71,36 +87,44 @@ class TraceEvent:
         Formato esperado (data/traces/*.json.gz):
             {"event_type": "...", "tool": "...", "input": {...},
              "output": {...}, "timestamp": "...", ...}
+
+        Result pattern: el core @safe nunca lanza; ante linea malformada
+        devuelve None y loggea en debug (convention-001).
         """
-        try:
-            raw = json.loads(line)
-            if not isinstance(raw, dict):
-                return None
-            return cls(
-                id=raw.get("id", ""),
-                event_type=raw.get("event_type", "event"),
-                source=raw.get("source", "walker"),
-                agent_id=raw.get("agent_id", ""),
-                session_id=raw.get("session_id", ""),
-                sprint_id=raw.get("parent_id", ""),
-                task_id=raw.get("task_id", ""),
-                node=raw.get("node", ""),
-                sub_state=raw.get("sub_state", ""),
-                tool=raw.get("tool", ""),
-                input=raw.get("input", {}),
-                output=raw.get("output", {}),
-                files=raw.get("files", []),
-                parent_type=raw.get("parent_type", ""),
-                parent_id=raw.get("parent_id", ""),
-                timestamp=raw.get("timestamp", _now()),
-                started_at=raw.get("started_at", ""),
-                finished_at=raw.get("finished_at", ""),
-                duration_ms=raw.get("duration_ms", 0),
-                metadata=raw.get("metadata", {}),
-                data=raw.get("data", {}),
+        result = _parse_ndjson_line(line)
+        if not is_successful(result):
+            error = result.failure()
+            logger.debug(
+                "linea NDJSON no parseable (%s: %s); se omite",
+                type(error).__name__, error,
             )
-        except (json.JSONDecodeError, TypeError):
             return None
+        raw = result.value_or(None)
+        if raw is None:
+            return None
+        return cls(
+            id=raw.get("id", ""),
+            event_type=raw.get("event_type", "event"),
+            source=raw.get("source", "walker"),
+            agent_id=raw.get("agent_id", ""),
+            session_id=raw.get("session_id", ""),
+            sprint_id=raw.get("sprint_id") or raw.get("parent_id", ""),
+            task_id=raw.get("task_id", ""),
+            node=raw.get("node", ""),
+            sub_state=raw.get("sub_state", ""),
+            tool=raw.get("tool", ""),
+            input=raw.get("input", {}),
+            output=raw.get("output", {}),
+            files=raw.get("files", []),
+            parent_type=raw.get("parent_type", ""),
+            parent_id=raw.get("parent_id", ""),
+            timestamp=raw.get("timestamp", _now()),
+            started_at=raw.get("started_at", ""),
+            finished_at=raw.get("finished_at", ""),
+            duration_ms=raw.get("duration_ms", 0),
+            metadata=raw.get("metadata", {}),
+            data=raw.get("data", {}),
+        )
 
     @classmethod
     def from_dict(cls, d: dict) -> TraceEvent:
@@ -111,7 +135,7 @@ class TraceEvent:
             source=d.get("source", "walker"),
             agent_id=d.get("agent_id", ""),
             session_id=d.get("session_id", ""),
-            sprint_id=d.get("parent_id", ""),
+            sprint_id=d.get("sprint_id") or d.get("parent_id", ""),
             task_id=d.get("task_id", ""),
             node=d.get("node", ""),
             sub_state=d.get("sub_state", ""),
@@ -130,7 +154,13 @@ class TraceEvent:
         )
 
     def to_dict(self) -> dict:
+        """Serializacion simetrica (ADR-WALKER-018): incluye identidad.
+
+        from_dict()/from_ndjson() deben reconstruir el evento sin perdida:
+        id, parent_id y parent_type se serializan (antes se perdian).
+        """
         return {
+            "id": self.id,
             "event_type": self.event_type,
             "source": self.source,
             "agent_id": self.agent_id,
@@ -143,6 +173,8 @@ class TraceEvent:
             "input": self.input,
             "output": self.output,
             "files": self.files,
+            "parent_type": self.parent_type,
+            "parent_id": self.parent_id,
             "timestamp": self.timestamp,
             "started_at": self.started_at,
             "finished_at": self.finished_at,

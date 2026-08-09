@@ -14,8 +14,6 @@ Dirección correcta: inner feature expone su servicio; outer lo consume.
 
 from __future__ import annotations
 
-from typing import Any
-
 
 def dispatch_public_task(name: str, body: dict) -> dict:
     """Ejecuta una task publica del registry por nombre.
@@ -86,7 +84,9 @@ def dispatch_public_task(name: str, body: dict) -> dict:
         result = registry.execute(name, ctx, task_data)
         result_data = result.data or {}
         if not result.ok:
-            result_data["error"] = result.error or result_data.get("error", "Task failed")
+            result_data["error"] = result.error or result_data.get(
+                "error", "Task failed"
+            )
             return {
                 "type": "error",
                 "status_code": 400,

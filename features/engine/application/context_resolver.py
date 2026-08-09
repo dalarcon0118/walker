@@ -84,7 +84,10 @@ class ContextResolver:
         context["current_sub"] = state.current_sub_state
         context["history"] = list(state.history)
 
-        # 2. Global state (WorkflowState.context)
+        # 2. Process data (WorkflowState.process_data) — P2
+        context.update(dict(state.process_data))
+
+        # 3. Global state (WorkflowState.context) — backward compat
         context.update(dict(state.context))
 
         # 3. Node.provides (datos que el nodo produce y están en global state)
@@ -123,8 +126,8 @@ class ContextResolver:
         if not chain_dir:
             return None
         try:
-            from features.delta_tracking.application.services.spring_service import SpringService
-            spring_svc = SpringService.from_chain_dir(chain_dir)
+            from features.delta_tracking import SpringService, spring_service
+            spring_svc = spring_service(chain_dir=chain_dir)
             if not spring_svc:
                 return None
             spring_id = spring_svc.get_spring_id(chain_dir)
@@ -167,11 +170,11 @@ class ContextResolver:
             for ss in node.sub_states:
                 all_keys.update(ss.provides)
 
-        pending = all_keys - set(state.context.keys())
+        pending = all_keys - set(state.process_data.keys()) - set(state.context.keys())
         if not pending:
             return state
 
-        new_ctx = dict(state.context)
+        new_process_data = dict(state.process_data)
         current_node_id = node.node_id
         sub_state_keys = {ss.key for ss in node.sub_states}
 
@@ -189,12 +192,12 @@ class ContextResolver:
                 if data_key not in sub_state_keys and data_key != current_node_id:
                     continue
             for key in pending & set(ss_data.fields.keys()):
-                new_ctx[key] = ss_data.fields[key]
+                new_process_data[key] = ss_data.fields[key]
             pending -= set(ss_data.fields.keys())
             if not pending:
                 break
 
-        return replace(state, context=new_ctx)
+        return replace(state, process_data=new_process_data)
 
     def apply_context_updates(
         self,
@@ -210,6 +213,7 @@ class ContextResolver:
         if not context_updates:
             return state
 
+        new_process_data = dict(state.process_data)
         new_ctx = dict(state.context)
 
         for update in context_updates:
@@ -238,9 +242,10 @@ class ContextResolver:
                 continue
 
             if value:
+                new_process_data[to_field] = value
                 new_ctx[to_field] = value
 
-        return replace(state, context=new_ctx)
+        return replace(state, process_data=new_process_data, context=new_ctx)
 
     # ── Validación en carga ─────────────────────────────────────────
 

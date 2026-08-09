@@ -11,12 +11,13 @@ from typing import Any, Callable
 
 from ..domain.registry import TaskRegistry
 from ..domain.models import TaskResult, ExecutionContext
+from ..domain.ports import ITracer
 
 
 class InMemoryTaskRegistry(TaskRegistry):
     """TaskRegistry en memoria. Tareas registradas por nombre con metadata."""
 
-    def __init__(self, tracer: Any = None):
+    def __init__(self, tracer: ITracer | None = None):
         self._tasks: dict[str, Callable] = {}
         self._metadata: dict[str, dict] = {}
         self._tracer = tracer
@@ -135,6 +136,9 @@ class InMemoryTaskRegistry(TaskRegistry):
             # Incluir use_cases si existen (auto-documentacion)
             if "use_cases" in meta:
                 task_entry["use_cases"] = meta["use_cases"]
+            # Incluir input_schema si la task registra su contrato (SSOT del agente)
+            if "input_schema" in meta:
+                task_entry["input_schema"] = meta["input_schema"]
             tasks.append(task_entry)
         return {
             "total": len(tasks),

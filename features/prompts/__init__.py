@@ -16,9 +16,10 @@ from .manager import PromptManager
 from .loader import TemplateLoader
 from .renderer import TemplateRenderer
 from .collector import collect_all, collect_activity, collect_project_info, collect_available_tasks, collect_knowledge, collect_state
+from .application.ports.prompt_manager import IPromptManager
 
 __all__ = [
-    "PromptManager", "TemplateLoader", "TemplateRenderer",
+    "PromptManager", "IPromptManager", "TemplateLoader", "TemplateRenderer",
     "collect_all", "collect_activity", "collect_project_info",
     "collect_available_tasks", "collect_knowledge", "collect_state",
 ]

@@ -1,17 +1,17 @@
-"""query_manager.py — Query layer delegando en CognitiveGraphSearcher.
+"""query_manager.py — Query layer delegando en el servicio DI de búsqueda.
 
 Los providers reciben QueryManager para consultar datos indexados.
-Usa CognitiveGraphSearcher (libs/infrastructure/) en vez de CognitiveGraph directo.
+El searcher se resuelve por clave en el ModuleRegistry ("cognitive_searcher")
+en vez de importar la implementación concreta de libs/ (inversión de control).
 """
 
-from libs.infrastructure import CognitiveGraphSearcher
 from features.project import ProjectService
 
 SUPPORTED_LAYERS = {"cpg", "ckg", "delta", "trace", "state"}
 
 
 class QueryManager:
-    """Capa unificada de consulta. Delega en CognitiveGraphSearcher.
+    """Capa unificada de consulta. Delega en el searcher resuelto por DI.
 
     Cada query_layer() registra un evento kg_query en el TraceGraph
     (best-effort). Esto hace VISIBLES las consultas de contexto que el
@@ -22,7 +22,12 @@ class QueryManager:
 
     def __init__(self, chain_dir: str, task_id: str | None = None, session_id: str | None = None):
         paths = ProjectService.resolve_paths(chain_dir)
-        self._searcher = CognitiveGraphSearcher(paths.project_root) if paths.project_root else None
+        self._searcher = None
+        if paths.project_root:
+            from features.engine.bootstrap import get_module_service
+
+            searcher_factory = get_module_service("cognitive_searcher")
+            self._searcher = searcher_factory(paths.project_root)
         self._chain_dir = chain_dir
         self._task_id = task_id or ""
         self._session_id = session_id or ""
@@ -145,8 +150,8 @@ class QueryManager:
         sprint_status = ""
         sprint_goal = ""
         try:
-            from features.delta_tracking.application.services.spring_service import SpringService
-            spring_svc = SpringService.from_chain_dir(self._chain_dir)
+            from features.delta_tracking import SpringService, spring_service
+            spring_svc = spring_service(chain_dir=self._chain_dir)
             if spring_svc:
                 spring_id = spring_svc.get_spring_id(self._chain_dir)
                 spring_svc.ensure_spring_imported(self._chain_dir, spring_id)

@@ -1,18 +1,22 @@
 """infrastructure/trace_log.py — TraceLogger escribe via CognitiveGraph.
 
+Implementa el puerto ITracer del dominio.
 Cada evento se persiste en el índice "trace" de CognitiveGraph.
 El storage es data/trace.json.gz (mismo que CPG y CKG).
 """
-
 from __future__ import annotations
+
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Any
+
+from features.engine.domain.ports import ITracer
 
 logger = logging.getLogger(__name__)
 
 
-class TraceLogger:
+class TraceLogger(ITracer):
     """Logger de auditoria. Escribe eventos en CognitiveGraph (índice trace)."""
 
     def __init__(self, trace_dir: str | None = None):
@@ -40,10 +44,9 @@ class TraceLogger:
 
         # Persistir via CognitiveGraph
         try:
-            from libs.cognitive_graph import CognitiveGraph
-            from libs import resolve_project_root
+            from features.engine.bootstrap import get_module_service
 
-            proj_dir = resolve_project_root(chain_dir)
+            proj_dir = get_module_service("path_resolver").resolve_project_root(chain_dir)
             if not proj_dir:
                 # PRINCIPIO (fix estructural): una traza que se pierde por no
                 # poder resolver el proyecto NO debe silenciarse. El workflow
@@ -56,7 +59,7 @@ class TraceLogger:
                     event_type,
                 )
                 return
-            cg = CognitiveGraph(proj_dir)
+            cg = get_module_service("cognitive_graph")(proj_dir)
             event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             cg.store(
                 "trace",
@@ -159,12 +162,11 @@ class TraceLogger:
         de required_tools necesita ver el trace completo).
         """
         try:
-            from libs.cognitive_graph import CognitiveGraph
-            from libs import resolve_project_root
+            from features.engine.bootstrap import get_module_service
 
-            proj_dir = resolve_project_root(chain_dir)
+            proj_dir = get_module_service("path_resolver").resolve_project_root(chain_dir)
             if proj_dir:
-                cg = CognitiveGraph(proj_dir)
+                cg = get_module_service("cognitive_graph")(proj_dir)
                 query = {"_index": "trace"}
                 if max_events:
                     query["max_results"] = max_events

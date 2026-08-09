@@ -121,9 +121,9 @@ def _detect_calls_safe(fp: str, definitions: list, cfg_cache: Any) -> tuple[list
 @safe
 def _sync_core(data_dir: str, data: dict) -> dict:
     """Core puro de la sync CPG -> CognitiveGraph (puede lanzar)."""
-    from libs.cognitive_graph import CognitiveGraph
+    from features.engine.bootstrap import get_module_service
 
-    cg = CognitiveGraph(data_dir, auto_register=True)
+    cg = get_module_service("cognitive_graph")(data_dir)
 
     nodes = data.get("nodes", {})
     docs = {}
@@ -144,9 +144,9 @@ def _sync_core_delta(
     remove: set[str],
 ) -> dict:
     """Sync incremental: solo nodos cambiados + removidos. No envia todos."""
-    from libs.cognitive_graph import CognitiveGraph
+    from features.engine.bootstrap import get_module_service
 
-    cg = CognitiveGraph(data_dir, auto_register=True)
+    cg = get_module_service("cognitive_graph")(data_dir)
     deleted = 0
     for nid in remove:
         r = cg.delete("cpg", nid)
@@ -660,8 +660,10 @@ class BuildGraphUseCase:
         result = self.index_task_files(changed)
         try:
             watcher.mark_indexed("cpg")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "watcher.mark_indexed fallo (%s: %s)", type(e).__name__, e,
+            )
         return result
 
     def index_task_files(self, task_files: list[str]) -> dict:

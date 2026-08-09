@@ -67,14 +67,14 @@
         ]
       },
       "ready_tasks": {
-        "source": "Engine runs DAGBuilder + JobScheduler.get_ready_tasks() from plan.json depends_on",
+        "source": "Engine deriva ready_tasks desde el DeltaGraph (spring specs depends_on)",
         "description": "List of tasks whose dependencies are all met and are ready to work on",
         "available_in": [
           "SPRINT.ACTIVE"
         ]
       },
       "blocked_tasks": {
-        "source": "Engine runs DAGBuilder + JobScheduler.get_blocked_tasks() from plan.json depends_on",
+        "source": "Engine deriva blocked_tasks desde el DeltaGraph (spring specs depends_on)",
         "description": "List of tasks blocked by incomplete dependencies",
         "available_in": [
           "SPRINT.ACTIVE"
@@ -110,7 +110,7 @@
         ]
       },
       "task_id": {
-        "source": "Engine inyecta desde el sprint-state al hacer transicion a ANALYZE, IMPLEMENT o REFINE",
+        "source": "Engine inyecta desde el DeltaGraph (spring context) al hacer transicion a ANALYZE, IMPLEMENT o REFINE",
         "description": "Active task ID (TASK-XXX). Used by agent to fetch briefing via context tasks.",
         "available_in": [
           "ANALYZE.*",
@@ -127,7 +127,7 @@
         ]
       },
       "predicates": {
-        "source": "Engine reads task validation.predicates from plan.json",
+        "source": "Engine lee task validation.predicates desde el DeltaGraph (spring spec)",
         "description": "List of validation predicates for the current task (DoD criteria)",
         "available_in": [
           "VERIFY.PREDICATE_CHECK",
@@ -171,6 +171,33 @@
     "quality_gate_failed": {
       "transition": "needs_refine",
       "description": "Quality gates fallaron al indexar el CPG (signals.quality_passed=False) — auto-route a refinement para refactorizar"
+    }
+  },
+  "context_schema": {
+    "description": "SSOT del contexto de entrada (F2 SPEC-043 / ADR-043 §9.2-A): forma de cada capa que el agente recibe. Fuente: features/engine/context/contracts.py (CONTEXT_SCHEMAS); el engine deriva los schemas en ComposedContext.context_schemas. 9 providers: business, ckg, cpg, delta, diff, project, reflection, test_results, trace.",
+    "providers": {
+      "business": {
+        "type": "object",
+        "properties": {
+          "pure_functions": { "type": "array" },
+          "business_flows": { "type": "array" },
+          "architecture_patterns": { "type": "array" }
+        }
+      },
+      "ckg": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "items": { "type": "array" }
+        }
+      },
+      "cpg": { "type": "object", "properties": { "files": { "type": "array" }, "symbols": { "type": "array" } } },
+      "delta": { "type": "object", "properties": { "specs": { "type": "array" } } },
+      "diff": { "type": "object", "properties": { "files": { "type": "array" } } },
+      "project": { "type": "object", "properties": { "project_id": { "type": "string" } } },
+      "reflection": { "type": "object", "properties": { "source_node": { "type": "string" }, "attempt": { "type": "integer" } } },
+      "test_results": { "type": "object", "properties": { "passed": { "type": "integer" }, "failed": { "type": "integer" } } },
+      "trace": { "type": "object", "properties": { "events": { "type": "array" } } }
     }
   },
   "tracing": {

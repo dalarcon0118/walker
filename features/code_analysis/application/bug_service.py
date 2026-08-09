@@ -1,15 +1,25 @@
 """application/bug_service.py — ScanBugsUseCase + ScanSecurityUseCase.
 
 Bug detection and security scanning using CPG + CFG/DFG analysis.
+
+Result pattern: los cores puros con @safe devuelven Result (nunca lanzan);
+los wrappers deciden con is_successful y hacen fallback explícito con log
+(convention-001: nunca except silencioso).
 """
 
 from __future__ import annotations
+import logging
 import os
+
+from returns.pipeline import is_successful
+from returns.result import safe
 
 from features.code_analysis.domain.graph import Graph, Node
 from features.code_analysis.domain.query import Query, Filter
 from features.code_analysis.infrastructure.repository import CpgFileRepository
 from features.code_analysis.infrastructure.filters import match_file_filter
+
+logger = logging.getLogger(__name__)
 
 
 class ScanBugsUseCase:
@@ -55,6 +65,22 @@ class ScanBugsUseCase:
     def edges(self) -> list[dict]:
         return self.graph.edges
 
+    def _load_repo_data(self) -> dict:
+        """Carga el CPG persistido con fallback explícito.
+
+        Result pattern: el core @safe nunca lanza; ante CPG corrupto
+        devuelve {} y loggea el error (convention-001).
+        """
+        result = _load_repo_data_core(self._repo)
+        if is_successful(result):
+            return result.value_or({})
+        error = result.failure()
+        logger.error(
+            "Carga de CPG para bugs/security fallo (%s: %s); sin findings",
+            type(error).__name__, error,
+        )
+        return {}
+
     # ── Bugs ──────────────────────────────────────────────────────────
 
     def handle_bugs(self, query: Query) -> dict | None:
@@ -72,7 +98,7 @@ class ScanBugsUseCase:
         bug_results = []
 
         if target in ("dead_branches", "missing_returns", "infinite_loops"):
-            data = self._repo.load()
+            data = self._load_repo_data()
             cfg_data = data.get("analysis_results", {})
             if not cfg_data:
                 cfg_data = self._scan_cfg_on_demand()
@@ -96,7 +122,7 @@ class ScanBugsUseCase:
                         )
 
         elif target in ("uninitialized_vars", "taint_paths", "data_gaps"):
-            data = self._repo.load()
+            data = self._load_repo_data()
             dfg_data = data.get("dfg", {})
             dfg_map = {
                 "uninitialized_vars": "uninitialized_vars",
@@ -206,22 +232,19 @@ class ScanBugsUseCase:
         return results
 
     def _scan_cfg_on_demand(self) -> dict:
-        """Trigger CFG scan if not already present."""
-        try:
-            from features.code_analysis.application.build_service import BuildGraphUseCase
-            from libs.path_resolver import resolve_project_root
+        """Trigger CFG scan if not already present.
 
-            project_dir = resolve_project_root(self.chain_dir)
-            if project_dir and os.path.isdir(project_dir):
-                # Build a minimal build_service to run scan_cfg
-                builder = BuildGraphUseCase(
-                    project_id=os.path.basename(project_dir),
-                    data_dir=os.path.join(project_dir, "data"),
-                    code_root=project_dir,
-                )
-                return builder.scan_cfg()
-        except Exception:
-            pass
+        Result pattern: el core @safe nunca lanza; ante fallo devuelve {}
+        y loggea el error (convention-001: nunca except silencioso).
+        """
+        result = _scan_cfg_on_demand_core(self.chain_dir)
+        if is_successful(result):
+            return result.value_or({})
+        error = result.failure()
+        logger.error(
+            "scan_cfg on-demand fallo (%s: %s); sin analysis_results",
+            type(error).__name__, error,
+        )
         return {}
 
     # ── Security ─────────────────────────────────────────────────────
@@ -233,7 +256,7 @@ class ScanBugsUseCase:
 
         attr_filters = query.exclude_keys({"security"})
 
-        data = self._repo.load()
+        data = self._load_repo_data()
         dfg_data = data.get("dfg", {})
         taint_paths = dfg_data.get("taint_paths", [])
         hardcoded = dfg_data.get("hardcoded_secrets", [])
@@ -279,3 +302,29 @@ class ScanBugsUseCase:
             "taint_total": len(security_findings),
             "truncated": len(security_findings) > 50,
         }
+
+
+# ── Cores puros (@safe) ─────────────────────────────────────────
+
+@safe
+def _load_repo_data_core(repo: CpgFileRepository) -> dict:
+    """Core puro de carga de datos CPG (puede lanzar)."""
+    return repo.load() or {}
+
+
+@safe
+def _scan_cfg_on_demand_core(chain_dir: str) -> dict:
+    """Core puro de _scan_cfg_on_demand (puede lanzar)."""
+    from features.code_analysis.application.build_service import BuildGraphUseCase
+    from libs.path_resolver import resolve_project_root
+
+    project_dir = resolve_project_root(chain_dir)
+    if project_dir and os.path.isdir(project_dir):
+        # Build a minimal build_service to run scan_cfg
+        builder = BuildGraphUseCase(
+            project_id=os.path.basename(project_dir),
+            data_dir=os.path.join(project_dir, "data"),
+            code_root=project_dir,
+        )
+        return builder.scan_cfg()
+    return {}

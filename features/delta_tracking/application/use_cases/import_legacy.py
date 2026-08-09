@@ -5,14 +5,17 @@ SRP: importa un sprint legacy (plan.json + workflow state) al DeltaGraph.
 from __future__ import annotations
 
 import json
+import logging
 import os
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from features.delta_tracking.domain.entities import Spring, Spec
-from features.delta_tracking.domain.values import EDGE_CONTAINS
+from features.delta_tracking.domain.values import EDGE_CONTAINS, SPRING_STATUS_FLOW
 from features.delta_tracking.application.ports.delta_repository import DeltaRepository
 
-
-SPRING_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
+logger = logging.getLogger(__name__)
 
 
 class ImportLegacySprintUseCase:
@@ -32,18 +35,22 @@ class ImportLegacySprintUseCase:
         spring_id = plan.get("chain_id") or os.path.basename(sprint_dir)
         goal = plan.get("goal", "")
 
-        # Estado desde workflow state o plan.json
+        # Estado desde workflow state o plan.json. plan.json es OBLIGATORIO
+        # (se lee sin proteccion: un corrupto debe propagarse y ser visible);
+        # .workflow-state.json es OPCIONAL — se degrada con log debug
+        # (tolerancia de datos, convention-001).
         status = "planning"
         wf_state_path = os.path.join(sprint_dir, ".workflow-state.json")
         if os.path.exists(wf_state_path):
-            try:
-                with open(wf_state_path) as f:
-                    wf_state = json.load(f)
-                sprint_status = wf_state.get("sprint", {}).get("status", "")
-                if sprint_status in SPRING_STATUS_FLOW:
-                    status = sprint_status
-            except Exception:
-                pass
+            result = _read_wf_state_status_core(wf_state_path)
+            if is_successful(result):
+                status = result.value_or("") or status
+            else:
+                error = result.failure()
+                logger.debug(
+                    ".workflow-state.json ilegible (%s: %s); status conservado '%s'",
+                    type(error).__name__, error, status,
+                )
 
         # Crear spring
         spring = Spring(
@@ -79,3 +86,21 @@ class ImportLegacySprintUseCase:
                 self._repo.add_edge(spring_id, spec.doc_id, EDGE_CONTAINS)
 
         return {"imported": True, "spring_id": spring_id, "specs": len(specs)}
+
+
+# ── Cores @safe (Result pattern, convention-001) ─────────────────
+
+@safe
+def _read_wf_state_status_core(wf_state_path: str) -> str:
+    """Core puro: lee .workflow-state.json y devuelve el status del sprint.
+
+    Tolerancia de datos: devuelve '' si el archivo no tiene sprint.status
+    valido — el caller conserva el status por defecto. Los errores reales
+    de parseo los loggea el wrapper en debug (archivo OPCIONAL).
+    """
+    with open(wf_state_path) as f:
+        wf_state = json.load(f)
+    sprint_status = wf_state.get("sprint", {}).get("status", "")
+    if sprint_status in SPRING_STATUS_FLOW:
+        return sprint_status
+    return ""

@@ -147,35 +147,6 @@ def projects_output(data: dict) -> None:
         print(prompt)
 
 
-def status_output(data: dict) -> None:
-    """Format workflow status result."""
-    warning = data.get("_warning", "")
-    if warning:
-        print(f"  {warning}")
-        print()
-    print(f"  Project: {data.get('project_id', '?')}")
-    print(f"  Node:    {data.get('node', '?')}.{data.get('sub_state', '?')}")
-    print(f"  History: {' -> '.join(data.get('history', []))}")
-
-    prompt = data.get("prompt", "")
-    if prompt:
-        print()
-        print("  ── Instructions ──")
-        for line in prompt.strip().split("\n"):
-            print(f"  {line.strip()}")
-        print()
-
-    required = data.get("required_fields", [])
-    if required:
-        print(f"  Required fields: {', '.join(required)}")
-
-    gates = data.get("available_gates", [])
-    if gates:
-        print(f"  Available gates ({len(gates)}):")
-        for g in gates:
-            print(f"    - {g.get('name', '?')}: {g.get('description', '')}")
-
-
 def health_output(data: dict) -> None:
     """Format project health status."""
     pid = data.get("project_id", "?")
@@ -425,46 +396,46 @@ def prepare_output(data: dict) -> None:
             print(f"    → {s}")
 
 
-def changes_output(data: dict) -> None:
-    """Format sprint status with code changes detected."""
-    changes = data.get("changes", {})
-    total = changes.get("total_changes", 0)
-    if total > 0:
-        print(f"  ⚠️  {total} file(s) changed since last session")
-        print(f"  CPG status: {changes.get('cpg_status', '?')}")
-        print(f"  CKG status: {changes.get('ckg_status', '?')}")
-        for f in changes.get("files_changed", [])[:5]:
-            print(f"    - {f}")
-        if total > 5:
-            print(f"    ... and {total - 5} more")
-    print(f"  Node: {data.get('node', '?')}.{data.get('sub_state', '?')}")
-    print(f"  History: {' -> '.join(data.get('history', []))}")
-
-
 def routes_output(data: dict) -> None:
     """Format REST endpoint list (autodoc estilo FastAPI /docs)."""
     routes = data.get("routes", [])
     print(f"  ── REST Endpoints ({len(routes)}) ──")
     print(f"  {'METHOD':<12} {'PATH':<40} DESCRIPTION")
     print(f"  {'-' * 12}  {'-' * 40}  {'-' * 30}")
-    for r in sorted(routes, key=lambda x: (x["pattern"], x["method"])):
+    for r in sorted(routes, key=lambda x: (x.get("pattern", ""), x.get("method", ""))):
         method = r.get("method", "?")
-        pattern = r.get("pattern", "?")
+        pattern = r.get("path", r.get("pattern", "?"))
         desc = r.get("description", "")
         print(f"  {method:<12} {pattern:<40} {desc}")
+
+
+def mcp_tools_output(data: dict) -> None:
+    """Format MCP tools list from ModuleRegistry."""
+    tools = data.get("tools", [])
+    print(f"  ── MCP Tools ({len(tools)}) ──")
+    print(f"  {'NAME':<30} DESCRIPTION")
+    print(f"  {'-' * 30}  {'-' * 50}")
+    for t in tools:
+        name = t.get("name", "?")
+        desc = t.get("description", "")
+        print(f"  {name:<30} {desc}")
+
+
+def mcp_routes_output(data: dict) -> None:
+    """Format MCP routes list from ModuleRegistry."""
+    routes = data.get("routes", [])
+    print(f"  ── MCP Routes ({len(routes)}) ──")
+    print(f"  {'METHOD':<12} PATH")
+    print(f"  {'-' * 12}  {'-' * 50}")
+    for r in sorted(routes, key=lambda x: (x.get("path", ""), x.get("method", ""))):
+        method = r.get("method", "?")
+        path = r.get("path", "?")
+        print(f"  {method:<12} {path}")
 
 
 def error_output(message: str, exit_code: int = 1) -> int:
     print(f"  Error: {message}")
     return exit_code
-
-
-def no_sprint_output(data: dict) -> None:
-    warning = data.get("_warning", "")
-    if warning:
-        print(f"  {warning}")
-        print()
-    print(f"  Project '{data.get('project_id', '?')}' has no active sprint")
 
 
 # Result type → formatter map (SSOT)
@@ -479,14 +450,13 @@ OUTPUT_MAP: dict[str, Any] = {
     "projects_list": projects_output,
     "project_health": health_output,
     "project_info": project_info_output,
-    "sprint_status": status_output,
-    "sprint_status_with_changes": changes_output,
-    "no_sprint": no_sprint_output,
     "submit_result": submit_output,
     "transition_result": transition_output,
     "task_result": task_output,
     "prepare_result": prepare_output,
     "routes_list": routes_output,
+    "mcp_tools": mcp_tools_output,
+    "mcp_routes": mcp_routes_output,
     "mcp_config": mcp_config_output,
 }
 

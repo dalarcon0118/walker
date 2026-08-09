@@ -5,6 +5,7 @@ SRP: agregar, actualizar, upsert specs en un spring del DeltaGraph.
 from __future__ import annotations
 
 from features.delta_tracking.domain.entities import Spec
+from features.delta_tracking.domain.services.spec_service import SpecService
 from features.delta_tracking.domain.values import EDGE_CONTAINS, EDGE_IMPACTS, EDGE_DEPENDS
 from features.delta_tracking.application.ports.delta_repository import DeltaRepository
 
@@ -59,7 +60,7 @@ class UpdateSpecUseCase:
         spec = self._repo.get_spec(spring_id, spec_id)
         if spec is None:
             return None
-        updated = spec.merge(updates)
+        updated = SpecService.merge(spec, updates)
         self._repo.save_spec(updated)
         return updated
 
@@ -85,7 +86,7 @@ class UpsertSpecsUseCase:
             existing = obj_to_spec.get(objective)
 
             if existing is not None:
-                merged = existing.merge(item)
+                merged = SpecService.merge(existing, item)
                 batch.append(merged)
                 refined += 1
             else:

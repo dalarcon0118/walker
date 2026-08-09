@@ -1,8 +1,18 @@
-"""domain/analysis.py — Analysis findings as domain entities."""
+"""domain/analysis.py — Analysis findings as domain entities.
+
+Result pattern (dry-python/returns): las lecturas de archivos del scanner
+usan cores @safe; los fallos se loggean (convention-001: nunca silencioso).
+"""
 
 from __future__ import annotations
+import logging
 import os
 from dataclasses import dataclass
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
+logger = logging.getLogger(__name__)
 
 
 def is_false_positive_dead_code(
@@ -28,6 +38,13 @@ def is_false_positive_dead_code(
     if node_type == "method" and not (signature or "").strip().startswith("def "):
         return True
     return False
+
+
+@safe
+def _read_source_file(fp: str) -> str:
+    """Core puro: lee un archivo fuente (puede lanzar OSError; @safe captura)."""
+    with open(fp, errors="ignore") as fh:
+        return fh.read()
 
 
 class DeadCodeReferenceScanner:
@@ -69,13 +86,17 @@ class DeadCodeReferenceScanner:
         quoted = f'"{name}"'
         quoted_single = f"'{name}'"
         for fp in self._source_files:
-            try:
-                with open(fp, errors="ignore") as fh:
-                    content = fh.read()
-                if quoted in content or quoted_single in content:
-                    return True
-            except OSError:
+            content = _read_source_file(fp)
+            if not is_successful(content):
+                error = content.failure()
+                logger.debug(
+                    "Archivo ilegible %s (%s); se omite del scan de strings",
+                    fp, error,
+                )
                 continue
+            text = content.value_or("")
+            if quoted in text or quoted_single in text:
+                return True
         return False
 
     def _other_files(self, path: str) -> list[str]:
@@ -92,15 +113,19 @@ class DeadCodeReferenceScanner:
         """
         if not path:
             return False
-        try:
-            with open(path, errors="ignore") as fh:
-                for lineno, line in enumerate(fh, 1):
-                    if lineno == def_line:
-                        continue
-                    if self._ident_re().search(line) and name in line:
-                        return True
-        except OSError:
+        content = _read_source_file(path)
+        if not is_successful(content):
+            error = content.failure()
+            logger.debug(
+                "Archivo propio ilegible %s (%s); se asume sin referencia",
+                path, error,
+            )
             return False
+        for lineno, line in enumerate(content.value_or("").splitlines(), 1):
+            if lineno == def_line:
+                continue
+            if self._ident_re().search(line) and name in line:
+                return True
         return False
 
     def is_referenced(self, name: str, path: str, def_line: int = 0) -> bool:
@@ -126,13 +151,17 @@ class DeadCodeReferenceScanner:
         # 2. Identificador en otro archivo (imports, dispatch, llamadas)
         regex = self._ident_re()
         for other in self._other_files(path):
-            try:
-                with open(other, errors="ignore") as fh:
-                    for line in fh:
-                        if regex.search(line) and name in line:
-                            return True
-            except OSError:
+            content = _read_source_file(other)
+            if not is_successful(content):
+                error = content.failure()
+                logger.debug(
+                    "Archivo ilegible %s (%s); se omite del scan de referencias",
+                    other, error,
+                )
                 continue
+            for line in content.value_or("").splitlines():
+                if regex.search(line) and name in line:
+                    return True
 
         # 3. Identificador en el propio archivo (dispatch intra-archivo)
         if self._referenced_in_own_file(name, path, def_line):

@@ -12,8 +12,14 @@ El caller pasa on_changed() callback para invalidar su cache (e.g. _SERVER).
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import sys
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
+logger = logging.getLogger(__name__)
 
 _FEATURES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "features"
@@ -37,11 +43,10 @@ def reload_features_if_changed(on_changed=None) -> bool:
             if not f.endswith(".py"):
                 continue
             path = os.path.join(root, f)
-            try:
-                st = os.stat(path)
-                sig = (st.st_mtime, st.st_size)
-            except OSError:
-                continue
+            stat_outcome = _stat_sig_core(path)
+            if not is_successful(stat_outcome):
+                continue  # archivo desapareció (race): se omite
+            sig = stat_outcome.value_or((0, 0))
             if _reload_cache.get(path) == sig:
                 continue
             _reload_cache[path] = sig
@@ -58,19 +63,38 @@ def reload_features_if_changed(on_changed=None) -> bool:
         if not mod_file:
             continue
         mod_path = mod_file.replace(".pyc", ".py")
-        try:
-            mod_path = os.path.realpath(mod_path)
-        except OSError:
+        realpath_outcome = _realpath_core(mod_path)
+        if not is_successful(realpath_outcome):
             continue
+        mod_path = realpath_outcome.value_or(mod_path)
         if mod_path in changed_real:
-            try:
-                importlib.reload(mod)
-            except Exception as e:
+            reload_outcome = _reload_module_core(mod)
+            if not is_successful(reload_outcome):
+                error = reload_outcome.failure()
                 print(
-                    f"[MCP] reload '{mod_name}' failed (keeping current version): {e}",
+                    f"[MCP] reload '{mod_name}' failed (keeping current version): {error}",
                     file=sys.stderr,
                 )
 
     if on_changed is not None:
         on_changed()
     return True
+
+
+@safe
+def _stat_sig_core(path: str) -> tuple[float, int]:
+    """Core puro: firma (mtime, size) de un archivo (puede lanzar OSError)."""
+    st = os.stat(path)
+    return (st.st_mtime, st.st_size)
+
+
+@safe
+def _realpath_core(path: str) -> str:
+    """Core puro: resuelve el realpath (puede lanzar OSError)."""
+    return os.path.realpath(path)
+
+
+@safe
+def _reload_module_core(mod) -> None:
+    """Core puro: recarga un módulo via importlib (puede lanzar)."""
+    importlib.reload(mod)

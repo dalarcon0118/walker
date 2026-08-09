@@ -1,6 +1,6 @@
 # ADR-WALKER-016: cli_interface — Bounded Context "Protocol" (Clean Architecture + Hexagonal + DDD)
 
-> **Status:** In Progress — F1-F6 completados (ver §7)
+> **Status:** In Progress — F1-F8 + wiring del dominio al runtime
 > **Fecha:** 2026-08-05
 > **Contexto:** refactor de `features/cli_interface/` tras el análisis arquitectónico
 > **Complementa:** ADR-WALKER-013 (DeltaGraph SSOT), ADR-WALKER-014 (plan.json eliminado), ADR-WALKER-015 (features/project DDD)
@@ -244,6 +244,7 @@ Resultado: **0 imports a `_run_public_task` desde cli_interface en features inte
 |---|---|---|
 | **F7 (nuevo)** | Fix `status`/`submit`/`transition` via MCP — son endpoints REST, no tasks | ✅ COMPLETADO — tools REST registrados en `mcp_adapter._register_rest_tools` con handler `_call_tool` (Router→handlers); engine/mcp.py deja de exponerlos como tasks. `status`/`list` via MCP → 200 OK. |
 | **F8 (nuevo)** | `session_store.py` (InMemorySessionRepository) | ✅ COMPLETADO — implementa port `SessionRepository` (save/load/close con return pattern); 6 tests. |
+| **W1 (wiring)** | Conectar el dominio al runtime (DIP) | ✅ COMPLETADO — `McpServer` recibe `ToolRegistry` + `tracer` inyectados (libs NO importa features; duck-typing); `_build_server` es composition root; `_handle_request` usa `McpSession` (initialize → sessionId real) + `JsonRpcError` + `UnsupportedMethodError` (-32601 tipado); `ToolInvoked`/`ToolFailed` emitidos en `dispatch` y propagados al TraceGraph via tracer inyectado. Runtime verificado: handshake, 30 tools, status, error tipado. |
 
 Después de cada fase: **suite verde** (`python3 -m pytest tests/ -q`). Suite actual: **266 passed**.
 

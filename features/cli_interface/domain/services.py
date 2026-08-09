@@ -11,10 +11,13 @@ Return-pattern: métodos devuelven (result, errors).
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
+
+from returns.pipeline import is_successful
+from returns.result import safe
 
 from .entities import Tool, Resource
-from .values import ToolName, UriPattern
+from .values import UriPattern
 from .errors import ToolAlreadyExistsError, UnknownToolError
 
 
@@ -34,12 +37,16 @@ class ToolRegistry:
         description: str,
         handler: Callable[[dict], dict],
         input_schema: dict | None = None,
+        output_schema: dict | None = None,
     ) -> tuple[Tool | None, list[str]]:
         """Registra un tool. Returns (tool, errors)."""
         # Validar nombre
         tool, errors = Tool.create(
-            name=name, description=description,
-            input_schema=input_schema, handler=handler,
+            name=name,
+            description=description,
+            input_schema=input_schema,
+            handler=handler,
+            output_schema=output_schema,
         )
         if errors:
             return None, errors
@@ -52,9 +59,7 @@ class ToolRegistry:
         self._tools[key] = tool  # type: ignore[assignment]
         from .events import ToolRegistered
 
-        self._events.append(
-            ToolRegistered(tool_name=key)
-        )
+        self._events.append(ToolRegistered(tool_name=key))
         return tool, []
 
     def register_resource(
@@ -83,9 +88,10 @@ class ToolRegistry:
 
     def list_tools(self) -> list[dict]:
         """Proyección al schema que ve el agente (tools/list)."""
-        return [t.to_definition() for t in sorted(
-            self._tools.values(), key=lambda t: t.name.value
-        )]
+        return [
+            t.to_definition()
+            for t in sorted(self._tools.values(), key=lambda t: t.name.value)
+        ]
 
     def list_resources(self) -> list[dict]:
         return [
@@ -102,26 +108,36 @@ class ToolRegistry:
         tool = self._tools.get(name)
         return tool.handler if tool else None
 
+    def get_resource_handler(self, uri_pattern: str) -> Callable[[dict], dict] | None:
+        for r in self._resources:
+            if r.uri_pattern.value == uri_pattern:
+                return r.handler
+        return None
+
     def has_tool(self, name: str) -> bool:
         return name in self._tools
 
     # ── Dispatch (SSOT del handler) ──
 
     def dispatch(self, name: str, args: dict) -> tuple[dict, list[str]]:
-        """Invoca el handler del tool. Returns (result, errors)."""
+        """Invoca el handler del tool. Returns (result, errors).
+
+        Publica ToolInvoked (antes de ejecutar) y ToolFailed (si falla).
+        """
         tool = self._tools.get(name)
         if tool is None:
             return {}, [str(UnknownToolError(name))]
-        try:
-            result = tool.handler(args)
-            return result, []
-        except Exception as e:
-            from .events import ToolFailed
+        from .events import ToolInvoked
 
-            self._events.append(
-                ToolFailed(tool_name=name, error_type=type(e).__name__)
-            )
-            return {}, [str(e)]
+        self._events.append(ToolInvoked(tool_name=name, args_hash=str(hash(str(args)))))
+        outcome = _invoke_handler_core(tool.handler, args)
+        if is_successful(outcome):
+            return outcome.value_or({}), []
+        error = outcome.failure()
+        from .events import ToolFailed
+
+        self._events.append(ToolFailed(tool_name=name, error_type=type(error).__name__))
+        return {}, [str(error)]
 
     # ── Eventos ──
 
@@ -129,3 +145,9 @@ class ToolRegistry:
         events = list(self._events)
         self._events.clear()
         return events
+
+
+@safe
+def _invoke_handler_core(handler, args: dict) -> dict:
+    """Core puro: invoca el handler de un tool (puede lanzar)."""
+    return handler(args)

@@ -42,55 +42,9 @@ def go_prepare() -> "object":
     return action("walker prepare .", "register the current directory as a project")
 
 
-def go_submit(project_id: str = "", hint: str = "") -> "object":
-    """'walker <project>/submit {...}' — avanzar el workflow."""
-    cmd = f"walker {project_id}/submit"
-    reason = "send the required fields to advance the workflow"
-    if hint:
-        reason = f"{reason} — {hint}"
-    return action(cmd, reason)
-
-
-def go_transition(project_id: str = "") -> "object":
-    """'walker <project>/transition <gate>' — cruzar una gate."""
-    cmd = f"walker {project_id}/transition <gate>"
-    return action(cmd, "cross a workflow gate (admin/emergency)")
-
-
 def go_mcp_config(fmt: str = "opencode") -> "object":
     """'walker mcp-config' — generar config MCP portátil."""
     return action(f"walker mcp-config --format={fmt}", f"config para {fmt}")
-
-
-def go_capture_task(project_id: str = "") -> "object":
-    """'walker <project>/capture_task {...}' — capturar spec."""
-    cmd = f"walker {project_id}/capture_task" if project_id else "walker capture_task"
-    return action(cmd, "capture a task spec into the active sprint")
-
-
-def go_edit_plan(project_id: str = "") -> "object":
-    """'walker <project>/transition edit_plan' — ajustar backlog."""
-    cmd = f"walker {project_id}/transition edit_plan"
-    return action(cmd, "return to planning to adjust the backlog")
-
-
-def go_start_task(project_id: str = "") -> "object":
-    """'walker <project>/transition start_task' — iniciar tarea."""
-    cmd = f"walker {project_id}/transition start_task"
-    return action(cmd, "start design + analysis of a task")
-
-
-# ── Builders compuestos ──
-
-def sprint_actions(project_id: str, sprint_active: bool = True) -> list["object"]:
-    """Acciones estándar para el dashboard de un sprint."""
-    actions: list[object] = []
-    if sprint_active:
-        actions.append(go_submit(project_id))
-    actions.append(go_transition(project_id))
-    actions.append(go_status(project_id))
-    actions.append(go_list())
-    return actions
 
 
 def project_actions(project_id: str) -> list["object"]:

@@ -2,10 +2,10 @@
 
 SRP: consultas de progreso y contexto sobre springs y specs.
 """
+
 from __future__ import annotations
 
 from features.delta_tracking.application.ports.delta_repository import DeltaRepository
-from features.delta_tracking.domain.entities import Spec
 
 
 class GetSprintProgressUseCase:
@@ -25,7 +25,12 @@ class GetSprintProgressUseCase:
         total = len(specs)
         completed = by_status.get("completed", 0)
         in_progress = by_status.get("in_progress", 0)
-        remaining = total - completed - by_status.get("rejected", 0) - by_status.get("backlog", 0)
+        remaining = (
+            total
+            - completed
+            - by_status.get("rejected", 0)
+            - by_status.get("backlog", 0)
+        )
 
         return {
             "spring_id": spring_id,
@@ -57,11 +62,13 @@ class GetTaskContextUseCase:
         for dep_id in spec.depends_on:
             dep_spec = self._repo.get_spec(spring_id, dep_id)
             if dep_spec:
-                deps.append({
-                    "spec_id": dep_spec.spec_id,
-                    "objective": dep_spec.objective,
-                    "status": dep_spec.status,
-                })
+                deps.append(
+                    {
+                        "spec_id": dep_spec.spec_id,
+                        "objective": dep_spec.objective,
+                        "status": dep_spec.status,
+                    }
+                )
 
         return {
             "spec_id": spec.spec_id,

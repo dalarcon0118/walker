@@ -1,15 +1,30 @@
-"""Legacy side-effects: import legacy trail to TraceGraph, create prompt files."""
+"""Legacy side-effects: import legacy trail to TraceGraph, create prompt files.
+
+Result pattern (dry-python/returns): los cores con @safe nunca lanzan; los
+wrappers degradan con fallback explícito + log (convention-001).
+"""
 
 from __future__ import annotations
 import gzip
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from returns.pipeline import is_successful
+from returns.result import safe
 from libs.shared_domain import ExecutionContext
 from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
+
+
+@safe
+def _resolve_project_root_from_chain(chain_dir: str) -> str:
+    """Core puro: resuelve el project_root desde chain_dir (puede lanzar)."""
+    return str(ProjectService.resolve_paths(chain_dir).project_root)
 
 
 @as_side_effect(scope=SCOPE_TRACKING)
@@ -21,14 +36,18 @@ def import_legacy_trail(
     pid_dir = legacy_data.get("pid_dir", params.get("pid_dir", ""))
     project_root = legacy_data.get("project_root", "")
     if not project_root:
-        try:
-            project_root = (
-                ProjectService.resolve_paths(ctx.chain_dir or pid_dir).project_root
-                if (ctx.chain_dir or pid_dir)
-                else ""
-            )
-        except Exception:
-            project_root = pid_dir
+        if ctx.chain_dir or pid_dir:
+            resolved = _resolve_project_root_from_chain(ctx.chain_dir or pid_dir)
+            if is_successful(resolved):
+                project_root = resolved.value_or("")
+            else:
+                logger.warning(
+                    "legacy: resolve_paths fallo (%s: %s); fallback a pid_dir",
+                    type(resolved.failure()).__name__, resolved.failure(),
+                )
+                project_root = pid_dir
+        else:
+            project_root = ""
     if not events:
         return {"ok": False, "imported": 0, "reason": "no events to import"}
     by_chain: dict[str, list[dict]] = {}
@@ -48,10 +67,16 @@ def import_legacy_trail(
                         if line:
                             try:
                                 entries.append(json.loads(line))
-                            except json.JSONDecodeError:
-                                pass
-            except Exception:
-                pass
+                            except json.JSONDecodeError as e:
+                                logger.warning(
+                                    "legacy: línea inválida en %s (%s); se omite",
+                                    trace_path, e,
+                                )
+            except Exception as e:
+                logger.warning(
+                    "legacy: no se pudo leer el trace existente %s (%s: %s); se continúa",
+                    trace_path, type(e).__name__, e,
+                )
         for evt in chain_events:
             entries.append(
                 {
@@ -80,6 +105,10 @@ def import_legacy_trail(
             with gzip.open(trace_path, "wt", encoding="utf-8") as f:
                 f.write(payload)
         except Exception as e:
+            logger.warning(
+                "legacy: no se pudo escribir %s (%s: %s)",
+                trace_path, type(e).__name__, e,
+            )
             return {"ok": False, "imported": total_imported, "error": str(e)}
     return {
         "ok": True,
@@ -98,10 +127,14 @@ def create_legacy_prompts(
     legacy_data.get("workflow_path", params.get("workflow_path", ""))
     project_root = legacy_data.get("project_root", params.get("project_root", ""))
     if not project_root and ctx.chain_dir:
-        try:
-            project_root = ProjectService.resolve_paths(ctx.chain_dir).project_root
-        except Exception:
-            pass
+        resolved = _resolve_project_root_from_chain(ctx.chain_dir)
+        if is_successful(resolved):
+            project_root = resolved.value_or("")
+        else:
+            logger.warning(
+                "legacy: create_legacy_prompts no pudo resolver project_root (%s: %s)",
+                type(resolved.failure()).__name__, resolved.failure(),
+            )
     if not prompts_needed:
         return {"ok": False, "created": 0, "reason": "no prompts to create"}
     # Buscar o crear prompts dir
@@ -161,10 +194,14 @@ def save_converted_tasks(
     tasks = legacy_data.get("tasks", params.get("tasks", []))
     project_root = legacy_data.get("project_root", "")
     if not project_root and ctx.chain_dir:
-        try:
-            project_root = ProjectService.resolve_paths(ctx.chain_dir).project_root
-        except Exception:
-            pass
+        resolved = _resolve_project_root_from_chain(ctx.chain_dir)
+        if is_successful(resolved):
+            project_root = resolved.value_or("")
+        else:
+            logger.warning(
+                "legacy: save_converted_tasks no pudo resolver project_root (%s: %s)",
+                type(resolved.failure()).__name__, resolved.failure(),
+            )
     if not tasks:
         return {"ok": False, "saved": 0, "reason": "no tasks to save"}
     data_dir = os.path.join(project_root, "data")

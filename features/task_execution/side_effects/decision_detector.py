@@ -26,11 +26,14 @@ HEURISTICAS (archivos que indican decision de arquitectura):
 
 from __future__ import annotations
 import json
+import logging
 import os
 from typing import Any
 
 from libs.shared_domain import ExecutionContext
 from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_DECISION
+
+logger = logging.getLogger(__name__)
 
 
 # ── Heuristicas: area de arquitectura → prefixo de decision ──────────
@@ -131,8 +134,11 @@ def detect_decisions(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
             from libs.path_resolver import get_project_dir
 
             project_root = str(get_project_dir(params["project_id"]))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "decision_detector: no se pudo resolver project_root (%s: %s)",
+            type(e).__name__, e,
+        )
     if not project_root:
         return {"ok": False, "error": "cannot resolve project_root", "detected": 0}
 
@@ -145,8 +151,11 @@ def detect_decisions(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
                 with open(change_path) as f:
                     cd = json.load(f)
                 files = cd.get("new_changes", []) or cd.get("files_changed", [])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "decision_detector: no se pudo leer change_detected.json (%s: %s)",
+                type(e).__name__, e,
+            )
     if not files:
         return {"ok": True, "detected": 0, "reason": "no changed files"}
 
@@ -182,6 +191,10 @@ def detect_decisions(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
                 }
             )
     except Exception as e:
+        logger.warning(
+            "decision_detector: registro en CKG fallo (%s: %s)",
+            type(e).__name__, e,
+        )
         return {
             "ok": False,
             "error": str(e),

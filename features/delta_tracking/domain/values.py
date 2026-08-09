@@ -47,3 +47,15 @@ def spec_doc_id(spring_id: str, spec_id: str) -> str:
 def spec_id_from_index(index: int) -> str:
     """SPEC-001..N desde indice base-0."""
     return f"SPEC-{index + 1:03d}"
+
+
+def spring_id_from_chain_dir(chain_dir: str) -> str:
+    """Deriva el spring_id desde el basename del directorio.
+
+    Extraída de SpringService.get_spring_id (SRP): la derivación del
+    identificador es una regla del dominio, no una responsabilidad del
+    orquestador. El nombre del directorio ES el spring_id.
+    """
+    import os
+
+    return os.path.basename(os.path.normpath(chain_dir))

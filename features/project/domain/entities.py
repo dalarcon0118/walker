@@ -13,7 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .values import ProjectId, ProjectManifest, ProjectPaths
-from .errors import InvalidManifestError
 from .events import ProjectRegistered, ProjectProfileUpdated, SprintDetected
 
 

@@ -1,11 +1,22 @@
-"""ast-grep integration — structural code search multi-lenguaje."""
+"""ast-grep integration — structural code search multi-lenguaje.
+
+Result pattern: los cores puros con @safe devuelven Result (nunca lanzan);
+los wrappers deciden con is_successful y hacen fallback explícito con log
+(convention-001: nunca except silencioso).
+"""
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from pathlib import Path
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from .config import AST_GREP, AST_GREP_AVAILABLE, ast_grep_lang
+
+logger = logging.getLogger(__name__)
 
 
 def run_ast_grep(pattern: str, filepath: Path, lang: str | None = None) -> list[dict]:
@@ -13,6 +24,9 @@ def run_ast_grep(pattern: str, filepath: Path, lang: str | None = None) -> list[
     
     Returns list of {line, col, text, message} for each match.
     Multi-lenguaje: usa -l <lang> detectado desde extension.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve []
+    y loggea el error (convention-001).
     """
     if not AST_GREP_AVAILABLE:
         return []
@@ -21,18 +35,29 @@ def run_ast_grep(pattern: str, filepath: Path, lang: str | None = None) -> list[
     if not lang or not filepath.exists():
         return []
 
-    try:
-        r = subprocess.run(
-            [AST_GREP, "run", "--json", "-l", lang, "-p", pattern, str(filepath)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if r.returncode != 0:
-            return []
-        return _parse_ast_grep_json(r.stdout)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    result = _run_ast_grep_core(pattern, filepath, lang)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "ast-grep run en %s fallo (%s: %s); sin matches",
+        filepath, type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _run_ast_grep_core(pattern: str, filepath: Path, lang: str) -> list[dict]:
+    """Core puro de run_ast_grep (puede lanzar)."""
+    r = subprocess.run(
+        [AST_GREP, "run", "--json", "-l", lang, "-p", pattern, str(filepath)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
         return []
+    return _parse_ast_grep_json(r.stdout)
 
 
 def run_ast_grep_multi(patterns: list[str], filepath: Path, lang: str | None = None) -> dict[str, list[dict]]:
@@ -55,11 +80,26 @@ def run_ast_grep_multi(patterns: list[str], filepath: Path, lang: str | None = N
 
 
 def _parse_ast_grep_json(stdout: str) -> list[dict]:
-    """Parse ast-grep --json output."""
-    try:
-        data = json.loads(stdout)
-    except json.JSONDecodeError:
-        return []
+    """Parse ast-grep --json output.
+
+    Result pattern: el core @safe nunca lanza; ante JSON invalido
+    devuelve [] y loggea el error (convention-001).
+    """
+    result = _parse_ast_grep_json_core(stdout)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "Parse de ast-grep JSON fallo (%s: %s); sin matches",
+        type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _parse_ast_grep_json_core(stdout: str) -> list[dict]:
+    """Core puro de _parse_ast_grep_json (puede lanzar)."""
+    data = json.loads(stdout)
     if not isinstance(data, list):
         return []
     results = []

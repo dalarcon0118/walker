@@ -10,29 +10,30 @@ from the process CWD (os.getcwd()) via ProjectService.resolve_from_registry()
 — exactly like git finds .git/ walking upward. project_id is OPTIONAL: if
 omitted, the current project is detected.
 
-```
-  MCP client (agent)              <- tools in context (push)
-       | JSON-RPC stdio
-       v
-  [mcp_adapter]  <- adapter (translates tool -> REST path; resolves CWD)
-       |
-       v
-  [Router]  <- SSOT of dispatch (same pipeline as the CLI)
-       |
-       v
-  [handlers] -> [use cases] -> [domain]
-```
+PROTOCOL: MCP tools are the SSOT of capabilities. The CLI is a MCP client
+with human formatting. REST endpoints exist only for external integration.
+
+CLI vs MCP API separation:
+  - CLI commands (human): prepare, list, help, mcp-tools, mcp-routes, status, submit, transition
+  - MCP tools (agent): cpg_analyze, ckg_analyze, delta_analyze, agent_context, trace_push, and all domain operations
+  - REST endpoints (external integration): /status, /submit, /transition, /prepare, /list, /help
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
+
+from returns.pipeline import is_successful
+from returns.result import safe
 
 from libs.mcp_server import McpServer
 from .infrastructure.serializer import dumps
 from .infrastructure.reloader import reload_features_if_changed
+
+logger = logging.getLogger(__name__)
 
 
 # ── Composite server: compone todos los modulos MCP ──
@@ -40,10 +41,18 @@ from .infrastructure.reloader import reload_features_if_changed
 def _build_server() -> McpServer:
     """Construye el servidor MCP compositing todos los modulos.
 
-    Cada modulo register() devuelve (count, errors) via return-pattern.
-    Los errores se loguean — no se tragan silenciosamente.
+    Composition root (DIP, ADR-WALKER-016): crea el ToolRegistry del dominio
+    del Protocol y lo inyecta en el McpServer (adapter fino de libs). Así el
+    schema SSOT de cada tool vive en el dominio; libs no importa features.
+
+    Cada modulo register_module() delega en ModuleRegistry para exponer
+    tools y rutas sin acoplar el contenedor.
     """
-    server = McpServer()
+    from features.cli_interface.domain.services import ToolRegistry
+    from features.engine.infrastructure.trace_log import TraceLogger
+
+    registry = ToolRegistry()
+    server = McpServer(registry=registry, tracer=TraceLogger())
     modules = [
         "features.cognitive_knowledge.mcp",
         "features.code_analysis.mcp",
@@ -52,24 +61,114 @@ def _build_server() -> McpServer:
         "features.engine.mcp",
     ]
     for mod in modules:
-        try:
-            result = _load_module(mod)(server)
-        except Exception as e:
-            _log_module_error(mod, e)
-            continue
-        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], list):
-            count, errors = result
-            if errors:
-                _log_module_errors(mod, count, errors)
+        outcome = _register_module_core(server, mod)
+        if not is_successful(outcome):
+            _log_module_error(mod, outcome.failure())
 
-    # ── Tools REST del workflow (F7, ADR-016) ──
-    # status/submit/transition/prepare/list/help son endpoints REST del
-    # adapter (mapeados en _TOOL_ROUTES → Router → handlers), NO tasks del
-    # registry. Se registran aquí con _call_tool para que el MCP los exponga
-    # con el dispatch correcto (antes engine/mcp.py los mandaba al TaskRegistry
-    # y fallaban con "task no registrada").
     _register_rest_tools(server)
+    _sync_module_registry_to_server(server)
+    _register_help_resource(server)
     return server
+
+
+@safe
+def _register_module_core(server: McpServer, mod: str) -> None:
+    """Core puro: registra un modulo MCP en el server (puede lanzar)."""
+    _load_module(mod)(server)
+
+
+def _sync_module_registry_to_server(server: McpServer) -> None:
+    """Sincroniza el McpServer con el ModuleRegistry.
+
+    Asegura que tools y rutas del registry estén reflejadas en el server.
+    """
+    outcome = _sync_catalog_core(server)
+    if not is_successful(outcome):
+        logger.warning(
+            "module registry sync skipped (%s: %s)",
+            type(outcome.failure()).__name__, outcome.failure(),
+        )
+
+
+@safe
+def _sync_catalog_core(server: McpServer) -> None:
+    """Core puro: sincroniza tools del ModuleRegistry (puede lanzar)."""
+    from features.engine.application.tool_catalog import list_tools, list_routes
+
+    existing = {t.get("name", "") for t in server.list_tools()}
+    for tool in list_tools():
+        if tool["name"] not in existing:
+            server.tool(
+                name=tool["name"],
+                description=tool.get("description", ""),
+                input_schema=tool.get("inputSchema"),
+                output_schema=tool.get("outputSchema"),
+                handler=_module_tool_handler(tool["name"]),
+            )
+
+
+def _module_tool_handler(name: str):
+    def handler(args: dict) -> dict:
+        return _call_tool(name, args)
+    return handler
+
+
+def _register_help_resource(server: McpServer) -> None:
+    """Registra el recurso dinámico `walker://help/{tool}` (F4 SPEC-043 RF-C1).
+
+    La doc del contrato se SIRVE desde la metadata del registro (tool_catalog
+    build_tool_help: description + example + input/output schema) — no desde
+    un texto fijo en el adapter. Si la tool no existe, fallback error 404.
+    """
+    def inner(args: dict) -> dict:
+        tool = (args.get("params") or {}).get("tool", "")
+        outcome = _build_help_content(tool)
+        if is_successful(outcome):
+            return outcome.value_or({})
+        return {"error": str(outcome.failure())}
+
+    server.resource(
+        "walker://help/{tool}",
+        "Tool Help",
+        "Contract of a walker tool: description, example and input/output schemas (SSOT metadata).",
+        handler=inner,
+    )
+
+
+@safe
+def _build_help_content(tool: str) -> dict:
+    """Core puro: construye el contenido del recurso help (puede lanzar)."""
+    from features.engine.application.tool_catalog import build_tool_help
+
+    uri = f"walker://help/{tool}"
+    help_doc = build_tool_help(tool)
+    if help_doc is None:
+        return {"error": f"Resource 'walker://help/{tool}' not found"}
+    text = _render_help_text(help_doc)
+    return {"contents": [{"uri": uri, "mimeType": "application/json", "text": text}]}
+
+
+def _render_help_text(help_doc: dict) -> str:
+    """Renderiza la doc del contrato como texto plano (description + example + schemas)."""
+    lines = [f"# Tool: {help_doc['name']}", ""]
+    if help_doc.get("description"):
+        lines.append(help_doc["description"])
+        lines.append("")
+    if help_doc.get("usage"):
+        lines.append(f"Usage: {help_doc['usage']}")
+        lines.append("")
+    if help_doc.get("example"):
+        lines.append("Example:")
+        lines.append(help_doc["example"])
+        lines.append("")
+    if help_doc.get("input_schema"):
+        lines.append("Input schema:")
+        lines.append(json.dumps(help_doc["input_schema"], indent=2))
+        lines.append("")
+    if help_doc.get("output_schema"):
+        lines.append("Output schema:")
+        lines.append(json.dumps(help_doc["output_schema"], indent=2))
+    return "\n".join(lines)
 
 
 def _register_rest_tools(server: McpServer) -> None:
@@ -117,11 +216,14 @@ def _log_module_errors(mod: str, count: int, errors: list[str]) -> None:
 
 
 def _load_module(module_name: str):
-    """Lazy load a module's register function."""
+    """Lazy load a module's register and register_module functions."""
     def register(server: McpServer) -> None:
         import importlib
         mod = importlib.import_module(module_name)
-        mod.register(server)
+        if hasattr(mod, "register"):
+            mod.register(server)
+        if hasattr(mod, "register_module"):
+            mod.register_module(_get_module_registry())
     return register
 
 
@@ -135,10 +237,33 @@ def _get_server() -> McpServer:
     return _SERVER
 
 
+def _get_tool_catalog() -> list[dict]:
+    """Obtiene el catálogo de tools desde el ModuleRegistry.
+
+    Usa el catálogo público para evitar instanciar McpServer en el CLI
+    (evita circular imports y acoplamiento innecesario).
+    """
+    outcome = _tool_catalog_core()
+    if is_successful(outcome):
+        return outcome.value_or([])
+    logger.warning(
+        "tool catalog unavailable (%s: %s)",
+        type(outcome.failure()).__name__, outcome.failure(),
+    )
+    return []
+
+
+@safe
+def _tool_catalog_core() -> list[dict]:
+    """Core puro: lista las tools del ModuleRegistry (puede lanzar)."""
+    from features.engine.application.tool_catalog import list_tools
+
+    return list_tools()
+
+
 # ── Tools metadata ─────────────────────────────────────────────────────────
-# El catalogo _TOOLS/_RESOURCES fue eliminado (ADR-WALKER-016): el schema SSOT
-# de cada tool vive en McpServer/ToolRegistry (registrado por cada feature
-# via server.tool()). tools/list lee _get_server().list_tools() — unica fuente.
+# El catalogo de tools vive en ModuleRegistry (features/engine/application/tool_catalog.py).
+# tools/list consulta el registry sin instanciar McpServer.
 
 _PROMPTS = [
     {
@@ -160,9 +285,8 @@ _PROTOCOL_FALLBACK = (
     "   The walker has a STRUCTURED CODE MEMORY (CPG) with a query layer.\n"
     "   Do NOT reason about code from scratch NOR read files directly.\n"
     "   BEFORE analyzing/implementing/verifying, query the project CPG:\n"
-    "     - kg_search with _index:cpg + file:'<area>'  → symbols, signatures, imports\n"
-    "     - cpg_business with file:'<area>'            → pure functions, flows, patterns\n"
-    "     - analyze_code with area:'<area>'            → full code analysis\n"
+    "     - cpg_analyze with scope + depth/detect/review/metrics → unified analysis\n"
+    "     - kg_search with _index:cpg + file:'<area>'               → symbols, signatures\n"
     "   The CPG is the source of truth for the code (real names, real signatures).\n"
     "   Use what the CPG returns to build solutions; do NOT invent APIs.\n"
     "\n"
@@ -173,28 +297,8 @@ _PROTOCOL_FALLBACK = (
     "   if you validate another project, store there. Do not mix contexts.\n"
     "   (Workflow decisions are captured automatically by capture_decision.)\n"
     "\n"
-    "5. REUSE what exists: cpg_business reveals already-implemented pure\n"
+    "5. REUSE what exists: cpg_analyze reveals already-implemented pure\n"
     "   functions and business flows. Reusing them avoids reinventing the wheel.\n"
-    "\n"
-    "6. SESSION WORK LOG (MANDATORY): when you COMPLETE a piece of work\n"
-    "   (implemented a feature, fixed a bug, refactored, indexed, etc.),\n"
-    "   PERSIST it with capture_task so it is not lost:\n"
-    '     - walker <project>/capture_task \'{"objective":"...","domain":"...",\n'
-    '         "files":["path/to/file.py"],"result_state":"..."}\'\n'
-    "   This stores the task under an INFORMAL SPRING by date\n"
-    "   (session-YYYYMMDD) that the DeltaGraph indexes as historical\n"
-    "   context. The agent's work never gets lost, even without a formal\n"
-    "   spring. The formal way remains plan_sprint + the workflow.\n"
-    "   DECISIONS: if the work involved an architecture decision, INCLUDE it\n"
-    "   in the same capture_task payload:\n"
-    '     - walker <project>/capture_task \'{"objective":"...",\n'
-    '         "decisions":[{"statement":"ADR-x: ...","rationale":"...",\n'
-    '           "supersedes":["<prev statement>"]}]}\'\n'
-    "   capture_task registers it in the CKG automatically (with lifecycle).\n"
-    "   AUTO-DETECTION: if you do NOT report decisions but the 'files' touch\n"
-    "   architecture layers (contracts, domain, workflow, config, engine,\n"
-    "   repositories, providers), capture_task detects it and generates the\n"
-    "   decision automatically using your objective as context.\n"
 )
 
 
@@ -204,15 +308,23 @@ def _load_protocol_text() -> str:
     SSOT: features/prompts/templates/protocol/mcp.md (mismo path único de
     templates que el resto de prompts). Fallback: constante del código.
     """
-    try:
-        from features.prompts.loader import load_static
-        text = load_static("protocol/mcp")
-        return text or _PROTOCOL_FALLBACK
-    except Exception as e:
-        import sys
+    outcome = _protocol_text_core()
+    if is_successful(outcome):
+        return outcome.value_or(_PROTOCOL_FALLBACK) or _PROTOCOL_FALLBACK
+    error = outcome.failure()
+    logger.warning(
+        "protocol/mcp load failed (%s: %s); usando fallback",
+        type(error).__name__, error,
+    )
+    return _PROTOCOL_FALLBACK
 
-        print(f"[MCP] protocol/mcp load failed (using fallback): {e}", file=sys.stderr)
-        return _PROTOCOL_FALLBACK
+
+@safe
+def _protocol_text_core() -> str:
+    """Core puro de _load_protocol_text (puede lanzar)."""
+    from features.prompts.loader import load_static
+
+    return load_static("protocol/mcp")
 
 
 _PROTOCOL_TEXT = _load_protocol_text()
@@ -227,98 +339,82 @@ def _resolve_project_id(args: dict) -> str:
     pid = (args.get("project_id") or "").strip()
     if pid:
         return pid
-    try:
-        from features.project import ProjectService
-
-        resolved = ProjectService.resolve_from_registry()
-        if resolved:
-            return resolved.get("project_id", "")
-    except Exception as e:
-        import sys
-
-        print(f"[MCP] project resolution failed: {e}", file=sys.stderr)
+    outcome = _resolve_project_core()
+    if is_successful(outcome):
+        return outcome.value_or("")
+    error = outcome.failure()
+    logger.warning(
+        "project resolution failed (%s: %s)", type(error).__name__, error,
+    )
     return ""
 
 
-# ── Tool MCP → REST path translation (SSOT: the Router dispatches) ───────────
+@safe
+def _resolve_project_core() -> str:
+    """Core puro: resuelve project_id desde el CWD (puede lanzar)."""
+    from features.project import ProjectService
 
-_TOOL_ROUTES = {
-    "prepare": ("prepare", lambda a: {"path": a.get("path", os.getcwd())}),
-    "list": ("list", lambda a: {}),
-    "status": ("{project_id}/status", lambda a: {}),
-    "submit": ("{project_id}/submit", lambda a: {"_payload": a.get("body", {})}),
-    "transition": (
-        "{project_id}/transition",
-        lambda a: {"gate": a.get("gate", ""), "positional": [a.get("gate", "")]},
-    ),
-    "kg_search": ("{project_id}/kg_search", lambda a: {"_payload": a.get("query", {})}),
-    "kg_multi": ("{project_id}/kg_multi", lambda a: {"_payload": a.get("layers", {})}),
-    "kg_store": ("{project_id}/kg_store", lambda a: {"_payload": a.get("body", {})}),
-    "cpg_business": (
-        "{project_id}/cpg_business",
-        lambda a: {"_payload": {"file": a.get("file", "")}},
-    ),
-    "cpg_unused_functions": (
-        "{project_id}/cpg_unused_functions",
-        lambda a: {},
-    ),
-    "project_metrics": (
-        "{project_id}/project_metrics",
-        lambda a: {},
-    ),
-    "analyze_code": (
-        "{project_id}/analyze_code",
-        lambda a: {"_payload": {"area": a.get("area", "")}},
-    ),
-    "help": ("help", lambda a: {}),
-}
+    resolved = ProjectService.resolve_from_registry()
+    if resolved:
+        return resolved.get("project_id", "")
+    return ""
+
+
+# ── Tool MCP → REST path translation (SSOT: ModuleRegistry) ───────────
+
+_MODULE_REGISTRY: Any = None
+
+
+def _get_module_registry() -> Any:
+    global _MODULE_REGISTRY
+    if _MODULE_REGISTRY is None:
+        outcome = _bootstrap_modules_core()
+        if is_successful(outcome):
+            _MODULE_REGISTRY = outcome.value_or({})
+        else:
+            logger.warning(
+                "module registry bootstrap failed (%s: %s); usando vacio",
+                type(outcome.failure()).__name__, outcome.failure(),
+            )
+            _MODULE_REGISTRY = {}
+    return _MODULE_REGISTRY
+
+
+@safe
+def _bootstrap_modules_core():
+    """Core puro: bootstrapea los modulos (puede lanzar)."""
+    from features.engine.bootstrap import bootstrap_modules
+
+    return bootstrap_modules()
 
 
 def _call_tool(name: str, args: dict) -> dict:
     """Translates an MCP tool to a REST path and delegates to the Router (SSOT).
 
-    'analyze_code' is a COMPOSITE tool: it has no REST handler of its own;
-    it combines CPG queries (kg_search + cpg_business) to deliver a full
-    code analysis.
+    Consulta ModuleRegistry para resolver tools y rutas. Si no está registrado,
+    fallback a task pública dinámica (descubrimiento automático).
     """
-    if name == "analyze_code":
-        return _analyze_code(args)
+    registry = _get_module_registry()
+    tool_def = registry.tool(name) if registry else None
+    route_def = registry.route(name) if registry else None
 
-    # Dispatch estandar: tool -> ruta REST mapeada en _TOOL_ROUTES.
-    # FALLBACK (fix descubrimiento de tasks publicas): si la tool no esta
-    # en el mapa (ej: cpg_unused_functions, project_metrics, kg_extract),
-    # se despacha como task publica del proyecto via {project_id}/<nombre>.
-    # Asi el MCP expone todas las tasks publicas del registro sin hardcodear.
-    if name not in _TOOL_ROUTES:
+    if tool_def and route_def:
         project_id = _resolve_project_id(args)
-        path = f"{project_id}/{name}"
-        flags = {"_payload": args.get("body", {})}
+        path = route_def.path.format(project_id=project_id) if "{project_id}" in route_def.path else route_def.path
+        flags = route_def.flags_builder(args) if route_def.flags_builder else {"_payload": args.get("body", args)}
         from . import _ROUTER
-
-        result = _ROUTER.dispatch(path, flags, method="POST")
+        result = _ROUTER.dispatch(path, flags, method=route_def.method or "POST")
         if hasattr(result, "to_dict"):
             return result.to_dict()
         if isinstance(result, dict):
             return result
         return {"type": "ok", "data": {"result": result}}
 
-    route_tpl, flags_builder = _TOOL_ROUTES[name]
     project_id = _resolve_project_id(args)
-    path = (
-        route_tpl.format(project_id=project_id)
-        if "{project_id}" in route_tpl
-        else route_tpl
-    )
-    flags = flags_builder(args)
-
+    path = f"{project_id}/{name}"
+    flags = {"_payload": args.get("body", {})}
     from . import _ROUTER
-
-    method = None
-    if path.endswith(("submit", "transition")):
-        method = "POST"
-    elif path == "prepare":
-        method = "POST"
-    result = _ROUTER.dispatch(path, flags, method=method)
+    result = _ROUTER.dispatch(path, flags, method="POST")
     if hasattr(result, "to_dict"):
         return result.to_dict()
     if isinstance(result, dict):
@@ -326,130 +422,12 @@ def _call_tool(name: str, args: dict) -> dict:
     return {"type": "ok", "data": {"result": result}}
 
 
-def _analyze_code(args: dict) -> dict:
-    """Analyzes code by querying the project CPG (query layer).
-
-    Combines:
-      1. kg_search cpg by area  -> symbols, signatures, imports
-      2. cpg_business by area   -> pure functions, flows, patterns
-    """
-    project_id = _resolve_project_id(args)
-    area = (args.get("area") or "").strip()
-    if not area:
-        return {
-            "type": "error",
-            "status_code": 400,
-            "message": "analyze_code requiere 'area' (substring del archivo)",
-        }
-
-    # 1. CPG symbols
-    sym_resp = _call_tool(
-        "kg_search",
-        {
-            "project_id": project_id,
-            "query": {"_index": "cpg", "file": area},
-        },
-    )
-    symbols = sym_resp.get("data", {}).get("result", {}) if sym_resp.get("data") else {}
-    hits = symbols.get("hits", {}).get("hits", []) if isinstance(symbols, dict) else []
-
-    # 2. Business layer
-    biz_resp = _call_tool(
-        "cpg_business",
-        {
-            "project_id": project_id,
-            "file": area,
-        },
-    )
-    biz = biz_resp.get("data", {}).get("result", {}) if biz_resp.get("data") else {}
-
-    # Summarize symbols (avoid huge responses)
-    files = {}
-    functions = []
-    imports = []
-    for h in hits[:80]:
-        src = h.get("_source", {})
-        name = src.get("name", "")
-        ftype = src.get("type", "")
-        sig = src.get("signature", "")
-        fpath = src.get("file", "")
-        if ftype == "file":
-            files[fpath] = fpath
-        elif ftype == "module":
-            imports.append({"name": name, "file": fpath, "signature": sig})
-        elif ftype in (
-            "function",
-            "constant",
-            "method",
-            "interface",
-            "struct",
-            "class",
-        ):
-            functions.append(
-                {
-                    "name": name,
-                    "type": ftype,
-                    "file": fpath,
-                    "line": src.get("line", 0),
-                    "signature": sig,
-                }
-            )
-
-    return {
-        "type": "analyze_code",
-        "status_code": 200,
-        "message": f"Code analysis for '{area}' — {len(functions)} symbols, {len(imports)} imports",
-        "data": {
-            "area": area,
-            "project_id": project_id,
-            "files": sorted(files.keys()),
-            "symbols": functions[:60],
-            "imports": imports[:20],
-            "business_layer": {
-                "pure_functions": (biz.get("pure_functions") or [])[:15],
-                "business_flows": (biz.get("business_flows") or [])[:8],
-                "architecture_patterns": (biz.get("architecture_patterns") or [])[:8],
-            },
-        },
-        "next_actions": [
-            {
-                "command": f"walker {project_id}/kg_search",
-                "reason": "more specific CPG query",
-            },
-            {
-                "command": f"walker {project_id}/cpg_business",
-                "reason": "reuse functions/patterns of the area",
-            },
-        ],
-    }
-
-
-def _read_resource(uri: str) -> dict:
-    """Reads a walker resource (context injectable to the agent)."""
-    if uri.startswith("walker://status/"):
-        project_id = uri.split("/")[-1]
-        result = _call_tool("status", {"project_id": project_id})
-        return {
-            "contents": [
-                {
-                    "uri": uri,
-                    "mimeType": "application/json",
-                    "text": dumps(result),
-                }
-            ]
-        }
-    return {
-        "contents": [
-            {
-                "uri": uri,
-                "mimeType": "application/json",
-                "text": dumps({"error": "resource no encontrado"}),
-            }
-        ]
-    }
-
-
 # ── JSON-RPC 2.0 handler ────────────────────────────────────────────────────
+
+# Sesiones MCP del dominio del Protocol (ADR-016): repo in-memory compartido.
+from features.cli_interface.infrastructure.session_store import InMemorySessionRepository
+
+_SESSIONS = InMemorySessionRepository()
 
 
 def _handle_request(msg: dict) -> dict:
@@ -458,48 +436,76 @@ def _handle_request(msg: dict) -> dict:
     msg_id = msg.get("id")
 
     if method == "initialize":
+        from features.cli_interface.contracts.rpc import JsonRpcError
+
+        client_info = params.get("clientInfo", {}) or {}
+        client_name = client_info.get("name", "unknown")
+        client_version = client_info.get("version", "")
+
+        # ── Sesión del dominio del Protocol (ADR-016) ──
+        from features.cli_interface.domain.entities import McpSession
+
+        session, sess_errors = McpSession.create(
+            params.get("protocolVersion", "2024-11-05")
+        )
+        if sess_errors:
+            return JsonRpcError(id=msg_id, code=-32602, message="; ".join(sess_errors)).to_dict()
+        init_errors = session.initialize(client_name=client_name, client_version=client_version)
+        if init_errors:
+            return JsonRpcError(id=msg_id, code=-32602, message="; ".join(init_errors)).to_dict()
+        _SESSIONS.save(session)
+
         return {
             "jsonrpc": "2.0",
             "id": msg_id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": session.protocol_version.value,
                 "capabilities": {
                     "tools": {"listChanged": False},
                     "resources": {"subscribe": False},
                     "prompts": {},
                 },
                 "serverInfo": {"name": "walker", "version": "3.1"},
+                "sessionId": session.session_id.value,
             },
         }
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": _get_server().list_tools()}}
+        tools = _get_tool_catalog()
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": tools}}
     if method == "tools/call":
         name = params.get("name", "")
         args = params.get("arguments", {}) or {}
-        try:
-            result = _get_server().call_tool(name, args)
+        outcome = _call_tool_core(name, args)
+
+        if is_successful(outcome):
+            result = outcome.value_or({})
             return {
                 "jsonrpc": "2.0", "id": msg_id,
                 "result": {"content": [{"type": "text", "text": dumps(result)}],
                            "isError": result.get("status_code", 200) >= 400},
             }
-        except Exception as e:
-            return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {"content": [{"type": "text", "text": str(e)}], "isError": True},
-            }
+        error = outcome.failure()
+        logger.error("tools/call '%s' fallo (%s: %s)", name, type(error).__name__, error)
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {"content": [{"type": "text", "text": str(error)}], "isError": True},
+        }
     if method == "resources/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": _get_server().list_resources()}}
     if method == "resources/read":
         uri = params.get("uri", "")
-        try:
-            result = _get_server().read_resource(uri)
-            return {"jsonrpc": "2.0", "id": msg_id, "result": result}
-        except Exception as e:
-            return {
-                "jsonrpc": "2.0", "id": msg_id,
-                "result": {"contents": [{"uri": uri, "mimeType": "text/plain", "text": str(e)}]}}
+        outcome = _read_resource_core(uri)
+
+        if is_successful(outcome):
+            return {"jsonrpc": "2.0", "id": msg_id, "result": outcome.value_or({})}
+        error = outcome.failure()
+        logger.error(
+            "resources/read '%s' fallo (%s: %s)", uri, type(error).__name__, error,
+        )
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"contents": [{"uri": uri, "mimeType": "text/plain", "text": str(error)}]}}
     if method == "prompts/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": _PROMPTS}}
     if method == "prompts/get":
@@ -519,11 +525,12 @@ def _handle_request(msg: dict) -> dict:
     if method == "ping":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
 
-    return {
-        "jsonrpc": "2.0",
-        "id": msg_id,
-        "error": {"code": -32601, "message": f"Metodo '{method}' no soportado"},
-    }
+    # ── Método no soportado → taxonomía del dominio (ADR-016) ──
+    from features.cli_interface.domain.errors import UnsupportedMethodError
+    from features.cli_interface.contracts.rpc import JsonRpcError
+
+    err = UnsupportedMethodError(method)
+    return JsonRpcError(id=msg_id, code=-32601, message=str(err)).to_dict()
 
 
 def _is_notification(msg: dict) -> bool:
@@ -531,6 +538,18 @@ def _is_notification(msg: dict) -> bool:
     recibir respuesta (p. ej. 'notifications/initialized'). Responderla
     rompe el handshake MCP (opencode desincroniza y tools/list queda vacío)."""
     return "id" not in msg or msg.get("id") is None
+
+
+@safe
+def _call_tool_core(name: str, args: dict) -> dict:
+    """Core puro: invoca un tool MCP (puede lanzar)."""
+    return _get_server().call_tool(name, args)
+
+
+@safe
+def _read_resource_core(uri: str) -> dict:
+    """Core puro: lee un recurso MCP (puede lanzar)."""
+    return _get_server().read_resource(uri)
 
 
 # ── Recarga de codigo (fix estructural 'server stale') ──────────────────────
@@ -560,30 +579,52 @@ def serve_stdio() -> int:
         line = line.strip()
         if not line:
             continue
-        try:
-            reload_features_if_changed(on_changed=_reset_server_cache)
-        except Exception as _reload_err:
+        reload_outcome = _reload_features_core(on_changed=_reset_server_cache)
+        if not is_successful(reload_outcome):
             # Recarga best-effort: si falla, se loggea y se continua con
             # los modulos actuales (no romper el loop por un reload).
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "Recarga de codigo fallo (best-effort): %s", _reload_err
+            logger.warning(
+                "Recarga de codigo fallo (best-effort): %s", reload_outcome.failure()
             )
-        try:
-            msg = json.loads(line)
-            resp = _handle_request(msg)
-        except json.JSONDecodeError:
-            resp = {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": "Parse error"},
-            }
+        parse_outcome = _parse_request_core(line)
+        if is_successful(parse_outcome):
+            msg, resp = parse_outcome.value_or(({}, {}))
+        else:
+            error = parse_outcome.failure()
+            if isinstance(error, json.JSONDecodeError):
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "Parse error"},
+                }
+            else:
+                logger.warning(
+                    "request handling fallo (%s: %s)", type(error).__name__, error,
+                )
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32603, "message": f"Internal error: {error}"},
+                }
+            msg = {}
         if _is_notification(msg):
             continue
         sys.stdout.write(dumps(resp) + "\n")
         sys.stdout.flush()
     return 0
+
+
+@safe
+def _reload_features_core(on_changed=None) -> bool:
+    """Core puro: recarga modulos de features/ si cambiaron (puede lanzar)."""
+    return reload_features_if_changed(on_changed=on_changed)
+
+
+@safe
+def _parse_request_core(line: str) -> tuple[dict, dict]:
+    """Core puro: parsea y despacha un mensaje JSON-RPC (puede lanzar)."""
+    msg = json.loads(line)
+    return msg, _handle_request(msg)
 
 
 def main() -> int:

@@ -8,7 +8,7 @@ Pure — sin IO, sin imports de infra.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Callable
 
 from .values import (
     ProtocolVersion,
@@ -18,7 +18,6 @@ from .values import (
     UriPattern,
     Capabilities,
 )
-from .errors import HandshakeError
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -30,13 +29,15 @@ from .errors import HandshakeError
 class Tool:
     """Entity — registro inmutable de un tool MCP.
 
-    `input_schema` es el SSOT del contrato que ve el agente.
+    `input_schema` y `output_schema` son el SSOT del contrato que ve el agente
+    (ADR-WALKER-043): se definen una sola vez y las capas de exposición derivan.
     """
 
     name: ToolName
     description: str
     input_schema: dict
     handler: Callable[[dict], dict]
+    output_schema: dict = field(default_factory=dict)
 
     @staticmethod
     def create(
@@ -44,6 +45,7 @@ class Tool:
         description: str,
         input_schema: dict | None = None,
         handler: Callable[[dict], dict] | None = None,
+        output_schema: dict | None = None,
     ) -> tuple["Tool | None", list[str]]:
         """Factory con validación. Returns (tool, errors)."""
         errors: list[str] = []
@@ -62,15 +64,19 @@ class Tool:
             description=description,
             input_schema=input_schema or {"type": "object"},
             handler=handler,  # type: ignore[arg-type]
+            output_schema=output_schema or {},
         ), []
 
     def to_definition(self) -> dict:
         """Proyección al contrato del agente (DTO para tools/list)."""
-        return {
+        definition = {
             "name": self.name.value,
             "description": self.description,
             "inputSchema": self.input_schema,
         }
+        if self.output_schema:
+            definition["outputSchema"] = self.output_schema
+        return definition
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -113,7 +119,9 @@ class McpSession:
     _events: list[object] = field(default_factory=list, repr=False, init=False)
 
     @staticmethod
-    def create(protocol_version: str = "2024-11-05") -> tuple["McpSession | None", list[str]]:
+    def create(
+        protocol_version: str = "2024-11-05",
+    ) -> tuple["McpSession | None", list[str]]:
         """Factory. Returns (session, errors)."""
         version, errors = ProtocolVersion.create(protocol_version)
         if errors:

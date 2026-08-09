@@ -14,8 +14,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from returns.pipeline import is_successful
+
 from ..domain.models import ExecutionType
 from ..application.context_resolver import ContextResolver
+from ..domain.ports import ITracer
 
 
 class StepOrchestrator:
@@ -32,6 +35,7 @@ class StepOrchestrator:
         build_prompt_context: Any,
         resolve_prompt: Any,
         transition: Any,
+        signal_bus: Any = None,
     ):
         self._workflow_repo = workflow_repo
         self._state_repo = state_repo
@@ -42,6 +46,153 @@ class StepOrchestrator:
         self._build_prompt_context = build_prompt_context
         self._resolve_prompt = resolve_prompt
         self._transition = transition
+        self._signal_bus = signal_bus
+
+    def _check_pending_signals(self, state: Any, workflow: Any) -> dict | None:
+        """P1: Check if current wait state has received a waited signal.
+        
+        Returns:
+            dict with action='signal_received' if signal found, None otherwise.
+        """
+        if not self._signal_bus or not state.blocked_at:
+            return None
+        
+        node = workflow.get_node(state.current_node)
+        if not node:
+            return None
+        
+        sub_state = node.find_sub_state(state.current_sub_state)
+        if not sub_state or not sub_state.waits_for:
+            return None
+        
+        pending = getattr(state, "pending_signals", [])
+        if not pending:
+            return None
+        
+        for signal in pending:
+            if signal in sub_state.waits_for:
+                strategy = sub_state.on_signal or "auto_advance"
+                result = BlockResolver.resolve(state, strategy, {
+                    "sub_state": state.current_sub_state,
+                    "reason": f"signal '{signal}' received",
+                })
+                if is_successful(result):
+                    new_state = result.value_or(state)
+                    self._state_repo.save(new_state, state.context.get("chain_dir", ""))
+                    self._tracer.trace(
+                        ctx.chain_dir,
+                        "signal_resolved",
+                        data={
+                            "signal": signal,
+                            "strategy": strategy,
+                            "sub_state": state.current_sub_state,
+                            "node": state.current_node,
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
+                    return {
+                        "action": "signal_received",
+                        "strategy": strategy,
+                        "signal": signal,
+                        "message": f"Wait state resumed by signal '{signal}'. Resolved with '{strategy}'.",
+                        "sub_state": state.current_sub_state,
+                    }
+                else:
+                    self._tracer.trace(
+                        ctx.chain_dir,
+                        "signal_resolution_failed",
+                        data={
+                            "reason": result.failure(),
+                            "signal": signal,
+                            "sub_state": state.current_sub_state,
+                            "node": state.current_node,
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
+                    return {
+                        "action": "error",
+                        "message": f"Signal resolution failed: {result.failure()}",
+                        "sub_state": state.current_sub_state,
+                    }
+        
+        return None
+
+    def _check_timeout(self, state: Any, workflow: Any) -> dict | None:
+        """P0: Check if current wait state has timed out.
+        
+        Returns:
+            dict with action='timeout' if timed out, None otherwise.
+        """
+        if not state.blocked_at or state.block_timeout_ms <= 0:
+            return None
+        
+        from datetime import datetime, timezone
+        try:
+            block_since = datetime.fromisoformat(state.block_since)
+            now = datetime.now(timezone.utc)
+            elapsed_ms = (now - block_since).total_seconds() * 1000
+        except Exception:
+            return None
+        
+        if elapsed_ms >= state.block_timeout_ms:
+            # Timeout expired - resolve with on_timeout strategy
+            node = workflow.get_node(state.current_node)
+            if not node:
+                return None
+            
+            sub_state = node.find_sub_state(state.current_sub_state)
+            if not sub_state:
+                return None
+            
+            strategy = sub_state.on_timeout or "skip"
+            
+            result = BlockResolver.resolve(state, strategy, {
+                "sub_state": state.current_sub_state,
+                "reason": f"timeout after {elapsed_ms:.0f}ms",
+            })
+            if is_successful(result):
+                new_state = result.value_or(state)
+                self._state_repo.save(new_state, state.context.get("chain_dir", ""))
+                self._tracer.trace(
+                    ctx.chain_dir,
+                    "timeout_resolved",
+                    data={
+                        "strategy": strategy,
+                        "elapsed_ms": elapsed_ms,
+                        "timeout_ms": state.block_timeout_ms,
+                        "sub_state": state.current_sub_state,
+                        "node": state.current_node,
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
+                return {
+                    "action": "timeout",
+                    "strategy": strategy,
+                    "message": f"Wait state timed out after {elapsed_ms:.0f}ms. Resolved with '{strategy}'.",
+                    "sub_state": state.current_sub_state,
+                }
+            else:
+                self._tracer.trace(
+                    ctx.chain_dir,
+                    "timeout_resolution_failed",
+                    data={
+                        "reason": result.failure(),
+                        "sub_state": state.current_sub_state,
+                        "node": state.current_node,
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
+                return {
+                    "action": "error",
+                    "message": f"Timeout resolution failed: {result.failure()}",
+                    "sub_state": state.current_sub_state,
+                }
+        
+        return None
 
     def step(self, ctx: Any) -> dict:
         """Evalúa el ExecutionType del sub-estado actual y decide la acción."""
@@ -49,6 +200,17 @@ class StepOrchestrator:
 
         workflow = self._workflow_repo.load(ctx.chain_dir)
         state = self._state_repo.load(ctx.chain_dir)
+        
+        # P0: Check timeout for wait states
+        timeout_result = self._check_timeout(state, workflow)
+        if timeout_result:
+            return timeout_result
+        
+        # P1: Check pending signals for wait states
+        signal_result = self._check_pending_signals(state, workflow)
+        if signal_result:
+            return signal_result
+        
         node = workflow.get_node(state.current_node)
         if not node:
             return {

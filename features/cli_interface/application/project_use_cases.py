@@ -14,11 +14,15 @@ Moved from features/project/application/use_cases.py (SRP violation fix).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
 
 from returns.pipeline import is_successful
+from returns.result import safe
+
+logger = logging.getLogger(__name__)
 
 
 class PrepareProjectUseCase:
@@ -180,9 +184,9 @@ class CheckHealthUseCase:
         _check_project_json(proj_json, project_id, repo_path, health)
 
         # 2. Watcher: detect changes (read-only)
-        try:
-            watcher = FileWatcher(repo_path)
-            changes = watcher.scan()
+        watcher_outcome = _scan_watcher_core(repo_path)
+        if is_successful(watcher_outcome):
+            changes = watcher_outcome.value_or({})
             new_changes = changes.get("new_changes", [])
             total = changes.get("total_changes", 0)
             cpg_status = changes.get("cpg_status", "up_to_date")
@@ -206,8 +210,9 @@ class CheckHealthUseCase:
                     )
             else:
                 health["checks"]["files"] = "up to date"
-        except Exception as e:
-            health["warnings"].append(f"watcher: {e}")
+        else:
+            error = watcher_outcome.failure()
+            health["warnings"].append(f"watcher: {error}")
 
         # 3. Check CPG
         cpg_health = CheckCpgHealthUseCase.execute(projects_data_dir)
@@ -259,12 +264,14 @@ class CheckHealthUseCase:
 
         # 6. Proactive next steps
         task_catalog = []
-        try:
-            from features.engine.bootstrap import bootstrap
-            registry, _ = bootstrap()
-            task_catalog = registry.discover().get("tasks", [])
-        except Exception as e:
-            health.setdefault("warnings", []).append(f"task catalog discover failed: {e}")
+        catalog_outcome = _discover_task_catalog_core()
+        if is_successful(catalog_outcome):
+            task_catalog = catalog_outcome.value_or([])
+        else:
+            error = catalog_outcome.failure()
+            health.setdefault("warnings", []).append(
+                f"task catalog discover failed: {error}"
+            )
         health["next_steps"] = HealthReportAnalyzer.analyze(
             health, project_id, chain_dir, task_catalog=task_catalog
         )
@@ -305,13 +312,12 @@ def _register_in_global_registry(
 ) -> None:
     registry: dict = {"projects": {}}
     if os.path.exists(registry_path):
-        try:
-            with open(registry_path) as f:
-                registry = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            import sys
-
-            print(f"[walker] registry read failed (will overwrite): {e}", file=sys.stderr)
+        read_outcome = _read_registry_core(registry_path)
+        if is_successful(read_outcome):
+            registry = read_outcome.value_or({})
+        else:
+            error = read_outcome.failure()
+            logger.warning("registry read failed (will overwrite): %s", error)
     now = datetime.now(timezone.utc).isoformat()
     registry.setdefault("projects", {})[pid] = {
         "project_id": pid, "name": name, "repo_path": repo_path,
@@ -327,18 +333,14 @@ def _copy_walkerignore(walker_root: str, project_path: str) -> None:
     template = os.path.join(walker_root, "data", ".walkerignore")
     dest = os.path.join(project_path, ".walkerignore")
     if not os.path.exists(dest) and os.path.exists(template):
-        try:
-            with open(template) as f_src, open(dest, "w") as f_dst:
-                f_dst.write(f_src.read())
-        except OSError as e:
-            import sys
-
-            print(f"[walker] .walkerignore copy failed: {e}", file=sys.stderr)
+        copy_outcome = _copy_walkerignore_core(template, dest)
+        if not is_successful(copy_outcome):
+            error = copy_outcome.failure()
+            logger.warning(".walkerignore copy failed: %s", error)
 
 
 def _auto_scan_cpg(project_path: str) -> tuple[bool, int]:
     from features.project import IgnoreRules
-    from features.code_analysis import CPGBuilder
 
     code_detected = False
     ign = IgnoreRules(project_path)
@@ -356,16 +358,12 @@ def _auto_scan_cpg(project_path: str) -> tuple[bool, int]:
 
     cpg_nodes = 0
     if code_detected:
-        try:
-            builder = CPGBuilder(project_path)
-            result = builder.update() if hasattr(builder, "update") else builder.build()
-            if isinstance(result, dict):
-                stats = result.get("stats", result)
-                cpg_nodes = stats.get("total_nodes", stats.get("nodes", 0))
-        except Exception as e:
-            import sys
-
-            print(f"[walker] auto CPG scan failed: {e}", file=sys.stderr)
+        scan_outcome = _auto_scan_cpg_core(project_path)
+        if is_successful(scan_outcome):
+            cpg_nodes = scan_outcome.value_or(0)
+        else:
+            error = scan_outcome.failure()
+            logger.warning("auto CPG scan failed: %s", error)
             cpg_nodes = 0
     return code_detected, cpg_nodes
 
@@ -388,23 +386,70 @@ def _check_project_json(proj_json: str, project_id: str, repo_path: str, health:
         health["warnings"].append("project.json: not found in data/")
         return
 
-    try:
-        with open(proj_json) as f:
-            pd = json.load(f)
-        pdata = pd.get("project", pd)
-        identity = pdata.get("identity", {})
-        location = pdata.get("location", {})
-        health["project"] = {
-            "name": identity.get("name", project_id),
-            "language": identity.get("language", ""),
-            "framework": identity.get("framework", ""),
-            "repo_path": location.get("repo_path", repo_path),
-            "code_paths": location.get("code_paths", []),
-        }
-        schema_errors = ProjectSchemaValidator.validate(pd)
-        if schema_errors:
-            health["warnings"].extend([f"project.json: {e}" for e in schema_errors[:3]])
-        else:
-            health["checks"]["project_json"] = "ok"
-    except Exception as e:
-        health["warnings"].append(f"project.json: error reading: {e}")
+    proj_outcome = _read_registry_core(proj_json)
+    if not is_successful(proj_outcome):
+        error = proj_outcome.failure()
+        health["warnings"].append(f"project.json: error reading: {error}")
+        return
+    pd = proj_outcome.value_or({})
+    pdata = pd.get("project", pd)
+    identity = pdata.get("identity", {})
+    location = pdata.get("location", {})
+    health["project"] = {
+        "name": identity.get("name", project_id),
+        "language": identity.get("language", ""),
+        "framework": identity.get("framework", ""),
+        "repo_path": location.get("repo_path", repo_path),
+        "code_paths": location.get("code_paths", []),
+    }
+    schema_errors = ProjectSchemaValidator.validate(pd)
+    if schema_errors:
+        health["warnings"].extend([f"project.json: {e}" for e in schema_errors[:3]])
+    else:
+        health["checks"]["project_json"] = "ok"
+
+
+# ── Cores @safe (IO) ──────────────────────────────────────────────
+
+@safe
+def _scan_watcher_core(repo_path: str) -> dict:
+    """Core puro: escanea cambios con FileWatcher (puede lanzar)."""
+    from features.project import FileWatcher
+
+    return FileWatcher(repo_path).scan()
+
+
+@safe
+def _discover_task_catalog_core() -> list:
+    """Core puro: descubre las tasks registradas (puede lanzar)."""
+    from features.engine.bootstrap import bootstrap
+
+    registry, _ = bootstrap()
+    return registry.discover().get("tasks", [])
+
+
+@safe
+def _read_registry_core(registry_path: str) -> dict:
+    """Core puro: lee y parsea un JSON (puede lanzar)."""
+    with open(registry_path) as f:
+        return json.load(f)
+
+
+@safe
+def _copy_walkerignore_core(template: str, dest: str) -> None:
+    """Core puro: copia .walkerignore (puede lanzar OSError)."""
+    with open(template) as f_src, open(dest, "w") as f_dst:
+        f_dst.write(f_src.read())
+
+
+@safe
+def _auto_scan_cpg_core(project_path: str) -> int:
+    """Core puro: construye el CPG y devuelve nodos indexados (puede lanzar)."""
+    from features.code_analysis import CPGBuilder
+
+    builder = CPGBuilder(project_path)
+    result = builder.update() if hasattr(builder, "update") else builder.build()
+    if isinstance(result, dict):
+        stats = result.get("stats", result)
+        return stats.get("total_nodes", stats.get("nodes", 0))
+    return 0

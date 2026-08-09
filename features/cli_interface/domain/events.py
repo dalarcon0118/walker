@@ -39,9 +39,9 @@ class ToolRegistered:
 class ToolInvoked:
     """Emitido al invocar un tool (observabilidad)."""
 
-    session_id: str
     tool_name: str
     args_hash: str
+    session_id: str = ""
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -54,16 +54,6 @@ class ToolFailed:
     tool_name: str
     error_type: str
     session_id: str = ""
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-
-
-@dataclass(frozen=True)
-class ServerReloaded:
-    """Emitido tras el hot-reload de módulos de features."""
-
-    modules_reloaded: list[str]
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )

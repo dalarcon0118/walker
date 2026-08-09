@@ -124,6 +124,32 @@ class ContextComposer:
             prompt_template, allocated.included, ctx
         )
 
+        # 7. SSOT del contexto de entrada (F2 SPEC-043): schema de cada capa.
+        #    Con los flujos del contenido ya presentes (context_layers + system),
+        #    se deriva la forma tipada que el agente recibe, sin reemplazar texto.
+        context_schemas: dict[str, Any] = {}
+        for piece in allocated.included:
+            if not piece.included or piece.provider in context_schemas:
+                continue
+            provider = self._registry.get(piece.provider)
+            schema: dict[str, Any] = {}
+            if provider is not None:
+                try:
+                    schema = provider.output_schema() or {}
+                except Exception:
+                    schema = {}
+            if not schema:
+                # Fallback SSOT: board engine/context/contracts CONTEXT_SCHEMAS
+                # (cub to los 9 providers sin obligar a tocar cada feature).
+                try:
+                    from .contracts import CONTEXT_SCHEMAS
+
+                    schema = CONTEXT_SCHEMAS.get(piece.provider, {})
+                except Exception:
+                    schema = {}
+            if schema:
+                context_schemas[piece.provider] = schema
+
         return ComposedContext(
             system_message=system_message,
             context_layers=context_layers,
@@ -131,6 +157,7 @@ class ContextComposer:
             provenance=allocated.included + allocated.excluded,
             budget_used=allocated.budget_used,
             budget=allocated.budget,
+            context_schemas=context_schemas,
         )
 
     # ── Métodos internos ───────────────────────────────────────────

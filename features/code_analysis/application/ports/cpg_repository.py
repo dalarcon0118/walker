@@ -4,10 +4,10 @@ Puerto de salida en Clean Architecture. Define el contrato de persistencia
 y acceso al Code Property Graph. La infraestructura lo implementa via
 CpgFileRepository (archivos) o CognitiveGraph (indice).
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 
 class CpgRepository(ABC):
@@ -25,7 +25,10 @@ class CpgRepository(ABC):
 
     @abstractmethod
     def search_nodes(
-        self, filters: dict, max_results: int = 50, offset: int = 0,
+        self,
+        filters: dict,
+        max_results: int = 50,
+        offset: int = 0,
     ) -> dict:
         """Busca nodos en el CPG por filtros estructurados."""
         ...

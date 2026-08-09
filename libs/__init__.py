@@ -3,10 +3,25 @@
 No es un bounded context ni un god module.
 Contiene utilidades y servicios que no pertenecen a ningún módulo específico.
 
-Servicios:
-  - path_resolver.py  → resolución de paths del walker
-  - (futuro) metrics  → integración con qlty
-  - (futuro) config   → configuración transversal
+REGLAS DE MÓDULO (definición formal):
+  1. libs NO importa features/. Solo stdlib + libs entre sí (DIP).
+  2. Cada paquete tiene UNA responsabilidad transversal (no lógica de negocio).
+  3. Si algo pertenece a un feature (cpg, ckg, delta, trace, spring), vive en
+     features/<feature>/ y NO en libs/. libs/ solo hostea lo REUTILIZADO por
+     ≥2 módulos o que es infraestructura pura compartida.
+  4. Los events de dominio viven en features/<feature>/domain/events.py
+     (NO en libs/events — eliminado por dead code).
+
+Catálogo de paquetes:
+  - path_resolver   → resolución de paths del walker (proyectos, data, cpg, ckg)
+  - shared_domain   → value objects cross-feature (ExecutionContext, TaskResult, ...)
+  - context         → contrato neutro de providers (DIP): ABC + piezas + formaters
+  - cognitive_graph → infra compartida de índices (storage + orquestación CQRS)
+  - infrastructure  → adapters de lectura (CognitiveGraphSearcher, CQRS read-only)
+  - memories        → MemoryQueryService (fachada de consulta de las 4 memorias)
+  - router          → Router CLI reutilizable tipo NestJS
+  - mcp_server      → servidor MCP compartido (ToolRegistry + registro de tools)
+  - result_types    → tipos de resultado (safe/is_successful) para convention-001
 """
 from libs.path_resolver import (
     # Paths base
@@ -32,7 +47,4 @@ from libs.path_resolver import (
     # CPG paths
     get_cpg_path,
     get_ckg_path,
-    # Task manifests
-    get_task_manifest_path,
-    load_task_manifest,
 )

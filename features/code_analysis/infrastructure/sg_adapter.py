@@ -3,14 +3,23 @@
 Multi-language: sg outline supports 40+ languages via tree-sitter.
 Generates CALLS edges at FILE level (imports) for all languages.
 Function-level CALLS require language-specific CFG analysis (see ast_analyzer.py).
+
+Result pattern (dry-python/returns): el core @safe nunca lanza; los wrappers
+hacen fallback explícito con log (convention-001: nunca except silencioso).
 """
 
 from __future__ import annotations
 import json
+import logging
 import subprocess
 from pathlib import PurePath
 
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from features.code_analysis.domain.graph import Node, Edge, Graph
+
+logger = logging.getLogger(__name__)
 
 SG_CMD = "sg"
 SG_ARGS = ["outline", "--json"]
@@ -30,19 +39,32 @@ IGNORED_DIRS = {
 
 
 def run_sg_outline(paths: list[str]) -> list[dict]:
-    """Ejecuta sg outline y retorna resultados JSON."""
+    """Ejecuta sg outline y retorna resultados JSON.
+
+    Result pattern: el core @safe nunca lanza; ante fallo devuelve []
+    y loggea el error (convention-001).
+    """
+    result = _run_sg_outline_core(paths)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.error(
+        "sg outline fallo (%s: %s); sin resultados",
+        type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _run_sg_outline_core(paths: list[str]) -> list[dict]:
+    """Core puro de run_sg_outline (puede lanzar)."""
     cmd = [SG_CMD] + SG_ARGS
     if paths:
         cmd.extend(paths)
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=SG_TIMEOUT)
-        if r.returncode != 0:
-            print(f"sg outline exit={r.returncode}", file=__import__("sys").stderr)
-            return []
-        return json.loads(r.stdout)
-    except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired) as e:
-        print(f"sg outline error: {e}", file=__import__("sys").stderr)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=SG_TIMEOUT)
+    if r.returncode != 0:
         return []
+    return json.loads(r.stdout)
 
 
 def parse_sg_output(results: list[dict]) -> Graph:

@@ -19,11 +19,11 @@ from ..domain.models import (
     WorkflowGraph,
     WorkflowState,
     DomainEvent,
-    DomainEventType,
     Gate,
     ExecutionContext,
     ExecutionType,
 )
+from ..domain.enums import DomainEventType
 from ..domain.registry import TaskRegistry
 from ..domain.services import (
     ValidationService,
@@ -44,7 +44,7 @@ from ..infrastructure.repositories import (
     ScriptRunner,
 )
 from ..infrastructure.side_effects import SideEffectEngine
-from libs.contracts import ContractValidator, Contract
+from features.engine.domain.contract_validator import ContractValidator, Contract
 
 
 # ── Shared helper ──────────────────────────────────────────────────────────
@@ -432,6 +432,31 @@ class SubmitDataUseCase:
                     f"Output contract validation failed for "
                     f"{state.current_node}.{state.current_sub_state}",
                     error_details,
+                )
+
+        # ── 6b. DTO de respuesta del sub_state `llm_task` (F3 SPEC-043) ──
+        # Si el sub_state tiene DTO declarado en engine/workflow/contracts.py,
+        # se valida TAMBIEN la estructura tipada (from_dict). El error se
+        # propaga como ValidationError → SchemaViolation → block+message
+        # (mismo canal 422/detalle que el paso 6).
+        if sub_state.is_llm_task():
+            try:
+                from features.engine.workflow.contracts import (
+                    get_workflow_output_dto,
+                )
+
+                dto_cls = get_workflow_output_dto(
+                    state.current_node, state.current_sub_state
+                )
+                if dto_cls is not None and output_data is not None:
+                    dto_cls.from_dict(output_data)
+            except ValidationError:
+                raise
+            except ValueError as e:
+                raise ValidationError(
+                    f"Output contract DTO validation failed for "
+                    f"{state.current_node}.{state.current_sub_state}",
+                    [str(e)],
                 )
 
     def _execute_side_effects(
@@ -1121,9 +1146,7 @@ def _is_informal_sprint(chain_dir: str, project_id: str) -> bool:
         return False
     try:
         from libs.path_resolver import get_project_dir
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
+        from features.delta_tracking import SpringService, spring_service
 
         project_root = str(get_project_dir(project_id))
         if not os.path.isdir(project_root):
@@ -1244,11 +1267,9 @@ def _resolve_decision_gate(
             try:
                 chain_dir = state.context.get("chain_dir", "")
                 if chain_dir:
-                    from features.delta_tracking.application.services.spring_service import (
-                        SpringService,
-                    )
+                    from features.delta_tracking import SpringService, spring_service
 
-                    spring_svc = SpringService.from_chain_dir(chain_dir)
+                    spring_svc = spring_service(chain_dir=chain_dir)
                     if spring_svc:
                         spring_id = spring_svc.get_spring_id(chain_dir)
                         spring_svc.ensure_spring_imported(chain_dir, spring_id)

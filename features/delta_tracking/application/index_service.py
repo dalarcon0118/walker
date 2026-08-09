@@ -1,20 +1,38 @@
-"""application/index_service.py — Indexacion de sprints via Task(entity).save().
+"""application/index_service.py — Indexacion de sprints via Spec (modelo unico).
 
-Usa la entidad Task (ODM) para almacenar tareas directamente en el grafo
-de CognitiveGraph con TokenIndex para busqueda full-text y edges para relaciones.
+Escribe las specs de un sprint en el indice 'delta' con el MISMO esquema
+que lee CognitiveDeltaRepository (Spec.to_dict / doc_id = spec_key). Un
+solo modelo (Spec) — la entidad ODM Task fue eliminada (SSOT).
+
+La fuente de datos es el DeltaGraph (SpringService.load_tasks) y el
+resultado es idempotente: re-indexar sobreescribe los mismos doc_ids
+({spring}:{spec_id}) sin duplicar ni crear esquemas paralelos.
 """
 
 from __future__ import annotations
+
+import logging
 import os
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
+from features.delta_tracking.domain.entities import Spec
+from features.delta_tracking.domain.values import (
+    EDGE_CONTAINS,
+    EDGE_IMPACTS,
+    EDGE_DEPENDS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def index_sprint(chain_dir: str, cg) -> int:
-    """Indexa las tareas de un sprint en CognitiveGraph via Task(entity).save().
+    """Indexa las tareas de un sprint en CognitiveGraph (esquema Spec).
 
-    Lee las specs del DELTA (SpringService — fuente unica) y crea
-    entidades Task que se almacenan como nodos en el grafo delta de
-    CognitiveGraph. El ODM maneja automaticamente el TokenIndex (full-text)
-    y los edges.
+    Lee las specs del DELTA (SpringService — fuente unica) y las persiste
+    en el indice delta con Spec.to_dict() y doc_id = spec_key (el mismo
+    contrato que save_spec/save_specs_batch del repositorio).
 
     PRINCIPIO estructural: las specs del spring viven en el DeltaGraph;
     sprint-state.json y plan.json fueron eliminados (ADR-WALKER-013/014).
@@ -26,25 +44,12 @@ def index_sprint(chain_dir: str, cg) -> int:
     Returns:
         Numero de tareas indexadas
     """
-    from features.delta_tracking.entities import Task
-
-    # Asegurar que el indice delta esta registrado con schema ODM
+    # Asegurar que el indice delta existe con schema fulltext (ODM bind
+    # eliminado: el schema lo registra CognitiveGraph.register_defaults).
     if "delta" not in cg.list_indexes():
-        Task.bind(cg)
+        cg.register_defaults()
 
-    tasks = []
-    try:
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
-
-        spring_svc = SpringService.from_chain_dir(chain_dir)
-        if spring_svc:
-            spring_id = spring_svc.get_spring_id(chain_dir)
-            spring_svc.ensure_spring_imported(chain_dir, spring_id)
-            tasks = spring_svc.get_specs_legacy(spring_id)
-    except Exception:
-        tasks = []
+    tasks = _load_spring_tasks(chain_dir)
     if not tasks:
         return 0
 
@@ -53,43 +58,39 @@ def index_sprint(chain_dir: str, cg) -> int:
     batch_docs: dict[str, dict] = {}
     edges_to_add: list[tuple[str, str, str]] = []
 
-    for item in tasks:
-        tid = item.get("task_id", "") or item.get("spec_id", "?")
-        if not tid or tid == "?":
-            continue
-
-        unique_id = f"{sprint_id}:{tid}"
-
-        task = Task(
-            task_id=unique_id,
-            sprint_id=sprint_id,
+    for i, item in enumerate(tasks):
+        # Idempotencia (SSOT): usar el spec_index CANONICO del delta si la
+        # proyeccion lo trae; solo fallback al indice de enumerate. Sin esto,
+        # un sprint con gaps (spec borrada) re-numeraria los spec_id/doc_id.
+        spec_index = item.get("spec_index")
+        if spec_index is None:
+            spec_index = i
+        spec = Spec(
+            spring_id=sprint_id,
             objective=item.get("objective", ""),
-            title=item.get("title", ""),
-            description=item.get("description", ""),
             domain=item.get("domain", ""),
+            spec_type=item.get("type", "feature"),
+            spec_index=spec_index,
             result_state=item.get("result_state", ""),
-            task_type=item.get("type", ""),
-            status=item.get("status", ""),
             files=(
                 item.get("impacted_artifacts", {}).get("files", [])
                 if isinstance(item.get("impacted_artifacts"), dict)
                 else []
             ),
+            status=item.get("status", "draft"),
+            description=item.get("description", ""),
+            predicates=item.get("predicates"),
+            depends_on=item.get("depends_on", []),
         )
-        task._cg_instance = cg
-        batch_docs[unique_id] = dict(task._data)
+        batch_docs[spec.doc_id] = spec.to_dict()
         count += 1
 
-        node_id = f"{sprint_id}:{tid}"
-        for dep in item.get("depends_on", []):
-            edges_to_add.append((node_id, f"{sprint_id}:{dep}", "depends_on"))
-        files = (
-            item.get("impacted_artifacts", {}).get("files", [])
-            if isinstance(item.get("impacted_artifacts"), dict)
-            else []
-        )
-        for fpath in files:
-            edges_to_add.append((node_id, fpath, "impacts_file"))
+        node_id = spec.doc_id
+        edges_to_add.append((sprint_id, node_id, EDGE_CONTAINS))
+        for dep in spec.depends_on or []:
+            edges_to_add.append((node_id, f"{sprint_id}:{dep}", EDGE_DEPENDS))
+        for fpath in spec.files or []:
+            edges_to_add.append((node_id, fpath, EDGE_IMPACTS))
 
     # Batch persist: 1 serializacion para todos
     if batch_docs:
@@ -98,6 +99,47 @@ def index_sprint(chain_dir: str, cg) -> int:
         cg.add_edge(from_id, to_id, type=edge_type)
 
     return count
+
+
+# Cores @safe (Result pattern, convention-001): la carga de tasks degrada
+# con log observable; el indexado por sprint nunca tumba el index completo.
+_index_sprint_safe = safe(index_sprint)
+
+
+def _load_spring_tasks(chain_dir: str) -> list[dict]:
+    """Carga las tasks del DELTA (SpringService) con degradacion observable.
+
+    Result pattern (convention-001): el core @safe nunca lanza; ante fallo
+    se loggea warning y se degrada a lista vacia — el indexador no debe
+    tumbar un proyecto entero por un sprint con datos corruptos.
+    """
+    result = _load_spring_tasks_core(chain_dir)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    logger.warning(
+        "index_sprint: tasks no disponibles para %s (%s: %s); 0 indexadas",
+        chain_dir, type(error).__name__, error,
+    )
+    return []
+
+
+@safe
+def _load_spring_tasks_core(chain_dir: str) -> list[dict]:
+    """Core puro de _load_spring_tasks (puede lanzar).
+
+    Reusa SpringService.load_tasks (que resuelve spring_id, garantiza el
+    import legacy y degrada con logger.error interno) — un solo punto de
+    degradacion, sin duplicar la resolucion.
+    """
+    from features.delta_tracking.application.services.spring_service import (
+        SpringService,
+    )
+
+    spring_svc = SpringService.from_chain_dir(chain_dir)
+    if not spring_svc:
+        return []
+    return spring_svc.load_tasks(chain_dir)
 
 
 def index_all(project_dir: str, cg) -> int:
@@ -110,10 +152,8 @@ def index_all(project_dir: str, cg) -> int:
     Returns:
         Numero total de tareas indexadas
     """
-    from features.delta_tracking.entities import Task
-
     if "delta" not in cg.list_indexes():
-        Task.bind(cg)
+        cg.register_defaults()
 
     total = 0
     # Buscar en estructura directa (project/spring/) y en data/ (project/data/spring/)
@@ -125,8 +165,13 @@ def index_all(project_dir: str, cg) -> int:
             for sprint_id in sorted(os.listdir(src_dir)):
                 sprint_dir = os.path.join(src_dir, sprint_id)
                 if os.path.isdir(sprint_dir):
-                    try:
-                        total += index_sprint(sprint_dir, cg)
-                    except Exception:
-                        continue
+                    result = _index_sprint_safe(sprint_dir, cg)
+                    if is_successful(result):
+                        total += result.value_or(0)
+                    else:
+                        error = result.failure()
+                        logger.warning(
+                            "index_all: sprint %s omitido (%s: %s)",
+                            sprint_dir, type(error).__name__, error,
+                        )
     return total

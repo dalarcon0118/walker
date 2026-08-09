@@ -1,22 +1,40 @@
-"""KG query tasks — thin adapters to libs/infrastructure searcher."""
+"""KG query tasks — thin adapters to libs/infrastructure searcher.
+
+Result pattern (dry-python/returns): los cores con @safe nunca lanzan; los
+wrappers degradan con fallback explícito + log (convention-001).
+"""
 
 from __future__ import annotations
 import json
+import logging
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
 from features.project import ProjectService
-from libs.infrastructure import CognitiveGraphSearcher
+
+logger = logging.getLogger(__name__)
 
 
-def _get_searcher(chain_dir: str) -> CognitiveGraphSearcher:
+def _get_searcher(chain_dir: str) -> Any:
+    """Construye el searcher vía DI (key "cognitive_searcher") para chain_dir."""
+    from features.engine.bootstrap import get_module_service
+
     paths = ProjectService.resolve_paths(chain_dir)
-    return CognitiveGraphSearcher(paths.project_root)
+    searcher_factory = get_module_service("cognitive_searcher")
+    return searcher_factory(paths.project_root)
+
+
+def _build_searcher_for(project_root: str) -> Any:
+    """Construye el searcher vía DI para un project_root explícito."""
+    from features.engine.bootstrap import get_module_service
+
+    searcher_factory = get_module_service("cognitive_searcher")
+    return searcher_factory(project_root)
 
 
 def _trace_kg_query(
     chain_dir: str, index: str, query: dict, ctx: ExecutionContext
 ) -> None:
-    """Registra un evento kg_query en el TraceGraph (best-effort)."""
+    """Registra un evento kg_query en el TraceGraph (best-effort con log)."""
     try:
         from features.engine.infrastructure.trace_log import TraceLogger
 
@@ -39,8 +57,11 @@ def _trace_kg_query(
             task_id=ctx.task_id or "",
             session_id=ctx.session_id or "",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "kg: _trace_kg_query no pudo persistir el evento (%s: %s)",
+            type(e).__name__, e,
+        )
 
 
 _KG_HELP = {
@@ -107,18 +128,26 @@ def _kg_help(topic: str = "") -> dict:
 
 
 def _resolve_searcher(chain_dir: str, project_id: str = ""):
-    """Resuelve CognitiveGraphSearcher desde chain_dir o project_id (sin sprint)."""
+    """Resuelve CognitiveGraphSearcher desde chain_dir o project_id (sin sprint).
+
+    Result pattern (convention-001): ante fallo de resolución se loggea y se
+    continúa con el siguiente origen (chain_dir → registry).
+    """
     if chain_dir:
         try:
             return _get_searcher(chain_dir)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "kg: _get_searcher(%s) fallo (%s: %s); intento por registry",
+                chain_dir, type(e).__name__, e,
+            )
     if project_id:
-        from libs.path_resolver import get_walker_root
+        from features.engine.bootstrap import get_module_service
         import json
         import os
 
-        registry_path = get_walker_root() / "data" / "projects.json"
+        path_resolver = get_module_service("path_resolver")
+        registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
         if registry_path.exists():
             with open(registry_path) as f:
                 reg = json.load(f).get("projects", {}).get(project_id, {})
@@ -126,7 +155,7 @@ def _resolve_searcher(chain_dir: str, project_id: str = ""):
             if repo_path:
                 cog_proj = os.path.join(repo_path, ".cognitive", "projects", project_id)
                 if os.path.isdir(cog_proj):
-                    return CognitiveGraphSearcher(str(cog_proj))
+                    return _build_searcher_for(str(cog_proj))
     return None
 
 
@@ -170,6 +199,12 @@ def kg_schema(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 
 def kg_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    """Busca en un índice de CognitiveGraph (delta, ckg, cpg, trace).
+
+    SSOT con el resto de tasks kg: resuelve el searcher vía _resolve_searcher
+    y delega en _kg_search_payload (el core de búsqueda compartido). Así no
+    depende de ckg_analyze (que es la API CKG-only y vive en su propio módulo).
+    """
     project_id = data.get("_project_id", "")
     cg = _resolve_searcher(ctx.chain_dir or "", project_id)
     if cg is None:
@@ -177,25 +212,21 @@ def kg_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "No project context",
             data={
                 "error": "No active sprint and no project context",
-                "next_step": "Run 'walker <project>/status' or 'walker <project>/kg_extract' first",
+                "next_step": "Run 'walker <project>/status' or 'walker <project>/build_initial_ckg' first",
             },
         )
-
-    # REST: body directo via _payload
-    payload = data.get("_payload", None)
-    if payload and isinstance(payload, dict):
-        return _kg_search_payload(ctx, cg, payload, project_id)
-
-    # Legacy: flags --index y --query
-    index = data.get("index", "")
-    query_raw = data.get("query", "")
-    if not index or not query_raw:
-        return TaskResult.success(data=_kg_help("kg_search"))
-    try:
-        query = json.loads(query_raw) if isinstance(query_raw, str) else query_raw
-    except json.JSONDecodeError:
-        return TaskResult.failure(f"Invalid query JSON: {query_raw}")
-    return _kg_search_index(ctx, cg, index, query)
+    payload = data.get("_payload", data)
+    if isinstance(payload, str):
+        # flags_builder de la ruta kg_search hace a.get("query", {}): si el
+        # MCP manda {"query": "mcp"} el _payload llega como string → full-text.
+        payload = {"text": payload}
+    if isinstance(payload, dict):
+        payload.pop("action", None)
+        payload.pop("_project_id", None)
+        # Alias "query" → "text" (schema MCP de kg_search documenta ambos).
+        if "query" in payload and "text" not in payload:
+            payload["text"] = payload.pop("query")
+    return _kg_search_payload(ctx, cg, payload, project_id)
 
 
 def _kg_search_payload(
@@ -267,8 +298,12 @@ def _kg_search_superseded(project_id: str, query: dict) -> dict | None:
                 "hits": len(nodes),
                 "results": nodes,
             }
-    except Exception:
-        pass  # fallback al searcher normal
+    except Exception as e:
+        # Fallback al searcher normal: el error se loggea (convention-001).
+        logger.warning(
+            "kg: búsqueda de superseded fallo (%s: %s); fallback al searcher",
+            type(e).__name__, e,
+        )
     return None
 
 
@@ -334,11 +369,12 @@ def _with_compact_defaults(queries: dict) -> dict:
 
 def _resolve_ckg_project_root(project_id: str) -> str:
     """Resuelve project_root desde registry para operaciones CKG sin sprint."""
-    from libs.path_resolver import get_walker_root
+    from features.engine.bootstrap import get_module_service
     import json
     import os
 
-    registry_path = get_walker_root() / "data" / "projects.json"
+    path_resolver = get_module_service("path_resolver")
+    registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
         with open(registry_path) as f:
             reg = json.load(f).get("projects", {}).get(project_id, {})
@@ -362,8 +398,11 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         try:
             paths = ProjectService.resolve_paths(chain_dir)
             project_root = str(paths.project_root)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "kg_store: resolve_paths(%s) fallo (%s: %s)",
+                chain_dir, type(e).__name__, e,
+            )
     elif project_id:
         project_root = _resolve_ckg_project_root(project_id)
 
@@ -439,6 +478,11 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
 
 
+def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    from features.task_execution.tasks.kg_agent_context import kg_agent_context as _kg_agent_context
+    return _kg_agent_context(ctx, data)
+
+
 def register(registry: Any) -> None:
     for name, fn, meta in [
         (
@@ -453,6 +497,13 @@ def register(registry: Any) -> None:
                     'Con body {"index":"delta"}: muestra los campos y tipos de ese indice.'
                 ),
                 "tags": ["kg", "cognitive-graph"],
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "index": {"type": "string", "description": "Índice del que se quiere el schema (delta, ckg, cpg, trace). Sin body devuelve lista de índices", "example": "delta"},
+                    },
+                    "required": [],
+                },
             },
         ),
         (
@@ -484,13 +535,35 @@ def register(registry: Any) -> None:
             kg_multi,
             {
                 "description": "Query federada en multiples indices a la vez",
-                "usage": 'walker <project>/kg_multi \'{"delta":{},"ckg":{}}\'',
+                "usage": '<walker <project>/kg_multi \'{"delta":{},"ckg":{}}\'',
                 "example": 'walker <project>/kg_multi \'{"delta":{"text":"auth"},"cpg":{"file":"src/auth.py"}}\'',
                 "query_instructions": (
                     "Cada clave del body es un indice (delta, ckg, cpg, trace) y cada valor "
                     "es la query para ese indice. Recibe resultados de todos en una sola respuesta."
                 ),
                 "tags": ["kg", "cognitive-graph"],
+                "input_schema": {
+                    "type": "object",
+                    "description": "Cada clave del body es un índice (delta, ckg, cpg, trace); cada valor es la query para ese índice.",
+                    "examples": [{"delta": {"text": "auth"}, "ckg": {}}],
+                    "additionalProperties": {"type": "object"},
+                },
+            },
+        ),
+        (
+            "agent_context",
+            kg_agent_context,
+            {
+                "description": "Consulta consolidada delta+ckg+cpg+trace del proyecto en una sola llamada",
+                "usage": 'walker <project>/agent_context \'{"delta":{},"ckg":{},"cpg":{},"trace":{}}\'',
+                "example": 'walker <project>/agent_context \'{"delta":{"text":"auth"},"ckg":{"scope":"security"}}\'',
+                "query_instructions": (
+                    "Cada clave del body es una query para ese indice. "
+                    "Devuelve un resumen por sección: sprint/tasks (delta), "
+                    "ADRs/convenciones (ckg), archivos/símbolos (cpg), "
+                    "eventos recientes (trace)."
+                ),
+                "tags": ["kg", "context", "agent"],
             },
         ),
     ]:

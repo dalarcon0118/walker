@@ -1,15 +1,25 @@
 """application/query_service.py — QueryGraphUseCase.
 
 Entry point for querying the CPG: grep, read, structured access.
+
+Result pattern: los cores puros con @safe devuelven Result (nunca lanzan);
+los wrappers deciden con is_successful y hacen fallback explícito con log
+(convention-001: nunca except silencioso).
 """
 
 from __future__ import annotations
+import logging
 import os
+
+from returns.pipeline import is_successful
+from returns.result import safe
 
 from features.code_analysis.domain.graph import Graph
 from features.code_analysis.domain.query import Query
 from features.code_analysis.infrastructure.repository import CpgFileRepository
 from features.code_analysis.infrastructure.filters import find_nodes
+
+logger = logging.getLogger(__name__)
 
 
 class QueryGraphUseCase:
@@ -41,8 +51,24 @@ class QueryGraphUseCase:
     @property
     def graph(self) -> Graph:
         if self._graph is None:
-            self._graph = self.repo.load_graph(self._project_id)
+            self._graph = self._load_graph()
         return self._graph
+
+    def _load_graph(self) -> Graph:
+        """Carga el grafo CPG con fallback explícito.
+
+        Result pattern: el core @safe nunca lanza; ante CPG corrupto
+        devuelve un grafo vacio y loggea el error (convention-001).
+        """
+        result = _load_graph_core(self.repo, self._project_id)
+        if is_successful(result):
+            return result.value_or(Graph({}, []))
+        error = result.failure()
+        logger.error(
+            "Carga del grafo CPG fallo (%s: %s); se devuelve grafo vacio",
+            type(error).__name__, error,
+        )
+        return Graph({}, [])
 
     def clear_cache(self) -> None:
         self._graph = None
@@ -59,12 +85,16 @@ class QueryGraphUseCase:
         Args:
             focus: filtro de archivo (substring) para limitar resultados.
         """
-        data = self.repo.load(self._project_id)
-        layer = data.get("business_layer", {})
-        if not layer:
-            # Capa no construida aun: derivarla on-the-fly
-            from features.code_analysis.application.business_analyzer import analyze
-            layer = analyze(data.get("nodes", {}), data.get("edges", []))
+        result = _business_layer_core(self.repo, self._project_id)
+        if is_successful(result):
+            layer = result.value_or({})
+        else:
+            error = result.failure()
+            logger.error(
+                "Capa de negocio fallo (%s: %s); se devuelve vacia",
+                type(error).__name__, error,
+            )
+            layer = {}
         if not focus:
             # Aplicar cap de chain tambien al leer del CPG almacenado
             return self._cap_flows(layer)
@@ -297,3 +327,23 @@ class QueryGraphUseCase:
         if verbose:
             result["note"] = "Use 'walker <project>/kg_multi' for source access"
         return result
+
+
+# ── Cores puros (@safe) ─────────────────────────────────────────
+
+@safe
+def _load_graph_core(repo: CpgFileRepository, project_id: str) -> Graph:
+    """Core puro de carga del grafo CPG (puede lanzar)."""
+    return repo.load_graph(project_id)
+
+
+@safe
+def _business_layer_core(repo: CpgFileRepository, project_id: str) -> dict:
+    """Core puro de la capa de negocio (puede lanzar)."""
+    data = repo.load(project_id)
+    layer = data.get("business_layer", {})
+    if not layer:
+        # Capa no construida aun: derivarla on-the-fly
+        from features.code_analysis.application.business_analyzer import analyze
+        layer = analyze(data.get("nodes", {}), data.get("edges", []))
+    return layer

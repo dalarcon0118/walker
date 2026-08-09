@@ -25,15 +25,3 @@ class SessionRepository(ABC):
     @abstractmethod
     def close(self, session_id: str) -> tuple[bool, list[str]]:
         pass
-
-
-class ProtocolPresenter(ABC):
-    """Port — renderizado de respuestas del protocolo."""
-
-    @abstractmethod
-    def render_response(self, response: dict) -> str:
-        pass
-
-    @abstractmethod
-    def render_error(self, error: dict) -> str:
-        pass

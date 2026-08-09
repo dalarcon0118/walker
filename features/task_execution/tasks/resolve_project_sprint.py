@@ -1,10 +1,18 @@
-"""Edge transform: resolves SPRINT.ACTIVE vs SPRINT.PLANNING from project state."""
+"""Edge transform: resolves SPRINT.ACTIVE vs SPRINT.PLANNING from project state.
 
+Result pattern (dry-python/returns): los cores con @safe nunca lanzan; los
+wrappers degradan con fallback explícito y log (convention-001).
+"""
 from __future__ import annotations
+import logging
 from typing import Any
+from returns.pipeline import is_successful
+from returns.result import safe
 from libs.shared_domain import ExecutionContext, TaskResult
 from features.engine.domain.session import SessionStore
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_project_sprint_handler(
@@ -38,47 +46,67 @@ def resolve_project_sprint_handler(
         )
 
 
+@safe
+def _has_sprint_state_core(chain_dir: str) -> bool:
+    """Core puro: verifica que el sprint tenga estado en el delta (puede lanzar)."""
+    from features.delta_tracking import spring_service
+
+    spring_svc = spring_service(chain_dir=chain_dir)
+    if not spring_svc:
+        return False
+    spring_id = spring_svc.get_spring_id(chain_dir)
+    spring_svc.ensure_spring_imported(chain_dir, spring_id)
+    return spring_svc.get_spring(spring_id) is not None
+
+
 def _has_sprint_state(chain_dir: str) -> bool:
     """Verifica que el sprint tenga estado en el delta (fuente unica).
 
-    find_active_sprint ya resuelve el sprint activo desde el delta;
-    aqui solo se confirma que el nodo spring existe.
+    Result pattern (convention-001): ante fallo del core se degrada a False
+    con log explícito (nunca silencioso).
     """
-    try:
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
+    result = _has_sprint_state_core(chain_dir)
+    if is_successful(result):
+        return result.value_or(False)
+    error = result.failure()
+    logger.warning(
+        "resolve_project_sprint: _has_sprint_state fallo (%s: %s); degrade a False",
+        type(error).__name__, error,
+    )
+    return False
 
-        spring_svc = SpringService.from_chain_dir(chain_dir)
-        if not spring_svc:
-            return False
-        spring_id = spring_svc.get_spring_id(chain_dir)
-        spring_svc.ensure_spring_imported(chain_dir, spring_id)
-        return spring_svc.get_spring(spring_id) is not None
-    except Exception:
-        return False
+
+@safe
+def _update_session_core(record: Any, project_id: str, chain_dir: str) -> None:
+    """Core puro: actualiza la sesión activa (puede lanzar)."""
+    record.project_id = project_id
+    if chain_dir:
+        record.chain_dir = chain_dir
+    SessionStore.save(record)
+    SessionStore.set_active(record.session_id)
 
 
 def _update_session(ctx: ExecutionContext, project_id: str, chain_dir: str) -> None:
+    """Actualiza la sesión activa con fallback explícito + log (convention-001)."""
+    if not ctx.session_id:
+        return
     try:
-        if ctx.session_id:
-            record = SessionStore.load(ctx.session_id)
-            if record:
-                record.project_id = project_id
-                if chain_dir:
-                    record.chain_dir = chain_dir
-                SessionStore.save(record)
-                SessionStore.set_active(ctx.session_id)
-    except Exception:
-        pass
+        record = SessionStore.load(ctx.session_id)
+    except Exception as e:
+        logger.warning(
+            "resolve_project_sprint: SessionStore.load fallo (%s: %s)",
+            type(e).__name__, e,
+        )
+        return
+    if not record:
+        return
+    result = _update_session_core(record, project_id, chain_dir)
+    if not is_successful(result):
+        error = result.failure()
+        logger.warning(
+            "resolve_project_sprint: _update_session fallo (%s: %s)",
+            type(error).__name__, error,
+        )
 
 
-def register(registry: Any) -> None:
-    registry.register(
-        "resolve_project_sprint",
-        resolve_project_sprint_handler,
-        metadata={
-            "description": "Resolve target sub-state from project's active sprint",
-            "tags": ["transform", "project"],
-        },
-    )
+

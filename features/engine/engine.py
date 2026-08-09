@@ -6,14 +6,18 @@ PRINCIPIO: NO hace IO directo. Delega en infrastructure/repositories.py
 PRINCIPIO: NO tiene fallbacks silenciosos. Si falta un archivo, ERROR.
 PRINCIPIO: NO tiene compatibilidad legacy (no emergency_workflow,
            presprint_workflow, reconstruct_walker_state, ni defaults efímeros).
-"""
 
+Refactorizado: las responsabilidades se delegaron en:
+    - application/workflow_loader.py   → carga y conversión de workflow
+    - application/state_manager.py     → gestión de WorkflowState
+    - application/sub_state_executor.py → ejecución de sub-estados
+    - interface/presenters.py          → presentación (show_*)
+"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
-from libs.infrastructure.utils import eprint, run_script, _get_sub_state
+from features.engine.domain.ports import IWorkflowIO
 
 from .domain.models import WorkflowState, WorkflowGraph
 from .infrastructure.repositories import WorkflowRepository, WorkflowStateRepository
@@ -54,31 +58,6 @@ def save_state(state: WorkflowState, chain_dir: str) -> None:
     if not chain_dir:
         raise ValueError("chain_dir vacío")
     WorkflowStateRepository().save(chain_dir, state)
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# Bridge dict API para commands.py (devuelven dicts, no objetos).
-# PRINCIPIO: NO hay fallbacks silenciosos. Sin chain_dir → ERROR claro.
-# ═════════════════════════════════════════════════════════════════════════
-
-
-def find_workflow(chain_dir: str | None = None) -> dict:
-    """Carga workflow como dict. ERROR si no hay chain_dir o no existe workflow."""
-    if not chain_dir:
-        raise ValueError("chain_dir vacío — no se puede resolver el workflow")
-    graph = load_workflow(chain_dir)
-    return _graph_to_dict(graph)
-
-
-def ensure_state(chain_dir: str | None = None) -> dict:
-    """Carga estado como dict. Sin chain_dir → ERROR.
-
-    PRINCIPIO: no retorna defaults inventados. El estado vacío solo se
-    produce si realmente no hay sprint persistido.
-    """
-    if not chain_dir:
-        raise ValueError("chain_dir vacío — no se puede resolver el estado")
-    return load_state(chain_dir).to_dict()
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -126,7 +105,7 @@ def advance_sub_state(state: WorkflowState | dict, graph: WorkflowGraph | dict) 
     # Con WorkflowGraph, usar AdvanceService (inmutable)
     if isinstance(state, dict):
         state = WorkflowState.from_dict(state)
-    from .domain.services import AdvanceService
+    from features.engine.domain.services import AdvanceService
 
     new_state = AdvanceService.advance(state, graph)
     # La funcion retorna bool por compatibilidad, pero el nuevo estado
@@ -146,7 +125,7 @@ def is_node_complete(
     """Verifica si el nodo está completo."""
     if isinstance(state, dict):
         state = WorkflowState.from_dict(state)
-    from .domain.services import ValidationService
+    from features.engine.domain.services import ValidationService
 
     return ValidationService.is_node_complete(state, graph)
 
@@ -157,7 +136,7 @@ def check_transition_preconditions(
     """Valida precondiciones para transición. Retorna lista de errores."""
     if isinstance(state, dict):
         state = WorkflowState.from_dict(state)
-    from .domain.services import ValidationService
+    from features.engine.domain.services import ValidationService
 
     return ValidationService.check_transition_preconditions(state, graph, gate_name)
 
@@ -168,8 +147,28 @@ def validate_gate(
     gate: str,
     chain_dir: str | None = None,
     task_id: str | None = None,
+    io: IWorkflowIO | None = None,
 ) -> dict:
-    """Valida gate ejecutando su script de validación (run_script)."""
+    """Valida gate ejecutando su script de validación (run_script).
+
+    Ahora recibe un puerto IWorkflowIO para abstraer la ejecución de scripts.
+    """
+    if io is None:
+        from libs.infrastructure.utils import run_script, _get_sub_state
+
+        class _DefaultIO(IWorkflowIO):
+            def run_script(self, script: str, chain_dir: str | None = None, task_id: str | None = None) -> dict[str, Any]:
+                return run_script(script, chain_dir, task_id)
+
+            def eprint(self, *args: Any, **kwargs: Any) -> None:
+                from libs.infrastructure.utils import eprint
+                eprint(*args, **kwargs)
+
+            def get_sub_state(self, workflow: dict, node_id: str, sub_key: str) -> dict | None:
+                return _get_sub_state(workflow, node_id, sub_key)
+
+        io = _DefaultIO()
+
     node = workflow.get("nodes", {}).get(node_id, {})
     gv = node.get("gate_validation", {})
     gate_config = gv.get(gate)
@@ -180,7 +179,7 @@ def validate_gate(
     valid_exit = gate_config.get("valid_exit", [0])
     error_template = gate_config.get("error_message", "Gate validation failed: $stderr")
 
-    result = run_script(script, chain_dir, task_id)
+    result = io.run_script(script, chain_dir, task_id)
     if result["exit_code"] in valid_exit:
         return {"ok": True, "message": result["stdout"]}
 
@@ -194,438 +193,153 @@ def validate_gate(
     return {"ok": False, "message": msg}
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# Operaciones de sub-estado
-# ═════════════════════════════════════════════════════════════════════════
-
-
-def execute_sub_state_action(
-    workflow: dict,
-    node_id: str,
-    sub_key: str,
-    chain_dir: str | None,
-    task_id: str | None,
+def check_blocked_state(
+    state: WorkflowState | dict,
+    graph: WorkflowGraph | dict,
+    strategy: str = "wait",
+    payload: dict | None = None,
 ) -> dict:
-    """Ejecuta auto_complete para un sub-estado mode:auto.
+    """Verifica si el workflow está bloqueado y aplica estrategia de resolución.
 
-    Retorna dict con executed, exit_code, stdout, stderr.
+    Helper de integración para el engine actual. Usa BlockResolver para
+    resolver timeouts, señales pendientes y bloqueos de gate.
+
+    Usa la monada Result de `returns` explícitamente: el resultado exitoso
+    se maneja con `isinstance(..., Success)` y `unwrap()`. No se usan
+    excepciones para control de flujo.
+
+    Args:
+        state: Estado actual del workflow
+        graph: Grafo de workflow
+        strategy: Estrategia por defecto si no hay resolución automática
+        payload: Datos adicionales para la resolución
+
+    Returns:
+        dict con:
+            blocked: True si el workflow está bloqueado
+            resolved: True si se aplicó una resolución automática
+            state: nuevo estado (si fue resuelto)
+            action: acción tomada (timeout, signal, force, wait, etc.)
+            message: mensaje descriptivo
     """
-    ss = _get_sub_state(workflow, node_id, sub_key)
-    if not ss:
+    from returns.result import Success
+
+    from .domain.services.block_resolver import BlockResolver
+
+    if isinstance(state, dict):
+        state = WorkflowState.from_dict(state)
+    if isinstance(graph, dict):
+        graph = WorkflowGraph.from_dict(graph)
+
+    if not BlockResolver.is_blocked(state):
+        return {"blocked": False, "resolved": False, "state": state.to_dict()}
+
+    timeout_result = _check_timeout_blocked(state, graph)
+    if timeout_result.get("resolved"):
+        return timeout_result
+
+    signal_result = _check_signal_blocked(state, graph)
+    if signal_result.get("resolved"):
+        return signal_result
+
+    resolve_result = BlockResolver.resolve(
+        state, strategy, payload or {}, graph=graph
+    )
+    if isinstance(resolve_result, Success):
+        new_state = resolve_result.unwrap()
         return {
-            "executed": False,
-            "exit_code": 0,
-            "stdout": "",
-            "stderr": "Sub-state not found.",
+            "blocked": True,
+            "resolved": True,
+            "state": new_state.to_dict(),
+            "action": strategy,
+            "message": f"Block resolved with strategy '{strategy}'",
         }
-
-    mode = ss.get("mode", "manual")
-    if mode != "auto":
-        return {
-            "executed": False,
-            "exit_code": 0,
-            "stdout": "Mode manual, no auto action.",
-            "stderr": "",
-        }
-
-    script = ss.get("auto_complete", "")
-    if not script:
-        return {
-            "executed": False,
-            "exit_code": 0,
-            "stdout": "No auto_complete script.",
-            "stderr": "",
-        }
-
-    result = run_script(script, chain_dir, task_id)
-    from string import Template
-
-    print(Template("  [auto_complete] $action").substitute(action=script))
-    if result["stdout"]:
-        for line in result["stdout"].split("\n"):
-            print(Template("    | $line").substitute(line=line))
-    if result["stderr"]:
-        for line in result["stderr"].split("\n"):
-            eprint(Template("    ! $line").substitute(line=line))
-    print()
 
     return {
-        "executed": True,
-        "exit_code": result["exit_code"],
-        "stdout": result["stdout"],
-        "stderr": result["stderr"],
+        "blocked": True,
+        "resolved": False,
+        "state": state.to_dict(),
+        "action": strategy,
+        "message": f"Block could not be resolved with strategy '{strategy}'",
     }
 
 
-def handle_auto_loop(
-    state: WorkflowState | dict,
-    workflow: dict,
-    chain_dir: str | None,
-    current: str,
-    failed_ss: dict,
-    exec_result: dict,
-    task_id: str | None = None,
-) -> bool:
-    """Si sub-estado tiene on_failure_loop, retrocede y persiste.
+def _check_timeout_blocked(state: WorkflowState, graph: WorkflowGraph) -> dict:
+    """Verifica si el bloqueo actual tiene timeout expirado."""
+    if not state.blocked_at or state.block_timeout_ms <= 0:
+        return {"resolved": False}
 
-    Returns True si se manejó el loop, False si no aplica.
-    """
-    if not failed_ss.get("on_failure_loop") or not chain_dir:
-        return False
-
-    if isinstance(state, dict):
-        sprint_state = WorkflowState.from_dict(state)
-    else:
-        sprint_state = state
-
-    prev_idx = sprint_state.sub_state_index - 1
-    if prev_idx < 0:
-        return False
-
-    node = workflow.get("nodes", {}).get(current, {})
-    sub_states = node.get("sub_states", [])
-    if prev_idx >= len(sub_states):
-        return False
-
-    prev_ss = sub_states[prev_idx]
-    sprint_state = sprint_state.with_node(current, prev_ss["key"], prev_idx)
-    save_state(sprint_state, chain_dir)
-
-    from string import Template
-
-    print(
-        Template(
-            "  [auto-loop] Retrocediendo a [$current.$prev_key] para correccion."
-        ).substitute(current=current, prev_key=prev_ss["key"])
-    )
-    reason = (
-        exec_result.get("stderr", "").strip()
-        or exec_result.get("stdout", "").strip()[:200]
-    )
-    if reason:
-        print(Template("  [auto-loop] Motivo: $reason").substitute(reason=reason[:200]))
-    print()
-    return True
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# Operaciones de estado
-# ═════════════════════════════════════════════════════════════════════════
-
-
-def store_contract_data(
-    chain_dir: str | None, task_id: str | None, target_state: str, data: dict
-) -> None:
-    """Almacena contract data en WorkflowState.walker.contract_data."""
-    if not chain_dir or not data:
-        return
-    state = load_state(chain_dir)
-    cd = state.walker.setdefault("contract_data", {})
-    if task_id:
-        cd.setdefault(target_state, {})[task_id] = data
-    else:
-        cd[target_state] = data
-    save_state(state, chain_dir)
-
-
-def log_decision(
-    chain_dir: str,
-    from_state: str,
-    gate: str | None,
-    task_id: str | None = None,
-    reason: str = "",
-) -> None:
-    """Registra una decisión en WorkflowState.walker.decision_log."""
-    if not chain_dir:
-        return
-    state = load_state(chain_dir)
-    log = state.walker.setdefault("decision_log", [])
-    log.append(
-        {
-            "from": from_state,
-            "gate": gate,
-            "task_id": task_id,
-            "reason": reason,
-            "at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
-    save_state(state, chain_dir)
-
-
-def apply_state_transition(
-    state: WorkflowState | dict,
-    target: str,
-    old_state: str,
-    gate: str,
-    reason: str,
-    chain_dir: str | None,
-    task_id: str | None,
-) -> WorkflowState:
-    """Aplica transición entre nodos y persiste."""
-    if isinstance(state, dict):
-        sprint_state = WorkflowState.from_dict(state)
-    else:
-        sprint_state = state
-
-    graph = load_workflow(chain_dir)
-    from .domain.services import TransitionService
-
-    sprint_state = TransitionService.apply(sprint_state, graph, target)
-
-    if reason:
-        sprint_state = sprint_state.with_context("last_reason", reason)
-    if task_id:
-        sprint_state = sprint_state.with_context("task_id", task_id)
-    sprint_state = sprint_state.with_context("chain_dir", chain_dir)
-    save_state(sprint_state, chain_dir)
-
-    print(f"  [{old_state}] -> [{target}] (gate: {gate})")
-    if reason:
-        print(f"    Razon: {reason}")
-    print()
-    return sprint_state
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# Presentación (pura, sin IO)
-# ═════════════════════════════════════════════════════════════════════════
-
-
-def show_section(title: str) -> None:
-    print("=" * 70)
-    print(f"  {title}")
-    print("=" * 70)
-    print()
-
-
-def show_node_header(current: str, node: dict, sub_state: dict | None = None) -> None:
-    ss_key = sub_state.get("key", "") if sub_state else ""
-    label = (
-        f"  Current:  [{current}.{ss_key}]" if ss_key else f"  Current:  [{current}]"
-    )
-    print(label)
-    if node.get("label"):
-        print(f"  {node['label']}")
-    for line in node.get("description", "").split("\n"):
-        print(f"     {line.strip()}")
-    if sub_state:
-        req = sub_state.get("required_fields", [])
-        fields_str = ", ".join(req) if req else "(ninguno)"
-        print(
-            f"  Sub-state: {sub_state['key']}  mode={sub_state.get('mode', 'manual')}  required=[{fields_str}]"
-        )
-    print()
-
-
-def show_mode(node: dict, sub_state: dict | None = None) -> None:
-    if sub_state:
-        mode = sub_state.get("mode", "manual")
-        if mode == "auto":
-            print(
-                f"  Mode: auto  (walker ejecuta: {sub_state.get('auto_complete', '')})"
-            )
-        else:
-            req = sub_state.get("required_fields", [])
-            if req:
-                print(f"  Mode: manual  (submit required: {', '.join(req)})")
-            else:
-                print("  Mode: manual  (submit sin campos requeridos)")
-    else:
-        print("  Mode: legacy (sin sub-estados)")
-    print()
-
-
-def show_context(state: dict) -> None:
-    ctx = state.get("context", {})
-    if not ctx.get("chain_dir") and not ctx.get("task_id"):
-        return
-    print("  Context:")
-    if ctx.get("chain_dir"):
-        print(f"    chain_dir: {ctx['chain_dir']}")
-    if ctx.get("task_id"):
-        print(f"    task_id:   {ctx['task_id']}")
-    print()
-
-
-def show_transitions(
-    workflow: dict, node_id: str, chain_dir: str | None = None
-) -> None:
-    from libs.infrastructure.utils import valid_transitions
-
-    trans = valid_transitions(workflow, node_id)
-
-    print(f"  Inter-node transitions ({len(trans)}):")
-    if not trans:
-        print("    (ninguna — flujo terminal)")
-    for i, t in enumerate(trans, 1):
-        gate_val = t.get("gate", "")
-        gate_display = f" [{gate_val}]" if gate_val else ""
-        ss_gate = t.get("sub_state_gate", "")
-        ss_display = f" ->.{ss_gate}" if ss_gate else ""
-        print(f"  {i}. transition{gate_display} -> [{t['to']}]{ss_display}")
-        print(f"     -> {t['gate_description']}")
-    print()
-
-
-def show_history(state: dict) -> None:
-    hist = state.get("history", [])
-    if hist:
-        print("  History:")
-        print(f"    {' -> '.join(hist)}")
-        print()
-
-
-def show_on_entry_message(
-    node: dict,
-    chain_dir: str | None = None,
-    task_id: str | None = None,
-    sub_state: dict | None = None,
-) -> None:
-    msg = ""
-    if sub_state:
-        msg = sub_state.get("on_entry_message", "")
-    if not msg:
-        msg = node.get("on_entry_message", "")
-    if msg:
-        for line in msg.strip().split("\n"):
-            print(f"  {line.strip()}")
-        print()
-
-
-def show_entry_message(node: dict, was_executed: bool) -> None:
-    if was_executed:
-        return
-    msg = node.get("on_entry_message", "")
-    if not msg:
-        return
-    for line in msg.strip().split("\n"):
-        print(f"  {line.strip()}")
-
-
-def show_sprint_info(chain_dir: str) -> None:
-    """Muestra resumen del sprint desde el estado."""
+    from datetime import datetime, timezone
     try:
-        state = WorkflowStateRepository().load(chain_dir)
-        # Si no hay datos, no mostrar nada (sin fallback silencioso)
-        if not state.current_node and not state.sprint:
-            return
-        tasks = state.tasks
-        total = len(tasks)
-        done = sum(
-            1 for t in tasks if isinstance(t, dict) and t.get("status") == "completed"
-        )
-        status = state.sprint.get("status", "?")
-        chain_id = state.sprint.get("chain_id", "") or chain_dir.split("/")[-1]
-        print(f"  Sprint: {chain_id}  status={status}  tasks={done}/{total or '?'}")
+        block_since = datetime.fromisoformat(state.block_since)
+        now = datetime.now(timezone.utc)
+        elapsed_ms = (now - block_since).total_seconds() * 1000
     except Exception:
-        pass  # Si no se puede cargar, no se muestra
+        return {"resolved": False}
 
+    if elapsed_ms < state.block_timeout_ms:
+        return {"resolved": False}
 
-def show_flow_progress(state: dict) -> None:
-    history_set = set(state.get("history", []))
-    flow = [
-        ("ANALYZE.GATHER", "Investigacion"),
-        ("ANALYZE.REVIEW", "Analisis"),
-        ("IMPLEMENT.WORK", "Implementacion"),
-        ("IMPLEMENT.REPORT_GATE", "Report Gate"),
-        ("VERIFY.QA", "QA"),
-        ("VERIFY.PO_ACCEPT", "PO acceptance"),
-    ]
-    done = sum(1 for step, _ in flow if step in history_set)
-    total = len(flow)
-    pct = int(done / total * 100) if total > 0 else 0
-    bar = "▓" * (pct // 10) + "░" * (10 - pct // 10)
-    print()
-    print("  ── FLOW PROGRESS (v4) ──")
-    for step, label in flow:
-        icon = "✅" if step in history_set else "⬜"
-        print(f"    {icon} {label}")
-    print(f"  {bar}  {pct}% completado ({done}/{total} pasos)")
-    print()
+    node = graph.nodes.get(state.current_node)
+    if not node:
+        return {"resolved": False}
 
+    sub_state = node.find_sub_state(state.current_sub_state)
+    if not sub_state:
+        return {"resolved": False}
 
-def show_related_results(related: dict, deep: bool) -> None:
-    has_any = any(related.values())
-    if not has_any:
-        return
-    print("  ── CONTEXTO HISTORICO ──")
-    if related["file"]:
-        print("  Por archivos compartidos:")
-        for s, t in sorted(related["file"]):
-            print(f"    {s} > {t}")
-    if deep:
-        if related["domain"]:
-            print("  Mismo dominio/tipo:")
-            for s, t in sorted(related["domain"]):
-                print(f"    {s} > {t}")
-        if related["kw"]:
-            print("  Objetivos similares:")
-            for s, t in sorted(related["kw"]):
-                print(f"    {s} > {t}")
-    print()
+    strategy = sub_state.on_timeout or "skip"
+    from .domain.services.block_resolver import BlockResolver
+    from returns.result import Success
 
-
-# ═════════════════════════════════════════════════════════════════════════
-# Helpers
-# ═════════════════════════════════════════════════════════════════════════
-
-
-def _graph_to_dict(graph: WorkflowGraph) -> dict:
-    """Convierte WorkflowGraph a dict para serialización/output."""
-    nodes = {}
-    for nid, node in graph.nodes.items():
-        sub_states = []
-        for ss in node.sub_states:
-            entry: dict[str, Any] = {
-                "key": ss.key,
-                "label": ss.label or ss.key,
-                "execution": ss.execution.value if ss.execution else "manual",
-                "required_fields": list(ss.required_fields),
-                "on_entry_message": ss.on_entry_message or "",
-                "input_schema": ss.input_schema or {},
-                "output_schema": ss.output_schema or {},
-            }
-            if ss.action:
-                entry["action"] = ss.action
-            if ss.prompt_id:
-                entry["prompt_id"] = ss.prompt_id
-            if ss.auto_complete_script:
-                entry["auto_complete"] = ss.auto_complete_script
-            sub_states.append(entry)
-
-        gates = [
-            {
-                "name": g.name,
-                "target": g.target_node,
-                "target_sub_state": g.target_sub_state,
-                "description": g.description,
-            }
-            for g in graph.edges_by_source.get(nid, [])
-        ]
-        nodes[nid] = {
-            "label": node.label or nid,
-            "description": node.description or "",
-            "sub_states": sub_states,
-            "gates": gates,
-            "entry_action": node.entry_action_script or "",
-            "on_entry_message": node.on_entry_message or "",
+    result = BlockResolver.resolve(
+        state, strategy, {"sub_state": state.current_sub_state, "reason": f"timeout after {elapsed_ms:.0f}ms"}, graph=graph
+    )
+    if isinstance(result, Success):
+        new_state = result.unwrap()
+        return {
+            "resolved": True,
+            "blocked": False,
+            "state": new_state.to_dict(),
+            "action": "timeout",
+            "strategy": strategy,
+            "message": f"Wait state timed out after {elapsed_ms:.0f}ms. Resolved with '{strategy}'.",
         }
+    return {"resolved": False}
 
-    edges = [
-        {
-            "from": g.source_node,
-            "to": g.target_node,
-            "gate": g.name,
-            "target_sub_state": g.target_sub_state,
-            "description": g.description,
-        }
-        for g in graph.edges
-    ]
 
-    return {
-        "version": "4.0",
-        "initial_state": graph.initial_state or "SPRINT",
-        "nodes": nodes,
-        "edges": edges,
-        "on": dict(graph.on_events),
-    }
+def _check_signal_blocked(state: WorkflowState, graph: WorkflowGraph) -> dict:
+    """Verifica si el bloqueo actual tiene una señal pendiente que lo resuelva."""
+    if not state.blocked_at or not state.pending_signals:
+        return {"resolved": False}
+
+    node = graph.nodes.get(state.current_node)
+    if not node:
+        return {"resolved": False}
+
+    sub_state = node.find_sub_state(state.current_sub_state)
+    if not sub_state or not sub_state.waits_for:
+        return {"resolved": False}
+
+    for signal in state.pending_signals:
+        if signal in sub_state.waits_for:
+            strategy = sub_state.on_signal or "auto_advance"
+            from .domain.services.block_resolver import BlockResolver
+            from returns.result import Success
+
+            result = BlockResolver.resolve(
+                state, strategy, {"sub_state": state.current_sub_state, "reason": f"signal '{signal}' received"}, graph=graph
+            )
+            if isinstance(result, Success):
+                new_state = result.unwrap()
+                return {
+                    "resolved": True,
+                    "blocked": False,
+                    "state": new_state.to_dict(),
+                    "action": "signal",
+                    "strategy": strategy,
+                    "signal": signal,
+                    "message": f"Wait state resumed by signal '{signal}'. Resolved with '{strategy}'.",
+                }
+    return {"resolved": False}
+

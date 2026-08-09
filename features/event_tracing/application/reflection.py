@@ -18,8 +18,6 @@ motor ya expone de forma genérica:
 """
 from __future__ import annotations
 
-import json
-
 from features.event_tracing.infrastructure.repository import load_traces
 
 # Máximo de intentos de refine. Declarado en edges.json (REFINE -> SPRINT, gate
@@ -115,33 +113,6 @@ def _compose_error_context(
     return " | ".join(parts)
 
 
-def _dedupe_events(events: list) -> list[dict]:
-    """Deduplica eventos por firma (timestamp, event_type, tool, data).
-
-    load_traces() puede leer el mismo NDJSON dos veces (CognitiveGraph
-    legacy + lectura directa), inflando conteos. Esta defensa evita
-    que attempt/past_attempts se dupliquen sin tocar infra compartida.
-
-    Acepta TraceEvent (domain) o dict; normaliza a dict vía to_dict().
-    """
-    seen: set[tuple] = set()
-    result: list[dict] = []
-    for ev in events:
-        d = ev.to_dict() if hasattr(ev, "to_dict") else dict(ev)
-        data_blob = d.get("data") or {}
-        signature = (
-            d.get("timestamp", ""),
-            d.get("event_type", ""),
-            d.get("tool", ""),
-            json.dumps(data_blob, sort_keys=True, default=str),
-        )
-        if signature in seen:
-            continue
-        seen.add(signature)
-        result.append(d)
-    return result
-
-
 def build_reflection_context(
     chain_dir: str,
     task_id: str = "",
@@ -166,8 +137,10 @@ def build_reflection_context(
     Returns:
         Dict con el paquete de reflexión listo para formatear.
     """
-    events = load_traces(chain_dir) or []
-    events = _dedupe_events(events)
+    # Unicidad garantizada por el repositorio (ADR-WALKER-018): load_traces
+    # devuelve eventos deduped. La capa de aplicacion no compensa; solo
+    # normaliza el modelo (dataclass -> dict) para el paquete de evidencia.
+    events = [ev.to_dict() for ev in load_traces(chain_dir)]
     if task_id:
         task_events = [
             e for e in events if task_id in str(e.get("task_id", ""))

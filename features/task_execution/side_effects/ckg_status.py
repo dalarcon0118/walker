@@ -23,11 +23,9 @@ def update_ckg_status(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str
 
     @safe
     def _update() -> dict:
-        from features.delta_tracking.application.services.spring_service import (
-            SpringService,
-        )
+        from features.delta_tracking import SpringService, spring_service
 
-        spring_svc = SpringService.from_chain_dir(chain_dir)
+        spring_svc = spring_service(chain_dir=chain_dir)
         if not spring_svc:
             raise RuntimeError("cannot resolve SpringService")
 
@@ -48,9 +46,8 @@ def update_ckg_status(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str
         else:
             raise ValueError(f"Unknown event '{event}'")
 
-        data = dict(spring)
-        data["ckg_status"] = new_status
-        spring_svc._store(spring_id, data)
+        # SSOT #4: escritura via port (save_spring) — nunca _store raw.
+        spring_svc.update_spring(spring_id, {"ckg_status": new_status})
 
         return {"ok": True, "previous_status": current, "status": new_status}
 

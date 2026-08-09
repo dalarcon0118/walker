@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "walker3"
+version = "3.0.0"
+description = "Walker3 — Pure Workflow Engine"
+requires-python = ">=3.10"
+dependencies = [
+    "networkx",
+    "returns",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-bdd",
+]
+dev = [
+    "pytest",
+    "pytest-bdd",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "contrato: escenarios que validan el contrato result pattern del CPG",
+    "composicion: escenarios de composición monádica sin try/except",
+    "excepciones: escenarios de excepción -> Failure via @safe",
+    "fallback: escenarios de fallback explícito (convention-001)",
+    "contexto: escenarios de gather de contexto",
+    "bugs: escenarios de detección de bugs/funciones sin uso",
+    "review: escenarios de review de código",
+    "metrics: escenarios de métricas y quality gates",
+    "regresion: escenarios de regresión de la cadena pública",
+    "stdlib: escenarios de imports stdlib",
+    "cache: escenarios de caches incrementales",
+    "gates: escenarios de quality gates y side-effects",
+    "rendimiento: escenarios de performance build vs incremental",
+]
+
+[project.urls]
+Documentation = "https://github.com/davidmartinez/walker3"
+
+[project.scripts]
+walker3 = "features.cli_interface:main"
+
+[tool.setuptools.packages.find]
+include = ["features*", "libs*"]

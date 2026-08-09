@@ -43,4 +43,12 @@ def kg_research(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 def register(registry: Any) -> None:
     registry.register("kg_research", kg_research,
-                      metadata={"description": "Research topic on web, save to CKG", "tags": ["kg", "research"]})
+                      metadata={"description": "Research topic on web, save to CKG", "tags": ["kg", "research"],
+                                "input_schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "topic": {"type": "string", "description": "Tema a investigar en la web y guardar en CKG (obligatorio)", "example": "OAuth 2.0 client credentials"},
+                                        "query": {"type": "string", "description": "Query adicional de investigación (opcional)", "example": "with Python SDK"},
+                                    },
+                                    "required": ["topic"],
+                                }})

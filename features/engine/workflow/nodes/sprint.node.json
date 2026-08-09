@@ -844,7 +844,7 @@
    },
    "output_schema": {
     "type": "object",
-    "$ref": "schema/knowledge-capture.schema.json",
+    "$ref": "../schema/knowledge-capture.schema.json",
     "properties": {
      "status": {
       "type": "string",

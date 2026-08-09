@@ -12,15 +12,6 @@ class ProtocolError(Exception):
     pass
 
 
-class HandshakeError(ProtocolError):
-    """El protocolo no está inicializado (handshake pendiente)."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            "Session not initialized. Call 'initialize' before any other method."
-        )
-
-
 class UnknownToolError(ProtocolError):
     """El tool invocado no está registrado."""
 
@@ -37,26 +28,9 @@ class ToolAlreadyExistsError(ProtocolError):
         super().__init__(f"Tool '{tool_name}' already registered")
 
 
-class InvalidRequestError(ProtocolError):
-    """El request no cumple el contrato JSON-RPC."""
-
-    def __init__(self, message: str = "Invalid request") -> None:
-        super().__init__(message)
-
-
 class UnsupportedMethodError(ProtocolError):
-    """Método JSON-RPC no soportado."""
+    """Método JSON-RPC no soportado (usado por mcp_adapter._handle_request)."""
 
     def __init__(self, method: str) -> None:
         self.method = method
         super().__init__(f"Method '{method}' not supported")
-
-
-class DispatchError(ProtocolError):
-    """Fallo al invocar el handler de un tool."""
-
-    def __init__(self, tool_name: str, reason: str = "") -> None:
-        self.tool_name = tool_name
-        super().__init__(
-            f"Tool '{tool_name}' dispatch failed" + (f": {reason}" if reason else "")
-        )

@@ -1,17 +1,25 @@
-"""Sprint planning side-effects: save_task_spec, advance_task."""
+"""Sprint planning side-effects: save_task_spec, advance_task.
+
+Result pattern (convention-001): ante fallo se degrada con fallback explícito
++ log; nunca except silencioso.
+"""
+
 from __future__ import annotations
-import os
+import logging
 from typing import Any
 from libs.shared_domain import ExecutionContext
 from features.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
+
+logger = logging.getLogger(__name__)
 
 
 @as_side_effect(scope=SCOPE_TRACKING)
 def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     sprint_dir = ctx.chain_dir or ""
     try:
-        from features.delta_tracking.application.services.spring_service import SpringService
-        spring_svc = SpringService.from_chain_dir(sprint_dir)
+        from features.delta_tracking import SpringService, spring_service
+
+        spring_svc = spring_service(chain_dir=sprint_dir)
         if not spring_svc:
             return {"ok": False, "error": "cannot resolve SpringService"}
         spring_id = spring_svc.get_spring_id(sprint_dir)
@@ -25,27 +33,34 @@ def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, A
         target = specs[current_idx]
         spec_id = target.get("spec_id", f"SPEC-{current_idx + 1:03d}")
         # Refinar la spec en el delta (fuente unica)
-        spring_svc.update_spec(spring_id, spec_id, {
-            "objective": params.get("objective", target.get("objective", "")),
-            "type": params.get("type", target.get("spec_type", "feature")),
-            "domain": params.get("domain", target.get("domain", "")),
-            "result_state": params.get("result_state", ""),
-            "task_description": params.get("task_description", ""),
-            "predicates": params.get("predicates", []),
-            "files": params.get("files", []),
-            "status": "specified",
-        })
+        spring_svc.update_spec(
+            spring_id,
+            spec_id,
+            {
+                "objective": params.get("objective", target.get("objective", "")),
+                "type": params.get("type", target.get("spec_type", "feature")),
+                "domain": params.get("domain", target.get("domain", "")),
+                "result_state": params.get("result_state", ""),
+                "task_description": params.get("task_description", ""),
+                "predicates": params.get("predicates", []),
+                "files": params.get("files", []),
+                "status": "specified",
+            },
+        )
         return {"ok": True, "task_id": spec_id}
     except Exception as e:
+        logger.warning(
+            "planning: save_task_spec fallo (%s: %s)", type(e).__name__, e,
+        )
         return {"ok": False, "error": str(e)}
 
 
 @as_side_effect(scope=SCOPE_TRACKING)
 def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     sprint_dir = ctx.chain_dir or ""
-    from features.delta_tracking.application.services.spring_service import SpringService
+    from features.delta_tracking import SpringService, spring_service
 
-    spring_svc = SpringService.from_chain_dir(sprint_dir)
+    spring_svc = spring_service(chain_dir=sprint_dir)
     if not spring_svc:
         return {"ok": False, "error": "cannot resolve SpringService"}
     spring_id = spring_svc.get_spring_id(sprint_dir)
@@ -56,7 +71,11 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
     try:
         spring_svc.ensure_spring_imported(sprint_dir, spring_id)
         specs = spring_svc.get_specs_legacy(spring_id)
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "planning: advance_task no pudo cargar specs (%s: %s); specs vacías",
+            type(e).__name__, e,
+        )
         specs = []
     # Fuente unica: delta. No hay fallback a plan.json (ADR-WALKER-013).
     total_specs = len(specs)
@@ -66,7 +85,9 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
     next_idx = ctx_state.get("current_task_index", 0) + 1
     # SSOT: clamp al rango de specs. Si all_done (ultima spec), el indice
     # queda en el ultimo valido, no crece indefinidamente.
-    current_idx = min(next_idx, max(total_specs - 1, 0)) if total_specs > 0 else next_idx
+    current_idx = (
+        min(next_idx, max(total_specs - 1, 0)) if total_specs > 0 else next_idx
+    )
     context_updates = {
         "current_task_index": current_idx,
         "current_spec_index": current_idx,
@@ -89,9 +110,16 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
         context_updates["task_id"] = next_spec_id
     try:
         spring_svc.set_spring_context(spring_id, **context_updates)
-        return {"ok": True, "current_task_index": current_idx,
-                "next_spec_id": next_spec_id, "all_done": all_done}
+        return {
+            "ok": True,
+            "current_task_index": current_idx,
+            "next_spec_id": next_spec_id,
+            "all_done": all_done,
+        }
     except Exception as e:
+        logger.warning(
+            "planning: set_spring_context fallo (%s: %s)", type(e).__name__, e,
+        )
         return {"ok": False, "error": str(e)}
 
 

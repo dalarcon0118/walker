@@ -20,8 +20,11 @@ Uso típico:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _CACHE_VERSION = 1
 
@@ -46,8 +49,13 @@ class IncrementalMetricsCache:
                 data = json.load(f)
             if data.get("version") == _CACHE_VERSION:
                 return data
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        except FileNotFoundError:
+            pass  # cache nuevo — no es un error
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                "Cache qlty ilegible (%s: %s); se reinicia",
+                type(e).__name__, e,
+            )
         return {"version": _CACHE_VERSION, "files": {}}
 
     def _save(self) -> None:
@@ -57,8 +65,10 @@ class IncrementalMetricsCache:
             with open(tmp, "w") as f:
                 json.dump(self._data, f, ensure_ascii=False)
             os.replace(tmp, self._cache_path)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning(
+                "No se pudo persistir cache qlty (%s: %s)", type(e).__name__, e,
+            )
 
     # ── File discovery ────────────────────────────────────────────
 

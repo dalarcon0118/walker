@@ -20,7 +20,7 @@ def register_all(registry: Any, namespace: str = "task") -> None:
         registry: TaskRegistry del engine.
         namespace: Prefijo opcional para los nombres registrados.
     """
-    # Por ahora no hay tareas migradas — las tareas viven en scripts/tasks/
+    # Por ahora no hay tareas migradas — las tareas viven en features/task_execution/tasks/
     # Cuando se migre una tarea, se registra aquí:
     #
     # from .tasks.example_task import ExampleTask

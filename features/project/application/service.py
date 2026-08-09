@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..domain.values import ProjectId, ProjectPaths
+from ..domain.values import ProjectId, ProjectPaths, ProjectManifest
 from ..domain.entities import Project
 from ..domain.ports import ProjectRepository
 from ..domain import services as domain_services
@@ -75,22 +75,14 @@ class ProjectService:
         project = Project(
             project_id=project_id,
             paths=paths,
-            repo_path=paths.repo_path,
-            code_paths=list(paths.code_paths),
             active_sprint_id=paths.sprint_id,
         )
 
-        # Cargar perfil desde project.json si hay repositorio
+        # Cargar perfil (manifest) desde project.json si hay repositorio
         if repo:
             stored = repo.load(project_id)
-            if stored:
-                project.name = stored.name
-                project.language = stored.language
-                project.framework = stored.framework
-                if stored.repo_path:
-                    project.repo_path = stored.repo_path
-                if stored.code_paths:
-                    project.code_paths = stored.code_paths
+            if stored and stored.project_id.value == project_id.value:
+                project.manifest = stored.manifest
         else:
             # Intentar leer project.json directamente
             manifest_path = paths.project_json_path
@@ -100,12 +92,14 @@ class ProjectService:
                         data = json.load(f)
                     proj_data = data.get("project", data)
                     identity = proj_data.get("identity", {})
-                    project.name = identity.get("name", project_id.value)
-                    project.language = identity.get("language", "")
-                    project.framework = identity.get("framework", "")
                     loc = proj_data.get("location", {})
-                    project.repo_path = loc.get("repo_path", "")
-                    project.code_paths = loc.get("code_paths", [])
+                    project.manifest = ProjectManifest(
+                        name=identity.get("name", project_id.value),
+                        language=identity.get("language", ""),
+                        framework=identity.get("framework", ""),
+                        repo_path=loc.get("repo_path", ""),
+                        code_paths=list(loc.get("code_paths", []) or []),
+                    )
                 except (json.JSONDecodeError, OSError):
                     pass
 
@@ -155,25 +149,58 @@ class ProjectService:
 
         project = Project(project_id=pid, paths=paths)
 
-        # Cargar perfil
+        # Cargar perfil (manifest — entity nuevo DDD, ADR-015)
         if os.path.exists(paths.project_json_path):
             try:
                 with open(paths.project_json_path) as f:
                     data = json.load(f)
                 proj_data = data.get("project", data)
                 identity = proj_data.get("identity", {})
-                project.name = identity.get("name", project_id)
-                project.language = identity.get("language", "")
-                project.framework = identity.get("framework", "")
                 loc = proj_data.get("location", {})
-                project.repo_path = loc.get("repo_path", "")
-                project.code_paths = loc.get("code_paths", [])
+                project.manifest = ProjectManifest(
+                    name=identity.get("name", project_id),
+                    language=identity.get("language", ""),
+                    framework=identity.get("framework", ""),
+                    repo_path=loc.get("repo_path", ""),
+                    code_paths=list(loc.get("code_paths", []) or []),
+                )
             except (json.JSONDecodeError, OSError):
                 pass
 
         return project
 
     # ── Path resolution (sin cargar el proyecto completo) ─────────────
+
+    @staticmethod
+    def resolve_manifest(project_dir: str | os.PathLike) -> dict:
+        """Lee el project.json local de un directorio (SSOT del perfil).
+
+        Busca en orden: data/project.json, project.json (legacy), y
+        .cognitive/projects/*/data/project.json (estructura descentralizada).
+        No depende del registro global. Dict vacío si no existe.
+        """
+        import json as _json
+
+        base = str(project_dir)
+        candidates = [
+            os.path.join(base, "data", "project.json"),
+            os.path.join(base, "project.json"),
+        ]
+        # Estructura descentralizada: <base>/.cognitive/projects/<pid>/data/
+        cog_projects = os.path.join(base, ".cognitive", "projects")
+        if os.path.isdir(cog_projects):
+            for pid in sorted(os.listdir(cog_projects)):
+                candidates.append(
+                    os.path.join(cog_projects, pid, "data", "project.json")
+                )
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                try:
+                    with open(candidate) as f:
+                        return _json.load(f)
+                except (_json.JSONDecodeError, OSError):
+                    return {}
+        return {}
 
     @staticmethod
     def resolve_paths(chain_dir: str) -> ProjectPaths:
@@ -199,8 +226,6 @@ class ProjectService:
             get_cpg_path,
             get_ckg_path,
             get_trace_dir,
-            get_repo_path,
-            get_code_paths,
             get_cognitive_dir,
             get_walker_root,
         )
@@ -216,8 +241,15 @@ class ProjectService:
         project_id = resolve_project_id(chain_dir)
         pid_str = project_id or os.path.basename(project_root)
 
-        # Construir ProjectPaths
-        data_dir = str(get_data_dir(pid_str))
+        # Construir ProjectPaths — derivar de project_root (resuelto por path
+        # real) con fallback al registro global. NO depender solo del registro:
+        # falla para proyectos descentralizados (repo_path real ≠ dir cognitivo).
+        data_dir = os.path.join(project_root, "data")
+        if not os.path.isdir(data_dir):
+            try:
+                data_dir = str(get_data_dir(pid_str))
+            except Exception:
+                pass
         delta_dir = str(get_delta_dir(pid_str))
         workflow_dir = str(get_workflow_dir(pid_str))
         trace_dir = str(get_trace_dir(pid_str))
@@ -238,14 +270,21 @@ class ProjectService:
             if os.path.exists(legacy_wf):
                 workflow_json = legacy_wf
 
-        # Repo info
+        # Repo info — leer del project_json ya resuelto (SSOT local).
+        # NO depender del registro global por id: falla para proyectos
+        # descentralizados (repo_path real ≠ dir cognitivo).
         repo_path = ""
         code_paths: tuple[str, ...] = ()
-        try:
-            repo_path = get_repo_path(pid_str)
-            code_paths = tuple(get_code_paths(pid_str))
-        except Exception:
-            pass
+        if project_json and os.path.exists(project_json):
+            try:
+                with open(project_json) as _f:
+                    _manifest = json.load(_f)
+                _proj = _manifest.get("project", _manifest)
+                _loc = _proj.get("location", {})
+                repo_path = _loc.get("repo_path", "")
+                code_paths = tuple(_loc.get("code_paths", []) or [])
+            except (json.JSONDecodeError, OSError):
+                pass
 
         # WALKER / COGNITIVE ROOTS (no fallan)
         cognitive_dir = ""
@@ -384,8 +423,9 @@ class ProjectService:
             try:
                 svc = spring_service
                 if svc is None:
-                    from features.delta_tracking.application.services.spring_service import SpringService
+                    from features.delta_tracking import SpringService, spring_service
                     from libs.path_resolver import get_project_dir
+
                     project_root = str(get_project_dir(pid))
                     if os.path.isdir(project_root):
                         svc = SpringService(project_root)
@@ -434,8 +474,9 @@ class ProjectService:
         try:
             svc = spring_service
             if svc is None:
-                from features.delta_tracking.application.services.spring_service import SpringService
+                from features.delta_tracking import SpringService, spring_service
                 from libs.path_resolver import get_project_dir
+
                 project_root = str(get_project_dir(project_id))
                 if os.path.isdir(project_root):
                     svc = SpringService(project_root)
@@ -445,6 +486,7 @@ class ProjectService:
                     spring_id = active.get("_id", "")
                     if spring_id:
                         from libs.path_resolver import get_sprint_dir
+
                         sprint_dir = str(get_sprint_dir(project_id, spring_id))
                         if os.path.isdir(sprint_dir):
                             return sprint_dir
@@ -628,7 +670,7 @@ class ProjectService:
             try:
                 svc = spring_service
                 if svc is None:
-                    from features.delta_tracking.application.services.spring_service import SpringService
+                    pass
                 if svc and svc.from_chain_dir(cwd) is not None:
                     svc2 = svc.from_chain_dir(cwd)
                     if svc2 and svc2.get_spring(svc2.get_spring_id(cwd)) is not None:
@@ -707,10 +749,13 @@ class ProjectService:
 
         project = Project(
             project_id=pid,
-            name=name,
-            language=language,
-            framework=framework,
-            repo_path=paths.repo_path,
+            manifest=ProjectManifest(
+                name=name,
+                language=language,
+                framework=framework,
+                repo_path=paths.repo_path,
+                code_paths=list(paths.code_paths),
+            ),
             paths=paths,
         )
 
@@ -725,31 +770,31 @@ class ProjectService:
     def detect_context(project_path: str) -> dict:
         """Detect project context: languages, frameworks, git, code paths."""
         from .use_cases import DetectProjectContextUseCase
+
         return DetectProjectContextUseCase.execute(project_path)
 
     @staticmethod
     def detect_legacy(project_path: str) -> dict:
         """Detect legacy walker project structure."""
         from .use_cases import DetectLegacyUseCase
+
         return DetectLegacyUseCase.execute(project_path)
 
     @staticmethod
     def update_project(chain_dir: str, data: dict) -> dict:
         """Update project.json with schema validation."""
         from .use_cases import UpdateProjectUseCase
+
         return UpdateProjectUseCase.execute(chain_dir, data)
 
     @staticmethod
-    def import_legacy_history(project_path: str, project_id: str, chains: list[str]) -> dict:
+    def import_legacy_history(
+        project_path: str, project_id: str, chains: list[str]
+    ) -> dict:
         """Import legacy chain history to trace files."""
         from .use_cases import ImportLegacyHistoryUseCase
-        return ImportLegacyHistoryUseCase.execute(project_path, project_id, chains)
 
-    @staticmethod
-    def import_legacy_tasks(project_path: str, project_id: str, chains: list[str]) -> dict:
-        """Import legacy tasks from plan.json format."""
-        from .use_cases import ImportLegacyTasksUseCase
-        return ImportLegacyTasksUseCase.execute(project_path, project_id, chains)
+        return ImportLegacyHistoryUseCase.execute(project_path, project_id, chains)
 
 
 # ── Convenience re-exports ──────────────────────────────────────────────

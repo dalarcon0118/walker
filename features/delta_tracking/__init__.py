@@ -2,72 +2,61 @@
 features/delta_tracking/ — DeltaTracking: indice de tareas multi-sprint.
 
 Domain:     Spring, Spec (entidades puras)
-Application: SpringService (thin orchestrator), use cases
+Application: SpringService (thin orchestrator), use cases, index_service
 Infrastructure: CognitiveDeltaRepository
+
+MECANISMO DE INVERSION DE DEPENDENCIAS (patron CPG):
+  - Port:       DeltaRepository (application/ports) — contrato de persistencia
+  - Servicio:   SpringService inyectable (repo: DeltaRepository | None = None)
+  - Fachada:    los consumidores importan desde la RAIZ del paquete
+                (from features.delta_tracking import SpringService, spring_service)
+                NUNCA desde la ruta interna application/services/. Si la
+                implementacion cambia de lugar o se reemplaza, solo se
+                actualiza este modulo — los consumidores no se tocan.
+  - Composition root: spring_service() centraliza la construccion del
+                servicio (desde chain_dir o project_root).
+
+La clase legacy DeltaGraphService fue eliminada (SSOT #5): delegaba en
+index_sprint/index_all sin agregar valor y clear() manipulaba internals de
+CognitiveGraph. La busqueda (search_service.search_tasks) tenia como unico
+caller a DeltaGraphService.search — sin consumidores externos — por lo que
+search_service.py fue eliminado como codigo muerto. La busqueda sobre el
+delta se hace via CognitiveGraph.search directo (kg_search/kg_multi).
 """
-from features.delta_tracking.application.index_service import index_sprint, index_all
-from features.delta_tracking.application.search_service import search_tasks
-from libs.cognitive_graph.models import TokenIndex, IndexEntry
+
+from __future__ import annotations
+
+from features.delta_tracking.application.ports.delta_repository import DeltaRepository
+from features.delta_tracking.application.services.spring_service import SpringService
+
+__all__ = ["SpringService", "DeltaRepository", "spring_service", "ConflictDetector"]
 
 
-class DeltaGraphService:
-    """Servicio de DeltaTracking: indexacion y busqueda de tareas.
+def spring_service(
+    chain_dir: str = "",
+    project_root: str = "",
+    repo: DeltaRepository | None = None,
+    graph_factory=None,
+) -> SpringService | None:
+    """Composition root del Delta: construye SpringService con su repo.
 
-    Almacena datos via CognitiveGraph (nativo, con grafo + fulltext).
-    No persiste nada directamente — CognitiveGraph es el storage.
+    Punto unico de construccion: los consumidores no deciden como resolver
+    el servicio ni que repositorio usar. Si mañana cambia la firma del
+    constructor o el repo por defecto, solo se toca esta funcion.
+
+    Args:
+        chain_dir: Ruta al directorio del sprint (resuelve project_root).
+        project_root: Directorio cognitivo del proyecto (si no hay chain_dir).
+        repo: Repositorio inyectado (tests/alternativas) — por defecto
+              CognitiveDeltaRepository.
+        graph_factory: Factory para CognitiveGraph (inyeccion DI). Si no se
+              provee, CognitiveDeltaRepository lo resuelve internamente.
+
+    Returns:
+        SpringService construido, o None si no hay contexto resolvible.
     """
-
-    def __init__(self, project_dir: str):
-        self.project_dir = project_dir
-        self._cg = None
-
-    @property
-    def cg(self):
-        if self._cg is None:
-            from libs.cognitive_graph import CognitiveGraph
-            self._cg = CognitiveGraph(self.project_dir, auto_register=True)
-        return self._cg
-
-    def index_sprint(self, chain_dir: str) -> int:
-        """Indexa un sprint en CognitiveGraph (indice delta).
-
-        Lee las specs del DeltaGraph (SpringService — fuente unica)
-        y las almacena en el indice delta de CognitiveGraph.
-        CognitiveGraph se encarga de construir el TokenIndex (full-text)
-        y el grafo (relaciones).
-
-        Args:
-            chain_dir: Ruta al directorio del sprint
-
-        Returns:
-            Numero de tareas indexadas
-        """
-        return index_sprint(chain_dir, self.cg)
-
-    def index_all(self) -> int:
-        """Indexa todos los sprints del proyecto."""
-        return index_all(self.project_dir, self.cg)
-
-    def search(self, query: str, max_results: int = 20) -> list[dict]:
-        """Busca tareas por texto.
-
-        Args:
-            query: Texto a buscar
-            max_results: Maximo de resultados
-
-        Returns:
-            Lista de dicts con source, source_id, field, snippet, score
-        """
-        return search_tasks(self.cg, query, max_results)
-
-    def clear(self) -> None:
-        """Limpia el indice delta."""
-        from libs.cognitive_graph import TokenIndex as _TI
-        # Re-crear el indice delta
-        idx = self.cg._indexes.get("delta")
-        if idx:
-            idx._docs = {}
-            idx._graph.clear()
-            if idx._token_index is not None:
-                idx._token_index = _TI()
-            idx._save()
+    if chain_dir:
+        return SpringService.from_chain_dir(chain_dir, graph_factory=graph_factory)
+    if project_root:
+        return SpringService(project_root, repo=repo, graph_factory=graph_factory)
+    return None

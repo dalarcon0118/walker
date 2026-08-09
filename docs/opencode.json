@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "walker": {
+      "type": "local",
+      "command": ["python3", "-m", "features.cli_interface.mcp"],
+      "cwd": "/Users/davidmartinez/develop/Active-projects/walker",
+      "enabled": true,
+      "environment": {},
+      "timeout": 30000
+    }
+  }
+}

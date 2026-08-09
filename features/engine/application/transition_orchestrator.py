@@ -13,6 +13,8 @@ import os
 import time
 from typing import Any
 
+from ..domain.ports import ITracer
+
 
 class TransitionOrchestrator:
     """Orquesta una transicion por gate del workflow."""
@@ -21,10 +23,11 @@ class TransitionOrchestrator:
         self,
         state_repo: Any,
         transition_uc: Any,
-        tracer: Any,
+        tracer: ITracer,
         read_edge_transform: Any,
         execute_edge_transform: Any,
         dispatch_event: Any,
+        workflow_repo: Any = None,
     ):
         self._state_repo = state_repo
         self._transition_uc = transition_uc
@@ -32,6 +35,7 @@ class TransitionOrchestrator:
         self._read_edge_transform = read_edge_transform
         self._execute_edge_transform = execute_edge_transform
         self._dispatch_event = dispatch_event
+        self._workflow_repo = workflow_repo
 
     def transition(
         self,
@@ -51,6 +55,44 @@ class TransitionOrchestrator:
         state_before = self._state_repo.load(ctx.chain_dir)
         from_node = f"{state_before.current_node}.{state_before.current_sub_state}"
         from_sub_state = state_before.current_sub_state
+
+        # ── P1: Resolver bloqueos antes de transicionar ─────────────
+        if self._workflow_repo and gate == "escalate":
+            workflow = self._workflow_repo.load(ctx.chain_dir)
+            from features.engine.domain.services.block_resolver import BlockResolver
+            resolve_result = BlockResolver.resolve(
+                state_before,
+                "escalate",
+                {"reason": reason or "transition escalate"},
+                graph=workflow,
+            )
+            from returns.pipeline import is_successful
+            if is_successful(resolve_result):
+                new_state = resolve_result.value_or(state_before)
+                self._state_repo.save(ctx.chain_dir, new_state)
+                self._tracer.trace(
+                    ctx.chain_dir,
+                    "escalate_resolved",
+                    data={
+                        "from_node": state_before.current_node,
+                        "from_sub_state": state_before.current_sub_state,
+                        "to_node": new_state.current_node,
+                        "to_sub_state": new_state.current_sub_state,
+                        "reason": reason or "transition escalate",
+                    },
+                    task_id=getattr(ctx, "task_id", None),
+                    session_id=getattr(ctx, "session_id", None),
+                )
+                return {
+                    "ok": True,
+                    "action": "escalated",
+                    "from_node": state_before.current_node,
+                    "from_sub_state": state_before.current_sub_state,
+                    "to_node": new_state.current_node,
+                    "to_sub_state": new_state.current_sub_state,
+                    "gate": gate,
+                    "duration_ms": 0,
+                }
 
         # ── Leer transform ANTES de la transicion (source node) ──
         transform_config = self._read_edge_transform(ctx, gate)

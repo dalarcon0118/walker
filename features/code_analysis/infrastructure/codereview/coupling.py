@@ -2,14 +2,20 @@
 
 Ce = external imports (qué importa este archivo)
 Ca = files importing this module (quién importa este archivo)
+
+Return pattern: la rama Ca (grep project-wide) falla abierto con log
+(convention-001: nunca except silencioso).
 """
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 
 from .ast_grep import find_imports, ast_grep_lang
+
+logger = logging.getLogger(__name__)
 
 # Prefixes conocidos de proyectos que NO son externos
 _PROJECT_PREFIXES = {
@@ -67,8 +73,11 @@ def coupling_metrics(filepath: Path, compute_ca: bool = False) -> dict:
                     for line in r.stdout.strip().split("\n")
                     if line and line != str(filepath)
                 ]
-        except (ValueError, Exception):
-            pass
+        except (ValueError, OSError, subprocess.TimeoutExpired) as e:
+            logger.warning(
+                "Cálculo de Ca fallo para %s (%s: %s); Ca=0",
+                filepath, type(e).__name__, e,
+            )
 
     return {
         "ce": len(external),

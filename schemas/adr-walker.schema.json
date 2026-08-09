@@ -1,0 +1,196 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/adr-walker.schema.json",
+  "title": "ADR-WALKER",
+  "description": "Architecture Decision Record del walker. Estructura sólida para persistir los ADRs como datos JSON (no solo markdown), habilitando consulta, trazabilidad y generación de documentos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "status", "date", "summary", "context", "decision", "impact"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^ADR-WALKER-[0-9]{3}$",
+      "description": "Identificador canónico: ADR-WALKER-NNN (NNN = 3 dígitos, ej: 043)."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 200,
+      "description": "Título corto de la decisión (lo que hoy va tras el id en el H1 del .md)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Proposed", "Accepted", "In Progress", "Superseded", "Rejected"],
+      "description": "Ciclo de vida del ADR."
+    },
+    "status_note": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Anotación libre del estado (ej: 'pendiente de implementación', 'Fase A y B implementadas §8'). Se muestra junto al status."
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Fecha de creación (ISO 8601: YYYY-MM-DD)."
+    },
+    "authors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Autor/es del ADR (opcional; hoy solo lo usan los ADR en inglés)."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Resumen de una línea: el contexto de por qué existe este ADR (hoy en el header 'Contexto')."
+    },
+    "related": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ADR-WALKER-[0-9]{3}$"
+          },
+          "relation": {
+            "type": "string",
+            "enum": ["complements", "supersedes", "superseded-by", "related", "depends-on"],
+            "description": "Tipo de relación. Default: 'complements'."
+          },
+          "note": {
+            "type": "string",
+            "description": "Aclaración opcional (ej: 'conflict resolution', 'engine design')."
+          }
+        }
+      },
+      "description": "ADRs relacionados (hoy en 'Complementa' / 'Related')."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Etiquetas de dominio (ej: protocol, engine, query, trace) para búsqueda."
+    },
+    "module": {
+      "type": "string",
+      "description": "Módulo/feature principal afectado (ej: task_execution, engine, code_analysis)."
+    },
+    "ckg_record": {
+      "type": "string",
+      "description": "Referencia de registro en CKG si aplica (hoy 'Registrado en CKG: decision-143')."
+    },
+    "context": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Sección 1: contexto y problema. Texto markdown."
+    },
+    "context_details": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Sub-bloques estructurados del contexto (ej: tablas de evidencia, diagramas ASCII). El contenido es libre (markdown/código)."
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement"],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 20,
+          "description": "La decisión en una frase (sección 2)."
+        },
+        "pattern": {
+          "type": "object",
+          "description": "Descripción estructurada del patrón/diseño objetivo (diagramas, capas, contratos).",
+          "additionalProperties": true
+        },
+        "subsections": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "Sub-decisiones de diseño (3.x). Cada una con título + contenido markdown."
+        }
+      }
+    },
+    "impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changes"],
+      "properties": {
+        "changes": {
+          "type": "array",
+          "description": "Tabla de impacto: área → antes → después.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["area"],
+            "properties": {
+              "area": { "type": "string" },
+              "before": { "type": "string" },
+              "after": { "type": "string" }
+            }
+          }
+        },
+        "tradeoffs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Trade-offs aceptados."
+        },
+        "unchanged": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Qué NO cambia (explícito en varios ADRs)."
+        }
+      }
+    },
+    "alternatives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["option", "rejected_reason"],
+        "properties": {
+          "option": { "type": "string" },
+          "rejected_reason": { "type": "string" }
+        }
+      },
+      "description": "Alternativas consideradas y por qué se rechazan (sección 5)."
+    },
+    "implementation_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string" },
+          "done": { "type": "boolean", "default": false },
+          "priority": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          }
+        }
+      },
+      "description": "Pasos de implementación con seguimiento (sección 6)."
+    },
+    "non_negotiables": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Reglas de diseño non-negotiables (sección 7)."
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "content"],
+        "properties": {
+          "name": { "type": "string" },
+          "content": { "type": "string", "description": "Código/JSON/diagrama como texto." },
+          "kind": { "type": "string", "enum": ["code", "json", "ascii-diagram", "table", "other"] }
+        }
+      },
+      "description": "Adjuntos: snippets de código, diagramas ASCII, tablas que hoy van inline en el .md."
+    }
+  }
+}

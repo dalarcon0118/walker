@@ -509,24 +509,3 @@ def resolve_trace_path(chain_dir: str) -> str:
     return os.path.join(
         project_root, _get_cfg("data_dir", "data"), "traces", f"{sprint_id}.json.gz"
     )
-
-
-# ═══════════════════════════════════════════════════════════════
-# 7. Manifests de tareas (task-manifests/)
-# ═══════════════════════════════════════════════════════════════
-
-
-def get_task_manifest_path(task_name: str) -> Path:
-    """Ruta al manifest JSON de una tarea en task-manifests/."""
-    return get_walker_root() / "task-manifests" / f"{task_name}.json"
-
-
-def load_task_manifest(task_name: str) -> dict:
-    """Carga el manifest JSON de una tarea. Dict vacío si no existe."""
-    path = get_task_manifest_path(task_name)
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}

@@ -2,9 +2,7 @@
 from __future__ import annotations
 from typing import Any
 
-from features.engine.context.models import ContextPiece
-from features.engine.context.registry import ContextProvider
-from features.engine.context.format import fmt_tokens, format_ckg_results
+from libs.context import ContextPiece, ContextProvider, fmt_tokens, format_ckg_results
 
 
 class CKGProvider(ContextProvider):

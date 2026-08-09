@@ -13,7 +13,7 @@ import subprocess
 
 from .config import get as cfg
 from ..application.context_resolver import ContextResolver
-from ..domain.models import (
+from ..domain.entities import (
     WorkflowGraph,
     WorkflowNode,
     SubState,
@@ -281,6 +281,12 @@ class WorkflowRepository:
                         required_tools=ss_raw.get("required_tools", []),
                         provides=ss_raw.get("provides", []),
                         needs=ss_raw.get("needs", []),
+                        interrupting=bool(ss_raw.get("interrupting", True)),
+                        on_timeout=ss_raw.get("on_timeout", ""),
+                        wait_for=list(ss_raw.get("wait_for", [])),
+                        emits=list(ss_raw.get("emits", [])),
+                        waits_for=list(ss_raw.get("waits_for", [])),
+                        on_signal=ss_raw.get("on_signal", ""),
                     )
                 )
 
@@ -314,13 +320,20 @@ class WorkflowRepository:
             all_edges.append(gate)
             edges_by_source.setdefault(source, []).append(gate)
 
-        return WorkflowGraph(
+        graph = WorkflowGraph(
             nodes=nodes_dict,
             edges=all_edges,
             edges_by_source=edges_by_source,
             initial_state=raw.get("initial_state", ""),
             on_events=dict(raw.get("on", {})),
         )
+        errors = graph.validate_invariants()
+        if errors:
+            import logging
+            logging.getLogger(__name__).warning(
+                "WorkflowGraph invariants failed: %s", errors
+            )
+        return graph
 
 
 # ── WorkflowState Repository ─────────────────────────────────────────────────

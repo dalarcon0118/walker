@@ -22,6 +22,7 @@ from returns.result import safe
 from returns.pipeline import is_successful
 
 from libs.shared_domain import ExecutionContext
+from ..domain.ports import ITracer
 
 
 class SubmitOrchestrator:
@@ -33,9 +34,10 @@ class SubmitOrchestrator:
         workflow_repo: Any,
         submit_uc: Any,
         handle_error: Any,
-        tracer: Any,
+        tracer: ITracer,
         transition: Any,
         dispatch_events_from_side_effects: Any,
+        signal_bus: Any = None,
     ):
         self._state_repo = state_repo
         self._workflow_repo = workflow_repo
@@ -44,6 +46,7 @@ class SubmitOrchestrator:
         self._tracer = tracer
         self._transition = transition
         self._dispatch_events_from_side_effects = dispatch_events_from_side_effects
+        self._signal_bus = signal_bus
 
     def _check_required_tools_gate(self, ctx: Any, sub_state: Any) -> dict:
         """Verifica el gate de auto-consulta (required_tools) antes del submit."""
@@ -68,6 +71,36 @@ class SubmitOrchestrator:
         # Fail-open en errores del tracer
         if not is_successful(result):
             return {"ok": True, "warn": f"trace check failed: {result.failure()}"}
+
+        # Intentar resolver con BlockResolver si el sub-estado está bloqueado
+        try:
+            from features.engine.domain.services.block_resolver import BlockResolver
+            from features.engine.infrastructure.repositories import WorkflowStateRepository
+            state = WorkflowStateRepository().load(ctx.chain_dir)
+            if BlockResolver.is_blocked(state):
+                # Check if this event can unblock
+                if BlockResolver.can_unblock(state, "kg_query"):
+                    result = BlockResolver.resolve(state, "force", {
+                        "sub_state": state.current_sub_state,
+                        "reason": "kg_query evidence found",
+                    })
+                    if is_successful(result):
+                        new_state = result.value_or(state)
+                        self._state_repo.save(new_state, ctx.chain_dir)
+                        self._tracer.trace(
+                            ctx.chain_dir,
+                            "force_resolved",
+                            data={
+                                "sub_state": state.current_sub_state,
+                                "node": state.current_node,
+                                "reason": "kg_query evidence found",
+                            },
+                            task_id=ctx.task_id,
+                            session_id=ctx.session_id,
+                        )
+                        return {"ok": True, "layers_checked": sorted(layers), "forced": True, "conflict_resolved": True}
+        except Exception:
+            pass
 
         hints = "; ".join(
             f"{t.get('id', '?')}: {t.get('command_hint', '')}" for t in required
@@ -202,6 +235,7 @@ class SubmitOrchestrator:
         self._trace_submit(ctx, state, fields)
         self._trace_auto_advance(ctx, result, _orig_node, _orig_sub, state)
         self._trace_side_effects(ctx, result)
+        self._emit_completion_signals(ctx, _orig_node, _orig_sub, state)
 
         # ── Disparar eventos on:{} ───────────────────────────────────
         event_count = self._dispatch_events_from_side_effects(ctx, result)
@@ -420,3 +454,38 @@ class SubmitOrchestrator:
                 task_id=ctx.task_id,
                 session_id=ctx.session_id,
             )
+
+    def _emit_completion_signals(
+        self, ctx: ExecutionContext, node_id: str, sub_state_key: str, state: Any
+    ) -> None:
+        """P1: Emite señales declaradas en el sub-estado completado."""
+        if not self._signal_bus:
+            return
+        try:
+            workflow = self._workflow_repo.load(ctx.chain_dir)
+            node = workflow.get_node(node_id)
+            if not node:
+                return
+            sub_state = node.find_sub_state(sub_state_key)
+            if not sub_state:
+                return
+            for signal_name in sub_state.emits or []:
+                notified = self._signal_bus.emit(
+                    signal=signal_name,
+                    source_node=node_id,
+                    source_sub_state=sub_state_key,
+                    data={"chain_dir": ctx.chain_dir},
+                )
+                self._tracer.trace(
+                    ctx.chain_dir,
+                    "SIGNAL_EMIT",
+                    data={
+                        "signal": signal_name,
+                        "source": f"{node_id}.{sub_state_key}",
+                        "notified": notified,
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
+        except Exception:
+            pass

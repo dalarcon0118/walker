@@ -7,7 +7,7 @@ from features.cognitive_knowledge.domain.errors import SchemaValidationError
 
 
 def validate_ckg_json(data: dict[str, Any]) -> bool:
-    schema_path = Path(__file__).parent.parent.parent / "schema" / "ckg.schema.json"
+    schema_path = Path(__file__).parent.parent / "schema" / "ckg.schema.json"
     if not schema_path.exists():
         return True
     try:

@@ -48,12 +48,14 @@ class ErrorHandler:
         side_effect_engine: Any,
         workflow_repo: Any = None,
         state_repo: Any = None,
+        tracer: Any = None,
     ):
         self._submit_uc = submit_uc
         self._transition_uc = transition_uc
         self._side_effect_engine = side_effect_engine
         self._workflow_repo = workflow_repo
         self._state_repo = state_repo
+        self._tracer = tracer
 
     def classify(self, error: Exception) -> ErrorType:
         """Clasifica un error segun su tipo."""
@@ -239,29 +241,61 @@ class ErrorHandler:
     def _escalate(
         self, ctx: ExecutionContext, error: Exception, error_type: ErrorType
     ) -> dict:
-        """ESCALATE: enviar a REFINE.ESCALATION."""
+        """ESCALATE: enviar a nodo de escalación via BlockResolver."""
+        from features.engine.domain.services.block_resolver import BlockResolver
 
         @safe
         def _do_escalate() -> dict:
-            return self._transition_uc.execute(
-                ctx,
-                gate_name="escalate",
-                reason=f"Error {error_type.value}: {error}",
+            workflow = self._workflow_repo.load(ctx.chain_dir) if self._workflow_repo else None
+            state = self._state_repo.load(ctx.chain_dir) if self._state_repo else None
+            
+            if not state or not workflow:
+                raise RuntimeError("Cannot escalate: workflow or state missing")
+            
+            resolve_result = BlockResolver.resolve(
+                state,
+                "escalate",
+                {"error_type": error_type.value, "reason": str(error)},
+                graph=workflow,
             )
-
-        result = _do_escalate()
-        if is_successful(result):
-            transition_result = result.value_or({})
+            
+            if not is_successful(resolve_result):
+                raise RuntimeError(f"Escalation failed: {resolve_result.failure()}")
+            
+            new_state = resolve_result.value_or(state)
+            
+            if self._state_repo:
+                self._state_repo.save(ctx.chain_dir, new_state)
+            
+            target_node = new_state.current_node
+            target_sub = new_state.current_sub_state
             return {
                 "ok": False,
                 "action": "escalated",
                 "error_type": error_type.value,
                 "strategy": "escalate",
-                "to_node": transition_result.get("to_node", "REFINE"),
-                "message": f"Escalado a REFINE: {error}",
+                "to_node": target_node,
+                "to_sub_state": target_sub,
+                "message": f"Escalado a {target_node}.{target_sub}: {error}",
             }
+
+        result = _do_escalate()
+        if is_successful(result):
+            return result.value_or({})
         else:
             e2 = result.failure()
+            if self._tracer:
+                self._tracer.trace(
+                    ctx.chain_dir,
+                    "escalate_failed",
+                    data={
+                        "error_type": error_type.value,
+                        "reason": str(error),
+                        "failure": str(e2),
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
             return {
                 "ok": False,
                 "action": "error",

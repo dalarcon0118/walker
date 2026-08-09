@@ -46,4 +46,13 @@ def kg_index_repo(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 def register(registry: Any) -> None:
     registry.register("kg_index_repo", kg_index_repo,
-                      metadata={"description": "Index external repo in CKG", "tags": ["kg", "ckg"]})
+                      metadata={"description": "Index external repo in CKG", "tags": ["kg", "ckg"],
+                                "input_schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "url": {"type": "string", "description": "URL del repo remoto a indexar (requerido)", "example": "https://github.com/org/repo.git"},
+                                        "name": {"type": "string", "description": "Nombre del repo (default: último segmento de la url)", "example": "repo"},
+                                        "branch": {"type": "string", "description": "Rama a indexar (default main)", "example": "develop"},
+                                    },
+                                    "required": ["url"],
+                                }})

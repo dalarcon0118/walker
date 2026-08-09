@@ -3,7 +3,7 @@ infrastructure/catalog.py — Catalogo de tareas (LEGACY COMPAT).
 
 ⚠️  DEPRECATED desde TASK-003.
 
-Las tareas ahora viven en scripts/tasks/ y side_effects/ con
+Las tareas ahora viven en features/task_execution/tasks/ y side_effects/ con
 registro modular via bootstrap.py. Cada modulo exports una
 funcion register(registry) que se descubre automaticamente.
 

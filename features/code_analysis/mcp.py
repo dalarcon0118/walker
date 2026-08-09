@@ -1,57 +1,56 @@
 """mcp.py — Code Analysis MCP protocol module.
 
-Declares CPG tools (cpg_business, analyze_code, kg_search for CPG)
-and resources. Auto-discovery via walker://schema/cpg.
+Declares CPG tools and routes. Auto-discovery via ModuleRegistry.
 """
 from __future__ import annotations
 
 from libs.mcp_server import McpServer
 
+from features.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
+
 
 def register(server: McpServer) -> None:
     server.tool(
-        name="cpg_business",
-        description="CPG business layer: reusable pure functions, business flows, architecture patterns. Read walker://help/cpg_business.",
-        handler=_cpg_business,
-    )
-    server.tool(
-        name="cpg_unused_functions",
-        description="Detect unused functions via CPG (dead code detection).",
-        handler=_public_task("cpg_unused_functions"),
-    )
-    server.tool(
-        name="analyze_code",
-        description="Full code analysis via CPG: symbols, signatures, imports, business layer. Read walker://help/analyze_code.",
-        handler=_analyze_code,
-    )
-    server.tool(
-        name="cpg_dfg_scan",
-        description="Data flow scan: hardcoded secrets, taint paths, uninitialized vars.",
-        handler=_public_task("cpg_dfg_scan"),
-    )
-    server.tool(
-        name="cpg_index_ref",
-        description="Index a reference library as CPG reference index.",
-        handler=_public_task("cpg_index_ref"),
-    )
-    server.tool(
-        name="scan_code_and_build_cpg",
-        description="Full CPG rebuild from source code. Use after major changes or first setup.",
-        handler=_public_task("scan_code_and_build_cpg"),
+        name="cpg_analyze",
+        description="Unified CPG analysis: business layer, dead code, security, review, metrics, build, context",
+        handler=_public_task("cpg_analyze"),
     )
 
 
-def _cpg_business(args: dict) -> dict:
-    from features.engine.application.task_dispatcher import dispatch_public_task
-    return dispatch_public_task("cpg_business", args.get("query", args))
-
-
-def _analyze_code(args: dict) -> dict:
-    from features.engine.application.task_dispatcher import dispatch_public_task
-    area = args.get("area", args.get("query", ""))
-    if isinstance(area, str):
-        area = {"area": area}
-    return dispatch_public_task("analyze_code", area)
+def register_module(registry: Any) -> None:
+    """Registra el módulo code_analysis en el ModuleRegistry."""
+    module = ModuleDefinition(
+        name="code_analysis",
+        tools=[
+            ToolDefinition(
+                name="cpg_analyze",
+                description="Unified CPG analysis: business layer, dead code, security, review, metrics, build, context",
+                handler=_public_task("cpg_analyze"),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "scope": {"type": "string", "description": "Scope: file path or directory"},
+                        "depth": {"type": "string", "enum": ["business", "business_layer"], "description": "Analysis depth"},
+                        "detect": {"type": "string", "enum": ["dead_code", "security"], "description": "Detection mode"},
+                        "review": {"type": "boolean", "description": "Enable code review"},
+                        "metrics": {"type": "boolean", "description": "Enable metrics"},
+                        "build": {"type": "boolean", "description": "Build/rebuild CPG"},
+                    },
+                    "additionalProperties": True,
+                },
+                metadata={"tags": ["cpg", "unified", "analysis"]},
+            ),
+        ],
+        routes=[
+            RestRoute(
+                path="{project_id}/cpg_analyze",
+                method="POST",
+                flags_builder=lambda a: {"_payload": a.get("params", a)},
+            ),
+        ],
+        metadata={"description": "Code analysis module: CPG, business layer, dead code, security scanning", "tags": ["cpg", "code"]},
+    )
+    registry.register_module(module)
 
 
 def _public_task(name: str):
