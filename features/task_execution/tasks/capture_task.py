@@ -374,7 +374,7 @@ def register(registry: Any) -> None:
                 "Invocar al completar trabajo implementado."
             ),
             "usage": 'walker <project>/capture_task \'{"objective":"...","domain":"...","files":["..."]}\'',
-            "scope": "internal",
+            "scope": "public",
             "tags": ["delta", "history", "capture", "session-log"],
         },
     )
