@@ -303,28 +303,31 @@ _PROTOCOL_FALLBACK = (
 
 
 def _load_protocol_text() -> str:
-    """Carga el contrato MCP desde el template canónico (SSOT).
+    """Carga el contrato MCP combinando template estático + secciones dinámicas.
 
-    SSOT: features/prompts/templates/protocol/mcp.md (mismo path único de
-    templates que el resto de prompts). Fallback: constante del código.
+    SSOT narrativo: features/prompts/templates/protocol/mcp.md
+    Secciones dinámicas: tools disponibles, workflow map, capture_task usage.
     """
     outcome = _protocol_text_core()
     if is_successful(outcome):
-        return outcome.value_or(_PROTOCOL_FALLBACK) or _PROTOCOL_FALLBACK
-    error = outcome.failure()
+        text = outcome.value_or("")
+        if text:
+            return text
+    error = outcome.failure() if not is_successful(outcome) else None
     logger.warning(
-        "protocol/mcp load failed (%s: %s); usando fallback",
-        type(error).__name__, error,
+        "protocol/mcp dynamic build failed (%s: %s); usando fallback",
+        type(error).__name__ if error else "empty",
+        error or "empty",
     )
     return _PROTOCOL_FALLBACK
 
 
 @safe
 def _protocol_text_core() -> str:
-    """Core puro de _load_protocol_text (puede lanzar)."""
-    from features.prompts.loader import load_static
+    """Core puro: construye el protocolo MCP dinámicamente (puede lanzar)."""
+    from features.prompts.loader import build_mcp_protocol
 
-    return load_static("protocol/mcp")
+    return build_mcp_protocol()
 
 
 _PROTOCOL_TEXT = _load_protocol_text()

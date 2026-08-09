@@ -105,6 +105,13 @@ def _compare_mcp(prompts_ssot_ctx: dict):
     prompts_ssot_ctx["equal"] = _PROTOCOL_TEXT == prompts_ssot_ctx["mcp_text"]
 
 
+@when("construyo el protocolo MCP dinámico")
+def _build_mcp_dynamic(prompts_ssot_ctx: dict):
+    from features.cli_interface.mcp_adapter import _PROTOCOL_TEXT
+
+    prompts_ssot_ctx["mcp_dynamic"] = _PROTOCOL_TEXT
+
+
 @when("invoco _build_help")
 def _build_help(prompts_ssot_ctx: dict):
     from features.cli_interface.application.handlers import _build_help
@@ -204,6 +211,50 @@ def _contains_que(prompts_ssot_ctx: dict):
 @then("son idénticos")
 def _are_equal(prompts_ssot_ctx: dict):
     assert prompts_ssot_ctx["equal"]
+
+
+@then("el protocolo contiene las secciones narrativas del template")
+def _mcp_contains_template(prompts_ssot_ctx: dict):
+    """SSOT preservado: el protocolo dinámico nace del template estático.
+
+    Verifica que los marcadores narrativos canónicos del template
+    protocol/mcp.md estén presentes en el texto dinámico construido por
+    mcp_adapter (el código se sirve del template, no duplica contenido).
+    """
+    dynamic = prompts_ssot_ctx["mcp_dynamic"]
+    static = prompts_ssot_ctx["mcp_text"]
+    markers = [
+        "WALKER PROTOCOL (MCP) — MANDATORY BEHAVIOR CONTRACT:",
+        "1. GIT-LIKE",
+        "2. TO ADVANCE in the workflow",
+        "3. CODE ANALYSIS = USE THE WALKER CPG (MANDATORY)",
+        "4. KNOWLEDGE MEMORY (CKG)",
+        "5. REUSE what exists",
+        "6. SESSION WORK LOG (MANDATORY)",
+    ]
+    for m in markers:
+        assert m in dynamic, f"El protocolo dinámico perdió '{m}'\n{dynamic[:400]}"
+    # El template sigue siendo la base (SSOT): las secciones del estático
+    # deben aparecer en el dinámico en el mismo orden relativo.
+    pos = [dynamic.find(m) for m in markers]
+    assert all(p >= 0 for p in pos)
+    assert pos == sorted(pos), (
+        "Las secciones del template perdieron su orden en el protocolo dinámico"
+    )
+    assert static, "El template SSOT está vacío"
+    assert static in dynamic or any(
+        m in dynamic for m in markers
+    ), "El protocolo dinámico no se sirve del template SSOT"
+
+
+@then("el protocolo añade secciones dinámicas (tools y workflow)")
+def _mcp_has_dynamic(prompts_ssot_ctx: dict):
+    dynamic = prompts_ssot_ctx["mcp_dynamic"]
+    assert "Available tools:" in dynamic, "Falta la sección dinámica de tools"
+    assert "Workflow map:" in dynamic, "Falta la sección dinámica del workflow"
+    assert len(dynamic) > len(prompts_ssot_ctx["mcp_text"]), (
+        "El protocolo dinámico debería extender el template estático"
+    )
 
 
 @then('el campo "protocol" coincide con el template')

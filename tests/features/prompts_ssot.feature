@@ -15,10 +15,11 @@ Feature: Prompts SSOT
     Then gates/gate-briefing.md existe
     And contiene "QUÉ SUCEDIÓ"
 
-  Scenario: _PROTOCOL_TEXT es exactamente el template MCP
+  Scenario: El protocolo MCP dinámico se sirve del template SSOT
     Given el template protocol/mcp.md
-    When comparo con _PROTOCOL_TEXT del mcp_adapter
-    Then son idénticos
+    When construyo el protocolo MCP dinámico
+    Then el protocolo contiene las secciones narrativas del template
+    And el protocolo añade secciones dinámicas (tools y workflow)
 
   Scenario: El protocol REST de _build_help es exactamente el template
     Given el template protocol/rest.md

@@ -59,6 +59,11 @@ def load_static(template_id: str) -> str:
     raise TemplateNotFound(f"Template '{template_id}' no encontrado en {root}")
 
 
+def build_mcp_protocol() -> str:
+    from .protocol_builder import build_mcp_protocol as _build
+    return _build()
+
+
 class TemplateLoader:
     """Carga templates por ID desde múltiples fuentes."""
     def __init__(self, chain_dir: str, project_dir: str | None = None):
