@@ -197,3 +197,16 @@ class SessionStore:
                     if sess:
                         sessions.append(sess)
         return sorted(sessions, key=lambda s: s.updated_at, reverse=True)
+
+    @classmethod
+    def find_by_chain_dir(cls, chain_dir: str) -> SessionRecord | None:
+        """Retorna la sesión más reciente para un chain_dir (o None).
+
+        Evita la acumulación de sesiones duplicadas: el API de workflow
+        reutiliza la sesión de un chain_dir en vez de crear una nueva en
+        cada llamada cuando esta no está stale.
+        """
+        for record in cls.list_sessions():
+            if record.chain_dir == chain_dir:
+                return record
+        return None

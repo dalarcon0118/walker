@@ -111,7 +111,19 @@ class WorkflowAPI:
         # 2. Si hay chain_dir explícito (pasado por el CLI), usarlo siempre
         #    Esto permite que `walker <project>/status` funcione incluso
         #    si hay otra sesión activa (multitenant).
+        #    Reuso: si ya existe una sesión para este chain_dir y no está
+        #    stale, se reutiliza en vez de crear una nueva (evita llenar
+        #    .cognitive/sessions/ con duplicados por cada llamada CLI/MCP).
         if self._chain_dir:
+            record = self._session_store.find_by_chain_dir(self._chain_dir)
+            if record and not record.is_stale():
+                self._session_id = record.session_id
+                self._project_id = record.project_id or self._project_id
+                self._session_store.set_active(self._session_id)
+                self.status_message = (
+                    f"Sesión para {self._project_id or os.path.basename(self._chain_dir)}"
+                )
+                return self._session_id
             record = SessionRecord.create(
                 chain_dir=self._chain_dir, project_id=self._project_id
             )
