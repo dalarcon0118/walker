@@ -357,6 +357,47 @@ def _build_context(prompts_gates_ctx: dict):
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir, "TASK-001")
 
 
+@given("un spring con tareas con dependencias")
+def _spring_with_deps(prompts_gates_ctx: dict, tmp_path):
+    from features.delta_tracking import SpringService
+
+    _, project_root = _setup_project(str(tmp_path))
+    svc = SpringService(project_root)
+    svc.create_spring(
+        "test-sprint", goal="Sprint with deps", status="active", project_id="demo"
+    )
+    # SPEC-001 completada; SPEC-002 (sin deps) lista; SPEC-003 depende de
+    # SPEC-001 (lista); SPEC-004 depende de SPEC-003 (bloqueada).
+    svc.add_spec("test-sprint", "Objetivo uno", domain="test", spec_index=0)
+    svc.add_spec("test-sprint", "Objetivo dos", domain="test", spec_index=1)
+    svc.add_spec("test-sprint", "Objetivo tres", domain="test", spec_index=2)
+    svc.add_spec("test-sprint", "Objetivo cuatro", domain="test", spec_index=3)
+    svc.update_spec_entity(
+        "test-sprint", "SPEC-001", {"status": "completed"}
+    )
+    # depends_on va por los ids canonicos de las specs.
+    svc.update_spec_entity(
+        "test-sprint", "SPEC-002", {"depends_on": []}
+    )
+    svc.update_spec_entity(
+        "test-sprint", "SPEC-003", {"depends_on": ["SPEC-001"]}
+    )
+    svc.update_spec_entity(
+        "test-sprint", "SPEC-004", {"depends_on": ["SPEC-003"]}
+    )
+    chain_dir = os.path.join(project_root, "data", "spring", "test-sprint")
+    prompts_gates_ctx["chain_dir"] = chain_dir
+    prompts_gates_ctx["project_root"] = project_root
+
+
+@when("construyo el contexto del sprint")
+def _build_sprint_context(prompts_gates_ctx: dict):
+    from features.engine.application.prompt_context_builder import PromptContextBuilder
+
+    chain_dir = prompts_gates_ctx["chain_dir"]
+    prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir)
+
+
 @when('analizo la salud')
 def _analyze_health(prompts_gates_ctx: dict):
     from features.project import HealthReportAnalyzer
@@ -373,6 +414,42 @@ def _analyze_health(prompts_gates_ctx: dict):
 @then('el template renderizado contiene "QUÉ SUCEDIÓ"')
 def _contains_que_sucedio(prompts_gates_ctx: dict):
     assert "QUÉ SUCEDIÓ" in prompts_gates_ctx["result"]
+
+
+@then("el contexto tiene cola ready con las tareas cuya dependencia está completada")
+def _ready_queue(prompts_gates_ctx: dict):
+    ready = prompts_gates_ctx["ctx"].get("ready_tasks", "")
+    # SPEC-002 (sin deps) y SPEC-003 (dep SPEC-001 completada) listas.
+    assert "SPEC-002" in ready, f"SPEC-002 debería estar ready:\n{ready}"
+    assert "SPEC-003" in ready, f"SPEC-003 debería estar ready:\n{ready}"
+    # SPEC-001 (completed) y SPEC-004 (dep no satisfecha) NO como tarea ready.
+    # Nota: "SPEC-001" puede aparecer como dependencia de otra línea; se valida
+    # por id al inicio de línea (tarea listada), no por substring.
+    ready_ids = {
+        line.strip().split()[0]
+        for line in ready.splitlines()
+        if line.strip().startswith("SPEC-")
+    }
+    assert "SPEC-001" not in ready_ids, (
+        f"SPEC-001 (completed) no debería estar ready:\n{ready}"
+    )
+    assert "SPEC-004" not in ready_ids, (
+        f"SPEC-004 (bloqueada) no debería estar ready:\n{ready}"
+    )
+
+
+@then("el contexto tiene cola blocked con las tareas pendientes de dependencia")
+def _blocked_queue(prompts_gates_ctx: dict):
+    blocked = prompts_gates_ctx["ctx"].get("blocked_tasks", "")
+    assert "SPEC-004" in blocked, f"SPEC-004 debería estar blocked:\n{blocked}"
+    blocked_ids = {
+        line.strip().split()[0]
+        for line in blocked.splitlines()
+        if line.strip().startswith("SPEC-")
+    }
+    assert "SPEC-002" not in blocked_ids, (
+        f"SPEC-002 (lista) no debería estar blocked:\n{blocked}"
+    )
 
 
 @then('contiene "Análisis completado"')

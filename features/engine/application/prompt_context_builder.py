@@ -51,6 +51,7 @@ class PromptContextBuilder:
         if tasks:
             _fill_task_info(ctx, tasks, current_idx)
             _fill_report_tables(ctx, tasks)
+            _fill_queue_ready(ctx, tasks)
             if task_id:
                 _fill_current_task_context(ctx, tasks, task_id, chain_dir)
 
@@ -66,6 +67,10 @@ class PromptContextBuilder:
             ctx["risk_table"] = ""
             ctx["dependency_graph"] = ""
             ctx["total_tasks"] = 0
+            ctx["ready_tasks"] = "  (none)"
+            ctx["blocked_tasks"] = ""
+            ctx["ready_count"] = 0
+            ctx["blocked_count"] = 0
 
         # ── Reflexión para REFINE (SKILL.md: "el engine inyecta source_node,
         #    attempt, error_context") ─────────────────────────────────────
@@ -170,6 +175,64 @@ def _fill_report_tables(ctx: dict, tasks: list[dict]) -> None:
 
     ctx["total_tasks"] = len(tasks)
     ctx["all_tasks_json"] = json.dumps(tasks, indent=2, ensure_ascii=False)
+
+
+def _fill_queue_ready(ctx: dict, tasks: list[dict]) -> None:
+    """Cola DAG del dashboard: ready_tasks y blocked_tasks (placeholders).
+
+    Complementa la tabla (task_table) con la cola accionable: qué tareas
+    están listas para empezar (dependencias satisfechas) y cuáles quedan
+    bloqueadas esperando dependencias. Requerido por el template
+    nodes/sprint/active.prompt.json (TASKS READY / Blocked tasks).
+
+    Semántica (idempotente, desde el delta — fuente única):
+      - ready: status != completed y TODAS sus depends_on ya completadas
+        (o sin dependencias).
+      - blocked: status != completed con al menos una dependencia sin
+        completar.
+      - completed: status completado, fuera de ambas colas.
+    """
+    completed = {
+        t.get("spec_id", t.get("task_id"))
+        for t in tasks
+        if isinstance(t, dict) and t.get("status") == "completed"
+    }
+
+    def _status(t: dict) -> str:
+        return str(t.get("status", t.get("state", "draft")))
+
+    def _dep_keys(t: dict) -> list[str]:
+        deps = t.get("depends_on") or []
+        return [d for d in deps if d]
+
+    def _deps_satisfied(t: dict) -> bool:
+        return all(d in completed for d in _dep_keys(t))
+
+    ready: list[dict] = []
+    blocked: list[dict] = []
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        if _status(t) == "completed":
+            continue
+        (ready if _deps_satisfied(t) else blocked).append(t)
+
+    def _fmt(items: list[dict]) -> str:
+        if not items:
+            return "  (none)"
+        lines = []
+        for t in items:
+            tid = t.get("spec_id", t.get("task_id", "?"))
+            st = _status(t)
+            deps = ", ".join(_dep_keys(t)) or "—"
+            obj = (t.get("objective", "") or "")[:60]
+            lines.append(f"  {tid:<10} [{st:<9}] deps: {deps:<20} {obj}")
+        return "\n".join(lines)
+
+    ctx["ready_tasks"] = _fmt(ready)
+    ctx["blocked_tasks"] = _fmt(blocked)
+    ctx["ready_count"] = len(ready)
+    ctx["blocked_count"] = len(blocked)
 
 
 def _fill_current_task_context(

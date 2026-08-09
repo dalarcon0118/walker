@@ -70,3 +70,10 @@ Feature: Prompts gates
     When analizo la salud
     Then el paso priority 4 sugiere "transition <gate_name>"
     And no sugiere "submit"
+
+  @contrato
+  Scenario: El dashboard del sprint muestra la cola ready y blocked (DAG)
+    Given un spring con tareas con dependencias
+    When construyo el contexto del sprint
+    Then el contexto tiene cola ready con las tareas cuya dependencia está completada
+    And el contexto tiene cola blocked con las tareas pendientes de dependencia
