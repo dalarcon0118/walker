@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Remove duplicated calibration functions from delta_evaluator.py."""
-import re
 
 path = "projects/cognitive-mcp/cognitive_v2/shared/delta_evaluator.py"
 
@@ -37,7 +36,7 @@ print(f"End:   {lines[end_idx - 1].strip()}")
 # Keep everything up to start_idx, then continue from end_idx
 new_lines = lines[:start_idx] + lines[end_idx:]
 
-with open(path, 'w') as f:
+with open(path, "w") as f:
     f.writelines(new_lines)
 
 print(f"Done. File reduced from {len(lines)} to {len(new_lines)} lines.")

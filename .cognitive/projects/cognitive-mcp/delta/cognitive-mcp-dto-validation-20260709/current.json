@@ -1,7 +1,0 @@
-{
-  "snapshot_type": "current",
-  "snapshot_at": "2026-07-09T15:45:00-03:00",
-  "chain_id": "cognitive-mcp-dto-validation-20260709",
-  "progress": "see progress.json",
-  "note": "Snapshot kept in sync with progress.json via the delta-advance command. Use this file to resume context after a session restart."
-}
