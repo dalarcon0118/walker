@@ -151,6 +151,7 @@ def collect_all(
 
 # ── Cores @safe (Result pattern, convention-001) ─────────────────
 
+
 @safe
 def _load_workflow_state_core(chain_dir: str) -> Any | None:
     """Core puro: estado del workflow (.workflow-state.json, puede lanzar)."""
@@ -167,7 +168,7 @@ def _load_spring_state_core(chain_dir: str) -> tuple[str, str, str]:
     spring + spec actual. Devuelve ("", "", "") si el chain_dir no
     resuelve a un proyecto (caso esperable).
     """
-    from features.delta_tracking import SpringService, spring_service
+    from features.delta_tracking import spring_service
 
     spring_svc = spring_service(chain_dir=chain_dir)
     if not spring_svc:

@@ -43,8 +43,6 @@ cada uno añade su propio campo de estado (status/captured) + contador.
 
 from __future__ import annotations
 
-from typing import Any
-
 
 class ContractOutputError(ValueError):
     """Respuesta que NO cumple el output_schema declarado en el node.json."""
@@ -69,7 +67,7 @@ class WorkflowOutput:
     @classmethod
     def requires(cls) -> tuple[str, ...]:
         """Campos obligatorios (output_schema.required del node.json)."""
-        return tuple(f for f in cls.FIELDS if getattr(cls, f"_required", False))
+        return tuple(f for f in cls.FIELDS if getattr(cls, "_required", False))
 
     @classmethod
     def _check_field_types(cls, data: dict) -> list[str]:
@@ -84,7 +82,9 @@ class WorkflowOutput:
             expected = spec.get("type")
             if expected == "string" and not isinstance(val, str):
                 errors.append(f"{name} must be string, got {type(val).__name__}")
-            elif expected == "integer" and (not isinstance(val, int) or isinstance(val, bool)):
+            elif expected == "integer" and (
+                not isinstance(val, int) or isinstance(val, bool)
+            ):
                 errors.append(f"{name} must be integer, got {type(val).__name__}")
             elif expected == "boolean" and not isinstance(val, bool):
                 errors.append(f"{name} must be boolean, got {type(val).__name__}")
@@ -162,7 +162,9 @@ class SelectOutput(WorkflowOutput):
 
     @classmethod
     def from_validated(cls, data: dict) -> "SelectOutput":
-        return cls(decision=data.get("decision", ""), project_id=data.get("project_id", ""))
+        return cls(
+            decision=data.get("decision", ""), project_id=data.get("project_id", "")
+        )
 
     def __init__(self, decision: str, project_id: str = ""):
         self.decision = decision
@@ -191,7 +193,9 @@ class GatherSpecsOutput(WorkflowOutput):
 
     def __init__(self, specs: dict | None = None):
         if specs is not None and not isinstance(specs, dict):
-            raise ContractOutputError("[PROJECT_INIT.GATHER_SPECS] specs must be an object")
+            raise ContractOutputError(
+                "[PROJECT_INIT.GATHER_SPECS] specs must be an object"
+            )
         self.specs = specs or {}
 
     def as_dict(self) -> dict:
@@ -218,13 +222,17 @@ class AnalyzeOutput(WorkflowOutput):
 
     @classmethod
     def from_validated(cls, data: dict) -> "AnalyzeOutput":
-        return cls(status=data.get("status", "analyzed"), summary=data.get("summary", ""))
+        return cls(
+            status=data.get("status", "analyzed"), summary=data.get("summary", "")
+        )
 
     def __init__(self, status: str = "analyzed", summary: str = ""):
         self.status = status
         self.summary = summary
         if status != "analyzed":
-            raise ContractOutputError(f"[ANALYZE.ANALYZE] status must be 'analyzed', got {status!r}")
+            raise ContractOutputError(
+                f"[ANALYZE.ANALYZE] status must be 'analyzed', got {status!r}"
+            )
 
     def as_dict(self) -> dict:
         return {"status": self.status, "summary": self.summary}
@@ -380,7 +388,9 @@ class DesignAnalyzeOutput(WorkflowOutput):
 
     @classmethod
     def from_validated(cls, data: dict) -> "DesignAnalyzeOutput":
-        return cls(status=data.get("status", "analyzed"), summary=data.get("summary", ""))
+        return cls(
+            status=data.get("status", "analyzed"), summary=data.get("summary", "")
+        )
 
     def __init__(self, status: str = "analyzed", summary: str = ""):
         self.status = status
@@ -443,10 +453,16 @@ class CodeReviewOutput(WorkflowOutput):
         self.summary = summary
         self.findings = list(findings or [])
         if not isinstance(passed, bool):
-            raise ContractOutputError("[IMPLEMENT.CODE_REVIEW_SCAN] passed must be boolean")
+            raise ContractOutputError(
+                "[IMPLEMENT.CODE_REVIEW_SCAN] passed must be boolean"
+            )
 
     def as_dict(self) -> dict:
-        return {"passed": self.passed, "findings": self.findings, "summary": self.summary}
+        return {
+            "passed": self.passed,
+            "findings": self.findings,
+            "summary": self.summary,
+        }
 
 
 class KnowledgeUpdateOutput(WorkflowOutput):
@@ -509,7 +525,9 @@ class DiagnoseOutput(WorkflowOutput):
             knowledge_items=list(data.get("knowledge_items", []) or []),
         )
 
-    def __init__(self, target: str, reason: str = "", knowledge_items: list | None = None):
+    def __init__(
+        self, target: str, reason: str = "", knowledge_items: list | None = None
+    ):
         self.target = target
         self.reason = reason
         self.knowledge_items = list(knowledge_items or [])
@@ -517,7 +535,11 @@ class DiagnoseOutput(WorkflowOutput):
             raise ContractOutputError("[REFINE.DIAGNOSE] target is required")
 
     def as_dict(self) -> dict:
-        return {"target": self.target, "reason": self.reason, "knowledge_items": self.knowledge_items}
+        return {
+            "target": self.target,
+            "reason": self.reason,
+            "knowledge_items": self.knowledge_items,
+        }
 
 
 class RefineKnowledgeCaptureOutput(WorkflowOutput):
@@ -543,7 +565,9 @@ class RefineKnowledgeCaptureOutput(WorkflowOutput):
         self.captured = captured
         self.items = items or 0
         if not isinstance(captured, bool):
-            raise ContractOutputError("[REFINE.KNOWLEDGE_CAPTURE] captured must be boolean")
+            raise ContractOutputError(
+                "[REFINE.KNOWLEDGE_CAPTURE] captured must be boolean"
+            )
 
     def as_dict(self) -> dict:
         return {"captured": self.captured, "items": self.items}
@@ -580,13 +604,21 @@ class SprintPlanningOutput(WorkflowOutput):
             task_count=data.get("task_count") or 0,
         )
 
-    def __init__(self, status: str = "planned", sprint_id: str = "", goal: str = "", task_count: int = 0):
+    def __init__(
+        self,
+        status: str = "planned",
+        sprint_id: str = "",
+        goal: str = "",
+        task_count: int = 0,
+    ):
         self.status = status
         self.sprint_id = sprint_id
         self.goal = goal
         self.task_count = task_count or 0
         if status != "planned":
-            raise ContractOutputError(f"[SPRINT.PLANNING] status must be 'planned', got {status!r}")
+            raise ContractOutputError(
+                f"[SPRINT.PLANNING] status must be 'planned', got {status!r}"
+            )
 
     def as_dict(self) -> dict:
         return {
@@ -641,13 +673,18 @@ class SprintRetroOutput(WorkflowOutput):
 
     @classmethod
     def from_validated(cls, data: dict) -> "SprintRetroOutput":
-        return cls(status=data.get("status", "completed"), items_count=data.get("items_count") or 0)
+        return cls(
+            status=data.get("status", "completed"),
+            items_count=data.get("items_count") or 0,
+        )
 
     def __init__(self, status: str = "completed", items_count: int = 0):
         self.status = status
         self.items_count = items_count or 0
         if status != "completed":
-            raise ContractOutputError(f"[SPRINT.RETRO] status must be 'completed', got {status!r}")
+            raise ContractOutputError(
+                f"[SPRINT.RETRO] status must be 'completed', got {status!r}"
+            )
 
     def as_dict(self) -> dict:
         return {"status": self.status, "items_count": self.items_count}
@@ -689,9 +726,7 @@ def get_workflow_output_dto(
     return WORKFLOW_OUTPUTS.get((node_id.upper(), sub_state_key.upper()))
 
 
-def validate_llm_task_output(
-    node_id: str, sub_state_key: str, data: dict
-) -> dict:
+def validate_llm_task_output(node_id: str, sub_state_key: str, data: dict) -> dict:
     """Valida la respuesta de un sub_state `llm_task` contra su DTO.
 
     Usado por el submitter antes de avanzar (F3 SPEC-043). Si no hay DTO

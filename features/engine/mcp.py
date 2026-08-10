@@ -137,8 +137,7 @@ def _register_public_tasks(server: McpServer) -> tuple[int, list[str]]:
     reserved = {"prepare", "list", "status", "submit", "transition", "help",
                 "kg_search", "kg_multi", "kg_store",
                 "cpg_business", "cpg_unused_functions", "analyze_code",
-                "import_legacy_history",
-                "detect_legacy", "map_legacy_workflow", "trace_push",
+                "trace_push",
                 "scan_code_and_build_cpg",
                 "project_metrics", "cpg_analyze", "agent_context"}
 

@@ -18,7 +18,6 @@ from libs.shared_domain import ExecutionContext
 from ..domain.services.spec_service import (
     SpecValidator,
     SpecBuilder,
-    SprintStatusUpdater,
 )
 
 
@@ -28,7 +27,7 @@ def _spring_svc(sprint_dir: str):
     PRINCIPIO: el DELTA (SpringService) es la unica fuente del spring.
     No existe plan.json como fuente paralela (ADR-WALKER-013).
     """
-    from features.delta_tracking import SpringService, spring_service
+    from features.delta_tracking import spring_service
 
     spring_svc = spring_service(chain_dir=sprint_dir)
     if spring_svc is None:
@@ -73,7 +72,7 @@ class PlanSprintUseCase:
         project_id = record.project_id if record else ""
 
         # ── Fuente unica: crear spring + specs en el delta ────────────
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import SpringService
 
         project_root = _resolve_project_root(project_id) or os.path.dirname(
             os.path.dirname(sprint_dir)
@@ -265,7 +264,7 @@ class AdvanceSpecIndexUseCase:
         current_idx = _get_current_spec_index(sprint_dir)
         new_idx = current_idx + 1
         # SSOT: el contexto de negocio vive en el delta (nodo spring)
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=sprint_dir)
         if spring_svc:
@@ -320,7 +319,7 @@ class ShowDashboardUseCase:
                 "completed_count": 0,
             }
         try:
-            from features.delta_tracking import SpringService, spring_service
+            from features.delta_tracking import spring_service
 
             spring_svc = spring_service(chain_dir=sprint_dir)
             if not spring_svc:
@@ -370,7 +369,7 @@ class CloseSprintUseCase:
         sprint_dir = ctx.chain_dir or ""
         if not sprint_dir:
             raise ValueError("chain_dir not available")
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=sprint_dir)
         if not spring_svc:
@@ -456,7 +455,7 @@ class UpdateSprintStatusUseCase:
         new_status = data.get("status", "")
         if not new_status:
             raise ValueError("Requires --status")
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=sprint_dir)
         if not spring_svc:
@@ -601,7 +600,7 @@ def _get_current_spec_index(sprint_dir: str) -> int:
     delta (SpringService.get_spring_context). No se lee sprint-state.json.
     """
     try:
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=sprint_dir)
         if not spring_svc:

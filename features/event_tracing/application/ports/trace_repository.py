@@ -5,8 +5,7 @@ Define el contrato que la capa de infraestructura implementa. La capa de
 aplicacion depende de esta abstraccion, no de CognitiveGraph directamente.
 
 Contrato de unicidad: el repositorio garantiza que load_traces() nunca
-devuelve eventos duplicados (misma firma timestamp/event_type/tool/data)
-aunque las fuentes legacy se lean mas de una vez.
+devuelve eventos duplicados (misma firma timestamp/event_type/tool/data).
 """
 
 from __future__ import annotations
@@ -21,16 +20,7 @@ class TraceRepository(ABC):
 
     @abstractmethod
     def load_traces(self, chain_dir: str) -> list[TraceEvent]:
-        """Carga todos los eventos de un sprint (canonical + legacy deduped)."""
-        ...
-
-    @abstractmethod
-    def migrate_legacy(self, chain_dir: str) -> int:
-        """Migra formatos legacy (NDJSON + index) al indice trace.
-
-        Idempotente: re-ejecutar no duplica (ids deterministas por contenido).
-        Retorna el numero de eventos migrados.
-        """
+        """Carga todos los eventos de un sprint (canonical, deduped)."""
         ...
 
     @abstractmethod

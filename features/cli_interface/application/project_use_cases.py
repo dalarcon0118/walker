@@ -95,8 +95,13 @@ class PrepareProjectUseCase:
 
         # 4. Write project.json
         _write_project_json(
-            projects_data_dir, pid, name, final_language, final_framework,
-            project_path, detections["code_paths"],
+            projects_data_dir,
+            pid,
+            name,
+            final_language,
+            final_framework,
+            project_path,
+            detections["code_paths"],
         )
 
         # 5. Register in global registry
@@ -116,17 +121,26 @@ class PrepareProjectUseCase:
 
         ckg_health_result = CheckCkgHealthUseCase.execute(projects_data_dir)
         ckg_health = (
-            ckg_health_result.value_or({})
-            if is_successful(ckg_health_result)
-            else {}
+            ckg_health_result.value_or({}) if is_successful(ckg_health_result) else {}
         )
-        if ckg_health.get("node_count", 0) == 0 and ckg_health.get("status") != "not scanned":
+        if (
+            ckg_health.get("node_count", 0) == 0
+            and ckg_health.get("status") != "not scanned"
+        ):
             setup_warnings.append("CKG is empty. Agent should capture knowledge")
         elif ckg_health.get("status") == "empty":
             setup_warnings.append("CKG not initialized. Agent should capture knowledge")
 
         # 9. Init watcher baseline
-        watcher = FileWatcher(project_path)
+        # data_dir canónico = <repo>/.cognitive/projects/<pid>/data (fuera del
+        # árbol escaneado). Si el baseline queda en <repo>/data, el status
+        # (que lee el change_detected canónico) lo pierde y reporta todo el
+        # repo como cambiado.
+        watcher = FileWatcher(
+            project_path,
+            code_paths=detections["code_paths"] or None,
+            data_dir=projects_data_dir,
+        )
         watcher.scan()
         _reset_watcher_baseline(watcher)
 
@@ -161,7 +175,6 @@ class CheckHealthUseCase:
     @staticmethod
     def execute(project_id: str, repo_path: str, sprint_id: str = "") -> dict:
         from features.project import HealthReportAnalyzer
-        from features.project import FileWatcher
         from features.code_analysis.application.use_cases import CheckCpgHealthUseCase
         from features.cognitive_knowledge.application.use_cases import (
             CheckCkgHealthUseCase,
@@ -184,7 +197,7 @@ class CheckHealthUseCase:
         _check_project_json(proj_json, project_id, repo_path, health)
 
         # 2. Watcher: detect changes (read-only)
-        watcher_outcome = _scan_watcher_core(repo_path)
+        watcher_outcome = _scan_watcher_core(project_id, repo_path)
         if is_successful(watcher_outcome):
             changes = watcher_outcome.value_or({})
             new_changes = changes.get("new_changes", [])
@@ -218,28 +231,35 @@ class CheckHealthUseCase:
         cpg_health = CheckCpgHealthUseCase.execute(projects_data_dir)
         health["checks"]["cpg"] = cpg_health["status"]
         if cpg_health["status"] == "not scanned":
-            health["warnings"].append("CPG not scanned. Run walker prepare or update_cpg")
+            health["warnings"].append(
+                "CPG not scanned. Run walker prepare or update_cpg"
+            )
 
         # 4. Check CKG
         ckg_health_result = CheckCkgHealthUseCase.execute(projects_data_dir)
         ckg_health = (
-            ckg_health_result.value_or({})
-            if is_successful(ckg_health_result)
-            else {}
+            ckg_health_result.value_or({}) if is_successful(ckg_health_result) else {}
         )
         health["checks"]["ckg"] = ckg_health.get("status", "unknown")
-        if ckg_health.get("node_count", 0) == 0 and ckg_health.get("status") != "not scanned":
+        if (
+            ckg_health.get("node_count", 0) == 0
+            and ckg_health.get("status") != "not scanned"
+        ):
             health["warnings"].append("CKG is empty. Agent should capture knowledge")
         elif ckg_health.get("status") == "empty":
-            health["warnings"].append("CKG not initialized. Agent should capture knowledge")
+            health["warnings"].append(
+                "CKG not initialized. Agent should capture knowledge"
+            )
 
         # 5. Check Sprint
         chain_dir = ""
         if sprint_id:
             from libs.path_resolver import get_sprint_dir
+
             chain_dir = str(get_sprint_dir(project_id, sprint_id))
         else:
             from features.project import ProjectService
+
             chain_dir = ProjectService.find_active_sprint(project_id) or ""
 
         sprint_health = CheckSprintStatusUseCase.execute(chain_dir, project_id)
@@ -280,14 +300,21 @@ class CheckHealthUseCase:
 
 # ── Module-level helpers ──
 
+
 def _write_project_json(
-    data_dir: str, pid: str, name: str, language: str, framework: str,
-    repo_path: str, code_paths: list[str],
+    data_dir: str,
+    pid: str,
+    name: str,
+    language: str,
+    framework: str,
+    repo_path: str,
+    code_paths: list[str],
 ) -> None:
     project_json = {
         "project": {
             "meta": {
-                "project_id": pid, "version": "1.0",
+                "project_id": pid,
+                "version": "1.0",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
@@ -296,7 +323,10 @@ def _write_project_json(
             "design": {"patterns": [], "layer_rules": {}, "forbidden_dependencies": []},
             "architecture": {"module_organization": ""},
             "coding": {
-                "naming_convention": "", "formatter": "", "linter": "", "test_framework": "",
+                "naming_convention": "",
+                "formatter": "",
+                "linter": "",
+                "test_framework": "",
             },
             "quality_preferences": {},
             "team": {"owners": []},
@@ -308,7 +338,10 @@ def _write_project_json(
 
 
 def _register_in_global_registry(
-    registry_path: str, pid: str, name: str, repo_path: str,
+    registry_path: str,
+    pid: str,
+    name: str,
+    repo_path: str,
 ) -> None:
     registry: dict = {"projects": {}}
     if os.path.exists(registry_path):
@@ -320,8 +353,12 @@ def _register_in_global_registry(
             logger.warning("registry read failed (will overwrite): %s", error)
     now = datetime.now(timezone.utc).isoformat()
     registry.setdefault("projects", {})[pid] = {
-        "project_id": pid, "name": name, "repo_path": repo_path,
-        "active": True, "registered_at": now, "last_accessed": now,
+        "project_id": pid,
+        "name": name,
+        "repo_path": repo_path,
+        "active": True,
+        "registered_at": now,
+        "last_accessed": now,
     }
     registry["updated_at"] = now
     os.makedirs(os.path.dirname(registry_path), exist_ok=True)
@@ -350,7 +387,21 @@ def _auto_scan_cpg(project_path: str) -> tuple[bool, int]:
             rel = os.path.relpath(os.path.join(root, f), project_path)
             if ign.is_ignored(rel):
                 continue
-            if f.endswith((".py", ".js", ".ts", ".rs", ".go", ".java", ".tsx", ".jsx", ".css", ".json", ".md")):
+            if f.endswith(
+                (
+                    ".py",
+                    ".js",
+                    ".ts",
+                    ".rs",
+                    ".go",
+                    ".java",
+                    ".tsx",
+                    ".jsx",
+                    ".css",
+                    ".json",
+                    ".md",
+                )
+            ):
                 code_detected = True
                 break
         if code_detected:
@@ -372,14 +423,20 @@ def _reset_watcher_baseline(watcher: Any) -> None:
     """After prepare, reset change_detected.json to zero."""
     baseline = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "files_changed": [], "total_changes": 0, "new_changes": [],
-        "fingerprint": "", "ckg_status": "up_to_date", "cpg_status": "up_to_date",
+        "files_changed": [],
+        "total_changes": 0,
+        "new_changes": [],
+        "fingerprint": "",
+        "ckg_status": "up_to_date",
+        "cpg_status": "up_to_date",
     }
     with open(watcher.change_path, "w") as f:
         json.dump(baseline, f, indent=2)
 
 
-def _check_project_json(proj_json: str, project_id: str, repo_path: str, health: dict) -> None:
+def _check_project_json(
+    proj_json: str, project_id: str, repo_path: str, health: dict
+) -> None:
     from features.project.domain.schema import ProjectSchemaValidator
 
     if not os.path.exists(proj_json):
@@ -411,12 +468,23 @@ def _check_project_json(proj_json: str, project_id: str, repo_path: str, health:
 
 # ── Cores @safe (IO) ──────────────────────────────────────────────
 
-@safe
-def _scan_watcher_core(repo_path: str) -> dict:
-    """Core puro: escanea cambios con FileWatcher (puede lanzar)."""
-    from features.project import FileWatcher
 
-    return FileWatcher(repo_path).scan()
+@safe
+def _scan_watcher_core(project_id: str, repo_path: str) -> dict:
+    """Core puro: escanea cambios con FileWatcher (puede lanzar).
+
+    Usa el data_dir canónico (.cognitive/projects/<pid>/data, fuera del árbol
+    escaneado) para evitar la auto-invalidación del watcher en cada scan, y
+    acota el scope a code_paths reales (sin copia-cog/sessions/etc).
+    """
+    from features.project import FileWatcher
+    from libs.path_resolver import get_data_dir, get_code_paths
+
+    return FileWatcher(
+        repo_path,
+        code_paths=get_code_paths(project_id) or None,
+        data_dir=str(get_data_dir(project_id)),
+    ).scan()
 
 
 @safe

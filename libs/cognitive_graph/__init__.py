@@ -18,7 +18,6 @@ Uso:
 """
 
 from __future__ import annotations
-import gzip
 import json
 import os
 import time
@@ -216,10 +215,10 @@ class CognitiveGraph:
         )
 
     def _make_trace_search_handler(self):
-        """Crea el handler de busqueda del indice Trace (nativo + NDJSON legacy)."""
+        """Crea el handler de busqueda del indice Trace (storage nativo)."""
 
         def _trace_search(query):
-            """Busca en trace: storage nativo (trace.json.gz) + NDJSON legacy (data/traces/)."""
+            """Busca en trace: storage nativo local + proyecto real descentralizado."""
             filters = query or {}
             events, seen_ids = self._collect_trace_events()
             text_query, remaining, max_results = self._prepare_trace_filters(filters)
@@ -259,15 +258,13 @@ class CognitiveGraph:
         return _trace_search
 
     def _collect_trace_events(self) -> tuple[list[dict], set[str]]:
-        """Recolecta eventos de trace desde: storage nativo, NDJSON legacy
-        (data/traces/) y storage del proyecto real (descentralizado).
+        """Recolecta eventos de trace desde: storage nativo y storage del
+        proyecto real (descentralizado).
 
         Dedupe global por _id: el mismo evento puede vivir en el storage
         nativo Y en el registry global — cuando chain_dir == project_root,
         ambas fuentes apuntan al MISMO archivo.
         """
-        import gzip as _gzip
-
         events = []
         seen_ids: set[str] = set()
 
@@ -281,64 +278,10 @@ class CognitiveGraph:
                 seen_ids.add(doc_id)
             events.append({"_id": doc_id, "_source": doc})
 
-        # 2. NDJSON legacy en data/traces/*.json.gz
-        self._collect_ndjson_traces(events, seen_ids)
-
-        # 3. Storage nativo del proyecto real (descentralizado)
+        # 2. Storage nativo del proyecto real (descentralizado)
         self._collect_project_native_trace(events, seen_ids)
 
         return events, seen_ids
-
-    def _collect_ndjson_traces(self, events: list, seen_ids: set) -> None:
-        """Recolecta eventos NDJSON legacy de data/traces/*.json.gz."""
-        import gzip as _gzip
-
-        traces_dirs = [os.path.join(self.chain_dir, "data", "traces")]
-        try:
-            from libs.path_resolver import get_project_dir
-            project_id = os.path.basename(self.chain_dir)
-            proj_dir = get_project_dir(project_id)
-            if proj_dir:
-                traces_dirs.append(str(proj_dir / "data" / "traces"))
-        except Exception:
-            pass
-
-        seen_events = set()
-        for traces_dir in traces_dirs:
-            if not os.path.isdir(traces_dir):
-                continue
-            for fname in sorted(os.listdir(traces_dir)):
-                if not fname.endswith(".gz"):
-                    continue
-                try:
-                    with _gzip.open(os.path.join(traces_dir, fname), "rt") as f:
-                        content = f.read()
-                    for line in content.strip().split("\n"):
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            doc = json.loads(line)
-                        except Exception:
-                            continue
-                        if not isinstance(doc, dict):
-                            continue
-                        ndjson_id = doc.get("id", doc.get("_id", ""))
-                        if ndjson_id and ndjson_id in seen_ids:
-                            continue
-                        if ndjson_id:
-                            seen_ids.add(ndjson_id)
-                        dedupe_key = (
-                            doc.get("timestamp", ""),
-                            doc.get("event_type", ""),
-                            doc.get("tool", ""),
-                        )
-                        if dedupe_key in seen_events:
-                            continue
-                        seen_events.add(dedupe_key)
-                        events.append({"_id": doc.get("id", ""), "_source": doc})
-                except Exception:
-                    continue
 
     def _collect_project_native_trace(self, events: list, seen_ids: set) -> None:
         """Recolecta eventos del storage nativo del proyecto real (descentralizado).

@@ -5,6 +5,7 @@ PRINCIPIO: No depende de código legacy (_walker, to_clean_next) ni
 inyecta directorios externos en sys.path. Si una función no puede
 hacer su trabajo, ERROR — nunca fallback silencioso.
 """
+
 from __future__ import annotations
 
 import json
@@ -251,7 +252,7 @@ def _load_tasks(chain_dir: str) -> tuple[list[dict], str]:
     if not chain_dir:
         return [], "chain_dir vacio."
     try:
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=chain_dir)
         if not spring_svc:
@@ -345,6 +346,7 @@ def canonical_workflow_path(project_id: str | None = None) -> str:
     el motor usa la plantilla canónica. No existe fallback hardcoded.
     """
     from libs.path_resolver import get_workflow_dir
+
     pid = project_id or ""
     if not pid:
         return ""
@@ -381,7 +383,7 @@ def _resolve_chain_id(chain_id: str) -> str | None:
         if not os.path.isdir(project_root):
             continue
         try:
-            from features.delta_tracking import SpringService, spring_service
+            from features.delta_tracking import SpringService
             from libs.path_resolver import get_sprint_dir
 
             spring_svc = SpringService(project_root)
@@ -446,7 +448,7 @@ def _list_project_sprints(project_path: str) -> int:
     sprints = []
     project_root = os.path.dirname(delta_dir)
     try:
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import SpringService
 
         spring_svc = SpringService(project_root)
         for spring in spring_svc.list_springs():
@@ -497,7 +499,9 @@ def _list_project_sprints(project_path: str) -> int:
 
 def _get_task_schema_requirements() -> tuple[set[str], dict]:
     """Load plan.schema.json and extract required fields + defaults for tasks."""
-    schema_path = os.path.join(_BASE_DIR, "..", "features", "delta_tracking", "schema", "plan.schema.json")
+    schema_path = os.path.join(
+        _BASE_DIR, "..", "features", "delta_tracking", "schema", "plan.schema.json"
+    )
     required = {"task_id", "objective", "result_state", "type", "domain"}
     defaults = {}
     if os.path.exists(schema_path):
@@ -607,7 +611,7 @@ def _find_active_sprints() -> list[dict]:
         if not os.path.isdir(project_root):
             continue
         try:
-            from features.delta_tracking import SpringService, spring_service
+            from features.delta_tracking import SpringService
             from libs.path_resolver import get_sprint_dir
 
             spring_svc = SpringService(project_root)

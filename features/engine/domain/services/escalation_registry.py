@@ -4,9 +4,9 @@ P1: Escalation Events BPMN.
 Registra mapeos de ErrorType → nodo de escalación en el workflow.
 Si un error no tiene mapeo, usa el default "REFINE".
 """
+
 from __future__ import annotations
 
-from typing import Any
 
 from features.engine.domain.errors import ErrorType
 

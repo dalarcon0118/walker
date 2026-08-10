@@ -10,6 +10,7 @@ q1-a3 (Q&A del ANALYZE), etc.
 
 Extraido de OrchestrationService (god class).
 """
+
 from __future__ import annotations
 
 import json
@@ -41,7 +42,9 @@ class PromptContextBuilder:
             ctx["sprint_goal"] = spring_data.get("goal", "")
             ctx["task_count"] = len(tasks)
             ctx["completed_count"] = sum(
-                1 for t in tasks if isinstance(t, dict) and t.get("status") == "completed"
+                1
+                for t in tasks
+                if isinstance(t, dict) and t.get("status") == "completed"
             )
             ctx["session_id"] = os.path.basename(chain_dir)
 
@@ -85,7 +88,8 @@ class PromptContextBuilder:
 def _load_spring_data(chain_dir: str) -> tuple[dict | None, list[dict]]:
     """Carga spring y tasks desde el delta (fuente unica)."""
     try:
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
+
         spring_svc = spring_service(chain_dir=chain_dir)
         if spring_svc:
             spring_id = os.path.basename(os.path.normpath(chain_dir))
@@ -102,7 +106,7 @@ def _load_current_task_index(chain_dir: str) -> int:
     """Lee el indice de la tarea actual desde el contexto del spring."""
     current_idx = 0
     try:
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=chain_dir)
         if spring_svc:
@@ -127,13 +131,9 @@ def _fill_task_info(ctx: dict, tasks: list[dict], current_idx: int) -> None:
         ctx["result_state"] = t.get("result_state", "")
         ctx["task_description"] = t.get("task_description", "")
         preds = t.get("validation", {}).get("predicates", [])
-        ctx["predicates_list"] = (
-            "\n".join(f"    • {p}" for p in preds) if preds else ""
-        )
+        ctx["predicates_list"] = "\n".join(f"    • {p}" for p in preds) if preds else ""
         files = t.get("impacted_artifacts", {}).get("files", [])
-        ctx["files_list"] = (
-            "\n".join(f"    • {f}" for f in files) if files else ""
-        )
+        ctx["files_list"] = "\n".join(f"    • {f}" for f in files) if files else ""
         ctx["depends_on"] = ", ".join(t.get("depends_on", [])) or "(none)"
         ctx["curvature"] = str(t.get("risks", {}).get("curvature", 0.3))
 
@@ -141,7 +141,9 @@ def _fill_task_info(ctx: dict, tasks: list[dict], current_idx: int) -> None:
 def _fill_report_tables(ctx: dict, tasks: list[dict]) -> None:
     """Tablas de reporte: task_table, risk_table, dependency_graph, JSON."""
     table_lines = []
-    table_lines.append(f"{'ID':<10} {'Status':<12} {'Type':<12} {'Domain':<16} {'Objective'}")
+    table_lines.append(
+        f"{'ID':<10} {'Status':<12} {'Type':<12} {'Domain':<16} {'Objective'}"
+    )
     table_lines.append("-" * 80)
     for t in tasks:
         tid = t.get("spec_id", t.get("task_id", ""))
@@ -153,7 +155,9 @@ def _fill_report_tables(ctx: dict, tasks: list[dict]) -> None:
     ctx["task_table"] = "\n".join(table_lines)
 
     risk_lines = []
-    risk_lines.append(f"{'ID':<10} {'Type':<12} {'Curvature':<12} {'Pre-Churn':<12} {'Commit-Trust':<12}")
+    risk_lines.append(
+        f"{'ID':<10} {'Type':<12} {'Curvature':<12} {'Pre-Churn':<12} {'Commit-Trust':<12}"
+    )
     risk_lines.append("-" * 58)
     for t in tasks:
         tid = t.get("spec_id", t.get("task_id", ""))
@@ -162,7 +166,9 @@ def _fill_report_tables(ctx: dict, tasks: list[dict]) -> None:
         cv = risks.get("curvature", "-")
         pc = risks.get("pre_churn", "-")
         ct = risks.get("commit_trust", "-")
-        risk_lines.append(f"{tid:<10} {tp:<12} {str(cv):<12} {str(pc):<12} {str(ct):<12}")
+        risk_lines.append(
+            f"{tid:<10} {tp:<12} {str(cv):<12} {str(pc):<12} {str(ct):<12}"
+        )
     ctx["risk_table"] = "\n".join(risk_lines)
 
     dep_lines = []
@@ -171,7 +177,9 @@ def _fill_report_tables(ctx: dict, tasks: list[dict]) -> None:
         deps = t.get("depends_on", [])
         if deps:
             dep_lines.append(f"  {tid} → {', '.join(deps)}")
-    ctx["dependency_graph"] = "\n".join(dep_lines) if dep_lines else "  (no dependencies)"
+    ctx["dependency_graph"] = (
+        "\n".join(dep_lines) if dep_lines else "  (no dependencies)"
+    )
 
     ctx["total_tasks"] = len(tasks)
     ctx["all_tasks_json"] = json.dumps(tasks, indent=2, ensure_ascii=False)
@@ -243,15 +251,20 @@ def _fill_current_task_context(
     t_current = matching[0] if matching else tasks[0]
     ctx["task_status"] = t_current.get("status", t_current.get("state", "draft"))
     ctx["result_state"] = t_current.get("result_state", "")
-    ctx["preconditions_list"] = "\n".join(
-        f"    • {p}" for p in (t_current.get("preconditions", []) or [])
-    ) or "    (none)"
-    ctx["acceptance_criteria_list"] = "\n".join(
-        f"    • {a}" for a in (t_current.get("acceptance_criteria", []) or [])
-    ) or "    (none)"
-    ctx["quality_gates_list"] = "\n".join(
-        f"    • {q}" for q in (t_current.get("quality_gates", []) or [])
-    ) or "    (none)"
+    ctx["preconditions_list"] = (
+        "\n".join(f"    • {p}" for p in (t_current.get("preconditions", []) or []))
+        or "    (none)"
+    )
+    ctx["acceptance_criteria_list"] = (
+        "\n".join(
+            f"    • {a}" for a in (t_current.get("acceptance_criteria", []) or [])
+        )
+        or "    (none)"
+    )
+    ctx["quality_gates_list"] = (
+        "\n".join(f"    • {q}" for q in (t_current.get("quality_gates", []) or []))
+        or "    (none)"
+    )
     decisions = t_current.get("decisions", []) or []
     # PRINCIPIO (robustez): decisions puede contener dicts ({title, rationale})
     # O strings (formato legacy de specs del delta). Normalizar ambos.
@@ -272,6 +285,7 @@ def _fill_current_task_context(
     ssd = {}
     try:
         from ..infrastructure.repositories import WorkflowStateRepository
+
         wf = WorkflowStateRepository().load(chain_dir)
         ssd = wf.sub_state_data or {}
     except Exception:
@@ -298,6 +312,7 @@ def _fill_current_task_context(
 
     # ── QUÉ SUCEDIÓ (briefing estándar de user gates) ──
     from features.prompts.gate_briefing import what_happened_from_state
+
     ctx["what_happened"] = what_happened_from_state(an_fields)
 
     # ── StepResult del paso anterior (patrón monádico) ──
@@ -334,6 +349,7 @@ def _read_last_step_result(sub_state_data: dict) -> dict:
         checkpoint = fields.get("step_checkpoint")
         if isinstance(checkpoint, dict):
             from ..domain.step_result import StepResult
+
             restored = StepResult.from_checkpoint(checkpoint)
             if restored.ok and restored.data is not None:
                 sr = restored.data
@@ -349,9 +365,15 @@ def _read_last_step_result(sub_state_data: dict) -> dict:
                     "step_quality_passed": q.get("quality_passed"),
                     "step_failed_gates": ", ".join(failed) if failed else "",
                     "step_recommend": q.get("recommend", ""),
-                    "step_task_summary": sr.to_prompt_dict().get("step_task_summary", ""),
+                    "step_task_summary": sr.to_prompt_dict().get(
+                        "step_task_summary", ""
+                    ),
                     "step_side_effect_summaries": "\n".join(
-                        s for s in sr.to_prompt_dict().get("step_side_effect_summaries", "").split("\n") if s
+                        s
+                        for s in sr.to_prompt_dict()
+                        .get("step_side_effect_summaries", "")
+                        .split("\n")
+                        if s
                     ),
                 }
 
@@ -424,7 +446,9 @@ def _build_reflection_placeholders(chain_dir: str, task_id: str, ctx: dict) -> d
         "error_context": package.get("error_context", ""),
         "failed_gates": package.get("failed_gates", ""),
         "hint": package.get("hint", ""),
-        "reflection_past_attempts": _fmt_past_attempts(package.get("past_attempts", [])),
+        "reflection_past_attempts": _fmt_past_attempts(
+            package.get("past_attempts", [])
+        ),
         "reflection_transition_gates": ", ".join(
             package.get("transition_gates", []) or []
         ),

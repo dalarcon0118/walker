@@ -905,7 +905,9 @@ def planning_propose(
         for err in field_errors:
             eprint(err)
         eprint()
-        eprint("  Referencia: features/delta_tracking/schema/plan.schema.json → $defs/task → required")
+        eprint(
+            "  Referencia: features/delta_tracking/schema/plan.schema.json → $defs/task → required"
+        )
         eprint()
         eprint("  Corrige las tareas y reintenta con --tasks:")
         eprint("=" * 70)
@@ -1168,7 +1170,9 @@ def planning_refine(chain_dir: str, edit_value: str) -> int:
                 eprint("❌ VALIDACIÓN: Las nuevas tareas no cumplen el schema")
                 for e in errors:
                     eprint(e)
-                eprint("  Referencia: features/delta_tracking/schema/plan.schema.json → $defs/task → required")
+                eprint(
+                    "  Referencia: features/delta_tracking/schema/plan.schema.json → $defs/task → required"
+                )
                 eprint("=" * 70)
                 return 2
 
@@ -1262,12 +1266,14 @@ def planning_commit(chain_dir: str) -> int:
         for err in field_errors:
             eprint(err)
         eprint()
-        eprint("  Referencia: features/delta_tracking/schema/plan.schema.json → $defs/task → required")
+        eprint(
+            "  Referencia: features/delta_tracking/schema/plan.schema.json → $defs/task → required"
+        )
         eprint("=" * 70)
         return 2
 
     # ── Persistir en el DELTA (fuente unica) ─────────────────────
-    from features.delta_tracking import SpringService, spring_service
+    from features.delta_tracking import SpringService
 
     project_root = _resolve_project_root(project_id, chain_dir)
     spring_svc = SpringService(project_root)

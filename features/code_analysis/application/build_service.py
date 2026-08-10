@@ -44,11 +44,16 @@ def _load_ignore_core(root: str) -> Any | None:
 
 
 @safe
-def _watcher_fingerprint_core(root: str) -> str:
-    """Core puro del fingerprint del codigo (puede lanzar)."""
+def _watcher_fingerprint_core(root: str, code_paths: list[str] | None = None) -> str:
+    """Core puro del fingerprint del codigo (puede lanzar).
+
+    El scope del fingerprint DEBE coincidir con el del watcher de status
+    (code_paths reales): si build y status escanean conjuntos distintos,
+    los fingerprints nunca coinciden y el CPG se reporta stale para siempre.
+    """
     from features.project import FileWatcher
 
-    return FileWatcher(root).compute_fingerprint()
+    return FileWatcher(root, code_paths=code_paths or None).compute_fingerprint()
 
 
 @safe
@@ -343,7 +348,9 @@ class BuildGraphUseCase:
 
         Result pattern: fail-open con log (nunca silencioso, convention-001).
         """
-        result = _watcher_fingerprint_core(self.repo_path or self.code_root)
+        result = _watcher_fingerprint_core(
+            self.repo_path or self.code_root, self.code_paths or None
+        )
         if is_successful(result):
             return result.value_or("")
         error = result.failure()
@@ -646,7 +653,15 @@ class BuildGraphUseCase:
         try:
             from features.project import FileWatcher
 
-            watcher = FileWatcher(self.repo_path or self.code_root)
+            # Scope y data_dir alineados con el watcher de status: code_paths
+            # reales + data_dir canónico (.cognitive/projects/<pid>/data).
+            # Si no, los fingerprints nunca coinciden y el CPG se reporta
+            # stale para siempre (auto-invalidación + scope distinto).
+            watcher = FileWatcher(
+                self.repo_path or self.code_root,
+                code_paths=self.code_paths or None,
+                data_dir=self.data_dir or None,
+            )
             status = watcher.scan()
         except Exception:
             # Watcher no disponible: fallback a full build

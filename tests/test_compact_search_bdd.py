@@ -5,12 +5,12 @@ top_k para reducir el tamanio de respuestas enviadas al LLM.
 
 Escenarios: tests/features/compact_search.feature
 """
+
 from __future__ import annotations
 
 import gzip
 import json
 import os
-import tempfile
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
@@ -119,6 +119,7 @@ def _setup_project(compact_ctx: dict, tmp_path):
 
 def _get_cg(compact_ctx: dict):
     from libs.cognitive_graph import CognitiveGraph
+
     return CognitiveGraph(compact_ctx["project_root"])
 
 
@@ -173,7 +174,9 @@ def _assert_trace_data_keys(compact_ctx: dict):
     for h in hits:
         data = h["_source"].get("data")
         if isinstance(data, dict):
-            assert set(data.keys()) <= {"index", "query"}, f"data no resumido: {data.keys()}"
+            assert set(data.keys()) <= {"index", "query"}, (
+                f"data no resumido: {data.keys()}"
+            )
 
 
 @then("los valores de query truncados tienen longitud <= 163")
@@ -206,15 +209,15 @@ def _assert_trace_recent_first(compact_ctx: dict):
 @when("ejecuto search_many con _top_k 2 sobre ckg")
 def _search_top_k(compact_ctx: dict):
     cg = _get_cg(compact_ctx)
-    compact_ctx["result"] = cg.search_many(
-        {"ckg": {"type": "convention"}, "_top_k": 2}
-    )
+    compact_ctx["result"] = cg.search_many({"ckg": {"type": "convention"}, "_top_k": 2})
 
 
 @then("se devuelven 2 hits")
 def _assert_top_k_hits(compact_ctx: dict):
     resp = compact_ctx["result"]["responses"]["ckg"]
-    assert len(resp["hits"]["hits"]) == 2, f"top_k no aplicó: {len(resp['hits']['hits'])}"
+    assert len(resp["hits"]["hits"]) == 2, (
+        f"top_k no aplicó: {len(resp['hits']['hits'])}"
+    )
 
 
 @then("el total del indice sigue siendo 3")
@@ -253,6 +256,7 @@ def _assert_rationale_present(compact_ctx: dict):
 @when("se aplica _with_compact_defaults a una query base")
 def _apply_compact_defaults(compact_ctx: dict):
     from features.task_execution.tasks.kg import _with_compact_defaults
+
     base = {"ckg": {"type": "convention"}}
     compact_ctx["out"] = _with_compact_defaults(base)
 
@@ -276,13 +280,17 @@ def _assert_default_compact(compact_ctx: dict):
 def _assert_no_override_explicit(compact_ctx: dict):
     custom = {"ckg": {}, "_top_k": 5}
     from features.task_execution.tasks.kg import _with_compact_defaults
+
     out2 = _with_compact_defaults(custom)
-    assert out2["_top_k"] == 5, f"_top_k debe respetar valor explicito: {out2['_top_k']}"
+    assert out2["_top_k"] == 5, (
+        f"_top_k debe respetar valor explicito: {out2['_top_k']}"
+    )
 
 
 @then("no muta el diccionario original")
 def _assert_no_mutation(compact_ctx: dict):
     from features.task_execution.tasks.kg import _with_compact_defaults
+
     base = {"ckg": {"type": "convention"}}
     _with_compact_defaults(base)
     assert "_top_k" not in base, "no debe mutar el original"

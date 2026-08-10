@@ -18,10 +18,10 @@ Estrategias de resolución:
   - merge: integra specs sin perder información (delta)
   - compensate: ejecuta compensación y continúa (engine)
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from features.delta_tracking.domain.entities.conflict import (
     Conflict,
@@ -51,45 +51,55 @@ class ConflictDetector:
         if sub_state_index < len(sub_states):
             ss = sub_states[sub_state_index]
             required_fields = ss.get("required_fields", [])
-            sub_data = workflow_state.get("sub_state_data", {}).get(current_sub_state, {})
+            sub_data = workflow_state.get("sub_state_data", {}).get(
+                current_sub_state, {}
+            )
             fields = sub_data.get("fields", {}) if isinstance(sub_data, dict) else {}
             for field in required_fields:
                 if not fields.get(field):
-                    conflicts.append(Conflict(
-                        type="missing_required",
-                        node=current_node,
-                        sub_state=current_sub_state,
-                        message=f"Campo requerido '{field}' faltante en {current_node}.{current_sub_state}",
-                        strategy="skip",
-                    ))
+                    conflicts.append(
+                        Conflict(
+                            type="missing_required",
+                            node=current_node,
+                            sub_state=current_sub_state,
+                            message=f"Campo requerido '{field}' faltante en {current_node}.{current_sub_state}",
+                            strategy="skip",
+                        )
+                    )
 
         # 2. Detectar obsolete_spec
         spec_ids = [s.get("spec_id", s.get("task_id", "")) for s in specs]
         seen = set()
         for sid in spec_ids:
             if sid in seen:
-                conflicts.append(Conflict(
-                    type="obsolete_spec",
-                    spec_id=sid,
-                    message=f"Spec duplicada: {sid}",
-                    strategy="merge",
-                ))
+                conflicts.append(
+                    Conflict(
+                        type="obsolete_spec",
+                        spec_id=sid,
+                        message=f"Spec duplicada: {sid}",
+                        strategy="merge",
+                    )
+                )
             seen.add(sid)
 
         # 3. Detectar spec_overlap (mismos archivos en specs diferentes)
         file_to_specs: dict[str, list[str]] = {}
         for s in specs:
             sid = s.get("spec_id", s.get("task_id", ""))
-            files = s.get("impacted_artifacts", {}).get("files", []) or s.get("files", [])
+            files = s.get("impacted_artifacts", {}).get("files", []) or s.get(
+                "files", []
+            )
             for f in files:
                 file_to_specs.setdefault(f, []).append(sid)
         for f, sids in file_to_specs.items():
             if len(sids) > 1:
-                conflicts.append(Conflict(
-                    type="spec_overlap",
-                    message=f"Archivo {f} compartido por specs: {', '.join(sids)}",
-                    strategy="merge",
-                ))
+                conflicts.append(
+                    Conflict(
+                        type="spec_overlap",
+                        message=f"Archivo {f} compartido por specs: {', '.join(sids)}",
+                        strategy="merge",
+                    )
+                )
 
         # 4. Detectar gate_blocked (trace sin kg_query para required_tools)
         node = workflow_graph.get("nodes", {}).get(current_node, {})
@@ -98,28 +108,29 @@ class ConflictDetector:
             ss = sub_states[sub_state_index]
             required_tools = ss.get("required_tools", [])
             if required_tools:
-                has_kg = any(
-                    ev.get("event_type") == "kg_query"
-                    for ev in trace_events
-                )
+                has_kg = any(ev.get("event_type") == "kg_query" for ev in trace_events)
                 if not has_kg:
-                    conflicts.append(Conflict(
-                        type="gate_blocked",
-                        node=current_node,
-                        sub_state=current_sub_state,
-                        message="Gate bloqueada: required_tools sin evidencia de consulta (kg_query)",
-                        strategy="force",
-                    ))
+                    conflicts.append(
+                        Conflict(
+                            type="gate_blocked",
+                            node=current_node,
+                            sub_state=current_sub_state,
+                            message="Gate bloqueada: required_tools sin evidencia de consulta (kg_query)",
+                            strategy="force",
+                        )
+                    )
 
         # 5. Detectar state_corruption
         if workflow_state.get("context", {}).get("reconstructed", False):
-            conflicts.append(Conflict(
-                type="state_corruption",
-                node=current_node,
-                sub_state=current_sub_state,
-                message="Estado reconstruido desde workflow-state.json — historial puede estar incompleto",
-                strategy="force",
-            ))
+            conflicts.append(
+                Conflict(
+                    type="state_corruption",
+                    node=current_node,
+                    sub_state=current_sub_state,
+                    message="Estado reconstruido desde workflow-state.json — historial puede estar incompleto",
+                    strategy="force",
+                )
+            )
 
         return conflicts
 
@@ -139,7 +150,9 @@ class ConflictResolver:
         trace_events: list[dict],
     ) -> list[Conflict]:
         """Deriva conflictos del estado actual (sin archivos externos)."""
-        return ConflictDetector.detect(workflow_state, workflow_graph, specs, trace_events)
+        return ConflictDetector.detect(
+            workflow_state, workflow_graph, specs, trace_events
+        )
 
     @staticmethod
     def resolve(
@@ -164,6 +177,7 @@ class ConflictResolver:
                 WorkflowConflictResolver,
             )
             from features.engine.domain.entities import WorkflowState, WorkflowGraph
+
             state = WorkflowState(
                 current_node=workflow_state.get("current_node", ""),
                 current_sub_state=workflow_state.get("current_sub_state", ""),
@@ -183,10 +197,13 @@ class ConflictResolver:
                 on_events=workflow_graph.get("on", {}),
             )
             from returns.pipeline import is_successful
+
             result = WorkflowConflictResolver.resolve(state, strategy, payload, graph)
             if is_successful(result):
                 new_state = result.value_or(state)
-                return new_state.to_dict() if hasattr(new_state, "to_dict") else new_state, specs
+                return new_state.to_dict() if hasattr(
+                    new_state, "to_dict"
+                ) else new_state, specs
             return workflow_state, specs
         except Exception:
             return workflow_state, specs
@@ -201,19 +218,30 @@ class ConflictResolver:
     ) -> tuple[dict, list[dict]]:
         """Resuelve estrategias específicas de specs (edit/merge)."""
         now = datetime.now(timezone.utc).isoformat()
-        resolution = ResolutionStrategy(strategy=strategy, payload=payload, applied_at=now)
+        resolution = ResolutionStrategy(
+            strategy=strategy, payload=payload, applied_at=now
+        )
         new_state = dict(workflow_state)
         new_specs = list(specs)
 
         if strategy == "edit":
-            new_specs = ConflictResolver._resolve_edit(new_specs, conflict, payload, resolution)
+            new_specs = ConflictResolver._resolve_edit(
+                new_specs, conflict, payload, resolution
+            )
         elif strategy == "merge":
-            new_specs = ConflictResolver._resolve_merge(new_specs, conflict, payload, resolution)
+            new_specs = ConflictResolver._resolve_merge(
+                new_specs, conflict, payload, resolution
+            )
 
         return new_state, new_specs
 
     @staticmethod
-    def _resolve_edit(specs: list[dict], conflict: Conflict, payload: dict, resolution: ResolutionStrategy) -> list[dict]:
+    def _resolve_edit(
+        specs: list[dict],
+        conflict: Conflict,
+        payload: dict,
+        resolution: ResolutionStrategy,
+    ) -> list[dict]:
         for s in specs:
             sid = s.get("spec_id", s.get("task_id", ""))
             if sid == conflict.spec_id:
@@ -224,7 +252,12 @@ class ConflictResolver:
         return specs
 
     @staticmethod
-    def _resolve_merge(specs: list[dict], conflict: Conflict, payload: dict, resolution: ResolutionStrategy) -> list[dict]:
+    def _resolve_merge(
+        specs: list[dict],
+        conflict: Conflict,
+        payload: dict,
+        resolution: ResolutionStrategy,
+    ) -> list[dict]:
         target_id = payload.get("target_spec_id", "")
         source_id = conflict.spec_id or payload.get("source_spec_id", "")
         if not target_id or not source_id:
@@ -242,7 +275,9 @@ class ConflictResolver:
             merged.update(payload.get("changes", {}))
             merged["_merged_from"] = source_id
             merged["_merged_at"] = resolution.applied_at
-            specs = [s for s in specs if s.get("spec_id", s.get("task_id", "")) != source_id]
+            specs = [
+                s for s in specs if s.get("spec_id", s.get("task_id", "")) != source_id
+            ]
             specs.append(merged)
         return specs
 

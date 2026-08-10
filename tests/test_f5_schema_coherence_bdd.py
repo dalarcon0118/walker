@@ -5,9 +5,9 @@ son coherentes, garantizando un contrato único sin alucinaciones.
 
 Escenarios: tests/features/f5_schema_coherence.feature
 """
+
 from __future__ import annotations
 
-import json
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
@@ -176,7 +176,10 @@ def _sprint_task_spec_node_2(f5_ctx: dict):
 
 @when("se valida una salida sin task_id")
 def _validate_llm_output_fail(f5_ctx: dict):
-    from features.engine.workflow.contracts import ContractOutputError, validate_llm_task_output
+    from features.engine.workflow.contracts import (
+        ContractOutputError,
+        validate_llm_task_output,
+    )
 
     try:
         validate_llm_task_output("SPRINT", "TASK_SPEC", {"status": "x"})
@@ -236,7 +239,9 @@ def _assert_type_object(f5_ctx: dict):
 @then("cada properties es dict")
 def _assert_properties_dict(f5_ctx: dict):
     for name, schema in f5_ctx["context_schemas"].items():
-        assert isinstance(schema.get("properties", {}), dict), f"{name}: properties no dict"
+        assert isinstance(schema.get("properties", {}), dict), (
+            f"{name}: properties no dict"
+        )
 
 
 @given("el registro WORKFLOW_OUTPUTS")
@@ -341,13 +346,9 @@ def _mcp_server(f5_ctx: dict):
 
 @when("se llama a status con project_id walker y proyecto inexistente")
 def _call_status_both(f5_ctx: dict):
-    from features.cli_interface.mcp_adapter import _build_server
-
     server = f5_ctx["server"]
     f5_ctx["result"] = server.call_tool("status", {"project_id": "walker"})
-    f5_ctx["result2"] = server.call_tool(
-        "status", {"project_id": "__inexistente__"}
-    )
+    f5_ctx["result2"] = server.call_tool("status", {"project_id": "__inexistente__"})
 
 
 @then("ambas respuestas tienen type, status_code, message y data")

@@ -3,11 +3,11 @@
 SRP: Responsabilidad única = ejecutar acciones de sub-estados y manejar
 loops de auto-complete.
 """
+
 from __future__ import annotations
 
-from typing import Any
 
-from features.engine.domain.entities import WorkflowState, WorkflowGraph
+from features.engine.domain.entities import WorkflowState
 from features.engine.domain.ports import IWorkflowIO
 
 
@@ -25,6 +25,7 @@ def execute_sub_state_action(
     """
     if io is None:
         from features.engine.infrastructure.adapters import DefaultWorkflowIO
+
         io = DefaultWorkflowIO()
 
     ss = io.get_sub_state(workflow, node_id, sub_key)

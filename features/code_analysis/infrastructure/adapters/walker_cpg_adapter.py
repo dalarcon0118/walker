@@ -7,6 +7,7 @@ SRP: este archivo es el ÚNICO punto de acoplamiento entre code_analysis
 y task_execution. Si task_execution cambia el puerto, solo este adapter
 se actualiza.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,19 +15,23 @@ import os
 import shutil
 import subprocess
 import tempfile
-from typing import Any
 
 from features.code_analysis.application.ports.cpg_repository import CpgRepository
 from features.code_analysis.domain.events import AnalysisCompleted, EventBus
 from features.code_analysis.domain.services.analysis_service import IBusinessAnalyzer
-from features.code_analysis.domain.services.business_analyzer import BusinessAnalyzer, analyze
+from features.code_analysis.domain.services.business_analyzer import analyze
 from features.task_execution.ports.cpg_analysis_port import ICpgAnalysisPort
 
 
 class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
     """Implementación del puerto de task_execution sobre code_analysis."""
 
-    def __init__(self, repo: CpgRepository, analyzer: IBusinessAnalyzer | None = None, event_bus: EventBus | None = None):
+    def __init__(
+        self,
+        repo: CpgRepository,
+        analyzer: IBusinessAnalyzer | None = None,
+        event_bus: EventBus | None = None,
+    ):
         self._repo = repo
         self._analyzer = analyzer
         self._bus = event_bus
@@ -44,15 +49,17 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         else:
             result = analyze(nodes, edges)
 
-        self._emit(AnalysisCompleted(
-            analysis_type="business_layer",
-            scope=focus or "project",
-            result_summary={
-                "pure_functions": len(result.get("pure_functions", [])),
-                "flows": len(result.get("business_flows", [])),
-                "patterns": len(result.get("architecture_patterns", [])),
-            },
-        ))
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="business_layer",
+                scope=focus or "project",
+                result_summary={
+                    "pure_functions": len(result.get("pure_functions", [])),
+                    "flows": len(result.get("business_flows", [])),
+                    "patterns": len(result.get("architecture_patterns", [])),
+                },
+            )
+        )
         return result
 
     def detect_unused_functions(self, file_filter: str = "") -> dict[str, object]:
@@ -66,23 +73,27 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             src = h.get("_source", {})
             if src.get("is_import"):
                 continue
-            candidates.append({
-                "id": h.get("_id", ""),
-                "name": src.get("name", ""),
-                "file": src.get("path", src.get("file", "")),
-                "line": src.get("line", 0),
-                "type": src.get("type", ""),
-            })
+            candidates.append(
+                {
+                    "id": h.get("_id", ""),
+                    "name": src.get("name", ""),
+                    "file": src.get("path", src.get("file", "")),
+                    "line": src.get("line", 0),
+                    "type": src.get("type", ""),
+                }
+            )
         result = {
             "query": "bug:unused_functions",
             "total": len(candidates),
             "matches": candidates,
         }
-        self._emit(AnalysisCompleted(
-            analysis_type="dead_code",
-            scope=file_filter or "project",
-            result_summary={"total": len(candidates)},
-        ))
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="dead_code",
+                scope=file_filter or "project",
+                result_summary={"total": len(candidates)},
+            )
+        )
         return result
 
     def gather_context(self, files: list[str] | None = None) -> dict[str, object]:
@@ -103,7 +114,9 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             "files_analyzed": 0,
         }
 
-    def review_code(self, files: list[str] | None = None, thresholds: dict | None = None) -> dict[str, object]:
+    def review_code(
+        self, files: list[str] | None = None, thresholds: dict | None = None
+    ) -> dict[str, object]:
         from features.code_analysis.application.review_service import ReviewUseCase
         from features.project import ProjectService
 
@@ -117,15 +130,17 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         svc = ReviewUseCase(self._repo._file_repo.data_dir, data_dir=data_dir or None)
         result = svc.review_files(files=files, thresholds=thresholds)
         result_dict = result.to_dict()
-        self._emit(AnalysisCompleted(
-            analysis_type="code_review",
-            scope=",".join(files) if files else "project",
-            result_summary={
-                "passed": result_dict.get("passed"),
-                "files": len(result_dict.get("files_scanned", [])),
-                "gates": len(result_dict.get("gates", [])),
-            },
-        ))
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="code_review",
+                scope=",".join(files) if files else "project",
+                result_summary={
+                    "passed": result_dict.get("passed"),
+                    "files": len(result_dict.get("files_scanned", [])),
+                    "gates": len(result_dict.get("gates", [])),
+                },
+            )
+        )
         return result_dict
 
     def project_metrics(self, file_filter: str = "") -> dict[str, object]:
@@ -143,14 +158,18 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         files = [file_filter] if file_filter else None
         result = svc.review_files(files=files)
         result_dict = result.to_dict()
-        self._emit(AnalysisCompleted(
-            analysis_type="project_metrics",
-            scope=file_filter or "project",
-            result_summary=result_dict.get("metrics", {}),
-        ))
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="project_metrics",
+                scope=file_filter or "project",
+                result_summary=result_dict.get("metrics", {}),
+            )
+        )
         return result_dict
 
-    def scan_dfg(self, action: str = "start", project_root: str = "") -> dict[str, object]:
+    def scan_dfg(
+        self, action: str = "start", project_root: str = ""
+    ) -> dict[str, object]:
         from features.code_analysis import CPGBuilder
 
         builder = CPGBuilder(project_root)
@@ -160,11 +179,13 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             return status
 
         result = builder.scan_dfg_async([project_root])
-        self._emit(AnalysisCompleted(
-            analysis_type="dfg_scan",
-            scope=project_root,
-            result_summary={"status": result.get("status")},
-        ))
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="dfg_scan",
+                scope=project_root,
+                result_summary={"status": result.get("status")},
+            )
+        )
         return {
             "action": "start",
             "status": result.get("status"),
@@ -172,7 +193,9 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             "next_step": "Re-ejecuta con action='status' para consultar el resultado",
         }
 
-    def build_cpg(self, project_root: str, scan_paths: list[str] | None = None) -> dict[str, object]:
+    def build_cpg(
+        self, project_root: str, scan_paths: list[str] | None = None
+    ) -> dict[str, object]:
         from features.code_analysis import CPGBuilder
 
         builder = CPGBuilder(project_root)
@@ -183,15 +206,27 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             "nodes": stats.get("total_nodes", len(result.get("nodes", {}))),
             "edges": stats.get("total_edges", len(result.get("edges", []))),
         }
-        self._emit(AnalysisCompleted(
-            analysis_type="cpg_build",
-            scope=project_root,
-            result_summary=result_dict,
-        ))
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="cpg_build",
+                scope=project_root,
+                result_summary=result_dict,
+            )
+        )
         return result_dict
 
-    def index_ref(self, url: str, name: str, branch: str = "main", depth: int = 1, data_dir: str = "") -> dict[str, object]:
-        from features.code_analysis.infrastructure.ast_grep_adapter import run_outline, parse_outline
+    def index_ref(
+        self,
+        url: str,
+        name: str,
+        branch: str = "main",
+        depth: int = 1,
+        data_dir: str = "",
+    ) -> dict[str, object]:
+        from features.code_analysis.infrastructure.ast_grep_adapter import (
+            run_outline,
+            parse_outline,
+        )
 
         out_path = os.path.join(data_dir, f"cpg.ref.{name}.json.gz")
         tmpdir = None
@@ -203,8 +238,20 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             cloned = False
             for b in branches_to_try:
                 subprocess.run(
-                    ["git", "clone", "--depth", str(depth), "--branch", b, "--single-branch", url, repo_path],
-                    capture_output=True, text=True, timeout=120,
+                    [
+                        "git",
+                        "clone",
+                        "--depth",
+                        str(depth),
+                        "--branch",
+                        b,
+                        "--single-branch",
+                        url,
+                        repo_path,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
                 )
                 if os.path.isdir(repo_path):
                     branch = b
@@ -240,15 +287,21 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
                 types[n.type] = types.get(n.type, 0) + 1
 
             result = {
-                "url": url, "name": name, "index": f"cpg-ref-{name}",
-                "path": out_path, "nodes": len(graph.nodes),
-                "edges": len(graph.edges), "structure": types,
+                "url": url,
+                "name": name,
+                "index": f"cpg-ref-{name}",
+                "path": out_path,
+                "nodes": len(graph.nodes),
+                "edges": len(graph.edges),
+                "structure": types,
             }
-            self._emit(AnalysisCompleted(
-                analysis_type="cpg_index_ref",
-                scope=name,
-                result_summary=result,
-            ))
+            self._emit(
+                AnalysisCompleted(
+                    analysis_type="cpg_index_ref",
+                    scope=name,
+                    result_summary=result,
+                )
+            )
             return result
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": f"Timeout clonando {url}"}
@@ -271,7 +324,8 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         return {
             nid: node
             for nid, node in nodes.items()
-            if isinstance(node, dict) and (
+            if isinstance(node, dict)
+            and (
                 focus_lower in node.get("path", "").lower()
                 or focus_lower in node.get("name", "").lower()
             )

@@ -6,6 +6,7 @@ hay cambios de código sin spec que los cubra.
 
 Escenarios: tests/features/uncaptured_work_gate.feature
 """
+
 from __future__ import annotations
 
 import gzip
@@ -342,9 +343,6 @@ def _project_no_spring(tmp_path, ctx: dict):
 @given("un proyecto con cambios del watcher pero sin eventos de trace")
 def _project_change_detected_only(tmp_path, ctx: dict):
     import tempfile
-    from features.engine.application.uncaptured_work import (
-        detect_uncaptured_work,
-    )
 
     tmpdir = tempfile.mkdtemp()
     proj = os.path.join(tmpdir, "proj")

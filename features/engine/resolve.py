@@ -5,11 +5,11 @@ Refactored: conflicts are derived from current state (workflow + delta + trace)
 instead of a separate .delta-conflicts.json file. Conflict detection and
 resolution logic lives in delta_tracking/domain/services/conflict_resolver.py.
 """
+
 from __future__ import annotations
 
 import os
 import subprocess
-from datetime import datetime, timezone
 from string import Template
 from libs.infrastructure.utils import (
     eprint,
@@ -48,7 +48,7 @@ def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[
     if not chain_dir:
         return False, []
 
-    from features.delta_tracking import SpringService, spring_service
+    from features.delta_tracking import spring_service
 
     try:
         spring_svc = spring_service(chain_dir=chain_dir)
@@ -262,9 +262,7 @@ def cmd_resolve(sub_args: list[str]) -> int:
     print()
 
     # ── Detection ──
-    _detect_all_conflicts(
-        chain_dir, state, workflow, current, sub_key, issues, actions
-    )
+    _detect_all_conflicts(chain_dir, state, workflow, current, sub_key, issues, actions)
 
     # ── Resolution strategies ──
 
@@ -304,19 +302,24 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
     Ahora usa WorkflowConflictResolver de engine en lugar de ConflictResolver
     legacy para estrategias de workflow.
     """
-    from features.delta_tracking.domain.services.conflict_resolver import ConflictResolver
-    from features.engine.domain.services.conflict_resolver import WorkflowConflictResolver
+    from features.delta_tracking.domain.services.conflict_resolver import (
+        ConflictResolver,
+    )
+    from features.engine.domain.services.conflict_resolver import (
+        WorkflowConflictResolver,
+    )
     from features.engine.infrastructure.repositories import (
         WorkflowStateRepository as _SSR,
     )
     from returns.result import Success
 
     s = _SSR().load(chain_dir).to_dict() or {}
-    current = s.get("current_node", "")
-    sub_key = s.get("current_sub_state", "")
+    s.get("current_node", "")
+    s.get("current_sub_state", "")
 
     workflow = find_workflow(chain_dir)
-    from features.delta_tracking import SpringService, spring_service
+    from features.delta_tracking import spring_service
+
     try:
         spring_svc = spring_service(chain_dir=chain_dir)
         if spring_svc:
@@ -330,6 +333,7 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
     trace_events = []
     try:
         from features.engine.infrastructure.trace_log import TraceLogger
+
         tracer = TraceLogger()
         trace_events = tracer.replay(chain_dir)
     except Exception:
@@ -364,6 +368,7 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
         return 0
 
     from features.engine.domain.models import WorkflowState, WorkflowGraph
+
     state = WorkflowState.from_dict(s)
     graph = WorkflowGraph.from_dict(workflow)
 
@@ -374,13 +379,19 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
     if isinstance(result, Success):
         new_state = result.unwrap()
     else:
-        print(f"  ❌ RESOLVE FALLO: {result.failure() if hasattr(result, 'failure') else result}")
+        print(
+            f"  ❌ RESOLVE FALLO: {result.failure() if hasattr(result, 'failure') else result}"
+        )
         return 1
 
     new_state_dict = new_state.to_dict() if hasattr(new_state, "to_dict") else new_state
 
     from features.engine.infrastructure.repositories import WorkflowStateRepository
-    WorkflowStateRepository().save(chain_dir, type("WS", (), {"to_dict": lambda self: new_state_dict, "version": "5.0"})())
+
+    WorkflowStateRepository().save(
+        chain_dir,
+        type("WS", (), {"to_dict": lambda self: new_state_dict, "version": "5.0"})(),
+    )
 
     if spring_svc:
         spring_id = spring_svc.get_spring_id(chain_dir)
@@ -441,9 +452,7 @@ def cmd_resolve(sub_args: list[str]) -> int:
     print()
 
     # ── Detection ──
-    _detect_all_conflicts(
-        chain_dir, state, workflow, current, sub_key, issues, actions
-    )
+    _detect_all_conflicts(chain_dir, state, workflow, current, sub_key, issues, actions)
 
     # ── Resolution strategies ──
 
@@ -475,4 +484,3 @@ def cmd_resolve(sub_args: list[str]) -> int:
     print("=" * 70)
     print()
     return 1 if issues else 0
-

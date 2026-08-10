@@ -43,12 +43,6 @@ Característica: Cognitive graph persistence and search
     Entonces puedo ver las tareas y su estado de completitud
     Y el sistema distingue entre sprints formales e informales
 
-  Escenario: El conocimiento legacy se puede incorporar al sistema actual
-    Dado que el proyecto cuenta con conocimiento almacenado en formatos anteriores
-    Cuando importo ese conocimiento al modelo unificado actual
-    Entonces el conocimiento queda disponible en el sistema actual
-    Y la información de estado y contexto se preserva correctamente
-
   Escenario: Las consultas al grafo quedan trazadas para auditoría
     Dado que el sistema registra cada consulta de conocimiento realizada
     Cuando diferentes componentes consultan el grafo cognitivo

@@ -42,7 +42,7 @@ Feature: Prompts SSOT
 
   Scenario: Los prompts de nodo viven en templates/nodes/
     Given el directorio templates/nodes
-    Then existen 47 archivos .prompt.json
+    Then existen 46 archivos .prompt.json
     And features/engine/workflow no tiene carpeta prompts
     And .cognitive no tiene carpeta workflow.v3
 
@@ -60,7 +60,7 @@ Feature: Prompts SSOT
     When listo templates disponibles
     Then incluye "nodes/sprint/task-review.prompt.json"
     And incluye "nodes/implement/work.prompt.json"
-    And hay exactamente 50 templates
+    And hay exactamente 49 templates
 
   Scenario: Engine workflow es código, no data
     Given el path resolver

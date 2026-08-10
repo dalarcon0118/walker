@@ -23,7 +23,7 @@ def update_ckg_status(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str
 
     @safe
     def _update() -> dict:
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=chain_dir)
         if not spring_svc:

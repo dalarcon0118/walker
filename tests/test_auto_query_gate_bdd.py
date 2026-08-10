@@ -6,6 +6,7 @@ prompt que ordena kg_schema/kg_multi.
 
 Escenarios: tests/features/auto_query_gate.feature
 """
+
 from __future__ import annotations
 
 import gzip
@@ -19,8 +20,12 @@ from pytest_bdd import given, scenarios, then, when
 
 scenarios("features/auto_query_gate.feature")
 
-NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "implement.node.json")
-DESIGN_NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "design.node.json")
+NODE_PATH = os.path.join(
+    "features", "engine", "workflow", "nodes", "implement.node.json"
+)
+DESIGN_NODE_PATH = os.path.join(
+    "features", "engine", "workflow", "nodes", "design.node.json"
+)
 
 
 @pytest.fixture
@@ -53,7 +58,9 @@ def _design_gather(node: dict) -> dict:
     raise AssertionError("sub-estado DESIGN_GATHER no encontrado en design.node.json")
 
 
-@given("que el nodo IMPLEMENT esta definido en features/engine/workflow/nodes/implement.node.json")
+@given(
+    "que el nodo IMPLEMENT esta definido en features/engine/workflow/nodes/implement.node.json"
+)
 def _load_implement_node(gate_ctx: dict):
     gate_ctx["node"] = _load(NODE_PATH)
 
@@ -67,14 +74,18 @@ def _inspect_work(gate_ctx: dict):
 @then("WORK tiene una fuente con provider ckg")
 def _assert_work_ckg_provider(gate_ctx: dict):
     ckg_sources = [s for s in gate_ctx["sources"] if s.get("provider") == "ckg"]
-    assert ckg_sources, f"WORK no declara provider ckg. Sources: {[s.get('provider') for s in gate_ctx['sources']]}"
+    assert ckg_sources, (
+        f"WORK no declara provider ckg. Sources: {[s.get('provider') for s in gate_ctx['sources']]}"
+    )
 
 
 @then("la config de esa fuente declara query type:convention")
 def _assert_work_ckg_query(gate_ctx: dict):
     ckg_sources = [s for s in gate_ctx["sources"] if s.get("provider") == "ckg"]
     query = ckg_sources[0].get("config", {}).get("query", {})
-    assert query.get("type") == "convention", f"query ckg debe pedir type:convention: {query}"
+    assert query.get("type") == "convention", (
+        f"query ckg debe pedir type:convention: {query}"
+    )
 
 
 @when("se inspecciona el focus de WORK")
@@ -95,12 +106,15 @@ def _assert_focus_kg_multi(gate_ctx: dict):
 
 @then("el focus contiene ANTES de tocar cualquier archivo")
 def _assert_focus_antes(gate_ctx: dict):
-    assert "ANTES de tocar cualquier archivo" in gate_ctx["constraints"], gate_ctx["constraints"]
+    assert "ANTES de tocar cualquier archivo" in gate_ctx["constraints"], gate_ctx[
+        "constraints"
+    ]
 
 
 @when("se carga el template implement/work")
 def _load_work_template(gate_ctx: dict):
     from features.prompts.loader import TemplateLoader
+
     with tempfile.TemporaryDirectory() as tmpdir:
         gate_ctx["template"] = TemplateLoader(tmpdir).load("implement/work")
 
@@ -137,12 +151,13 @@ def _assert_gate_before_quality(gate_ctx: dict):
     tmpl = gate_ctx["template"]
     gate_idx = tmpl.index("GATE DE AUTO-CONSULTA")
     quality_idx = tmpl.index("CALIDAD DEL CODIGO")
-    assert gate_idx < quality_idx, f"el gate debe estar ANTES de la sección de calidad"
+    assert gate_idx < quality_idx, "el gate debe estar ANTES de la sección de calidad"
 
 
 @when("se renderiza con datos de paso")
 def _render_template(gate_ctx: dict):
     from features.prompts.renderer import TemplateRenderer
+
     tmpl = gate_ctx["template"]
     data = {
         "step_quality_summary": "CPG indexado; cyclo falla",
@@ -179,10 +194,23 @@ def _setup_temp_project(gate_ctx: dict, tmp_path):
     }
     with open(os.path.join(project_root, "data", "project.json"), "w") as f:
         json.dump(project_json, f, ensure_ascii=False)
-    _write_ckg_min(os.path.join(project_root, "data", "ckg.json.gz"), [
-        {"_id": "conv-1", "type": "convention", "statement": "DDD vertical slice", "scope": "architecture"},
-        {"_id": "dec-1", "type": "decision", "statement": "Use TEA pattern", "scope": "global"},
-    ])
+    _write_ckg_min(
+        os.path.join(project_root, "data", "ckg.json.gz"),
+        [
+            {
+                "_id": "conv-1",
+                "type": "convention",
+                "statement": "DDD vertical slice",
+                "scope": "architecture",
+            },
+            {
+                "_id": "dec-1",
+                "type": "decision",
+                "statement": "Use TEA pattern",
+                "scope": "global",
+            },
+        ],
+    )
     gate_ctx["project_root"] = project_root
     gate_ctx["chain_dir"] = chain_dir
 
@@ -204,13 +232,16 @@ def _compose_work_context(gate_ctx: dict):
     )
     with tempfile.TemporaryDirectory() as tmpdir:
         from features.prompts.loader import TemplateLoader
+
         template = TemplateLoader(tmpdir).load("implement/work")
     gate_ctx["result"] = composer.compose(node_config, template, ctx)
 
 
 @then("el system_message contiene la instruccion de la capa ckg")
 def _assert_system_has_ckg(gate_ctx: dict):
-    assert "ckg" in (gate_ctx["result"].system_message or "").lower(), gate_ctx["result"].system_message[:300]
+    assert "ckg" in (gate_ctx["result"].system_message or "").lower(), gate_ctx[
+        "result"
+    ].system_message[:300]
 
 
 @then("la capa ckg contiene convenciones consultadas")
@@ -225,7 +256,9 @@ def _assert_result_user_has_gate(gate_ctx: dict):
     assert "GATE DE AUTO-CONSULTA DE CONVENCIONES CKG" in user, user[:300]
 
 
-@given("que el nodo DESIGN esta definido en features/engine/workflow/nodes/design.node.json")
+@given(
+    "que el nodo DESIGN esta definido en features/engine/workflow/nodes/design.node.json"
+)
 def _load_design_node(gate_ctx: dict):
     gate_ctx["design_node"] = _load(DESIGN_NODE_PATH)
 
@@ -234,20 +267,27 @@ def _load_design_node(gate_ctx: dict):
 def _inspect_design_gather(gate_ctx: dict):
     gather = _design_gather(gate_ctx["design_node"])
     gate_ctx["gather"] = gather
-    gate_ctx["providers"] = [s.get("provider") for s in gather.get("context", {}).get("sources", [])]
+    gate_ctx["providers"] = [
+        s.get("provider") for s in gather.get("context", {}).get("sources", [])
+    ]
 
 
 @then("sus fuentes incluyen business, ckg, cpg y delta")
 def _assert_design_gather_providers(gate_ctx: dict):
     for expected in ("business", "ckg", "cpg", "delta"):
-        assert expected in gate_ctx["providers"], f"DESIGN_GATHER no inyecta '{expected}'. Providers: {gate_ctx['providers']}"
+        assert expected in gate_ctx["providers"], (
+            f"DESIGN_GATHER no inyecta '{expected}'. Providers: {gate_ctx['providers']}"
+        )
 
 
 @when("se carga el template design/design-gather")
 def _load_gather_template(gate_ctx: dict):
     from features.prompts.loader import TemplateLoader
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        gate_ctx["gather_template"] = TemplateLoader(tmpdir).load("design/design-gather")
+        gate_ctx["gather_template"] = TemplateLoader(tmpdir).load(
+            "design/design-gather"
+        )
 
 
 @then("el prompt describe el gate y las capas")
@@ -293,8 +333,11 @@ def _compose_design_gather_context(gate_ctx: dict):
     )
     with tempfile.TemporaryDirectory() as tmpdir:
         from features.prompts.loader import TemplateLoader
+
         template = TemplateLoader(tmpdir).load("design/design-gather")
-    gate_ctx["design_result"] = composer.compose(gather.get("context", {}), template, ctx)
+    gate_ctx["design_result"] = composer.compose(
+        gather.get("context", {}), template, ctx
+    )
 
 
 @then("las capas renderizadas incluyen ckg")

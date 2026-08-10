@@ -6,6 +6,7 @@ ModuleRegistry → tool_catalog → tools/list).
 
 Escenarios: tests/features/tool_catalog.feature
 """
+
 from __future__ import annotations
 
 import pytest
@@ -25,6 +26,7 @@ def catalog_ctx() -> dict:
 def _registry_with_tool(output_schema: dict | None = None):
     from features.engine.infrastructure.module_registry import InMemoryModuleRegistry
     from features.engine.interface.contracts import ModuleDefinition, ToolDefinition
+
     registry = InMemoryModuleRegistry()
     registry.register_module(
         ModuleDefinition(
@@ -34,7 +36,10 @@ def _registry_with_tool(output_schema: dict | None = None):
                     name="demo",
                     description="Demo tool",
                     handler=lambda a: {"ok": True},
-                    input_schema={"type": "object", "properties": {"q": {"type": "string"}}},
+                    input_schema={
+                        "type": "object",
+                        "properties": {"q": {"type": "string"}},
+                    },
                     output_schema=output_schema,
                     metadata={"tags": ["demo"]},
                 )
@@ -73,6 +78,7 @@ def _catalog_bootstrap(catalog_ctx: dict):
 @when("listo las tools del catálogo")
 def _list_tools(catalog_ctx: dict):
     from features.engine.application import tool_catalog
+
     registry = catalog_ctx.get("registry")
     if registry is not None:
         catalog_ctx["tools"] = tool_catalog.list_tools(registry)
@@ -83,6 +89,7 @@ def _list_tools(catalog_ctx: dict):
 @when("obtengo la tool por nombre")
 def _get_tool(catalog_ctx: dict):
     from features.engine.application import tool_catalog
+
     registry = catalog_ctx["registry"]
     catalog_ctx["tool"] = tool_catalog.get_tool("demo", registry)
 
@@ -94,7 +101,7 @@ def _get_tool(catalog_ctx: dict):
 def _has_output_schema(catalog_ctx: dict):
     tool = next((t for t in catalog_ctx["tools"] if t["name"] == "demo"), None)
     assert tool is not None, "demo no encontrada"
-    assert "outputSchema" in tool, f"demo sin outputSchema"
+    assert "outputSchema" in tool, "demo sin outputSchema"
 
 
 @then("la tool tiene outputSchema")
@@ -127,20 +134,31 @@ def _matches_declared(catalog_ctx: dict):
 @then("las tasks de fase están presentes")
 def _phase_tools_present(catalog_ctx: dict):
     names = [t["name"] for t in catalog_ctx["tools"]]
-    for phase_tool in ("kg_task_context", "kg_diagnose", "kg_qa_evidence", "kg_sprint_evidence"):
+    for phase_tool in (
+        "kg_task_context",
+        "kg_diagnose",
+        "kg_qa_evidence",
+        "kg_sprint_evidence",
+    ):
         assert phase_tool in names, f"{phase_tool} no en catálogo: {names}"
 
 
 @then("kg_task_context proyecta outputSchema")
 def _kg_task_context_schema(catalog_ctx: dict):
-    entry = next((t for t in catalog_ctx["tools"] if t["name"] == "kg_task_context"), None)
+    entry = next(
+        (t for t in catalog_ctx["tools"] if t["name"] == "kg_task_context"), None
+    )
     assert entry is not None, "kg_task_context no encontrada"
-    assert "outputSchema" in entry, f"kg_task_context sin outputSchema"
+    assert "outputSchema" in entry, "kg_task_context sin outputSchema"
 
 
 @then("kg_diagnose proyecta outputSchema con propiedad diagnosis")
 def _kg_diagnose_schema(catalog_ctx: dict):
     entry = next((t for t in catalog_ctx["tools"] if t["name"] == "kg_diagnose"), None)
     assert entry is not None, "kg_diagnose no encontrada"
-    assert "outputSchema" in entry and entry["outputSchema"], "kg_diagnose sin outputSchema"
-    assert "diagnosis" in entry["outputSchema"].get("properties", {}), entry["outputSchema"]
+    assert "outputSchema" in entry and entry["outputSchema"], (
+        "kg_diagnose sin outputSchema"
+    )
+    assert "diagnosis" in entry["outputSchema"].get("properties", {}), entry[
+        "outputSchema"
+    ]

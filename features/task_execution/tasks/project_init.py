@@ -55,13 +55,16 @@ def detect_project_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskR
     error = result.failure()
     logger.warning(
         "detect_project_context fallo (%s: %s); degrada a detected=False",
-        type(error).__name__, error,
+        type(error).__name__,
+        error,
     )
     return TaskResult.success(data={"detected": False, "error": str(error)})
 
 
 @safe
-def _create_project_core(project_id: str, repo_path: str, name: str, language: str, framework: str) -> None:
+def _create_project_core(
+    project_id: str, repo_path: str, name: str, language: str, framework: str
+) -> None:
     """Core puro: crea el proyecto (puede lanzar ValueError)."""
     ProjectService.create_project(
         project_id=project_id,
@@ -73,8 +76,6 @@ def _create_project_core(project_id: str, repo_path: str, name: str, language: s
 
 
 def build_project_config(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    from features.project import ProjectService
-
     input_result = ProjectInitInput.from_dict(data)
     if not input_result.ok:
         return TaskResult.failure(input_result.error or "project_id requerido")
@@ -91,7 +92,8 @@ def build_project_config(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRes
     error = created.failure()
     logger.warning(
         "build_project_config fallo (%s: %s)",
-        type(error).__name__, error,
+        type(error).__name__,
+        error,
     )
     return TaskResult.failure(str(error))
 
@@ -159,7 +161,8 @@ def build_initial_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         error = init_result.failure()
         logger.warning(
             "build_initial_ckg fallo (%s: %s)",
-            type(error).__name__, error,
+            type(error).__name__,
+            error,
         )
         return TaskResult.success(
             data={
@@ -202,6 +205,7 @@ def scan_code_and_build_cpg(ctx: ExecutionContext, data: dict[str, Any]) -> Task
 
     # Delegar en cpg_analyze (unificación ADR-021): no duplicar CPGBuilder
     from features.task_execution.tasks.cpg_analyze import cpg_analyze
+
     result = cpg_analyze(ctx, {"scope": project_root, "build": True})
     if result.ok:
         return TaskResult.success(data=result.data or {"built": True})
@@ -216,7 +220,6 @@ def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     REST: walker <project>/addSpec '{"tasks":[{"objective":"...","domain":"..."}]}'
     Legacy: walker <project>/add_spec '{"tasks":[...]}'
     """
-    from features.delta_tracking.application.use_cases_sprint import EditSprintUseCase
 
     chain_dir = ctx.chain_dir or ""
     if not chain_dir:
@@ -253,7 +256,8 @@ def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         error = result.failure()
         logger.warning(
             "add_tasks fallo (%s: %s)",
-            type(error).__name__, error,
+            type(error).__name__,
+            error,
         )
         return TaskResult.failure(
             str(error),
@@ -276,13 +280,8 @@ def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 def _add_specs_core(ctx: ExecutionContext, specs: list) -> dict:
     """Core puro: agrega specs al sprint vía EditSprintUseCase (puede lanzar)."""
     from features.delta_tracking.application.use_cases_sprint import EditSprintUseCase
+
     return EditSprintUseCase.execute(ctx, {"tasks": specs})
-
-
-def map_legacy(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    from features.task_execution.tasks.legacy_mapper import map_legacy_workflow
-
-    return map_legacy_workflow(ctx, data)
 
 
 def register(registry: Any) -> None:
@@ -292,7 +291,6 @@ def register(registry: Any) -> None:
         ("build_project_config", build_project_config, "Build project config"),
         ("create_first_sprint", create_first_sprint, "Create first sprint"),
         ("add_tasks", add_tasks, "Add specifications to existing sprint"),
-        ("map_legacy", map_legacy, "Map legacy workflow"),
     ]:
         registry.register(
             name,

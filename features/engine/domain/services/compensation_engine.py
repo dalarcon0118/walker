@@ -6,20 +6,22 @@ Ejecuta acciones de compensación en orden inverso al completarse los sub-estado
 Principio: solo se compensa trabajo YA completado.
 Si un side-effect no tiene compensation declarada, se loggea y continúa.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
 
-from features.engine.domain.entities import WorkflowState, WorkflowGraph, SubState
-from features.engine.domain.errors import WorkflowEngineError
+from features.engine.domain.entities import WorkflowState, WorkflowGraph
 
 
 class CompensationEngine:
     """Ejecuta compensaciones de side-effects en orden inverso."""
 
     @staticmethod
-    def execute(state: WorkflowState, graph: WorkflowGraph, failed_sub_state: str) -> WorkflowState:
+    def execute(
+        state: WorkflowState, graph: WorkflowGraph, failed_sub_state: str
+    ) -> WorkflowState:
         node = graph.get_node(state.current_node)
         if not node:
             return state
@@ -55,7 +57,9 @@ class CompensationEngine:
                         "task_ok": len(compensated) > 0,
                         "task_result": {"compensated": compensated},
                         "side_effects": [],
-                        "error": None if len(compensated) > 0 else "some_compensations_failed",
+                        "error": None
+                        if len(compensated) > 0
+                        else "some_compensations_failed",
                         "error_type": None if len(compensated) > 0 else "compensation",
                         "gate": "",
                         "completed_at": now,
@@ -89,17 +93,22 @@ class CompensationEngine:
         if not effect or not effect.compensation:
             return
         try:
-            if effect.type == "update_cpg" and effect.compensation == "restore_cpg_snapshot":
+            if (
+                effect.type == "update_cpg"
+                and effect.compensation == "restore_cpg_snapshot"
+            ):
                 params = effect.params or {}
                 snapshot = params.get("snapshot_id")
                 if snapshot:
                     from libs.infrastructure.utils import run_script
+
                     run_script(f"walker cpg_restore {snapshot}", None, None)
             elif effect.type == "save_ckg" and effect.compensation == "rollback_ckg":
                 params = effect.params or {}
                 doc_id = params.get("doc_id")
                 if doc_id:
                     from features.engine.bootstrap import get_module_service
+
                     cg = get_module_service("cognitive_graph")("")
                     cg.delete("ckg", doc_id)
         except Exception:
@@ -108,6 +117,7 @@ class CompensationEngine:
     @staticmethod
     def _log_failure(sub_state: str, effect: Any, error: Exception) -> None:
         import logging
+
         logging.getLogger(__name__).error(
             "Compensation failed for %s.%s: %s(%s)",
             sub_state,

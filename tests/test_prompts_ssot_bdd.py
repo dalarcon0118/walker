@@ -6,10 +6,10 @@ sin duplicar contenido.
 
 Escenarios: tests/features/prompts_ssot.feature
 """
+
 from __future__ import annotations
 
 import os
-import tempfile
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
@@ -133,29 +133,29 @@ def _load_rest(prompts_ssot_ctx: dict):
     prompts_ssot_ctx["rest_fallback"] = _load_protocol_rest()
 
 
-@when("cargo \"protocol/mcp\"")
+@when('cargo "protocol/mcp"')
 def _load_protocol_mcp(prompts_ssot_ctx: dict):
     loader = prompts_ssot_ctx["loader"]
     prompts_ssot_ctx["text"] = loader.load("protocol/mcp")
 
 
-@when("cargo \"gates/gate-briefing\"")
+@when('cargo "gates/gate-briefing"')
 def _load_gate_briefing(prompts_ssot_ctx: dict):
     loader = prompts_ssot_ctx["loader"]
     prompts_ssot_ctx["text"] = loader.load("gates/gate-briefing")
 
 
-@when("cargo \"sprint/task-review\"")
+@when('cargo "sprint/task-review"')
 def _load_task_review(prompts_ssot_ctx: dict):
     prompts_ssot_ctx["text"] = prompts_ssot_ctx["loader"].load("sprint/task-review")
 
 
-@when("cargo \"implement/work\"")
+@when('cargo "implement/work"')
 def _load_implement_work(prompts_ssot_ctx: dict):
     prompts_ssot_ctx["text"] = prompts_ssot_ctx["loader"].load("implement/work")
 
 
-@when("cargo \"refine/diagnose\"")
+@when('cargo "refine/diagnose"')
 def _load_refine_diagnose(prompts_ssot_ctx: dict):
     prompts_ssot_ctx["text"] = prompts_ssot_ctx["loader"].load("refine/diagnose")
 
@@ -242,9 +242,9 @@ def _mcp_contains_template(prompts_ssot_ctx: dict):
         "Las secciones del template perdieron su orden en el protocolo dinámico"
     )
     assert static, "El template SSOT está vacío"
-    assert static in dynamic or any(
-        m in dynamic for m in markers
-    ), "El protocolo dinámico no se sirve del template SSOT"
+    assert static in dynamic or any(m in dynamic for m in markers), (
+        "El protocolo dinámico no se sirve del template SSOT"
+    )
 
 
 @then("el protocolo añade secciones dinámicas (tools y workflow)")
@@ -259,7 +259,9 @@ def _mcp_has_dynamic(prompts_ssot_ctx: dict):
 
 @then('el campo "protocol" coincide con el template')
 def _protocol_matches(prompts_ssot_ctx: dict):
-    assert prompts_ssot_ctx["help_data"].get("protocol") == prompts_ssot_ctx["rest_text"]
+    assert (
+        prompts_ssot_ctx["help_data"].get("protocol") == prompts_ssot_ctx["rest_text"]
+    )
 
 
 @then("devuelve _PROTOCOL_FALLBACK")
@@ -298,20 +300,18 @@ def _step_recommend(prompts_ssot_ctx: dict):
     assert "{step_recommend}" in prompts_ssot_ctx["text"]
 
 
-@then("existen 47 archivos .prompt.json")
-def _count_47(prompts_ssot_ctx: dict):
+@then("existen 46 archivos .prompt.json")
+def _count_46(prompts_ssot_ctx: dict):
     nodes_dir = prompts_ssot_ctx["nodes_dir"]
     count = 0
     for _dirpath, _dirs, files in os.walk(nodes_dir):
         count += sum(1 for f in files if f.endswith(".prompt.json"))
-    assert count == 47, f"esperaba 47 prompts de nodo, hay {count}"
+    assert count == 46, f"esperaba 46 prompts de nodo, hay {count}"
 
 
 @then("features/engine/workflow no tiene carpeta prompts")
 def _no_workflow_prompts(prompts_ssot_ctx: dict):
-    assert not os.path.exists(
-        os.path.join("features", "engine", "workflow", "prompts")
-    )
+    assert not os.path.exists(os.path.join("features", "engine", "workflow", "prompts"))
 
 
 @then(".cognitive no tiene carpeta workflow.v3")
@@ -329,12 +329,12 @@ def _includes_work(prompts_ssot_ctx: dict):
     assert "nodes/implement/work.prompt.json" in prompts_ssot_ctx["templates"]
 
 
-@then("hay exactamente 50 templates")
-def _exactly_50(prompts_ssot_ctx: dict):
-    assert len(prompts_ssot_ctx["templates"]) == 50
+@then("hay exactamente 49 templates")
+def _exactly_49(prompts_ssot_ctx: dict):
+    assert len(prompts_ssot_ctx["templates"]) == 49
 
 
-@then('termina en features/engine/workflow')
+@then("termina en features/engine/workflow")
 def _ends_workflow(prompts_ssot_ctx: dict):
     wf_dir = prompts_ssot_ctx["wf_dir_result"]
     assert wf_dir.endswith(os.path.join("features", "engine", "workflow")), wf_dir
@@ -346,7 +346,7 @@ def _no_cognitive(prompts_ssot_ctx: dict):
     assert ".cognitive" not in wf_dir
 
 
-@then('existe nodes/implement.node.json')
+@then("existe nodes/implement.node.json")
 def _node_json_exists(prompts_ssot_ctx: dict):
     wf_dir = prompts_ssot_ctx["wf_dir_result"]
     assert os.path.exists(os.path.join(wf_dir, "nodes", "implement.node.json"))

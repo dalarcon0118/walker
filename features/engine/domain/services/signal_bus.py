@@ -7,11 +7,11 @@ Responsabilidad: mantener señales emitidas y despacharlas a nodos
 suscriptos. No persiste en disco; las señales son eventos en memoria
 durante la ejecución del workflow.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 
 
 @dataclass
@@ -20,7 +20,9 @@ class SignalEvent:
     source_node: str
     source_sub_state: str = ""
     data: dict = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
 
 class SignalBus:
@@ -34,7 +36,13 @@ class SignalBus:
         key = f"{node_id}:{signal}"
         self._subscribers.setdefault(key, []).append(node_id)
 
-    def emit(self, signal: str, source_node: str, source_sub_state: str = "", data: dict | None = None) -> list[str]:
+    def emit(
+        self,
+        signal: str,
+        source_node: str,
+        source_sub_state: str = "",
+        data: dict | None = None,
+    ) -> list[str]:
         event = SignalEvent(
             name=signal,
             source_node=source_node,
@@ -58,4 +66,12 @@ class SignalBus:
         return list(set(signals))
 
     def history(self, limit: int = 50) -> list[dict]:
-        return [{"name": e.name, "source_node": e.source_node, "source_sub_state": e.source_sub_state, "timestamp": e.timestamp} for e in self._history[-limit:]]
+        return [
+            {
+                "name": e.name,
+                "source_node": e.source_node,
+                "source_sub_state": e.source_sub_state,
+                "timestamp": e.timestamp,
+            }
+            for e in self._history[-limit:]
+        ]

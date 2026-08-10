@@ -290,52 +290,7 @@ def _distinguish_formal_informal(ctx: dict):
     assert active["_id"] == "sprint-demo", "formal debe priorizar"
 
 
-# ── Escenario 7: incorporar conocimiento legacy ────────────────────
-
-
-@given("que el proyecto cuenta con conocimiento almacenado en formatos anteriores")
-def _setup_legacy(ctx: dict):
-    sprint_dir = os.path.join(ctx["project_dir"], "data", "spring", "sprint-legacy")
-    os.makedirs(sprint_dir, exist_ok=True)
-    plan = {
-        "chain_id": "sprint-legacy",
-        "goal": "Legacy sprint",
-        "specifications": [
-            {"spec_id": "SPEC-001", "objective": "Tarea A", "domain": "d1", "type": "feature", "status": "specified"},
-            {"spec_id": "SPEC-002", "objective": "Tarea B", "domain": "d2", "type": "feature", "status": "draft"},
-        ],
-    }
-    with open(os.path.join(sprint_dir, "plan.json"), "w") as f:
-        json.dump(plan, f)
-    ctx["legacy_dir"] = sprint_dir
-
-
-@when("importo ese conocimiento al modelo unificado actual")
-def _import_legacy(ctx: dict):
-    from features.delta_tracking import SpringService
-
-    svc = SpringService(ctx["project_dir"])
-    ctx["import_result"] = svc.import_spring(ctx["legacy_dir"])
-
-
-@then("el conocimiento queda disponible en el sistema actual")
-def _legacy_available(ctx: dict):
-    assert ctx["import_result"]["imported"] is True
-    assert ctx["import_result"]["specs"] == 2
-
-
-@then("la información de estado y contexto se preserva correctamente")
-def _legacy_state_preserved(ctx: dict):
-    from features.delta_tracking import SpringService
-
-    svc = SpringService(ctx["project_dir"])
-    specs = svc.get_specs("sprint-legacy")
-    statuses = {s.get("spec_id"): s.get("status") for s in specs}
-    assert statuses.get("SPEC-001") == "specified"
-    assert statuses.get("SPEC-002") == "draft"
-
-
-# ── Escenario 8: trazabilidad de consultas ─────────────────────────
+# ── Escenario 7: trazabilidad de consultas ─────────────────────────
 
 
 @given("que el sistema registra cada consulta de conocimiento realizada")
@@ -382,7 +337,7 @@ def _no_trace_duplicates(ctx: dict):
     assert len(ids) == 3, f"IDs duplicados: {len(ids)} != 3"
 
 
-# ── Escenario 9: re-planificación sin perder lo anterior ───────────
+# ── Escenario 8: re-planificación sin perder lo anterior ───────────
 
 
 @given("que un sprint tiene una planificación existente")
@@ -392,7 +347,7 @@ def _setup_existing_plan(ctx: dict):
     ctx["spring_service"] = SpringService(ctx["project_dir"])
     ctx["spring_service"].create_spring("session-demo", goal="Sprint demo", status="active")
     for i in range(13):
-        ctx["spring_service"].add_spec("session-demo", f"Objetivo viejo {i + 1}", domain="legacy", spec_index=i)
+        ctx["spring_service"].add_spec("session-demo", f"Objetivo viejo {i + 1}", domain="planning", spec_index=i)
     ctx["initial_count"] = len(ctx["spring_service"].get_specs("session-demo"))
 
 
@@ -421,7 +376,7 @@ def _traceability_old_new(ctx: dict):
     assert specs[13]["spec_id"] == "SPEC-014", f"spec_id nuevo: {specs[13]['spec_id']}"
 
 
-# ── Escenario 10: extracción estructurada ──────────────────────────
+# ── Escenario 9: extracción estructurada ───────────────────────────
 
 
 @given("que el proyecto acumula conocimiento a lo largo del tiempo")

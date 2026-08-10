@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     sprint_dir = ctx.chain_dir or ""
     try:
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import spring_service
 
         spring_svc = spring_service(chain_dir=sprint_dir)
         if not spring_svc:
@@ -50,7 +50,9 @@ def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, A
         return {"ok": True, "task_id": spec_id}
     except Exception as e:
         logger.warning(
-            "planning: save_task_spec fallo (%s: %s)", type(e).__name__, e,
+            "planning: save_task_spec fallo (%s: %s)",
+            type(e).__name__,
+            e,
         )
         return {"ok": False, "error": str(e)}
 
@@ -58,7 +60,7 @@ def save_task_spec(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, A
 @as_side_effect(scope=SCOPE_TRACKING)
 def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     sprint_dir = ctx.chain_dir or ""
-    from features.delta_tracking import SpringService, spring_service
+    from features.delta_tracking import spring_service
 
     spring_svc = spring_service(chain_dir=sprint_dir)
     if not spring_svc:
@@ -74,7 +76,8 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
     except Exception as e:
         logger.warning(
             "planning: advance_task no pudo cargar specs (%s: %s); specs vacías",
-            type(e).__name__, e,
+            type(e).__name__,
+            e,
         )
         specs = []
     # Fuente unica: delta. No hay fallback a plan.json (ADR-WALKER-013).
@@ -118,7 +121,9 @@ def advance_task(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any
         }
     except Exception as e:
         logger.warning(
-            "planning: set_spring_context fallo (%s: %s)", type(e).__name__, e,
+            "planning: set_spring_context fallo (%s: %s)",
+            type(e).__name__,
+            e,
         )
         return {"ok": False, "error": str(e)}
 

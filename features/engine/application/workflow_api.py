@@ -14,7 +14,6 @@ Flujo:
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 
@@ -208,61 +207,6 @@ class WorkflowAPI:
         self._session_store.set_active(self._session_id)
         return self._session_id
 
-    @staticmethod
-    def _is_legacy_project(pdir: str) -> bool:
-        """Verifica si un proyecto en .cognitive/projects/{pid} es legacy.
-
-        Revisa workflow.json en busca de entry_action apuntando a
-        spring.py/task.py scripts (formato legacy).
-        """
-        wf_path = os.path.join(pdir, "workflow.json")
-        if not os.path.isfile(wf_path):
-            return False
-        try:
-            with open(wf_path) as f:
-                wf = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return False
-        for node in wf.get("nodes", {}).values():
-            entry = node.get("entry_action", "") or ""
-            if "spring.py" in entry or "task.py" in entry:
-                return True
-            if node.get("on_entry_message", ""):
-                return True
-        return False
-
-    def _detect_legacy_project(self, root: str) -> str:
-        """Detecta si hay proyectos walker legacy en .cognitive/projects/.
-
-        Returns:
-            Mensaje descriptivo del proyecto legacy encontrado, o '' si no hay.
-        """
-        projects_dir = os.path.join(root, ".cognitive", "projects")
-        if not os.path.isdir(projects_dir):
-            return ""
-
-        try:
-            from tasks.legacy_mapper import detect_legacy
-
-            ctx = ExecutionContext.create(
-                session_id="_legacy_detect",
-                chain_dir="",
-            )
-            result = detect_legacy(ctx, {"path": root})
-            if result.ok and result.data.get("is_legacy"):
-                pid = result.data.get("pid", "")
-                nodes = result.data.get("nodes_count", 0)
-                chains = result.data.get("chains", [])
-                result.data.get("indicators", [])
-                return (
-                    f"Proyecto legacy detectado: {pid}"
-                    f" ({nodes} estados, {len(chains)} chains)."
-                    f" Usa 'walker transition init_project' para migrar."
-                )
-        except Exception:
-            pass
-        return ""
-
     def start(self, project_id: str, goal: str) -> dict:
         """Inicia un nuevo proyecto/sprint desde cero."""
         record = SessionRecord.create(project_id=project_id)
@@ -299,7 +243,7 @@ class WorkflowAPI:
         if self._chain_dir:
             # Fuente unica: el delta. task_id = spec actual del spring.
             try:
-                from features.delta_tracking import SpringService, spring_service
+                from features.delta_tracking import spring_service
 
                 spring_svc = spring_service(chain_dir=self._chain_dir)
                 if spring_svc:

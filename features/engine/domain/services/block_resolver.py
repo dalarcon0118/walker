@@ -8,6 +8,7 @@ delta_tracking es responsable de QUÉ se requiere (contratos).
 
 Usa Result monad (returns) para evitar excepciones como control de flujo.
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -16,7 +17,7 @@ from typing import Any
 
 from returns.result import Failure, Result, Success
 
-from features.engine.domain.entities import WorkflowState, WorkflowGraph, SubState
+from features.engine.domain.entities import WorkflowState, WorkflowGraph
 from features.engine.domain.errors import (
     NodeNotFoundError,
     SubStateNotFoundError,
@@ -95,25 +96,33 @@ class BlockResolver:
             return Failure(f"unexpected: {type(e).__name__}: {e}")
 
     @staticmethod
-    def _resolve_skip(state: WorkflowState, payload: dict[str, Any], now: str) -> WorkflowState:
+    def _resolve_skip(
+        state: WorkflowState, payload: dict[str, Any], now: str
+    ) -> WorkflowState:
         """Marca sub-estado como completado sin datos."""
         sub_state_key = state.current_sub_state or payload.get("sub_state", "")
         new_data = dict(state.sub_state_data)
-        sub_data = dict(new_data.get(sub_state_key, {}).fields if sub_state_key in new_data else {})
+        sub_data = dict(
+            new_data.get(sub_state_key, {}).fields if sub_state_key in new_data else {}
+        )
         sub_data["_skipped"] = True
         sub_data["_skip_reason"] = payload.get("reason", "timeout")
         sub_data["_resolved_at"] = now
-        new_data[sub_state_key] = type("SubStateData", (), {"fields": sub_data, "completed_at": now})()
-        
+        new_data[sub_state_key] = type(
+            "SubStateData", (), {"fields": sub_data, "completed_at": now}
+        )()
+
         new_conflicts = list(state.conflicts)
-        new_conflicts.append({
-            "type": "skip",
-            "node": state.current_node,
-            "sub_state": sub_state_key,
-            "resolved_at": now,
-            "strategy": "skip",
-        })
-        
+        new_conflicts.append(
+            {
+                "type": "skip",
+                "node": state.current_node,
+                "sub_state": sub_state_key,
+                "resolved_at": now,
+                "strategy": "skip",
+            }
+        )
+
         return replace(
             state,
             sub_state_data=new_data,
@@ -127,25 +136,33 @@ class BlockResolver:
         )
 
     @staticmethod
-    def _resolve_force(state: WorkflowState, payload: dict[str, Any], now: str) -> WorkflowState:
+    def _resolve_force(
+        state: WorkflowState, payload: dict[str, Any], now: str
+    ) -> WorkflowState:
         """Permite el submit con advertencia."""
         sub_state_key = state.current_sub_state or payload.get("sub_state", "")
         new_data = dict(state.sub_state_data)
-        sub_data = dict(new_data.get(sub_state_key, {}).fields if sub_state_key in new_data else {})
+        sub_data = dict(
+            new_data.get(sub_state_key, {}).fields if sub_state_key in new_data else {}
+        )
         sub_data["_forced"] = True
         sub_data["_force_reason"] = payload.get("reason", "gate_blocked")
         sub_data["_resolved_at"] = now
-        new_data[sub_state_key] = type("SubStateData", (), {"fields": sub_data, "completed_at": now})()
-        
+        new_data[sub_state_key] = type(
+            "SubStateData", (), {"fields": sub_data, "completed_at": now}
+        )()
+
         new_conflicts = list(state.conflicts)
-        new_conflicts.append({
-            "type": "force",
-            "node": state.current_node,
-            "sub_state": sub_state_key,
-            "resolved_at": now,
-            "strategy": "force",
-        })
-        
+        new_conflicts.append(
+            {
+                "type": "force",
+                "node": state.current_node,
+                "sub_state": sub_state_key,
+                "resolved_at": now,
+                "strategy": "force",
+            }
+        )
+
         return replace(
             state,
             sub_state_data=new_data,
@@ -159,55 +176,71 @@ class BlockResolver:
         )
 
     @staticmethod
-    def _resolve_wait(state: WorkflowState, payload: dict[str, Any], now: str) -> WorkflowState:
+    def _resolve_wait(
+        state: WorkflowState, payload: dict[str, Any], now: str
+    ) -> WorkflowState:
         """Mantiene el bloqueo, registra intento."""
         new_conflicts = list(state.conflicts)
-        new_conflicts.append({
-            "type": "wait",
-            "node": state.current_node,
-            "sub_state": state.current_sub_state,
-            "resolved_at": now,
-            "strategy": "wait",
-        })
+        new_conflicts.append(
+            {
+                "type": "wait",
+                "node": state.current_node,
+                "sub_state": state.current_sub_state,
+                "resolved_at": now,
+                "strategy": "wait",
+            }
+        )
         return replace(state, conflicts=new_conflicts, updated_at=now)
 
     @staticmethod
-    def _resolve_escalate(state: WorkflowState, payload: dict[str, Any], now: str, graph: WorkflowGraph | None) -> WorkflowState:
+    def _resolve_escalate(
+        state: WorkflowState,
+        payload: dict[str, Any],
+        now: str,
+        graph: WorkflowGraph | None,
+    ) -> WorkflowState:
         """Transiciona a nodo de escalación."""
         if not graph:
             raise TransitionBlockedError("Cannot escalate: WorkflowGraph missing")
-        
+
         escalate_node = payload.get("escalate_node")
         if not escalate_node:
             from features.engine.domain.errors import ErrorType
-            from features.engine.domain.services.escalation_registry import EscalationNodeRegistry
+            from features.engine.domain.services.escalation_registry import (
+                EscalationNodeRegistry,
+            )
+
             error_type_str = payload.get("error_type", "unknown")
             try:
                 error_type = ErrorType(error_type_str)
             except ValueError:
                 error_type = ErrorType.UNKNOWN
             escalate_node = EscalationNodeRegistry.get_escalation_node(error_type)
-        
+
         if escalate_node not in graph.nodes:
             escalate_node = EscalationNodeRegistry.get_default_node()
-        
+
         target_node = graph.nodes[escalate_node]
-        target_sub = target_node.first_sub_state.key if target_node.first_sub_state else "INIT"
+        target_sub = (
+            target_node.first_sub_state.key if target_node.first_sub_state else "INIT"
+        )
         target_idx = target_node.sub_state_index(target_sub)
         idx = target_idx if target_idx >= 0 else 0
-        
+
         new_history = list(state.history)
         new_history.append(f"{escalate_node}.{target_sub} (escalate)")
-        
+
         new_conflicts = list(state.conflicts)
-        new_conflicts.append({
-            "type": "escalate",
-            "from": f"{state.current_node}.{state.current_sub_state}",
-            "to": f"{escalate_node}.{target_sub}",
-            "resolved_at": now,
-            "strategy": "escalate",
-        })
-        
+        new_conflicts.append(
+            {
+                "type": "escalate",
+                "from": f"{state.current_node}.{state.current_sub_state}",
+                "to": f"{escalate_node}.{target_sub}",
+                "resolved_at": now,
+                "strategy": "escalate",
+            }
+        )
+
         return replace(
             state,
             current_node=escalate_node,
@@ -224,16 +257,20 @@ class BlockResolver:
         )
 
     @staticmethod
-    def _resolve_compensate(state: WorkflowState, payload: dict[str, Any], now: str) -> WorkflowState:
+    def _resolve_compensate(
+        state: WorkflowState, payload: dict[str, Any], now: str
+    ) -> WorkflowState:
         """Ejecuta compensación y retrocede."""
         new_conflicts = list(state.conflicts)
-        new_conflicts.append({
-            "type": "compensate",
-            "node": state.current_node,
-            "sub_state": state.current_sub_state,
-            "resolved_at": now,
-            "strategy": "compensate",
-        })
+        new_conflicts.append(
+            {
+                "type": "compensate",
+                "node": state.current_node,
+                "sub_state": state.current_sub_state,
+                "resolved_at": now,
+                "strategy": "compensate",
+            }
+        )
         return replace(
             state,
             conflicts=new_conflicts,

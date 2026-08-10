@@ -54,8 +54,8 @@ def specs_as_tasks(specs: list[Spec]) -> list[dict]:
 def load_spring_tasks(spring_svc, chain_dir: str) -> list[dict]:
     """Tasks del sprint desde el DELTA (fuente unica, ADR-WALKER-013).
 
-    Orquesta: spring_id desde el chain_dir + import legacy garantizado +
-    proyeccion legacy. Result pattern (convention-001): el core @safe nunca
+    Orquesta: spring_id desde el chain_dir + lecturas del delta.
+    Result pattern (convention-001): el core @safe nunca
     lanza; ante fallo se loggea error y se degrada a lista vacia — el
     engine recibe tasks vacias pero el fallo queda registrado.
     """

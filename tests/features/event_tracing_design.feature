@@ -20,12 +20,6 @@ Característica: Diseño de event tracing (ADR-WALKER-018)
     Y event_type y data se preservan intactos
     Y el timestamp se mantiene igual
 
-  @roundtrip
-  Escenario: from_ndjson resuelve sprint_id desde parent_id (fallback legacy)
-    Dado un evento legacy NDJSON con solo parent_id S-1
-    Cuando se parsea desde NDJSON
-    Entonces sprint_id se resuelve como S-1
-
   @search
   Escenario: search_traces es fail-closed ante filtro desconocido
     Dado una lista de eventos de tracing
@@ -42,17 +36,10 @@ Característica: Diseño de event tracing (ADR-WALKER-018)
 
   @dedupe
   Escenario: load_traces deduplica eventos idénticos centralmente
-    Dado un archivo NDJSON con 3 eventos idénticos
+    Dado un índice trace canónico con 3 eventos idénticos
     Cuando se cargan los traces
     Entonces solo queda 1 evento
     Y el task_id se preserva
-
-  @migrate
-  Escenario: migrate_legacy_traces es idempotente
-    Dado un directorio con traces legacy
-    Cuando se ejecuta la migración dos veces
-    Entonces la cantidad de eventos es la misma en ambas corridas
-    Y no hay duplicados por firma tras la migración
 
   @push
   Escenario: push_event persiste y load_traces lo recupera

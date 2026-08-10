@@ -1,6 +1,6 @@
 """Tests BDD (pytest-bdd) — Event tracing design (ADR-WALKER-018).
 
-Feature value: garantizar integridad, dedupe y migración idempotente en el
+Feature value: garantizar integridad y dedupe central en el
 bounded context Trace.
 
 Escenarios: tests/features/event_tracing_design.feature
@@ -28,13 +28,17 @@ def etd_ctx() -> dict:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _write_ndjson(chain_dir: str, lines: list[dict]) -> str:
-    trace_dir = os.path.join(chain_dir, "data", "traces")
-    os.makedirs(trace_dir, exist_ok=True)
-    path = os.path.join(trace_dir, "sprint.json.gz")
-    with gzip.open(path, "wt") as f:
-        for ev in lines:
-            f.write(json.dumps(ev) + "\n")
+def _write_trace_index(chain_dir: str, docs: list[dict]) -> str:
+    """Escribe el indice trace canonico (trace.json.gz) en <root>/data/.
+
+    Formato CognitiveGraph: {"index": "trace", "docs": [...], "edges": []}.
+    """
+    data_dir = os.path.join(chain_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    path = os.path.join(data_dir, "trace.json.gz")
+    payload = {"index": "trace", "docs": docs, "edges": []}
+    with open(path, "wb") as f:
+        f.write(gzip.compress(json.dumps(payload).encode()))
     return path
 
 
@@ -93,25 +97,6 @@ def _assert_event_type_data(etd_ctx: dict):
 def _assert_timestamp_preserved(etd_ctx: dict):
     restored = etd_ctx["restored"]
     assert restored.timestamp == etd_ctx["ev"].timestamp
-
-
-@given("un evento legacy NDJSON con solo parent_id S-1")
-def _legacy_ndjson_with_parent_id(etd_ctx: dict):
-    etd_ctx["ndjson_line"] = (
-        '{"event_type": "tool_call", "parent_id": "S-1", "task_id": "T-1"}'
-    )
-
-
-@when("se parsea desde NDJSON")
-def _parse_ndjson(etd_ctx: dict):
-    etd_ctx["ev"] = TraceEvent.from_ndjson(etd_ctx["ndjson_line"])
-
-
-@then("sprint_id se resuelve como S-1")
-def _assert_sprint_id_fallback(etd_ctx: dict):
-    ev = etd_ctx["ev"]
-    assert ev is not None
-    assert ev.sprint_id == "S-1"
 
 
 # ── Search ───────────────────────────────────────────────────────────────────
@@ -176,19 +161,22 @@ def _assert_sprint_filter(etd_ctx: dict):
 # ── Dedupe ───────────────────────────────────────────────────────────────────
 
 
-@given("un archivo NDJSON con 3 eventos idénticos")
-def _ndjson_with_duplicates(etd_ctx: dict):
+@given("un índice trace canónico con 3 eventos idénticos")
+def _trace_index_with_duplicates(etd_ctx: dict):
     etd_ctx["tmp_dir"] = tempfile.mkdtemp()
-    chain_dir = os.path.join(etd_ctx["tmp_dir"], "proj", "data", "spring", "s")
+    chain_dir = os.path.join(etd_ctx["tmp_dir"], "proj")
     os.makedirs(chain_dir, exist_ok=True)
     dup = {
+        "_id": "ev-1",
         "event_type": "tool_call",
         "tool": "bash",
         "task_id": "T-1",
         "timestamp": "2026-08-02T10:00:00+00:00",
         "data": {"cmd": "ls"},
     }
-    _write_ndjson(chain_dir, [dup, dup, dup])
+    # 3 docs con el mismo contenido (ids distintos): el dedupe central
+    # por firma debe colapsarlos a 1 (contrato del puerto, ADR-018).
+    _write_trace_index(chain_dir, [dup, {**dup, "_id": "ev-2"}, {**dup, "_id": "ev-3"}])
     etd_ctx["chain_dir"] = chain_dir
 
 
@@ -207,62 +195,6 @@ def _assert_deduped(etd_ctx: dict):
 @then("el task_id se preserva")
 def _assert_task_id_preserved(etd_ctx: dict):
     assert etd_ctx["events"][0].task_id == "T-1"
-
-
-# ── Migrate ──────────────────────────────────────────────────────────────────
-
-
-@given("un directorio con traces legacy")
-def _directory_with_legacy_traces(etd_ctx: dict):
-    etd_ctx["tmp_dir"] = tempfile.mkdtemp()
-    chain_dir = os.path.join(etd_ctx["tmp_dir"], "proj", "data", "spring", "s")
-    os.makedirs(chain_dir, exist_ok=True)
-    _write_ndjson(
-        chain_dir,
-        [
-            {
-                "event_type": "TRANSITION",
-                "task_id": "T-1",
-                "timestamp": "2026-08-02T10:00:00+00:00",
-                "data": {"gate": "start_task"},
-            },
-            {
-                "event_type": "TRANSITION",
-                "task_id": "T-1",
-                "timestamp": "2026-08-02T11:00:00+00:00",
-                "data": {"gate": "needs_refine", "to": "REFINE", "from": "IMPLEMENT"},
-            },
-        ],
-    )
-    etd_ctx["chain_dir"] = chain_dir
-
-
-@when("se ejecuta la migración dos veces")
-def _migrate_twice(etd_ctx: dict):
-    from features.event_tracing.infrastructure.repository import (
-        load_traces,
-        migrate_legacy_traces,
-    )
-
-    first = migrate_legacy_traces(etd_ctx["chain_dir"])
-    second = migrate_legacy_traces(etd_ctx["chain_dir"])
-    etd_ctx["first"] = first
-    etd_ctx["second"] = second
-    etd_ctx["events"] = load_traces(etd_ctx["chain_dir"])
-
-
-@then("la cantidad de eventos es la misma en ambas corridas")
-def _assert_idempotent(etd_ctx: dict):
-    assert etd_ctx["first"] == etd_ctx["second"], (
-        f"migración no idempotente: {etd_ctx['first']} vs {etd_ctx['second']}"
-    )
-
-
-@then("no hay duplicados por firma tras la migración")
-def _assert_no_duplicates_after_migration(etd_ctx: dict):
-    events = etd_ctx["events"]
-    signatures = {(e.timestamp, e.event_type, e.tool) for e in events}
-    assert len(signatures) == len(events), "eventos duplicados tras migración"
 
 
 # ── Push ─────────────────────────────────────────────────────────────────────

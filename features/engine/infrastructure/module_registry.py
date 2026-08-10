@@ -5,6 +5,7 @@ Además de módulos composite, actúa como container de servicios compartidos
 (DI): los adapters de libs/ se registran por clave lógica y los features los
 resuelven por get_service() en vez de importar implementaciones concretas.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -35,12 +36,11 @@ class InMemoryModuleRegistry(IModuleRegistry):
             name = module.name
             tools = module.tools()
             routes = module.routes()
-            meta = module.metadata()
+            module.metadata()
         else:
             name = module.name
             tools = module.tools
             routes = module.routes
-            meta = module.metadata
 
         self._modules[name] = module
         for tool in tools:

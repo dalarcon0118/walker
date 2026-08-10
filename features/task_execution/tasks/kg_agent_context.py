@@ -29,8 +29,6 @@ def _compact(v, max_chars=400):
 
 
 def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    import os
-
     from features.project import ProjectService
     from features.task_execution.application.intelligence_service import (
         TaskIntelligenceService,
@@ -49,7 +47,9 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     except Exception as e:
         logger.warning(
             "agent_context: resolve_paths(%s) fallo (%s: %s)",
-            chain_dir, type(e).__name__, e,
+            chain_dir,
+            type(e).__name__,
+            e,
         )
 
     if not project_root:
@@ -88,10 +88,7 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             or ""
         ),
         text=(
-            ckg_q.get("text")
-            or ckg_q.get("query", "")
-            or trace_q.get("text", "")
-            or ""
+            ckg_q.get("text") or ckg_q.get("query", "") or trace_q.get("text", "") or ""
         ),
         chain_dir=chain_dir,
     )
@@ -99,11 +96,15 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         error = result.failure()
         logger.warning(
             "agent_context: get_task_intelligence fallo (%s: %s)",
-            type(error).__name__, error,
+            type(error).__name__,
+            error,
         )
         return TaskResult.failure(
             str(error),
-            data={"error": "La consulta consolidada no pudo completarse", "next_step": "Reintenta o revisa los índices con kg_schema"},
+            data={
+                "error": "La consulta consolidada no pudo completarse",
+                "next_step": "Reintenta o revisa los índices con kg_schema",
+            },
         )
 
     payload = result.value_or(None).as_dict()
@@ -128,7 +129,7 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                     "reason": "knowledge + recent activity",
                 },
                 {
-                    "command": "walker agent_context {\"cpg\":{\"file\":$ARCHIVO}}",
+                    "command": 'walker agent_context {"cpg":{"file":$ARCHIVO}}',
                     "reason": "estructura + convenciones + specs de un archivo",
                 },
             ],

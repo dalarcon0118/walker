@@ -2,13 +2,10 @@
 
 Cada evento representa una accion atomica en el ecosistema.
 Puede venir del workflow, del agente, o de herramientas externas.
-Soporta dos formatos de almacenamiento:
-  - trace.json.gz (index con docs array — CognitiveGraph)
-  - data/traces/*.json.gz (NDJSON por sprint)
+Formato de almacenamiento: trace.json.gz (index con docs array — CognitiveGraph).
 
 Migrated from scripts/tracegraph/domain/models.py (TASK-005).
 Fixes:
-  - Agregado from_ndjson() classmethod para parsear NDJSON
   - Agregado from_dict() para formato index
   - Agregado field 'tool' para compatibilidad con datos reales
   - ADR-WALKER-018: serializacion simetrica (to_dict <-> from_* conservan identidad)
@@ -17,26 +14,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
-import json
 import logging
-
-from returns.pipeline import is_successful
-from returns.result import safe
 
 logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-@safe
-def _parse_ndjson_line(line: str) -> dict | None:
-    """Core puro de TraceEvent.from_ndjson (puede lanzar JSONDecodeError/TypeError)."""
-    raw = json.loads(line)
-    if not isinstance(raw, dict):
-        return None
-    return raw
 
 
 @dataclass
@@ -81,52 +65,6 @@ class TraceEvent:
     data: dict[str, Any] = field(default_factory=dict)  # raw data blob
 
     @classmethod
-    def from_ndjson(cls, line: str) -> TraceEvent | None:
-        """Parse una linea NDJSON a un TraceEvent.
-
-        Formato esperado (data/traces/*.json.gz):
-            {"event_type": "...", "tool": "...", "input": {...},
-             "output": {...}, "timestamp": "...", ...}
-
-        Result pattern: el core @safe nunca lanza; ante linea malformada
-        devuelve None y loggea en debug (convention-001).
-        """
-        result = _parse_ndjson_line(line)
-        if not is_successful(result):
-            error = result.failure()
-            logger.debug(
-                "linea NDJSON no parseable (%s: %s); se omite",
-                type(error).__name__, error,
-            )
-            return None
-        raw = result.value_or(None)
-        if raw is None:
-            return None
-        return cls(
-            id=raw.get("id", ""),
-            event_type=raw.get("event_type", "event"),
-            source=raw.get("source", "walker"),
-            agent_id=raw.get("agent_id", ""),
-            session_id=raw.get("session_id", ""),
-            sprint_id=raw.get("sprint_id") or raw.get("parent_id", ""),
-            task_id=raw.get("task_id", ""),
-            node=raw.get("node", ""),
-            sub_state=raw.get("sub_state", ""),
-            tool=raw.get("tool", ""),
-            input=raw.get("input", {}),
-            output=raw.get("output", {}),
-            files=raw.get("files", []),
-            parent_type=raw.get("parent_type", ""),
-            parent_id=raw.get("parent_id", ""),
-            timestamp=raw.get("timestamp", _now()),
-            started_at=raw.get("started_at", ""),
-            finished_at=raw.get("finished_at", ""),
-            duration_ms=raw.get("duration_ms", 0),
-            metadata=raw.get("metadata", {}),
-            data=raw.get("data", {}),
-        )
-
-    @classmethod
     def from_dict(cls, d: dict) -> TraceEvent:
         """Convierte un dict plano a TraceEvent (formato trace.json.gz docs)."""
         return cls(
@@ -156,7 +94,7 @@ class TraceEvent:
     def to_dict(self) -> dict:
         """Serializacion simetrica (ADR-WALKER-018): incluye identidad.
 
-        from_dict()/from_ndjson() deben reconstruir el evento sin perdida:
+        from_dict() deben reconstruir el evento sin perdida:
         id, parent_id y parent_type se serializan (antes se perdian).
         """
         return {

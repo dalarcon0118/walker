@@ -31,64 +31,14 @@
             "items": {
               "type": "string"
             }
-          },
-          "is_legacy": {
-            "type": "boolean"
-          },
-          "legacy_info": {
-            "type": "object"
-          }
-        }
-      },
-      "on_success": "LEGACY_MAP",
-      "on_failure": "",
-      "side_effects": [],
-      "timeout_ms": 30000,
-      "prompt_id": "project_init/detect"
-    },
-    {
-      "key": "LEGACY_MAP",
-      "label": "Map legacy walker data",
-      "description": "Auto-detect legacy walker format. If found, map workflow/prompts/history to walker3. If not found, NO-OP and continue.",
-      "execution": "auto",
-      "action": "map_legacy",
-      "input_schema": {},
-      "output_schema": {
-        "type": "object",
-        "properties": {
-          "legacy_mapped": {
-            "type": "boolean"
-          },
-          "prompts_created": {
-            "type": "integer"
-          },
-          "events_imported": {
-            "type": "integer"
-          },
-          "tasks_converted": {
-            "type": "integer"
-          },
-          "chains_processed": {
-            "type": "array"
           }
         }
       },
       "on_success": "SCENARIO",
-      "on_failure": "SCENARIO",
-      "side_effects": [
-        {
-          "type": "import_legacy_trail",
-          "params": {},
-          "description": "Import legacy trail events as TraceGraph entries"
-        },
-        {
-          "type": "save_converted_tasks",
-          "params": {},
-          "description": "Save converted tasks in new format"
-        }
-      ],
-      "timeout_ms": 60000,
-      "prompt_id": "project_init/legacy-map"
+      "on_failure": "",
+      "side_effects": [],
+      "timeout_ms": 30000,
+      "prompt_id": "project_init/detect"
     },
     {
       "key": "SCENARIO",

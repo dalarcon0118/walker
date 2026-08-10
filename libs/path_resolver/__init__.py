@@ -398,14 +398,24 @@ def resolve_project_root(chain_dir: str) -> str:
     Camina hacia arriba desde chain_dir buscando project.json.
     El directorio que contiene project.json es el project root.
 
-    Busca en dos ubicaciones en cada nivel:
+    Busca en tres ubicaciones en cada nivel:
     1. <candidate>/data/project.json (canónico, todo en data/)
     2. <candidate>/project.json (legacy, project root)
+    3. <candidate>/.cognitive/projects/*/data/project.json (layout cognitivo
+       nuevo: el manifest del proyecto vive bajo .cognitive/, hijo de la raíz
+       del repo). En ese caso el project root cognitivo es
+       <candidate>/.cognitive/projects/<pid> (que contiene data/project.json).
 
     IMPORTANTE: Se prefiere data/project.json sobre el directo, y se EVITA
     que un directorio llamado 'data' sea identificado como project root
     (bug del "double data/": chain_dir dentro de .../data/spring/xxx/).
     Si el candidato se llama 'data', se retorna su padre.
+
+    El check del layout cognitivo (3) permite resolver proyectos self-hosted
+    (como el propio walker) cuyo project.json NO está en la raíz del repo
+    sino en <repo>/.cognitive/projects/<pid>/data/project.json: caminando
+    hacia arriba nunca se encuentra "data/project.json" en la raíz, pero el
+    manifest SÍ existe como hijo (descendente) de la raíz vía .cognitive/.
 
     Raises:
         FileNotFoundError: si no encuentra project.json en ningún nivel.
@@ -428,6 +438,10 @@ def resolve_project_root(chain_dir: str) -> str:
             # Si el candidato se llama 'data', ignorarlo y seguir subiendo
             if os.path.basename(candidate) != "data":
                 return candidate
+        # Layout cognitivo nuevo: <candidate>/.cognitive/projects/<pid>/data/project.json
+        cognitive_manifest = _find_cognitive_manifest(candidate)
+        if cognitive_manifest:
+            return cognitive_manifest
         parent = os.path.dirname(candidate)
         if parent == candidate:
             break
@@ -436,6 +450,31 @@ def resolve_project_root(chain_dir: str) -> str:
         f"No se pudo resolver project root desde chain_dir='{chain_dir}'. "
         "Ningún directorio en la jerarquía contiene project.json ni data/project.json."
     )
+
+
+def _find_cognitive_manifest(candidate: str) -> str:
+    """Retorna el dir cognitivo del proyecto si existe un project.json
+
+    bajo <candidate>/.cognitive/projects/<pid>/data/project.json.
+
+    Es el layout del manifest de un proyecto self-hosted/descentralizado:
+    <repo>/.cognitive/projects/<pid>/data/project.json. El retorno es el
+    <project_root> cognitivo (directorio que contiene data/project.json),
+    no la raíz del repo (para <repo>/.cognitive/projects/<pid>/data/project.json
+    retorna <repo>/.cognitive/projects/<pid>).
+
+    Solo soporta UN proyecto por repo (primera coincidencia de glob).
+    Retorna '' si no hay ningún manifest cognitivo bajo el candidato.
+    """
+    import glob
+
+    matches = sorted(
+        glob.glob(os.path.join(candidate, ".cognitive", "projects", "*", "data", "project.json"))
+    )
+    if not matches:
+        return ""
+    # <dir>/data/project.json → <dir>  (quitar /data/project.json)
+    return os.path.dirname(os.path.dirname(matches[0]))
 
 
 def resolve_project_id(chain_dir: str) -> str:

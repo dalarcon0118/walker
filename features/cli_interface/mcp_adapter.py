@@ -15,7 +15,7 @@ with human formatting. REST endpoints exist only for external integration.
 
 CLI vs MCP API separation:
   - CLI commands (human): prepare, list, help, mcp-tools, mcp-routes, status, submit, transition
-  - MCP tools (agent): cpg_analyze, ckg_analyze, delta_analyze, agent_context, trace_push, and all domain operations
+  - MCP tools (agent): cpg_analyze, ckg_analyze, agent_context, trace_push, and all domain operations
   - REST endpoints (external integration): /status, /submit, /transition, /prepare, /list, /help
 """
 
@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 
 from returns.pipeline import is_successful
@@ -37,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── Composite server: compone todos los modulos MCP ──
+
 
 def _build_server() -> McpServer:
     """Construye el servidor MCP compositing todos los modulos.
@@ -86,14 +86,15 @@ def _sync_module_registry_to_server(server: McpServer) -> None:
     if not is_successful(outcome):
         logger.warning(
             "module registry sync skipped (%s: %s)",
-            type(outcome.failure()).__name__, outcome.failure(),
+            type(outcome.failure()).__name__,
+            outcome.failure(),
         )
 
 
 @safe
 def _sync_catalog_core(server: McpServer) -> None:
     """Core puro: sincroniza tools del ModuleRegistry (puede lanzar)."""
-    from features.engine.application.tool_catalog import list_tools, list_routes
+    from features.engine.application.tool_catalog import list_tools
 
     existing = {t.get("name", "") for t in server.list_tools()}
     for tool in list_tools():
@@ -110,6 +111,7 @@ def _sync_catalog_core(server: McpServer) -> None:
 def _module_tool_handler(name: str):
     def handler(args: dict) -> dict:
         return _call_tool(name, args)
+
     return handler
 
 
@@ -120,6 +122,7 @@ def _register_help_resource(server: McpServer) -> None:
     build_tool_help: description + example + input/output schema) — no desde
     un texto fijo en el adapter. Si la tool no existe, fallback error 404.
     """
+
     def inner(args: dict) -> dict:
         tool = (args.get("params") or {}).get("tool", "")
         outcome = _build_help_content(tool)
@@ -201,29 +204,35 @@ def _register_rest_tools(server: McpServer) -> None:
 def _call_tool_handler(name: str):
     def handler(args: dict) -> dict:
         return _call_tool(name, args)
+
     return handler
 
 
 def _log_module_error(mod: str, err: Exception) -> None:
     import sys
+
     print(f"[MCP] module '{mod}' registration failed: {err}", file=sys.stderr)
 
 
 def _log_module_errors(mod: str, count: int, errors: list[str]) -> None:
     import sys
+
     for e in errors:
         print(f"[MCP] module '{mod}' ({count} tools): {e}", file=sys.stderr)
 
 
 def _load_module(module_name: str):
     """Lazy load a module's register and register_module functions."""
+
     def register(server: McpServer) -> None:
         import importlib
+
         mod = importlib.import_module(module_name)
         if hasattr(mod, "register"):
             mod.register(server)
         if hasattr(mod, "register_module"):
             mod.register_module(_get_module_registry())
+
     return register
 
 
@@ -248,7 +257,8 @@ def _get_tool_catalog() -> list[dict]:
         return outcome.value_or([])
     logger.warning(
         "tool catalog unavailable (%s: %s)",
-        type(outcome.failure()).__name__, outcome.failure(),
+        type(outcome.failure()).__name__,
+        outcome.failure(),
     )
     return []
 
@@ -347,7 +357,9 @@ def _resolve_project_id(args: dict) -> str:
         return outcome.value_or("")
     error = outcome.failure()
     logger.warning(
-        "project resolution failed (%s: %s)", type(error).__name__, error,
+        "project resolution failed (%s: %s)",
+        type(error).__name__,
+        error,
     )
     return ""
 
@@ -377,7 +389,8 @@ def _get_module_registry() -> Any:
         else:
             logger.warning(
                 "module registry bootstrap failed (%s: %s); usando vacio",
-                type(outcome.failure()).__name__, outcome.failure(),
+                type(outcome.failure()).__name__,
+                outcome.failure(),
             )
             _MODULE_REGISTRY = {}
     return _MODULE_REGISTRY
@@ -403,9 +416,18 @@ def _call_tool(name: str, args: dict) -> dict:
 
     if tool_def and route_def:
         project_id = _resolve_project_id(args)
-        path = route_def.path.format(project_id=project_id) if "{project_id}" in route_def.path else route_def.path
-        flags = route_def.flags_builder(args) if route_def.flags_builder else {"_payload": args.get("body", args)}
+        path = (
+            route_def.path.format(project_id=project_id)
+            if "{project_id}" in route_def.path
+            else route_def.path
+        )
+        flags = (
+            route_def.flags_builder(args)
+            if route_def.flags_builder
+            else {"_payload": args.get("body", args)}
+        )
         from . import _ROUTER
+
         result = _ROUTER.dispatch(path, flags, method=route_def.method or "POST")
         if hasattr(result, "to_dict"):
             return result.to_dict()
@@ -417,6 +439,7 @@ def _call_tool(name: str, args: dict) -> dict:
     path = f"{project_id}/{name}"
     flags = {"_payload": args.get("body", {})}
     from . import _ROUTER
+
     result = _ROUTER.dispatch(path, flags, method="POST")
     if hasattr(result, "to_dict"):
         return result.to_dict()
@@ -428,7 +451,9 @@ def _call_tool(name: str, args: dict) -> dict:
 # ── JSON-RPC 2.0 handler ────────────────────────────────────────────────────
 
 # Sesiones MCP del dominio del Protocol (ADR-016): repo in-memory compartido.
-from features.cli_interface.infrastructure.session_store import InMemorySessionRepository
+from features.cli_interface.infrastructure.session_store import (
+    InMemorySessionRepository,
+)
 
 _SESSIONS = InMemorySessionRepository()
 
@@ -452,10 +477,16 @@ def _handle_request(msg: dict) -> dict:
             params.get("protocolVersion", "2024-11-05")
         )
         if sess_errors:
-            return JsonRpcError(id=msg_id, code=-32602, message="; ".join(sess_errors)).to_dict()
-        init_errors = session.initialize(client_name=client_name, client_version=client_version)
+            return JsonRpcError(
+                id=msg_id, code=-32602, message="; ".join(sess_errors)
+            ).to_dict()
+        init_errors = session.initialize(
+            client_name=client_name, client_version=client_version
+        )
         if init_errors:
-            return JsonRpcError(id=msg_id, code=-32602, message="; ".join(init_errors)).to_dict()
+            return JsonRpcError(
+                id=msg_id, code=-32602, message="; ".join(init_errors)
+            ).to_dict()
         _SESSIONS.save(session)
 
         return {
@@ -483,19 +514,31 @@ def _handle_request(msg: dict) -> dict:
         if is_successful(outcome):
             result = outcome.value_or({})
             return {
-                "jsonrpc": "2.0", "id": msg_id,
-                "result": {"content": [{"type": "text", "text": dumps(result)}],
-                           "isError": result.get("status_code", 200) >= 400},
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "content": [{"type": "text", "text": dumps(result)}],
+                    "isError": result.get("status_code", 200) >= 400,
+                },
             }
         error = outcome.failure()
-        logger.error("tools/call '%s' fallo (%s: %s)", name, type(error).__name__, error)
+        logger.error(
+            "tools/call '%s' fallo (%s: %s)", name, type(error).__name__, error
+        )
         return {
             "jsonrpc": "2.0",
             "id": msg_id,
-            "result": {"content": [{"type": "text", "text": str(error)}], "isError": True},
+            "result": {
+                "content": [{"type": "text", "text": str(error)}],
+                "isError": True,
+            },
         }
     if method == "resources/list":
-        return {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": _get_server().list_resources()}}
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {"resources": _get_server().list_resources()},
+        }
     if method == "resources/read":
         uri = params.get("uri", "")
         outcome = _read_resource_core(uri)
@@ -504,11 +547,18 @@ def _handle_request(msg: dict) -> dict:
             return {"jsonrpc": "2.0", "id": msg_id, "result": outcome.value_or({})}
         error = outcome.failure()
         logger.error(
-            "resources/read '%s' fallo (%s: %s)", uri, type(error).__name__, error,
+            "resources/read '%s' fallo (%s: %s)",
+            uri,
+            type(error).__name__,
+            error,
         )
         return {
-            "jsonrpc": "2.0", "id": msg_id,
-            "result": {"contents": [{"uri": uri, "mimeType": "text/plain", "text": str(error)}]}}
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "contents": [{"uri": uri, "mimeType": "text/plain", "text": str(error)}]
+            },
+        }
     if method == "prompts/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": _PROMPTS}}
     if method == "prompts/get":
@@ -574,6 +624,7 @@ def serve_stdio() -> int:
     Las NOTIFICACIONES (sin id) se procesan pero NO se responden — el
     protocolo MCP las usa como señales one-way (initialized, cancelled).
     """
+
     def _reset_server_cache() -> None:
         global _SERVER
         _SERVER = None
@@ -602,7 +653,9 @@ def serve_stdio() -> int:
                 }
             else:
                 logger.warning(
-                    "request handling fallo (%s: %s)", type(error).__name__, error,
+                    "request handling fallo (%s: %s)",
+                    type(error).__name__,
+                    error,
                 )
                 resp = {
                     "jsonrpc": "2.0",

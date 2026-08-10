@@ -52,7 +52,11 @@ def compute_project_paths(project_root: str) -> dict[str, str]:
         "traces_dir": os.path.join(data_dir, "traces"),
         "cpg_path": os.path.join(data_dir, "cpg.json.gz"),
         "ckg_path": os.path.join(data_dir, "ckg.json.gz"),
-        "project_json_path": os.path.join(project_root, "project.json"),
+        # project.json canónico: <project_root>/data/project.json (todo en data/).
+        # Antes apuntaba a <project_root>/project.json (inexistente en el layout
+        # cognitivo), lo que dejaba el manifest vacío (code_paths=[] → el build
+        # fingerprint cubría todo el repo y nunca coincidía con el watcher).
+        "project_json_path": os.path.join(data_dir, "project.json"),
         "workflow_json_path": os.path.join(workflow_dir, "workflow.json"),
     }
 

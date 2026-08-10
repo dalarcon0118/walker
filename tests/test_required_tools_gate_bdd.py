@@ -6,11 +6,11 @@ no registra evidencia de consulta. Fail-open si el tracer falla.
 
 Escenarios: tests/features/required_tools_gate.feature
 """
+
 from __future__ import annotations
 
 import json
 import os
-import tempfile
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -19,7 +19,9 @@ from pytest_bdd import given, scenarios, then, when
 
 scenarios("features/required_tools_gate.feature")
 
-NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "implement.node.json")
+NODE_PATH = os.path.join(
+    "features", "engine", "workflow", "nodes", "implement.node.json"
+)
 WALKER_CHAIN_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "data", "spring", "walker-sprint")
 )
@@ -47,6 +49,7 @@ def _substate(node: dict, key: str) -> dict:
 
 def _work_substate_obj():
     from features.engine.infrastructure.repositories import WorkflowRepository
+
     graph = WorkflowRepository().load(WALKER_CHAIN_DIR)
     node = graph.get_node("IMPLEMENT")
     for ss in node.sub_states:
@@ -134,9 +137,13 @@ def _make_submit_orchestrator(tracer_events: list[dict]):
     workflow_repo.load.return_value = graph
     submit_uc = Mock()
     submit_uc.execute.return_value = {
-        "ok": True, "action": "advanced", "message": "submitted", "advanced_to": "CODE_REVIEW_SCAN",
+        "ok": True,
+        "action": "advanced",
+        "message": "submitted",
+        "advanced_to": "CODE_REVIEW_SCAN",
     }
     from features.engine.application.submit_orchestrator import SubmitOrchestrator
+
     orch = SubmitOrchestrator(
         state_repo=state_repo,
         workflow_repo=workflow_repo,
@@ -160,6 +167,7 @@ def _implement_node(gate_ctx: dict):
 @given("el workflow cargado desde el chain_dir")
 def _workflow_loaded(gate_ctx: dict):
     from features.engine.infrastructure.repositories import WorkflowRepository
+
     gate_ctx["graph"] = WorkflowRepository().load(WALKER_CHAIN_DIR)
 
 
@@ -172,7 +180,14 @@ def _orch_no_events(gate_ctx: dict):
 
 @given("un SubmitOrchestrator con tracer con kg_query de TASK-001")
 def _orch_with_task_match(gate_ctx: dict):
-    events = [{"event_type": "kg_query", "task_id": "TASK-001", "session_id": "composer", "data": {"index": "ckg"}}]
+    events = [
+        {
+            "event_type": "kg_query",
+            "task_id": "TASK-001",
+            "session_id": "composer",
+            "data": {"index": "ckg"},
+        }
+    ]
     orch, submit_uc = _make_submit_orchestrator(tracer_events=events)
     gate_ctx["orch"] = orch
     gate_ctx["submit_uc"] = submit_uc
@@ -180,7 +195,14 @@ def _orch_with_task_match(gate_ctx: dict):
 
 @given("un SubmitOrchestrator con tracer con kg_query session cli índice cpg")
 def _orch_with_cli_query(gate_ctx: dict):
-    events = [{"event_type": "kg_query", "task_id": "", "session_id": "cli", "data": {"index": "cpg"}}]
+    events = [
+        {
+            "event_type": "kg_query",
+            "task_id": "",
+            "session_id": "cli",
+            "data": {"index": "cpg"},
+        }
+    ]
     orch, submit_uc = _make_submit_orchestrator(tracer_events=events)
     gate_ctx["orch"] = orch
     gate_ctx["submit_uc"] = submit_uc
@@ -188,7 +210,14 @@ def _orch_with_cli_query(gate_ctx: dict):
 
 @given("un SubmitOrchestrator con tracer con kg_query index multi")
 def _orch_with_multi(gate_ctx: dict):
-    events = [{"event_type": "kg_query", "task_id": "", "session_id": "cli", "data": {"index": "multi", "query": {"query": "workflow"}}}]
+    events = [
+        {
+            "event_type": "kg_query",
+            "task_id": "",
+            "session_id": "cli",
+            "data": {"index": "multi", "query": {"query": "workflow"}},
+        }
+    ]
     orch, submit_uc = _make_submit_orchestrator(tracer_events=events)
     gate_ctx["orch"] = orch
     gate_ctx["submit_uc"] = submit_uc
@@ -199,17 +228,25 @@ def _orch_exploding_tracer(gate_ctx: dict):
     class ExplodingTracer:
         def has_kg_query(self, *a, **kw):
             raise RuntimeError("trace corrupto")
+
         def trace(self, *a, **kw):
             pass
+
         def trace_submit(self, *a, **kw):
             pass
+
         def trace_error(self, *a, **kw):
             pass
 
     from features.engine.application.submit_orchestrator import SubmitOrchestrator
+
     orch = SubmitOrchestrator(
-        state_repo=Mock(), workflow_repo=Mock(), submit_uc=Mock(),
-        handle_error=Mock(), tracer=ExplodingTracer(), transition=Mock(),
+        state_repo=Mock(),
+        workflow_repo=Mock(),
+        submit_uc=Mock(),
+        handle_error=Mock(),
+        tracer=ExplodingTracer(),
+        transition=Mock(),
         dispatch_events_from_side_effects=Mock(return_value=0),
     )
     gate_ctx["orch"] = orch
@@ -219,6 +256,7 @@ def _orch_exploding_tracer(gate_ctx: dict):
 @given("el SubState USER_GATE sin required_tools")
 def _user_gate_no_required(gate_ctx: dict):
     from features.engine.infrastructure.repositories import WorkflowRepository
+
     graph = WorkflowRepository().load(WALKER_CHAIN_DIR)
     node = graph.get_node("IMPLEMENT")
     gate_ctx["sub"] = next(ss for ss in node.sub_states if ss.key == "USER_GATE")
@@ -239,6 +277,7 @@ def _context_with_required(gate_ctx: dict):
 @given("un proyecto con 80 eventos kg_query en el trace")
 def _project_with_80_events(gate_ctx: dict, tmp_path):
     import gzip
+
     project_root = str(tmp_path / "proj")
     os.makedirs(os.path.join(project_root, "data"), exist_ok=True)
     with open(os.path.join(project_root, "data", "project.json"), "w") as f:
@@ -280,6 +319,7 @@ def _check_gate(gate_ctx: dict):
 def _build_briefing(gate_ctx: dict):
     from features.engine.application.orchestrator import OrchestrationService
     from unittest.mock import Mock
+
     svc = OrchestrationService.__new__(OrchestrationService)
     sub = _work_substate_obj()
     lines = svc._build_node_briefing(Mock(), sub)
@@ -289,6 +329,7 @@ def _build_briefing(gate_ctx: dict):
 @when("el TraceLogger hace replay")
 def _trace_replay(gate_ctx: dict):
     from features.engine.infrastructure.trace_log import TraceLogger
+
     tl = TraceLogger()
     gate_ctx["events"] = tl.replay(gate_ctx["project_root"])
     gate_ctx["trace_logger"] = tl
@@ -325,7 +366,9 @@ def _get_work_substate(gate_ctx: dict):
 @then("cada uno declara required_tools")
 def _all_declare(gate_ctx: dict):
     for key, required in gate_ctx["results"].items():
-        assert isinstance(required, list) and required, f"{key} no declara required_tools"
+        assert isinstance(required, list) and required, (
+            f"{key} no declara required_tools"
+        )
 
 
 @then("cada lista incluye ckg")
@@ -366,7 +409,9 @@ def _action_advanced(gate_ctx: dict):
 
 @then("el error_type es required_tools_gate")
 def _error_type_gate(gate_ctx: dict):
-    assert gate_ctx["result"].get("error_type") == "required_tools_gate", gate_ctx["result"]
+    assert gate_ctx["result"].get("error_type") == "required_tools_gate", gate_ctx[
+        "result"
+    ]
 
 
 @then("el mensaje menciona las capas requeridas")
@@ -413,9 +458,14 @@ def _text_block_warning(gate_ctx: dict):
 
 @then("se recuperan los 80 eventos")
 def _replay_80(gate_ctx: dict):
-    assert len(gate_ctx["events"]) == 80, f"Esperaba 80, obtuvo {len(gate_ctx['events'])}"
+    assert len(gate_ctx["events"]) == 80, (
+        f"Esperaba 80, obtuvo {len(gate_ctx['events'])}"
+    )
 
 
 @then("has_kg_query detecta la consulta")
 def _has_kg_query_detected(gate_ctx: dict):
-    assert gate_ctx["trace_logger"].has_kg_query(gate_ctx["project_root"], layers={"ckg"}) is True
+    assert (
+        gate_ctx["trace_logger"].has_kg_query(gate_ctx["project_root"], layers={"ckg"})
+        is True
+    )

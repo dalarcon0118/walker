@@ -7,17 +7,17 @@ Mezcla:
        - Mapa del workflow (workflow_map)
        - Mecanismo anti-pérdida / uncaptured_work
 """
+
 from __future__ import annotations
 
-from typing import Any
 
 from features.engine.application.tool_catalog import list_tools
 from features.engine.application.workflow_map import compose_workflow_map
-from features.engine.application.uncaptured_work import UncapturedWorkResult
 
 
 def _load_static_template() -> str:
     from features.prompts.loader import load_static
+
     return load_static("protocol/mcp")
 
 
@@ -33,11 +33,7 @@ def _build_tools_section() -> str:
     return "\n".join(lines)
 
 
-def _build_workflow_section() -> str:
-    try:
-        wf_map = compose_workflow_map()
-    except Exception as exc:
-        return f"Workflow map unavailable ({type(exc).__name__}: {exc})."
+def _build_workflow_section(wf_map: dict) -> str:
     analysis = wf_map.get("analysis", {})
     off_sprint = analysis.get("off_sprint", {})
     mechanism = off_sprint.get("mechanism", {})
@@ -56,14 +52,10 @@ def _build_workflow_section() -> str:
     return "\n".join(lines)
 
 
-def _build_capture_task_section() -> str:
-    try:
-        wf_map = compose_workflow_map()
-        analysis = wf_map.get("analysis", {})
-        off_sprint = analysis.get("off_sprint", {})
-        mechanism = off_sprint.get("mechanism", {})
-    except Exception:
-        mechanism = {}
+def _build_capture_task_section(wf_map: dict) -> str:
+    analysis = wf_map.get("analysis", {})
+    off_sprint = analysis.get("off_sprint", {})
+    mechanism = off_sprint.get("mechanism", {})
     lines = [
         "6. SESSION WORK LOG (MANDATORY): when you COMPLETE a piece of work",
         "   (implemented a feature, fixed a bug, refactored, indexed, etc.),",
@@ -89,11 +81,17 @@ def build_mcp_protocol() -> str:
     static = _load_static_template()
     lines = static.splitlines()
 
+    # Componer el mapa una sola vez y reutilizarlo en las secciones vivas.
+    try:
+        wf_map = compose_workflow_map()
+    except Exception:
+        return static
+
     try:
         tools_section = _build_tools_section()
-        workflow_section = _build_workflow_section()
-        capture_section = _build_capture_task_section()
-    except Exception as exc:
+        workflow_section = _build_workflow_section(wf_map)
+        capture_section = _build_capture_task_section(wf_map)
+    except Exception:
         return static
 
     # Insertar sección 2 dinámica después de "2. TO ADVANCE..."
@@ -111,7 +109,11 @@ def build_mcp_protocol() -> str:
         if not inserted_wf and line.strip().startswith("5. REUSE what exists"):
             # Avanzar hasta el final del párrafo de la sección 5
             j = i + 1
-            while j < len(lines) and lines[j].strip() and not lines[j].strip().startswith("6."):
+            while (
+                j < len(lines)
+                and lines[j].strip()
+                and not lines[j].strip().startswith("6.")
+            ):
                 result.append(lines[j])
                 j += 1
             i = j - 1

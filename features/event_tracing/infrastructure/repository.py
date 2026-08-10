@@ -1,13 +1,11 @@
-"""infrastructure/repository.py — TraceRepository via CognitiveGraph + legacy.
+"""infrastructure/repository.py — TraceRepository via CognitiveGraph.
 
 Diseño ADR-WALKER-018:
   1. CognitiveGraph.search("trace", ...) es el storage canonical.
-  2. migrate_legacy_traces() consolida los formatos legacy (NDJSON + index)
-     al indice trace — idempotente (ids deterministas por contenido).
-  3. load_traces() = canonical + fallback de lectura legacy, con DEDUPE CENTRAL
-     y orden determinista (contrato de unicidad del puerto).
-  4. Cache en proceso por firma de fuentes (mtimes) + TTL: elimina el
-     re-escaneo legacy del hot path del prompt (ReflectionProvider.collect).
+  2. load_traces() = canonical, con DEDUPE CENTRAL y orden determinista
+     (contrato de unicidad del puerto).
+  3. Cache en proceso por TTL: elimina el re-escaneo del hot path del prompt
+     (ReflectionProvider.collect); se invalida al pushear.
 
 Result pattern: los cores @safe nunca lanzan; los wrappers loggean
 (convention-001: cero except silenciosos).
@@ -15,8 +13,6 @@ Result pattern: los cores @safe nunca lanzan; los wrappers loggean
 
 from __future__ import annotations
 
-import gzip
-import hashlib
 import json
 import logging
 import os
@@ -32,11 +28,9 @@ from features.event_tracing.domain.models import TraceEvent
 
 logger = logging.getLogger(__name__)
 
-# Cache en proceso: (chain_dir -> (firma_fuentes, expira_en, eventos)).
-# La firma son los mtimes de las fuentes legacy; si cambian, el cache se
-# invalida. El TTL acota la staleness ante pushes recientes en el mismo run.
+# Cache en proceso: (chain_dir -> (expira_en, eventos)).
 _CACHE_TTL = 5.0
-_CACHE: dict[str, tuple[str, float, list[TraceEvent]]] = {}
+_CACHE: dict[str, tuple[float, list[TraceEvent]]] = {}
 
 
 class CognitiveTraceRepository(TraceRepository):
@@ -52,9 +46,6 @@ class CognitiveTraceRepository(TraceRepository):
     def load_traces(self, chain_dir: str) -> list[TraceEvent]:
         return load_traces(chain_dir)
 
-    def migrate_legacy(self, chain_dir: str) -> int:
-        return migrate_legacy_traces(chain_dir)
-
     def push_event(self, chain_dir: str, data: dict) -> dict:
         return push_event(chain_dir, data)
 
@@ -63,7 +54,6 @@ def load_traces(chain_dir: str) -> list[TraceEvent]:
     """Carga todos los traces disponibles para un sprint.
 
     Primary: CognitiveGraph (indice trace).
-    Fallback: data/traces/*.json.gz y data/trace.json.gz (legacy).
     Unicidad y orden: garantizados aqui (contrato del puerto, ADR-018).
 
     Args:
@@ -75,19 +65,14 @@ def load_traces(chain_dir: str) -> list[TraceEvent]:
     if not chain_dir:
         return []
 
-    # Cache por firma de fuentes legacy (hot path del prompt).
-    sig = _legacy_signature(chain_dir)
     cached = _CACHE.get(chain_dir)
-    if cached and cached[1] > time.time() and cached[0] == sig:
-        return cached[2]
+    if cached and cached[0] > time.time():
+        return cached[1]
 
-    events: list[TraceEvent] = []
-    events.extend(_load_canonical(chain_dir))
-    events.extend(_load_legacy(chain_dir))
-
+    events: list[TraceEvent] = _load_canonical(chain_dir)
     events = _dedupe(events)
     events.sort(key=lambda ev: (ev.timestamp or "", ev.event_type or ""))
-    _CACHE[chain_dir] = (sig, time.time() + _CACHE_TTL, events)
+    _CACHE[chain_dir] = (time.time() + _CACHE_TTL, events)
     return events
 
 
@@ -102,70 +87,6 @@ def _load_canonical(chain_dir: str) -> list[TraceEvent]:
         type(error).__name__, error,
     )
     return []
-
-
-def _load_legacy(chain_dir: str) -> list[TraceEvent]:
-    """Fallback de lectura: NDJSON (data/traces/) + index (trace.json.gz)."""
-    project_root = _resolve_project_root(chain_dir)
-    events: list[TraceEvent] = []
-    for base in _ordered_bases(chain_dir, project_root):
-        trace_dir = os.path.join(base, "data", "traces")
-        if os.path.isdir(trace_dir):
-            for fname in sorted(os.listdir(trace_dir)):
-                if not fname.endswith(".gz"):
-                    continue
-                fpath = os.path.join(trace_dir, fname)
-                result = _read_ndjson_core(fpath)
-                if is_successful(result):
-                    events.extend(result.value_or([]))
-                else:
-                    error = result.failure()
-                    logger.warning(
-                        "trace NDJSON %s ilegible (%s: %s); archivo omitido",
-                        fpath, type(error).__name__, error,
-                    )
-        index_path = os.path.join(base, "data", "trace.json.gz")
-        if os.path.isfile(index_path):
-            result = _read_index_core(index_path)
-            if is_successful(result):
-                events.extend(result.value_or([]))
-            else:
-                error = result.failure()
-                logger.warning(
-                    "trace index %s ilegible (%s: %s); omitido",
-                    index_path, type(error).__name__, error,
-                )
-    return events
-
-
-def migrate_legacy_traces(chain_dir: str) -> int:
-    """Migra formatos legacy (NDJSON + index) al indice trace.
-
-    Idempotente: los doc ids son deterministas (hash del contenido), por lo
-    que re-ejecutar sobreescribe los mismos docs sin duplicar.
-
-    Args:
-        chain_dir: Ruta al directorio del sprint
-
-    Returns:
-        Numero de eventos migrados (0 si no hay legacy o falla el store).
-    """
-    _CACHE.pop(chain_dir, None)
-    legacy = _load_legacy(chain_dir)
-    events = _dedupe(legacy)
-    if not events:
-        return 0
-    result = _store_events_core(chain_dir, events)
-    if is_successful(result):
-        stored = result.value_or(0)
-        logger.info("migrate_legacy_traces: %d eventos migrados a indice trace", stored)
-        return stored
-    error = result.failure()
-    logger.error(
-        "migrate_legacy_traces fallo (%s: %s); %d eventos no migrados",
-        type(error).__name__, error, len(events),
-    )
-    return 0
 
 
 def push_event(chain_dir: str, data: dict) -> dict:
@@ -209,43 +130,10 @@ def _dedupe(events: list[TraceEvent]) -> list[TraceEvent]:
     return result
 
 
-def _ordered_bases(chain_dir: str, project_root: str) -> list[str]:
-    """Bases de busqueda legacy en orden determinista (sin duplicados)."""
-    bases: list[str] = []
-    for b in (chain_dir, project_root):
-        if b and b not in bases:
-            bases.append(b)
-    return bases
-
-
-def _legacy_signature(chain_dir: str) -> str:
-    """Firma (mtimes) de las fuentes legacy para invalidar el cache."""
-    project_root = _resolve_project_root(chain_dir)
-    parts: list[str] = []
-    for base in _ordered_bases(chain_dir, project_root):
-        trace_dir = os.path.join(base, "data", "traces")
-        if os.path.isdir(trace_dir):
-            for fname in sorted(os.listdir(trace_dir)):
-                if not fname.endswith(".gz"):
-                    continue
-                fp = os.path.join(trace_dir, fname)
-                try:
-                    parts.append(f"{fname}:{os.path.getmtime(fp)}")
-                except OSError:
-                    parts.append(f"{fname}:?")
-        index_path = os.path.join(base, "data", "trace.json.gz")
-        if os.path.isfile(index_path):
-            try:
-                parts.append(f"index:{os.path.getmtime(index_path)}")
-            except OSError:
-                parts.append("index:?")
-    return "|".join(parts)
-
-
 # ── Resolucion de project_root ──────────────────────────────────
 
 def _resolve_project_root(chain_dir: str) -> str:
-    """Resuelve el project_root para buscar traces a nivel proyecto.
+    """Resuelve el project_root para el indice trace.
 
     Result pattern: el core @safe nunca lanza; ante fallo devuelve chain_dir
     y loggea en debug (convention-001).
@@ -291,61 +179,6 @@ def _search_cognitive_graph_core(chain_dir: str) -> list[TraceEvent]:
         source["id"] = h.get("_id", "")
         events.append(TraceEvent.from_dict(source))
     return events
-
-
-@safe
-def _read_ndjson_core(fpath: str) -> list[TraceEvent]:
-    """Core puro: lee un archivo NDJSON gz (puede lanzar)."""
-    with gzip.open(fpath, "rt") as f:
-        content = f.read()
-    events: list[TraceEvent] = []
-    for line in content.strip().split("\n"):
-        line = line.strip()
-        if line:
-            ev = TraceEvent.from_ndjson(line)
-            if ev:
-                events.append(ev)
-    return events
-
-
-@safe
-def _read_index_core(index_path: str) -> list[TraceEvent]:
-    """Core puro: lee el index legacy trace.json.gz (puede lanzar)."""
-    with gzip.open(index_path, "rt") as f:
-        raw = json.load(f)
-    docs = raw.get("docs", []) if isinstance(raw, dict) else raw
-    events: list[TraceEvent] = []
-    for doc in docs:
-        if isinstance(doc, dict):
-            events.append(TraceEvent.from_dict(doc))
-    return events
-
-
-@safe
-def _store_events_core(chain_dir: str, events: list[TraceEvent]) -> int:
-    """Core puro: persiste eventos en el indice trace (puede lanzar).
-
-    Doc ids deterministas (hash del contenido) -> migracion idempotente.
-    """
-    from features.engine.bootstrap import get_module_service
-
-    graph_factory = get_module_service("cognitive_graph")
-    cg = graph_factory(_cg_root(chain_dir))
-    docs: dict[str, dict] = {}
-    for ev in events:
-        doc_id = _event_doc_id(ev)
-        docs[doc_id] = ev.to_dict()
-    if docs:
-        cg.store_many("trace", docs)
-    return len(docs)
-
-
-def _event_doc_id(ev: TraceEvent) -> str:
-    """Id de documento determinista: id explicito o hash del contenido."""
-    if ev.id:
-        return ev.id
-    payload = json.dumps(ev.to_dict(), sort_keys=True, default=str)
-    return f"ev-{hashlib.md5(payload.encode()).hexdigest()[:16]}"
 
 
 @safe

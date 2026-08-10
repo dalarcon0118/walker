@@ -6,11 +6,11 @@ evidencias y briefings correctos.
 
 Escenarios: tests/features/prompts_gates.feature
 """
+
 from __future__ import annotations
 
 import json
 import os
-import tempfile
 from types import SimpleNamespace
 
 import pytest
@@ -36,7 +36,9 @@ def _setup_project(tmpdir: str) -> tuple[str, str]:
     return chain_dir, project_root
 
 
-def _write_template(project_root: str, node: str, prompt_name: str, template: str) -> str:
+def _write_template(
+    project_root: str, node: str, prompt_name: str, template: str
+) -> str:
     prompts_dir = os.path.join(project_root, "workflow.v3", "prompts", node)
     os.makedirs(prompts_dir, exist_ok=True)
     path = os.path.join(prompts_dir, f"{prompt_name}.prompt.json")
@@ -57,7 +59,7 @@ def prompts_gates_ctx() -> dict:
 # ── Given ─────────────────────────────────────────────────────────────────────
 
 
-@given("un proyecto con template \"testnode/review\"")
+@given('un proyecto con template "testnode/review"')
 def _project_with_template(prompts_gates_ctx: dict, tmp_path):
     chain_dir, project_root = _setup_project(str(tmp_path))
     _write_template(
@@ -178,7 +180,7 @@ def _health_llm_gate(prompts_gates_ctx: dict):
 # ── When ──────────────────────────────────────────────────────────────────────
 
 
-@when('compongo el prompt con datos extra')
+@when("compongo el prompt con datos extra")
 def _compose_prompt(prompts_gates_ctx: dict):
     from features.prompts.manager import PromptManager
 
@@ -208,14 +210,12 @@ def _compose_prompt(prompts_gates_ctx: dict):
     prompts_gates_ctx["result"] = result
 
 
-@when('resuelvo el prompt con extra_data de Q&A')
+@when("resuelvo el prompt con extra_data de Q&A")
 def _resolve_prompt(prompts_gates_ctx: dict):
     chain_dir = prompts_gates_ctx["chain_dir"]
     project_root = prompts_gates_ctx["project_root"]
     svc = prompts_gates_ctx["svc"]
-    _write_template(
-        project_root, "testnode", "review", "Q1: {q1}\nA1: {a1}\n"
-    )
+    _write_template(project_root, "testnode", "review", "Q1: {q1}\nA1: {a1}\n")
     context_config = {
         "focus": {"role": "analista"},
         "sources": [{"provider": "state", "config": {"query": {}}}],
@@ -237,7 +237,7 @@ def _resolve_prompt(prompts_gates_ctx: dict):
     prompts_gates_ctx["result"] = result
 
 
-@when('guardo y cargo el estado')
+@when("guardo y cargo el estado")
 def _save_load_state(prompts_gates_ctx: dict):
     from features.engine.infrastructure.repositories import WorkflowStateRepository
 
@@ -249,7 +249,7 @@ def _save_load_state(prompts_gates_ctx: dict):
     prompts_gates_ctx["loaded"] = loaded
 
 
-@when('consulto last_fields')
+@when("consulto last_fields")
 def _query_last_fields(prompts_gates_ctx: dict):
     from features.engine.context.query_manager import QueryManager
 
@@ -259,7 +259,7 @@ def _query_last_fields(prompts_gates_ctx: dict):
     prompts_gates_ctx["query_result"] = result
 
 
-@when('genero el reporte de evidencia')
+@when("genero el reporte de evidencia")
 def _build_evidence(prompts_gates_ctx: dict):
     from features.prompts.evidence import build_evidence_report, format_detail_block
 
@@ -304,7 +304,7 @@ def _build_evidence(prompts_gates_ctx: dict):
     prompts_gates_ctx["report"] = report
 
 
-@when('renderizo el gate briefing')
+@when("renderizo el gate briefing")
 def _render_briefing(prompts_gates_ctx: dict):
     from features.prompts.gate_briefing import render_gate_briefing
 
@@ -322,34 +322,34 @@ def _render_briefing(prompts_gates_ctx: dict):
     prompts_gates_ctx["what_happened"] = wh
 
 
-@given('estado con decisión approve')
+@given("estado con decisión approve")
 def _state_decision(prompts_gates_ctx: dict):
     prompts_gates_ctx["state"] = {"decision": "approve", "feedback": "ok"}
 
 
-@given('estado con intent start_task')
+@given("estado con intent start_task")
 def _state_intent(prompts_gates_ctx: dict):
     prompts_gates_ctx["state"] = {"intent": "start_task"}
 
 
-@given('estado con task_data')
+@given("estado con task_data")
 def _state_task_data(prompts_gates_ctx: dict):
     prompts_gates_ctx["state"] = {"task_data": "contexto"}
 
 
-@given('estado vacío')
+@given("estado vacío")
 def _state_empty(prompts_gates_ctx: dict):
     prompts_gates_ctx["state"] = {}
 
 
-@when('what_happened sintetiza el estado')
+@when("what_happened sintetiza el estado")
 def _what_happened(prompts_gates_ctx: dict):
     from features.prompts.gate_briefing import what_happened_from_state
 
     prompts_gates_ctx["result"] = what_happened_from_state(prompts_gates_ctx["state"])
 
 
-@when('construyo el contexto del prompt')
+@when("construyo el contexto del prompt")
 def _build_context(prompts_gates_ctx: dict):
     from features.engine.application.prompt_context_builder import PromptContextBuilder
 
@@ -372,19 +372,11 @@ def _spring_with_deps(prompts_gates_ctx: dict, tmp_path):
     svc.add_spec("test-sprint", "Objetivo dos", domain="test", spec_index=1)
     svc.add_spec("test-sprint", "Objetivo tres", domain="test", spec_index=2)
     svc.add_spec("test-sprint", "Objetivo cuatro", domain="test", spec_index=3)
-    svc.update_spec_entity(
-        "test-sprint", "SPEC-001", {"status": "completed"}
-    )
+    svc.update_spec_entity("test-sprint", "SPEC-001", {"status": "completed"})
     # depends_on va por los ids canonicos de las specs.
-    svc.update_spec_entity(
-        "test-sprint", "SPEC-002", {"depends_on": []}
-    )
-    svc.update_spec_entity(
-        "test-sprint", "SPEC-003", {"depends_on": ["SPEC-001"]}
-    )
-    svc.update_spec_entity(
-        "test-sprint", "SPEC-004", {"depends_on": ["SPEC-003"]}
-    )
+    svc.update_spec_entity("test-sprint", "SPEC-002", {"depends_on": []})
+    svc.update_spec_entity("test-sprint", "SPEC-003", {"depends_on": ["SPEC-001"]})
+    svc.update_spec_entity("test-sprint", "SPEC-004", {"depends_on": ["SPEC-003"]})
     chain_dir = os.path.join(project_root, "data", "spring", "test-sprint")
     prompts_gates_ctx["chain_dir"] = chain_dir
     prompts_gates_ctx["project_root"] = project_root
@@ -398,7 +390,7 @@ def _build_sprint_context(prompts_gates_ctx: dict):
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir)
 
 
-@when('analizo la salud')
+@when("analizo la salud")
 def _analyze_health(prompts_gates_ctx: dict):
     from features.project import HealthReportAnalyzer
 

@@ -11,6 +11,8 @@ Este fixture hace que el default de toda la suite sea un tamptdir aislado.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from features.engine.domain.session import SessionStore
@@ -29,3 +31,46 @@ def _sandbox_sessions_dir(tmp_path, monkeypatch):
     SessionStore.SESSIONS_DIR = None
     SessionStore.ACTIVE_FILE = None
     SessionStore._LAST_GC = 0.0
+
+
+@pytest.fixture
+def mcp_project(tmp_path):
+    """Crea un proyecto temporal con .cognitive/ listo para tests MCP."""
+    cog = tmp_path / ".cognitive" / "projects" / "walker"
+    cog.mkdir(parents=True)
+    (cog / "data").mkdir()
+    (cog / "data" / "spring").mkdir()
+    project_json = {
+        "project_id": "walker",
+        "name": "walker",
+        "repo_path": str(tmp_path),
+        "language": "python",
+        "framework": "unknown",
+        "status": "active",
+    }
+    with open(cog / "data" / "project.json", "w") as f:
+        json.dump(project_json, f)
+    from features.delta_tracking.infrastructure.cognitive_delta_repo import (
+        CognitiveDeltaRepository,
+    )
+    CognitiveDeltaRepository(str(cog))
+    return str(cog)
+
+
+def call_mcp_tool(project_root: str, tool_name: str, arguments: dict) -> dict:
+    """Helper reutilizable: invoca una tool MCP via JSON-RPC y devuelve el payload."""
+    from features.cli_interface.mcp_adapter import _handle_request
+
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }
+    resp = _handle_request(msg)
+    content = resp.get("result", {}).get("content", [])
+    text = content[0].get("text", "") if content else ""
+    try:
+        return json.loads(text) if text.startswith("{") else {"raw": text}
+    except json.JSONDecodeError:
+        return {"raw": text}

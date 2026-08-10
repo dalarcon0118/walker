@@ -15,7 +15,7 @@ Característica: Reflexión por contexto en el ciclo REFINE
 
   @contrato
   Escenario: build_reflection_context deriva source_node desde TRANSITION a REFINE
-    Dado un proyecto walker con trace NDJSON
+    Dado un proyecto walker con trace canónico
     Y el trace tiene TRANSITION desde IMPLEMENT hacia REFINE
     Cuando construyo el contexto de reflexión para la tarea
     Entonces source_node es IMPLEMENT
@@ -24,7 +24,7 @@ Característica: Reflexión por contexto en el ciclo REFINE
 
   @contrato
   Escenario: build_reflection_context incrementa attempt con segundo REFINE
-    Dado un proyecto walker con trace NDJSON
+    Dado un proyecto walker con trace canónico
     Y el trace tiene dos TRANSITION hacia REFINE
     Cuando construyo el contexto de reflexión para la tarea
     Entonces attempt es 2
@@ -32,7 +32,7 @@ Característica: Reflexión por contexto en el ciclo REFINE
 
   @contrato
   Escenario: ReflectionProvider produce ContextPiece con capa reflection
-    Dado un proyecto walker con trace NDJSON
+    Dado un proyecto walker con trace canónico
     Y el trace tiene TRANSITION desde VERIFY hacia REFINE
     Y el contexto incluye last_error y last_error_strategy
     Cuando el ReflectionProvider recolecta el contexto
@@ -48,7 +48,7 @@ Característica: Reflexión por contexto en el ciclo REFINE
 
   @contrato
   Escenario: PromptContextBuilder inyecta claves de reflexión
-    Dado un proyecto walker con trace NDJSON
+    Dado un proyecto walker con trace canónico
     Y el trace tiene TRANSITION desde IMPLEMENT hacia REFINE
     Cuando el PromptContextBuilder construye el contexto
     Entonces el contexto incluye source_node
@@ -58,7 +58,7 @@ Característica: Reflexión por contexto en el ciclo REFINE
 
   @contrato
   Escenario: resolve_prompt resuelve placeholders de reflexión
-    Dado un proyecto walker con trace NDJSON
+    Dado un proyecto walker con trace canónico
     Y el template de refine incluye placeholders
     Y el trace tiene TRANSITION desde VERIFY hacia REFINE
     Cuando el OrchestrationService resuelve el prompt

@@ -141,7 +141,7 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
     """
     try:
         from libs.path_resolver import resolve_project_root
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import SpringService
 
         # Resolver el project_root desde el project.json local (mismo
         # mecanismo que TraceLogger.replay). NO usar ProjectService.resolve_paths

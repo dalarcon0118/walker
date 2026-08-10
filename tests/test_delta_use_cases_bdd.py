@@ -7,6 +7,7 @@ aislando la logica de negocio.
 
 Escenarios: tests/features/delta_use_cases.feature
 """
+
 from __future__ import annotations
 
 import pytest
@@ -23,12 +24,12 @@ def delta_ctx() -> dict:
 class InMemoryDeltaRepository:
     def __init__(self):
         from features.delta_tracking.domain.entities import Spring, Spec
+
         self.springs: dict[str, Spring] = {}
         self.specs: dict[str, Spec] = {}
         self.edges: list[tuple[str, str, str]] = []
 
     def get_spring(self, spring_id: str):
-        from features.delta_tracking.domain.entities import Spring
         return self.springs.get(spring_id)
 
     def save_spring(self, spring) -> None:
@@ -81,7 +82,10 @@ def _empty_repo(delta_ctx: dict):
 
 @given("un repositorio con un spring en planning")
 def _repo_with_spring_planning(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.create_spring import CreateSpringUseCase
+    from features.delta_tracking.application.use_cases.create_spring import (
+        CreateSpringUseCase,
+    )
+
     repo = InMemoryDeltaRepository()
     uc = CreateSpringUseCase(repo)
     uc.execute("sprint-a", goal="Goal demo", status="planning", project_id="p")
@@ -90,7 +94,10 @@ def _repo_with_spring_planning(delta_ctx: dict):
 
 @given("un repositorio con un spring existente")
 def _repo_with_spring(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.create_spring import CreateSpringUseCase
+    from features.delta_tracking.application.use_cases.create_spring import (
+        CreateSpringUseCase,
+    )
+
     repo = InMemoryDeltaRepository()
     uc = CreateSpringUseCase(repo)
     uc.execute("sprint-a", goal="Goal demo", status="planning", project_id="p")
@@ -104,8 +111,13 @@ def _repo_empty(delta_ctx: dict):
 
 @given("un spring con 3 specs: 1 completed, 1 in_progress, 1 draft")
 def _spring_with_three_specs(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.create_spring import CreateSpringUseCase
-    from features.delta_tracking.application.use_cases.manage_specs import AddSpecUseCase
+    from features.delta_tracking.application.use_cases.create_spring import (
+        CreateSpringUseCase,
+    )
+    from features.delta_tracking.application.use_cases.manage_specs import (
+        AddSpecUseCase,
+    )
+
     repo = InMemoryDeltaRepository()
     uc = CreateSpringUseCase(repo)
     uc.execute("sprint-a", goal="Goal demo", status="active", project_id="p")
@@ -129,9 +141,14 @@ def _boom_service(delta_ctx: dict):
 
 @when("ejecuto CreateSpringUseCase con status active sobre sprint-a")
 def _create_active(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.create_spring import CreateSpringUseCase
+    from features.delta_tracking.application.use_cases.create_spring import (
+        CreateSpringUseCase,
+    )
+
     uc = CreateSpringUseCase(delta_ctx["repo"])
-    delta_ctx["spring"] = uc.execute("sprint-a", goal="Goal", status="active", project_id="p")
+    delta_ctx["spring"] = uc.execute(
+        "sprint-a", goal="Goal", status="active", project_id="p"
+    )
 
 
 @then("el spring tiene active True")
@@ -146,9 +163,14 @@ def _assert_repo_active(delta_ctx: dict):
 
 @when("ejecuto CreateSpringUseCase con status planning sobre sprint-b")
 def _create_planning(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.create_spring import CreateSpringUseCase
+    from features.delta_tracking.application.use_cases.create_spring import (
+        CreateSpringUseCase,
+    )
+
     uc = CreateSpringUseCase(delta_ctx["repo"])
-    delta_ctx["spring2"] = uc.execute("sprint-b", goal="Goal", status="planning", project_id="p")
+    delta_ctx["spring2"] = uc.execute(
+        "sprint-b", goal="Goal", status="planning", project_id="p"
+    )
 
 
 @then("el spring-b tiene active False")
@@ -158,7 +180,10 @@ def _assert_spring_inactive(delta_ctx: dict):
 
 @when("ejecuto set_status a active")
 def _set_status_active(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.update_spring import UpdateSpringUseCase
+    from features.delta_tracking.application.use_cases.update_spring import (
+        UpdateSpringUseCase,
+    )
+
     uc = UpdateSpringUseCase(delta_ctx["repo"])
     uc.set_status("sprint-a", "active")
 
@@ -172,7 +197,10 @@ def _assert_after_active(delta_ctx: dict):
 
 @when("ejecuto set_status a closed")
 def _set_status_closed(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.update_spring import UpdateSpringUseCase
+    from features.delta_tracking.application.use_cases.update_spring import (
+        UpdateSpringUseCase,
+    )
+
     uc = UpdateSpringUseCase(delta_ctx["repo"])
     uc.set_status("sprint-a", "closed")
 
@@ -185,7 +213,10 @@ def _assert_after_closed(delta_ctx: dict):
 
 @when("ejecuto set_context con dict posicional")
 def _set_context_dict(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.update_spring import UpdateSpringUseCase
+    from features.delta_tracking.application.use_cases.update_spring import (
+        UpdateSpringUseCase,
+    )
+
     uc = UpdateSpringUseCase(delta_ctx["repo"])
     uc.set_context("sprint-a", {"current_spec_index": 0})
 
@@ -198,7 +229,10 @@ def _assert_context_updated(delta_ctx: dict):
 
 @when("ejecuto set_context con kwargs sueltos")
 def _set_context_kwargs(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.update_spring import UpdateSpringUseCase
+    from features.delta_tracking.application.use_cases.update_spring import (
+        UpdateSpringUseCase,
+    )
+
     uc = UpdateSpringUseCase(delta_ctx["repo"])
     uc.set_context("sprint-a", current_spec_index=1, current_task_index=1)
 
@@ -211,7 +245,10 @@ def _assert_context_kwargs(delta_ctx: dict):
 
 @when("ejecuto execute con goal, spring_id inmutable y display_name None")
 def _execute_ignore_immutables(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.update_spring import UpdateSpringUseCase
+    from features.delta_tracking.application.use_cases.update_spring import (
+        UpdateSpringUseCase,
+    )
+
     uc = UpdateSpringUseCase(delta_ctx["repo"])
     uc.execute(
         "sprint-a",
@@ -243,7 +280,10 @@ def _assert_display_name_empty(delta_ctx: dict):
 
 @when("ejecuto execute sobre un id inexistente")
 def _execute_nonexistent(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.update_spring import UpdateSpringUseCase
+    from features.delta_tracking.application.use_cases.update_spring import (
+        UpdateSpringUseCase,
+    )
+
     uc = UpdateSpringUseCase(delta_ctx["repo"])
     delta_ctx["result"] = uc.execute("no-existe", {"goal": "x"})
 
@@ -255,7 +295,10 @@ def _assert_none(delta_ctx: dict):
 
 @when("ejecuto set_status sobre un id inexistente")
 def _set_status_nonexistent(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.update_spring import UpdateSpringUseCase
+    from features.delta_tracking.application.use_cases.update_spring import (
+        UpdateSpringUseCase,
+    )
+
     uc = UpdateSpringUseCase(delta_ctx["repo"])
     delta_ctx["status_result"] = uc.set_status("no-existe", "active")
 
@@ -267,9 +310,14 @@ def _assert_set_status_none(delta_ctx: dict):
 
 @when("ejecuto AddSpecUseCase con objetivo y dominio")
 def _add_spec(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.manage_specs import AddSpecUseCase
+    from features.delta_tracking.application.use_cases.manage_specs import (
+        AddSpecUseCase,
+    )
+
     uc = AddSpecUseCase(delta_ctx["repo"])
-    delta_ctx["spec"] = uc.execute("sprint-a", "Implementar auth", domain="security", spec_index=0)
+    delta_ctx["spec"] = uc.execute(
+        "sprint-a", "Implementar auth", domain="security", spec_index=0
+    )
 
 
 @then("la spec tiene spec_id SPEC-001")
@@ -289,7 +337,10 @@ def _assert_edge_contains(delta_ctx: dict):
 
 @when("ejecuto UpsertSpecsUseCase con dos objetivos nuevos")
 def _upsert_two_new(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.manage_specs import UpsertSpecsUseCase
+    from features.delta_tracking.application.use_cases.manage_specs import (
+        UpsertSpecsUseCase,
+    )
+
     uc = UpsertSpecsUseCase(delta_ctx["repo"])
     delta_ctx["r1"] = uc.execute(
         "sprint-a",
@@ -308,7 +359,10 @@ def _assert_created_2(delta_ctx: dict):
 
 @when("ejecuto UpsertSpecsUseCase con un objetivo existente para refinar")
 def _upsert_refine(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.manage_specs import UpsertSpecsUseCase
+    from features.delta_tracking.application.use_cases.manage_specs import (
+        UpsertSpecsUseCase,
+    )
+
     uc = UpsertSpecsUseCase(delta_ctx["repo"])
     delta_ctx["r2"] = uc.execute(
         "sprint-a",
@@ -336,7 +390,10 @@ def _assert_refined_fields(delta_ctx: dict):
 
 @when("ejecuto get_current_spec")
 def _get_current_spec(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.query_delta import QueryDeltaUseCase
+    from features.delta_tracking.application.use_cases.query_delta import (
+        QueryDeltaUseCase,
+    )
+
     uc = QueryDeltaUseCase(delta_ctx["repo"])
     delta_ctx["current"] = uc.get_current_spec("sprint-a")
 
@@ -348,8 +405,13 @@ def _assert_current_in_progress(delta_ctx: dict):
 
 @given("un spring con una spec Fix auth")
 def _spring_with_fix_auth(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.create_spring import CreateSpringUseCase
-    from features.delta_tracking.application.use_cases.manage_specs import AddSpecUseCase
+    from features.delta_tracking.application.use_cases.create_spring import (
+        CreateSpringUseCase,
+    )
+    from features.delta_tracking.application.use_cases.manage_specs import (
+        AddSpecUseCase,
+    )
+
     repo = InMemoryDeltaRepository()
     uc = CreateSpringUseCase(repo)
     uc.execute("sprint-a", goal="Goal demo", status="active", project_id="p")
@@ -359,7 +421,10 @@ def _spring_with_fix_auth(delta_ctx: dict):
 
 @when("busco por objetivo exacto")
 def _find_exact(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.query_delta import QueryDeltaUseCase
+    from features.delta_tracking.application.use_cases.query_delta import (
+        QueryDeltaUseCase,
+    )
+
     uc = QueryDeltaUseCase(delta_ctx["repo"])
     delta_ctx["found"] = uc.find_spec_by_objective("sprint-a", "Fix auth")
 
@@ -371,7 +436,10 @@ def _assert_found(delta_ctx: dict):
 
 @when("busco en minusculas")
 def _find_lower(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.query_delta import QueryDeltaUseCase
+    from features.delta_tracking.application.use_cases.query_delta import (
+        QueryDeltaUseCase,
+    )
+
     uc = QueryDeltaUseCase(delta_ctx["repo"])
     delta_ctx["not_found"] = uc.find_spec_by_objective("sprint-a", "fix auth")
 
@@ -383,7 +451,10 @@ def _assert_not_found(delta_ctx: dict):
 
 @when("busco por cadena vacia")
 def _find_empty(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.query_delta import QueryDeltaUseCase
+    from features.delta_tracking.application.use_cases.query_delta import (
+        QueryDeltaUseCase,
+    )
+
     uc = QueryDeltaUseCase(delta_ctx["repo"])
     delta_ctx["empty_result"] = uc.find_spec_by_objective("sprint-a", "")
 
@@ -395,7 +466,10 @@ def _assert_empty_not_found(delta_ctx: dict):
 
 @when("ejecuto get_sprint_progress")
 def _get_progress(delta_ctx: dict):
-    from features.delta_tracking.application.use_cases.progress import GetSprintProgressUseCase
+    from features.delta_tracking.application.use_cases.progress import (
+        GetSprintProgressUseCase,
+    )
+
     uc = GetSprintProgressUseCase(delta_ctx["repo"])
     delta_ctx["progress"] = uc.execute("sprint-a")
 
@@ -428,7 +502,10 @@ def _assert_pct_33(delta_ctx: dict):
 @when("derivo display_name de un goal con dos frases")
 def _derive_two_phrases(delta_ctx: dict):
     from features.delta_tracking.application.presenters import derive_display_name
-    delta_ctx["name"] = derive_display_name("Rediseño del contrato: resolver gaps", "s-x")
+
+    delta_ctx["name"] = derive_display_name(
+        "Rediseño del contrato: resolver gaps", "s-x"
+    )
 
 
 @then("devuelve la primera frase")
@@ -439,6 +516,7 @@ def _assert_first_phrase(delta_ctx: dict):
 @when("derivo display_name de un goal vacio")
 def _derive_empty(delta_ctx: dict):
     from features.delta_tracking.application.presenters import derive_display_name
+
     delta_ctx["empty_name"] = derive_display_name("", "spring-1")
 
 
@@ -450,6 +528,7 @@ def _assert_fallback_id(delta_ctx: dict):
 @when("derivo display_name de un goal muy largo")
 def _derive_long(delta_ctx: dict):
     from features.delta_tracking.application.presenters import derive_display_name
+
     long_goal = "a" * 80
     delta_ctx["long_name"] = derive_display_name(long_goal, "s")
 
@@ -461,12 +540,17 @@ def _assert_max_60(delta_ctx: dict):
 
 @given("un doc spring con goal pero sin display_name")
 def _doc_with_goal(delta_ctx: dict):
-    delta_ctx["doc"] = {"_id": "spring-1", "goal": "Refactor Fase 3: estructural", "status": "active"}
+    delta_ctx["doc"] = {
+        "_id": "spring-1",
+        "goal": "Refactor Fase 3: estructural",
+        "status": "active",
+    }
 
 
 @when("aplico with_display_name")
 def _apply_display_name(delta_ctx: dict):
     from features.delta_tracking.application.presenters import with_display_name
+
     delta_ctx["out"] = with_display_name(delta_ctx["doc"])
 
 
@@ -478,6 +562,7 @@ def _assert_display_name_first_phrase(delta_ctx: dict):
 @when("aplico with_display_name a None")
 def _apply_none(delta_ctx: dict):
     from features.delta_tracking.application.presenters import with_display_name
+
     delta_ctx["none_out"] = with_display_name(None)
 
 
@@ -494,6 +579,7 @@ def _doc_with_existing_display_name(delta_ctx: dict):
 @when("aplico with_display_name al doc con display_name existente")
 def _apply_existing(delta_ctx: dict):
     from features.delta_tracking.application.presenters import with_display_name
+
     delta_ctx["existing_out"] = with_display_name(delta_ctx["doc2"])
 
 
@@ -505,6 +591,7 @@ def _assert_keep_existing(delta_ctx: dict):
 @given("una spec con archivos impactados")
 def _spec_with_files(delta_ctx: dict):
     from features.delta_tracking.domain.entities import Spec
+
     delta_ctx["spec"] = Spec(
         spring_id="sprint-a",
         objective="Fix auth",
@@ -520,6 +607,7 @@ def _spec_with_files(delta_ctx: dict):
 @when("proyecto a task dict")
 def _project_to_dict(delta_ctx: dict):
     from features.delta_tracking.application.projections import spec_to_task_dict
+
     delta_ctx["d"] = spec_to_task_dict(delta_ctx["spec"])
 
 
@@ -551,6 +639,7 @@ def _assert_type_feature(delta_ctx: dict):
 @when("ejecuto load_spring_tasks")
 def _load_spring_tasks(delta_ctx: dict):
     from features.delta_tracking.application.projections import load_spring_tasks
+
     delta_ctx["tasks"] = load_spring_tasks(delta_ctx["boom_svc"], "/tmp/x")
 
 
@@ -562,6 +651,7 @@ def _assert_empty_list(delta_ctx: dict):
 @when("extraigo de /a/b/sprint-demo")
 def _extract_full(delta_ctx: dict):
     from features.delta_tracking.domain.values import spring_id_from_chain_dir
+
     delta_ctx["sid"] = spring_id_from_chain_dir("/a/b/sprint-demo")
 
 
@@ -573,6 +663,7 @@ def _assert_sprint_demo(delta_ctx: dict):
 @when("extraigo de /a/b/sprint-demo/")
 def _extract_trailing(delta_ctx: dict):
     from features.delta_tracking.domain.values import spring_id_from_chain_dir
+
     delta_ctx["sid2"] = spring_id_from_chain_dir("/a/b/sprint-demo/")
 
 
@@ -584,6 +675,7 @@ def _assert_sprint_demo_trailing(delta_ctx: dict):
 @when("extraigo de sprint-demo")
 def _extract_bare(delta_ctx: dict):
     from features.delta_tracking.domain.values import spring_id_from_chain_dir
+
     delta_ctx["sid3"] = spring_id_from_chain_dir("sprint-demo")
 
 

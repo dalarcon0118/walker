@@ -22,7 +22,6 @@ from features.cli_interface.application.project_use_cases import (
     PrepareProjectUseCase,
     CheckHealthUseCase,
 )
-from features.engine.application.workflow_api import WorkflowAPI
 from libs.shared_domain import ExecutionContext
 from ..infrastructure.contracts import Request, Response, action
 
@@ -120,7 +119,9 @@ def _sync_watcher(project_id: str) -> None:
     error = outcome.failure()
     logger.warning(
         "watcher sync failed for '%s' (%s: %s)",
-        project_id, type(error).__name__, error,
+        project_id,
+        type(error).__name__,
+        error,
     )
 
 
@@ -130,8 +131,19 @@ def _sync_watcher_core(project_id: str) -> None:
     repo_path = _resolve_repo_path_from_registry(project_id)
     if repo_path and os.path.isdir(repo_path):
         from features.project import FileWatcher
+        from libs.path_resolver import get_data_dir, get_code_paths
 
-        FileWatcher(repo_path).scan()
+        # data_dir canónico = .cognitive/projects/<pid>/data (fuera del árbol
+        # escaneado). Si se usa el default (<repo>/data), change_detected.json
+        # y .file_snapshot.json se escriben DENTRO del scope del watcher →
+        # auto-invalidación en cada scan (fingerprint nunca coincide con el
+        # CPG → stale perpetuo). code_paths acota el scope a código real.
+        watcher = FileWatcher(
+            repo_path,
+            code_paths=get_code_paths(project_id) or None,
+            data_dir=str(get_data_dir(project_id)),
+        )
+        watcher.scan()
 
 
 def _ensure_chain_dir(project_id: str, sprint_id: str = "") -> str:
@@ -156,7 +168,6 @@ def _list_from_global_registry() -> dict:
     nunca traga el fallo en silencio.
     """
     from libs.path_resolver import get_walker_root
-    import json
 
     registry_path = get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
@@ -203,7 +214,6 @@ def _list_from_global_registry_with_prompt() -> Response:
 def _resolve_repo_path_from_registry(project_id: str) -> str:
     """Look up a project's repo_path from the global registry."""
     from libs.path_resolver import get_walker_root
-    import json
 
     registry_path = get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
@@ -232,13 +242,11 @@ def _resolve_project_from_cwd(req: Request) -> bool:
         return False
     req.params["projectId"] = resolved["project_id"]
     req.set_repo_path(resolved.get("repo_path", ""))
-    warning = resolved.get("_warning", "")
-    if warning:
-        req.flags["_legacy_warning"] = warning
     return True
 
 
 # ── Cores @safe (IO) ────────────────────────────────────────────────
+
 
 @safe
 def _read_registry_core(registry_path) -> dict:
@@ -286,7 +294,6 @@ def handle_project_info(req: Request) -> Response:
                 next_actions=[presenter.go_list()],
             )
 
-        import json
         import os
 
         info["repo_path"] = repo_path
@@ -331,9 +338,15 @@ def handle_project_info(req: Request) -> Response:
             mem_outcome = _memory_stats_core(cog_data_dir)
             if is_successful(mem_outcome):
                 mem = mem_outcome.value_or({})
-                info["cpg_nodes"] = mem.get("status", {}).get("cpg", {}).get("total_docs", 0)
-                info["cpg_edges"] = mem.get("status", {}).get("cpg", {}).get("total_edges", 0)
-                info["ckg_docs"] = mem.get("status", {}).get("ckg", {}).get("total_docs", 0)
+                info["cpg_nodes"] = (
+                    mem.get("status", {}).get("cpg", {}).get("total_docs", 0)
+                )
+                info["cpg_edges"] = (
+                    mem.get("status", {}).get("cpg", {}).get("total_edges", 0)
+                )
+                info["ckg_docs"] = (
+                    mem.get("status", {}).get("ckg", {}).get("total_docs", 0)
+                )
                 dt = mem.get("status", {}).get("delta", {})
                 info["delta_tasks"] = dt.get("total_docs", 0)
                 info["cognitive_indices"] = mem.get("indexes", [])
@@ -421,10 +434,6 @@ def handle_status(req: Request) -> Response:
             repo_path=repo_path,
         )
 
-        if req.flags.get("_legacy_warning"):
-            health["warnings"] = health.get("warnings", [])
-            health["warnings"].insert(0, req.flags["_legacy_warning"])
-
         sprint = health.get("sprint")
         if sprint:
             node = sprint.get("node", "?")
@@ -435,7 +444,9 @@ def handle_status(req: Request) -> Response:
             instructions = ""
             if prompt:
                 lines = [l.strip() for l in prompt.split("\n") if l.strip()]
-                instr = [l for l in lines if not l.startswith("{") and not l.endswith("}")]
+                instr = [
+                    l for l in lines if not l.startswith("{") and not l.endswith("}")
+                ]
                 if instr:
                     instructions = " | ".join(instr[:3])
             if sprint.get("informal") and not node:
@@ -565,8 +576,11 @@ def handle_submit(req: Request) -> Response:
         submit_data = payload if isinstance(payload, dict) else req.flags
 
         from features.cli_interface.application.mcp_client import get_mcp_client
+
         mcp = get_mcp_client()
-        mcp_result = mcp.call_tool("submit", {"project_id": project_id, "body": submit_data})
+        mcp_result = mcp.call_tool(
+            "submit", {"project_id": project_id, "body": submit_data}
+        )
         result = mcp_result.get("result", mcp_result)
 
         if not result.get("ok", True) or result.get("error"):
@@ -630,12 +644,15 @@ def handle_transition(req: Request) -> Response:
             )
 
         from features.cli_interface.application.mcp_client import get_mcp_client
+
         mcp = get_mcp_client()
         body = {"gate": gate}
         if force:
             body["force"] = True
             body["reason"] = force_reason
-        mcp_result = mcp.call_tool("transition", {"project_id": project_id, "body": body})
+        mcp_result = mcp.call_tool(
+            "transition", {"project_id": project_id, "body": body}
+        )
         result = mcp_result.get("result", mcp_result)
 
         if not result.get("ok", True) or result.get("error"):
@@ -775,6 +792,7 @@ def handle_help(req: Request) -> Response:
 
     def _exec():
         from features.cli_interface.application.mcp_client import get_mcp_client
+
         mcp = get_mcp_client()
         mcp_tools = mcp.list_tools()
         data = _build_help()
@@ -798,6 +816,7 @@ def handle_mcp_tools(req: Request) -> Response:
 
     def _exec():
         from features.cli_interface.application.mcp_client import get_mcp_client
+
         mcp = get_mcp_client()
         tools = mcp.list_tools()
         return Response.ok(
@@ -818,6 +837,7 @@ def handle_mcp_routes(req: Request) -> Response:
 
     def _exec():
         from features.cli_interface.application.mcp_client import get_mcp_client
+
         mcp = get_mcp_client()
         routes = mcp.list_tools()
         return Response.ok(
@@ -845,7 +865,8 @@ def _load_protocol_rest() -> str:
     error = outcome.failure()
     logger.warning(
         "protocol/rest load failed (%s: %s); usando fallback",
-        type(error).__name__, error,
+        type(error).__name__,
+        error,
     )
     return _PROTOCOL_REST_FALLBACK
 
@@ -926,7 +947,9 @@ def _build_help() -> dict:
     else:
         error = wf_outcome.failure()
         logger.warning(
-            "workflow map compose failed (%s: %s)", type(error).__name__, error,
+            "workflow map compose failed (%s: %s)",
+            type(error).__name__,
+            error,
         )
         workflow_map = {}
 

@@ -50,7 +50,10 @@ def _dispatch_action(port: Any, action: str, scope: str, chain_dir: str) -> dict
     elif action == "metrics":
         result["result"] = port.project_metrics(file_filter=scope)
     elif action == "build":
-        result["result"] = port.build_cpg(project_root=chain_dir)
+        # project_root debe ser el repo real de código (scope), no el chain_dir
+        # (sprint dir): CPGBuilder necesita el repo para resolver manifest y
+        # code_paths. scan_code_and_build_cpg pasa el repo real como scope.
+        result["result"] = port.build_cpg(project_root=scope or chain_dir)
     elif action == "context":
         files = [scope] if scope else None
         result["result"] = port.gather_context(files=files)

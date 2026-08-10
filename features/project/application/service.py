@@ -256,19 +256,11 @@ class ProjectService:
         cpg_path = str(get_cpg_path(pid_str))
         ckg_path = str(get_ckg_path(pid_str))
 
-        # project.json path: data/project.json con fallback a project.json legacy
+        # project.json path: data/project.json (canonical)
         project_json = os.path.join(data_dir, "project.json")
-        if not os.path.exists(project_json):
-            legacy = os.path.join(project_root, "project.json")
-            if os.path.exists(legacy):
-                project_json = legacy
 
-        # workflow.json path
+        # workflow.json path: workflow_dir (canonical)
         workflow_json = os.path.join(workflow_dir, "workflow.json")
-        if not os.path.exists(workflow_json):
-            legacy_wf = os.path.join(project_root, "workflow.json")
-            if os.path.exists(legacy_wf):
-                workflow_json = legacy_wf
 
         # Repo info — leer del project_json ya resuelto (SSOT local).
         # NO depender del registro global por id: falla para proyectos
@@ -559,30 +551,8 @@ class ProjectService:
         pid = pids[0]
         proj_dir = os.path.join(projects_dir, pid)
 
-        # Find project.json (canonical first: data/project.json, legacy: project.json)
-        project_json_data = os.path.join(proj_dir, "data", "project.json")
-        project_json_legacy = os.path.join(proj_dir, "project.json")
-        project_json = (
-            project_json_data
-            if os.path.exists(project_json_data)
-            else project_json_legacy
-        )
-
-        # Detect legacy location and warn
-        legacy_warning = ""
-        if os.path.exists(project_json_legacy) and not os.path.exists(
-            project_json_data
-        ):
-            legacy_warning = (
-                f"⚠️  Project {pid}: project.json is in legacy location.\n"
-                f"   Move it to: .cognitive/projects/{pid}/data/project.json"
-            )
-        elif os.path.exists(project_json_legacy) and os.path.exists(project_json_data):
-            # Both exist — legacy is stale
-            legacy_warning = (
-                f"⚠️  Project {pid}: legacy project.json found outside data/.\n"
-                f"   Using data/project.json. Legacy file can be removed."
-            )
+        # Find project.json (canonical: data/project.json)
+        project_json = os.path.join(proj_dir, "data", "project.json")
 
         if not os.path.exists(project_json):
             return None
@@ -599,20 +569,6 @@ class ProjectService:
         except Exception:
             repo_path = cwd
             name = pid
-
-        # Migrate project.json to data/ if it's in legacy location
-        if project_json == project_json_legacy and not os.path.exists(
-            project_json_data
-        ):
-            try:
-                os.makedirs(os.path.join(proj_dir, "data"), exist_ok=True)
-                with open(project_json) as f_src:
-                    content = f_src.read()
-                with open(project_json_data, "w") as f_dst:
-                    f_dst.write(content)
-                # Keep legacy file for backward compat
-            except Exception:
-                pass
 
         # Auto-register in global registry
         from datetime import datetime, timezone
@@ -636,8 +592,6 @@ class ProjectService:
             pass
 
         result = {"project_id": pid, "repo_path": repo_path, "name": name}
-        if legacy_warning:
-            result["_warning"] = legacy_warning
         return result
 
     @staticmethod
@@ -774,27 +728,11 @@ class ProjectService:
         return DetectProjectContextUseCase.execute(project_path)
 
     @staticmethod
-    def detect_legacy(project_path: str) -> dict:
-        """Detect legacy walker project structure."""
-        from .use_cases import DetectLegacyUseCase
-
-        return DetectLegacyUseCase.execute(project_path)
-
-    @staticmethod
     def update_project(chain_dir: str, data: dict) -> dict:
         """Update project.json with schema validation."""
         from .use_cases import UpdateProjectUseCase
 
         return UpdateProjectUseCase.execute(chain_dir, data)
-
-    @staticmethod
-    def import_legacy_history(
-        project_path: str, project_id: str, chains: list[str]
-    ) -> dict:
-        """Import legacy chain history to trace files."""
-        from .use_cases import ImportLegacyHistoryUseCase
-
-        return ImportLegacyHistoryUseCase.execute(project_path, project_id, chains)
 
 
 # ── Convenience re-exports ──────────────────────────────────────────────

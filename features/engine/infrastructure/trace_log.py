@@ -4,12 +4,12 @@ Implementa el puerto ITracer del dominio.
 Cada evento se persiste en el índice "trace" de CognitiveGraph.
 El storage es data/trace.json.gz (mismo que CPG y CKG).
 """
+
 from __future__ import annotations
 
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
 
 from features.engine.domain.ports import ITracer
 
@@ -46,7 +46,9 @@ class TraceLogger(ITracer):
         try:
             from features.engine.bootstrap import get_module_service
 
-            proj_dir = get_module_service("path_resolver").resolve_project_root(chain_dir)
+            proj_dir = get_module_service("path_resolver").resolve_project_root(
+                chain_dir
+            )
             if not proj_dir:
                 # PRINCIPIO (fix estructural): una traza que se pierde por no
                 # poder resolver el proyecto NO debe silenciarse. El workflow
@@ -164,7 +166,9 @@ class TraceLogger(ITracer):
         try:
             from features.engine.bootstrap import get_module_service
 
-            proj_dir = get_module_service("path_resolver").resolve_project_root(chain_dir)
+            proj_dir = get_module_service("path_resolver").resolve_project_root(
+                chain_dir
+            )
             if proj_dir:
                 cg = get_module_service("cognitive_graph")(proj_dir)
                 query = {"_index": "trace"}

@@ -5,6 +5,7 @@ bloqueos para que el workflow sea resiliente y pueda recuperarse de fallos.
 
 Escenarios: tests/features/bpmn_gaps_p1.feature
 """
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,9 @@ from returns.pipeline import is_successful
 
 scenarios("features/bpmn_gaps_p1.feature")
 
-NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "implement.node.json")
+NODE_PATH = os.path.join(
+    "features", "engine", "workflow", "nodes", "implement.node.json"
+)
 
 
 @pytest.fixture
@@ -37,8 +40,14 @@ def _load_work_substate(node_dict):
     return {}
 
 
-def _make_blocked_state(node="IMPLEMENT", sub_state="WORK", block_reason="waiting",
-                        pending_events=None, pending_signals=None, timeout_ms=0):
+def _make_blocked_state(
+    node="IMPLEMENT",
+    sub_state="WORK",
+    block_reason="waiting",
+    pending_events=None,
+    pending_signals=None,
+    timeout_ms=0,
+):
     return {
         "current_node": node,
         "current_sub_state": sub_state,
@@ -53,17 +62,31 @@ def _make_blocked_state(node="IMPLEMENT", sub_state="WORK", block_reason="waitin
 
 # ── BlockResolver: given ────────────────────────────────────────────────────
 
+
 @given("un sprint bloqueado esperando una consulta al knowledge graph")
 def _blocked_waiting_kg(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "side_effects": [], "order": 0, "options": [], "interrupting": True,
-        "on_timeout": "skip", "wait_for": ["kg_query"], "emits": [], "waits_for": [],
-        "on_signal": "",
-    })
+    d.update(
+        {
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["kg_query"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
@@ -76,15 +99,28 @@ def _blocked_waiting_kg(bpmn_ctx: dict):
 
 @given("un sprint bloqueado en una sub-tarea")
 def _blocked_subtask(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "side_effects": [], "order": 0, "options": [], "interrupting": True,
-        "on_timeout": "skip", "wait_for": ["kg_query"], "emits": [], "waits_for": [],
-        "on_signal": "",
-    })
+    d.update(
+        {
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["kg_query"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
@@ -97,15 +133,28 @@ def _blocked_subtask(bpmn_ctx: dict):
 
 @given("un sprint bloqueado esperando una señal externa")
 def _blocked_waiting_signal(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "side_effects": [], "order": 0, "options": [], "interrupting": True,
-        "on_timeout": "skip", "wait_for": ["external_signal"], "emits": [],
-        "waits_for": [], "on_signal": "wait",
-    })
+    d.update(
+        {
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["external_signal"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "wait",
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
@@ -118,29 +167,67 @@ def _blocked_waiting_signal(bpmn_ctx: dict):
 
 @given("un sprint bloqueado que no se puede resolver automáticamente")
 def _blocked_needs_escalation(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "side_effects": [], "order": 0, "options": [], "interrupting": True,
-        "on_timeout": "skip", "wait_for": ["kg_query"], "emits": [], "waits_for": [],
-        "on_signal": "",
-    })
+    d.update(
+        {
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["kg_query"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+        }
+    )
     sub = SubState.from_dict(d)
-    implement_node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
-    escalation_sub = SubState.from_dict({
-        "key": "INIT", "label": "Init", "execution": "manual", "action": "",
-        "input_schema": {}, "output_schema": {}, "side_effects": [],
-        "on_success": "", "on_failure": "", "timeout_ms": 0,
-        "required_fields": [], "auto_complete": "", "on_failure_loop": False,
-        "order": 0, "prompt": "", "options": [], "on_entry_message": "",
-        "prompt_id": "", "context": None, "required_tools": [],
-        "provides": [], "needs": [], "interrupting": True,
-        "on_timeout": "", "wait_for": [], "emits": [], "waits_for": [],
-        "on_signal": "",
-    })
-    escalate_node = WorkflowNode(node_id="ESCALATION", label="Escalation", sub_states=[escalation_sub])
+    implement_node = WorkflowNode(
+        node_id="IMPLEMENT", label="Implement", sub_states=[sub]
+    )
+    escalation_sub = SubState.from_dict(
+        {
+            "key": "INIT",
+            "label": "Init",
+            "execution": "manual",
+            "action": "",
+            "input_schema": {},
+            "output_schema": {},
+            "side_effects": [],
+            "on_success": "",
+            "on_failure": "",
+            "timeout_ms": 0,
+            "required_fields": [],
+            "auto_complete": "",
+            "on_failure_loop": False,
+            "order": 0,
+            "prompt": "",
+            "options": [],
+            "on_entry_message": "",
+            "prompt_id": "",
+            "context": None,
+            "required_tools": [],
+            "provides": [],
+            "needs": [],
+            "interrupting": True,
+            "on_timeout": "",
+            "wait_for": [],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+        }
+    )
+    escalate_node = WorkflowNode(
+        node_id="ESCALATION", label="Escalation", sub_states=[escalation_sub]
+    )
     graph = WorkflowGraph(
         nodes={"IMPLEMENT": implement_node, "ESCALATION": escalate_node},
         initial_state="IMPLEMENT",
@@ -154,19 +241,34 @@ def _blocked_needs_escalation(bpmn_ctx: dict):
 
 @given("un sprint con cambios aplicados que requiere rollback")
 def _blocked_needs_compensation(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "side_effects": [], "order": 0, "options": [], "interrupting": True,
-        "on_timeout": "skip", "wait_for": ["kg_query"], "emits": [], "waits_for": [],
-        "on_signal": "",
-    })
+    d.update(
+        {
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["kg_query"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
-    state = WorkflowState(current_node="IMPLEMENT", current_sub_state="WORK", sub_state_index=0)
+    state = WorkflowState(
+        current_node="IMPLEMENT", current_sub_state="WORK", sub_state_index=0
+    )
 
     bpmn_ctx["state"] = state
     bpmn_ctx["graph"] = graph
@@ -175,19 +277,33 @@ def _blocked_needs_compensation(bpmn_ctx: dict):
 
 @given("un sprint esperando un evento que tarda demasiado")
 def _blocked_waiting_timeout(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "timeout_ms": 100, "interrupting": True, "on_timeout": "skip",
-        "wait_for": ["kg_query"], "emits": [], "waits_for": [], "on_signal": "",
-        "side_effects": [], "order": 0, "options": [],
-    })
+    d.update(
+        {
+            "timeout_ms": 100,
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["kg_query"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
-    past = datetime.now(timezone.utc).replace(microsecond=0)
+    datetime.now(timezone.utc).replace(microsecond=0)
     state = WorkflowState(**_make_blocked_state(timeout_ms=100))
 
     bpmn_ctx["state"] = state
@@ -197,24 +313,41 @@ def _blocked_waiting_timeout(bpmn_ctx: dict):
 
 @given("un sprint esperando una señal de aprobación")
 def _blocked_waiting_approval(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "side_effects": [], "order": 0, "options": [], "interrupting": True,
-        "timeout_ms": 0, "on_timeout": "", "wait_for": [],
-        "emits": [], "waits_for": ["approval_received"],
-        "on_signal": "auto_advance",
-    })
+    d.update(
+        {
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "timeout_ms": 0,
+            "on_timeout": "",
+            "wait_for": [],
+            "emits": [],
+            "waits_for": ["approval_received"],
+            "on_signal": "auto_advance",
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
     state = WorkflowState(
-        current_node="IMPLEMENT", current_sub_state="WORK",
-        blocked_at="IMPLEMENT.WORK", block_reason="waiting for signal",
+        current_node="IMPLEMENT",
+        current_sub_state="WORK",
+        blocked_at="IMPLEMENT.WORK",
+        block_reason="waiting for signal",
         block_since=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        pending_events=[], pending_signals=["approval_received"], block_timeout_ms=0,
+        pending_events=[],
+        pending_signals=["approval_received"],
+        block_timeout_ms=0,
     )
 
     bpmn_ctx["state"] = state
@@ -248,51 +381,87 @@ def _wildcard_node_subscribed(bpmn_ctx: dict):
 
 @given("un sprint con múltiples efectos secundarios aplicados")
 def _sprint_with_side_effects(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
     from features.engine.domain.values import SideEffectDef
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
     d["side_effects"] = [
-        SideEffectDef(type="update_cpg", params={"snapshot_id": "snap_123"},
-                      compensation="restore_cpg_snapshot"),
-        SideEffectDef(type="notify", params={"channel": "slack"}, compensation="notify_revert"),
+        SideEffectDef(
+            type="update_cpg",
+            params={"snapshot_id": "snap_123"},
+            compensation="restore_cpg_snapshot",
+        ),
+        SideEffectDef(
+            type="notify", params={"channel": "slack"}, compensation="notify_revert"
+        ),
     ]
-    d.update({
-        "order": 0, "options": [], "interrupting": True,
-        "on_timeout": "skip", "wait_for": ["kg_query"], "emits": [], "waits_for": [],
-        "on_signal": "",
-    })
+    d.update(
+        {
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["kg_query"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
-    state = WorkflowState(current_node="IMPLEMENT", current_sub_state="WORK", sub_state_index=0)
+    state = WorkflowState(
+        current_node="IMPLEMENT", current_sub_state="WORK", sub_state_index=0
+    )
 
     bpmn_ctx["state"] = state
     bpmn_ctx["graph"] = graph
     bpmn_ctx["sub_state"] = sub
 
 
-@given("un sprint en estado \"waiting for signal\"")
+@given('un sprint en estado "waiting for signal"')
 def _sprint_waiting_for_signal(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "side_effects": [], "order": 0, "options": [], "interrupting": True,
-        "timeout_ms": 0, "on_timeout": "", "wait_for": [],
-        "emits": [], "waits_for": ["approval_received"],
-        "on_signal": "auto_advance",
-    })
+    d.update(
+        {
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+            "interrupting": True,
+            "timeout_ms": 0,
+            "on_timeout": "",
+            "wait_for": [],
+            "emits": [],
+            "waits_for": ["approval_received"],
+            "on_signal": "auto_advance",
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
     state = WorkflowState(
-        current_node="IMPLEMENT", current_sub_state="WORK",
-        blocked_at="IMPLEMENT.WORK", block_reason="waiting for signal",
+        current_node="IMPLEMENT",
+        current_sub_state="WORK",
+        blocked_at="IMPLEMENT.WORK",
+        block_reason="waiting for signal",
         block_since=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        pending_events=[], pending_signals=["approval_received"], block_timeout_ms=0,
+        pending_events=[],
+        pending_signals=["approval_received"],
+        block_timeout_ms=0,
     )
 
     bpmn_ctx["state"] = state
@@ -302,19 +471,33 @@ def _sprint_waiting_for_signal(bpmn_ctx: dict):
 
 @given("un sprint en espera con timeout configurado")
 def _sprint_waiting_with_timeout(bpmn_ctx: dict):
-    from features.engine.domain.entities import SubState, WorkflowNode, WorkflowGraph, WorkflowState
+    from features.engine.domain.entities import (
+        SubState,
+        WorkflowNode,
+        WorkflowGraph,
+        WorkflowState,
+    )
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
-    d.update({
-        "timeout_ms": 100, "interrupting": True, "on_timeout": "skip",
-        "wait_for": ["kg_query"], "emits": [], "waits_for": [], "on_signal": "",
-        "side_effects": [], "order": 0, "options": [],
-    })
+    d.update(
+        {
+            "timeout_ms": 100,
+            "interrupting": True,
+            "on_timeout": "skip",
+            "wait_for": ["kg_query"],
+            "emits": [],
+            "waits_for": [],
+            "on_signal": "",
+            "side_effects": [],
+            "order": 0,
+            "options": [],
+        }
+    )
     sub = SubState.from_dict(d)
     node = WorkflowNode(node_id="IMPLEMENT", label="Implement", sub_states=[sub])
     graph = WorkflowGraph(nodes={"IMPLEMENT": node}, initial_state="IMPLEMENT")
-    past = datetime.now(timezone.utc).replace(microsecond=0)
+    datetime.now(timezone.utc).replace(microsecond=0)
     state = WorkflowState(**_make_blocked_state(timeout_ms=100))
 
     bpmn_ctx["state"] = state
@@ -324,61 +507,67 @@ def _sprint_waiting_with_timeout(bpmn_ctx: dict):
 
 # ── when ────────────────────────────────────────────────────────────────────
 
-@when("se aplica la estrategia de resolución \"saltar\"")
-@when("se aplica la estrategia de resolución \"skip\"")
+
+@when('se aplica la estrategia de resolución "saltar"')
+@when('se aplica la estrategia de resolución "skip"')
 def _apply_skip(bpmn_ctx: dict):
     from features.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
-        bpmn_ctx["state"], "skip",
+        bpmn_ctx["state"],
+        "skip",
         {"sub_state": "WORK", "reason": "forced"},
         graph=bpmn_ctx.get("graph"),
     )
     bpmn_ctx["result"] = result
 
 
-@when("se aplica la estrategia de resolución \"forzar\"")
+@when('se aplica la estrategia de resolución "forzar"')
 def _apply_force(bpmn_ctx: dict):
     from features.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
-        bpmn_ctx["state"], "force",
+        bpmn_ctx["state"],
+        "force",
         {"sub_state": "WORK", "reason": "forced"},
         graph=bpmn_ctx.get("graph"),
     )
     bpmn_ctx["result"] = result
 
 
-@when("se aplica la estrategia de resolución \"esperar\"")
+@when('se aplica la estrategia de resolución "esperar"')
 def _apply_wait(bpmn_ctx: dict):
     from features.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
-        bpmn_ctx["state"], "wait",
+        bpmn_ctx["state"],
+        "wait",
         {"sub_state": "WORK", "reason": "forced"},
         graph=bpmn_ctx.get("graph"),
     )
     bpmn_ctx["result"] = result
 
 
-@when("se aplica la estrategia de resolución \"escalar\"")
+@when('se aplica la estrategia de resolución "escalar"')
 def _apply_escalate(bpmn_ctx: dict):
     from features.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
-        bpmn_ctx["state"], "escalate",
+        bpmn_ctx["state"],
+        "escalate",
         {"sub_state": "WORK", "reason": "timeout", "escalate_node": "ESCALATION"},
         graph=bpmn_ctx.get("graph"),
     )
     bpmn_ctx["result"] = result
 
 
-@when("se aplica la estrategia de resolución \"compensar\"")
+@when('se aplica la estrategia de resolución "compensar"')
 def _apply_compensate(bpmn_ctx: dict):
     from features.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
-        bpmn_ctx["state"], "compensate",
+        bpmn_ctx["state"],
+        "compensate",
         {"sub_state": "WORK", "reason": "rollback"},
         graph=bpmn_ctx.get("graph"),
     )
@@ -395,7 +584,7 @@ def _timeout_elapsed(bpmn_ctx: dict):
     bpmn_ctx["result"] = result
 
 
-@when("llega la señal \"aprobación_recibida\"")
+@when('llega la señal "aprobación_recibida"')
 def _approval_signal_arrives(bpmn_ctx: dict):
     from features.engine.engine import check_blocked_state
 
@@ -443,13 +632,12 @@ def _wait_time_exhausted(bpmn_ctx: dict):
     from features.engine.engine import check_blocked_state
 
     time.sleep(0.15)
-    result = check_blocked_state(
-        bpmn_ctx["state"], bpmn_ctx["graph"], strategy="skip"
-    )
+    result = check_blocked_state(bpmn_ctx["state"], bpmn_ctx["graph"], strategy="skip")
     bpmn_ctx["result"] = result
 
 
 # ── then ────────────────────────────────────────────────────────────────────
+
 
 @then("el sprint continúa automáticamente sin intervención humana")
 def _sprint_continues_automatically(bpmn_ctx: dict):

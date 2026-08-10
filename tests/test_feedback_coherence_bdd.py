@@ -5,6 +5,7 @@ agente sepa exactamente qué falló y cómo corregirlo.
 
 Escenarios: tests/features/feedback_coherence.feature
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -136,7 +137,7 @@ def _generic_validation_error(fb_ctx: dict):
     fb_ctx["error"] = ValidationError("Algo salio mal")
 
 
-@then("el mensaje es exactamente \"Algo salió mal\"")
+@then('el mensaje es exactamente "Algo salió mal"')
 def _assert_exact_message(fb_ctx: dict):
     result = fb_ctx["result"]
     assert result["message"] == "Algo salio mal"
@@ -155,7 +156,6 @@ def _assert_details_present(fb_ctx: dict):
 @given("un ExecutionContext y un delta con specs en draft y vacías")
 def _exec_context_with_invalid_specs(fb_ctx: dict):
     from features.engine.domain.models import ExecutionContext
-    from unittest.mock import MagicMock, patch
 
     fb_ctx["ctx"] = ExecutionContext.create(
         session_id="test",
@@ -211,7 +211,6 @@ def _assert_errors_in_metadata(fb_ctx: dict):
 @given("un ExecutionContext y un delta con specs válidas")
 def _exec_context_with_valid_specs(fb_ctx: dict):
     from features.engine.domain.models import ExecutionContext
-    from unittest.mock import MagicMock, patch
 
     fb_ctx["ctx"] = ExecutionContext.create(
         session_id="test",
@@ -253,7 +252,6 @@ def _assert_result_ok_true(fb_ctx: dict):
 @given("un ExecutionContext y un spring no encontrado")
 def _exec_context_spring_not_found(fb_ctx: dict):
     from features.engine.domain.models import ExecutionContext
-    from unittest.mock import patch
 
     fb_ctx["ctx"] = ExecutionContext.create(
         session_id="test",

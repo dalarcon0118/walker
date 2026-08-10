@@ -20,7 +20,9 @@ class QueryManager:
     kg_multi registraban eventos.
     """
 
-    def __init__(self, chain_dir: str, task_id: str | None = None, session_id: str | None = None):
+    def __init__(
+        self, chain_dir: str, task_id: str | None = None, session_id: str | None = None
+    ):
         paths = ProjectService.resolve_paths(chain_dir)
         self._searcher = None
         if paths.project_root:
@@ -61,6 +63,7 @@ class QueryManager:
         """
         try:
             from features.engine.infrastructure.trace_log import TraceLogger
+
             safe = {}
             for k, v in (filters or {}).items():
                 if isinstance(v, str) and len(v) > 200:
@@ -124,8 +127,11 @@ class QueryManager:
         last_fields = {}
         try:
             from ..infrastructure.repositories import WorkflowStateRepository
+
             wf = WorkflowStateRepository().load(self._chain_dir)
-            node = f"{wf.current_node}.{wf.current_sub_state}" if wf.current_node else ""
+            node = (
+                f"{wf.current_node}.{wf.current_sub_state}" if wf.current_node else ""
+            )
             history = wf.history[-5:] or []
             # Exponer sub_state_data del paso anterior: el resultado del
             # submit previo (Q&A del ANALYZE, decisiones, etc.) vive aquí.
@@ -150,7 +156,8 @@ class QueryManager:
         sprint_status = ""
         sprint_goal = ""
         try:
-            from features.delta_tracking import SpringService, spring_service
+            from features.delta_tracking import spring_service
+
             spring_svc = spring_service(chain_dir=self._chain_dir)
             if spring_svc:
                 spring_id = spring_svc.get_spring_id(self._chain_dir)

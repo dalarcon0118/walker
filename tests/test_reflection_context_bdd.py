@@ -7,11 +7,11 @@ desde el TraceGraph, y el ReflectionProvider produce ContextPiece con capa
 
 Escenarios: tests/features/reflection_context.feature
 """
+
 from __future__ import annotations
 
 import json
 import os
-import tempfile
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
@@ -44,20 +44,26 @@ def _setup_project(tmpdir: str) -> tuple[str, str]:
     return chain_dir, project_root
 
 
-def _write_trace_ndjson(chain_dir: str, events: list[dict]) -> None:
+def _write_trace_index(project_root: str, events: list[dict]) -> None:
+    """Escribe el indice trace canonico (trace.json.gz) en <root>/data/.
+
+    Formato CognitiveGraph: {"index": "trace", "docs": [...], "edges": []}.
+    """
     import gzip
-    trace_dir = os.path.join(chain_dir, "data", "traces")
-    os.makedirs(trace_dir, exist_ok=True)
-    path = os.path.join(trace_dir, "sprint.json.gz")
-    with gzip.open(path, "wt") as f:
-        for ev in events:
-            f.write(json.dumps(ev) + "\n")
+
+    data_dir = os.path.join(project_root, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    docs = [{"_id": f"ev-{i:03d}", **ev} for i, ev in enumerate(events)]
+    payload = {"index": "trace", "docs": docs, "edges": []}
+    path = os.path.join(data_dir, "trace.json.gz")
+    with open(path, "wb") as f:
+        f.write(gzip.compress(json.dumps(payload).encode()))
 
 
 # ── Given ─────────────────────────────────────────────────────────
 
 
-@given("un proyecto walker con trace NDJSON")
+@given("un proyecto walker con trace canónico")
 def _project_with_trace(tmp_path, reflection_ctx: dict):
     chain_dir, project_root = _setup_project(str(tmp_path))
     reflection_ctx["chain_dir"] = chain_dir
@@ -68,8 +74,8 @@ def _project_with_trace(tmp_path, reflection_ctx: dict):
 def _trace_implement_refine(reflection_ctx: dict):
     task_id = reflection_ctx.get("task_id", "TASK-001")
     reflection_ctx["task_id"] = task_id
-    _write_trace_ndjson(
-        reflection_ctx["chain_dir"],
+    _write_trace_index(
+        reflection_ctx["project_root"],
         [
             {
                 "event_type": "TRANSITION",
@@ -85,8 +91,8 @@ def _trace_implement_refine(reflection_ctx: dict):
 def _trace_two_refines(reflection_ctx: dict):
     task_id = reflection_ctx.get("task_id", "TASK-002")
     reflection_ctx["task_id"] = task_id
-    _write_trace_ndjson(
-        reflection_ctx["chain_dir"],
+    _write_trace_index(
+        reflection_ctx["project_root"],
         [
             {
                 "event_type": "TRANSITION",
@@ -108,8 +114,8 @@ def _trace_two_refines(reflection_ctx: dict):
 def _trace_verify_refine(reflection_ctx: dict):
     task_id = reflection_ctx.get("task_id", "TASK-003")
     reflection_ctx["task_id"] = task_id
-    _write_trace_ndjson(
-        reflection_ctx["chain_dir"],
+    _write_trace_index(
+        reflection_ctx["project_root"],
         [
             {
                 "event_type": "TRANSITION",
@@ -136,12 +142,15 @@ def _bootstrap_providers(reflection_ctx: dict):
 
 @given("el template de refine incluye placeholders")
 def _template_with_placeholders(reflection_ctx: dict):
-    from features.engine.application.orchestrator import OrchestrationService
-    prompts_dir = os.path.join(reflection_ctx["project_root"], "workflow.v3", "prompts", "refine")
+    prompts_dir = os.path.join(
+        reflection_ctx["project_root"], "workflow.v3", "prompts", "refine"
+    )
     os.makedirs(prompts_dir, exist_ok=True)
     template = "source_node={source_node} attempt={attempt}/{max_attempts} error={error_context} hint={hint}"
     with open(os.path.join(prompts_dir, "diagnose.prompt.json"), "w") as f:
-        json.dump({"id": "refine/diagnose", "type": "llm_task", "template": template}, f)
+        json.dump(
+            {"id": "refine/diagnose", "type": "llm_task", "template": template}, f
+        )
 
 
 # ── When ──────────────────────────────────────────────────────────
@@ -150,6 +159,7 @@ def _template_with_placeholders(reflection_ctx: dict):
 @when("construyo el contexto de reflexión para la tarea")
 def _build_reflection(reflection_ctx: dict):
     from features.event_tracing.application.reflection import build_reflection_context
+
     task_id = reflection_ctx.get("task_id", "TASK-001")
     result = build_reflection_context(
         chain_dir=reflection_ctx["chain_dir"],
@@ -165,6 +175,7 @@ def _build_reflection(reflection_ctx: dict):
 @when("consulto los providers disponibles")
 def _available_providers(reflection_ctx: dict):
     from features.engine.bootstrap import build_context_registry
+
     registry = build_context_registry()
     reflection_ctx["available"] = registry.available()
 
@@ -173,6 +184,7 @@ def _available_providers(reflection_ctx: dict):
 def _collect_reflection(reflection_ctx: dict):
     from types import SimpleNamespace
     from features.event_tracing.context.providers import ReflectionProvider
+
     chain_dir = reflection_ctx["chain_dir"]
     task_id = reflection_ctx.get("task_id", "TASK-003")
     ctx = SimpleNamespace(
@@ -192,14 +204,18 @@ def _collect_reflection(reflection_ctx: dict):
 @when("el PromptContextBuilder construye el contexto")
 def _build_prompt_context(reflection_ctx: dict):
     from features.engine.application.prompt_context_builder import PromptContextBuilder
+
     task_id = reflection_ctx.get("task_id", "TASK-004")
-    reflection_ctx["builder_ctx"] = PromptContextBuilder().build(reflection_ctx["chain_dir"], task_id)
+    reflection_ctx["builder_ctx"] = PromptContextBuilder().build(
+        reflection_ctx["chain_dir"], task_id
+    )
 
 
 @when("el OrchestrationService resuelve el prompt")
 def _resolve_prompt(reflection_ctx: dict):
     from types import SimpleNamespace
     from features.engine.application.orchestrator import OrchestrationService
+
     task_id = reflection_ctx.get("task_id", "TASK-005")
     svc = OrchestrationService()
     ctx_obj = SimpleNamespace(
@@ -225,7 +241,9 @@ def _resolve_prompt(reflection_ctx: dict):
 
 @then("source_node es IMPLEMENT")
 def _source_node_is_implement(reflection_ctx: dict):
-    assert reflection_ctx["pkg"]["source_node"] == "IMPLEMENT", reflection_ctx["pkg"]["source_node"]
+    assert reflection_ctx["pkg"]["source_node"] == "IMPLEMENT", reflection_ctx["pkg"][
+        "source_node"
+    ]
 
 
 @then("el source_node es el del último refine")
@@ -250,7 +268,9 @@ def _max_attempts_is_3(reflection_ctx: dict):
 
 @then("el error reportado está en error_context")
 def _error_in_context(reflection_ctx: dict):
-    assert "quality_gate" in reflection_ctx["pkg"]["error_context"], reflection_ctx["pkg"]["error_context"]
+    assert "quality_gate" in reflection_ctx["pkg"]["error_context"], reflection_ctx[
+        "pkg"
+    ]["error_context"]
 
 
 @then("failed_gates incluye el reportado")
@@ -282,7 +302,11 @@ def _content_has_source_and_attempt(reflection_ctx: dict):
 @then("el contenido incluye el error reportado")
 def _content_has_error(reflection_ctx: dict):
     content = reflection_ctx["piece"].content
-    assert "quality_gate" in content or "qa_reject" in content or "error" in content.lower()
+    assert (
+        "quality_gate" in content
+        or "qa_reject" in content
+        or "error" in content.lower()
+    )
 
 
 @then("la pieza tiene tokens mayor a 0")
@@ -292,7 +316,9 @@ def _tokens_positive(reflection_ctx: dict):
 
 @then("reflection está registrado")
 def _reflection_registered(reflection_ctx: dict):
-    assert "reflection" in reflection_ctx["available"], f"Disponibles: {reflection_ctx['available']}"
+    assert "reflection" in reflection_ctx["available"], (
+        f"Disponibles: {reflection_ctx['available']}"
+    )
 
 
 @then("el contexto incluye source_node")

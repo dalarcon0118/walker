@@ -38,9 +38,6 @@ from features.delta_tracking.application.use_cases.manage_specs import (
     UpdateSpecUseCase,
     UpsertSpecsUseCase,
 )
-from features.delta_tracking.application.use_cases.import_legacy import (
-    ImportLegacySprintUseCase,
-)
 from features.delta_tracking.application.use_cases.progress import (
     GetSprintProgressUseCase,
     GetTaskContextUseCase,
@@ -72,6 +69,13 @@ def _spring_to_dict(spring: Spring) -> dict:
     return d
 
 
+@safe
+def _ensure_spring_core(repo: Any, spring_id: str) -> dict | None:
+    """Core puro: devuelve el spring si existe en el delta (puede lanzar)."""
+    spring = repo.get_spring(spring_id)
+    return _spring_to_dict(spring) if spring else None
+
+
 class SpringService:
     """Orquestador delgado: delega en use cases via DeltaRepository."""
 
@@ -84,7 +88,6 @@ class SpringService:
         self._add_spec = AddSpecUseCase(self._repo)
         self._update_spec = UpdateSpecUseCase(self._repo)
         self._upsert = UpsertSpecsUseCase(self._repo)
-        self._import_legacy = ImportLegacySprintUseCase(self._repo)
         self._progress = GetSprintProgressUseCase(self._repo)
         self._task_ctx = GetTaskContextUseCase(self._repo)
         self._completed = ListCompletedTasksUseCase(self._repo)
@@ -169,31 +172,22 @@ class SpringService:
         return spring.context if spring else None
 
     def ensure_spring_imported(self, chain_dir: str, spring_id: str) -> dict | None:
-        """Garantiza el spring importado al DeltaGraph.
+        """Garantiza que el spring exista en el DeltaGraph (fuente unica).
 
-        Result pattern: si el import legacy falla (p.ej. plan.json corrupto),
-        se loggea warning y se degrada a None — el fallo ya no es silencioso.
+        No existe importacion legacy: el spring se crea via create_spring en
+        el delta. Si no esta registrado, se degrada a None.
+
+        Result pattern (convention-001): el core @safe nunca lanza; ante
+        fallo se loggea warning y se degrade a None — nunca silencioso.
         """
-        spring = self._repo.get_spring(spring_id)
-        if spring:
-            return _spring_to_dict(spring)
-        result = self._import_legacy_core(chain_dir, spring_id)
+        result = _ensure_spring_core(self._repo, spring_id)
         if is_successful(result):
             return result.value_or(None)
         error = result.failure()
         logger.warning(
-            "import legacy fallo para %s (%s: %s); spring no importado",
+            "ensure_spring_imported fallo para %s (%s: %s); spring no disponible",
             chain_dir, type(error).__name__, error,
         )
-        return None
-
-    @safe
-    def _import_legacy_core(self, chain_dir: str, spring_id: str) -> dict | None:
-        """Core puro de ensure_spring_imported (puede lanzar)."""
-        result = self._import_legacy.execute(chain_dir)
-        if result.get("imported"):
-            s = self._repo.get_spring(spring_id)
-            return _spring_to_dict(s) if s else None
         return None
 
     def update_spring(self, spring_id: str, data: dict) -> None:
@@ -316,23 +310,6 @@ class SpringService:
     def get_current_spec_entity(self, spring_id: str) -> Spec | None:
         return self._query.get_current_spec(spring_id)
 
-    # ── Entity-returning variants (P2 cleanup) ───────────────────────
-
-    def add_spec_entity(self, spring_id: str, objective: str, **kwargs) -> Spec:
-        return self._add_spec.execute(spring_id, objective, **kwargs)
-
-    def update_spec_entity(self, spring_id: str, spec_id: str, updates: dict) -> Spec | None:
-        return self._update_spec.execute(spring_id, spec_id, updates)
-
-    def get_specs_entity(self, spring_id: str, status: str = "") -> list[Spec]:
-        return self._query.get_specs(spring_id, status)
-
-    def get_spec_entity(self, spring_id: str, spec_id: str) -> Spec | None:
-        return self._query.get_spec(spring_id, spec_id)
-
-    def get_current_spec_entity(self, spring_id: str) -> Spec | None:
-        return self._query.get_current_spec(spring_id)
-
     # ── Progress & context ──
 
     def get_sprint_progress(self, spring_id: str) -> dict:
@@ -343,11 +320,6 @@ class SpringService:
 
     def list_completed_tasks(self, spring_id: str) -> list[dict]:
         return self._completed.execute(spring_id)
-
-    # ── Import legacy ──
-
-    def import_spring(self, sprint_dir: str) -> dict:
-        return self._import_legacy.execute(sprint_dir)
 
     # ── Lectura unica para el engine (tasks desde chain_dir) ──
 

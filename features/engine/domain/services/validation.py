@@ -4,6 +4,7 @@ Validaciones de dominio del workflow.
 SRP: Unica responsabilidad = validar reglas de negocio del workflow.
 SSOT: Toda regla de validacion vive aqui.
 """
+
 from __future__ import annotations
 
 from features.engine.domain.entities import (
@@ -12,7 +13,6 @@ from features.engine.domain.entities import (
     SubState,
     Gate,
 )
-from features.engine.domain.errors import NodeNotFoundError
 
 
 class ValidationService:
@@ -56,6 +56,7 @@ class ValidationService:
                 if task_data_raw and isinstance(task_data_raw, str):
                     try:
                         import json
+
                         parsed = json.loads(task_data_raw)
                         if isinstance(parsed, dict):
                             task_fields = parsed
@@ -108,6 +109,7 @@ class ValidationService:
         fields: dict,
     ) -> list[str]:
         from features.engine.domain.services.field_resolver import RequiredFieldResolver
+
         errors: list[str] = []
         required = RequiredFieldResolver.derive(sub_state)
         for field in required:
@@ -141,6 +143,7 @@ class ValidationService:
         if not ss:
             return True
         from features.engine.domain.services.field_resolver import RequiredFieldResolver
+
         required = RequiredFieldResolver.derive(ss)
         if not required:
             return True

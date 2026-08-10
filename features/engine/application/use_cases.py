@@ -234,13 +234,27 @@ class SubmitDataUseCase:
         # pudo avanzar a on_success). Sin esto, _build_step_result recibe el
         # estado previo al avance y su save final REVIERTE la transicion.
         advanced_to, node_complete, state = self._auto_advance(
-            sub_state, node, state, workflow, chain_dir, task_id, fields, result, task_result
+            sub_state,
+            node,
+            state,
+            workflow,
+            chain_dir,
+            task_id,
+            fields,
+            result,
+            task_result,
         )
 
         # ── 9b. StepResult monádico ────────────────────────────
         state, result = self._build_step_result(
-            sub_state, state, chain_dir, fields, result, task_result,
-            advanced_to, node_complete,
+            sub_state,
+            state,
+            chain_dir,
+            fields,
+            result,
+            task_result,
+            advanced_to,
+            node_complete,
         )
 
         # ── 10. Dispatch events via EventDispatcher ─────────────
@@ -281,9 +295,7 @@ class SubmitDataUseCase:
             fields = {}
         return chain_dir, fields, task_id, ctx
 
-    def _resolve_forward_target(
-        self, node: Any, sub_state: Any, fields: dict
-    ) -> Any:
+    def _resolve_forward_target(self, node: Any, sub_state: Any, fields: dict) -> Any:
         """Paso 2b: deteccion de forwarding de input (SPEC-013).
 
         Un sub-estado auto (ej: ANALYZE.GATHER) cuyo on_success apunta a un
@@ -371,9 +383,9 @@ class SubmitDataUseCase:
         task_data_structured = ""
         if task_result.data:
             try:
-                task_data_structured = json.dumps(
-                    task_result.data, ensure_ascii=False
-                )[:2000]
+                task_data_structured = json.dumps(task_result.data, ensure_ascii=False)[
+                    :2000
+                ]
             except (TypeError, ValueError):
                 task_data_structured = str(task_result.data)[:1000]
 
@@ -387,15 +399,11 @@ class SubmitDataUseCase:
         )
         self._state_repo.save(chain_dir, state)
         if not task_result.ok:
-            error_msg = (
-                str(task_result.error) if task_result.error else "Unknown error"
-            )
+            error_msg = str(task_result.error) if task_result.error else "Unknown error"
             raise AutoAdvanceError(state.current_node, sub_state.key, 1, error_msg)
         result["task_executed"] = True
         result["task_action"] = sub_state.action
-        result["task_result"] = (
-            str(task_result.data)[:500] if task_result.data else ""
-        )
+        result["task_result"] = str(task_result.data)[:500] if task_result.data else ""
         return task_result
 
     def _validate_output(
@@ -609,9 +617,11 @@ class SubmitDataUseCase:
             )
             if next_ss and next_ss.execution == ExecutionType.LLM_TASK:
                 next_input = next_ss.input_schema or {}
-                next_required = next_input.get("required", []) if isinstance(
-                    next_input, dict
-                ) else []
+                next_required = (
+                    next_input.get("required", [])
+                    if isinstance(next_input, dict)
+                    else []
+                )
                 if next_required and not fields:
                     self._state_repo.save(chain_dir, state)
                     result["advanced_to"] = state.current_sub_state
@@ -1146,7 +1156,7 @@ def _is_informal_sprint(chain_dir: str, project_id: str) -> bool:
         return False
     try:
         from libs.path_resolver import get_project_dir
-        from features.delta_tracking import SpringService, spring_service
+        from features.delta_tracking import SpringService
 
         project_root = str(get_project_dir(project_id))
         if not os.path.isdir(project_root):
@@ -1267,7 +1277,7 @@ def _resolve_decision_gate(
             try:
                 chain_dir = state.context.get("chain_dir", "")
                 if chain_dir:
-                    from features.delta_tracking import SpringService, spring_service
+                    from features.delta_tracking import spring_service
 
                     spring_svc = spring_service(chain_dir=chain_dir)
                     if spring_svc:
