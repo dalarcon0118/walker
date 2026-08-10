@@ -1,0 +1,243 @@
+{
+  "id": "ADR-WALKER-044",
+  "title": "Protocolo MCP como SSOT dinámico: eliminación de fallbacks estáticos y listas hardcodeadas",
+  "status": "Proposed",
+  "status_note": "Pendiente de aprobación. Resuelve G1-G4 de deriva entre registry y consumidores (CLI, REST, hook). Fase 1 implementada: protocol_builder con seccion analysis tools + marcador en mcp.md.",
+  "date": "2026-08-10",
+  "authors": ["Kilo", "PO"],
+  "summary": "El protocolo MCP y sus consumidores mantienen múltiples fuentes de verdad paralelas (_PROTOCOL_FALLBACK, rest.md, walker-session.js, reserved set) que se desincronizan cuando el registry evoluciona. Se unifica toda la narrativa en un generador dinámico y se eliminan las listas hardcodeadas.",
+  "related": [
+    { "id": "ADR-WALKER-043", "relation": "complements", "note": "contrato SSOT de tools; extiende el principio a la narrativa del protocolo" },
+    { "id": "ADR-WALKER-018", "relation": "complements", "note": "context gates; extiende el hook para consumir registry dinámicamente" },
+    { "id": "ADR-WALKER-016", "relation": "complements", "note": "protocol BC; mantiene la capa de prompts como derived del registry" }
+  ],
+  "tags": ["protocol", "mcp", "ssot", "dynamic", "registry", "rest", "hook", "adr-043"],
+  "module": "cli_interface",
+  "ckg_record": "pendiente de guardar en CKG tras aprobación",
+  "problem_statement": "El protocolo MCP y sus consumidores (CLI, REST, hook ADR-018) mantienen texto hardcodeado paralelo que no se actualiza cuando el registry agrega tools nuevas, generando drift silencioso entre lo que el MCP expone y lo que los agentes humanos/automáticos creen que existe.",
+  "evidence": [
+    "mcp_adapter.py:_PROTOCOL_FALLBACK es una copia completa del protocolo que puede quedar obsoleto.",
+    "protocol/rest.md no consulta el registry; hay que actualizarlo manualmente al agregar tools.",
+    "walker-session.js mantiene ALLOWED_TOOLS, memory queries y phase tools como arrays fijos.",
+    "features/engine/mcp.py:_register_public_tasks tiene un reserved set hardcodeado de nombres excluidos."
+  ],
+  "affected_modules": [
+    "features.cli_interface.mcp_adapter",
+    "features.cli_interface.application.handlers",
+    "features.prompts.protocol_builder",
+    "features.prompts.templates.protocol",
+    "features.engine.mcp",
+    ".opencode.plugins.walker-session"
+  ],
+  "affected_paths": [
+    "features/cli_interface/mcp_adapter.py",
+    "features/cli_interface/application/handlers.py",
+    "features/prompts/protocol_builder.py",
+    "features/prompts/templates/protocol/mcp.md",
+    "features/prompts/templates/protocol/rest.md",
+    "features/engine/mcp.py",
+    ".opencode/plugins/walker-session.js"
+  ],
+  "decision": {
+    "statement": "Unificar toda la narrativa del protocolo en un generador dinámico (protocol_builder.py) y eliminar las listas hardcodeadas de los consumidores. El registry es la única fuente de verdad; todo consumidor deriva de él en runtime.",
+    "rationale": "El ADR-043 estableció que el contrato de tools es SSOT en el registro. Esta decisión extiende ese principio a la narrativa del protocolo: si el registry define qué tools existen, el protocolo debe reflejarlo dinámicamente, no mantener copias estáticas que se desincronizan.",
+    "pattern": {
+      "name": "SSOT dinámico del protocolo",
+      "layers": [
+        "TaskRegistry / ModuleRegistry (define tools, schemas, metadata)",
+        "protocol_builder.py (genera secciones dinámicas: tools, analysis, workflow, capture, rest)",
+        "Consumidores (MCP prompt, REST help, hook ADR-018) consumen el builder o el registry directamente"
+      ]
+    },
+    "subsections": [
+      {
+        "title": "1. Eliminación de fallback estático",
+        "content": "_PROTOCOL_FALLBACK se elimina como texto duplicado. _load_protocol_text() usa build_mcp_protocol() y fallback a _load_static_template() (template base vacío de contenido dinámico)."
+      },
+      {
+        "title": "2. REST dinámico",
+        "content": "protocol/rest.md se convierte en template con marcador <!-- PUBLIC_TOOLS -->. El handler help consume _build_rest_section() para inyectar tools públicas."
+      },
+      {
+        "title": "3. Hook dinámico",
+        "content": "walker-session.js consulta un endpoint auxiliar (walker --tools-json o MCP tools/list) para armar ALLOWED_TOOLS, memory queries y phase tools. Fallback a listas hardcodeadas si no está disponible."
+      },
+      {
+        "title": "4. Eliminación del reserved set",
+        "content": "El reserved set en mcp.py se elimina. Las tasks excluidas llevan metadata internal=true en el TaskRegistry. El filtro usa metadata, no nombres hardcodeados."
+      }
+    ]
+  },
+  "impact": {
+    "affected_components": [
+      "mcp_adapter.py",
+      "protocol_builder.py",
+      "rest.md",
+      "walker-session.js",
+      "mcp.py:_register_public_tasks",
+      "tool_catalog.py"
+    ],
+    "changes": [
+      { "area": "_PROTOCOL_FALLBACK", "before": "texto duplicado completo del protocolo", "after": "eliminado; fallback = template base" },
+      { "area": "protocol/rest.md", "before": "template estático sin herramientas públicas", "after": "template dinámico con sección PUBLIC_TOOLS inyectada" },
+      { "area": "walker-session.js", "before": "ALLOWED_TOOLS, memory queries y phase tools hardcodeados", "after": "consumidos desde registry vía --tools-json" },
+      { "area": "features/engine/mcp.py reserved set", "before": "lista paralela de nombres excluidos", "after": "filtro por metadata.internal del TaskRegistry" }
+    ],
+    "risks": [
+      "build_mcp_protocol() puede fallar en runtime si el registry tiene un problema. Mitigación: fallback a template base + log de warning.",
+      "El hook OpenCode puede no tener acceso al CLI en algunos entornos. Mitigación: fallback a listas hardcodeadas.",
+      "Eliminar reserved set puede exponer tools que antes estaban ocultas. Mitigación: marcar metadata.internal en tasks existentes antes de eliminar el set."
+    ],
+    "tradeoffs": [
+      "El hook OpenCode depende de un endpoint auxiliar (--tools-json) para ser dinámico. Si el entorno no tiene CLI, mantiene fallback hardcodeado.",
+      "build_mcp_protocol() se ejecuta en cada request de protocolo. Se mitiga con cache en memoria (_PROTOCOL_CACHE).",
+      "Eliminar reserved set requiere marcar metadata.internal en tasks existentes. Es una migración incremental."
+    ],
+    "unchanged": [
+      "El template estático protocol/mcp.md sigue siendo la base narrativa.",
+      "Las secciones dinámicas existentes (Available tools, Workflow map, Session work log) mantienen su comportamiento.",
+      "El MCP self-test y tools/list siguen funcionando igual."
+    ]
+  },
+  "alternatives": [
+    {
+      "option": "Mantener fallback estático y sincronizarlo con CI",
+      "rejected_reason": "No elimina la fuente de verdad paralela; solo detecta el drift tarde."
+    },
+    {
+      "option": "Solo documentar la regla en ADR-043",
+      "rejected_reason": "No resuelve el problema operativo; los consumidores siguen con listas hardcodeadas."
+    },
+    {
+      "option": "Refactor completo a un solo archivo JSON de contrato",
+      "rejected_reason": "Invierte la arquitectura: el registry deja de ser el SSOT y pasa a ser un derived de un archivo estático."
+    },
+    {
+      "option": "Dejar los gaps como deuda técnica marcada",
+      "rejected_reason": "El ADR-043 ya marcó output_schema como deuda; esta es la misma clase de problema pero en capas de consumo. Se resuelve ahora."
+    }
+  ],
+  "implementation": {
+    "strategy": "Incremental con backward compatibility. Cada fase se despliega independientemente y mantiene fallback operativo.",
+    "steps": [
+      {
+        "description": "Eliminar _PROTOCOL_FALLBACK como texto duplicado; _load_protocol_text() usa build_mcp_protocol() con fallback a template base",
+        "files": ["features/cli_interface/mcp_adapter.py", "features/prompts/protocol_builder.py"],
+        "verification": "pytest tests/test_prompts_ssot_bdd.py pasa; _PROTOCOL_FALLBACK eliminado",
+        "done": false,
+        "priority": "high"
+      },
+      {
+        "description": "Actualizar test_prompts_ssot_bdd.py: validar que el protocolo dinámico usa Available analysis tools en vez de Available tools",
+        "files": ["tests/test_prompts_ssot_bdd.py"],
+        "verification": "pytest tests/test_prompts_ssot_bdd.py -k dynamic pasa",
+        "done": false,
+        "priority": "high"
+      },
+      {
+        "description": "Convertir protocol/rest.md en template dinámico con marcador <!-- PUBLIC_TOOLS -->",
+        "files": ["features/prompts/templates/protocol/rest.md"],
+        "verification": "El template contiene el marcador <!-- PUBLIC_TOOLS -->",
+        "done": false,
+        "priority": "medium"
+      },
+      {
+        "description": "Agregar _build_rest_section() a protocol_builder.py",
+        "files": ["features/prompts/protocol_builder.py"],
+        "verification": "La función existe y devuelve sección con tools públicas",
+        "done": false,
+        "priority": "medium"
+      },
+      {
+        "description": "Actualizar handlers.py:_load_protocol_rest() para consumir el builder dinámico",
+        "files": ["features/cli_interface/application/handlers.py"],
+        "verification": "pytest tests/test_f4_help_rest_bdd.py pasa",
+        "done": false,
+        "priority": "medium"
+      },
+      {
+        "description": "Agregar flag --tools-json al CLI para exportar list_tools() como JSON",
+        "files": ["bin/walker3", "features/cli_interface/mcp_adapter.py"],
+        "verification": "walker --tools-json devuelve JSON válido con tools",
+        "done": false,
+        "priority": "medium"
+      },
+      {
+        "description": "Actualizar walker-session.js para consumir --tools-json y armar ALLOWED_TOOLS dinámicamente",
+        "files": [".opencode/plugins/walker-session.js"],
+        "verification": "El hook arma ALLOWED_TOOLS desde el registry sin hardcodear",
+        "done": false,
+        "priority": "medium"
+      },
+      {
+        "description": "Eliminar reserved set en mcp.py:_register_public_tasks",
+        "files": ["features/engine/mcp.py"],
+        "verification": "No existe reserved set en el archivo",
+        "done": false,
+        "priority": "high"
+      },
+      {
+        "description": "Marcar tasks excluidas con metadata.internal=true en TaskRegistry",
+        "files": ["features/task_execution/tasks/*.py"],
+        "verification": "Todas las tasks excluidas tienen metadata.internal=true",
+        "done": false,
+        "priority": "high"
+      },
+      {
+        "description": "Actualizar test_mcp_tools_list_equivalence_bdd.py para validar que tools internas no aparecen en tools/list",
+        "files": ["tests/test_mcp_tools_list_equivalence_bdd.py"],
+        "verification": "Nuevo escenario BDD pasa",
+        "done": false,
+        "priority": "high"
+      },
+      {
+        "description": "Suite completa pasa (354 tests)",
+        "files": ["tests/"],
+        "verification": "pytest pasa sin fallas",
+        "done": false,
+        "priority": "high"
+      }
+    ]
+  },
+  "validation_checklist": [
+    {
+      "description": "tools/list MCP coincide con registry.list_tasks (sin drift)",
+      "command": "pytest tests/test_mcp_tools_list_equivalence_bdd.py -k 'toolslist_mcp_coincide_con_registrylist_tasks'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "Protocolo MCP dinámico contiene todas las tools públicas registradas",
+      "command": "pytest tests/test_prompts_ssot_bdd.py -k 'el_protocolo_mcp_dinamico_se_sirve_del_template_ssot'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "REST help muestra tools públicas dinámicamente",
+      "command": "pytest tests/test_f4_help_rest_bdd.py -k 'rest_usar_el_outputSchema_de_la_task'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "No hay reserved set paralelo; filtro usa metadata.internal",
+      "command": "grep -n 'reserved' features/engine/mcp.py",
+      "expected": "No output (sin matches)"
+    },
+    {
+      "description": "Suite completa pasa",
+      "command": "pytest",
+      "expected": "0 failures"
+    }
+  ],
+  "non_negotiables": [
+    "SSOT del protocolo: el registry es la única fuente de verdad; todo consumidor deriva de él.",
+    "Sin listas hardcodeadas paralelas: ALLOWED_TOOLS, reserved set, fallback texto.",
+    "Backward compatibility: si el builder o el endpoint fallan, los consumidores mantienen fallback operativo.",
+    "Cache obligatoria: build_mcp_protocol() se cachea para no regenerar en cada request.",
+    "Tests de equivalencia: tools/list MCP == registry.list_tasks en todo momento."
+  ],
+  "attachments": [
+    {
+      "name": "Ejemplo de filtro por metadata.internal",
+      "kind": "code",
+      "content": "for t in public_tasks:\n    if t.get('metadata', {}).get('internal'):\n        continue\n    # registrar tool"
+    }
+  ]
+}

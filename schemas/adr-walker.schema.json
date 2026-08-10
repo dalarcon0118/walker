@@ -2,10 +2,10 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "schemas/adr-walker.schema.json",
   "title": "ADR-WALKER",
-  "description": "Architecture Decision Record del walker. Estructura sólida para persistir los ADRs como datos JSON (no solo markdown), habilitando consulta, trazabilidad y generación de documentos.",
+  "description": "Architecture Decision Record estructurado para validación y consumo por agentes de IA. El schema captura el conocimiento arquitectónico en formato JSON, habilitando consulta, trazabilidad y razonamiento automático.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "status", "date", "summary", "context", "decision", "impact"],
+  "required": ["id", "status", "date", "summary", "problem_statement", "decision", "impact"],
   "properties": {
     "id": {
       "type": "string",
@@ -80,25 +80,40 @@
       "type": "string",
       "description": "Referencia de registro en CKG si aplica (hoy 'Registrado en CKG: decision-143')."
     },
-    "context": {
+    "problem_statement": {
       "type": "string",
       "minLength": 20,
-      "description": "Sección 1: contexto y problema. Texto markdown."
+      "description": "Declaración explícita del problema que esta decisión resuelve. Debe ser una frase concisa que un agente pueda usar para matching semántico."
     },
-    "context_details": {
+    "evidence": {
       "type": "array",
-      "items": { "type": "object" },
-      "description": "Sub-bloques estructurados del contexto (ej: tablas de evidencia, diagramas ASCII). El contenido es libre (markdown/código)."
+      "items": { "type": "string" },
+      "description": "Hechos verificados que respaldan el problema (archivos, tests, logs, métricas)."
+    },
+    "affected_modules": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Módulos/components del sistema afectados por esta decisión. Usado por agentes para determinar alcance de cambios."
+    },
+    "affected_paths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Rutas de archivos específicas afectadas. Usado por agentes para localizar código a modificar."
     },
     "decision": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["statement"],
+      "required": ["statement", "rationale"],
       "properties": {
         "statement": {
           "type": "string",
           "minLength": 20,
           "description": "La decisión en una frase (sección 2)."
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 20,
+          "description": "Por qué esta decisión resuelve el problema mejor que las alternativas."
         },
         "pattern": {
           "type": "object",
@@ -115,11 +130,15 @@
     "impact": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["changes"],
+      "required": ["affected_components", "changes"],
       "properties": {
+        "affected_components": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Componentes/modules específicos que cambian (ej: mcp_adapter.py, protocol_builder.py)."
+        },
         "changes": {
           "type": "array",
-          "description": "Tabla de impacto: área → antes → después.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -129,7 +148,13 @@
               "before": { "type": "string" },
               "after": { "type": "string" }
             }
-          }
+          },
+          "description": "Tabla de impacto: área → antes → después."
+        },
+        "risks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Riesgos introducidos por esta decisión y su mitigación."
         },
         "tradeoffs": {
           "type": "array",
@@ -156,22 +181,56 @@
       },
       "description": "Alternativas consideradas y por qué se rechazan (sección 5)."
     },
-    "implementation_steps": {
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["description"],
+            "properties": {
+              "description": { "type": "string" },
+              "files": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Archivos específicos a modificar en este paso."
+              },
+              "verification": {
+                "type": "string",
+                "description": "Cómo verificar que este paso se cumplió (test, comando, métrica)."
+              },
+              "done": { "type": "boolean", "default": false },
+              "priority": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              }
+            }
+          },
+          "description": "Pasos de implementación con seguimiento (sección 6)."
+        },
+        "strategy": {
+          "type": "string",
+          "description": "Estrategia general de implementación (ej: 'incremental', 'big bang', 'feature flag')."
+        }
+      }
+    },
+    "validation_checklist": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["description"],
+        "required": ["description", "command", "expected"],
         "properties": {
-          "description": { "type": "string" },
-          "done": { "type": "boolean", "default": false },
-          "priority": {
-            "type": "string",
-            "enum": ["high", "medium", "low"]
-          }
+          "description": { "type": "string", "description": "Qué verifica este escenario BDD." },
+          "command": { "type": "string", "description": "Comando de test ejecutable (ej: pytest tests/test_mcp_tools_list_equivalence_bdd.py -k ...)." },
+          "expected": { "type": "string", "description": "Resultado esperado (ej: PASSED, 0 failures)." }
         }
       },
-      "description": "Pasos de implementación con seguimiento (sección 6)."
+      "description": "Checks de validación post-implementación como escenarios BDD ejecutables. Un agente puede ejecutar estos comandos para verificar que el ADR se cumplió."
     },
     "non_negotiables": {
       "type": "array",
