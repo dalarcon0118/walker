@@ -88,18 +88,69 @@ _TRANSITION_OUTPUT_SCHEMA = {
     },
 }
 
+_PREPARE_OUTPUT_SCHEMA = {
+    **_RESPONSE_ENVELOPE,
+    "data": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string"},
+            "path": {"type": "string"},
+            "type": {"type": "string", "description": "prepare_result | already_exists"},
+            "message": {"type": "string"},
+        },
+    },
+}
+
+_LIST_OUTPUT_SCHEMA = {
+    **_RESPONSE_ENVELOPE,
+    "data": {
+        "type": "object",
+        "properties": {
+            "projects": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "repo_path": {"type": "string"},
+                        "active": {"type": "boolean"},
+                        "active_sprints": {"type": "array"},
+                    },
+                },
+            }
+        },
+    },
+}
+
+_HELP_OUTPUT_SCHEMA = {
+    **_RESPONSE_ENVELOPE,
+    "data": {
+        "type": "object",
+        "properties": {
+            "type": {"type": "string"},
+            "protocol": {"type": "string"},
+            "sprint_lifecycle": {"type": "object"},
+            "workflow_map": {"type": "object"},
+            "commands": {"type": "array"},
+            "task_catalog": {"type": "object"},
+            "indices": {"type": "array"},
+            "index_errors": {"type": "array"},
+        },
+    },
+}
+
 
 def register_module(registry: Any) -> None:
     module = ModuleDefinition(
         name="engine",
         tools=[
-            ToolDefinition(name="agent_context", description="Consulta consolidada delta+ckg+cpg+trace del proyecto, cruzada por archivo/tarea con insights. Usar antes de editar o para contexto de una tarea.", handler=_public_task_handler("agent_context"), input_schema={"type": "object", "properties": {"file": {"type": "string", "description": "Archivo a analizar (estructura + convenciones + specs + actividad)"}, "task_id": {"type": "string", "description": "Spec/TASK del sprint (join delta×trace)"}, "text": {"type": "string", "description": "Búsqueda full-text de respaldo en CKG"}}, "required": []}, output_schema={"type": "object", "properties": {"type": {"type": "string"}, "summary": {"type": "object"}, "cpg": {"type": "object"}, "ckg": {"type": "object"}, "delta": {"type": "object"}, "trace": {"type": "object"}, "insights": {"type": "array"}}}, metadata={"tags": ["agent", "context"]}),
             ToolDefinition(name="status", description="Project workflow state + memory stats: node, sub_state, instructions, gates, CPG/CKG/Delta counts.", handler=_workflow_handler("status"), input_schema={"type": "object", "properties": {}}, output_schema=_STATUS_OUTPUT_SCHEMA, metadata={"tags": ["workflow", "status"]}),
             ToolDefinition(name="submit", description="Submit data to current sub-state (body JSON). ADVANCES the workflow.", handler=_workflow_handler("submit"), input_schema={"type": "object", "properties": {"body": {"type": "object"}, "force": {"type": "boolean", "description": "Force submit if blocked by required_tools gate (uses BlockResolver force strategy)."}, "signal": {"type": "string", "description": "Signal name to emit on successful submit (e.g. kg_updated)."}}}, output_schema=_SUBMIT_OUTPUT_SCHEMA, metadata={"tags": ["workflow", "submit"]}),
             ToolDefinition(name="transition", description="Transition between nodes via gate.", handler=_workflow_handler("transition"), input_schema={"type": "object", "properties": {"gate": {"type": "string"}, "reason": {"type": "string", "description": "Reason for transition (used in trace and escalation)."}, "force": {"type": "boolean", "description": "Force transition if blocked (uses BlockResolver force strategy)."}}}, output_schema=_TRANSITION_OUTPUT_SCHEMA, metadata={"tags": ["workflow", "transition"]}),
-            ToolDefinition(name="prepare", description="Initialize project at path (creates .cognitive/).", handler=_workflow_handler("prepare"), input_schema={"type": "object", "properties": {"path": {"type": "string"}}}, metadata={"tags": ["workflow", "prepare"]}),
-            ToolDefinition(name="list", description="List projects managed by walker.", handler=_workflow_handler("list"), input_schema={"type": "object", "properties": {}}, metadata={"tags": ["workflow", "list"]}),
-            ToolDefinition(name="help", description="Walker protocol and available tasks.", handler=_workflow_handler("help"), input_schema={"type": "object", "properties": {}}, metadata={"tags": ["workflow", "help"]}),
+            ToolDefinition(name="prepare", description="Initialize project at path (creates .cognitive/).", handler=_workflow_handler("prepare"), input_schema={"type": "object", "properties": {"path": {"type": "string"}}}, output_schema=_PREPARE_OUTPUT_SCHEMA, metadata={"tags": ["workflow", "prepare"]}),
+            ToolDefinition(name="list", description="List projects managed by walker.", handler=_workflow_handler("list"), input_schema={"type": "object", "properties": {}}, output_schema=_LIST_OUTPUT_SCHEMA, metadata={"tags": ["workflow", "list"]}),
+            ToolDefinition(name="help", description="Walker protocol and available tasks.", handler=_workflow_handler("help"), input_schema={"type": "object", "properties": {}}, output_schema=_HELP_OUTPUT_SCHEMA, metadata={"tags": ["workflow", "help"]}),
         ],
         routes=[
             RestRoute(path="{project_id}/status", method="GET", flags_builder=lambda a: {}),
@@ -108,7 +159,6 @@ def register_module(registry: Any) -> None:
             RestRoute(path="prepare", method="POST", flags_builder=lambda a: {"path": a.get("path", "")}),
             RestRoute(path="list", method="GET", flags_builder=lambda a: {}),
             RestRoute(path="help", method="GET", flags_builder=lambda a: {}),
-            RestRoute(path="{project_id}/agent_context", method="POST", flags_builder=lambda a: {"_payload": a.get("body", a)}),
         ],
         metadata={"description": "Engine workflow module", "tags": ["workflow", "engine"]},
     )
@@ -139,7 +189,7 @@ def _register_public_tasks(server: McpServer) -> tuple[int, list[str]]:
                 "cpg_business", "cpg_unused_functions", "analyze_code",
                 "trace_push",
                 "scan_code_and_build_cpg",
-                "project_metrics", "cpg_analyze", "agent_context"}
+                "project_metrics", "cpg_analyze"}
 
     registered = 0
     skipped: list[str] = []

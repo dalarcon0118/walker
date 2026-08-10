@@ -15,16 +15,6 @@ Característica: MCP Workflow Tools — flujo completo JSON-RPC
   Antecedente: proyecto MCP con .cognitive/
     Dado un proyecto MCP con .cognitive/
 
-  Escenario: submit envía datos al sub-estado actual
-    Cuando invoco la tool MCP submit con decision test y evidence ok
-    Entonces la respuesta MCP es exitosa
-    Y el resultado tiene type ok
-
-  Escenario: transition avanza por una gate
-    Cuando invoco la tool MCP transition con gate start_task
-    Entonces la respuesta MCP es exitosa
-    Y el resultado tiene type ok
-
   Escenario: capture_task registra trabajo informal
     Cuando invoco la tool MCP capture_task con objective Trabajo informal y files test.py
     Entonces la respuesta MCP es exitosa

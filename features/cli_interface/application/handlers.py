@@ -563,9 +563,13 @@ def handle_prepare(req: Request) -> Response:
 
 
 def handle_submit(req: Request) -> Response:
-    """Use case: submit data to current sub-state via MCP.
+    """Use case: submit data to current sub-state.
 
-    Consume el MCP tool 'submit' en lugar de REST directo.
+    Llama a SubmitDataUseCase directamente (el CLI es solo formateador).
+    NOTA: el MCP es el SSOT para el agente (LLM). El CLI no debe consumir
+    el tool MCP 'submit' internamente: el circuito CLI->MCP->REST->CLI
+    recaia en si mismo (recursion hasta "maximum recursion depth exceeded")
+    y ademas envolvia el payload bajo 'data', dejando la salida en '?'.
     """
 
     def _exec():
@@ -575,32 +579,43 @@ def handle_submit(req: Request) -> Response:
         payload = req.flags.get("_payload", {})
         submit_data = payload if isinstance(payload, dict) else req.flags
 
-        from features.cli_interface.application.mcp_client import get_mcp_client
-
-        mcp = get_mcp_client()
-        mcp_result = mcp.call_tool(
-            "submit", {"project_id": project_id, "body": submit_data}
+        chain_dir = (
+            req.params.get("chain_dir", "")
+            or req.flags.get("_chain_dir", "")
+            or _ensure_chain_dir(project_id)
         )
-        result = mcp_result.get("result", mcp_result)
-
-        if not result.get("ok", True) or result.get("error"):
-            msg = result.get("error") or result.get("message", "Submit failed")
+        if not chain_dir:
             return Response.error(
-                msg,
-                status_code=400,
-                errors=result.get("errors", []),
+                f"No active sprint found for project '{project_id}'",
+                status_code=404,
                 next_actions=[
                     action(
                         f"walker {project_id}/status",
-                        "check which fields the current sub-state requires",
-                    ),
+                        "check project health and active sprints",
+                    )
                 ],
             )
+
+        from features.engine.application.use_cases import SubmitDataUseCase
+        from features.engine.infrastructure.repositories import (
+            WorkflowRepository,
+            WorkflowStateRepository,
+            ScriptRunner,
+        )
+
+        uc = SubmitDataUseCase(
+            workflow_repo=WorkflowRepository(),
+            state_repo=WorkflowStateRepository(),
+            script_runner=ScriptRunner(),
+        )
+        result = uc.execute(chain_dir, fields=submit_data)
+
         sub_state = result.get("sub_state", "?")
         fields = list(submit_data.keys())
         message = f"Submitted {len(fields)} field(s) to {project_id} @ {sub_state}"
-        if result.get("xor_done") and result.get("xor_next"):
-            message += f" → avanzado a {result['xor_next']}"
+        xor_next = result.get("xor_next")
+        if xor_next:
+            message += f" → avanzado a {xor_next}"
         return Response.ok(
             "submit_result",
             message=message,
@@ -621,7 +636,14 @@ def handle_submit(req: Request) -> Response:
 
 
 def handle_transition(req: Request) -> Response:
-    """Use case: transition between nodes via MCP."""
+    """Use case: transition between nodes.
+
+    Llama a TransitionUseCase directamente (el CLI es solo formateador).
+    NOTA: el MCP es el SSOT para el agente (LLM). El CLI no debe consumir
+    el tool MCP 'transition' internamente: el circuito CLI->MCP->REST->CLI
+    recaia en si mismo (recursion hasta "maximum recursion depth exceeded")
+    y ademas envolvia el payload bajo 'data', dejando la salida en '?'.
+    """
 
     def _exec():
         if not _resolve_project_from_cwd(req):
@@ -643,37 +665,50 @@ def handle_transition(req: Request) -> Response:
                 status_code=400,
             )
 
-        from features.cli_interface.application.mcp_client import get_mcp_client
-
-        mcp = get_mcp_client()
-        body = {"gate": gate}
-        if force:
-            body["force"] = True
-            body["reason"] = force_reason
-        mcp_result = mcp.call_tool(
-            "transition", {"project_id": project_id, "body": body}
+        chain_dir = (
+            req.params.get("chain_dir", "")
+            or req.flags.get("_chain_dir", "")
+            or _ensure_chain_dir(project_id)
         )
-        result = mcp_result.get("result", mcp_result)
-
-        if not result.get("ok", True) or result.get("error"):
+        if not chain_dir:
             return Response.error(
-                result.get("error") or result.get("message", "Transition failed"),
-                status_code=400,
+                f"No active sprint found for project '{project_id}'",
+                status_code=404,
                 next_actions=[
                     action(
                         f"walker {project_id}/status",
-                        "check current state and gates",
+                        "check project health and active sprints",
                     )
                 ],
             )
+
+        from features.engine.application.use_cases import TransitionUseCase
+        from features.engine.infrastructure.repositories import (
+            WorkflowRepository,
+            WorkflowStateRepository,
+            ScriptRunner,
+        )
+
+        uc = TransitionUseCase(
+            workflow_repo=WorkflowRepository(),
+            state_repo=WorkflowStateRepository(),
+            script_runner=ScriptRunner(),
+        )
+        result = uc.execute(
+            chain_dir,
+            gate_name=gate,
+            skip_preconditions=force,
+            reason=force_reason,
+        )
+
         if force:
             _record_forced_transition(req, gate, force_reason, result)
         return Response.ok(
             "transition_result",
             message=(
                 f"Transitioned {project_id} "
-                f"{result.get('from_node', '?')}.{result.get('from_sub', '')} → "
-                f"{result.get('to_node', '?')}.{result.get('to_sub', '')} "
+                f"{result.get('from_node', '?')} → "
+                f"{result.get('to_node', '?')} "
                 f"via '{gate}'"
             ),
             data={"gate": gate, **result},

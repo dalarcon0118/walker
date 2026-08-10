@@ -250,7 +250,7 @@ def _mcp_contains_template(prompts_ssot_ctx: dict):
 @then("el protocolo añade secciones dinámicas (tools y workflow)")
 def _mcp_has_dynamic(prompts_ssot_ctx: dict):
     dynamic = prompts_ssot_ctx["mcp_dynamic"]
-    assert "Available tools:" in dynamic, "Falta la sección dinámica de tools"
+    assert "Available analysis tools:" in dynamic, "Falta la sección dinámica de analysis tools"
     assert "Workflow map:" in dynamic, "Falta la sección dinámica del workflow"
     assert len(dynamic) > len(prompts_ssot_ctx["mcp_text"]), (
         "El protocolo dinámico debería extender el template estático"

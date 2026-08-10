@@ -162,12 +162,12 @@ def _list_specs(wf_ctx: dict):
     return wf_ctx
 
 
-@when('invoco submit con decision test y evidence ok', target_fixture="wf_ctx")
+@when('invoco submit con intent test y evidence ok', target_fixture="wf_ctx")
 def _submit(wf_ctx: dict):
     from features.cli_interface.application.handlers import handle_submit
     from features.cli_interface.infrastructure.contracts import Request
     chain_dir = wf_ctx.get("chain_dir", "")
-    req = Request(params={}, flags={"task": "submit", "_payload": {"decision": "test", "evidence": "ok"}})
+    req = Request(params={}, flags={"task": "submit", "_payload": {"intent": "test", "evidence": "ok"}})
     req.params["chain_dir"] = chain_dir
     result = handle_submit(req)
     wf_ctx["submit_result"] = result.to_dict() if hasattr(result, "to_dict") else result
@@ -179,7 +179,7 @@ def _transition(wf_ctx: dict):
     from features.cli_interface.application.handlers import handle_transition
     from features.cli_interface.infrastructure.contracts import Request
     chain_dir = wf_ctx.get("chain_dir", "")
-    req = Request(params={"gate": "start_task"}, flags={"task": "transition", "_payload": {"gate": "start_task"}})
+    req = Request(params={"gate": "start_task"}, flags={"task": "transition", "_payload": {"gate": "start_task"}, "force": True, "reason": "test"})
     req.params["chain_dir"] = chain_dir
     result = handle_transition(req)
     wf_ctx["transition_result"] = result.to_dict() if hasattr(result, "to_dict") else result

@@ -1,11 +1,12 @@
 """protocol_builder.py — Genera el protocolo MCP dinámicamente.
 
 Mezcla:
-  1. Texto estático del template protocol/mcp.md (secciones narrativas).
-  2. Secciones vivas generadas desde código:
-       - Tools públicas disponibles (list_tools)
-       - Mapa del workflow (workflow_map)
-       - Mecanismo anti-pérdida / uncaptured_work
+   1. Texto estático del template protocol/mcp.md (secciones narrativas).
+   2. Secciones vivas generadas desde código:
+        - Tools públicas disponibles (list_tools)
+        - Mapa del workflow (workflow_map)
+        - Mecanismo anti-pérdida / uncaptured_work
+        - Tools de análisis (CPG + phase intelligence)
 """
 
 from __future__ import annotations
@@ -13,6 +14,15 @@ from __future__ import annotations
 
 from features.engine.application.tool_catalog import list_tools
 from features.engine.application.workflow_map import compose_workflow_map
+
+
+ANALYSIS_TOOL_PREFIXES = ("cpg_", "kg_", "analyze_")
+PHASE_TOOL_NAMES = {
+    "kg_task_context": "file/task context before editing (IMPLEMENT phase)",
+    "kg_diagnose": "failure diagnosis with conventions (REFINE phase)",
+    "kg_qa_evidence": "verification coverage (VERIFY phase)",
+    "kg_sprint_evidence": "sprint planning evidence (SPRINT.PLANNING phase)",
+}
 
 
 def _load_static_template() -> str:
@@ -77,6 +87,24 @@ def _build_capture_task_section(wf_map: dict) -> str:
     return "\n".join(lines)
 
 
+def _build_analysis_section() -> str:
+    tools = list_tools()
+    if not tools:
+        return ""
+
+    lines = ["Available analysis tools:"]
+    for t in tools:
+        name = t.get("name", "")
+        if not name.startswith(ANALYSIS_TOOL_PREFIXES):
+            continue
+        if name in PHASE_TOOL_NAMES:
+            desc = PHASE_TOOL_NAMES[name]
+        else:
+            desc = t.get("description", "")
+        lines.append(f"  - {name}: {desc}")
+    return "\n".join(lines)
+
+
 def build_mcp_protocol() -> str:
     static = _load_static_template()
     lines = static.splitlines()
@@ -89,38 +117,63 @@ def build_mcp_protocol() -> str:
 
     try:
         tools_section = _build_tools_section()
+        analysis_section = _build_analysis_section()
         workflow_section = _build_workflow_section(wf_map)
         capture_section = _build_capture_task_section(wf_map)
     except Exception:
         return static
 
     # Insertar sección 2 dinámica después de "2. TO ADVANCE..."
+    # Insertar sección 3 dinámica después de "3. CODE ANALYSIS..."
     # Insertar workflow map después de la sección 5 completa.
     result: list[str] = []
     i = 0
     inserted_wf = False
+    inserted_analysis = False
     while i < len(lines):
         line = lines[i]
-        result.append(line)
-        if line.strip().startswith("2. TO ADVANCE in the workflow"):
-            result.append("")
-            result.extend(tools_section.splitlines())
-            result.append("")
-        if not inserted_wf and line.strip().startswith("5. REUSE what exists"):
-            # Avanzar hasta el final del párrafo de la sección 5
-            j = i + 1
+
+        if not inserted_analysis and line.strip().startswith("3. CODE ANALYSIS = USE THE WALKER CPG"):
+            result.append(line)
+            i += 1
             while (
-                j < len(lines)
-                and lines[j].strip()
-                and not lines[j].strip().startswith("6.")
+                i < len(lines)
+                and lines[i].strip()
+                and not lines[i].strip().startswith("4.")
+                and not lines[i].strip().startswith("<!-- ANALYSIS_TOOLS -->")
             ):
-                result.append(lines[j])
-                j += 1
-            i = j - 1
+                result.append(lines[i])
+                i += 1
+            if i < len(lines) and lines[i].strip().startswith("<!-- ANALYSIS_TOOLS -->"):
+                if analysis_section:
+                    result.append("")
+                    result.extend(analysis_section.splitlines())
+                    result.append("")
+                i += 1
+            inserted_analysis = True
+            continue
+
+        if not inserted_wf and line.strip().startswith("5. REUSE what exists"):
+            result.append(line)
+            i += 1
+            while (
+                i < len(lines)
+                and lines[i].strip()
+                and not lines[i].strip().startswith("6.")
+            ):
+                result.append(lines[i])
+                i += 1
             result.append("")
             result.extend(workflow_section.splitlines())
             result.append("")
             inserted_wf = True
+            continue
+
+        if line.strip().startswith("<!-- ANALYSIS_TOOLS -->"):
+            i += 1
+            continue
+
+        result.append(line)
         i += 1
 
     result_text = "\n".join(result)

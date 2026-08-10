@@ -9,4 +9,8 @@ las ejecuta al recibir los datos. El agente no las llama directamente.
 Las tareas PUBLICAS (memorias kg_search/kg_schema/cpg/ckg) si se llaman directo:
   walker <project>/kg_schema → descubre los indices disponibles
   walker <project>/kg_search '{"text":"..."}' → busca en las memorias
+  walker <project>/kg_task_context '{"file":"..."}' → contexto antes de editar (IMPLEMENT)
+  walker <project>/kg_diagnose '{"task_id":"..."}' → diagnóstico de fallo (REFINE)
+  walker <project>/kg_qa_evidence '{"task_id":"..."}' → cobertura de verificación (VERIFY)
+  walker <project>/kg_sprint_evidence '{"goal":"..."}' → evidencia para sprint planning
 Antes de leer archivos del codigo fuente, consulta las memorias.

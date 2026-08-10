@@ -626,7 +626,18 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         `3. walker_kg_multi → federated query across CPG + CKG + Delta + Trace\n` +
         `4. walker_cpg_business → business layer: reusable functions, flows, patterns\n` +
         `5. walker_analyze_code → full code analysis via CPG\n` +
-        `6. walker_agent_context → consolidated session context (delta+ckg+cpg+trace)\n` +
+        `6. walker_kg_task_context → file/task context before editing (IMPLEMENT phase)\n` +
+        `7. walker_kg_diagnose → failure diagnosis with conventions (REFINE phase)\n` +
+        `8. walker_kg_qa_evidence → verification coverage (VERIFY phase)\n` +
+        `9. walker_kg_sprint_evidence → sprint planning evidence (SPRINT.PLANNING phase)\n` +
+        `10. walker_agent_context → consolidated session context (delta+ckg+cpg+trace)\n` +
+        `\n` +
+        `### PHASE TOOLS (MANDATORY per workflow phase)\n` +
+        `Use these structured tools at each phase:\n` +
+        `- IMPLEMENT: walker_kg_task_context before editing\n` +
+        `- REFINE: walker_kg_diagnose when task fails\n` +
+        `- VERIFY: walker_kg_qa_evidence to check coverage\n` +
+        `- SPRINT.PLANNING: walker_kg_sprint_evidence to gather evidence\n` +
         `\n` +
         `### STRICT RULES\n` +
         `- FORBIDDEN: python3 -c / python3 << / python3 script.py → use walker MCP tools\n` +

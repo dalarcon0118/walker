@@ -46,7 +46,7 @@ Característica: Workflow Spring completo
   Escenario: submit avanza el workflow
     Dado un proyecto temporal con .cognitive/
     Y un sprint activo en ACTIVE
-    Cuando invoco submit con decision test y evidence ok
+    Cuando invoco submit con intent test y evidence ok
     Entonces el submit es exitoso
 
   Escenario: transition cambia de nodo

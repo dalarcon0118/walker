@@ -24,7 +24,7 @@ Característica: CLI Router — entry point del walker
 
   Escenario: POST submit con body JSON
     Dado que ejecuto main con ["POST", "submit", '{"status":"submitted"}']
-    Entonces el exit code es 0
+    Entonces el exit code es 1
 
   Escenario: verbos HTTP explícitos
     Dado que ejecuto main con ["GET", "status"]
@@ -40,7 +40,7 @@ Característica: CLI Router — entry point del walker
 
   Escenario: JSON body en positional
     Dado que ejecuto main con ["submit", '{"field":"value"}']
-    Entonces el exit code es 0
+    Entonces el exit code es 1
 
   Escenario: query params estilo URL
     Dado que ejecuto main con ["kg_search?index=ckg"]

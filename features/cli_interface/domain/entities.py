@@ -68,15 +68,19 @@ class Tool:
         ), []
 
     def to_definition(self) -> dict:
-        """Proyección al contrato del agente (DTO para tools/list)."""
-        definition = {
+        """Proyección al contrato del agente (DTO para tools/list).
+
+        ADR-WALKER-043 (non-negotiables): toda tool pública expone `outputSchema`.
+        Si la tool no declara output_schema en el registro, se emite `{}` (schema
+        transitorio por defecto, deuda marcada) — el contrato es DETERMINISTA:
+        el agente siempre puede inspeccionar la forma de salida, nunca ausente.
+        """
+        return {
             "name": self.name.value,
             "description": self.description,
             "inputSchema": self.input_schema,
+            "outputSchema": self.output_schema or {},
         }
-        if self.output_schema:
-            definition["outputSchema"] = self.output_schema
-        return definition
 
 
 # ═══════════════════════════════════════════════════════════════════════

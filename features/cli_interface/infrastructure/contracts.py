@@ -50,10 +50,13 @@ class Request:
 
     @property
     def gate(self) -> str:
-        """Gate para transition: params > flag > primer positional."""
+        """Gate para transition: params > flag > _payload > body > primer positional."""
+        payload = self.flags.get("_payload", {})
         return (
             self.params.get("gate", "")
             or self.flags.get("gate", "")
+            or payload.get("gate", "")
+            or self.body.get("gate", "")
             or (self.positional[0] if self.positional else "")
         )
 

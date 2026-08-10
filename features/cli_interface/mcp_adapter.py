@@ -65,7 +65,11 @@ def _build_server() -> McpServer:
         if not is_successful(outcome):
             _log_module_error(mod, outcome.failure())
 
-    _register_rest_tools(server)
+    # SSOT (ADR-043): las tools del server se pueblan DESDE el ModuleRegistry +
+    # TaskRegistry (fusion via _sync_catalog_core) — no hay registro paralelo
+    # con descripciones/schemas re-escritos. (Antiguo _register_rest_tools
+    # duplicaba status/submit/transition/prepare/list/help con desc genérica
+    # y sin output_schema: drift real entre lo que ve el agente y el dispatch).
     _sync_module_registry_to_server(server)
     _register_help_resource(server)
     return server
@@ -174,40 +178,6 @@ def _render_help_text(help_doc: dict) -> str:
     return "\n".join(lines)
 
 
-def _register_rest_tools(server: McpServer) -> None:
-    """Registra los tools REST del workflow con dispatch via _call_tool."""
-    rest_tools = [
-        (
-            "status",
-            "Project workflow state + memory stats: node, sub_state, instructions, gates, CPG/CKG/Delta counts.",
-        ),
-        (
-            "submit",
-            "Send data to current sub-state. ADVANCES the workflow. Body: node fields.",
-        ),
-        (
-            "transition",
-            "Transition through a gate (admin/emergency).",
-        ),
-        ("prepare", "Initialize project at path (creates .cognitive/)."),
-        ("list", "List projects managed by walker."),
-        ("help", "Walker protocol and available tasks."),
-    ]
-    for name, desc in rest_tools:
-        server.tool(
-            name=name,
-            description=desc,
-            handler=_call_tool_handler(name),
-        )
-
-
-def _call_tool_handler(name: str):
-    def handler(args: dict) -> dict:
-        return _call_tool(name, args)
-
-    return handler
-
-
 def _log_module_error(mod: str, err: Exception) -> None:
     import sys
 
@@ -309,6 +279,13 @@ _PROTOCOL_FALLBACK = (
     "\n"
     "5. REUSE what exists: cpg_analyze reveals already-implemented pure\n"
     "   functions and business flows. Reusing them avoids reinventing the wheel.\n"
+    "\n"
+    "6. PHASE INTELLIGENCE TOOLS (MANDATORY per workflow phase):\n"
+    "   Use these tools to query structured knowledge at each phase:\n"
+    "     - kg_task_context   → file/task context before editing (IMPLEMENT phase)\n"
+    "     - kg_diagnose       → failure diagnosis with conventions (REFINE phase)\n"
+    "     - kg_qa_evidence    → verification coverage (VERIFY phase)\n"
+    "     - kg_sprint_evidence → sprint planning evidence (SPRINT.PLANNING phase)\n"
 )
 
 
@@ -437,7 +414,7 @@ def _call_tool(name: str, args: dict) -> dict:
 
     project_id = _resolve_project_id(args)
     path = f"{project_id}/{name}"
-    flags = {"_payload": args.get("body", {})}
+    flags = {"_payload": args.get("body", args)}
     from . import _ROUTER
 
     result = _ROUTER.dispatch(path, flags, method="POST")

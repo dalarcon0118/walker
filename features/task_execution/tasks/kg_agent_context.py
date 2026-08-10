@@ -146,5 +146,33 @@ def register(registry):
             "usage": 'walker <project>/agent_context \'{"delta":{},"ckg":{},"cpg":{},"trace":{}}\'',
             "tags": ["kg", "context", "agent"],
             "scope": "public",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string", "description": "Archivo/área a analizar (cruce de las 4 capas por archivo)."},
+                    "task_id": {"type": "string", "description": "Spec/TASK del sprint (cruce delta×trace)."},
+                    "text": {"type": "string", "description": "Búsqueda full-text de respaldo en CKG."},
+                    "delta": {"type": "object", "description": "Filtros sobre el índice delta."},
+                    "ckg": {"type": "object", "description": "Filtros sobre el índice CKG."},
+                    "cpg": {"type": "object", "description": "Filtros sobre el índice CPG."},
+                    "trace": {"type": "object", "description": "Filtros sobre el índice trace."},
+                },
+                "required": [],
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "description": "kg_agent_context"},
+                    "project_id": {"type": "string"},
+                    "summary": {"type": "object"},
+                    "delta": {"type": "object"},
+                    "ckg": {"type": "object"},
+                    "cpg": {"type": "object"},
+                    "trace": {"type": "object"},
+                    "insights": {"type": "array"},
+                    "next_actions": {"type": "array"},
+                },
+                "required": [],
+            },
         },
     )

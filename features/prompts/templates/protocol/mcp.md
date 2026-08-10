@@ -7,14 +7,15 @@ WALKER PROTOCOL (MCP) — MANDATORY BEHAVIOR CONTRACT:
    If the node is a decision (XOR), use submit with 'intent'.
 
 3. CODE ANALYSIS = USE THE WALKER CPG (MANDATORY):
-   The walker has a STRUCTURED CODE MEMORY (CPG) with a query layer.
-   Do NOT reason about code from scratch NOR read files directly.
-   BEFORE analyzing/implementing/verifying, query the project CPG:
-     - kg_search with _index:cpg + file:'<area>'  → symbols, signatures, imports
-     - cpg_business with file:'<area>'            → pure functions, flows, patterns
-     - analyze_code with area:'<area>'            → full code analysis
-   The CPG is the source of truth for the code (real names, real signatures).
-   Use what the CPG returns to build solutions; do NOT invent APIs.
+    The walker has a STRUCTURED CODE MEMORY (CPG) with a query layer.
+    Do NOT reason about code from scratch NOR read files directly.
+    BEFORE analyzing/implementing/verifying, query the project CPG:
+      - kg_search with _index:cpg + file:'<area>'  → symbols, signatures, imports
+      - cpg_business with file:'<area>'            → pure functions, flows, patterns
+      - analyze_code with area:'<area>'            → full code analysis
+    The CPG is the source of truth for the code (real names, real signatures).
+    Use what the CPG returns to build solutions; do NOT invent APIs.
+    <!-- ANALYSIS_TOOLS -->
 
 4. KNOWLEDGE MEMORY (CKG): query ckg before deciding patterns and
    conventions. Use kg_store to REGISTER decisions, conventions and
