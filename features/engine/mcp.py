@@ -10,11 +10,6 @@ from libs.mcp_server import McpServer
 from features.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
 
 
-def register(server: McpServer) -> tuple[int, list[str]]:
-    count, errors = _register_public_tasks(server)
-    return count, errors
-
-
 # ── Schemas de salida de las tools manuales del engine (SSOT, ADR-043) ──────
 # El handler devuelve el envelope Response.to_dict(); `data` varía por tool.
 _RESPONSE_ENVELOPE = {
@@ -28,7 +23,6 @@ _RESPONSE_ENVELOPE = {
         "next_actions": {
             "type": "array",
             "items": {
-                "type": "object",
                 "properties": {"command": {"type": "string"}, "reason": {"type": "string"}},
             },
         },
@@ -50,12 +44,11 @@ _STATUS_OUTPUT_SCHEMA = {
                 "gates": {
                     "type": "array",
                     "items": {
-                        "type": "object",
                         "properties": {"name": {"type": "string"}},
                     },
                 },
                 "next_steps": {"type": "array"},
-                "warnings": {"type": "array", "items": {"type": "string"}},
+                "warnings": {"type": "array"},
             },
         },
     },
@@ -163,64 +156,6 @@ def register_module(registry: Any) -> None:
         metadata={"description": "Engine workflow module", "tags": ["workflow", "engine"]},
     )
     registry.register_module(module)
-
-
-def _register_public_tasks(server: McpServer) -> tuple[int, list[str]]:
-    errors: list[str] = []
-    try:
-        from features.engine.application.workflow_api import bootstrap
-    except ImportError as e:
-        return 0, [f"workflow_api import failed: {e}"]
-
-    try:
-        from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
-        from features.engine.infrastructure.trace_log import TraceLogger
-        from features.engine.domain.ports import ITracer
-    except ImportError as e:
-        return 0, [f"task_registry/trace_log import failed: {e}"]
-
-    registry, _ = bootstrap(InMemoryTaskRegistry(tracer=TraceLogger()))
-    if registry is None:
-        return 0, ["bootstrap returned no registry"]
-
-    public_tasks = registry.list_tasks_with_meta(scope="public") or []
-    reserved = {"prepare", "list", "status", "submit", "transition", "help",
-                "kg_search", "kg_multi", "save_to_ckg",
-                "cpg_business", "cpg_unused_functions", "analyze_code",
-                "trace_push",
-                "scan_code_and_build_cpg",
-                "project_metrics", "cpg_analyze"}
-
-    registered = 0
-    skipped: list[str] = []
-    for t in public_tasks:
-        name = t.get("name", "")
-        if not name:
-            skipped.append(t.get("description", "?")[:40])
-            continue
-        if name in reserved:
-            continue
-        desc = t.get("description", f"Public task: {name}")
-        server.tool(
-            name=name,
-            description=f"{desc} (public task). Read walker://help/{name}.",
-            handler=_public_task_handler(name),
-            input_schema=t.get("input_schema"),
-            output_schema=t.get("output_schema"),
-        )
-        registered += 1
-
-    if skipped:
-        errors.append(f"skipped tasks without name: {', '.join(skipped)}")
-
-    return registered, errors
-
-
-def _public_task_handler(name: str):
-    def handler(args: dict) -> dict:
-        from features.engine.application.task_dispatcher import dispatch_public_task
-        return dispatch_public_task(name, args.get("body", args))
-    return handler
 
 
 def _workflow_handler(name: str):

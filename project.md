@@ -98,3 +98,5 @@ Sin presupuesto, el sistema sufre la tragedia de los comunes.
 | SPEC-008 | Crear `docs/ARCHITECTURE-MODELS.md` | Media | ✅ Completada |
 | SPEC-009 | Side effects atómicos (Outbox/Transaction pattern) | Media | ✅ Implementada |
 | SPEC-010 | Ritual pre-mortem en AGENTS.md | Media | ✅ Completada |
+| SPEC-001 | Unificar protocolo MCP como SSOT dinámico | Alta | ✅ Implementada |
+| SPEC-002 | Traza verificable multi-canal (cpg_indexed, side_effect_execute, channel) | Media | ✅ Implementada |

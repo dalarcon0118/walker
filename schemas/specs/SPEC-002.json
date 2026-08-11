@@ -1,7 +1,7 @@
 {
   "id": "SPEC-002",
   "type": "feature",
-  "status": "specified",
+  "status": "implemented",
   "title": "Traza verificable multi-canal: eventos de certificación y telemetría en los puertos de entrada",
   "summary": "Cerrar los gaps de trazabilidad en los puertos de entrada (SideEffectExecutor, TaskRegistry, EventBus): certificar el indexado CPG, trazar cada side-effect del workflow, registrar el canal de invocación y eliminar la pérdida silenciosa de eventos.",
   "objective": "El TraceGraph debe registrar (a) la certificación del indexado CPG (fingerprint_match), (b) cada side-effect del workflow con ok/duration/stats, (c) el canal de invocación (CLI/MCP/workflow) de cada task, y (d) los fallos de publicación en lugar de descartarlos silenciosamente.",
@@ -12,7 +12,7 @@
   "tags": ["trace", "tracer", "cpg", "fingerprint", "index", "observability", "verification", "side-effects", "channel"],
   "authors": ["Kilo", "PO"],
   "created_at": "2026-08-10T15:00:00Z",
-  "updated_at": "2026-08-10T15:30:00Z",
+  "updated_at": "2026-08-11T18:30:00Z",
   "problem_statement": "El tracer no puede garantizar el estado del CPG ni reconstruir la causalidad de la ejecución: la verificación del indexado vive fuera del trace (fingerprint interlock watcher-CPG), los side-effects del workflow no emiten eventos individuales, task_execute no distingue qué canal invocó (CLI vs MCP vs workflow), y tres capas descartan eventos con except: pass (EventBus.publish, trace_event_publisher, _trace_execute) — pérdida silenciosa imposible de diagnosticar.",
   "evidence": [
     "features/task_execution/side_effects/cpg_updates.py:76 update_cpg retorna SideEffectResult pero no hace trace_push.",
@@ -108,22 +108,22 @@
   "validation_checklist": [
     {
       "description": "update_cpg emite cpg_indexed con fingerprint_match",
-      "command": "pytest tests/test_trace_cpg_verification_bdd.py -k 'update_cpg_emite_cpg_indexed_con_fingerprint_match'",
+      "command": "pytest tests/test_cpg_indexed_bdd.py -k 'se_emite_un_evento_cpg_indexed'",
       "expected": "PASSED"
     },
     {
       "description": "El evento cpg_indexed incluye stats (files_updated, total_nodes, total_edges, quality_passed)",
-      "command": "pytest tests/test_trace_cpg_verification_bdd.py -k 'el_evento_incluye_stats'",
+      "command": "pytest tests/test_cpg_indexed_bdd.py -k 'el_evento_cpg_indexed_lleva_files_updated_y_total_nodes_y_total_edges'",
       "expected": "PASSED"
     },
     {
       "description": "SideEffectExecutor emite side_effect_execute por cada efecto",
-      "command": "pytest tests/test_trace_side_effect_bdd.py -k 'cada_side_effect_emite_evento'",
+      "command": "pytest tests/test_trace_side_effect_bdd.py -k 'un_sideeffect_exitoso_emite_su_evento_de_traza'",
       "expected": "PASSED"
     },
     {
       "description": "task_execute registra el canal de invocacion",
-      "command": "pytest tests/test_trace_channel_bdd.py -k 'task_execute_lleva_channel'",
+      "command": "pytest tests/test_trace_channel_bdd.py -k 'task_ejecutada_desde_mcp_lleva_channel_mcp'",
       "expected": "PASSED"
     },
     {
@@ -132,8 +132,8 @@
       "expected": "PASSED"
     },
     {
-      "description": "El status consulta el trace para clasificar up_to_date/stale",
-      "command": "pytest tests/test_cpg_status_bdd.py -k 'status_consulta_el_trace'",
+      "description": "El status incluye cpg_status desde el watcher (fingerprint_match)",
+      "command": "pytest tests/test_cpg_status_bdd.py -k 'status_incluye_cpg_status_desde_watcher'",
       "expected": "PASSED"
     },
     {

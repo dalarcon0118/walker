@@ -12,7 +12,7 @@
   "tags": ["protocol", "mcp", "ssot", "dynamic", "registry"],
   "authors": ["Kilo", "PO"],
   "created_at": "2026-08-10T14:30:00Z",
-  "updated_at": "2026-08-10T14:58:00Z",
+  "updated_at": "2026-08-11T18:30:00Z",
   "problem_statement": "El protocolo MCP y sus consumidores (CLI, REST, hook ADR-018) mantienen texto hardcodeado paralelo que no se actualiza cuando el registry agrega tools nuevas, generando drift silencioso entre lo que el MCP expone y lo que los agentes humanos/automáticos creen que existe.",
   "evidence": [
     "mcp_adapter.py:_PROTOCOL_FALLBACK es una copia completa del protocolo que puede quedar obsoleto.",
@@ -110,7 +110,7 @@
       },
       {
         "node": "SPRINT_PLANNING.TASK_SPEC",
-        "status": "specified",
+  "status": "implemented",
         "fields_added": ["problem_statement", "evidence", "predicates", "impacted_artifacts", "task_context", "risks", "quality_gates"],
         "memory_ops": [
           {"target": "delta", "op": "upsert_spec", "data": {"status": "specified"}},
@@ -120,8 +120,13 @@
         ]
       }
     ],
-    "current_status": "specified",
-    "gaps": []
+    "current_status": "implemented",
+    "gaps": [
+      "[RESUELTO] mcp_adapter.py:_PROTOCOL_FALLBACK eliminado; protocolo dinámico desde template",
+      "[RESUELTO] protocol/rest.md consume registry dinámicamente via _build_help",
+      "[RESUELTO] features/engine/mcp.py: reserved set hardcodeado eliminado; SSOT via ModuleRegistry + SystemTaskRegistry",
+      "[PENDIENTE] walker-session.js ALLOWED_TOOLS: requiere actualización del plugin para derivar del registry"
+    ]
   },
   "validation_checklist": [
     {
@@ -140,8 +145,8 @@
       "expected": "No output (sin matches)"
     },
     {
-      "description": "Transformación de Spec incluye mapa de nodos visitados y memory_ops",
-      "command": "pytest tests/test_spec_transformation_map_bdd.py -k 'transformation_map_incluye_nodos_y_memory_ops'",
+      "description": "Spec entity expone transformation_map con estructura de nodos visitados",
+      "command": "pytest tests/test_spec_transformation_map_bdd.py -k 'spec_entity_tiene_transformation_map'",
       "expected": "PASSED"
     }
   ],

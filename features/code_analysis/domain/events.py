@@ -129,5 +129,11 @@ class EventBus:
         for listener in self._listeners:
             try:
                 listener(event)
-            except Exception:
-                pass  # Best-effort: never break analysis because of event delivery
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    "EventBus: listener dropped event %s (%s: %s)",
+                    getattr(event, 'event_type', type(event).__name__),
+                    type(e).__name__,
+                    e,
+                )

@@ -33,7 +33,12 @@ def create_trace_publisher(chain_dir: str) -> callable | None:
             payload.setdefault("source", "code_analysis")
             from features.engine.application.task_dispatcher import dispatch_public_task
             dispatch_public_task("trace_push", {"_payload": payload})
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                "trace_event_publisher: dropped event (%s: %s)",
+                type(e).__name__,
+                e,
+            )
 
     return _publish
