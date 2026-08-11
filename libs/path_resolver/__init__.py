@@ -203,15 +203,24 @@ def get_sessions_dir() -> Path:
 
 # ═══════════════════════════════════════════════════════════════
 # 3. Proyectos: project_id → paths específicos
+#
+# DISTINCIÓN: data/projects.json (REGISTRO GLOBAL, walker root) es el
+# índice de TODOS los proyectos (project_id → repo_path). El MANIFIESTO de
+# un proyecto es .cognitive/{pid}/data/project.json (identidad + location),
+# dentro del proyecto que se está trabajando. get_project_dir usa el
+# registro global para RESOLVER dónde vive el .cognitive/ de cada proyecto.
 # ═══════════════════════════════════════════════════════════════
 
 
 def get_project_dir(project_id: str) -> Path:
     """Directorio cognitivo de un proyecto.
 
-    1. Si el proyecto tiene repo_path en data/projects.json y existe
-       .cognitive/projects/<pid>/ bajo ese repo, usa esa ruta.
+    1. Si el proyecto tiene repo_path en data/projects.json (registro global)
+       y existe .cognitive/projects/<pid>/ bajo ese repo, usa esa ruta.
     2. Si no, usa la ruta centralizada: <walker_root>/.cognitive/projects/<pid>/.
+
+    El registro global (projects.json) únicamente RESUELVE rutas; la
+    identidad del proyecto se lee del manifiesto (.cognitive/<pid>/data/project.json).
     """
     repo_cog = _project_dir_from_registry(project_id)
     if repo_cog:
@@ -220,9 +229,10 @@ def get_project_dir(project_id: str) -> Path:
 
 
 def _project_dir_from_registry(project_id: str) -> Path | None:
-    """Busca el directorio cognitivo del proyecto desde el registry global.
+    """Busca el directorio cognitivo del proyecto desde el registro global.
 
-    Lee data/projects.json y construye <repo_path>/.cognitive/projects/<pid>/.
+    Lee data/projects.json (registro global del walker) y construye
+    <repo_path>/.cognitive/projects/<pid>/.
     """
     import json
     import os
