@@ -4,7 +4,8 @@ Recibe la declaración de contexto del nodo (context.sources + context.focus),
 obtiene los providers del registry, recolecta datos, gestiona el budget,
 y ensambla el mensaje estructurado para el LLM.
 
-ContextProviders (task, state, cpg, ckg, trace, delta, project) son registrados en create_default_registry().
+ContextProviders (task, state, diff, test_results, cpg, ckg, trace, delta,
+project) se registran en build_context_registry().
 """
 from __future__ import annotations
 

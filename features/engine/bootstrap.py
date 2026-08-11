@@ -64,10 +64,15 @@ def bootstrap_providers(registry: Any) -> None:
     Cada feature con providers declara:
         features/<feature>/context/providers.py:register_providers(registry)
 
-    El engine NO los conoce directamente: solo los consume si un nodo
-    los declara en context.sources. Esto mantiene el engine como un
-    mecanismo puro (no sabe QUÉ transporta).
+    El engine expone sus propios providers base (task, state, diff,
+    test_results) a través de features.engine.context.providers.
     """
+    _discover_and_register(
+        package_path=None,
+        register_fn_name="register_providers",
+        registry=registry,
+        package_name="features.engine.context",
+    )
     _discover_and_register(
         package_path=None,
         register_fn_name="register_providers",

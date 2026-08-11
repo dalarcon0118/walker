@@ -15,6 +15,7 @@ que no pertenecen a ninguna feature de negocio.
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from typing import Any
@@ -190,6 +191,93 @@ class TestResultsProvider(ContextProvider):
 
 
 def register_providers(registry: Any) -> None:
-    """Registra los providers genéricos del engine en un ContextProviderRegistry."""
+    """Registra los providers del engine en un ContextProviderRegistry."""
     registry.register("diff", DiffProvider())
     registry.register("test_results", TestResultsProvider())
+    registry.register("task", TaskProvider())
+    registry.register("state", StateProvider())
+
+
+class TaskProvider(ContextProvider):
+    """Capa: tarea actual en ejecución (task_id, channel, session)."""
+
+    def instructions(self, config: dict, ctx: Any) -> str:
+        return "Layer: task — current execution task (task_id, channel, session). Use for task-specific context."
+
+    def collect(
+        self, config: dict, ctx: Any, query_manager: Any = None
+    ) -> ContextPiece | None:
+        task_id = getattr(ctx, "task_id", "") or ""
+        channel = getattr(ctx, "channel", "workflow") or "workflow"
+        session_id = getattr(ctx, "session_id", "") or ""
+        baggage = getattr(ctx, "baggage", {}) or {}
+        meta: dict[str, Any] = {"task_id": task_id, "channel": channel}
+        if isinstance(baggage, dict) and baggage:
+            meta["baggage_keys"] = sorted(list(baggage.keys()))[:20]
+        content_parts = [f"task_id: {task_id}", f"channel: {channel}"]
+        if session_id:
+            content_parts.append(f"session_id: {session_id}")
+        if meta.get("baggage_keys"):
+            content_parts.append(f"baggage_keys: {', '.join(meta['baggage_keys'])}")
+        content = "\n".join(content_parts)
+        return ContextPiece(
+            provider="task",
+            name="current task",
+            instructions=self.instructions(config, ctx),
+            content=content,
+            tokens=fmt_tokens(content),
+            priority=20,
+        )
+
+
+class StateProvider(ContextProvider):
+    """Capa: estado del workflow (nodo actual, sub-estado, sprint)."""
+
+    def instructions(self, config: dict, ctx: Any) -> str:
+        return "Layer: state — current workflow state (node, sub_state, sprint status, history). Use for workflow decisions."
+
+    def collect(
+        self, config: dict, ctx: Any, query_manager: Any = None
+    ) -> ContextPiece | None:
+        if query_manager is None:
+            return None
+        result = query_manager.query_layer("state", {})
+        if not result.get("ok", False):
+            return ContextPiece(
+                provider="state",
+                name="workflow state",
+                instructions=self.instructions(config, ctx),
+                content="(state unavailable)",
+                tokens=5,
+                priority=15,
+            )
+        node = result.get("node", "")
+        sprint_status = result.get("sprint_status", "")
+        sprint_goal = result.get("sprint_goal", "")
+        history = result.get("history", []) or []
+        sub_state_data = result.get("sub_state_data", {}) or {}
+        last_fields = result.get("last_fields", {}) or {}
+        parts = []
+        if node:
+            parts.append(f"node: {node}")
+        if sprint_status:
+            parts.append(f"sprint_status: {sprint_status}")
+        if sprint_goal:
+            parts.append(f"sprint_goal: {sprint_goal}")
+        if history:
+            parts.append(f"history: {history[-3:]}")
+        if last_fields:
+            flat = json.dumps(last_fields, ensure_ascii=False)
+            parts.append(f"last_fields: {flat[:400]}")
+        if sub_state_data:
+            keys = sorted(sub_state_data.keys())[-3:]
+            parts.append(f"sub_state_keys: {', '.join(keys)}")
+        content = "\n".join(parts) if parts else "(no state data)"
+        return ContextPiece(
+            provider="state",
+            name="workflow state",
+            instructions=self.instructions(config, ctx),
+            content=content,
+            tokens=fmt_tokens(content),
+            priority=25,
+        )
