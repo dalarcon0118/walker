@@ -16,24 +16,14 @@ from types import SimpleNamespace
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
+from tests.conftest import make_v2_project
+
 scenarios("features/prompts_gates.feature")
 
 
 def _setup_project(tmpdir: str) -> tuple[str, str]:
-    project_root = os.path.join(tmpdir, "proj")
-    chain_dir = os.path.join(project_root, "data", "spring", "test-sprint")
-    os.makedirs(os.path.join(project_root, "data"), exist_ok=True)
-    os.makedirs(chain_dir, exist_ok=True)
-    project_json = {
-        "project": {
-            "meta": {"project_id": "test-project", "version": "2.0"},
-            "identity": {"name": "test-project"},
-            "location": {"repo_path": project_root},
-        }
-    }
-    with open(os.path.join(project_root, "data", "project.json"), "w") as f:
-        json.dump(project_json, f, ensure_ascii=False)
-    return chain_dir, project_root
+    """Crea el layout v2 legacy (builder compartido en conftest)."""
+    return make_v2_project(tmpdir)
 
 
 def _write_template(

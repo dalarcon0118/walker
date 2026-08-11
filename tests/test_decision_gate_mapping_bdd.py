@@ -248,17 +248,19 @@ def _classify_guarded(dgm_ctx: dict):
 @then("resolve_xor_by_intent encuentra la gate")
 def _resolve_xor(dgm_ctx: dict):
     from features.engine.domain.services import ValidationService
-    gate = dgm_ctx.get("gate")
-    with open("/tmp/bdd_debug.txt", "a") as f:
-        f.write(f"resolve_xor gate={gate}\n")
-        f.write(f"resolve_xor graph edges={len(dgm_ctx['graph'].edges)}\n")
-        for e in dgm_ctx['graph'].edges:
-            f.write(f"  edge {e.name} {e.source_node}->{e.target_node}\n")
+    gate_name = dgm_ctx.get("gate")
     dgm_ctx["resolved"] = ValidationService.resolve_xor_by_intent(
-        dgm_ctx["state"], dgm_ctx["graph"], gate
+        dgm_ctx["state"], dgm_ctx["graph"], gate_name
     )
-    with open("/tmp/bdd_debug.txt", "a") as f:
-        f.write(f"resolve_xor resolved={dgm_ctx['resolved']}\n")
+    # Audit 2026-08-11: este step no assertaba nada (y escribía a
+    # /tmp/bdd_debug.txt). El resultado de resolve_xor_by_intent quedaba sin
+    # verificar: una mutación que lo rompiera pasaba la suite en verde.
+    assert dgm_ctx["resolved"] is not None, (
+        f"resolve_xor_by_intent no resolvió la gate '{gate_name}'"
+    )
+    assert getattr(dgm_ctx["resolved"], "name", None) == gate_name, (
+        f"esperaba gate '{gate_name}', obtuvo {getattr(dgm_ctx['resolved'], 'name', None)}"
+    )
 
 
 @then("la gate resuelta es design_approved")
