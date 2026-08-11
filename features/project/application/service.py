@@ -335,7 +335,18 @@ class ProjectService:
 
     @staticmethod
     def _load_registry() -> dict[str, dict[str, Any]]:
-        """Carga el registro global de proyectos desde data/projects.json."""
+        """Carga el REGISTRO GLOBAL de proyectos desde data/projects.json.
+
+        DSC (features/project):
+          - Este archivo es el ÍNDICE de todos los proyectos que el walker
+            administra (project_id → repo_path, name, active, timestamps).
+            Vive en la raíz del walker: <walker_root>/data/projects.json.
+          - NO es el manifiesto del proyecto (ese es
+            .cognitive/{project_id}/data/project.json, dentro del proyecto
+            que se está trabajando — lo lee CognitiveProjectRepository).
+          - project.json ≠ projects.json: el singular es el manifiesto de un
+            proyecto; el plural es el registro global del walker.
+        """
         try:
             from libs.path_resolver import get_walker_root
 

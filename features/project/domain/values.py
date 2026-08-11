@@ -3,6 +3,15 @@ domain/values.py — Value Objects for the Project domain.
 
 Pure, immutable, validated on construction.
 Uses return pattern: each factory method returns (value, errors) tuple.
+
+DISTINCIÓN DE CONCEPTOS (features/project):
+  - Value Objects (ProjectId, ProjectPaths, ProjectManifest) = SOBRE LA
+    ESTRUCTURA Y UBICACIÓN del proyecto (rutas calculadas, identidad).
+  - ProjectPaths es el UTILITARIO de resolución de rutas (chain_dir →
+    project_root, data_dir, ...). NO es un archivo ni un índice persistido.
+  - El manifiesto de UN proyecto es .cognitive/{pid}/data/project.json.
+  - El registro GLOBAL de TODOS los proyectos es data/projects.json
+    (en la raíz del walker, gestionado por ProjectService).
 """
 
 from __future__ import annotations
@@ -85,8 +94,17 @@ def derive_project_id(chain_dir: str) -> tuple[str, list[str]]:
 class ProjectPaths:
     """VO — immutable computed paths for a project.
 
+    UTILITARIO DE RESOLUCIÓN DE RUTAS (no es un archivo ni un índice):
+    calcula y agrupa las rutas de un proyecto a partir de chain_dir.
     Computed eagerly at construction. NO IO.
     All paths are absolute strings.
+
+    DISTINCIÓN (features/project):
+      - ProjectPaths       = este utilitario (rutas calculadas en memoria).
+      - Manifest           = .cognitive/{pid}/data/project.json (identidad
+                             del proyecto; lo lee CognitiveProjectRepository).
+      - Registry global    = data/projects.json en la raíz del walker (índice
+                             de TODOS los proyectos; lo gestiona ProjectService).
 
     Attributes:
         chain_dir: Sprint directory (or "" if bootstrap).

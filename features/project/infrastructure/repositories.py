@@ -4,6 +4,19 @@ infrastructure/repositories.py — File-based ProjectRepository implementation.
 Implements the ProjectRepository port (domain/ports.py).
 Pure IO: reads/writes project.json from .cognitive/projects/<pid>/.
 
+DISTINCIÓN DE CONCEPTOS (features/project):
+  - Este repo opera sobre el **MANIFIESTO del proyecto**
+    (.cognitive/{project_id}/data/project.json): vive dentro del directorio
+    cognitivo del proyecto y describe SU identidad (name, language, repo_path,
+    code_paths). Es el "project.json del proyecto" que se está trabajando.
+  - NO confundir con el **REGISTRO GLOBAL** (data/projects.json en la raíz
+    del walker): es el índice de TODOS los proyectos que el walker administra
+    (project_id → repo_path, active, last_accessed). Lo gestiona
+    ProjectService (application/service.py), NO este repositorio.
+  - Tampoco confundir con **ProjectPaths** (domain/values.py): es un
+    utilitario de RESOLUCIÓN de rutas calculadas (chain_dir, project_root,
+    data_dir, ...), no un archivo ni un índice persistido.
+
 Return-pattern: every method returns (result, errors) tuple.
 Does NOT import the application layer (SRP compliance).
 """
