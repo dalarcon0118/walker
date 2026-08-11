@@ -81,4 +81,4 @@ def trace_push(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 def register(registry: Any) -> None:
     registry.register("trace_push", trace_push,
-                      metadata={"description": "Push events to TraceGraph", "tags": ["trace", "events"]})
+                      metadata={"description": "Push events to TraceGraph", "tags": ["trace", "events"], "scope": "system"})

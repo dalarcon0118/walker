@@ -51,8 +51,10 @@ class SystemTaskRegistry(TaskRegistry):
         info = base.get_task_info(name)
         if info:
             scope = info.get("scope")
-            if scope in ("public", "system"):
+            if scope == "public":
                 return True
+            if scope == "system":
+                return False
         if name in self._PUBLIC_TASKS:
             return True
         return False
@@ -63,12 +65,19 @@ class SystemTaskRegistry(TaskRegistry):
 
     def list_tasks_with_meta(self, scope: str | None = None) -> list[dict]:
         base = self._ensure_base()
-        tasks = [
-            {"name": name, **base.get_task_info(name)}
-            for name in base.list_tasks()
-            if self._is_public_task(name, base)
-        ]
-        if scope is not None:
+        if scope == "system":
+            tasks = [
+                {"name": name, **base.get_task_info(name)}
+                for name in base.list_tasks()
+                if (base.get_task_info(name) or {}).get("scope") == "system"
+            ]
+        else:
+            tasks = [
+                {"name": name, **base.get_task_info(name)}
+                for name in base.list_tasks()
+                if self._is_public_task(name, base)
+            ]
+        if scope is not None and scope != "system":
             tasks = [t for t in tasks if t.get("scope", "public") == scope]
         return tasks
 
@@ -87,7 +96,11 @@ class SystemTaskRegistry(TaskRegistry):
         base = self._ensure_base()
         tasks = []
         for name in base.list_tasks():
-            if not self._is_public_task(name, base):
+            if scope == "system":
+                info = base.get_task_info(name) or {}
+                if info.get("scope") != "system":
+                    continue
+            elif not self._is_public_task(name, base):
                 continue
             info = base.get_task_info(name) or {"name": name}
             task_entry = {

@@ -585,11 +585,7 @@ class TestAgentE2E:
         _setup_delta(chain_dir)
         _setup_workflow_state(chain_dir)
 
-        resp = _mcp_call("trace_push", {
-            "_project_id": "walker",
-            "event_type": "test_event",
-            "data": {"test": True},
-        })
-        assert resp.get("result", {}).get("isError") is not True
-        data = _parse_mcp_result(resp)
-        assert data.get("ok") is True
+        tools_resp = _mcp_call("tools/list", {})
+        tools_data = _parse_mcp_result(tools_resp)
+        tool_names = [t.get("name") for t in tools_data.get("tools", [])]
+        assert "trace_push" not in tool_names

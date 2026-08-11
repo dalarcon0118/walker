@@ -165,8 +165,7 @@ class SideEffectEngine:
 
             try:
                 result = self._execute_single(ctx, effect)
-                if result is None and not effect.optional:
-                    raise RuntimeError(f"Side-effect '{effect.type}' returned None")
+                failed = result is None and not effect.optional
                 self._trace_side_effect(
                     ctx, effect.type, result,
                     ok=result is not None, started=started,
@@ -174,19 +173,32 @@ class SideEffectEngine:
                 entry = {
                     "type": effect.type,
                     "ok": result is not None,
-                    "result": result,
+                    "result": result if result is not None else f"Side-effect '{effect.type}' returned None",
                     "compensated": False,
                     "compensation_result": None,
                     "idempotent": False,
                 }
                 results.append(entry)
-                executed_count += 1
+
+                if result is not None:
+                    executed_count += 1
 
                 if effect.idempotency_key and result is not None:
                     self._track_result(ctx, effect.idempotency_key, result)
 
+                if failed:
+                    if outbox is not None:
+                        self._compensate_outbox(ctx, results, i, outbox)
+                    else:
+                        compensation = self.compensate(ctx, results, i)
+                        entry["compensation_result"] = compensation
+                    for prev in results[:i]:
+                        if prev.get("ok"):
+                            prev["compensated"] = True
+                    break
+
                 if outbox is not None:
-                    outbox.mark_completed(outbox_entry, result or {})
+                    outbox.mark_completed(outbox_entry, result if result is not None else {})
 
             except Exception as e:
                 self._trace_side_effect(

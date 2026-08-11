@@ -9,42 +9,11 @@ from libs.mcp_server import McpServer
 from features.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
 
 
-def register(server: McpServer) -> None:
-    server.tool(
-        name="trace_push",
-        description="Push a trace event to execution history (debugging/monitoring).",
-        handler=_trace_push_handler,
-    )
-
-
 def register_module(registry: Any) -> None:
     module = ModuleDefinition(
         name="event_tracing",
-        tools=[
-            ToolDefinition(
-                name="trace_push",
-                description="Push a trace event to execution history.",
-                handler=_trace_push_handler,
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "event_type": {"type": "string", "description": "Type of trace event"},
-                        "source": {"type": "string", "description": "Event source"},
-                        "session_id": {"type": "string", "description": "Session identifier"},
-                        "agent_id": {"type": "string", "description": "Agent identifier"},
-                        "task_id": {"type": "string", "description": "Task identifier"},
-                        "timestamp": {"type": "string", "description": "Event timestamp"},
-                        "data": {"type": "object", "description": "Event payload"},
-                    },
-                    "required": ["event_type"],
-                    "additionalProperties": True,
-                },
-                metadata={"tags": ["trace", "events"]},
-            ),
-        ],
-        routes=[
-            RestRoute(path="{project_id}/trace_push", method="POST", flags_builder=lambda a: {"_payload": a.get("body", a)}),
-        ],
+        tools=[],
+        routes=[],
         metadata={"description": "Event tracing module", "tags": ["trace"]},
     )
     registry.register_module(module)
