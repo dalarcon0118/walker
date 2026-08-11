@@ -646,15 +646,17 @@ def run_verification(loop_item, project_root, file_hint=None):
         return True  # Todos los símbolos pasan must_not_exist
 
     if vtype == "test":
-        # Test en el predicate → ejecuta pytest con -k (patrón por substring).
-        # Se ejecuta desde project_root para recolectar los tests del proyecto.
+        # Test en el predicate → ejecuta el framework del proyecto con -k
+        # (patrón por substring). Resuelto desde project.json (G-W6): ya no
+        # hardcodea python3 -m pytest para proyectos no-Python.
         test_pattern = predicate.replace("test_", "").replace("()", "")
         try:
+            argv = _build_test_command(project_root, name=test_pattern)
             result = subprocess.run(
-                ["python3", "-m", "pytest", "-k", test_pattern, "-v", "--no-header"],
+                argv,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=120,
                 cwd=project_root,
             )
             return "PASSED" in result.stdout or result.returncode == 0
@@ -687,6 +689,161 @@ def _is_string_a_shell_command(predicate_text: str) -> bool:
     if any(op in text for op in _SHELL_OPERATORS):
         return True
     return False
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TEST FRAMEWORK RESOLUTION (project.json aware)
+# ═══════════════════════════════════════════════════════════════════
+
+# Mostly-keyword → runner base. Normalizada en _normalize_test_framework().
+_TEST_RUNNERS: dict[str, list[str]] = {
+    "pytest": ["python3", "-m", "pytest"],
+    "unittest": ["python3", "-m", "unittest"],
+    "jest": ["npx", "jest"],
+    "vitest": ["npx", "vitest", "run"],
+    "mocha": ["npx", "mocha"],
+    "go": ["go", "test"],
+    "golang": ["go", "test"],
+    "cargo": ["cargo", "test"],
+    "gradle": ["./gradlew", "test"],
+    "maven": ["mvn", "test"],
+    "dotnet": ["dotnet", "test"],
+    "phpunit": ["./vendor/bin/phpunit"],
+    "rspec": ["bundle", "exec", "rspec"],
+}
+
+# Flag de filtro por nombre según runner (pytest -k, jest -t, go -run, ...).
+_TEST_NAME_FLAG: dict[str, list[str]] = {
+    "pytest": ["-k"],
+    "unittest": ["-k"],
+    "jest": ["-t"],
+    "vitest": ["-t"],
+    "mocha": ["--grep"],
+    "go": ["-run"],
+    "cargo": [],
+    "gradle": ["--tests"],
+    "dotnet": ["--filter"],
+}
+
+
+def _normalize_test_framework(framework: str) -> str:
+    """Normaliza un framework/language declarado a la key canónica del runner.
+
+    Maneja variantes: "go test", "Golang", "jest (ts)", "pytest ~8", etc.
+    """
+    if not framework:
+        return "pytest"
+    text = framework.strip().lower()
+    for key in _TEST_RUNNERS:
+        if key in text:
+            return key
+    return "pytest"
+
+
+def _resolve_test_command(project_root: str) -> list[str]:
+    """Resuelve el comando base de tests desde el project.json del proyecto.
+
+    Lee (en orden): data/project.json (canonical) → project.json (legacy).
+    Prioridad: coding.test_framework > identity.framework > identity.language.
+    Default honesto: ``python3 -m pytest`` (siempre ejecutable, nunca mentira).
+    """
+    candidates = [
+        os.path.join(project_root, "data", "project.json"),
+        os.path.join(project_root, "project.json"),
+    ]
+    declared = ""
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path) as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        project = manifest.get("project", manifest)
+        coding = project.get("coding", {}) or {}
+        identity = project.get("identity", {}) or {}
+        declared = (
+            coding.get("test_framework")
+            or identity.get("framework")
+            or identity.get("language")
+            or ""
+        )
+        break
+
+    key = _normalize_test_framework(declared)
+    return list(_TEST_RUNNERS[key])
+
+
+def _build_test_command(
+    project_root: str,
+    *,
+    target: str | None = None,
+    name: str | None = None,
+) -> list[str]:
+    """Construye un comando de test con el framework del proyecto.
+
+    - target: path de archivo/dir → se anexa al runner (pytest tests/test_x.py).
+    - name  : nombre de test → se aplica la flag de filtro (pytest -k test_x).
+    """
+    runner = _resolve_test_command(project_root)
+    key = _normalize_test_framework(
+        _read_declared_framework(project_root)
+    )
+    cmd = list(runner)
+    if name:
+        flag = _TEST_NAME_FLAG.get(key, ["-k"])
+        if flag:
+            cmd += flag + [name]
+        else:  # cargo: el nombre va directo como argumento de filtro
+            cmd += [name]
+    elif target:
+        cmd += [target]
+    return cmd
+
+
+def _read_declared_framework(project_root: str) -> str:
+    """Re-lectura del framework declarado (compartida con _resolve_test_command)."""
+    declared = ""
+    for path in (
+        os.path.join(project_root, "data", "project.json"),
+        os.path.join(project_root, "project.json"),
+    ):
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path) as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        project = manifest.get("project", manifest)
+        coding = project.get("coding", {}) or {}
+        identity = project.get("identity", {}) or {}
+        declared = (
+            coding.get("test_framework")
+            or identity.get("framework")
+            or identity.get("language")
+            or ""
+        )
+        break
+    return declared
+
+
+def _looks_like_test_target(command: str) -> str | None:
+    """Devuelve target/name si ``command`` es test target puro; None si es comando.
+
+    Un test target es: un nombre (test_x, TestFoo, app_test) o un path
+    relativo de archivo (tests/test_x.py, src/x.test.js). Un comando real
+    (con espacios, flags, pipes) se ejecuta tal cual.
+    """
+    text = command.strip()
+    if not text or any(ch in text for ch in " \t\n"):
+        return None
+    if "/" in text or "." in text:  # path relativo → target
+        return "target"
+    if re.match(r"^(test_|Test|it_)", text):  # nombre de test → filtro -k/-t
+        return "name"
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -921,7 +1078,15 @@ def _verify_command_output(predicate: dict, project_root: str) -> tuple[bool, di
 
 
 def _verify_test_pass(predicate: dict, project_root: str) -> tuple[bool, dict]:
-    """test_pass: ejecuta pytest en un archivo y verifica que pase."""
+    """test_pass: ejecuta el test framework del proyecto y verifica que pase.
+
+    G-W6 (framework-aware): el comando se interpreta según su forma, nunca
+    ejecutando un nombre de test como binario shell:
+
+      - "test_foo" / "TestFoo"     → {runner} -k <name>   (pytest -k, jest -t...)
+      - "tests/test_x.py"          → {runner} <path>
+      - comando completo con args  → se ejecuta tal cual (autoridad del autor)
+    """
     command = predicate.get("command", "")
     if not command:
         return False, {
@@ -929,34 +1094,44 @@ def _verify_test_pass(predicate: dict, project_root: str) -> tuple[bool, dict]:
             "error": "campo 'command' requerido",
             "label": "test_pass: campo 'command' requerido",
         }
+
+    interpretation = _looks_like_test_target(command)
+    if interpretation == "name":
+        argv = _build_test_command(project_root, name=command)
+    elif interpretation == "target":
+        argv = _build_test_command(project_root, target=command)
+    else:
+        argv = [command]  # comando explícito del autor → shell tal cual
+
+    label = " ".join(argv)[:70]
     try:
         result = subprocess.run(
-            command,
-            shell=True,
+            argv,
+            shell=(interpretation is None),  # targets/names → exec directo
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
             cwd=project_root,
         )
         return result.returncode == 0, {
             "method": "test_pass",
-            "command": command[:80],
+            "command": label,
             "exit_code": result.returncode,
-            "label": command[:70],
+            "label": label,
         }
     except subprocess.TimeoutExpired:
         return False, {
             "method": "test_pass",
-            "command": command[:80],
-            "error": "timeout (60s)",
-            "label": command[:70],
+            "command": label,
+            "error": "timeout (120s)",
+            "label": label,
         }
     except Exception as exc:
         return False, {
             "method": "test_pass",
-            "command": command[:80],
+            "command": label,
             "error": str(exc),
-            "label": command[:70],
+            "label": label,
         }
 
 

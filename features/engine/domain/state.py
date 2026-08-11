@@ -81,12 +81,16 @@ def set_task_status(state: dict, task_id: str, status: str) -> None:
 
 
 def complete_task(state: dict, task_id: str) -> None:
-    """Mark a task as completed and satisfy all predicates."""
+    """Mark a task as completed.
+
+    ANTI-ALUCINACIÓN (G-W6): completar una task NO satisface sus predicates.
+    Antes este helper hacía ``predicates["ok"] = total`` (100% ok sin
+    verificar nada) — un bypass total de VERIFY.PREDICATE_CHECK. La
+    verificación real ocurre en verify_predicates (motor con ast-grep /
+    subprocess). Si un caller quiere satisfacer predicates, debe correr el
+    gate, nunca marcarlos a mano.
+    """
     set_task_status(state, task_id, "completed")
-    task = state.get("tasks", {}).get(task_id, {})
-    if task.get("predicates") and isinstance(task["predicates"], dict):
-        total = task["predicates"].get("total", 0)
-        task["predicates"]["ok"] = total
 
 
 # ── WorkflowState ↔ dict conversion helpers ───────────────────────────────────

@@ -7,6 +7,7 @@ código real (ast-grep / grep / shell / pytest) con cache de sesión.
 Recibe un input TIPADO y VALIDADO (VerifyInput) en lugar de un dict crudo.
 """
 from __future__ import annotations
+import re
 from dataclasses import dataclass
 from typing import Any
 from libs.shared_domain import ExecutionContext, TaskResult
@@ -86,6 +87,67 @@ def _normalize_predicates(data: dict[str, Any]) -> list:
     return predicates
 
 
+def _translate_predicates(predicates: list) -> list:
+    """Traduce predicates declarativos (spec) a los TIPOS verificables del motor.
+
+    ANTI-ALUCINACIÓN (G-W6): los predicates de una spec son strings en
+    lenguaje natural (ej: "Nivel 1 MCP Tools: test_mcp_tool_status_e2e, ...").
+    El motor NO sabe interpretar un párrafo como símbolo — verificaría el
+    párrafo completo como símbolo inexistente. Este traductor los convierte
+    a dicts typed antes de la verificación:
+
+      - Dict typed (symbol_exists/test_pass/command_exit/...) → tal cual.
+      - String que ES un comando shell → tal cual (el motor lo detecta).
+      - String con nombre de método test_x / test_x_bdd → symbol_exists
+        sobre el nombre (verifica que el test EXISTE en el código).
+      - String con "pytest ..." → test_pass ejecutable.
+      - Párrafo con nombres de tests (SPEC-003) → descompone en múltiples
+        symbol_exists, uno por nombre.
+      - Sin patrón verificable → dict {"type": "manual"} (auditable, se
+        revela como verificación manual — nunca éxito vacío).
+    """
+    translated: list = []
+    for p in predicates:
+        if isinstance(p, dict):
+            translated.append(p)
+            continue
+        if not isinstance(p, str):
+            # Fallback honesto: no verificable de forma automática.
+            translated.append({"type": "manual", "description": str(p)})
+            continue
+
+        text = p.strip()
+        if not text:
+            continue
+        from features.task_execution.infrastructure.verify_engine import (
+            _is_string_a_shell_command,
+        )
+
+        # 1. Comando shell (pytest, python3, grep...) → el motor lo ejecuta.
+        if _is_string_a_shell_command(text):
+            translated.append(text)
+            continue
+
+        # 2. Párrafo con nombres de tests → uno por nombre (SPEC-003 style).
+        test_names = re.findall(r"\btest_[a-zA-Z0-9_]+\b", text)
+        if len(test_names) > 1 or (text.startswith("test_") and test_names):
+            for name in dict.fromkeys(test_names):  # dedupe preservando orden
+                translated.append({"type": "symbol_exists", "symbol": name})
+            continue
+
+        # 3. Single test name o símbolo simple → symbol_exists.
+        if test_names:
+            translated.append(
+                {"type": "symbol_exists", "symbol": test_names[0]}
+            )
+            continue
+
+        # 4. Sin patrón verificable → manual explícito (auditable).
+        translated.append({"type": "manual", "description": text})
+
+    return translated
+
+
 def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """VERIFY.PREDICATE_CHECK — Verifica DoD predicates contra código real.
 
@@ -110,16 +172,17 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
 
     input_result = VerifyInput.from_dict(data)
     if not input_result.ok:
-        # Si no hay predicates, no es error: es un no-op válido
+        # ANTI-ALUCINACIÓN (G-W6): un gate de verificación SIN predicates no
+        # puede declarar éxito. Antes esto era un no-op "all_passed=True"
+        # (verification.py) que permitía pasar el gate VERIFY.PREDICATE_CHECK
+        # vacío: el agente podía completar una task sin que nada se verificara.
+        # Ahora falla con error explícito → on_failure del gate (re-trabajo).
         if data.get("predicates") is None and data.get("predicate") is None:
-            return TaskResult.success(data={
-                "task_id": data.get("task_id", ctx.task_id),
-                "all_passed": True,
-                "results": [],
-                "failed_count": 0,
-                "passed_count": 0,
-                "total": 0,
-            })
+            return TaskResult.failure(
+                "verify_predicates: no predicates provided — "
+                "el gate no puede validar nada. Inyecta task.validation.predicates "
+                "desde la spec (DeltaGraph) o define predicates en la spec."
+            )
         return TaskResult.failure(input_result.error or "VerifyInput inválido")
     inp: VerifyInput = input_result.data
 
@@ -132,14 +195,15 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         return TaskResult.failure("project_root/chain_dir no disponible")
 
     if not predicates:
-        return TaskResult.success(data={
-            "task_id": inp.task_id or ctx.task_id,
-            "all_passed": True,
-            "results": [],
-            "failed_count": 0,
-            "passed_count": 0,
-            "total": 0,
-        })
+        return TaskResult.failure(
+            "verify_predicates: lista de predicates vacía — "
+            "imposible verificar un DoD sin criterios."
+        )
+
+    # Traductor spec→motor (anti-alucinación): los predicates declarativos
+    # (strings de la spec, ej: "Nivel 1: test_x, test_y") no son símbolos
+    # individuales; se convierten a dicts typed verificables por el motor.
+    predicates = _translate_predicates(predicates)
 
     results = verify_predicates_batch(predicates, project_root)
 

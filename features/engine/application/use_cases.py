@@ -155,13 +155,16 @@ class SubmitDataUseCase:
         side_effect_engine: SideEffectEngine | None = None,
         event_dispatcher: Any = None,
         event_log: Any = None,
+        tracer: Any = None,
     ):
         self._workflow_repo = workflow_repo
         self._state_repo = state_repo
         self._script_runner = script_runner
         self._task_registry = task_registry
         self._contract_validator = contract_validator or ContractValidator
-        self._side_effect_engine = side_effect_engine or SideEffectEngine()
+        self._side_effect_engine = side_effect_engine or SideEffectEngine(
+            tracer=tracer,
+        )
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
         self.events: list[DomainEvent] = []
@@ -219,7 +222,8 @@ class SubmitDataUseCase:
 
         # ── 7. SideEffectEngine.execute() ──────────────────────
         state, result = self._execute_side_effects(
-            sub_state, state, chain_dir, task_id, ctx, result
+            sub_state, state, chain_dir, task_id, ctx, result,
+            node_key=f"{node.node_id}.{state.current_sub_state}",
         )
 
         # ── 8. Auto-execute legacy script si mode=auto ──────────
@@ -374,6 +378,15 @@ class SubmitDataUseCase:
             chain_dir=chain_dir,
             task_id=task_id or "",
         )
+        # ANTI-ALUCINACIÓN (G-W6): el gate VERIFY.PREDICATE_CHECK ejecuta
+        # verify_predicates SIN recibir predicates del submit (input_schema
+        # vacío). El workflow.json declara que el engine lee los predicates
+        # desde el DeltaGraph — aquí se cumple esa promesa: si la acción es
+        # verify_predicates y el input no trae predicates, se inyectan los de
+        # la spec ACTUAL del spring (SSOT). Sin esto, el gate pasaba vacío
+        # como no-op (all_passed=True falso).
+        if sub_state.action == "verify_predicates":
+            fields = self._inject_spec_predicates(chain_dir, task_id, fields)
         task_result = self._task_registry.execute(sub_state.action, exec_ctx, fields)
         # 5a. Recargar state despues de la tarea (las tareas pueden modificar
         # el estado). EXCEPCION (SPEC-013): si hubo forwarding NO recargar.
@@ -405,6 +418,54 @@ class SubmitDataUseCase:
         result["task_action"] = sub_state.action
         result["task_result"] = str(task_result.data)[:500] if task_result.data else ""
         return task_result
+
+    def _inject_spec_predicates(
+        self,
+        chain_dir: str,
+        task_id: str | None,
+        fields: dict,
+    ) -> dict:
+        """Inyecta los predicates de la spec ACTUAL desde el DeltaGraph.
+
+        Garantía anti-alucinación (G-W6): el gate VERIFY.PREDICATE_CHECK debe
+        verificar CONTRA los predicates reales de la spec, no contra lo que
+        el agente decida pasar. Reglas:
+          - Si el input ya trae predicates → se respeta (SIN sobrescribir).
+          - Si la spec actual no tiene predicates → se devuelve el input tal
+            cual: verify_predicates fallará con error explícito (ya no hay
+            no-op all_passed=True vacío).
+        """
+        if "predicates" in fields or "predicate" in fields:
+            return fields
+        try:
+            from features.delta_tracking import spring_service
+
+            svc = spring_service(chain_dir=chain_dir)
+            if svc is None:
+                return fields
+            spring_id = svc.get_spring_id(chain_dir)
+            spec = svc.get_current_spec(spring_id) if spring_id else None
+            if not spec:
+                return fields
+            preds = spec.get("validation", {}).get("predicates", []) or spec.get(
+                "predicates", []
+            )
+            if not preds and task_id:
+                # Fallback: buscar la spec por task_id explícito
+                try:
+                    spec_by_task = svc.get_spec(spring_id, task_id)
+                    if spec_by_task:
+                        preds = spec_by_task.get("validation", {}).get(
+                            "predicates", []
+                        ) or spec_by_task.get("predicates", [])
+                except Exception:
+                    preds = []
+            enriched = dict(fields)
+            if preds:
+                enriched["predicates"] = preds
+            return enriched
+        except Exception:
+            return fields
 
     def _validate_output(
         self,
@@ -475,6 +536,7 @@ class SubmitDataUseCase:
         task_id: str | None,
         ctx: ExecutionContext | None,
         result: dict,
+        node_key: str = "",
     ) -> tuple[WorkflowState, dict]:
         """Paso 7: SideEffectEngine.execute() + recarga de estado."""
         if not (sub_state.side_effects and self._side_effect_engine):
@@ -484,6 +546,8 @@ class SubmitDataUseCase:
             chain_dir=chain_dir,
             task_id=task_id or "",
         )
+        if node_key:
+            exec_ctx.baggage["node_key"] = node_key
         side_results = self._side_effect_engine.execute(
             exec_ctx, sub_state.side_effects
         )

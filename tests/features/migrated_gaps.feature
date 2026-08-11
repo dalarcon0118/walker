@@ -38,7 +38,7 @@ Feature: Migrated gaps
     When calculo el riesgo total
     Then el riesgo está entre 0 y 0.5
     And con más predicates el riesgo aumenta
-    Y el riesgo nunca supera 0.5
+    And el riesgo nunca supera 0.5
 
   Scenario: collect_known_files aplana y deduplica
     Given listas de archivos y tareas con archivos impactados
