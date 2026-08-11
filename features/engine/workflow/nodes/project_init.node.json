@@ -38,7 +38,14 @@
       "on_failure": "",
       "side_effects": [],
       "timeout_ms": 30000,
-      "prompt_id": "project_init/detect"
+      "prompt_id": "project_init/detect",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "SCENARIO",
@@ -80,7 +87,14 @@
         }
       ],
       "timeout_ms": 600000,
-      "prompt_id": "project_init/scenario"
+      "prompt_id": "project_init/scenario",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "GATHER_SPECS",
@@ -174,7 +188,12 @@
             "Use the PROJECT layer if available (project already initialized) or the STATE layer for detection results",
             "Ask targeted questions about project specs based on available context"
           ],
-          "context_priority": "project → state"
+          "context_priority": "project \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       }
     },
@@ -199,7 +218,14 @@
       "on_failure": "GATHER_SPECS",
       "side_effects": [],
       "timeout_ms": 30000,
-      "prompt_id": "project_init/build-project"
+      "prompt_id": "project_init/build-project",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "SCAN_CODE",
@@ -230,7 +256,14 @@
         "initial_delay_ms": 2000
       },
       "timeout_ms": 120000,
-      "prompt_id": "project_init/scan-code"
+      "prompt_id": "project_init/scan-code",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "BUILD_CKG",
@@ -259,7 +292,14 @@
         }
       ],
       "timeout_ms": 60000,
-      "prompt_id": "project_init/build-ckg"
+      "prompt_id": "project_init/build-ckg",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "REVIEW",
@@ -309,7 +349,14 @@
         }
       ],
       "timeout_ms": 600000,
-      "prompt_id": "project_init/review"
+      "prompt_id": "project_init/review",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "FIRST_SPRINT",
@@ -337,7 +384,14 @@
         "initial_delay_ms": 1000
       },
       "timeout_ms": 30000,
-      "prompt_id": "project_init/first-sprint"
+      "prompt_id": "project_init/first-sprint",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     }
   ]
 }

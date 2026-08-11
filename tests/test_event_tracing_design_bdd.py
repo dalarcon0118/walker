@@ -3,7 +3,7 @@
 Feature value: garantizar integridad y dedupe central en el
 bounded context Trace.
 
-Escenarios: tests/features/event_tracing_design.feature
+Escenarios: bdd/features/event_tracing_design.feature
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pytest_bdd import given, scenarios, then, when
 
 from features.event_tracing.domain.models import TraceEvent
 
-scenarios("features/event_tracing_design.feature")
+scenarios("bdd/features/event_tracing_design.feature")
 
 
 @pytest.fixture

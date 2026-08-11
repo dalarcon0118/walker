@@ -1,6 +1,6 @@
 """Tests BDD (pytest-bdd) — CLI Router entry point.
 
-Escenarios: tests/features/cli_router.feature
+Escenarios: bdd/features/cli_router.feature
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from pytest_bdd import given, scenarios, then
 
-scenarios("features/cli_router.feature")
+scenarios("bdd/features/cli_router.feature")
 
 
 @pytest.fixture

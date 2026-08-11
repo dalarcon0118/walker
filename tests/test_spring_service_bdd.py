@@ -1,6 +1,6 @@
 """Tests BDD (pytest-bdd) — features/spring service.
 
-Escenarios: tests/features/spring_service.feature
+Escenarios: bdd/features/spring_service.feature
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import json
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/spring_service.feature")
+scenarios("bdd/features/spring_service.feature")
 
 
 @pytest.fixture

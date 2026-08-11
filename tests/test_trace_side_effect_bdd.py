@@ -4,7 +4,7 @@ Feature value: SideEffectEngine emite un evento `side_effect_execute` al
 TraceGraph por cada side-effect que ejecuta (ok / fallo / idempotente),
 desde el punto de paso (execute) — sin acoplar los handlers modulares.
 
-Escenarios: tests/features/trace_side_effect.feature
+Escenarios: bdd/features/trace_side_effect.feature
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from features.engine.domain.models import SideEffectDef
 from features.engine.infrastructure.side_effects import SideEffectEngine
 from libs.shared_domain import ExecutionContext
 
-scenarios("features/trace_side_effect.feature")
+scenarios("bdd/features/trace_side_effect.feature")
 
 
 class FakeTracer:

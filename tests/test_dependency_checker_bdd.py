@@ -1,13 +1,13 @@
 """Tests BDD (pytest-bdd) — Dependency Checker.
 
-Escenarios: tests/features/dependency_checker.feature
+Escenarios: bdd/features/dependency_checker.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/dependency_checker.feature")
+scenarios("bdd/features/dependency_checker.feature")
 
 
 @pytest.fixture

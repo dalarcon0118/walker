@@ -1,6 +1,6 @@
 {
   "label": "Start Bootstrap",
-  "description": "Multi-tenant entry point (start event BPMN). Lists available projects, lets agent select or create one. Thin node — delegates to SPRINT or PROJECT_INIT via gates.",
+  "description": "Multi-tenant entry point (start event BPMN). Lists available projects, lets agent select or create one. Thin node \u2014 delegates to SPRINT or PROJECT_INIT via gates.",
   "provides": [
     "session_id"
   ],
@@ -23,7 +23,14 @@
       "on_success": "SELECT",
       "side_effects": [],
       "timeout_ms": 10000,
-      "prompt_id": "start/list"
+      "prompt_id": "start/list",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "SELECT",
@@ -93,7 +100,12 @@
         "focus": {
           "role": "",
           "constraints": [],
-          "context_priority": "project → trace"
+          "context_priority": "project \u2192 trace"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       },
       "audit": {

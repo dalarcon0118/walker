@@ -226,7 +226,13 @@ class GetCkgNodesForTaskUseCase:
 
 
 class IndexRepoUseCase:
-    """Index an external repo as reference in CKG."""
+    """Index an external repo as reference in CKG.
+
+    Escribe via CodeKnowledgeGraph (formato canonico del indice 'ckg' de
+    CognitiveGraph), igual que save_to_ckg/ckg_analyze. SSOT: NUNCA usar el
+    KnowledgeGraph legacy (v3.0) que escribe en el mismo ckg.json.gz con
+    otro formato y corrompe el indice.
+    """
 
     @staticmethod
     def execute(
@@ -239,10 +245,7 @@ class IndexRepoUseCase:
             run_outline,
             parse_outline,
         )
-        from features.cognitive_knowledge.domain.knowledge_graph import (
-            KnowledgeGraph,
-            KnowledgeNode,
-        )
+        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
 
         @safe
         def _index() -> dict:
@@ -283,17 +286,14 @@ class IndexRepoUseCase:
                 for n in graph.nodes.values():
                     types[n.type] = types.get(n.type, 0) + 1
 
-                kg_path = paths.ckg_path
-                kg = (
-                    KnowledgeGraph.load(kg_path)
-                    if os.path.exists(kg_path)
-                    else KnowledgeGraph()
-                )
+                # Nodos en formato canonico (label obligatorio en
+                # CognitiveCkgRepository.save_nodes). El resto de campos van
+                # como metadata/tags del nodo del indice 'ckg'.
                 nodes_data = [
                     {
+                        "label": f"Reference repo: {name} ({url})",
                         "type": "reference",
                         "subject": name,
-                        "statement": f"Reference repo: {name} ({url})",
                         "query_hints": [name.lower(), url.lower()],
                         "tags": ["reference", "external", name.lower()],
                         "metadata": {
@@ -315,21 +315,19 @@ class IndexRepoUseCase:
                         continue
                     nodes_data.append(
                         {
+                            "label": f"{name} has {count} {type_labels.get(t, t)}",
                             "type": "pattern",
                             "subject": f"{name}:{t}",
-                            "statement": f"{name} has {count} {type_labels.get(t, t)}",
                             "query_hints": [name.lower(), t.lower()],
                             "tags": ["reference", name.lower(), t],
                             "metadata": {"url": url, "type": t, "count": count},
                         }
                     )
-                for item in nodes_data:
-                    nid = f"ref-{item['type']}-{kg.node_count + 1:03d}"
-                    kg.add_node(KnowledgeNode(id=nid, **item))
-                kg.save(kg_path)
+                ckg = CodeKnowledgeGraph(str(paths.project_root))
+                result = ckg.save_nodes(nodes_data)
                 shutil.rmtree(tmpdir, ignore_errors=True)
                 return {
-                    "ok": True,
+                    "ok": result.get("ok", True),
                     "url": url,
                     "name": name,
                     "nodes_indexed": len(nodes_data),
@@ -345,16 +343,19 @@ class IndexRepoUseCase:
 
 
 class ResearchTopicUseCase:
-    """Research a topic on web and save to CKG."""
+    """Research a topic on web and save to CKG.
+
+    Escribe via CodeKnowledgeGraph (formato canonico del indice 'ckg' de
+    CognitiveGraph), igual que save_to_ckg/ckg_analyze. SSOT: NUNCA usar el
+    KnowledgeGraph legacy (v3.0) que escribe en el mismo ckg.json.gz con
+    otro formato y corrompe el indice.
+    """
 
     @staticmethod
     def execute(chain_dir: str, topic: str, query: str = "") -> Result[dict, Exception]:
         import urllib.request
         import urllib.parse
-        from features.cognitive_knowledge.domain.knowledge_graph import (
-            KnowledgeGraph,
-            KnowledgeNode,
-        )
+        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
 
         @safe
         def _research() -> dict:
@@ -372,35 +373,27 @@ class ResearchTopicUseCase:
                 except Exception:
                     abstract = f"Research on {topic}"
                     source_url = ""
-                kg = (
-                    KnowledgeGraph.load(paths.ckg_path)
-                    if os.path.exists(paths.ckg_path)
-                    else KnowledgeGraph()
-                )
-                nid = f"{topic.lower().replace(' ', '-')}-{kg.node_count + 1:03d}"
-                kg.add_node(
-                    KnowledgeNode(
-                        id=nid,
-                        type="component",
-                        subject=topic.lower(),
-                        statement=f"{topic}: {abstract[:200] if abstract else 'research completed'}",
-                        rationale=f"Sourced from: {source_url}"
-                        if source_url
-                        else "Web research",
-                        query_hints=[topic.lower(), query_final.lower()],
-                        tags=["external", topic.lower().replace(" ", "-")],
-                        metadata={"source": "web", "url": source_url},
-                        author="opencode",
-                        source="web-research",
-                    )
-                )
-                kg.save(paths.ckg_path)
+                node = {
+                    "label": (
+                        f"{topic}: {abstract[:200] if abstract else 'research completed'}"
+                    ),
+                    "type": "component",
+                    "subject": topic.lower(),
+                    "query_hints": [topic.lower(), query_final.lower()],
+                    "tags": ["external", topic.lower().replace(" ", "-")],
+                    "metadata": {"source": "web", "url": source_url},
+                    "author": "opencode",
+                    "source": "web-research",
+                }
+                ckg = CodeKnowledgeGraph(str(paths.project_root))
+                result = ckg.save_nodes([node])
+                node_ids = result.get("node_ids", [])
                 return {
                     "topic": topic,
                     "abstract": abstract[:200],
                     "source": source_url,
-                    "node_id": nid,
-                    "saved": True,
+                    "node_id": node_ids[0] if node_ids else "",
+                    "saved": bool(result.get("ok", False)),
                 }
             except Exception:
                 raise

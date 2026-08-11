@@ -4,14 +4,14 @@ Feature value: valida que el McpServer gestione herramientas sin duplicados
 ni nombres vacíos, y que el ToolRegistry y el McpServer mantengan el mismo
 schema (SSOT).
 
-Escenarios: tests/features/mcp_server_registry.feature
+Escenarios: bdd/features/mcp_server_registry.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/mcp_server_registry.feature")
+scenarios("bdd/features/mcp_server_registry.feature")
 
 
 @pytest.fixture

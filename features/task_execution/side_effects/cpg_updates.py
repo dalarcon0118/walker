@@ -56,7 +56,7 @@ def _verify_cpg_mirror_core(project_root: Path, source_fingerprint: str) -> bool
 
 def _verify_cpg_mirror(ctx: ExecutionContext, source_fingerprint: str) -> bool:
     """Wrapper convention-001: nunca lanza; degrada a False con log."""
-    result = _verify_cpg_mirror_core(ctx.chain_dir, source_fingerprint)
+    result = _verify_cpg_mirror_core(_resolve_project_root(ctx), source_fingerprint)
     if is_successful(result):
         return result.value_or(False)
     logger.warning(

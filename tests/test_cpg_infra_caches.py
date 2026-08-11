@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Caches incrementales de infraestructura del CPG.
 
-Escenarios: tests/features/cpg_infra_caches.feature
+Escenarios: bdd/features/cpg_infra_caches.feature
 
 Cubre metrics_cache (IncrementalMetricsCache), calls_cache (CallsCache) y
 scan_dfg (BuildGraphUseCase con cache + async). Contrato: cache hits en la
@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cpg_infra_caches.feature")
+scenarios("bdd/features/cpg_infra_caches.feature")
 
 
 @pytest.fixture

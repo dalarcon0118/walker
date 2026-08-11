@@ -12,7 +12,7 @@
   "tags": ["testing", "e2e", "mcp", "cli", "rag", "agent", "coverage"],
   "authors": ["Kilo", "PO"],
   "created_at": "2026-08-11T08:50:00Z",
-  "updated_at": "2026-08-11T12:30:00Z",
+  "updated_at": "2026-08-11T17:30:00-03:00",
   "problem_statement": "Walker expone 28 MCP tools, comandos CLI y un pipeline RAG multi-capa (CPG/CKG/Delta/Trace), pero la cobertura E2E es fragmentaria: (1) no hay tests que validen CLI commands contra el agente real, (2) las MCP tools solo tienen tests de error (no de flujo completo), (3) el pipeline RAG no se prueba integrado (CPG→CKG→Delta→Trace), (4) no existe un test que simule la sesión completa de un agente usando Walker desde cero hasta sprint completado.",
   "evidence": [
     "tests/test_mcp_workflow_tools_bdd.py solo cubre casos de error (submit vacía, transition con gate inexistente)",
@@ -133,7 +133,7 @@
     "states": [
       {
         "node": "SPRINT_PLANNING.TASK_SPEC",
-        "status": "specified",
+  "status": "implemented",
         "fields_added": [
           "problem_statement",
           "evidence",
@@ -153,7 +153,7 @@
         ]
       }
     ],
-    "current_status": "specified",
+    "current_status": "implemented",
     "gaps": [
       "[RESUELTO] test_agent_e2e_bdd.py no existia — creado con 12 tests MCP Tools E2E",
       "[RESUELTO] test_cli_walker_bdd.py no existia — creado con 6 tests CLI Walker",
@@ -162,9 +162,12 @@
       "[RESUELTO] MCP tools submit/transition/capture_task no tenian flujo E2E positivo",
       "[RESUELTO] CLI commands no tenian tests automatizados",
       "[RESUELTO] No habia pipeline RAG integrado CPG→CKG→Delta→Trace",
-      "[RESUELTO] Namespace package tests/features shadoweaba features/ en _SERVER (tests/__init__.py + tests/features/__init__.py)",
+      "[RESUELTO] Namespace package tests/features shadoweaba features/ en _SERVER (movido a tests/bdd/features)",
       "[RESUELTO] Tools CLI (list/help/prepare) no resueltas por route() del registry (fallback bare-path)",
-      "[RESUELTO] kg_store descartaba statement por flags_builder a.get(\"body\", {}) (fallback a dict completo)"
+      "[RESUELTO] kg_store descartaba statement por flags_builder a.get(\"body\", {}) (fallback a dict completo)",
+      "[RESUELTO] ckg_analyze/cpg_analyze requerian chain_dir — resuelto via _project_id",
+      "[RESUELTO] capture_task no registrada en TaskRegistry — expuesta via MCP module",
+      "27/27 tests pasan verde — cobertura E2E completa"
     ]
   },
   "validation_checklist": [

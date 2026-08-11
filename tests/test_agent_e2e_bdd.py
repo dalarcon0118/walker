@@ -7,7 +7,7 @@ Nivel 1 de testing (según SPEC-003):
 - test_mcp_tool_transition_between_nodes (via engine directo)
 - test_mcp_tool_capture_task_creates_spec
 - test_mcp_tool_kg_search_returns_delta
-- test_mcp_tool_kg_store_persists_decision
+- test_mcp_tool_save_to_ckg_persists_decision
 - test_mcp_tool_ckg_analyze_returns_nodes
 - test_mcp_tool_cpg_analyze_builds_graph
 - test_mcp_tool_trace_push_creates_event
@@ -533,13 +533,13 @@ class TestAgentE2E:
         data = _parse_mcp_result(resp)
         assert data.get("status_code") == 200
 
-    def test_mcp_tool_kg_store_persists_decision(self, tmp_path):
+    def test_mcp_tool_save_to_ckg_persists_decision(self, tmp_path):
         project_root, chain_dir = _setup_project(tmp_path)
         _setup_workflow(chain_dir)
         _setup_delta(chain_dir)
         _setup_workflow_state(chain_dir)
 
-        resp = _mcp_call("kg_store", {
+        resp = _mcp_call("save_to_ckg", {
             "_project_id": "walker",
             "statement": "E2E: la decision debe persistir en CKG",
             "tags": ["e2e"],

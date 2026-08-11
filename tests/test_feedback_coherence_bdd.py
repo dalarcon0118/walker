@@ -3,7 +3,7 @@
 Feature value: los errores del workflow incluyen contexto completo para que el
 agente sepa exactamente qué falló y cómo corregirlo.
 
-Escenarios: tests/features/feedback_coherence.feature
+Escenarios: bdd/features/feedback_coherence.feature
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/feedback_coherence.feature")
+scenarios("bdd/features/feedback_coherence.feature")
 
 
 @pytest.fixture

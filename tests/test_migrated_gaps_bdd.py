@@ -1,11 +1,11 @@
 """Tests BDD (pytest-bdd) — Safety-net de módulos migrados.
 
 Feature value: tras la migración de ``test_migrated_gaps.py`` (1615 líneas
-imperativas) al feature declarativo ``tests/features/migrated_gaps.feature``,
+imperativas) al feature declarativo ``bdd/features/migrated_gaps.feature``,
 este archivo reactiva los steps que faltaron en el commit de migración
 (de0ee49): el pipeline queda cubierto sin depender del legacy.
 
-Escenarios: tests/features/migrated_gaps.feature
+Escenarios: bdd/features/migrated_gaps.feature
 
 Módulos bajo prueba (SSOT actual):
   - task_synthesis y ceremonies → features/delta_tracking/application/
@@ -23,7 +23,7 @@ import json
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/migrated_gaps.feature")
+scenarios("bdd/features/migrated_gaps.feature")
 
 
 @pytest.fixture
@@ -1628,14 +1628,14 @@ def _capture_ok(mg_ctx: dict):
 
 @given("ResearchInput vacío")
 def _research_empty(mg_ctx: dict):
-    from features.task_execution.tasks.kg_research import ResearchInput
+    from features.task_execution.tasks.research_topic import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({})
 
 
 @given("ResearchInput con topic")
 def _research_ok(mg_ctx: dict):
-    from features.task_execution.tasks.kg_research import ResearchInput
+    from features.task_execution.tasks.research_topic import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({"topic": "vector dbs"})
 

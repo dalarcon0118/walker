@@ -4,7 +4,7 @@ Feature value: un sub-estado con required_tools declara capas que el agente
 DEBE consultar antes de submit; el engine BLOQUEA el submit si el TraceGraph
 no registra evidencia de consulta. Fail-open si el tracer falla.
 
-Escenarios: tests/features/required_tools_gate.feature
+Escenarios: bdd/features/required_tools_gate.feature
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from unittest.mock import Mock
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/required_tools_gate.feature")
+scenarios("bdd/features/required_tools_gate.feature")
 
 NODE_PATH = os.path.join(
     "features", "engine", "workflow", "nodes", "implement.node.json"

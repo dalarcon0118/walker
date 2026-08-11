@@ -1,1127 +1,1204 @@
 {
- "label": "Sprint Lifecycle",
- "description": "Complete Scrum sprint lifecycle adapted for LLM: planning, execution, review, retrospective, and close.",
- "provides": [
-  "sprint_id",
-  "project_id",
-  "task_id"
- ],
- "sub_states": [
-  {
-   "key": "PLANNING",
-   "label": "Sprint planning",
-   "execution": "llm_task",
-   "action": "plan_sprint",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "goal": {
-      "type": "string",
-      "minLength": 10,
-      "description": "Sprint goal — why this sprint matters",
-      "examples": [
-       "Implement user authentication module"
-      ]
-     },
-     "tasks": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 10,
-      "description": "Descriptive task titles (2-3 lines) — full specification happens per task",
-      "items": {
-       "type": "object",
-       "properties": {
-        "objective": {
-         "type": "string",
-         "description": "Descriptive task title (2-3 lines) grounded in the layers",
-         "examples": [
-          "Create login screen"
-         ]
+  "label": "Sprint Lifecycle",
+  "description": "Complete Scrum sprint lifecycle adapted for LLM: planning, execution, review, retrospective, and close.",
+  "provides": [
+    "sprint_id",
+    "project_id",
+    "task_id"
+  ],
+  "sub_states": [
+    {
+      "key": "PLANNING",
+      "label": "Sprint planning",
+      "execution": "llm_task",
+      "action": "plan_sprint",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Sprint goal \u2014 why this sprint matters",
+            "examples": [
+              "Implement user authentication module"
+            ]
+          },
+          "tasks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Descriptive task titles (2-3 lines) \u2014 full specification happens per task",
+            "items": {
+              "type": "object",
+              "properties": {
+                "objective": {
+                  "type": "string",
+                  "description": "Descriptive task title (2-3 lines) grounded in the layers",
+                  "examples": [
+                    "Create login screen"
+                  ]
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "feature",
+                    "refactor",
+                    "bugfix",
+                    "docs",
+                    "chore"
+                  ],
+                  "description": "Task type"
+                },
+                "domain": {
+                  "type": "string",
+                  "description": "Domain area",
+                  "examples": [
+                    "frontend"
+                  ]
+                }
+              },
+              "required": [
+                "objective",
+                "type",
+                "domain"
+              ],
+              "description": "Task titles only (2-3 line descriptions) \u2014 full specification happens per task in TASK_SPEC"
+            }
+          }
         },
-        "type": {
-         "type": "string",
-         "enum": [
-          "feature",
-          "refactor",
-          "bugfix",
-          "docs",
-          "chore"
-         ],
-         "description": "Task type"
-        },
-        "domain": {
-         "type": "string",
-         "description": "Domain area",
-         "examples": [
-          "frontend"
-         ]
+        "required": [
+          "goal",
+          "tasks"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned"
+            ]
+          },
+          "sprint_id": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "task_count": {
+            "type": "integer"
+          }
         }
-       },
-       "required": [
-        "objective",
-        "type",
-        "domain"
-       ],
-       "description": "Task titles only (2-3 line descriptions) — full specification happens per task in TASK_SPEC"
-      }
-     }
-    },
-    "required": [
-     "goal",
-     "tasks"
-    ]
-   },
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "status": {
-      "type": "string",
-      "enum": [
-       "planned"
-      ]
-     },
-     "sprint_id": {
-      "type": "string"
-     },
-     "goal": {
-      "type": "string"
-     },
-     "task_count": {
-      "type": "integer"
-     }
-    }
-   },
-   "on_success": "PLAN_APPROVAL",
-   "side_effects": [
-    {
-     "type": "emit_event",
-     "params": {
-      "event": "sprint_planned"
-     }
-    }
-   ],
-   "retry": {
-    "max_attempts": 3,
-    "backoff": "exponential",
-    "initial_delay_ms": 3000
-   },
-   "timeout_ms": 600000,
-   "prompt_id": "sprint/planning",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     },
-     {
-      "provider": "ckg",
-      "config": {
-       "query": {
-        "type": "decision"
-       },
-       "max_nodes": 20
-      }
-     },
-     {
-      "provider": "delta",
-      "config": {
-       "max_results": 10
-      }
-     },
-     {
-      "provider": "trace",
-      "config": {
-       "max_events": 10
-      }
-     },
-     {
-      "provider": "cpg",
-      "config": {
-       "max_results": 20
-      }
-     }
-    ],
-    "focus": {
-     "role": "sprint planning — define goal and task TITLES only",
-     "constraints": [
-      "Define the sprint goal and break it into 1-10 task TITLES",
-      "Do NOT specify full task details — that happens per-task later"
-     ],
-     "context_priority": "project → delta → ckg → state → trace → cpg"
-    }
-   },
-   "audit": {
-    "level": "normal"
-   }
-  },
-  {
-   "key": "PLAN_APPROVAL",
-   "label": "Approve sprint plan",
-   "execution": "user_input",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "decision": {
-      "type": "string",
-      "enum": [
-       "approve",
-       "revise"
-      ],
-      "description": "PO decision. approve -> plan_approved (TASK_SPEC), revise -> plan_revised (PLANNING). Resuelve el XOR-split."
-     },
-     "feedback": {
-      "type": "string",
-      "description": "PO feedback. If revise, specify what to change."
-     }
-    },
-    "required": [
-     "decision"
-    ],
-    "description": "Sprint plan review decision. Maps to plan_approved / plan_revised gates."
-   },
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "decision": {
-      "type": "string",
-      "enum": [
-       "approve",
-       "revise"
-      ],
-      "description": "PO decision. approve->TASK_SPEC, revise->PLANNING"
-     },
-     "feedback": {
-      "type": "string",
-      "description": "PO feedback. If revise, specify what to change."
-     }
-    },
-    "required": [
-     "decision"
-    ],
-    "description": "Sprint plan reviewed. approve->TASK_SPEC, revise->PLANNING."
-   },
-   "on_success": "TASK_SPEC",
-   "on_failure": "PLANNING",
-   "side_effects": [
-    {
-     "type": "update_sprint_status",
-     "params": {
-      "decision": "approve",
-      "status": "active"
-     },
-     "description": "When approved, set sprint status to active"
-    },
-    {
-     "type": "capture_decision",
-     "params": {}
-    }
-   ],
-   "timeout_ms": 600000,
-   "prompt_id": "sprint/plan-approval",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     }
-    ],
-    "focus": {
-     "role": "approving sprint plan",
-     "constraints": [
-      "Show the sprint goal, task list, and task breakdown from STATE layer",
-      "Show project conventions from PROJECT layer",
-      "Ask user to approve or revise"
-     ],
-     "context_priority": "project → state"
-    }
-   },
-   "audit": {
-    "capture_decision": true,
-    "capture_evidence": true,
-    "level": "full"
-   }
-  },
-  {
-   "key": "TASK_SPEC",
-   "label": "Specify current task",
-   "execution": "llm_task",
-   "action": "spec_task",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "type": {
-      "type": "string",
-      "description": "Task type: feature|refactor|bugfix|docs|chore"
-     },
-     "domain": {
-      "type": "string",
-      "description": "Domain area"
-     },
-     "result_state": {
-      "type": "string",
-      "description": "Expected end state"
-     },
-     "task_description": {
-      "type": "string",
-      "description": "Detailed implementation plan"
-     },
-     "predicates": {
-      "type": "array",
-      "items": {
-       "type": "string"
       },
-      "description": "DoD verification criteria"
-     },
-     "files": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "Impacted file paths"
-     },
-     "depends_on": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "Task dependencies"
-     },
-     "curvature": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "description": "Technical complexity"
-     },
-     "pre_churn": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "description": "Requirements change risk"
-     },
-     "commit_trust": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "description": "Approach confidence"
-     },
-     "preconditions": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "Pre-conditions"
-     },
-     "acceptance_criteria": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "PO acceptance criteria"
-     },
-     "quality_gates": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "Quality gates"
-     },
-     "task_context": {
-      "type": "string",
-      "description": "JSON with 6 fields: observacion, estructura, comportamiento, causalidad, finalidad, principios"
-     },
-     "decisions": {
-      "type": "array",
-      "items": {
-       "type": "object"
-      },
-      "description": "Design decisions"
-     },
-     "loop_verification": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     },
-     "loop_acceptance": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "result_state",
-     "task_description",
-     "predicates",
-     "files",
-     "preconditions",
-     "acceptance_criteria",
-     "quality_gates"
-    ]
-   },
-    "output_schema": {
-     "type": "object",
-     "properties": {
-      "task_id": {
-       "type": "string",
-       "description": "Task identifier"
-      },
-      "status": {
-       "type": "string",
-       "description": "Task status as returned by spec_task"
-      },
-      "approval_type": {
-       "type": "string",
-       "enum": ["standard", "decision"],
-       "description": "approval_type=decision indica que esta spec requiere una decision arquitectonica (ADR) al aprobarse"
-      },
-      "decision_data": {
-       "type": "object",
-       "description": "Datos de la decision arquitectonica: decision, architecture, implementation, quality_gates",
-       "properties": {
-        "decision": {"type": "string"},
-        "architecture": {"type": "string"},
-        "implementation": {"type": "string"},
-        "quality_gates": {"type": "array", "items": {"type": "string"}}
-       }
-      }
-     },
-     "required": [
-      "task_id",
-      "status"
-     ],
-     "description": "Contract: TASK_SPEC must produce task_id + status. The workflow validates structure, not semantics."
-    },
-   "on_success": "TASK_REVIEW",
-   "on_failure": "",
-   "timeout_ms": 600000,
-   "prompt_id": "sprint/task-spec",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     },
-     {
-      "provider": "ckg",
-      "config": {
-       "query": {
-        "type": "decision"
-       },
-       "max_nodes": 20
-      }
-     },
-     {
-      "provider": "cpg",
-      "config": {
-       "max_results": 30
-      }
-     },
-     {
-      "provider": "delta",
-      "config": {
-       "max_results": 10
-      }
-     },
-     {
-      "provider": "trace",
-      "config": {
-       "max_events": 10
-      }
-     },
-     {
-      "provider": "business",
-      "config": {
-       "max_items": 15
-      }
-     }
-    ],
-    "focus": {
-     "role": "specifying task in detail",
-     "constraints": [
-      "Use CPG to understand current code structure for impacted files",
-      "Use CKG for architecture decisions constraining this task",
-      "Use DELTA for similar previous work",
-      "Formulate questions for the user to fill all required fields"
-     ],
-     "context_priority": "cpg → ckg → delta → state → trace → project"
-    }
-   },
-   "audit": {
-    "level": "full"
-   },
-    "side_effects": [
-     {
-      "type": "validate_plan",
-      "params": {},
-      "optional": true,
-      "description": "Validate all specifications after each spec update"
-     },
-     {
-      "type": "transform_spec",
-      "params": {
-       "status": "specified",
-       "fields": {
-        "problem_statement": "NODE.TASK_SPEC.output.task_description",
-        "evidence": "NODE.TASK_SPEC.output.evidence",
-        "predicates": "NODE.TASK_SPEC.output.predicates",
-        "impacted_artifacts": "NODE.TASK_SPEC.output.impacted_artifacts",
-        "task_context": "NODE.TASK_SPEC.output.task_context",
-        "risks": "NODE.TASK_SPEC.output.risks",
-        "quality_gates": "NODE.TASK_SPEC.output.quality_gates"
-       }
-      },
-      "optional": false,
-      "description": "Transform Spec to specified state with all required fields"
-     }
-    ]
-  },
-  {
-   "key": "TASK_REVIEW",
-   "label": "Review task specification",
-   "execution": "user_input",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "decision": {
-      "type": "string",
-      "enum": [
-       "approve",
-       "refine",
-       "all_done"
-      ],
-      "description": "approve -> next_task gate, refine -> refine_task gate, all_done -> all_done gate (resuelve el XOR-split)."
-     },
-     "feedback": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "decision"
-    ]
-   },
-    "output_schema": {
-     "type": "object",
-     "properties": {
-      "decision": {
-       "type": "string",
-       "enum": [
-        "approve",
-        "refine",
-        "all_done"
-       ],
-       "description": "approve: next task, refine: re-specify, all_done: all tasks complete"
-      },
-      "feedback": {
-       "type": "string"
-      },
-      "approval_type": {
-       "type": "string",
-       "enum": ["standard", "decision"],
-       "description": "Tipo de aprobacion. decision = se genera ADR en CKG"
-      },
-      "approval_data": {
-       "type": "object",
-       "description": "Datos de aprobacion para specs tipo decision",
-       "properties": {
-        "decision": {"type": "string"},
-        "architecture": {"type": "string"},
-        "implementation": {"type": "string"},
-        "quality_gates": {"type": "array", "items": {"type": "string"}}
-       }
-      }
-     },
-     "required": [
-      "decision"
-     ]
-    },
-   "on_success": "TASK_SPEC",
-   "on_failure": "TASK_SPEC",
-    "side_effects": [
-     {
-      "type": "advance_task",
-      "params": {}
-     },
-     {
-      "type": "validate_plan",
-      "params": {},
-      "optional": true,
-      "description": "Validate all specs after task review decision"
-     },
-     {
-      "type": "capture_decision",
-      "params": {}
-     },
-      {
-       "type": "transform_spec",
-       "params": {
-        "status": "approved",
-        "fields": {
-         "decision": "NODE.TASK_SPEC.output.decision_data",
-         "architecture": "NODE.TASK_SPEC.output.decision_data",
-         "implementation": "NODE.TASK_SPEC.output.decision_data"
-        }
-       },
-       "optional": false,
-       "description": "Transform Spec to approved state if approval_type=decision"
-      },
-      {
-       "type": "create_adr_from_spec",
-       "params": {
-        "approval_type": "NODE.TASK_SPEC.output.approval_type"
-       },
-       "optional": true,
-       "description": "Create ADR in CKG when spec is approved as decision"
-      }
-    ],
-   "timeout_ms": 600000,
-   "prompt_id": "sprint/task-review",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     },
-     {
-      "provider": "ckg",
-      "config": {}
-     },
-     {
-      "provider": "cpg",
-      "config": {}
-     },
-     {
-      "provider": "delta",
-      "config": {}
-     }
-    ],
-    "focus": {
-     "role": "reviewing task specification — build a DEEP decision report",
-     "constraints": [
-      "Investigar con CPG/CKG/DELTA: citar archivo:linea reales, no inventar",
-      "Identificar elementos a REUTILIZAR (componentes existentes con archivo:linea)",
-      "Evaluar impacto en tests existentes",
-      "Dar recomendacion approve/refine/all_done CON justificacion",
-      "Show the current task specification to the user",
-      "If approve and more tasks remain → approve (advances to next task)",
-      "If approve and all tasks done → all_done (transition to ACTIVE)",
-      "If refine → refine (re-specify current task)"
-     ],
-     "context_priority": "cpg → ckg → delta → state → project"
-    }
-   },
-   "audit": {
-    "capture_decision": true,
-    "level": "full"
-   }
-  },
-  {
-   "key": "ACTIVE",
-   "label": "Sprint active / dashboard",
-   "execution": "user_input",
-   "action": "",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "intent": {
-      "type": "string",
-      "enum": [
-       "start_task",
-       "start_review",
-       "close_sprint",
-       "edit_plan",
-       "back_to_active",
-       "refine_task",
-       "next_task",
-       "all_done",
-       "back_to_start",
-       "init_project"
-      ],
-      "description": "Decision del agente: que arista del XOR-split disparar"
-     }
-    },
-    "required": [
-     "intent"
-    ]
-   },
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "sprint_id": {
-      "type": "string",
-      "description": "Active sprint ID"
-     },
-     "goal": {
-      "type": "string",
-      "description": "Sprint goal"
-     },
-     "tasks": {
-      "type": "array",
-      "description": "Sprint tasks with status"
-     },
-     "task_count": {
-      "type": "integer",
-      "description": "Total tasks"
-     },
-     "completed_count": {
-      "type": "integer",
-      "description": "Completed tasks"
-     }
-    },
-    "description": "Active sprint dashboard. Does not auto-advance — waits for user transition."
-   },
-   "on_success": "",
-   "on_failure": "",
-   "side_effects": [],
-   "timeout_ms": 30000,
-   "prompt_id": "sprint/active",
-   "audit": {
-    "capture_stdout": true,
-    "capture_stderr": true,
-    "level": "normal"
-   }
-  },
-  {
-   "key": "REVIEW",
-   "label": "Sprint review",
-   "execution": "user_input",
-   "input_schema": {},
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "decision": {
-      "type": "string",
-      "enum": [
-       "accept",
-       "needs_work"
-      ],
-      "description": "Decision on the sprint increment",
-      "examples": [
-       "accept",
-       "needs_work"
-      ]
-     },
-     "feedback": {
-      "type": "string",
-      "description": "User feedback on completed work. If needs_work, explain what is missing.",
-      "examples": [
-       "The increment meets expectations, tests pass"
-      ],
-      "minLength": 5
-     }
-    },
-    "required": [
-     "decision"
-    ],
-    "description": "Sprint review completed. accept -> RETRO. needs_work -> ACTIVE to continue working."
-   },
-   "on_success": "RETRO",
-   "on_failure": "ACTIVE",
-   "side_effects": [
-    {
-     "type": "emit_event",
-     "params": {
-      "event": "sprint_reviewed"
-     }
-    },
-    {
-     "type": "update_sprint_status",
-     "params": {
-      "decision": "accept",
-      "status": "reviewing"
-     },
-     "description": "When review starts, set sprint status to reviewing"
-    },
-    {
-     "type": "capture_decision",
-     "params": {}
-    }
-   ],
-   "timeout_ms": 600000,
-   "prompt_id": "sprint/review",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     },
-     {
-      "provider": "delta",
-      "config": {
-       "max_results": 10
-      }
-     }
-    ],
-    "focus": {
-     "role": "reviewing sprint \"{sprint_goal}\"",
-     "constraints": [
-      "Show sprint completed tasks, pending tasks, and overall progress from STATE layer",
-      "Show cross-sprint history from DELTA layer for context",
-      "Show project conventions from PROJECT layer",
-      "Ask user to accept or mark as needs_work"
-     ],
-     "context_priority": "project → state → delta"
-    }
-   },
-   "audit": {
-    "capture_decision": true,
-    "capture_evidence": true,
-    "level": "full"
-   }
-  },
-  {
-   "key": "RETRO",
-   "label": "Sprint retrospective",
-   "execution": "llm_task",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "lecciones": {
-      "type": "array",
-      "description": "Lessons learned during the sprint",
-      "items": {
-       "type": "object",
-       "properties": {
-        "leccion": {
-         "type": "string",
-         "description": "What was learned"
-        },
-        "causa": {
-         "type": "string",
-         "description": "What caused it"
-        },
-        "solucion": {
-         "type": "string",
-         "description": "How it was addressed"
-        }
-       },
-       "required": [
-        "leccion",
-        "causa"
-       ]
-      },
-      "examples": [
-       [
+      "on_success": "PLAN_APPROVAL",
+      "side_effects": [
         {
-         "leccion": "Validate input_schema before execution",
-         "causa": "Schema without validation allowed invalid data",
-         "solucion": "Add JSON Schema validation"
+          "type": "emit_event",
+          "params": {
+            "event": "sprint_planned"
+          }
         }
-       ]
-      ]
-     },
-     "reglas": {
-      "type": "array",
-      "description": "New rules or conventions for upcoming sprints",
-      "items": {
-       "type": "object",
-       "properties": {
-        "regla": {
-         "type": "string",
-         "description": "Rule description"
-        },
-        "scope": {
-         "type": "string",
-         "description": "Scope (project, module, team)"
-        },
-        "severidad": {
-         "type": "string",
-         "enum": [
-          "obligatoria",
-          "recomendada",
-          "informativa"
-         ]
-        }
-       },
-       "required": [
-        "regla",
-        "scope"
-       ]
+      ],
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
       },
-      "examples": [
-       [
-        {
-         "regla": "Every input_schema must have examples",
-         "scope": "project",
-         "severidad": "obligatoria"
-        }
-       ]
-      ]
-     },
-     "acciones": {
-      "type": "array",
-      "description": "Improvement actions for the next sprint",
-      "items": {
-       "type": "object",
-       "properties": {
-        "accion": {
-         "type": "string",
-         "description": "Action to take"
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/planning",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "decision"
+              },
+              "max_nodes": 20
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {
+              "max_results": 10
+            }
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 10
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 20
+            }
+          }
+        ],
+        "focus": {
+          "role": "sprint planning \u2014 define goal and task TITLES only",
+          "constraints": [
+            "Define the sprint goal and break it into 1-10 task TITLES",
+            "Do NOT specify full task details \u2014 that happens per-task later"
+          ],
+          "context_priority": "project \u2192 delta \u2192 ckg \u2192 state \u2192 trace \u2192 cpg"
         },
-        "responsable": {
-         "type": "string",
-         "description": "Who executes it"
-        },
-        "para_cuando": {
-         "type": "string",
-         "description": "Expected completion"
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
-       },
-       "required": [
-        "accion"
-       ]
       },
-      "examples": [
-       [
+      "audit": {
+        "level": "normal"
+      }
+    },
+    {
+      "key": "PLAN_APPROVAL",
+      "label": "Approve sprint plan",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "revise"
+            ],
+            "description": "PO decision. approve -> plan_approved (TASK_SPEC), revise -> plan_revised (PLANNING). Resuelve el XOR-split."
+          },
+          "feedback": {
+            "type": "string",
+            "description": "PO feedback. If revise, specify what to change."
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Sprint plan review decision. Maps to plan_approved / plan_revised gates."
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "revise"
+            ],
+            "description": "PO decision. approve->TASK_SPEC, revise->PLANNING"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "PO feedback. If revise, specify what to change."
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Sprint plan reviewed. approve->TASK_SPEC, revise->PLANNING."
+      },
+      "on_success": "TASK_SPEC",
+      "on_failure": "PLANNING",
+      "side_effects": [
         {
-         "accion": "Automate schema validation",
-         "responsable": "agent",
-         "para_cuando": "next sprint"
+          "type": "update_sprint_status",
+          "params": {
+            "decision": "approve",
+            "status": "active"
+          },
+          "description": "When approved, set sprint status to active"
+        },
+        {
+          "type": "capture_decision",
+          "params": {}
         }
-       ]
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/plan-approval",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "approving sprint plan",
+          "constraints": [
+            "Show the sprint goal, task list, and task breakdown from STATE layer",
+            "Show project conventions from PROJECT layer",
+            "Ask user to approve or revise"
+          ],
+          "context_priority": "project \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      }
+    },
+    {
+      "key": "TASK_SPEC",
+      "label": "Specify current task",
+      "execution": "llm_task",
+      "action": "spec_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Task type: feature|refactor|bugfix|docs|chore"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Domain area"
+          },
+          "result_state": {
+            "type": "string",
+            "description": "Expected end state"
+          },
+          "task_description": {
+            "type": "string",
+            "description": "Detailed implementation plan"
+          },
+          "predicates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "DoD verification criteria"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Impacted file paths"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Task dependencies"
+          },
+          "curvature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Technical complexity"
+          },
+          "pre_churn": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Requirements change risk"
+          },
+          "commit_trust": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Approach confidence"
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Pre-conditions"
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PO acceptance criteria"
+          },
+          "quality_gates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Quality gates"
+          },
+          "task_context": {
+            "type": "string",
+            "description": "JSON with 6 fields: observacion, estructura, comportamiento, causalidad, finalidad, principios"
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Design decisions"
+          },
+          "loop_verification": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "loop_acceptance": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result_state",
+          "task_description",
+          "predicates",
+          "files",
+          "preconditions",
+          "acceptance_criteria",
+          "quality_gates"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Task identifier"
+          },
+          "status": {
+            "type": "string",
+            "description": "Task status as returned by spec_task"
+          },
+          "approval_type": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "decision"
+            ],
+            "description": "approval_type=decision indica que esta spec requiere una decision arquitectonica (ADR) al aprobarse"
+          },
+          "decision_data": {
+            "type": "object",
+            "description": "Datos de la decision arquitectonica: decision, architecture, implementation, quality_gates",
+            "properties": {
+              "decision": {
+                "type": "string"
+              },
+              "architecture": {
+                "type": "string"
+              },
+              "implementation": {
+                "type": "string"
+              },
+              "quality_gates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "task_id",
+          "status"
+        ],
+        "description": "Contract: TASK_SPEC must produce task_id + status. The workflow validates structure, not semantics."
+      },
+      "on_success": "TASK_REVIEW",
+      "on_failure": "",
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/task-spec",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "decision"
+              },
+              "max_nodes": 20
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 30
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {
+              "max_results": 10
+            }
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 10
+            }
+          },
+          {
+            "provider": "business",
+            "config": {
+              "max_items": 15
+            }
+          }
+        ],
+        "focus": {
+          "role": "specifying task in detail",
+          "constraints": [
+            "Use CPG to understand current code structure for impacted files",
+            "Use CKG for architecture decisions constraining this task",
+            "Use DELTA for similar previous work",
+            "Formulate questions for the user to fill all required fields"
+          ],
+          "context_priority": "cpg \u2192 ckg \u2192 delta \u2192 state \u2192 trace \u2192 project"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "full"
+      },
+      "side_effects": [
+        {
+          "type": "validate_plan",
+          "params": {},
+          "optional": true,
+          "description": "Validate all specifications after each spec update"
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "specified",
+            "fields": {
+              "problem_statement": "NODE.TASK_SPEC.output.task_description",
+              "evidence": "NODE.TASK_SPEC.output.evidence",
+              "predicates": "NODE.TASK_SPEC.output.predicates",
+              "impacted_artifacts": "NODE.TASK_SPEC.output.impacted_artifacts",
+              "task_context": "NODE.TASK_SPEC.output.task_context",
+              "risks": "NODE.TASK_SPEC.output.risks",
+              "quality_gates": "NODE.TASK_SPEC.output.quality_gates"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to specified state with all required fields"
+        }
       ]
-     }
-    }
-   },
-   "output_schema": {
-    "type": "object",
-    "$ref": "../schema/knowledge-capture.schema.json",
-    "properties": {
-     "status": {
-      "type": "string",
-      "enum": [
-       "completed"
+    },
+    {
+      "key": "TASK_REVIEW",
+      "label": "Review task specification",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refine",
+              "all_done"
+            ],
+            "description": "approve -> next_task gate, refine -> refine_task gate, all_done -> all_done gate (resuelve el XOR-split)."
+          },
+          "feedback": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refine",
+              "all_done"
+            ],
+            "description": "approve: next task, refine: re-specify, all_done: all tasks complete"
+          },
+          "feedback": {
+            "type": "string"
+          },
+          "approval_type": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "decision"
+            ],
+            "description": "Tipo de aprobacion. decision = se genera ADR en CKG"
+          },
+          "approval_data": {
+            "type": "object",
+            "description": "Datos de aprobacion para specs tipo decision",
+            "properties": {
+              "decision": {
+                "type": "string"
+              },
+              "architecture": {
+                "type": "string"
+              },
+              "implementation": {
+                "type": "string"
+              },
+              "quality_gates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "on_success": "TASK_SPEC",
+      "on_failure": "TASK_SPEC",
+      "side_effects": [
+        {
+          "type": "advance_task",
+          "params": {}
+        },
+        {
+          "type": "validate_plan",
+          "params": {},
+          "optional": true,
+          "description": "Validate all specs after task review decision"
+        },
+        {
+          "type": "capture_decision",
+          "params": {}
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "approved",
+            "fields": {
+              "decision": "NODE.TASK_SPEC.output.decision_data",
+              "architecture": "NODE.TASK_SPEC.output.decision_data",
+              "implementation": "NODE.TASK_SPEC.output.decision_data"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to approved state if approval_type=decision"
+        },
+        {
+          "type": "create_adr_from_spec",
+          "params": {
+            "approval_type": "NODE.TASK_SPEC.output.approval_type"
+          },
+          "optional": true,
+          "description": "Create ADR in CKG when spec is approved as decision"
+        }
       ],
-      "description": "Retrospective completed"
-     },
-     "items_count": {
-      "type": "integer",
-      "description": "Total items captured"
-     }
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/task-review",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {}
+          },
+          {
+            "provider": "cpg",
+            "config": {}
+          },
+          {
+            "provider": "delta",
+            "config": {}
+          }
+        ],
+        "focus": {
+          "role": "reviewing task specification \u2014 build a DEEP decision report",
+          "constraints": [
+            "Investigar con CPG/CKG/DELTA: citar archivo:linea reales, no inventar",
+            "Identificar elementos a REUTILIZAR (componentes existentes con archivo:linea)",
+            "Evaluar impacto en tests existentes",
+            "Dar recomendacion approve/refine/all_done CON justificacion",
+            "Show the current task specification to the user",
+            "If approve and more tasks remain \u2192 approve (advances to next task)",
+            "If approve and all tasks done \u2192 all_done (transition to ACTIVE)",
+            "If refine \u2192 refine (re-specify current task)"
+          ],
+          "context_priority": "cpg \u2192 ckg \u2192 delta \u2192 state \u2192 project"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "level": "full"
+      }
     },
-    "description": "Retrospective completed. Referencia schema/knowledge-capture.schema.json (canonico)."
-   },
-   "on_success": "CLOSE_CONFIRM",
-   "on_failure": "",
-   "side_effects": [
     {
-     "type": "save_to_ckg",
-     "params": {}
+      "key": "ACTIVE",
+      "label": "Sprint active / dashboard",
+      "execution": "user_input",
+      "action": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "start_task",
+              "start_review",
+              "close_sprint",
+              "edit_plan",
+              "back_to_active",
+              "refine_task",
+              "next_task",
+              "all_done",
+              "back_to_start",
+              "init_project"
+            ],
+            "description": "Decision del agente: que arista del XOR-split disparar"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "sprint_id": {
+            "type": "string",
+            "description": "Active sprint ID"
+          },
+          "goal": {
+            "type": "string",
+            "description": "Sprint goal"
+          },
+          "tasks": {
+            "type": "array",
+            "description": "Sprint tasks with status"
+          },
+          "task_count": {
+            "type": "integer",
+            "description": "Total tasks"
+          },
+          "completed_count": {
+            "type": "integer",
+            "description": "Completed tasks"
+          }
+        },
+        "description": "Active sprint dashboard. Does not auto-advance \u2014 waits for user transition."
+      },
+      "on_success": "",
+      "on_failure": "",
+      "side_effects": [],
+      "timeout_ms": 30000,
+      "prompt_id": "sprint/active",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
-     "type": "emit_event",
-     "params": {
-      "event": "sprint_retro_completed"
-     }
-    }
-   ],
-   "retry": {
-    "max_attempts": 2,
-    "backoff": "exponential",
-    "initial_delay_ms": 3000
-   },
-   "timeout_ms": 120000,
-   "prompt_id": "sprint/retro",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     },
-     {
-      "provider": "ckg",
-      "config": {
-       "query": {
-        "type": "convention"
-       },
-       "max_nodes": 15
-      }
-     },
-     {
-      "provider": "delta",
-      "config": {
-       "max_results": 10
-      }
-     },
-     {
-      "provider": "trace",
-      "config": {
-       "max_events": 20
-      }
-     },
-     {
-      "provider": "cpg",
-      "config": {
-       "max_results": 20
-      }
-     }
-    ],
-    "focus": {
-     "role": "sprint retrospective for sprint \"{sprint_goal}\"",
-     "constraints": [
-      "Cross-reference TRACE for objective session history during the sprint",
-      "Cross-reference CPG for code changes and quality metrics",
-      "Cross-reference all layers to produce meaningful retrospective items"
-     ],
-     "context_priority": "project → delta → state → ckg → trace → cpg"
-    }
-   },
-   "audit": {
-    "level": "normal"
-   }
-  },
-  {
-   "key": "CLOSE_CONFIRM",
-   "label": "Confirm sprint close",
-   "execution": "user_input",
-   "input_schema": {},
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "decision": {
-      "type": "string",
-      "enum": [
-       "close",
-       "cancel"
+      "key": "REVIEW",
+      "label": "Sprint review",
+      "execution": "user_input",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "needs_work"
+            ],
+            "description": "Decision on the sprint increment",
+            "examples": [
+              "accept",
+              "needs_work"
+            ]
+          },
+          "feedback": {
+            "type": "string",
+            "description": "User feedback on completed work. If needs_work, explain what is missing.",
+            "examples": [
+              "The increment meets expectations, tests pass"
+            ],
+            "minLength": 5
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Sprint review completed. accept -> RETRO. needs_work -> ACTIVE to continue working."
+      },
+      "on_success": "RETRO",
+      "on_failure": "ACTIVE",
+      "side_effects": [
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "sprint_reviewed"
+          }
+        },
+        {
+          "type": "update_sprint_status",
+          "params": {
+            "decision": "accept",
+            "status": "reviewing"
+          },
+          "description": "When review starts, set sprint status to reviewing"
+        },
+        {
+          "type": "capture_decision",
+          "params": {}
+        }
       ],
-      "description": "PO decision. close -> CLOSE (close sprint), cancel -> ACTIVE (return to sprint)"
-     },
-     "feedback": {
-      "type": "string",
-      "description": "PO feedback on the sprint outcome."
-     }
-    },
-    "required": [
-     "decision"
-    ],
-    "description": "Sprint close confirmed. close->CLOSE, cancel->ACTIVE."
-   },
-   "on_success": "CLOSE",
-   "on_failure": "ACTIVE",
-   "side_effects": [
-    {
-     "type": "capture_decision",
-     "params": {}
-    }
-   ],
-   "timeout_ms": 600000,
-   "prompt_id": "sprint/close-confirm",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/review",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {
+              "max_results": 10
+            }
+          }
+        ],
+        "focus": {
+          "role": "reviewing sprint \"{sprint_goal}\"",
+          "constraints": [
+            "Show sprint completed tasks, pending tasks, and overall progress from STATE layer",
+            "Show cross-sprint history from DELTA layer for context",
+            "Show project conventions from PROJECT layer",
+            "Ask user to accept or mark as needs_work"
+          ],
+          "context_priority": "project \u2192 state \u2192 delta"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
       }
-     }
-    ],
-    "focus": {
-     "role": "confirming sprint close for \"{sprint_goal}\"",
-     "constraints": [
-      "Show sprint summary: total tasks, completed, pending, and retrospective highlights",
-      "Show project conventions from PROJECT layer",
-      "Ask user to close or cancel (return to active)"
-     ],
-     "context_priority": "project → state"
-    }
-   },
-   "audit": {
-    "capture_decision": true,
-    "capture_evidence": true,
-    "level": "full"
-   }
-  },
-  {
-   "key": "CLOSE",
-   "label": "Close sprint",
-   "execution": "auto",
-   "action": "close_sprint",
-   "input_schema": {},
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "status": {
-      "type": "string",
-      "enum": [
-       "closed"
+    },
+    {
+      "key": "RETRO",
+      "label": "Sprint retrospective",
+      "execution": "llm_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lecciones": {
+            "type": "array",
+            "description": "Lessons learned during the sprint",
+            "items": {
+              "type": "object",
+              "properties": {
+                "leccion": {
+                  "type": "string",
+                  "description": "What was learned"
+                },
+                "causa": {
+                  "type": "string",
+                  "description": "What caused it"
+                },
+                "solucion": {
+                  "type": "string",
+                  "description": "How it was addressed"
+                }
+              },
+              "required": [
+                "leccion",
+                "causa"
+              ]
+            },
+            "examples": [
+              [
+                {
+                  "leccion": "Validate input_schema before execution",
+                  "causa": "Schema without validation allowed invalid data",
+                  "solucion": "Add JSON Schema validation"
+                }
+              ]
+            ]
+          },
+          "reglas": {
+            "type": "array",
+            "description": "New rules or conventions for upcoming sprints",
+            "items": {
+              "type": "object",
+              "properties": {
+                "regla": {
+                  "type": "string",
+                  "description": "Rule description"
+                },
+                "scope": {
+                  "type": "string",
+                  "description": "Scope (project, module, team)"
+                },
+                "severidad": {
+                  "type": "string",
+                  "enum": [
+                    "obligatoria",
+                    "recomendada",
+                    "informativa"
+                  ]
+                }
+              },
+              "required": [
+                "regla",
+                "scope"
+              ]
+            },
+            "examples": [
+              [
+                {
+                  "regla": "Every input_schema must have examples",
+                  "scope": "project",
+                  "severidad": "obligatoria"
+                }
+              ]
+            ]
+          },
+          "acciones": {
+            "type": "array",
+            "description": "Improvement actions for the next sprint",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accion": {
+                  "type": "string",
+                  "description": "Action to take"
+                },
+                "responsable": {
+                  "type": "string",
+                  "description": "Who executes it"
+                },
+                "para_cuando": {
+                  "type": "string",
+                  "description": "Expected completion"
+                }
+              },
+              "required": [
+                "accion"
+              ]
+            },
+            "examples": [
+              [
+                {
+                  "accion": "Automate schema validation",
+                  "responsable": "agent",
+                  "para_cuando": "next sprint"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "$ref": "../schema/knowledge-capture.schema.json",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed"
+            ],
+            "description": "Retrospective completed"
+          },
+          "items_count": {
+            "type": "integer",
+            "description": "Total items captured"
+          }
+        },
+        "description": "Retrospective completed. Referencia schema/knowledge-capture.schema.json (canonico)."
+      },
+      "on_success": "CLOSE_CONFIRM",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "save_to_ckg",
+          "params": {}
+        },
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "sprint_retro_completed"
+          }
+        }
       ],
-      "description": "Sprint status after closure"
-     },
-     "sprint_id": {
-      "type": "string",
-      "description": "Closed sprint ID"
-     },
-     "archived": {
-      "type": "boolean",
-      "description": "True if the sprint was archived"
-     }
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "sprint/retro",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 15
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {
+              "max_results": 10
+            }
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 20
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 20
+            }
+          }
+        ],
+        "focus": {
+          "role": "sprint retrospective for sprint \"{sprint_goal}\"",
+          "constraints": [
+            "Cross-reference TRACE for objective session history during the sprint",
+            "Cross-reference CPG for code changes and quality metrics",
+            "Cross-reference all layers to produce meaningful retrospective items"
+          ],
+          "context_priority": "project \u2192 delta \u2192 state \u2192 ckg \u2192 trace \u2192 cpg"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
+      }
     },
-    "description": "Sprint closed and archived successfully."
-   },
-   "on_success": "",
-   "on_failure": "",
-   "side_effects": [
     {
-     "type": "emit_event",
-     "params": {
-      "event": "sprint_closed"
-     }
+      "key": "CLOSE_CONFIRM",
+      "label": "Confirm sprint close",
+      "execution": "user_input",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "close",
+              "cancel"
+            ],
+            "description": "PO decision. close -> CLOSE (close sprint), cancel -> ACTIVE (return to sprint)"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "PO feedback on the sprint outcome."
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Sprint close confirmed. close->CLOSE, cancel->ACTIVE."
+      },
+      "on_success": "CLOSE",
+      "on_failure": "ACTIVE",
+      "side_effects": [
+        {
+          "type": "capture_decision",
+          "params": {}
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/close-confirm",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "confirming sprint close for \"{sprint_goal}\"",
+          "constraints": [
+            "Show sprint summary: total tasks, completed, pending, and retrospective highlights",
+            "Show project conventions from PROJECT layer",
+            "Ask user to close or cancel (return to active)"
+          ],
+          "context_priority": "project \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      }
     },
     {
-     "type": "archive_sprint",
-     "params": {},
-     "optional": true
-    },
-    {
-     "type": "reindex_delta",
-     "params": {},
-     "description": "Reindexar DeltaGraph completo al cerrar el sprint"
+      "key": "CLOSE",
+      "label": "Close sprint",
+      "execution": "auto",
+      "action": "close_sprint",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "closed"
+            ],
+            "description": "Sprint status after closure"
+          },
+          "sprint_id": {
+            "type": "string",
+            "description": "Closed sprint ID"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "True if the sprint was archived"
+          }
+        },
+        "description": "Sprint closed and archived successfully."
+      },
+      "on_success": "",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "sprint_closed"
+          }
+        },
+        {
+          "type": "archive_sprint",
+          "params": {},
+          "optional": true
+        },
+        {
+          "type": "reindex_delta",
+          "params": {},
+          "description": "Reindexar DeltaGraph completo al cerrar el sprint"
+        }
+      ],
+      "timeout_ms": 60000,
+      "prompt_id": "sprint/close",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     }
-   ],
-   "timeout_ms": 60000,
-   "prompt_id": "sprint/close",
-   "audit": {
-    "capture_stdout": true,
-    "capture_stderr": true,
-    "level": "normal"
-   }
-  }
- ]
+  ]
 }

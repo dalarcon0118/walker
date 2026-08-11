@@ -1,6 +1,6 @@
 """Tests BDD (pytest-bdd) — Regresión de kg_search por la ruta MCP real.
 
-Escenarios: tests/features/kg_search_integration.feature
+Escenarios: bdd/features/kg_search_integration.feature
 
 Cubre el bug F821 (undefined name 'ckg_analyze' en kg.py) que los tests de
 capa (test_cognitive_graph_bdd) no ejercitaban: aquí se despacha la task
@@ -14,7 +14,7 @@ import json
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/kg_search_integration.feature")
+scenarios("bdd/features/kg_search_integration.feature")
 
 
 @pytest.fixture

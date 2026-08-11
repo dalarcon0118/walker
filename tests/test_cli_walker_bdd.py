@@ -6,7 +6,7 @@ Nivel 2 de testing (según SPEC-003):
 - test_cli_walker_status_shows_project
 - test_cli_walker_list_shows_projects
 - test_cli_walker_kg_search_finds_spec
-- test_cli_walker_kg_store_saves_decision
+- test_cli_walker_save_to_ckg_saves_decision
 - test_cli_walker_kg_diagnose_identifies_gap
 """
 from __future__ import annotations
@@ -69,10 +69,10 @@ class TestCliWalker:
         assert rc == 0
         assert "kg_search" in out or "executed successfully" in out
 
-    def test_cli_walker_kg_store_saves_decision(self, tmp_path):
+    def test_cli_walker_save_to_ckg_saves_decision(self, tmp_path):
         project_dir = _setup_project(tmp_path)
         rc, out, err = _run_main([
-            "kg_store",
+            "save_to_ckg",
             "--type", "decision",
             "--statement", "SPEC-003 requiere tests E2E MCP",
             "--scope", "testing",

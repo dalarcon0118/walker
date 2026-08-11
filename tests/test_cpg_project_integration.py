@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Integración CPG <-> Project (regresión ADR-015).
 
-Escenarios: tests/features/cpg_project_integration.feature
+Escenarios: bdd/features/cpg_project_integration.feature
 
 Valida la cadena PÚBLICA ProjectService -> CPGBuilder, usando el manifest
 (no atributos directos). REGLA DE ORO: cubrir la cadena pública.
@@ -15,7 +15,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cpg_project_integration.feature")
+scenarios("bdd/features/cpg_project_integration.feature")
 
 
 @pytest.fixture

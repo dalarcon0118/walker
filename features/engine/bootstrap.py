@@ -116,15 +116,18 @@ def build_context_registry() -> Any:
     return registry
 
 
-def bootstrap(registry: Any = None, se_engine: Any = None) -> tuple[Any, Any]:
+def bootstrap(registry: Any = None, se_engine: Any = None, separated: bool = False) -> Any:
     """Bootstrap completo: descubre y registra tasks + side-effects + modules.
 
     Args:
         registry: Instancia de TaskRegistry. Si None, crea una default.
         se_engine: Instancia de SideEffectEngine. Si None, crea una default.
+        separated: Si True, devuelve (domain_registry, system_registry, se_engine).
+                   Si False (default), devuelve (registry, se_engine) para backward compatibility.
 
     Returns:
-        Tuple de (registry, se_engine) con todo registrado.
+        Si separated=False: Tuple de (registry, se_engine).
+        Si separated=True: Tuple de (domain_registry, system_registry, se_engine).
     """
     tracer: Any = None
     if registry is None:
@@ -146,6 +149,23 @@ def bootstrap(registry: Any = None, se_engine: Any = None) -> tuple[Any, Any]:
     bootstrap_tasks(registry)
     bootstrap_side_effects(se_engine)
     bootstrap_modules(registry)
+
+    if separated:
+        from .infrastructure.domain_task_registry import DomainTaskRegistry
+        from .infrastructure.system_task_registry import SystemTaskRegistry
+
+        domain_registry = DomainTaskRegistry(tracer=tracer)
+        system_registry = SystemTaskRegistry(tracer=tracer)
+
+        for name, fn in registry._tasks.items():
+            meta = registry._metadata.get(name, {})
+            scope = meta.get("scope", "public")
+            if scope in ("internal", "domain"):
+                domain_registry.register(name, fn, meta)
+            else:
+                system_registry.register(name, fn, meta)
+
+        return domain_registry, system_registry, se_engine
 
     return registry, se_engine
 

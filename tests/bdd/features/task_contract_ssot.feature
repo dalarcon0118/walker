@@ -15,8 +15,8 @@ Característica: SSOT del contrato de tareas en el registry
   Escenario: discover() expone input_schema para tasks con contrato
     Dado el task registry bootstrapeado
     Cuando descubro todas las tasks
-    Entonces kg_research expone input_schema
-    Y kg_index_repo expone input_schema
+    Entonces research_topic expone input_schema
+    Y index_repo expone input_schema
     Y los schemas tienen type object
     Y los schemas tienen clave required
 
@@ -30,5 +30,5 @@ Característica: SSOT del contrato de tareas en el registry
   Escenario: help_task incluye schemas de las tasks públicas
     Dado el handler de help construido
     Cuando obtengo el catálogo de tareas
-    Entonces kg_research aparece en el catálogo
-    Y kg_research incluye input_schema
+    Entonces research_topic aparece en el catálogo
+    Y research_topic incluye input_schema

@@ -3,14 +3,14 @@
 Feature value: el health analyzer descubre tasks por capability, no por nombres
 hardcodeados; el workflow parsea from_sub/to_sub y filtra gates por sub-estado.
 
-Escenarios: tests/features/dynamic_discovery.feature
+Escenarios: bdd/features/dynamic_discovery.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/dynamic_discovery.feature")
+scenarios("bdd/features/dynamic_discovery.feature")
 
 
 @pytest.fixture

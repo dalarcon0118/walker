@@ -5,7 +5,7 @@ lugar de crear una nueva por cada llamada CLI/MCP (evita llenar
 <cognitive>/sessions/ con duplicados). Solo crea cuando no hay sesión
 reutilizable para el chain_dir.
 
-Escenarios: tests/features/workflow_session.feature
+Escenarios: bdd/features/workflow_session.feature
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pytest_bdd import given, scenarios, then, when
 from features.engine.domain.session import SessionRecord, SessionStore
 from features.engine.application.workflow_api import WorkflowAPI
 
-scenarios("features/workflow_session.feature")
+scenarios("bdd/features/workflow_session.feature")
 
 
 @pytest.fixture

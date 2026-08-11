@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Use cases de aplicación del CPG.
 
-Escenarios: tests/features/cpg_use_cases.feature
+Escenarios: bdd/features/cpg_use_cases.feature
 
 Cubre: CheckCpgHealthUseCase, GatherCpgContextUseCase, DetectUnusedFunctionsUseCase,
 ReviewCodeUseCase y ProjectMetricsUseCase. Contrato: nunca lanzan y devuelven
@@ -15,7 +15,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cpg_use_cases.feature")
+scenarios("bdd/features/cpg_use_cases.feature")
 
 
 # ── Fixtures de contexto ─────────────────────────────────────────

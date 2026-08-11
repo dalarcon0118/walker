@@ -4,14 +4,14 @@ Feature value: los required_fields se derivan del JSON Schema, eliminando
 el campo legacy required_fields de node.json v3 y garantizando que el
 schema sea la única fuente de verdad.
 
-Escenarios: tests/features/required_field_resolver.feature
+Escenarios: bdd/features/required_field_resolver.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/required_field_resolver.feature")
+scenarios("bdd/features/required_field_resolver.feature")
 
 
 @pytest.fixture

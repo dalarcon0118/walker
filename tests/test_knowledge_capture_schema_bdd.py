@@ -3,7 +3,7 @@
 Feature value: los 4 schemas divergentes de captura de conocimiento
 referencian un schema canónico vía $ref, garantizando coherencia.
 
-Escenarios: tests/features/knowledge_capture_schema.feature
+Escenarios: bdd/features/knowledge_capture_schema.feature
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/knowledge_capture_schema.feature")
+scenarios("bdd/features/knowledge_capture_schema.feature")
 
 
 @pytest.fixture

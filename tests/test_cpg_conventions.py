@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Chequeo de convenciones del CKG contra el código.
 
-Escenarios: tests/features/cpg_conventions.feature
+Escenarios: bdd/features/cpg_conventions.feature
 
 El contrato valida que las convenciones registradas en el CKG (type=convention,
 rule_yaml en metadata) se ejecutan contra el repo real del proyecto walker.
@@ -14,7 +14,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cpg_conventions.feature")
+scenarios("bdd/features/cpg_conventions.feature")
 
 
 # ── Antecedentes ─────────────────────────────────────────────────

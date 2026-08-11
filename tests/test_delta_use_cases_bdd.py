@@ -5,7 +5,7 @@ UpsertSpecsUseCase, QueryDeltaUseCase, GetSprintProgressUseCase, presenters,
 projections y domain values operan correctamente con un repositorio en memoria
 aislando la logica de negocio.
 
-Escenarios: tests/features/delta_use_cases.feature
+Escenarios: bdd/features/delta_use_cases.feature
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/delta_use_cases.feature")
+scenarios("bdd/features/delta_use_cases.feature")
 
 
 @pytest.fixture

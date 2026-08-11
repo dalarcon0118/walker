@@ -5,7 +5,7 @@ feature event_tracing. build_reflection_context deriva source_node/attempt
 desde el TraceGraph, y el ReflectionProvider produce ContextPiece con capa
 'reflection'.
 
-Escenarios: tests/features/reflection_context.feature
+Escenarios: bdd/features/reflection_context.feature
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pytest_bdd import given, scenarios, then, when
 
 from tests.conftest import make_v2_project
 
-scenarios("features/reflection_context.feature")
+scenarios("bdd/features/reflection_context.feature")
 
 
 @pytest.fixture

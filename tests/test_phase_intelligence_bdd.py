@@ -4,7 +4,7 @@ Feature value: valida que las 4 tasks públicas de fase registren
 input_schema y output_schema, y que el output_schema derive del DTO de
 contrato (SSOT del contrato ADR-043 F1).
 
-Escenarios: tests/features/phase_intelligence.feature
+Escenarios: bdd/features/phase_intelligence.feature
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/phase_intelligence.feature")
+scenarios("bdd/features/phase_intelligence.feature")
 
 
 class FakeRegistry:

@@ -62,10 +62,13 @@ def list_tools(registry: Any = None) -> list[dict]:
             })
 
         # 2) Tasks públicas del registro (kg_*, analyze, phase tools, ...)
-        task_registry = InMemoryTaskRegistry(tracer=None)
-        bootstrap_tasks(task_registry)
-        public = task_registry.list_tasks_with_meta(scope="public") or []
-        for t in public:
+        from ..infrastructure.task_registry import InMemoryTaskRegistry
+        from ..infrastructure.system_task_registry import SystemTaskRegistry
+        base_registry = InMemoryTaskRegistry(tracer=None)
+        bootstrap_tasks(base_registry)
+        system_registry = SystemTaskRegistry(base=base_registry)
+        public = system_registry.discover(scope="public") or {"tasks": []}
+        for t in public.get("tasks", []):
             name = t.get("name", "")
             if not name or name in seen:
                 continue

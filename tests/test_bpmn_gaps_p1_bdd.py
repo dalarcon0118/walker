@@ -3,7 +3,7 @@
 Feature value: valida que el motor maneje eventos de señal, compensaciones y
 bloqueos para que el workflow sea resiliente y pueda recuperarse de fallos.
 
-Escenarios: tests/features/bpmn_gaps_p1.feature
+Escenarios: bdd/features/bpmn_gaps_p1.feature
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import pytest
 from pytest_bdd import given, scenarios, then, when
 from returns.pipeline import is_successful
 
-scenarios("features/bpmn_gaps_p1.feature")
+scenarios("bdd/features/bpmn_gaps_p1.feature")
 
 NODE_PATH = os.path.join(
     "features", "engine", "workflow", "nodes", "implement.node.json"

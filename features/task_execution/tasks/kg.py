@@ -386,9 +386,42 @@ def _resolve_ckg_project_root(project_id: str) -> str:
     return ""
 
 
-def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+def save_to_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     chain_dir = ctx.chain_dir or ""
     project_id = data.get("_project_id", "")
+
+    # Leer datos desde _payload (REST) o desde flags directos (legacy)
+    payload = data.get("_payload", data)
+
+    # Formato workflow (CKG_SAVE): data trae "nodes" como lista ya estructurada
+    # (thin adapter legacy de knowledge.py -> SaveToCkgUseCase). Se pasa el mismo
+    # core canonico; el use case anade task_id/session_id a metadata.
+    nodes = payload.get("nodes")
+    if isinstance(nodes, list) and nodes:
+        if not chain_dir:
+            return TaskResult.failure("chain_dir not available")
+        from features.cognitive_knowledge.application.use_cases import (
+            SaveToCkgUseCase,
+        )
+        from returns.pipeline import is_successful
+
+        result = SaveToCkgUseCase.execute(
+            chain_dir,
+            nodes,
+            task_id=ctx.task_id or "",
+            session_id=ctx.session_id or "",
+        )
+        if not is_successful(result):
+            return TaskResult.failure(str(result.failure()))
+        res = result.value_or({})
+        return TaskResult.success(
+            data={
+                "ok": bool(res.get("ok", res.get("saved", False))),
+                "nodes_saved": res.get("nodes_saved", 0),
+                "saved": bool(res.get("ok", res.get("saved", False))),
+                **res,
+            }
+        )
 
     # Resolver project_root desde chain_dir o desde registry
     project_root = ""
@@ -400,7 +433,7 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             project_root = str(paths.project_root)
         except Exception as e:
             logger.warning(
-                "kg_store: resolve_paths(%s) fallo (%s: %s)",
+                "save_to_ckg: resolve_paths(%s) fallo (%s: %s)",
                 chain_dir, type(e).__name__, e,
             )
     elif project_id:
@@ -418,8 +451,6 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
 
     try:
-        # Leer datos desde _payload (REST) o desde flags directos (legacy)
-        payload = data.get("_payload", data)
         statement = payload.get("statement", payload.get("label", ""))
         rationale = payload.get("rationale", "")
         node_type = payload.get("type", "decision")
@@ -427,15 +458,20 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         metadata = payload.get("metadata", {}) or {}
 
         if not statement or not statement.strip():
+            # No-op (formato workflow CKG_SAVE con fields vacios): la interna
+            # legacy devolvia success sin persistir, no un error.
+            if not payload:
+                return TaskResult.success(
+                    data={"ok": False, "saved": False, "message": "no data to save"}
+                )
             return TaskResult.failure(
                 "Empty statement",
                 data={
                     "error": "Cannot save empty knowledge. Provide --statement or 'statement' field",
-                    "next_step": "kg_store --type decision --statement 'Clear description of the knowledge'",
+                    "next_step": "save_to_ckg --type decision --statement 'Clear description of the knowledge'",
                 },
             )
 
-        ckg = CodeKnowledgeGraph(project_root)
         # Normalizar scope/severity a metadata (KnowledgeFact no tiene campos
         # top-level para ellos; la convencion legacy los guarda en metadata).
         node_meta = dict(metadata)
@@ -453,12 +489,42 @@ def kg_store(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         if supersedes:
             # Ciclo de vida: esta decision reemplaza/degrada a otras anteriores
             node["supersedes"] = supersedes
-        result = ckg.save_nodes([node])
+
+        # SSOT (camino canonico): pasar por SaveToCkgUseCase del feature
+        # (CognitiveCkgRepository -> CognitiveGraph) cuando hay chain_dir,
+        # para que TODAS las tasks de escritura CKG compartan el mismo core
+        # y el mismo formato de indice. Sin chain_dir (solo project_id) se
+        # usa el mismo repo canonico directamente.
+        if chain_dir:
+            from features.cognitive_knowledge.application.use_cases import (
+                SaveToCkgUseCase,
+            )
+            from returns.pipeline import is_successful
+
+            result = SaveToCkgUseCase.execute(
+                chain_dir,
+                [node],
+                task_id=ctx.task_id or "",
+                session_id=ctx.session_id or "",
+            )
+            if not is_successful(result):
+                return TaskResult.failure(str(result.failure()))
+            res = result.value_or({})
+            nodes_saved = res.get("nodes_saved", 0)
+            degraded = (res.get("result", {}) or {}).get("degraded", [])
+            ok = bool(res.get("ok", False))
+        else:
+            ckg = CodeKnowledgeGraph(project_root)
+            res = ckg.save_nodes([node])
+            nodes_saved = res.get("nodes_created", 0)
+            degraded = res.get("degraded", [])
+            ok = bool(res.get("ok", False))
+
         return TaskResult.success(
             data={
-                "ok": result.get("ok", False),
-                "nodes_saved": result.get("nodes_created", 0),
-                "degraded": result.get("degraded", []),
+                "ok": ok,
+                "nodes_saved": nodes_saved,
+                "degraded": degraded,
                 "note": (
                     "La nueva decision reemplaza a las previas; estas quedaron "
                     "con status=superseded y solo se ven con include_superseded."
@@ -522,11 +588,11 @@ def register(registry: Any) -> None:
             },
         ),
         (
-            "kg_store",
-            kg_store,
+            "save_to_ckg",
+            save_to_ckg,
             {
-                "description": "Almacena un documento en CKG (conocimiento ingenieril). Soporta ciclo de vida: con 'supersedes' (lista de statements o IDs) degrada a las decisiones anteriores reemplazadas.",
-                "usage": 'walker <project>/kg_store \'{"type":"decision","statement":"...","supersedes":["<statement o id previo>"]}\'',
+                "description": "Almacena conocimiento en CKG (use case SaveToCkgUseCase). Acepta 'nodes' (workflow) o statement/label con ciclo de vida: con 'supersedes' (lista de statements o IDs) degrada a las decisiones anteriores reemplazadas.",
+                "usage": 'walker <project>/save_to_ckg \'{"type":"decision","statement":"...","supersedes":["<statement o id previo>"]}\'',
                 "tags": ["kg", "cognitive-graph"],
             },
         ),

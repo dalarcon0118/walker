@@ -3,7 +3,7 @@
 Feature value: garantiza que el MCP tools/list y el registry.list_tasks
 no tengan drift (sin tools fantasma ni invisibles).
 
-Escenarios: tests/features/mcp_tools_list_equivalence.feature
+Escenarios: bdd/features/mcp_tools_list_equivalence.feature
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/mcp_tools_list_equivalence.feature")
+scenarios("bdd/features/mcp_tools_list_equivalence.feature")
 
 
 @pytest.fixture

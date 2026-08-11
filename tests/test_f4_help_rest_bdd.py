@@ -3,14 +3,14 @@
 Feature value: walker://help y las rutas REST se generan desde la metadata del
 registro, no desde texto fijo, garantizando un único fuente de verdad.
 
-Escenarios: tests/features/f4_help_rest.feature
+Escenarios: bdd/features/f4_help_rest.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/f4_help_rest.feature")
+scenarios("bdd/features/f4_help_rest.feature")
 
 
 @pytest.fixture

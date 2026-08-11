@@ -4,14 +4,14 @@ Feature value: valida que el ModuleRegistry registre servicios por clave
 lógica con resolución lazy singleton, y que los features reciban servicios
 sin importar implementaciones concretas.
 
-Escenarios: tests/features/module_registry_di.feature
+Escenarios: bdd/features/module_registry_di.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/module_registry_di.feature")
+scenarios("bdd/features/module_registry_di.feature")
 
 
 @pytest.fixture

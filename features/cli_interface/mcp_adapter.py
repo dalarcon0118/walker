@@ -271,7 +271,7 @@ _PROTOCOL_FALLBACK = (
     "   Use what the CPG returns to build solutions; do NOT invent APIs.\n"
     "\n"
     "4. KNOWLEDGE MEMORY (CKG): query ckg before deciding patterns and\n"
-    "   conventions. Use kg_store to REGISTER decisions, conventions and\n"
+    "   conventions. Use save_to_ckg to REGISTER decisions, conventions and\n"
     "   patterns. ALWAYS persist in the project where you are actually\n"
     "   working: if you develop walker code, store in project 'walker';\n"
     "   if you validate another project, store there. Do not mix contexts.\n"

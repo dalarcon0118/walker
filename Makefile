@@ -7,9 +7,10 @@
 #   make pip-install   → Only install the Python package
 #   make check         → Verify all deps are OK
 #   make doctor        → Full environment diagnostics
+#   make check-stability → Gate: la suite debe recolectar estable (2 corridas)
 # ═══════════════════════════════════════════════════════════════
 
-.PHONY: install install-deps pip-install check doctor reinstall help
+.PHONY: install install-deps pip-install check doctor check-stability reinstall help
 
 # ── Default: full install ─────────────────────────────────────
 install: install-deps pip-install
@@ -55,6 +56,10 @@ doctor:
 	@echo "  → walker3 package: $$(pip3 show walker3 2>/dev/null | grep Version || echo 'NOT INSTALLED')"
 	@echo ""
 
+# ── Gate de estabilidad de la suite de tests ──────────────────
+check-stability:
+	@bash bin/check-test-stability.sh
+
 # ── Full reinstall ────────────────────────────────────────────
 reinstall:
 	@pip3 uninstall -y walker3 2>/dev/null || true
@@ -70,5 +75,6 @@ help:
 	@echo "  make pip-install     Python package only"
 	@echo "  make check           Verify dependencies"
 	@echo "  make doctor          Full diagnostics"
+	@echo "  make check-stability Test collection stability gate"
 	@echo "  make reinstall       Reinstall from scratch"
 	@echo ""

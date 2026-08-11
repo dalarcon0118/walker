@@ -3,7 +3,7 @@ Tests BDD (pytest-bdd) — Contrato del Result pattern en el módulo CPG.
 
 Ejecutar: python3 -m pytest tests/test_cpg_result_pattern.py -v
 
-Los escenarios del feature (tests/features/cpg_result_pattern.feature) describen
+Los escenarios del feature (bdd/features/cpg_result_pattern.feature) describen
 el CONTRATO que toda operación del CPG debe cumplir una vez migrada a
 result pattern (dry-python/returns). Los steps ejercitan los cores reales de
 features/code_analysis/application/build_service.py (ya migrados con @safe) y
@@ -26,7 +26,7 @@ from features.code_analysis.application.build_service import (
     _sync_core,
 )
 
-scenarios("features/cpg_result_pattern.feature")
+scenarios("bdd/features/cpg_result_pattern.feature")
 
 # ── Fixtures ─────────────────────────────────────────────────────
 

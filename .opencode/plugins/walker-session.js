@@ -28,7 +28,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
     `Allowed: ${allowed}`
 
   const ALLOWED_TOOLS =
-    "walker_kg_store, walker_kg_search, walker_kg_multi, " +
+    "walker_save_to_ckg, walker_kg_search, walker_kg_multi, " +
     "walker_cpg_business, walker_analyze_code, " +
     "walker_submit, walker_transition, walker_capture_task"
 
@@ -294,9 +294,9 @@ export const WalkerHooks = async ({ project, $, directory }) => {
   }
 
   const ckgSave = async (type, statement, tags = []) => {
-    // Via MCP tool kg_store (walker_kg_store) — nunca python directo.
+    // Via MCP tool save_to_ckg (walker_save_to_ckg) — nunca python directo.
     const payload = JSON.stringify({ type, statement, tags })
-    return await runWalker("kg_store", payload)
+    return await runWalker("save_to_ckg", payload)
   }
 
   const isProtected = (fp) => {
@@ -643,7 +643,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         `- FORBIDDEN: python3 -c / python3 << / python3 script.py → use walker MCP tools\n` +
         `- FORBIDDEN: direct reads/edits of .cognitive/ → use walker MCP tools\n` +
         `- FORBIDDEN: echo/cat con > >> tee hacia .cognitive/ o data/*.json.gz\n` +
-        `- walker_kg_store → register ADRs and conventions after architectural decisions\n` +
+        `- walker_save_to_ckg → register ADRs and conventions after architectural decisions\n` +
         `- walker_submit / walker_transition → navigate spring workflow\n` +
         `- walker_capture_task → capture specs into active sprint\n` +
         `- CONVENTIONS: chequear walker_kg_search type=convention y cumplirlas\n`

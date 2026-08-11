@@ -1,6 +1,6 @@
 """Tests BDD (pytest-bdd) — MCP Adapter JSON-RPC 2.0.
 
-Escenarios: tests/features/mcp_adapter.feature
+Escenarios: bdd/features/mcp_adapter.feature
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import json
 import pytest
 from pytest_bdd import given, scenarios, then
 
-scenarios("features/mcp_adapter.feature")
+scenarios("bdd/features/mcp_adapter.feature")
 
 
 @pytest.fixture

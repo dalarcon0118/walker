@@ -3,14 +3,14 @@
 Feature value: cada sub_state llm_task tiene un DTO de respuesta con from_dict()
 que valida contra el output_schema del node.json, garantizando anti-alucinación.
 
-Escenarios: tests/features/workflow_contracts.feature
+Escenarios: bdd/features/workflow_contracts.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/workflow_contracts.feature")
+scenarios("bdd/features/workflow_contracts.feature")
 
 
 @pytest.fixture

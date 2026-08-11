@@ -166,13 +166,15 @@
         ]
       }
     ],
-    "current_status": "specified",
+    "current_status": "implemented",
     "gaps": [
-      "TaskRegistry no separado en domain/system — genera skips en MCP adapter",
-      "workflow.json no tiene context_budget por nodo — riesgo de tragedia de los comunes",
-      "project.md no tiene seccion de invariantes — no hay ancla para cambios",
-      "docs/ARCHITECTURE-MODELS.md no existe — conocimiento de diseño no es accesible",
-      "AGENTS.md no tiene ritual pre-mortem — specs se aprueban sin simular fallos"
+      "[RESUELTO] TaskRegistry no separado — DomainTaskRegistry + SystemTaskRegistry implementados",
+      "[RESUELTO] workflow.json no tiene context_budget — budget agregado a todos los nodos",
+      "[RESUELTO] project.md no tiene invariantes — INV-001 a INV-012 documentadas",
+      "[RESUELTO] ARCHITECTURE-MODELS.md no existe — 13 modelos de pensamiento documentados",
+      "[RESUELTO] AGENTS.md no tiene pre-mortem — ritual agregado",
+      "[RESUELTO] Side effects no atómicos — Outbox pattern implementado en SideEffectOutbox",
+      "[RESUELTO] SPEC-003 no tenía tests E2E — 27/27 tests pasan verde"
     ]
   }
 }

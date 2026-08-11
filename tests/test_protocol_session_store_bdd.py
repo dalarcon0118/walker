@@ -3,14 +3,14 @@
 Feature value: persistencia en memoria de McpSession con return pattern,
 lifecycle completo (save/load/close) y soporte multi-sesión.
 
-Escenarios: tests/features/protocol_session_store.feature
+Escenarios: bdd/features/protocol_session_store.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/protocol_session_store.feature")
+scenarios("bdd/features/protocol_session_store.feature")
 
 
 @pytest.fixture

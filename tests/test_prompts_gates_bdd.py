@@ -4,7 +4,7 @@ Feature value: valida que el sistema de prompts para USER GATES cargue
 templates reales, resuelva placeholders, exponga last_step_fields y genere
 evidencias y briefings correctos.
 
-Escenarios: tests/features/prompts_gates.feature
+Escenarios: bdd/features/prompts_gates.feature
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pytest_bdd import given, scenarios, then, when
 
 from tests.conftest import make_v2_project
 
-scenarios("features/prompts_gates.feature")
+scenarios("bdd/features/prompts_gates.feature")
 
 
 def _setup_project(tmpdir: str) -> tuple[str, str]:

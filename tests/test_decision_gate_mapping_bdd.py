@@ -4,7 +4,7 @@ Feature value: las gates de decisión se resuelven automáticamente según la
 intención del usuario, permitiendo que el workflow avance sin intervención
 manual cuando las condiciones se cumplen.
 
-Escenarios: tests/features/decision_gate_mapping.feature
+Escenarios: bdd/features/decision_gate_mapping.feature
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/decision_gate_mapping.feature")
+scenarios("bdd/features/decision_gate_mapping.feature")
 
 
 @pytest.fixture

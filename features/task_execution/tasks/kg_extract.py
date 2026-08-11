@@ -9,7 +9,7 @@ Flow:
      c) Extract evident design decisions
      d) Document components and relationships
      e) Capture implicit business rules
-  4. The LLM analyzes and saves via kg_store
+  4. The LLM analyzes and saves via save_to_ckg
 
 Usage:
     walker <project>/kg_extract
@@ -240,7 +240,7 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "Analyze it and answer the following questions. "
             "Your answers will be saved in the CKG (Knowledge Graph) "
             "so they are available in future sprints. "
-            "Use 'walker <project>/kg_store' to save each answer. "
+            "Use 'walker <project>/save_to_ckg' to save each answer. "
             "IMPORTANT: Do NOT save knowledge that already exists in CKG."
         ),
         "questions": [
@@ -330,8 +330,8 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "questionnaire": questionnaire,
             "action_required": (
                 "Review the CPG analysis and answer each question in the questionnaire. "
-                "Save each answer using kg_store: "
-                'walker <project>/kg_store \'{"type":"<type>","statement":"<answer>","scope":"<scope>"}\''
+                "Save each answer using save_to_ckg: "
+                'walker <project>/save_to_ckg \'{"type":"<type>","statement":"<answer>","scope":"<scope>"}\''
             ),
         }
     )
@@ -359,11 +359,11 @@ def register(registry: Any) -> None:
                 "ai_agent": [
                     "status shows 'CKG empty' -> run kg_extract automatically",
                     "Before planning a sprint -> kg_extract to understand architecture",
-                    "Investigating a bug without CKG context -> kg_extract + analyze + kg_store",
+                    "Investigating a bug without CKG context -> kg_extract + analyze + save_to_ckg",
                     "After implementing a task -> kg_extract to document learnings",
                 ],
                 "synergy": [
-                    "kg_extract -> kg_store saves answers to CKG",
+                    "kg_extract -> save_to_ckg saves answers to CKG",
                     "kg_extract -> kg_search queries generated knowledge",
                     "kg_extract -> kg_multi cross-references CKG + CPG for full context",
                 ],

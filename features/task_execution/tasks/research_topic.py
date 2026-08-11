@@ -1,4 +1,4 @@
-"""kg_research — thin adapter to cognitive_knowledge use case."""
+"""research_topic — thin adapter to cognitive_knowledge ResearchTopicUseCase."""
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +10,7 @@ from features.cognitive_knowledge.application.use_cases import ResearchTopicUseC
 
 @dataclass(frozen=True)
 class ResearchInput(TaskInput):
-    """Input validado de kg_research.
+    """Input validado de research_topic.
 
     topic (required): tema a investigar.
     query: query adicional (opcional).
@@ -25,7 +25,7 @@ class ResearchInput(TaskInput):
         return ""
 
 
-def kg_research(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+def research_topic(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     input_result = ResearchInput.from_dict(data)
     if not input_result.ok:
         return TaskResult.failure(input_result.error or "topic requerido")
@@ -42,7 +42,7 @@ def kg_research(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 
 def register(registry: Any) -> None:
-    registry.register("kg_research", kg_research,
+    registry.register("research_topic", research_topic,
                       metadata={"description": "Research topic on web, save to CKG", "tags": ["kg", "research"],
                                 "input_schema": {
                                     "type": "object",

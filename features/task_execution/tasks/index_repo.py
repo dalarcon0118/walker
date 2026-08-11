@@ -1,4 +1,4 @@
-"""kg_index_repo — thin adapter to cognitive_knowledge use case."""
+"""index_repo — thin adapter to cognitive_knowledge IndexRepoUseCase."""
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +10,7 @@ from features.cognitive_knowledge.application.use_cases import IndexRepoUseCase
 
 @dataclass(frozen=True)
 class IndexRepoInput(TaskInput):
-    """Input validado de kg_index_repo.
+    """Input validado de index_repo.
 
     url (required): repo remoto.
     name: nombre (default: último segmento de la url).
@@ -27,7 +27,7 @@ class IndexRepoInput(TaskInput):
         return ""
 
 
-def kg_index_repo(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+def index_repo(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     chain_dir = ctx.chain_dir or ""
     input_result = IndexRepoInput.from_dict(data)
     if not input_result.ok:
@@ -45,7 +45,7 @@ def kg_index_repo(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 
 def register(registry: Any) -> None:
-    registry.register("kg_index_repo", kg_index_repo,
+    registry.register("index_repo", index_repo,
                       metadata={"description": "Index external repo in CKG", "tags": ["kg", "ckg"],
                                 "input_schema": {
                                     "type": "object",

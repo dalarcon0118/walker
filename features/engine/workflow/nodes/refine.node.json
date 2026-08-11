@@ -1,562 +1,591 @@
 {
- "label": "Refinement Cycle",
- "description": "Root cause diagnosis, knowledge capture, and routing to correct phase. Includes loop detection (3 max attempts) and sprint escalation.",
- "provides": [
-  "project_id",
-  "sprint_id"
- ],
- "sub_states": [
-  {
-   "key": "DIAGNOSE",
-   "label": "Diagnose root cause & target",
-   "execution": "llm_task",
-   "action": "refine_diagnose",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "source_node": {
-      "type": "string",
-      "enum": [
-       "DESIGN",
-       "ANALYZE",
-       "IMPLEMENT",
-       "VERIFY"
+  "label": "Refinement Cycle",
+  "description": "Root cause diagnosis, knowledge capture, and routing to correct phase. Includes loop detection (3 max attempts) and sprint escalation.",
+  "provides": [
+    "project_id",
+    "sprint_id"
+  ],
+  "sub_states": [
+    {
+      "key": "DIAGNOSE",
+      "label": "Diagnose root cause & target",
+      "execution": "llm_task",
+      "action": "refine_diagnose",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_node": {
+            "type": "string",
+            "enum": [
+              "DESIGN",
+              "ANALYZE",
+              "IMPLEMENT",
+              "VERIFY"
+            ],
+            "readOnly": true,
+            "description": "\ud83d\udd12 Node that triggered refine. Injected by engine. Do not send."
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true,
+            "description": "\ud83d\udd12 Refine attempt number. Injected by engine. Do not send."
+          },
+          "error_context": {
+            "type": "string",
+            "readOnly": true,
+            "description": "\ud83d\udd12 Failure context that triggered refine. Injected by engine. Do not send."
+          },
+          "task_id": {
+            "type": "string",
+            "readOnly": true,
+            "description": "\ud83d\udd12 Task ID being refined. Injected by engine. Do not send."
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "analyze",
+              "implement",
+              "verify",
+              "sprint"
+            ],
+            "description": "Refinement target after root cause diagnosis",
+            "examples": [
+              "analyze",
+              "implement"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Detailed reason for refinement. Explains what failed and why this target was chosen.",
+            "examples": [
+              "The 6->3 analysis did not consider the infrastructure layer, causing an incomplete design",
+              "Implementation failed the security quality gate: an XSS vulnerability was detected"
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "reason"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Confirmed refinement target"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for refinement"
+          },
+          "knowledge_items": {
+            "type": "array",
+            "description": "Lessons learned detected during diagnosis (will be captured in the next step)"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "description": "Diagnosis completed. Transitions to KNOWLEDGE_CAPTURE to record lessons."
+      },
+      "on_success": "KNOWLEDGE_CAPTURE",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "refine_diagnosed"
+          }
+        }
       ],
-      "readOnly": true,
-      "description": "🔒 Node that triggered refine. Injected by engine. Do not send."
-     },
-     "attempt": {
-      "type": "integer",
-      "minimum": 1,
-      "readOnly": true,
-      "description": "🔒 Refine attempt number. Injected by engine. Do not send."
-     },
-     "error_context": {
-      "type": "string",
-      "readOnly": true,
-      "description": "🔒 Failure context that triggered refine. Injected by engine. Do not send."
-     },
-     "task_id": {
-      "type": "string",
-      "readOnly": true,
-      "description": "🔒 Task ID being refined. Injected by engine. Do not send."
-     },
-     "target": {
-      "type": "string",
-      "enum": [
-       "analyze",
-       "implement",
-       "verify",
-       "sprint"
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000,
+        "on_error": {
+          "SchemaViolation": "retry",
+          "PreconditionError": "block+message"
+        }
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "refine/diagnose",
+      "context": {
+        "sources": [
+          {
+            "provider": "reflection",
+            "config": {}
+          },
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "query": {
+                "file": "features"
+              },
+              "max_results": 20
+            }
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 10
+            }
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 10
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {
+              "max_results": 5
+            }
+          }
+        ],
+        "focus": {
+          "role": "diagnosing root cause for refinement of task {task_id} in sprint \"{sprint_goal}\"",
+          "constraints": [
+            "Cross-reference TASK (what was spec'd) with TRACE (what happened) to diagnose the root cause",
+            "Check STATE to understand sprint context and position",
+            "Check CKG for relevant past patterns or decisions",
+            "Check DELTA for similar issues in previous sprints"
+          ],
+          "context_priority": "project \u2192 trace \u2192 task \u2192 cpg \u2192 state \u2192 ckg \u2192 delta"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
+      }
+    },
+    {
+      "key": "KNOWLEDGE_CAPTURE",
+      "label": "Capture lessons learned",
+      "execution": "llm_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "readOnly": true,
+            "description": "\ud83d\udd12 Task ID. Injected by engine."
+          },
+          "lecciones": {
+            "type": "array",
+            "description": "Lessons learned from refinement",
+            "items": {
+              "type": "object",
+              "properties": {
+                "leccion": {
+                  "type": "string",
+                  "description": "Lesson description"
+                },
+                "causa": {
+                  "type": "string",
+                  "description": "What caused the problem"
+                },
+                "solucion": {
+                  "type": "string",
+                  "description": "How it was solved"
+                }
+              }
+            },
+            "examples": [
+              [
+                {
+                  "leccion": "Validate input_schema before executing actions",
+                  "causa": "Schema without items allowed invalid data",
+                  "solucion": "Add items to all arrays in schemas"
+                }
+              ]
+            ]
+          },
+          "reglas": {
+            "type": "array",
+            "description": "New rules to prevent the same failure",
+            "items": {
+              "type": "object",
+              "properties": {
+                "regla": {
+                  "type": "string",
+                  "description": "Rule description"
+                },
+                "scope": {
+                  "type": "string",
+                  "description": "Scope"
+                },
+                "severidad": {
+                  "type": "string",
+                  "enum": [
+                    "obligatoria",
+                    "recomendada"
+                  ]
+                }
+              }
+            },
+            "examples": [
+              [
+                {
+                  "regla": "Every llm_task input_schema must have examples",
+                  "scope": "project",
+                  "severidad": "obligatoria"
+                }
+              ]
+            ]
+          },
+          "decisiones": {
+            "type": "array",
+            "description": "Decisions made during refinement",
+            "items": {
+              "type": "object",
+              "properties": {
+                "decision": {
+                  "type": "string"
+                },
+                "alternativas": {
+                  "type": "array"
+                },
+                "razon": {
+                  "type": "string"
+                }
+              }
+            },
+            "examples": [
+              [
+                {
+                  "decision": "Refine design instead of implementing directly",
+                  "alternativas": [
+                    "implement directly",
+                    "postpone"
+                  ],
+                  "razon": "Current design does not cover all use cases"
+                }
+              ]
+            ]
+          },
+          "advertencias": {
+            "type": "array",
+            "description": "Warnings for future sprints",
+            "items": {
+              "type": "object",
+              "properties": {
+                "advertencia": {
+                  "type": "string"
+                },
+                "impacto": {
+                  "type": "string"
+                },
+                "mitigacion": {
+                  "type": "string"
+                }
+              }
+            },
+            "examples": [
+              [
+                {
+                  "advertencia": "Module X has high technical debt",
+                  "impacto": "high",
+                  "mitigacion": "Include refactor in next sprint planning"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "$ref": "../schema/knowledge-capture.schema.json",
+        "properties": {
+          "captured": {
+            "type": "boolean",
+            "description": "true if knowledge was captured"
+          },
+          "items": {
+            "type": "integer",
+            "description": "Total items captured"
+          }
+        },
+        "required": [
+          "captured"
+        ],
+        "description": "Lessons captured. Referencia schema/knowledge-capture.schema.json (canonico)."
+      },
+      "on_success": "CONFIRM_GATE",
+      "on_failure": "DIAGNOSE",
+      "side_effects": [
+        {
+          "type": "save_to_ckg",
+          "params": {},
+          "compensation": {
+            "type": "delete_ckg_nodes",
+            "description": "If transition to next phase fails, rollback captured knowledge"
+          }
+        },
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "refine_knowledge_captured"
+          }
+        }
       ],
-      "description": "Refinement target after root cause diagnosis",
-      "examples": [
-       "analyze",
-       "implement"
-      ]
-     },
-     "reason": {
-      "type": "string",
-      "minLength": 10,
-      "description": "Detailed reason for refinement. Explains what failed and why this target was chosen.",
-      "examples": [
-       "The 6->3 analysis did not consider the infrastructure layer, causing an incomplete design",
-       "Implementation failed the security quality gate: an XSS vulnerability was detected"
-      ]
-     }
-    },
-    "required": [
-     "target",
-     "reason"
-    ]
-   },
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "target": {
-      "type": "string",
-      "description": "Confirmed refinement target"
-     },
-     "reason": {
-      "type": "string",
-      "description": "Reason for refinement"
-     },
-     "knowledge_items": {
-      "type": "array",
-      "description": "Lessons learned detected during diagnosis (will be captured in the next step)"
-     }
-    },
-    "required": [
-     "target"
-    ],
-    "description": "Diagnosis completed. Transitions to KNOWLEDGE_CAPTURE to record lessons."
-   },
-   "on_success": "KNOWLEDGE_CAPTURE",
-   "on_failure": "",
-   "side_effects": [
-    {
-     "type": "emit_event",
-     "params": {
-      "event": "refine_diagnosed"
-     }
-    }
-   ],
-   "retry": {
-    "max_attempts": 2,
-    "backoff": "exponential",
-    "initial_delay_ms": 2000,
-    "on_error": {
-     "SchemaViolation": "retry",
-     "PreconditionError": "block+message"
-    }
-   },
-   "timeout_ms": 120000,
-   "prompt_id": "refine/diagnose",
-   "context": {
-    "sources": [
-     {
-      "provider": "reflection",
-      "config": {}
-     },
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "task",
-      "config": {}
-     },
-     {
-      "provider": "cpg",
-      "config": {
-       "query": {
-        "file": "features"
-       },
-       "max_results": 20
-      }
-     },
-     {
-      "provider": "trace",
-      "config": {
-       "max_events": 10
-      }
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     },
-     {
-      "provider": "ckg",
-      "config": {
-       "query": {
-        "type": "convention"
-       },
-       "max_nodes": 10
-      }
-     },
-     {
-      "provider": "delta",
-      "config": {
-       "max_results": 5
-      }
-     }
-    ],
-    "focus": {
-     "role": "diagnosing root cause for refinement of task {task_id} in sprint \"{sprint_goal}\"",
-     "constraints": [
-      "Cross-reference TASK (what was spec'd) with TRACE (what happened) to diagnose the root cause",
-      "Check STATE to understand sprint context and position",
-      "Check CKG for relevant past patterns or decisions",
-      "Check DELTA for similar issues in previous sprints"
-     ],
-     "context_priority": "project → trace → task → cpg → state → ckg → delta"
-    }
-   },
-   "audit": {
-    "level": "normal"
-   }
-  },
-  {
-   "key": "KNOWLEDGE_CAPTURE",
-   "label": "Capture lessons learned",
-   "execution": "llm_task",
-   "input_schema": {
-    "type": "object",
-    "properties": {
-     "task_id": {
-      "type": "string",
-      "readOnly": true,
-      "description": "🔒 Task ID. Injected by engine."
-     },
-     "lecciones": {
-      "type": "array",
-      "description": "Lessons learned from refinement",
-      "items": {
-       "type": "object",
-       "properties": {
-        "leccion": {
-         "type": "string",
-         "description": "Lesson description"
-        },
-        "causa": {
-         "type": "string",
-         "description": "What caused the problem"
-        },
-        "solucion": {
-         "type": "string",
-         "description": "How it was solved"
-        }
-       }
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
       },
-      "examples": [
-       [
-        {
-         "leccion": "Validate input_schema before executing actions",
-         "causa": "Schema without items allowed invalid data",
-         "solucion": "Add items to all arrays in schemas"
-        }
-       ]
-      ]
-     },
-     "reglas": {
-      "type": "array",
-      "description": "New rules to prevent the same failure",
-      "items": {
-       "type": "object",
-       "properties": {
-        "regla": {
-         "type": "string",
-         "description": "Rule description"
+      "timeout_ms": 60000,
+      "prompt_id": "refine/knowledge-capture",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 10
+            }
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 8
+            }
+          }
+        ],
+        "focus": {
+          "role": "capturing lessons learned from refinement of task {task_id} in sprint \"{sprint_goal}\"",
+          "constraints": [
+            "Check CKG to avoid duplicating existing patterns or rules",
+            "Refer to TRACE for the diagnosis history that led here",
+            "Capture lessons, rules, decisions, and warnings based on the diagnosis"
+          ],
+          "context_priority": "project \u2192 task \u2192 state \u2192 ckg \u2192 trace"
         },
-        "scope": {
-         "type": "string",
-         "description": "Scope"
-        },
-        "severidad": {
-         "type": "string",
-         "enum": [
-          "obligatoria",
-          "recomendada"
-         ]
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
-       }
       },
-      "examples": [
-       [
-        {
-         "regla": "Every llm_task input_schema must have examples",
-         "scope": "project",
-         "severidad": "obligatoria"
-        }
-       ]
-      ]
-     },
-     "decisiones": {
-      "type": "array",
-      "description": "Decisions made during refinement",
-      "items": {
-       "type": "object",
-       "properties": {
-        "decision": {
-         "type": "string"
-        },
-        "alternativas": {
-         "type": "array"
-        },
-        "razon": {
-         "type": "string"
-        }
-       }
-      },
-      "examples": [
-       [
-        {
-         "decision": "Refine design instead of implementing directly",
-         "alternativas": [
-          "implement directly",
-          "postpone"
-         ],
-         "razon": "Current design does not cover all use cases"
-        }
-       ]
-      ]
-     },
-     "advertencias": {
-      "type": "array",
-      "description": "Warnings for future sprints",
-      "items": {
-       "type": "object",
-       "properties": {
-        "advertencia": {
-         "type": "string"
-        },
-        "impacto": {
-         "type": "string"
-        },
-        "mitigacion": {
-         "type": "string"
-        }
-       }
-      },
-      "examples": [
-       [
-        {
-         "advertencia": "Module X has high technical debt",
-         "impacto": "high",
-         "mitigacion": "Include refactor in next sprint planning"
-        }
-       ]
-      ]
-     }
-    }
-   },
-   "output_schema": {
-    "type": "object",
-    "$ref": "../schema/knowledge-capture.schema.json",
-    "properties": {
-     "captured": {
-      "type": "boolean",
-      "description": "true if knowledge was captured"
-     },
-     "items": {
-      "type": "integer",
-      "description": "Total items captured"
-     }
-    },
-    "required": [
-     "captured"
-    ],
-    "description": "Lessons captured. Referencia schema/knowledge-capture.schema.json (canonico)."
-   },
-   "on_success": "CONFIRM_GATE",
-   "on_failure": "DIAGNOSE",
-   "side_effects": [
-    {
-     "type": "save_to_ckg",
-     "params": {},
-     "compensation": {
-      "type": "delete_ckg_nodes",
-      "description": "If transition to next phase fails, rollback captured knowledge"
-     }
+      "audit": {
+        "level": "normal"
+      }
     },
     {
-     "type": "emit_event",
-     "params": {
-      "event": "refine_knowledge_captured"
-     }
-    }
-   ],
-   "retry": {
-    "max_attempts": 2,
-    "backoff": "exponential",
-    "initial_delay_ms": 3000
-   },
-   "timeout_ms": 60000,
-   "prompt_id": "refine/knowledge-capture",
-   "context": {
-    "sources": [
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "task",
-      "config": {}
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
+      "key": "CONFIRM_GATE",
+      "label": "Confirm refinement route",
+      "execution": "user_input",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "modify",
+              "cancel"
+            ],
+            "description": "User decision on refinement route. approve->ROUTE, modify->DIAGNOSE, cancel->SPRINT"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "User feedback. If modify, specify what to change."
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Refinement route confirmed. approve->ROUTE, modify->DIAGNOSE, cancel->SPRINT.ACTIVE."
+      },
+      "on_success": "ROUTE",
+      "on_failure": "DIAGNOSE",
+      "side_effects": [],
+      "timeout_ms": 600000,
+      "prompt_id": "refine/confirm-gate",
+      "context": {
+        "sources": [
+          {
+            "provider": "reflection",
+            "config": {}
+          },
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 10
+            }
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "confirming refinement route for task {task_id}",
+          "constraints": [
+            "Show the root cause diagnosis and proposed refinement target",
+            "Show trace history to explain what triggered the refinement",
+            "Show task details from TASK layer",
+            "Ask user to approve, modify, or cancel"
+          ],
+          "context_priority": "project \u2192 task \u2192 trace \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
       }
-     },
-     {
-      "provider": "ckg",
-      "config": {
-       "query": {
-        "type": "convention"
-       },
-       "max_nodes": 10
+    },
+    {
+      "key": "ROUTE",
+      "label": "Route to target",
+      "execution": "auto",
+      "action": "route_to_target",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Target node for refinement"
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "Route successful"
+          }
+        },
+        "description": "Routing completed. Transitions to the refinement target node."
+      },
+      "on_success": "",
+      "on_failure": "DIAGNOSE",
+      "side_effects": [],
+      "timeout_ms": 30000,
+      "prompt_id": "refine/route",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
       }
-     },
-     {
-      "provider": "trace",
-      "config": {
-       "max_events": 8
-      }
-     }
-    ],
-    "focus": {
-     "role": "capturing lessons learned from refinement of task {task_id} in sprint \"{sprint_goal}\"",
-     "constraints": [
-      "Check CKG to avoid duplicating existing patterns or rules",
-      "Refer to TRACE for the diagnosis history that led here",
-      "Capture lessons, rules, decisions, and warnings based on the diagnosis"
-     ],
-     "context_priority": "project → task → state → ckg → trace"
-    }
-   },
-   "audit": {
-    "level": "normal"
-   }
-  },
-  {
-   "key": "CONFIRM_GATE",
-   "label": "Confirm refinement route",
-   "execution": "user_input",
-   "input_schema": {},
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "decision": {
-      "type": "string",
-      "enum": [
-       "approve",
-       "modify",
-       "cancel"
+    },
+    {
+      "key": "ESCALATION",
+      "label": "Escalation to sprint",
+      "execution": "auto",
+      "action": "escalate_refine",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "true if escalation completed successfully"
+          },
+          "previous_attempts": {
+            "type": "integer",
+            "description": "Number of refinement attempts before escalation"
+          },
+          "message": {
+            "type": "string",
+            "description": "Informational message for the user about escalation"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "description": "Escalation completed. Transitions to SPRINT.ACTIVE for manual PO review."
+      },
+      "on_success": "",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "refine_escalated"
+          }
+        },
+        {
+          "type": "save_to_ckg",
+          "params": {},
+          "optional": true
+        }
       ],
-      "description": "User decision on refinement route. approve->ROUTE, modify->DIAGNOSE, cancel->SPRINT"
-     },
-     "feedback": {
-      "type": "string",
-      "description": "User feedback. If modify, specify what to change."
-     }
-    },
-    "required": [
-     "decision"
-    ],
-    "description": "Refinement route confirmed. approve->ROUTE, modify->DIAGNOSE, cancel->SPRINT.ACTIVE."
-   },
-   "on_success": "ROUTE",
-   "on_failure": "DIAGNOSE",
-   "side_effects": [],
-   "timeout_ms": 600000,
-   "prompt_id": "refine/confirm-gate",
-   "context": {
-    "sources": [
-     {
-      "provider": "reflection",
-      "config": {}
-     },
-     {
-      "provider": "project",
-      "config": {}
-     },
-     {
-      "provider": "task",
-      "config": {}
-     },
-     {
-      "provider": "trace",
-      "config": {
-       "max_events": 10
+      "timeout_ms": 30000,
+      "prompt_id": "refine/escalation",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
       }
-     },
-     {
-      "provider": "state",
-      "config": {
-       "query": {}
-      }
-     }
-    ],
-    "focus": {
-     "role": "confirming refinement route for task {task_id}",
-     "constraints": [
-      "Show the root cause diagnosis and proposed refinement target",
-      "Show trace history to explain what triggered the refinement",
-      "Show task details from TASK layer",
-      "Ask user to approve, modify, or cancel"
-     ],
-     "context_priority": "project → task → trace → state"
     }
-   },
-   "audit": {
-    "capture_decision": true,
-    "capture_evidence": true,
-    "level": "full"
-   }
-  },
-  {
-   "key": "ROUTE",
-   "label": "Route to target",
-   "execution": "auto",
-   "action": "route_to_target",
-   "input_schema": {},
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "target": {
-      "type": "string",
-      "description": "Target node for refinement"
-     },
-     "ok": {
-      "type": "boolean",
-      "description": "Route successful"
-     }
-    },
-    "description": "Routing completed. Transitions to the refinement target node."
-   },
-   "on_success": "",
-   "on_failure": "DIAGNOSE",
-   "side_effects": [],
-   "timeout_ms": 30000,
-   "prompt_id": "refine/route",
-   "audit": {
-    "capture_stdout": true,
-    "capture_stderr": true,
-    "level": "normal"
-   }
-  },
-  {
-   "key": "ESCALATION",
-   "label": "Escalation to sprint",
-   "execution": "auto",
-   "action": "escalate_refine",
-   "input_schema": {},
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "ok": {
-      "type": "boolean",
-      "description": "true if escalation completed successfully"
-     },
-     "previous_attempts": {
-      "type": "integer",
-      "description": "Number of refinement attempts before escalation"
-     },
-     "message": {
-      "type": "string",
-      "description": "Informational message for the user about escalation"
-     }
-    },
-    "required": [
-     "ok"
-    ],
-    "description": "Escalation completed. Transitions to SPRINT.ACTIVE for manual PO review."
-   },
-   "on_success": "",
-   "on_failure": "",
-   "side_effects": [
-    {
-     "type": "emit_event",
-     "params": {
-      "event": "refine_escalated"
-     }
-    },
-    {
-     "type": "save_to_ckg",
-     "params": {},
-     "optional": true
-    }
-   ],
-   "timeout_ms": 30000,
-   "prompt_id": "refine/escalation",
-   "audit": {
-    "capture_stdout": true,
-    "capture_stderr": true,
-    "level": "normal"
-   }
-  }
- ]
+  ]
 }

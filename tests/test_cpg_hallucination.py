@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Detección de imports alucinados.
 
-Escenarios: tests/features/cpg_hallucination.feature
+Escenarios: bdd/features/cpg_hallucination.feature
 
 Cubre features/code_analysis/infrastructure/hallucination.py: scan_file y
 check_python_import. Contrato: detecta módulos inexistentes y respeta válidos.
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cpg_hallucination.feature")
+scenarios("bdd/features/cpg_hallucination.feature")
 
 
 @pytest.fixture

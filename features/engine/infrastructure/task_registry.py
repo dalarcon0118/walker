@@ -23,10 +23,14 @@ class InMemoryTaskRegistry(TaskRegistry):
         self._tracer = tracer
 
     def register(self, name: str, fn: Callable[..., TaskResult],
-                 metadata: dict | None = None) -> None:
+                 metadata: dict | None = None, scope: str = "public") -> None:
         self._tasks[name] = fn
         if metadata:
-            self._metadata[name] = metadata
+            meta = dict(metadata)
+            meta.setdefault("scope", scope)
+            self._metadata[name] = meta
+        else:
+            self._metadata[name] = {"scope": scope}
 
     def execute(
         self, name: str, ctx: ExecutionContext, data: dict[str, Any] | None = None
@@ -94,7 +98,7 @@ class InMemoryTaskRegistry(TaskRegistry):
         """Retorna tareas con metadata, opcionalmente filtradas por scope.
 
         Args:
-            scope: "public" (default), "internal", o None (todas).
+            scope: "public" (default), "internal", "domain", "system", o None (todas).
         """
         tasks = [
             {"name": name, **self._metadata.get(name, {})}
@@ -114,16 +118,17 @@ class InMemoryTaskRegistry(TaskRegistry):
         return {"name": name} if name in self._tasks else None
 
     def discover(self, scope: str = "public") -> dict:
-        """Retorna catalogo de tareas PUBLICAS con metadata para auto-documentacion.
+        """Retorna catalogo de tareas con metadata para auto-documentacion.
 
-        Las tareas con scope "internal" (ej: plan_sprint) son del workflow:
-        NO se invocan desde el CLI, solo las ejecuta el motor internamente.
-        Por eso por defecto solo se listan las publicas.
+        Las tareas con scope "internal"/"domain" son del workflow:
+        NO se exponen al agente por defecto.
+        Las tareas con scope "public"/"system" SI se exponen.
         """
         tasks = []
         for name in sorted(self._tasks.keys()):
             meta = self._metadata.get(name, {})
-            if meta.get("scope", "public") == "internal" and scope != "all":
+            task_scope = meta.get("scope", "public")
+            if task_scope in ("internal", "domain") and scope != "all":
                 continue  # Tareas internas del workflow no se exponen al agente
             task_entry = {
                 "name": name,
@@ -132,12 +137,10 @@ class InMemoryTaskRegistry(TaskRegistry):
                 "example": meta.get("example", ""),
                 "query_instructions": meta.get("query_instructions", ""),
                 "tags": meta.get("tags", []),
-                "scope": meta.get("scope", "public"),
+                "scope": task_scope,
             }
-            # Incluir use_cases si existen (auto-documentacion)
             if "use_cases" in meta:
                 task_entry["use_cases"] = meta["use_cases"]
-            # Incluir input_schema si la task registra su contrato (SSOT del agente)
             if "input_schema" in meta:
                 task_entry["input_schema"] = meta["input_schema"]
             tasks.append(task_entry)

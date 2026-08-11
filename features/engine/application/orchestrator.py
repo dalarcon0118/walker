@@ -32,6 +32,7 @@ from ..infrastructure.repositories import (
 )
 from ..infrastructure.side_effects import SideEffectEngine
 from ..infrastructure.task_registry import InMemoryTaskRegistry
+from ..infrastructure.domain_task_registry import DomainTaskRegistry
 from ..infrastructure.trace_log import TraceLogger
 from ..domain.registry import TaskRegistry
 from ..domain.ports import ITracer
@@ -97,7 +98,7 @@ class OrchestrationService:
         self._state_repo = state_repo or WorkflowStateRepository()
         self._script_runner = script_runner or ScriptRunner()
         self._tracer = tracer or TraceLogger()
-        self._task_registry = task_registry or InMemoryTaskRegistry(tracer=self._tracer)
+        self._task_registry = task_registry or DomainTaskRegistry(tracer=self._tracer)
         self._contract_validator = contract_validator or ContractValidator
         self._side_effect_engine = side_effect_engine or SideEffectEngine(
             task_registry=self._task_registry,

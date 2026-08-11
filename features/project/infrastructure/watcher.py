@@ -81,7 +81,13 @@ class FileWatcher:
         if data_dir:
             self.data_dir = Path(data_dir)
         else:
-            self.data_dir = Path(project_root) / "data"
+            # Default inteligente: si el repo tiene layout cognitivo
+            # (<root>/.cognitive/projects/<pid>/data), usar esa ruta CANONICA.
+            # El legacy <repo>/data es solo para proyectos sin .cognitive
+            # (tests/proyectos simples); escribir estados de watcher en el
+            # repo root de un proyecto cognitivo los cae DENTRO del scope
+            # escaneado -> auto-invalidacion en cada scan.
+            self.data_dir = self._default_data_dir(project_root)
 
         self.change_path = self.data_dir / CHANGE_FILE
         self.snapshot_path = self.data_dir / ".file_snapshot.json"
@@ -94,6 +100,30 @@ class FileWatcher:
 
         # Inyección: tracing handler (no-op por defecto, CognitiveGraph en producción)
         self._on_trace = on_trace_event or (lambda _event_type, _data: None)
+
+    @staticmethod
+    def _default_data_dir(project_root: str) -> Path:
+        """Resuelve el data_dir por defecto del watcher.
+
+        Prioridad:
+        1. <project_root>/.cognitive/projects/<pid>/data — layout cognitivo
+           CANONICO (el estado del watcher queda FUERA del árbol escaneado).
+        2. <project_root>/data — legacy para proyectos sin .cognitive
+           (tests, proyectos simples sin preparar).
+
+        Si hay mas de un proyecto cognitivo bajo el root, usa el primero
+        (mismo criterio que _find_cognitive_manifest en path_resolver).
+        """
+        import glob
+
+        matches = sorted(
+            glob.glob(
+                os.path.join(project_root, ".cognitive", "projects", "*", "data")
+            )
+        )
+        if matches:
+            return Path(matches[0])
+        return Path(project_root) / "data"
 
     # ── Public API ──
 

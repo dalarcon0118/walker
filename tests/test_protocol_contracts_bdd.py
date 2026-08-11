@@ -3,14 +3,14 @@
 Feature value: valida que los contratos del protocolo MCP validen
 correctamente y que las respuestas y errores se serialicen bien.
 
-Escenarios: tests/features/protocol_contracts.feature
+Escenarios: bdd/features/protocol_contracts.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/protocol_contracts.feature")
+scenarios("bdd/features/protocol_contracts.feature")
 
 
 @pytest.fixture

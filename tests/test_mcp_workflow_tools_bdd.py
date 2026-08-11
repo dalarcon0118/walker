@@ -7,7 +7,7 @@ mcp.call_tool internamente), por lo que solo se testean casos de error
 via MCP. El flujo exitoso se cubre en test_workflow_spring_bdd.py
 via handler directo.
 
-Escenarios: tests/features/mcp_workflow_tools.feature
+Escenarios: bdd/features/mcp_workflow_tools.feature
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/mcp_workflow_tools.feature")
+scenarios("bdd/features/mcp_workflow_tools.feature")
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ Feature value: el agente consulta automaticamente las convenciones del CKG antes
 de tocar codigo, mediante provider ckg + focus con constraint de auto-consulta +
 prompt que ordena kg_schema/kg_multi.
 
-Escenarios: tests/features/auto_query_gate.feature
+Escenarios: bdd/features/auto_query_gate.feature
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/auto_query_gate.feature")
+scenarios("bdd/features/auto_query_gate.feature")
 
 NODE_PATH = os.path.join(
     "features", "engine", "workflow", "nodes", "implement.node.json"

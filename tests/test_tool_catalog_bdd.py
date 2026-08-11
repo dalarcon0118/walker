@@ -4,7 +4,7 @@ Feature value: el catálogo que alimenta `tools/list` proyecta outputSchema
 para que el agente vea el contrato de salida de las tools (punto 4 del flujo:
 ModuleRegistry → tool_catalog → tools/list).
 
-Escenarios: tests/features/tool_catalog.feature
+Escenarios: bdd/features/tool_catalog.feature
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/tool_catalog.feature")
+scenarios("bdd/features/tool_catalog.feature")
 
 
 @pytest.fixture

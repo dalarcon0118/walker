@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Rendimiento build vs update incremental.
 
-Escenarios: tests/features/cpg_performance.feature
+Escenarios: bdd/features/cpg_performance.feature
 
 Contrato de eficiencia: index_task_files sobre un solo archivo debe tardar
 menos que el build completo sobre N archivos.
@@ -15,7 +15,7 @@ import time
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cpg_performance.feature")
+scenarios("bdd/features/cpg_performance.feature")
 
 
 @pytest.fixture

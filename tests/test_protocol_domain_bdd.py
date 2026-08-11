@@ -3,7 +3,7 @@
 Feature value: VOs con validación, entities con ciclo de vida y aggregate
 ToolRegistry como SSOT de tools/resources con invarianza de unicidad.
 
-Escenarios: tests/features/protocol_domain.feature
+Escenarios: bdd/features/protocol_domain.feature
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/protocol_domain.feature")
+scenarios("bdd/features/protocol_domain.feature")
 
 
 @pytest.fixture

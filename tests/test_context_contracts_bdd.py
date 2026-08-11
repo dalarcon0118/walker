@@ -4,7 +4,7 @@ Feature value: los 9 providers de contexto exponen schemas JSON coherentes,
 el compositor puebla context_schemas desde output_schema o fallback SSOT, y
 workflow.json declara los 9 providers.
 
-Escenarios: tests/features/context_contracts.feature
+Escenarios: bdd/features/context_contracts.feature
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/context_contracts.feature")
+scenarios("bdd/features/context_contracts.feature")
 
 
 @pytest.fixture

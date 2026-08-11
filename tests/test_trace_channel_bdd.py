@@ -9,7 +9,7 @@ Cobertura del contrato:
   - source "walker", duration_ms, task_id, ok.
   - Degradación segura sin tracer (G-W4: sin silenciar, sin fake).
 
-Escenarios: tests/features/trace_channel.feature
+Escenarios: bdd/features/trace_channel.feature
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pytest_bdd import given, scenarios, then, when
 from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
 from libs.shared_domain import ExecutionContext
 
-scenarios("features/trace_channel.feature")
+scenarios("bdd/features/trace_channel.feature")
 
 
 class FakeTracer:

@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Result pattern en el build del CPG.
 
-Escenarios: tests/features/cpg_build_result.feature
+Escenarios: bdd/features/cpg_build_result.feature
 
 Cubre _sync_core (@safe) de build_service.py y el wrapper _sync_to_cognitive
 que loggea el error (convention-001: nunca except silencioso).
@@ -16,7 +16,7 @@ import pytest
 from pytest_bdd import given, scenarios, then, when
 from returns.pipeline import is_successful
 
-scenarios("features/cpg_build_result.feature")
+scenarios("bdd/features/cpg_build_result.feature")
 
 
 @pytest.fixture

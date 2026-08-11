@@ -83,7 +83,12 @@
             "provider": "delta",
             "config": {}
           }
-        ]
+        ],
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
       }
     },
     {
@@ -222,7 +227,12 @@
             "Base your design analysis on CKG patterns + CPG code structure",
             "Consider domain, application, and infrastructure layers when assessing impact"
           ],
-          "context_priority": "project → task → ckg → cpg → state"
+          "context_priority": "project \u2192 task \u2192 ckg \u2192 cpg \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       },
       "audit": {
@@ -289,18 +299,23 @@
             }
           }
         ],
- "focus": {
-  "role": "reviewing architectural design for task {task_id} — build an ADR-lite decision report",
-  "constraints": [
-   "Construir INFORME DE DECISION (ADR-lite): contexto, decision propuesta, alternativas, consecuencias, recomendacion",
-   "Citar el analisis 6->3 del STATE layer (q1-a1, q2-a2, q3-a3) como evidencia",
-   "Dar recomendacion approve/reject/refine CON justificacion",
-   "Verificar alineacion con convenciones del CKG (scope, capas, patrones)",
-   "Evaluar impacto en capas y dependencias del TASK layer",
-   "Ask user to approve, reject, or refine"
-  ],
-  "context_priority": "project → task → ckg → state"
- }
+        "focus": {
+          "role": "reviewing architectural design for task {task_id} \u2014 build an ADR-lite decision report",
+          "constraints": [
+            "Construir INFORME DE DECISION (ADR-lite): contexto, decision propuesta, alternativas, consecuencias, recomendacion",
+            "Citar el analisis 6->3 del STATE layer (q1-a1, q2-a2, q3-a3) como evidencia",
+            "Dar recomendacion approve/reject/refine CON justificacion",
+            "Verificar alineacion con convenciones del CKG (scope, capas, patrones)",
+            "Evaluar impacto en capas y dependencias del TASK layer",
+            "Ask user to approve, reject, or refine"
+          ],
+          "context_priority": "project \u2192 task \u2192 ckg \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
       },
       "audit": {
         "capture_decision": true,
@@ -355,6 +370,13 @@
         "capture_stdout": true,
         "capture_stderr": true,
         "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
       }
     }
   ]

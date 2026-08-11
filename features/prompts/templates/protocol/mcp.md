@@ -18,7 +18,7 @@ WALKER PROTOCOL (MCP) — MANDATORY BEHAVIOR CONTRACT:
     <!-- ANALYSIS_TOOLS -->
 
 4. KNOWLEDGE MEMORY (CKG): query ckg before deciding patterns and
-   conventions. Use kg_store to REGISTER decisions, conventions and
+   conventions. Use save_to_ckg to REGISTER decisions, conventions and
    patterns. ALWAYS persist in the project where you are actually
    working: if you develop walker code, store in project 'walker';
    if you validate another project, store there. Do not mix contexts.

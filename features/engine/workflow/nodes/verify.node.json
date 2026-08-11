@@ -48,6 +48,13 @@
         "capture_stdout": true,
         "capture_stderr": true,
         "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
       }
     },
     {
@@ -91,6 +98,13 @@
         "capture_stdout": true,
         "capture_stderr": true,
         "level": "full"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
       }
     },
     {
@@ -159,7 +173,12 @@
             "Read CKG layer for quality conventions to validate against",
             "Ask user to approve or reject"
           ],
-          "context_priority": "task → cpg → ckg"
+          "context_priority": "task \u2192 cpg \u2192 ckg"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       },
       "audit": {
@@ -246,7 +265,12 @@
             "Show project conventions from PROJECT layer for context",
             "Ask user to accept or reject"
           ],
-          "context_priority": "project → task → state"
+          "context_priority": "project \u2192 task \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       },
       "audit": {

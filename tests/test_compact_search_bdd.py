@@ -3,7 +3,7 @@
 Feature value: search_many proyecta campos, rankea por relevancia y respeta
 top_k para reducir el tamanio de respuestas enviadas al LLM.
 
-Escenarios: tests/features/compact_search.feature
+Escenarios: bdd/features/compact_search.feature
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/compact_search.feature")
+scenarios("bdd/features/compact_search.feature")
 
 
 @pytest.fixture

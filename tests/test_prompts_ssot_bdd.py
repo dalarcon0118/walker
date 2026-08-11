@@ -4,7 +4,7 @@ Feature value: valida que los templates vivan en un root único
 features/prompts/templates/ y que el código se sirva desde esos templates
 sin duplicar contenido.
 
-Escenarios: tests/features/prompts_ssot.feature
+Escenarios: bdd/features/prompts_ssot.feature
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/prompts_ssot.feature")
+scenarios("bdd/features/prompts_ssot.feature")
 
 
 def _template_path(*parts: str) -> str:

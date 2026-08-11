@@ -6,7 +6,6 @@
       "key": "GOAL",
       "label": "Define sprint goal",
       "execution": "llm_task",
-
       "input_schema": {
         "type": "object",
         "properties": {
@@ -15,7 +14,7 @@
             "minLength": 10,
             "description": "Objetivo principal del sprint",
             "examples": [
-              "Completar la migración del workflow engine a DDD"
+              "Completar la migraci\u00f3n del workflow engine a DDD"
             ]
           },
           "expected_result": {
@@ -80,7 +79,7 @@
             "description": "Goal confirmado"
           }
         },
-        "description": "Goal del sprint definido. Transición a ADD_TASKS para agregar tareas."
+        "description": "Goal del sprint definido. Transici\u00f3n a ADD_TASKS para agregar tareas."
       },
       "on_success": "ADD_TASKS",
       "on_failure": "",
@@ -107,7 +106,9 @@
           {
             "provider": "ckg",
             "config": {
-              "query": {"type": "decision"},
+              "query": {
+                "type": "decision"
+              },
               "max_nodes": 15
             }
           },
@@ -123,7 +124,12 @@
           "constraints": [
             "Use all available layers to define a meaningful, achievable sprint goal"
           ],
-          "context_priority": "project → delta → state → ckg"
+          "context_priority": "project \u2192 delta \u2192 state \u2192 ckg"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       }
     },
@@ -141,9 +147,9 @@
             "properties": {
               "objective": {
                 "type": "string",
-                "description": "Descripción de la tarea",
+                "description": "Descripci\u00f3n de la tarea",
                 "examples": [
-                  "Implementar autenticación OAuth2"
+                  "Implementar autenticaci\u00f3n OAuth2"
                 ]
               },
               "type": {
@@ -179,7 +185,7 @@
             ],
             "examples": [
               {
-                "objective": "Implementar autenticación",
+                "objective": "Implementar autenticaci\u00f3n",
                 "type": "feature",
                 "domain": "engine"
               }
@@ -187,7 +193,7 @@
           },
           "done": {
             "type": "boolean",
-            "description": "true si no hay más tareas que agregar. Envía done: true para finalizar.",
+            "description": "true si no hay m\u00e1s tareas que agregar. Env\u00eda done: true para finalizar.",
             "examples": [
               false,
               true
@@ -204,7 +210,7 @@
               "added",
               "completed"
             ],
-            "description": "added si se agregó la tarea, completed si se finalizó con done:true"
+            "description": "added si se agreg\u00f3 la tarea, completed si se finaliz\u00f3 con done:true"
           },
           "task_id": {
             "type": "string",
@@ -215,12 +221,11 @@
             "description": "Total de tareas en el plan"
           }
         },
-        "description": "Tarea agregada o plan completado. Si status=completed → transición a VALIDATE."
+        "description": "Tarea agregada o plan completado. Si status=completed \u2192 transici\u00f3n a VALIDATE."
       },
       "on_success": "VALIDATE",
       "on_failure": "",
       "side_effects": [],
-
       "timeout_ms": 600000,
       "prompt_id": "sprint_planning/add-tasks",
       "context": {
@@ -244,7 +249,9 @@
           {
             "provider": "ckg",
             "config": {
-              "query": {"type": "convention"},
+              "query": {
+                "type": "convention"
+              },
               "max_nodes": 10
             }
           },
@@ -269,7 +276,12 @@
             "Check TRACE for recent history of what's been worked on",
             "Cross-reference all available layers to identify what tasks are still needed"
           ],
-          "context_priority": "project → state → delta → ckg → cpg → trace"
+          "context_priority": "project \u2192 state \u2192 delta \u2192 ckg \u2192 cpg \u2192 trace"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       }
     },
@@ -298,13 +310,19 @@
         "backoff": "fixed",
         "initial_delay_ms": 1000
       },
-      "timeout_ms": 30000
+      "timeout_ms": 30000,
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "REVIEW",
       "label": "Review plan",
       "execution": "llm_task",
-
       "input_schema": {
         "type": "object",
         "properties": {
@@ -314,7 +332,7 @@
               "approve",
               "revise"
             ],
-            "description": "Decisión sobre el plan: approve si está correcto, revise si necesita cambios",
+            "description": "Decisi\u00f3n sobre el plan: approve si est\u00e1 correcto, revise si necesita cambios",
             "examples": [
               "approve",
               "revise"
@@ -322,10 +340,10 @@
           },
           "notes": {
             "type": "string",
-            "description": "Notas sobre la revisión (obligatorio si decision=revise)",
+            "description": "Notas sobre la revisi\u00f3n (obligatorio si decision=revise)",
             "examples": [
               "Falta desglosar la tarea de testing en subtareas",
-              "El plan está completo y bien estructurado"
+              "El plan est\u00e1 completo y bien estructurado"
             ]
           }
         },
@@ -342,14 +360,14 @@
               "approved",
               "revised"
             ],
-            "description": "Resultado de la revisión"
+            "description": "Resultado de la revisi\u00f3n"
           },
           "notes": {
             "type": "string",
             "description": "Notas registradas"
           }
         },
-        "description": "Plan revisado. Si approved → transición a SPRINT.ACTIVE. Si revised → vuelve a ADD_TASKS."
+        "description": "Plan revisado. Si approved \u2192 transici\u00f3n a SPRINT.ACTIVE. Si revised \u2192 vuelve a ADD_TASKS."
       },
       "on_success": "",
       "on_failure": "ADD_TASKS",
@@ -383,7 +401,9 @@
           {
             "provider": "ckg",
             "config": {
-              "query": {"type": "convention"},
+              "query": {
+                "type": "convention"
+              },
               "max_nodes": 10
             }
           }
@@ -393,7 +413,12 @@
           "constraints": [
             "Verify tasks align with the goal and follow project standards"
           ],
-          "context_priority": "project → state → ckg"
+          "context_priority": "project \u2192 state \u2192 ckg"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
         }
       }
     }

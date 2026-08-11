@@ -3,7 +3,7 @@
 Feature value: tools/list, walker://help, validate_llm_task_output y los DTOs
 son coherentes, garantizando un contrato único sin alucinaciones.
 
-Escenarios: tests/features/f5_schema_coherence.feature
+Escenarios: bdd/features/f5_schema_coherence.feature
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/f5_schema_coherence.feature")
+scenarios("bdd/features/f5_schema_coherence.feature")
 
 
 @pytest.fixture

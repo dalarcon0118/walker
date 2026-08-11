@@ -15,6 +15,41 @@ from typing import Any
 from features.engine.domain.entities import WorkflowState, WorkflowGraph
 
 
+def _canonical_cg_root(params: dict) -> str:
+    """Resuelve la raiz cognitiva CANONICA para la compensacion de CKG.
+
+    Prioridad:
+    1. params["chain_dir"] si existe -> resolve_project_root() (manifest
+       .cognitive/projects/<pid>/data/project.json).
+    2. Resolucion desde CWD (mismo criterio que handlers._open_cognitive_graph).
+    3. Fallback: walker_root/.cognitive.
+
+    Evita usar "" o "." crudo: con chain_dir vacio el storage relativo
+    (data/ckg.json.gz) resolveria contra el CWD, escribiendo las memorias
+    en <repo>/data en vez de .cognitive/projects/<pid>/data.
+    """
+    try:
+        from libs.path_resolver import get_cognitive_dir, resolve_project_root
+
+        chain_dir = params.get("chain_dir") or ""
+        if chain_dir:
+            try:
+                resolved = resolve_project_root(chain_dir)
+                if resolved:
+                    return resolved
+            except Exception:
+                pass
+        try:
+            resolved = resolve_project_root(".")
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+        return str(get_cognitive_dir())
+    except Exception:
+        return "."
+
+
 class CompensationEngine:
     """Ejecuta compensaciones de side-effects en orden inverso."""
 
@@ -109,7 +144,9 @@ class CompensationEngine:
                 if doc_id:
                     from features.engine.bootstrap import get_module_service
 
-                    cg = get_module_service("cognitive_graph")("")
+                    cg = get_module_service("cognitive_graph")(
+                        _canonical_cg_root(params)
+                    )
                     cg.delete("ckg", doc_id)
         except Exception:
             pass

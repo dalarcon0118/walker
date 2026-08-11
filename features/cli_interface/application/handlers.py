@@ -1149,10 +1149,28 @@ def _discover_task_catalog_core() -> dict:
 
 @safe
 def _open_cognitive_graph_core():
-    """Core puro: abre CognitiveGraph (puede lanzar)."""
+    """Core puro: abre CognitiveGraph (puede lanzar).
+
+    Resuelve la raíz cognitiva CANÓNICA del proyecto (por manifest
+    .cognitive/projects/<pid>/data/project.json) en vez de usar "." — si se
+    abre con CWD (raíz del repo), cualquier store() escribiria las memorias
+    en <repo>/data en vez de .cognitive/projects/<pid>/data.
+    """
     from features.engine.bootstrap import get_module_service
 
-    return get_module_service("cognitive_graph")(".")
+    root = "."
+    try:
+        from libs.path_resolver import get_cognitive_dir, resolve_project_root
+
+        resolved = resolve_project_root(".")
+        if resolved:
+            root = resolved
+        else:
+            root = str(get_cognitive_dir())
+    except Exception:
+        pass
+
+    return get_module_service("cognitive_graph")(root)
 
 
 @safe

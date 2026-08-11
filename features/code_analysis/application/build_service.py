@@ -44,16 +44,29 @@ def _load_ignore_core(root: str) -> Any | None:
 
 
 @safe
-def _watcher_fingerprint_core(root: str, code_paths: list[str] | None = None) -> str:
+def _watcher_fingerprint_core(
+    root: str,
+    code_paths: list[str] | None = None,
+    data_dir: str | None = None,
+) -> str:
     """Core puro del fingerprint del codigo (puede lanzar).
 
     El scope del fingerprint DEBE coincidir con el del watcher de status
     (code_paths reales): si build y status escanean conjuntos distintos,
     los fingerprints nunca coinciden y el CPG se reporta stale para siempre.
+
+    data_dir: ruta CANONICA de estado del watcher (.cognitive/projects/
+    <pid>/data). Si no se pasa, el watcher usa el default <repo>/data, que
+    cae DENTRO del scope escaneado y se auto-invalida en cada scan. En
+    producción siempre debe pasarse la ruta canónica.
     """
     from features.project import FileWatcher
 
-    return FileWatcher(root, code_paths=code_paths or None).compute_fingerprint()
+    return FileWatcher(
+        root,
+        code_paths=code_paths or None,
+        data_dir=data_dir or None,
+    ).compute_fingerprint()
 
 
 @safe
@@ -349,7 +362,9 @@ class BuildGraphUseCase:
         Result pattern: fail-open con log (nunca silencioso, convention-001).
         """
         result = _watcher_fingerprint_core(
-            self.repo_path or self.code_root, self.code_paths or None
+            self.repo_path or self.code_root,
+            self.code_paths or None,
+            self.data_dir or None,
         )
         if is_successful(result):
             return result.value_or("")

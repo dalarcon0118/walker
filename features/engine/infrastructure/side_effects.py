@@ -96,7 +96,6 @@ class SideEffectEngine:
         self._task_registry = task_registry
         self._tracer = tracer
         self._handlers: dict[str, Any] = {}
-        # In-memory idempotency store: {chain_dir: {key: result}}
         self._idempotency_store: dict[str, dict[str, dict]] = {}
 
     def register(self, effect_type: str, handler: Any) -> None:
@@ -112,12 +111,16 @@ class SideEffectEngine:
         self,
         ctx: ExecutionContext,
         effects: list[SideEffectDef] | None = None,
+        outbox: Any | None = None,
     ) -> list[dict]:
-        """Ejecuta side-effects en orden con Saga pattern.
+        """Ejecuta side-effects en orden con Saga pattern + Outbox atomicidad.
 
         Args:
             ctx: ExecutionContext del sub-estado actual.
             effects: Lista de SideEffectDef a ejecutar.
+            outbox: SideEffectOutbox opcional para atomicidad garantizada.
+                    Si se provee, los efectos se enqueuen antes de ejecutar
+                    y se marcan completed/compensated en el outbox.
 
         Returns:
             Lista de resultados, cada uno con:
@@ -132,9 +135,14 @@ class SideEffectEngine:
             return []
 
         results: list[dict] = []
+        executed_count = 0
+
         for i, effect in enumerate(effects):
             started = time.time()
-            # ── Idempotency check ────────────────────────────────────
+
+            if outbox is not None:
+                outbox_entry = outbox.enqueue(effect, effect.idempotency_key)
+
             if effect.idempotency_key:
                 cached = self._get_tracked(ctx, effect.idempotency_key)
                 if cached is not None:
@@ -142,22 +150,21 @@ class SideEffectEngine:
                         ctx, effect.type, cached,
                         ok=True, started=started, idempotent=True,
                     )
-                    results.append(
-                        {
-                            "type": effect.type,
-                            "ok": True,
-                            "result": cached,
-                            "compensated": False,
-                            "compensation_result": None,
-                            "idempotent": True,
-                        }
-                    )
+                    results.append({
+                        "type": effect.type,
+                        "ok": True,
+                        "result": cached,
+                        "compensated": False,
+                        "compensation_result": None,
+                        "idempotent": True,
+                    })
+                    if outbox is not None:
+                        outbox.mark_completed(outbox_entry, cached)
+                    executed_count += 1
                     continue
 
-            # ── Execute ──────────────────────────────────────────────
             try:
                 result = self._execute_single(ctx, effect)
-                # None result for non-optional effects = failure
                 if result is None and not effect.optional:
                     raise RuntimeError(f"Side-effect '{effect.type}' returned None")
                 self._trace_side_effect(
@@ -173,10 +180,13 @@ class SideEffectEngine:
                     "idempotent": False,
                 }
                 results.append(entry)
+                executed_count += 1
 
-                # Track para idempotencia
                 if effect.idempotency_key and result is not None:
                     self._track_result(ctx, effect.idempotency_key, result)
+
+                if outbox is not None:
+                    outbox.mark_completed(outbox_entry, result or {})
 
             except Exception as e:
                 self._trace_side_effect(
@@ -193,11 +203,15 @@ class SideEffectEngine:
                 }
                 results.append(entry)
 
-                # ── Compensate on failure (Saga) ────────────────────
+                if outbox is not None:
+                    outbox.mark_failed(outbox_entry, str(e))
+
                 if not effect.optional:
-                    compensation = self.compensate(ctx, results, i)
-                    entry["compensation_result"] = compensation
-                    # Mark previous successful effects as compensated
+                    if outbox is not None:
+                        self._compensate_outbox(ctx, results, i, outbox)
+                    else:
+                        compensation = self.compensate(ctx, results, i)
+                        entry["compensation_result"] = compensation
                     for prev in results[:i]:
                         if prev.get("ok"):
                             prev["compensated"] = True
@@ -210,6 +224,58 @@ class SideEffectEngine:
                 break
 
         return results
+
+    def _compensate_outbox(
+        self,
+        ctx: ExecutionContext,
+        results: list[dict],
+        failed_index: int,
+        outbox: Any,
+    ) -> None:
+        """Compensa efectos exitosos usando el outbox.
+
+        Marca las entradas del outbox como compensadas en orden inverso.
+        """
+        for i in range(failed_index - 1, -1, -1):
+            prev = results[i]
+            if not prev.get("ok"):
+                continue
+
+            effect_type = prev["type"]
+            prev_result = prev.get("result", {})
+
+            try:
+                comp_type = self._get_compensation_type(effect_type)
+                if not comp_type:
+                    logger.warning(
+                        "No compensation for '%s' — continuing (Saga non-blocking)",
+                        effect_type,
+                    )
+                    continue
+
+                comp_result = self._compensate_single(ctx, comp_type, prev_result)
+
+                for outbox_entry in outbox.all():
+                    if outbox_entry.effect_type == effect_type and outbox_entry.status == "completed":
+                        outbox.mark_compensated(outbox_entry, comp_result)
+                        break
+
+                prev["compensation_result"] = [{
+                    "type": f"compensate_{effect_type}",
+                    "ok": True,
+                    "result": comp_result,
+                }]
+            except Exception as e:
+                logger.error(
+                    "Compensation for '%s' failed: %s",
+                    effect_type,
+                    e,
+                )
+                prev["compensation_result"] = [{
+                    "type": f"compensate_{effect_type}",
+                    "ok": False,
+                    "result": str(e),
+                }]
 
     def _trace_side_effect(
         self,

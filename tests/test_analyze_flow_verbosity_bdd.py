@@ -3,7 +3,7 @@
 Feature value: KNOWLEDGE_REVIEW fue eliminado; REVIEW ahora captura
 knowledge_items en un solo paso, reduciendo los user_input del PO de 7 a 5.
 
-Escenarios: tests/features/analyze_flow_verbosity.feature
+Escenarios: bdd/features/analyze_flow_verbosity.feature
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/analyze_flow_verbosity.feature")
+scenarios("bdd/features/analyze_flow_verbosity.feature")
 
 NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "analyze.node.json")
 

@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Persistencia, búsqueda y trazabilidad del grafo cognitivo.
 
-Escenarios: tests/features/cognitive_graph.feature
+Escenarios: bdd/features/cognitive_graph.feature
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cognitive_graph.feature")
+scenarios("bdd/features/cognitive_graph.feature")
 
 
 # ── Fixtures ──────────────────────────────────────────────────────

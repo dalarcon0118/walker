@@ -1,6 +1,6 @@
 """Tests BDD (pytest-bdd) — Workflow Spring completo.
 
-Escenarios: tests/features/workflow_spring.feature
+Escenarios: bdd/features/workflow_spring.feature
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/workflow_spring.feature")
+scenarios("bdd/features/workflow_spring.feature")
 
 
 @pytest.fixture

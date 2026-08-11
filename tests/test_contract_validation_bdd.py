@@ -5,14 +5,14 @@ faltantes, tipos incorrectos y valores fuera de enum. Contract.from_dict preserv
 properties. verify_pre sigue bloqueando por compatibilidad. SubmitDataUseCase
 lanza ValidationError cuando el output no cumple el contrato.
 
-Escenarios: tests/features/contract_validation.feature
+Escenarios: bdd/features/contract_validation.feature
 """
 from __future__ import annotations
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/contract_validation.feature")
+scenarios("bdd/features/contract_validation.feature")
 
 
 @pytest.fixture

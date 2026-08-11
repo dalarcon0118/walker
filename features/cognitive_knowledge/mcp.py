@@ -47,13 +47,13 @@ def register_module(registry: Any) -> None:
             ),
             ToolDefinition(name="kg_search", description="Search project memory (CKG).", handler=_public_task("kg_search"), metadata={"tags": ["kg", "search"]}),
             ToolDefinition(name="kg_multi", description="Federated query across multiple indices.", handler=_public_task("kg_multi"), metadata={"tags": ["kg", "federated"]}),
-            ToolDefinition(name="kg_store", description="Register knowledge in project CKG.", handler=_public_task("kg_store"), metadata={"tags": ["kg", "store"]}),
+            ToolDefinition(name="save_to_ckg", description="Register knowledge in project CKG.", handler=_public_task("save_to_ckg"), metadata={"tags": ["kg", "store"]}),
         ],
         routes=[
             RestRoute(path="{project_id}/ckg_analyze", method="POST", flags_builder=lambda a: {"_payload": a.get("params", a)}),
             RestRoute(path="{project_id}/kg_search", method="POST", flags_builder=lambda a: {"_payload": a.get("query", {})}),
             RestRoute(path="{project_id}/kg_multi", method="POST", flags_builder=lambda a: {"_payload": a.get("layers", {})}),
-            RestRoute(path="{project_id}/kg_store", method="POST", flags_builder=lambda a: {"_payload": a.get("body", a)}),
+            RestRoute(path="{project_id}/save_to_ckg", method="POST", flags_builder=lambda a: {"_payload": a.get("body", a)}),
         ],
         metadata={"description": "Cognitive Knowledge Graph module", "tags": ["kg", "ckg"]},
     )
@@ -70,12 +70,12 @@ def _kg_multi(args: dict) -> dict:
     return dispatch_public_task("kg_multi", args.get("layers", args.get("query", {})))
 
 
-def _kg_store(args: dict) -> dict:
+def _save_to_ckg(args: dict) -> dict:
     from features.engine.application.task_dispatcher import dispatch_public_task
     body = args.get("body") or args.get("query") or args.get("search") or args
     if not isinstance(body, dict):
         body = dict(body or {})
-    return dispatch_public_task("kg_store", body)
+    return dispatch_public_task("save_to_ckg", body)
 
 
 def _public_task(name: str):

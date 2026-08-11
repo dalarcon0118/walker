@@ -1,7 +1,7 @@
 """
 Tests BDD (pytest-bdd) — Quality gates y dispatch de side-effects del CPG.
 
-Escenarios: tests/features/cpg_quality_gates.feature
+Escenarios: bdd/features/cpg_quality_gates.feature
 
 Cubre side_effect_contract (envelope ok/failed/degraded) y el dispatch del
 orchestrator que dispara quality_gate_failed cuando quality_passed=False.
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/cpg_quality_gates.feature")
+scenarios("bdd/features/cpg_quality_gates.feature")
 
 
 @pytest.fixture

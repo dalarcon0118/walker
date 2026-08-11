@@ -5,7 +5,7 @@ para consumo por agentes de IA (problem_statement, evidence, affected_modules,
 decision.rationale, impact.affected_components, implementation.steps con files/verification,
 validation_checklist).
 
-Escenarios: tests/features/adr_schema.feature
+Escenarios: bdd/features/adr_schema.feature
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/adr_schema.feature")
+scenarios("bdd/features/adr_schema.feature")
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schemas"
 ADRS_DIR = SCHEMA_DIR / "adrs"

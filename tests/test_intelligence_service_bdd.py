@@ -3,7 +3,7 @@
 Feature value: cruzar CPG, CKG, Delta y Trace por archivo o task_id sin tocar
 CognitiveGraph directamente, con fallback explícito por repo.
 
-Escenarios: tests/features/intelligence_service.feature
+Escenarios: bdd/features/intelligence_service.feature
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 from pytest_bdd import given, scenarios, then, when
 from returns.pipeline import is_successful
 
-scenarios("features/intelligence_service.feature")
+scenarios("bdd/features/intelligence_service.feature")
 
 
 @pytest.fixture

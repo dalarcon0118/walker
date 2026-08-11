@@ -4,7 +4,7 @@ Feature value: el trabajo sin capturar se detecta automáticamente para que
 el sprint no avance con trabajo invisible, bloqueando el cierre cuando
 hay cambios de código sin spec que los cubra.
 
-Escenarios: tests/features/uncaptured_work_gate.feature
+Escenarios: bdd/features/uncaptured_work_gate.feature
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from unittest.mock import Mock
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-scenarios("features/uncaptured_work_gate.feature")
+scenarios("bdd/features/uncaptured_work_gate.feature")
 
 WALKER_CHAIN_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "data", "spring", "walker-sprint")

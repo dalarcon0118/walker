@@ -9,7 +9,7 @@ Se emite DESDE el engine (punto de paso), sin acoplar los handlers modulares:
 update_cpg solo devuelve su contrato (signals con fingerprint_match); el
 engine registra la telemetría.
 
-Escenarios: tests/features/cpg_indexed.feature
+Escenarios: bdd/features/cpg_indexed.feature
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from features.engine.domain.models import SideEffectDef
 from features.engine.infrastructure.side_effects import SideEffectEngine
 from libs.shared_domain import ExecutionContext
 
-scenarios("features/cpg_indexed.feature")
+scenarios("bdd/features/cpg_indexed.feature")
 
 
 class FakeTracer:

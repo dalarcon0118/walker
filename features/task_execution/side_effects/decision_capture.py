@@ -3,7 +3,7 @@
 MECANISMO: registro AUTOMATICO de decisiones en el CKG al completar un
 nodo de decision del workflow (approve/revise/refine/accept/reject).
 
-No depende de que el agente recuerde llamar kg_store: el workflow lo
+No depende de que el agente recuerde llamar save_to_ckg: el workflow lo
 hace por el. Cada decision queda como nodo CKG tipo 'decision' con:
   - decision: el valor elegido (approve, refine, ...)
   - rationale: la razon del PO (feedback/evidence)

@@ -185,7 +185,7 @@ def _register_public_tasks(server: McpServer) -> tuple[int, list[str]]:
 
     public_tasks = registry.list_tasks_with_meta(scope="public") or []
     reserved = {"prepare", "list", "status", "submit", "transition", "help",
-                "kg_search", "kg_multi", "kg_store",
+                "kg_search", "kg_multi", "save_to_ckg",
                 "cpg_business", "cpg_unused_functions", "analyze_code",
                 "trace_push",
                 "scan_code_and_build_cpg",
