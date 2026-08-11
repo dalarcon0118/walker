@@ -45,8 +45,8 @@ def trace_push(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     from features.engine.bootstrap import get_module_service
 
     paths = ProjectService.resolve_paths(chain_dir)
-    searcher_factory = get_module_service("cognitive_searcher")
-    cg = searcher_factory(paths.project_root)
+    graph_factory = get_module_service("cognitive_graph")
+    cg = graph_factory(paths.project_root)
     ts = datetime.now(timezone.utc).isoformat()
 
     event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"

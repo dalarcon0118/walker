@@ -53,7 +53,7 @@ def register_module(registry: Any) -> None:
             RestRoute(path="{project_id}/ckg_analyze", method="POST", flags_builder=lambda a: {"_payload": a.get("params", a)}),
             RestRoute(path="{project_id}/kg_search", method="POST", flags_builder=lambda a: {"_payload": a.get("query", {})}),
             RestRoute(path="{project_id}/kg_multi", method="POST", flags_builder=lambda a: {"_payload": a.get("layers", {})}),
-            RestRoute(path="{project_id}/kg_store", method="POST", flags_builder=lambda a: {"_payload": a.get("body", {})}),
+            RestRoute(path="{project_id}/kg_store", method="POST", flags_builder=lambda a: {"_payload": a.get("body", a)}),
         ],
         metadata={"description": "Cognitive Knowledge Graph module", "tags": ["kg", "ckg"]},
     )

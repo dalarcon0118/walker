@@ -74,7 +74,9 @@ def dispatch_public_task(name: str, body: dict) -> dict:
                 "message": f"Task '{name}' es INTERNA del workflow y no se invoca directamente.",
             }
 
-        ctx = ExecutionContext.create(session_id="mcp", chain_dir=chain_dir)
+        ctx = ExecutionContext.create(
+            session_id="mcp", chain_dir=chain_dir, channel="mcp"
+        )
         task_data = dict(body or {})
         task_data.setdefault("_project_id", project_id)
         payload = task_data.get("_payload", {})

@@ -603,10 +603,19 @@ def handle_submit(req: Request) -> Response:
             ScriptRunner,
         )
 
+        tracer = None
+        try:
+            from features.engine.infrastructure.trace_log import TraceLogger
+
+            tracer = TraceLogger()
+        except Exception:
+            pass
+
         uc = SubmitDataUseCase(
             workflow_repo=WorkflowRepository(),
             state_repo=WorkflowStateRepository(),
             script_runner=ScriptRunner(),
+            tracer=tracer,
         )
         result = uc.execute(chain_dir, fields=submit_data)
 
@@ -737,7 +746,9 @@ def handle_task(req: Request) -> Response:
                 status_code=400,
                 next_actions=[presenter.go_help()],
             )
-        ctx = ExecutionContext.create(session_id="cli", chain_dir=chain_dir)
+        ctx = ExecutionContext.create(
+            session_id="cli", chain_dir=chain_dir, channel="cli"
+        )
         # Pasar project_id a la task para que pueda resolver paths sin chain_dir
         task_data = dict(req.flags)
         task_data.setdefault("_project_id", req.project_id)

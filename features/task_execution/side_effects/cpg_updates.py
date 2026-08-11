@@ -37,6 +37,36 @@ def _resolve_project_root(ctx: ExecutionContext) -> Path:
 
 
 @safe
+def _verify_cpg_mirror_core(project_root: Path, source_fingerprint: str) -> bool:
+    """Core puro: verifica que el CPG recién construido es espejo del código.
+
+    Fingerprint_match = el source_fingerprint del build coincide con el
+    fingerprint vivo del watcher (ADR-043, SPEC-002 cpg_indexed).
+
+    Can lanzar (FileWatcher IO) — el wrapper degrada con fallback explícito.
+    """
+    if not source_fingerprint:
+        return False
+    from features.project import FileWatcher
+
+    watcher = FileWatcher(str(project_root))
+    live_fingerprint = watcher.get_status().get("fingerprint", "") or ""
+    return source_fingerprint == live_fingerprint
+
+
+def _verify_cpg_mirror(ctx: ExecutionContext, source_fingerprint: str) -> bool:
+    """Wrapper convention-001: nunca lanza; degrada a False con log."""
+    result = _verify_cpg_mirror_core(ctx.chain_dir, source_fingerprint)
+    if is_successful(result):
+        return result.value_or(False)
+    logger.warning(
+        "cpg_updates: no se pudo verificar el fingerprint del espejo (%s: %s)",
+        type(result.failure()).__name__, result.failure(),
+    )
+    return False
+
+
+@safe
 def _load_project_config_core(proj_file: Path) -> dict:
     """Core puro: carga la config del project.json (puede lanzar JSONDecodeError)."""
     with open(proj_file) as f:
@@ -106,6 +136,13 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
         quality_degraded = bool(quality_report.get("degraded", False))
         quality_passed = bool(quality_report.get("passed", True)) and not quality_degraded
 
+        # ── Certificación del espejo (SPEC-002 cpg_indexed): el CPG recién
+        # construido debe coincidir con el estado actual del código. Se
+        # compara el source_fingerprint del build contra el fingerprint
+        # vivo del watcher; fingerprint_match = espejo verificado.
+        source_fingerprint = str(data.get("source_fingerprint", "") or "")
+        fingerprint_match = _verify_cpg_mirror(ctx, source_fingerprint)
+
         signals = {
             "quality_passed": quality_passed,
             "quality_degraded": quality_degraded,
@@ -125,7 +162,11 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
                 data.get("stats", {}).get("total_edges", 0)
                 or 0
             ),
+            "fingerprint_match": fingerprint_match,
         }
+        cpg_metadata = {"quality_report": quality_report}
+        if source_fingerprint:
+            cpg_metadata["source_fingerprint"] = source_fingerprint
 
         if quality_degraded:
             return degraded(
@@ -136,7 +177,7 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
                     f"(qlty sin config o no disponible)"
                 ),
                 signals=signals,
-                metadata={"quality_report": quality_report},
+                metadata=cpg_metadata,
             )
         if failed_gates:
             names = ", ".join(signals["failed_gate_names"])
@@ -148,14 +189,14 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
                     f"gates de calidad fallan ({names}) — recomendado refactorizar"
                 ),
                 signals=signals,
-                metadata={"quality_report": quality_report},
+                metadata=cpg_metadata,
             )
         return ok(
             type="update_cpg",
             scope="code_index",
             summary=f"CPG indexado ({files_updated} files); calidad OK",
             signals=signals,
-            metadata={"quality_report": quality_report},
+            metadata=cpg_metadata,
         )
     except Exception as e:
         return failed(

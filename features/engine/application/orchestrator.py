@@ -101,6 +101,7 @@ class OrchestrationService:
         self._contract_validator = contract_validator or ContractValidator
         self._side_effect_engine = side_effect_engine or SideEffectEngine(
             task_registry=self._task_registry,
+            tracer=self._tracer,
         )
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log

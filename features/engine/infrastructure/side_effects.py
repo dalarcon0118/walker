@@ -14,11 +14,67 @@ SRP: Unica responsabilidad = ejecutar y compensar side-effects declarativos.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
+
+from returns.pipeline import is_successful
+from returns.result import safe
 
 from ..domain.models import SideEffectDef, ExecutionContext
 
 logger = logging.getLogger(__name__)
+
+# Efectos cuyo build del CPG certifica su espejo post-index (SPEC-002).
+# update_cpg (full/incremental), build_project_graph y update_code_index
+# producen el evento cpg_indexed además del side_effect_execute genérico.
+_CPG_BUILD_EFFECT_TYPES = {
+    "update_cpg",
+    "build_project_graph",
+    "update_code_index",
+}
+
+
+@safe
+def _trace_dispatch_core(
+    tracer: Any,
+    chain_dir: str,
+    event_type: str,
+    data: dict,
+    task_id: str,
+    session_id: str,
+) -> None:
+    """Core puro: persiste un evento en el TraceGraph (puede lanzar).
+
+    Se aisla en un core @safe para que el engine no necesite try/except:
+    la pérdida de un evento es un fallo visible (G-W4), nunca silenciado,
+    y el wrapper _trace_dispatch degrada con log por nivel.
+    """
+    tracer.trace(
+        chain_dir,
+        event_type,
+        data=data,
+        task_id=task_id,
+        session_id=session_id,
+    )
+
+
+def _trace_dispatch(
+    tracer: Any,
+    chain_dir: str,
+    event_type: str,
+    data: dict,
+    task_id: str = "",
+    session_id: str = "",
+) -> None:
+    """Wrapper convention-001: nunca lanza; log visible ante pérdida (G-W4)."""
+    outcome = _trace_dispatch_core(tracer, chain_dir, event_type, data, task_id, session_id)
+    if not is_successful(outcome):
+        logger.error(
+            "side_effects: fallo al registrar %s (%s: %s)",
+            event_type,
+            type(outcome.failure()).__name__,
+            outcome.failure(),
+        )
 
 
 class SideEffectEngine:
@@ -36,8 +92,9 @@ class SideEffectEngine:
         _get_tracked(ctx, key): Obtiene resultado previo si existe.
     """
 
-    def __init__(self, task_registry: Any = None) -> None:
+    def __init__(self, task_registry: Any = None, tracer: Any = None) -> None:
         self._task_registry = task_registry
+        self._tracer = tracer
         self._handlers: dict[str, Any] = {}
         # In-memory idempotency store: {chain_dir: {key: result}}
         self._idempotency_store: dict[str, dict[str, dict]] = {}
@@ -76,10 +133,15 @@ class SideEffectEngine:
 
         results: list[dict] = []
         for i, effect in enumerate(effects):
+            started = time.time()
             # ── Idempotency check ────────────────────────────────────
             if effect.idempotency_key:
                 cached = self._get_tracked(ctx, effect.idempotency_key)
                 if cached is not None:
+                    self._trace_side_effect(
+                        ctx, effect.type, cached,
+                        ok=True, started=started, idempotent=True,
+                    )
                     results.append(
                         {
                             "type": effect.type,
@@ -98,6 +160,10 @@ class SideEffectEngine:
                 # None result for non-optional effects = failure
                 if result is None and not effect.optional:
                     raise RuntimeError(f"Side-effect '{effect.type}' returned None")
+                self._trace_side_effect(
+                    ctx, effect.type, result,
+                    ok=result is not None, started=started,
+                )
                 entry = {
                     "type": effect.type,
                     "ok": result is not None,
@@ -113,6 +179,10 @@ class SideEffectEngine:
                     self._track_result(ctx, effect.idempotency_key, result)
 
             except Exception as e:
+                self._trace_side_effect(
+                    ctx, effect.type, {"error": str(e)},
+                    ok=False, started=started,
+                )
                 entry = {
                     "type": effect.type,
                     "ok": False,
@@ -140,6 +210,104 @@ class SideEffectEngine:
                 break
 
         return results
+
+    def _trace_side_effect(
+        self,
+        ctx: ExecutionContext,
+        effect_type: str,
+        result: dict | str | None,
+        ok: bool,
+        started: float,
+        idempotent: bool = False,
+    ) -> None:
+        """Registra un evento side_effect_execute en el TraceGraph (G-W1).
+
+        Se emite desde el punto de paso (execute) para TODOS los side-effects
+        del workflow (update_cpg, index_delta, save_ckg, run_script, etc.)
+        sin acoplar a los handlers modulares: ellos solo devuelven su
+        contrato; este engine registra la telemetria.
+
+        Contrato del evento (SPEC-002):
+            data: {tool, ok, duration_ms, channel: "workflow", idempotent,
+                   scope, signals_keys}
+        """
+        if not self._tracer or not getattr(ctx, "chain_dir", ""):
+            return
+        duration_ms = int((time.time() - started) * 1000)
+        scope = ""
+        signals_keys: list[str] = []
+        if isinstance(result, dict):
+            scope = result.get("scope", "") or ""
+            signals = result.get("signals", {})
+            if isinstance(signals, dict):
+                signals_keys = sorted(k for k in signals if k != "data")[:10]
+        if not scope:
+            # Contrato SPEC-002: scope siempre presente en el evento.
+            # Degradación segura a "tracking" (misma política que normalize).
+            scope = "tracking"
+        data = {
+            "tool": effect_type,
+            "ok": bool(ok),
+            "duration_ms": duration_ms,
+            "channel": "workflow",
+            "idempotent": bool(idempotent),
+            "scope": scope,
+            "signals_keys": signals_keys,
+        }
+        _trace_dispatch(
+            self._tracer,
+            ctx.chain_dir,
+            "side_effect_execute",
+            data,
+            task_id=getattr(ctx, "task_id", "") or effect_type,
+            session_id=getattr(ctx, "session_id", ""),
+        )
+        # SPEC-002 G-W1: el build del CPG certifica su espejo con un evento
+        # cpg_indexed post-build (fingerprint_match + stats + quality).
+        if (
+            ok
+            and isinstance(result, dict)
+            and result.get("scope") == "code_index"
+            and str(result.get("type", "")) in _CPG_BUILD_EFFECT_TYPES
+        ):
+            self._trace_cpg_indexed(ctx, result)
+
+    def _trace_cpg_indexed(
+        self,
+        ctx: ExecutionContext,
+        result: dict,
+    ) -> None:
+        """Registra un evento cpg_indexed post-build en el TraceGraph (SPEC-002).
+
+        Contrato del evento:
+            data: {fingerprint_match, scope, files_updated, total_nodes,
+                   total_edges, quality_passed}
+            metadata: {source_fingerprint}
+
+        Best-effort con log visible ante pérdida (G-W4): el fingerprint del
+        build es la certificación de espejo CPG↔código (ADR-043).
+        """
+        if not self._tracer or not getattr(ctx, "chain_dir", ""):
+            return
+        signals = result.get("signals", {}) or {}
+        metadata = result.get("metadata", {}) or {}
+        data = {
+            "fingerprint_match": bool(signals.get("fingerprint_match", False)),
+            "scope": result.get("scope", "code_index"),
+            "files_updated": signals.get("files_updated", 0),
+            "total_nodes": signals.get("total_nodes", 0),
+            "total_edges": signals.get("total_edges", 0),
+            "quality_passed": bool(signals.get("quality_passed", True)),
+            "source_fingerprint": metadata.get("source_fingerprint", ""),
+        }
+        _trace_dispatch(
+            self._tracer,
+            ctx.chain_dir,
+            "cpg_indexed",
+            data,
+            task_id=getattr(ctx, "task_id", "") or result.get("type", "update_cpg"),
+            session_id=getattr(ctx, "session_id", ""),
+        )
 
     def compensate(
         self,
@@ -377,6 +545,13 @@ class SideEffectEngine:
                 "result": f"Delta graph restaurado: {changes} cambios revertidos (rollback update_delta_graph)",
             }
 
+        elif compensation_type == "rollback_spec":
+            return {
+                "compensation": "rollback_spec",
+                "restored": True,
+                "result": "Spec restaurada al estado anterior (rollback transform_spec)",
+            }
+
         else:
             logger.warning("Unknown compensation type: %s", compensation_type)
             return {
@@ -398,6 +573,7 @@ class SideEffectEngine:
             "update_cpg": "restore_cpg_snapshot",
             "save_to_ckg": "rollback_ckg",
             "update_delta_graph": "restore_delta_graph",
+            "transform_spec": "rollback_spec",
             "emit_event": "",
             "persist_snapshot": "",
             "run_script": "",

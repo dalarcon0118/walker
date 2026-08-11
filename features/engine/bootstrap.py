@@ -126,6 +126,7 @@ def bootstrap(registry: Any = None, se_engine: Any = None) -> tuple[Any, Any]:
     Returns:
         Tuple de (registry, se_engine) con todo registrado.
     """
+    tracer: Any = None
     if registry is None:
         from .infrastructure.task_registry import InMemoryTaskRegistry
 
@@ -140,7 +141,7 @@ def bootstrap(registry: Any = None, se_engine: Any = None) -> tuple[Any, Any]:
     if se_engine is None:
         from .infrastructure.side_effects import SideEffectEngine
 
-        se_engine = SideEffectEngine()
+        se_engine = SideEffectEngine(tracer=tracer)
 
     bootstrap_tasks(registry)
     bootstrap_side_effects(se_engine)

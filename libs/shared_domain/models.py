@@ -91,6 +91,7 @@ class ExecutionContext:
     span_id: str
     chain_dir: str
     task_id: str = ""
+    channel: str = "workflow"  # canal de invocación: cli | mcp | workflow (SPEC-002)
     workflow_version: str = "5.0"
     baggage: dict[str, Any] = field(default_factory=dict)
     started_at: str = ""

@@ -11,7 +11,7 @@ Característica: Integración del CPG con el proyecto registrado
   Quiero que CPGBuilder resuelva paths desde el manifest del proyecto
   Para no romper la cadena pública ProjectService → CPGBuilder
 
-  @regresión
+  @regresion
   Escenario: from_chain_dir puebla el manifest
     Dado un proyecto registrado con repo_path y chain_dir
     Cuando se resuelve el proyecto desde chain_dir
@@ -19,14 +19,14 @@ Característica: Integración del CPG con el proyecto registrado
     Y el manifest expone el nombre declarado
     Y code_paths incluye los paths declarados
 
-  @regresión
+  @regresion
   Escenario: CPGBuilder usa repo_path del manifest
     Dado un proyecto registrado con repo_path y chain_dir
     Cuando se instancia un CPGBuilder con el repo_path
     Entonces repo_path del builder coincide con el repo real
     Y code_root del builder es un directorio existente
 
-  @regresión
+  @regresion
   Escenario: La cadena completa construye el CPG
     Dado un proyecto registrado con repo_path y chain_dir
     Cuando se ejecuta ProjectService → CPGBuilder → build

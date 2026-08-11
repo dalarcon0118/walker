@@ -78,6 +78,7 @@ class InMemoryTaskRegistry(TaskRegistry):
                     "ok": result.ok,
                     "error": result.error if not result.ok else "",
                     "duration_ms": duration_ms,
+                    "channel": getattr(ctx, "channel", "workflow"),
                     "data": payload,
                 },
                 task_id=getattr(ctx, "task_id", "") or name,
