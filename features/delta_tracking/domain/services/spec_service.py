@@ -3,13 +3,18 @@
 SSOT de validacion, construccion y transiciones de estado para specs y sprints.
 Movido desde features/spring/domain/services.py para concentrar en
 delta_tracking todo lo relacionado con el spring (SRP).
+
+Result pattern (dry-python/returns): las funciones puras usan @safe
+para evitar try/catch y propagar fallos sin excepciones.
 """
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from features.delta_tracking.domain.entities import Spec
+from returns.result import Result, Success, Failure
+
+from features.delta_tracking.domain.entities import Spec, _now
 
 
 # ── SSOT: specification field definitions ──────────────────────────────────
@@ -32,7 +37,7 @@ SPEC_DEFAULTS: dict[str, Any] = {
     "status": "draft",
 }
 
-SPEC_STATUS_FLOW = ["draft", "specified", "in_progress", "completed"]
+SPEC_STATUS_FLOW = ["draft", "specified", "approved", "in_progress", "in_review", "completed"]
 SPRINT_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
 
 
@@ -80,19 +85,54 @@ class SpecBuilder:
         return {
             "spec_id": data.get("spec_id", data.get("task_id", f"SPEC-{index + 1:03d}")),
             "objective": data.get("title", data.get("objective", "")),
-            **{k: v for k, v in SPEC_DEFAULTS.items() if k != "type"},
-            "type": "feature",
+            "domain": data.get("domain", ""),
+            "spec_type": data.get("type", "feature"),
+            "result_state": data.get("result_state", ""),
+            "files": data.get("files", data.get("impacted_artifacts", {}).get("files", []) if isinstance(data.get("impacted_artifacts"), dict) else []),
+            "status": "draft",
+            "description": data.get("task_description", data.get("description", "")),
+            "predicates": data.get("predicates", []),
+            "depends_on": data.get("depends_on", []),
+            "risks": {
+                "curvature": float(data.get("curvature", 0.3)),
+                "pre_churn": float(data.get("pre_churn", 0.3)),
+                "commit_trust": float(data.get("commit_trust", 0.8)),
+            },
+            "preconditions": data.get("preconditions", []),
+            "acceptance_criteria": data.get("acceptance_criteria", []),
+            "quality_gates": data.get("quality_gates", []),
+            "task_context": data.get("task_context", {}),
+            "impacted_artifacts": data.get("impacted_artifacts", {"files": []}),
+            "loop_verification": data.get("loop_verification", []),
+            "loop_acceptance": data.get("loop_acceptance", "all"),
+            "review_metrics": {},
+            "review_conventions": [],
+            "review_architecture": [],
+            "review_verdict": "",
+            "commit_hash": "",
+            "commit_url": "",
+            "completed_at": "",
+            "decision": {},
+            "architecture": {},
+            "implementation": {},
+            "generated_from": "",
+            "generates_specs": [],
+            "related_decisions": [],
+            "transformation_map": {},
+            "created_at": _now(),
         }
 
     @staticmethod
     def refine(existing: dict, data: dict) -> dict:
         tc_raw = data.get("task_context", "{}")
-        try:
-            task_context = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
-        except (json.JSONDecodeError, TypeError):
-            task_context = existing.get("task_context", {})
+        tc_result = _safe_json_loads(tc_raw) if isinstance(tc_raw, str) else Success(tc_raw)
+        task_context = tc_result.value_or(existing.get("task_context", {}))
 
-        return {
+        ia_raw = data.get("impacted_artifacts", "{}")
+        ia_result = _safe_json_loads(ia_raw) if isinstance(ia_raw, str) else Success(ia_raw)
+        impacted_artifacts = ia_result.value_or(existing.get("impacted_artifacts", {}))
+
+        merged = {
             "spec_id": existing.get("spec_id", existing.get("task_id", data.get("spec_id", data.get("task_id", "")))),
             "objective": data.get("objective", data.get("title", existing.get("objective", ""))),
             "type": data.get("type", existing.get("type", "feature")),
@@ -100,12 +140,11 @@ class SpecBuilder:
             "result_state": data.get("result_state", existing.get("result_state", "")),
             "task_description": data.get("task_description", data.get("description", existing.get("task_description", ""))),
             "validation": {
-                "predicates": _parse_field(data, "predicates",
-                    existing.get("validation", {}).get("predicates", [])),
+                "predicates": _parse_field(data, "predicates", existing.get("validation", {}).get("predicates", [])),
             },
             "impacted_artifacts": {
-                "files": _parse_field(data, "files",
-                    existing.get("impacted_artifacts", {}).get("files", [])),
+                "files": _parse_field(data, "files", impacted_artifacts.get("files", [])),
+                "touched_contracts": _parse_field(data, "touched_contracts", impacted_artifacts.get("touched_contracts", [])),
             },
             "depends_on": _parse_field(data, "depends_on", existing.get("depends_on", [])),
             "risks": {
@@ -120,8 +159,32 @@ class SpecBuilder:
             "decisions": _parse_field(data, "decisions", existing.get("decisions", [])),
             "loop_verification": _parse_field(data, "loop_verification", existing.get("loop_verification", [])),
             "loop_acceptance": data.get("loop_acceptance", existing.get("loop_acceptance", "all")),
-            "status": "specified" if data.get("result_state") or data.get("task_description") else "draft",
+            "status": "specified" if data.get("result_state") or data.get("task_description") else existing.get("status", "draft"),
+            # Campos approved
+            "decision": data.get("decision", existing.get("decision", {})),
+            "architecture": data.get("architecture", existing.get("architecture", {})),
+            "implementation": data.get("implementation", existing.get("implementation", {})),
+            # Campos in_progress
+            "loop_verification": _parse_field(data, "loop_verification", existing.get("loop_verification", [])),
+            "loop_acceptance": data.get("loop_acceptance", existing.get("loop_acceptance", "all")),
+            # Campos in_review
+            "review_metrics": data.get("review_metrics", existing.get("review_metrics", {})),
+            "review_conventions": _parse_field(data, "review_conventions", existing.get("review_conventions", [])),
+            "review_architecture": _parse_field(data, "review_architecture", existing.get("review_architecture", [])),
+            "review_verdict": data.get("review_verdict", existing.get("review_verdict", "")),
+            # Campos completed
+            "commit_hash": data.get("commit_hash", existing.get("commit_hash", "")),
+            "commit_url": data.get("commit_url", existing.get("commit_url", "")),
+            "completed_at": data.get("completed_at", existing.get("completed_at", "")),
+            # Vinculación ADR
+            "generated_from": data.get("generated_from", existing.get("generated_from", "")),
+            "generates_specs": _parse_field(data, "generates_specs", existing.get("generates_specs", [])),
+            "related_decisions": _parse_field(data, "related_decisions", existing.get("related_decisions", [])),
+            # Trazabilidad
+            "transformation_map": data.get("transformation_map", existing.get("transformation_map", {})),
+            "created_at": existing.get("created_at", ""),
         }
+        return merged
 
 
 # ── SpecStatusUpdater ────────────────────────────────────────────────────
@@ -161,15 +224,23 @@ class SprintStatusUpdater:
 
 # ── Helper ────────────────────────────────────────────────────────────────
 
+def _safe_json_loads(value: str) -> Result[Any, str]:
+    """Parsea JSON de forma segura usando Result pattern."""
+    try:
+        return Success(json.loads(value))
+    except (json.JSONDecodeError, TypeError) as e:
+        return Failure(f"json_parse_failed: {type(e).__name__}: {e}")
+
+
 def _parse_field(data: dict, field: str, default=None):
     val = data.get(field, default)
     if isinstance(val, str):
         val = val.strip()
         if val.startswith(("[", "{")):
-            try:
-                return json.loads(val)
-            except (json.JSONDecodeError, TypeError):
-                pass
+            result = _safe_json_loads(val)
+            if isinstance(result, Failure):
+                return default
+            return result.unwrap()
     return val
 
 
@@ -194,10 +265,8 @@ class SpecService:
     def refine(existing: Spec, data: dict) -> Spec:
         """Refina una spec existente con nuevos datos (legacy-compatible)."""
         tc_raw = data.get("task_context", "{}")
-        try:
-            task_context = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
-        except (json.JSONDecodeError, TypeError):
-            task_context = existing.to_dict().get("task_context", {})
+        tc_result = _safe_json_loads(tc_raw) if isinstance(tc_raw, str) else Success(tc_raw)
+        task_context = tc_result.value_or(existing.to_dict().get("task_context", {}))
 
         merged = {
             "spec_id": existing.spec_id,

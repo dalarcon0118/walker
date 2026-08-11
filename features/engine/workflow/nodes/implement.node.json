@@ -32,14 +32,26 @@
     ],
     "description": "User gate. proceed -> WORK. refine -> REFINE. cancel -> SPRINT.ACTIVE."
    },
-   "on_success": "WORK",
-   "on_failure": "",
-   "side_effects": [
-    {
-     "type": "capture_decision",
-     "params": {}
-    }
-   ],
+    "on_success": "WORK",
+    "on_failure": "",
+    "side_effects": [
+     {
+      "type": "capture_decision",
+      "params": {}
+     },
+     {
+      "type": "transform_spec",
+      "params": {
+       "status": "in_progress",
+       "fields": {
+        "loop_verification": "NODE.USER_GATE.output.loop_verification",
+        "loop_acceptance": "NODE.USER_GATE.output.loop_acceptance"
+       }
+      },
+      "optional": false,
+      "description": "Transform Spec to in_progress with loop verification"
+     }
+    ],
    "timeout_ms": 600000,
    "prompt_id": "implement/user-gate",
    "context": {
@@ -103,24 +115,35 @@
      "command_hint": "walker_analyze_code / walker_cpg_business — estructura y business layer del código a modificar"
     }
    ],
-   "side_effects": [
-    {
-     "type": "update_cpg",
-     "params": {},
-     "optional": true,
-     "compensation": {
-      "type": "restore_cpg_snapshot",
-      "description": "If code review fails, restore CPG to previous state"
-     }
-    },
-    {
-     "type": "update_ckg_status",
-     "params": {
-      "event": "implementation_start"
+    "side_effects": [
+     {
+      "type": "update_cpg",
+      "params": {},
+      "optional": true,
+      "compensation": {
+       "type": "restore_cpg_snapshot",
+       "description": "If code review fails, restore CPG to previous state"
+      }
      },
-     "description": "Mark CKG as pending_update when implementation starts"
-    }
-   ],
+     {
+      "type": "update_ckg_status",
+      "params": {
+       "event": "implementation_start"
+      },
+      "description": "Mark CKG as pending_update when implementation starts"
+     },
+     {
+      "type": "transform_spec",
+      "params": {
+       "status": "in_progress",
+       "fields": {
+        "task_context": "NODE.WORK.output.task_context"
+       }
+      },
+      "optional": false,
+      "description": "Transform Spec to in_progress with enriched task_context"
+     }
+    ],
    "retry": {
     "max_attempts": 1,
     "backoff": "fixed",
@@ -217,15 +240,26 @@
      "command_hint": "walker_analyze_code — estructura del código implementado para detectar violaciones"
     }
    ],
-   "side_effects": [
-    {
-     "type": "update_cpg",
-     "params": {
-      "scope": "code_review"
+    "side_effects": [
+     {
+      "type": "update_cpg",
+      "params": {
+       "scope": "code_review"
+      },
+      "optional": true
      },
-     "optional": true
-    }
-   ],
+     {
+      "type": "transform_spec",
+      "params": {
+       "status": "in_review",
+       "fields": {
+        "review_metrics": "NODE.CODE_REVIEW_SCAN.output"
+       }
+      },
+      "optional": false,
+      "description": "Transform Spec to in_review with review_metrics"
+     }
+    ],
    "retry": {
     "max_attempts": 3,
     "backoff": "exponential",
@@ -274,12 +308,25 @@
    },
    "on_success": "KNOWLEDGE_UPDATE",
    "on_failure": "WORK",
-   "side_effects": [
-    {
-     "type": "capture_decision",
-     "params": {}
-    }
-   ],
+    "side_effects": [
+     {
+      "type": "capture_decision",
+      "params": {}
+     },
+     {
+      "type": "transform_spec",
+      "params": {
+       "status": "in_review",
+       "fields": {
+        "review_conventions": "NODE.CODE_REVIEW_RESULT.output.review_conventions",
+        "review_architecture": "NODE.CODE_REVIEW_RESULT.output.review_architecture",
+        "review_verdict": "NODE.CODE_REVIEW_RESULT.output.decision"
+       }
+      },
+      "optional": false,
+      "description": "Transform Spec to in_review with review verdict and conventions"
+     }
+    ],
    "timeout_ms": 600000,
    "prompt_id": "implement/code-review-result",
    "context": {
@@ -463,7 +510,19 @@
      "command_hint": "walker_analyze_code / walker_cpg_business — evidencia del código implementado"
     }
    ],
-   "side_effects": [],
+    "side_effects": [
+     {
+      "type": "transform_spec",
+      "params": {
+       "status": "in_progress",
+       "fields": {
+        "task_context": "NODE.KNOWLEDGE_UPDATE.output"
+       }
+      },
+      "optional": false,
+      "description": "Transform Spec to final task_context with knowledge update"
+     }
+    ],
    "retry": {
     "max_attempts": 2,
     "backoff": "exponential",
@@ -545,17 +604,30 @@
    },
    "on_success": "",
    "on_failure": "",
-   "side_effects": [
-    {
-     "type": "save_to_ckg",
-     "params": {},
-     "description": "Persist knowledge updates after user approves report"
-    },
-    {
-     "type": "capture_decision",
-     "params": {}
-    }
-   ],
+    "side_effects": [
+     {
+      "type": "save_to_ckg",
+      "params": {},
+      "description": "Persist knowledge updates after user approves report"
+     },
+     {
+      "type": "capture_decision",
+      "params": {}
+     },
+     {
+      "type": "transform_spec",
+      "params": {
+       "status": "completed",
+       "fields": {
+        "commit_hash": "NODE.REPORT_GATE.output.commit_hash",
+        "commit_url": "NODE.REPORT_GATE.output.commit_url",
+        "completed_at": "NODE.REPORT_GATE.output.completed_at"
+       }
+      },
+      "optional": false,
+      "description": "Transform Spec to completed with commit information"
+     }
+    ],
    "timeout_ms": 600000,
    "prompt_id": "implement/report-gate",
    "context": {

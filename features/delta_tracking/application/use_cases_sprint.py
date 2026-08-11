@@ -648,3 +648,165 @@ def _slugify_sprint_name(goal: str) -> str:
     if not text:
         return f"sprint-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     return f"sprint-{text}"
+
+
+# ── Evolutionary Document Model (EDM) ─────────────────────────────────────
+# Casos de uso que transforman una Spec a través de los estados del workflow.
+# Cada caso de uso aplica un side effect `transform_spec` en el nodo correspondiente.
+
+class ApproveSpecUseCase:
+    """Aprobar una Spec con decisión arquitectónica (type=decision).
+
+    Aplica cuando TASK_REVIEW decide approval_type=decision.
+    Enriquece la Spec con decision, architecture, implementation y quality_gates.
+    """
+
+    @staticmethod
+    def execute(ctx: ExecutionContext, data: dict) -> dict:
+        sprint_dir = ctx.chain_dir or ""
+        if not sprint_dir:
+            raise ValueError("chain_dir not available")
+
+        spring_svc = _spring_svc(sprint_dir)
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spec_id = data.get("spec_id") or _get_current_spec_id(sprint_dir)
+        if not spec_id:
+            raise ValueError("spec_id not available")
+
+        updates = {
+            "status": "approved",
+            "type": "decision",
+            "decision": data.get("decision", {}),
+            "architecture": data.get("architecture", {}),
+            "implementation": data.get("implementation", {}),
+            "quality_gates": data.get("quality_gates", []),
+            "generated_from": data.get("generated_from", ""),
+            "related_decisions": data.get("related_decisions", []),
+        }
+
+        updated = spring_svc.update_spec(spring_id, spec_id, updates)
+        if not updated:
+            return {"ok": False, "error": f"Spec {spec_id} not found"}
+
+        return {
+            "ok": True,
+            "spec_id": spec_id,
+            "status": "approved",
+            "type": "decision",
+            "message": f"Spec {spec_id} approved as decision.",
+        }
+
+
+class StartImplementationUseCase:
+    """Iniciar implementación de una Spec.
+
+    Aplica cuando IMPLEMENT.USER_GATE autoriza el inicio.
+    Establece status=in_progress y agrega loop_verification, loop_acceptance.
+    """
+
+    @staticmethod
+    def execute(ctx: ExecutionContext, data: dict) -> dict:
+        sprint_dir = ctx.chain_dir or ""
+        if not sprint_dir:
+            raise ValueError("chain_dir not available")
+
+        spring_svc = _spring_svc(sprint_dir)
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spec_id = data.get("spec_id") or _get_current_spec_id(sprint_dir)
+        if not spec_id:
+            raise ValueError("spec_id not available")
+
+        updates = {
+            "status": "in_progress",
+            "loop_verification": data.get("loop_verification", []),
+            "loop_acceptance": data.get("loop_acceptance", "all"),
+        }
+
+        updated = spring_svc.update_spec(spring_id, spec_id, updates)
+        if not updated:
+            return {"ok": False, "error": f"Spec {spec_id} not found"}
+
+        return {
+            "ok": True,
+            "spec_id": spec_id,
+            "status": "in_progress",
+            "message": f"Spec {spec_id} implementation started.",
+        }
+
+
+class StartCodeReviewUseCase:
+    """Iniciar code review de una Spec.
+
+    Aplica cuando IMPLEMENT.CODE_REVIEW_SCAN ejecuta el análisis.
+    Establece status=in_review y agrega review_metrics.
+    """
+
+    @staticmethod
+    def execute(ctx: ExecutionContext, data: dict) -> dict:
+        sprint_dir = ctx.chain_dir or ""
+        if not sprint_dir:
+            raise ValueError("chain_dir not available")
+
+        spring_svc = _spring_svc(sprint_dir)
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spec_id = data.get("spec_id") or _get_current_spec_id(sprint_dir)
+        if not spec_id:
+            raise ValueError("spec_id not available")
+
+        updates = {
+            "status": "in_review",
+            "review_metrics": data.get("review_metrics", {}),
+        }
+
+        updated = spring_svc.update_spec(spring_id, spec_id, updates)
+        if not updated:
+            return {"ok": False, "error": f"Spec {spec_id} not found"}
+
+        return {
+            "ok": True,
+            "spec_id": spec_id,
+            "status": "in_review",
+            "message": f"Spec {spec_id} code review started.",
+        }
+
+
+class CompleteSpecUseCase:
+    """Completar una Spec con commit.
+
+    Aplica cuando IMPLEMENT.REPORT_GATE aprueba el resultado.
+    Establece status=completed y agrega commit_hash, commit_url, completed_at.
+    """
+
+    @staticmethod
+    def execute(ctx: ExecutionContext, data: dict) -> dict:
+        sprint_dir = ctx.chain_dir or ""
+        if not sprint_dir:
+            raise ValueError("chain_dir not available")
+
+        spring_svc = _spring_svc(sprint_dir)
+        spring_id = spring_svc.get_spring_id(sprint_dir)
+        spec_id = data.get("spec_id") or _get_current_spec_id(sprint_dir)
+        if not spec_id:
+            raise ValueError("spec_id not available")
+
+        from datetime import datetime, timezone
+
+        completed_at = data.get("completed_at") or datetime.now(timezone.utc).isoformat()
+        updates = {
+            "status": "completed",
+            "commit_hash": data.get("commit_hash", ""),
+            "commit_url": data.get("commit_url", ""),
+            "completed_at": completed_at,
+        }
+
+        updated = spring_svc.update_spec(spring_id, spec_id, updates)
+        if not updated:
+            return {"ok": False, "error": f"Spec {spec_id} not found"}
+
+        return {
+            "ok": True,
+            "spec_id": spec_id,
+            "status": "completed",
+            "commit_hash": data.get("commit_hash", ""),
+            "message": f"Spec {spec_id} completed with commit.",
+        }

@@ -634,10 +634,12 @@ class TaskSpecOutput(WorkflowOutput):
 
     NODE = "SPRINT"
     SUB_STATE = "TASK_SPEC"
-    FIELDS = ("task_id", "status")
+    FIELDS = ("task_id", "status", "approval_type", "decision_data")
     _TYPES = {
         "task_id": {"type": "string"},
         "status": {"type": "string"},
+        "approval_type": {"type": "string", "enum": ["standard", "decision"]},
+        "decision_data": {"type": "object"},
     }
 
     @classmethod
@@ -646,18 +648,30 @@ class TaskSpecOutput(WorkflowOutput):
 
     @classmethod
     def from_validated(cls, data: dict) -> "TaskSpecOutput":
-        return cls(task_id=data.get("task_id", ""), status=data.get("status", ""))
+        return cls(
+            task_id=data.get("task_id", ""),
+            status=data.get("status", ""),
+            approval_type=data.get("approval_type", "standard"),
+            decision_data=data.get("decision_data", {}),
+        )
 
-    def __init__(self, task_id: str, status: str):
+    def __init__(self, task_id: str, status: str, approval_type: str = "standard", decision_data: dict | None = None):
         self.task_id = task_id
         self.status = status
+        self.approval_type = approval_type
+        self.decision_data = decision_data or {}
         if not task_id or not status:
             raise ContractOutputError(
                 "[SPRINT.TASK_SPEC] task_id and status are required (output_schema)"
             )
 
     def as_dict(self) -> dict:
-        return {"task_id": self.task_id, "status": self.status}
+        return {
+            "task_id": self.task_id,
+            "status": self.status,
+            "approval_type": self.approval_type,
+            "decision_data": self.decision_data,
+        }
 
 
 class SprintRetroOutput(WorkflowOutput):

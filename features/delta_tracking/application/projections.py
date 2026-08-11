@@ -31,6 +31,7 @@ def spec_to_task_dict(spec: Spec) -> dict:
         "task_id": spec.spec_id,
         "spec_id": spec.spec_id,
         "spec_index": spec.spec_index,
+        "spring_id": spec.spring_id,
         "objective": spec.objective,
         "domain": spec.domain,
         "type": spec.spec_type,

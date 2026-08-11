@@ -1,0 +1,169 @@
+{
+  "id": "SPEC-002",
+  "type": "feature",
+  "status": "specified",
+  "title": "Traza verificable multi-canal: eventos de certificación y telemetría en los puertos de entrada",
+  "summary": "Cerrar los gaps de trazabilidad en los puertos de entrada (SideEffectExecutor, TaskRegistry, EventBus): certificar el indexado CPG, trazar cada side-effect del workflow, registrar el canal de invocación y eliminar la pérdida silenciosa de eventos.",
+  "objective": "El TraceGraph debe registrar (a) la certificación del indexado CPG (fingerprint_match), (b) cada side-effect del workflow con ok/duration/stats, (c) el canal de invocación (CLI/MCP/workflow) de cada task, y (d) los fallos de publicación en lugar de descartarlos silenciosamente.",
+  "result_state": "update_cpg emite cpg_indexed post-build con fingerprint_match y stats; SideEffectExecutor emite side_effect_execute por cada efecto con ok/duration; task_execute lleva channel=cli|mcp|workflow; EventBus/publisher/registry registran drops y fallos como eventos/contadores visibles.",
+  "domain": "event_tracing",
+  "spring_id": "spring-2026-08-10",
+  "priority": "medium",
+  "tags": ["trace", "tracer", "cpg", "fingerprint", "index", "observability", "verification", "side-effects", "channel"],
+  "authors": ["Kilo", "PO"],
+  "created_at": "2026-08-10T15:00:00Z",
+  "updated_at": "2026-08-10T15:30:00Z",
+  "problem_statement": "El tracer no puede garantizar el estado del CPG ni reconstruir la causalidad de la ejecución: la verificación del indexado vive fuera del trace (fingerprint interlock watcher-CPG), los side-effects del workflow no emiten eventos individuales, task_execute no distingue qué canal invocó (CLI vs MCP vs workflow), y tres capas descartan eventos con except: pass (EventBus.publish, trace_event_publisher, _trace_execute) — pérdida silenciosa imposible de diagnosticar.",
+  "evidence": [
+    "features/task_execution/side_effects/cpg_updates.py:76 update_cpg retorna SideEffectResult pero no hace trace_push.",
+    "features/engine/infrastructure/side_effects.py:225-254 SideEffectExecutor._run_single ejecuta cada efecto y normaliza el contrato, pero ningún evento side_effect_execute se emite al trace.",
+    "features/engine/infrastructure/task_registry.py:54-87 _trace_execute registra solo task name/ok/duration — sin channel (cli/mcp/workflow).",
+    "features/code_analysis/infrastructure/adapters/trace_event_publisher.py:36 except Exception: pass — eventos CPG se pierden silenciosamente.",
+    "features/code_analysis/domain/events.py:128-133 EventBus.publish usa except Exception: pass — el bus no cuenta drops.",
+    "features/project/infrastructure/watcher.py:114-122 scan() verifica cpg_is_mirror con fingerprint sha256, pero el resultado solo queda en change_detected.json, no en el trace.",
+    "features/cli_interface/application/project_use_cases.py:219-222 CPG stale se reporta via status_warning sin leer el trace.",
+    "features/event_tracing/domain/models.py:36 agent_message y tool_call declarados como event_types válidos pero sin emisores."
+  ],
+  "predicates": [
+    "Cada ejecucion exitosa de update_cpg emite un evento cpg_indexed al TraceGraph con fingerprint_match y stats",
+    "Cada side-effect del workflow (update_cpg, index_delta, reindex_delta, save_ckg, run_script, persist_snapshot, emit_event) emite un evento side_effect_execute con type/scope/ok/duration_ms",
+    "task_execute registra el canal de invocacion: channel=cli|mcp|workflow",
+    "trace_event_publisher y EventBus.publish no descartan eventos con except: pass — registran fallos/drops como eventos o contador",
+    "El status del proyecto consulta el ultimo evento cpg_indexed (no solo change_detected.json) para clasificar up_to_date/stale",
+    "Existen emisores para agent_message y tool_call (via trace_push como puerto publico)"
+  ],
+  "acceptance_criteria": [
+    "tests/test_trace_cpg_verification_bdd.py valida que update_cpg emite cpg_indexed con fingerprint_match y stats",
+    "tests/test_trace_side_effect_bdd.py valida que SideEffectExecutor emite side_effect_execute por cada efecto del workflow",
+    "tests/test_trace_channel_bdd.py valida que task_execute lleva channel (mcp desde dispatch_public_task, workflow desde el engine)",
+    "tests/test_trace_event_publisher_bdd.py valida que un fallo de publicacion queda registrado como evento/contador, no silenciado",
+    "walker status reporta up_to_date solo si el ultimo cpg_indexed tiene fingerprint_match=true o el watcher confirma espejo",
+    "Suite completa pasa sin regresiones"
+  ],
+  "quality_gates": [
+    "pytest tests/test_trace_cpg_verification_bdd.py pasa",
+    "pytest tests/test_trace_side_effect_bdd.py pasa",
+    "pytest tests/test_trace_channel_bdd.py pasa",
+    "pytest tests/test_trace_event_publisher_bdd.py pasa",
+    "pytest tests/test_cpg_status_bdd.py pasa",
+    "Fingerprint de codigo y source_fingerprint del CPG siguen alineados (ADR-043)"
+  ],
+  "impacted_artifacts": {
+    "files": [
+      "features/task_execution/side_effects/cpg_updates.py",
+      "features/engine/infrastructure/side_effects.py",
+      "features/engine/infrastructure/task_registry.py",
+      "features/engine/application/task_dispatcher.py",
+      "features/code_analysis/infrastructure/adapters/trace_event_publisher.py",
+      "features/code_analysis/domain/events.py",
+      "features/project/infrastructure/watcher.py",
+      "features/cli_interface/application/project_use_cases.py",
+      "features/task_execution/tasks/trace_push.py",
+      "tests/test_trace_cpg_verification_bdd.py",
+      "tests/test_trace_side_effect_bdd.py",
+      "tests/test_trace_channel_bdd.py",
+      "tests/test_trace_event_publisher_bdd.py"
+    ],
+    "touched_contracts": [
+      "ADR-WALKER-018",
+      "ADR-WALKER-043",
+      "SPEC-001"
+    ]
+  },
+  "task_context": {
+    "observation": "El CPG se indexa (8274 nodes) pero el status indica 21 archivos cambiados desde el ultimo build; los side-effects ejecutan sin dejar evento individual; el trace no distingue quien invoco una task; tres capas pierden eventos con except: pass.",
+    "structure": "Puertos de entrada unicos: SideEffectExecutor.execute (workflow), InMemoryTaskRegistry.execute (CLI/MCP via dispatch_public_task), EventBus.publish (code_analysis), trace_push (task publica al TraceGraph). El tracer se inyecta por DI (ITracer en registry, EventBus.subscribe, trace_event_publisher).",
+    "behavior": "Hoy: update_cpg devuelve ok con signals pero el trace no ve el fingerprint_match; los side-effects quedan solo en result[side_effects] del submit; task_execute registra task sin canal; los eventos del EventBus pueden perderse en excepciones.",
+    "causality": "La verificacion del indexado se implemento como interlock watcher-CPG local (no trazable); el publisher CPG se anadio como accesorio best-effort; los side-effects del workflow confian en el contrato del submit como 'registro' y nunca se planteo trazar el canal.",
+    "purpose": "Hacer que el tracer sea la fuente de verdad de 'que tan actualizado esta el CPG' y de la causalidad de la ejecucion (quien invoco, que efecto corrio, cuanto tardo, ok/failed), con perdidas de eventos visibles y diagnosticables.",
+    "principles": "ADR-018 (TraceGraph como memoria de ejecucion); ADR-043 (SSOT del contrato); trazabilidad como cross-cutting concern inyectada en los puertos de entrada (decorador del punto de paso), no como imports en las features."
+  },
+  "depends_on": [
+    "SPEC-001"
+  ],
+  "preconditions": [
+    "TraceEvent modelo soporta data estructurada (ya: metadata + data dict)",
+    "trace_push task publica eventos al indice trace (ya existe)",
+    "FileWatcher.compute_fingerprint() expone el fingerprint actual del codigo",
+    "SideEffectExecutor ya normaliza el contrato de cada efecto (normalize())"
+  ],
+  "risks": {
+    "curvature": 0.45,
+    "pre_churn": 0.2,
+    "commit_trust": 0.75
+  },
+  "loop_verification": [
+    "pytest tests/test_trace_cpg_verification_bdd.py",
+    "pytest tests/test_trace_side_effect_bdd.py",
+    "pytest tests/test_trace_channel_bdd.py",
+    "pytest tests/test_trace_event_publisher_bdd.py"
+  ],
+  "loop_acceptance": "all",
+  "related_decisions": [
+    "ADR-WALKER-018",
+    "ADR-WALKER-043"
+  ],
+  "generated_from": "SPEC-001",
+  "generates_specs": [],
+  "validation_checklist": [
+    {
+      "description": "update_cpg emite cpg_indexed con fingerprint_match",
+      "command": "pytest tests/test_trace_cpg_verification_bdd.py -k 'update_cpg_emite_cpg_indexed_con_fingerprint_match'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "El evento cpg_indexed incluye stats (files_updated, total_nodes, total_edges, quality_passed)",
+      "command": "pytest tests/test_trace_cpg_verification_bdd.py -k 'el_evento_incluye_stats'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "SideEffectExecutor emite side_effect_execute por cada efecto",
+      "command": "pytest tests/test_trace_side_effect_bdd.py -k 'cada_side_effect_emite_evento'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "task_execute registra el canal de invocacion",
+      "command": "pytest tests/test_trace_channel_bdd.py -k 'task_execute_lleva_channel'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "Los drops del EventBus quedan registrados, no silenciados",
+      "command": "pytest tests/test_trace_event_publisher_bdd.py -k 'fallo_de_publicacion_queda_registrado'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "El status consulta el trace para clasificar up_to_date/stale",
+      "command": "pytest tests/test_cpg_status_bdd.py -k 'status_consulta_el_trace'",
+      "expected": "PASSED"
+    },
+    {
+      "description": "Suite completa pasa sin regresiones",
+      "command": "pytest",
+      "expected": "0 failures"
+    }
+  ],
+  "non_negotiables": [
+    "El tracer no pierde eventos: todo fallo de publicacion debe ser visible (evento de error o contador de drops)",
+    "La verificacion del CPG debe ser consultable en el trace (fingerprint_match), no solo en change_detected.json",
+    "Fingerprint del watcher y source_fingerprint del CPG siguen siendo el SSOT de espejo (no se reemplaza, se traza)",
+    "La trazabilidad se inyecta en los puertos de entrada (SideEffectExecutor, TaskRegistry, EventBus) — las features no importan el tracer",
+    "Los side-effects modulares (cpg_updates, delta_updates, events) no cambian de interfaz: el evento se emite desde el punto de paso"
+  ],
+  "attachments": [
+    {
+      "name": "Contrato del evento cpg_indexed",
+      "kind": "code",
+      "content": "{\n  \"event_type\": \"cpg_indexed\",\n  \"source\": \"walker\",\n  \"tool\": \"update_cpg\",\n  \"data\": {\n    \"fingerprint_match\": true,\n    \"scope\": \"incremental|full\",\n    \"files_updated\": 0,\n    \"total_nodes\": 0,\n    \"total_edges\": 0,\n    \"quality_passed\": true\n  },\n  \"metadata\": {\n    \"source_fingerprint\": \"<sha256>\"\n  }\n}"
+    },
+    {
+      "name": "Contrato del evento side_effect_execute",
+      "kind": "code",
+      "content": "{\n  \"event_type\": \"side_effect_execute\",\n  \"source\": \"walker\",\n  \"tool\": \"<effect_type>\",\n  \"data\": {\n    \"scope\": \"tracking|event|code_index\",\n    \"ok\": true,\n    \"duration_ms\": 0,\n    \"signals_keys\": [\"quality_passed\"],\n    \"channel\": \"workflow\"\n  },\n  \"task_id\": \"<task_id>\"\n}"
+    },
+    {
+      "name": "Contrato del canal en task_execute",
+      "kind": "code",
+      "content": "{\n  \"event_type\": \"task_execute\",\n  \"data\": {\n    \"task\": \"cpg_analyze\",\n    \"ok\": true,\n    \"channel\": \"mcp\"\n  }\n}"
+    }
+  ]
+}

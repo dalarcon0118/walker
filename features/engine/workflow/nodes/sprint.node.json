@@ -368,24 +368,39 @@
      "quality_gates"
     ]
    },
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "task_id": {
-      "type": "string",
-      "description": "Task identifier"
+    "output_schema": {
+     "type": "object",
+     "properties": {
+      "task_id": {
+       "type": "string",
+       "description": "Task identifier"
+      },
+      "status": {
+       "type": "string",
+       "description": "Task status as returned by spec_task"
+      },
+      "approval_type": {
+       "type": "string",
+       "enum": ["standard", "decision"],
+       "description": "approval_type=decision indica que esta spec requiere una decision arquitectonica (ADR) al aprobarse"
+      },
+      "decision_data": {
+       "type": "object",
+       "description": "Datos de la decision arquitectonica: decision, architecture, implementation, quality_gates",
+       "properties": {
+        "decision": {"type": "string"},
+        "architecture": {"type": "string"},
+        "implementation": {"type": "string"},
+        "quality_gates": {"type": "array", "items": {"type": "string"}}
+       }
+      }
      },
-     "status": {
-      "type": "string",
-      "description": "Task status as returned by spec_task"
-     }
+     "required": [
+      "task_id",
+      "status"
+     ],
+     "description": "Contract: TASK_SPEC must produce task_id + status. The workflow validates structure, not semantics."
     },
-    "required": [
-     "task_id",
-     "status"
-    ],
-    "description": "Contract: TASK_SPEC must produce task_id + status. The workflow validates structure, not semantics."
-   },
    "on_success": "TASK_REVIEW",
    "on_failure": "",
    "timeout_ms": 600000,
@@ -450,14 +465,31 @@
    "audit": {
     "level": "full"
    },
-   "side_effects": [
-    {
-     "type": "validate_plan",
-     "params": {},
-     "optional": true,
-     "description": "Validate all specifications after each spec update"
-    }
-   ]
+    "side_effects": [
+     {
+      "type": "validate_plan",
+      "params": {},
+      "optional": true,
+      "description": "Validate all specifications after each spec update"
+     },
+     {
+      "type": "transform_spec",
+      "params": {
+       "status": "specified",
+       "fields": {
+        "problem_statement": "NODE.TASK_SPEC.output.task_description",
+        "evidence": "NODE.TASK_SPEC.output.evidence",
+        "predicates": "NODE.TASK_SPEC.output.predicates",
+        "impacted_artifacts": "NODE.TASK_SPEC.output.impacted_artifacts",
+        "task_context": "NODE.TASK_SPEC.output.task_context",
+        "risks": "NODE.TASK_SPEC.output.risks",
+        "quality_gates": "NODE.TASK_SPEC.output.quality_gates"
+       }
+      },
+      "optional": false,
+      "description": "Transform Spec to specified state with all required fields"
+     }
+    ]
   },
   {
    "key": "TASK_REVIEW",
@@ -483,44 +515,80 @@
      "decision"
     ]
    },
-   "output_schema": {
-    "type": "object",
-    "properties": {
-     "decision": {
-      "type": "string",
-      "enum": [
-       "approve",
-       "refine",
-       "all_done"
-      ],
-      "description": "approve: next task, refine: re-specify, all_done: all tasks complete"
+    "output_schema": {
+     "type": "object",
+     "properties": {
+      "decision": {
+       "type": "string",
+       "enum": [
+        "approve",
+        "refine",
+        "all_done"
+       ],
+       "description": "approve: next task, refine: re-specify, all_done: all tasks complete"
+      },
+      "feedback": {
+       "type": "string"
+      },
+      "approval_type": {
+       "type": "string",
+       "enum": ["standard", "decision"],
+       "description": "Tipo de aprobacion. decision = se genera ADR en CKG"
+      },
+      "approval_data": {
+       "type": "object",
+       "description": "Datos de aprobacion para specs tipo decision",
+       "properties": {
+        "decision": {"type": "string"},
+        "architecture": {"type": "string"},
+        "implementation": {"type": "string"},
+        "quality_gates": {"type": "array", "items": {"type": "string"}}
+       }
+      }
      },
-     "feedback": {
-      "type": "string"
-     }
+     "required": [
+      "decision"
+     ]
     },
-    "required": [
-     "decision"
-    ]
-   },
    "on_success": "TASK_SPEC",
    "on_failure": "TASK_SPEC",
-   "side_effects": [
-    {
-     "type": "advance_task",
-     "params": {}
-    },
-    {
-     "type": "validate_plan",
-     "params": {},
-     "optional": true,
-     "description": "Validate all specs after task review decision"
-    },
-    {
-     "type": "capture_decision",
-     "params": {}
-    }
-   ],
+    "side_effects": [
+     {
+      "type": "advance_task",
+      "params": {}
+     },
+     {
+      "type": "validate_plan",
+      "params": {},
+      "optional": true,
+      "description": "Validate all specs after task review decision"
+     },
+     {
+      "type": "capture_decision",
+      "params": {}
+     },
+      {
+       "type": "transform_spec",
+       "params": {
+        "status": "approved",
+        "fields": {
+         "decision": "NODE.TASK_SPEC.output.decision_data",
+         "architecture": "NODE.TASK_SPEC.output.decision_data",
+         "implementation": "NODE.TASK_SPEC.output.decision_data"
+        }
+       },
+       "optional": false,
+       "description": "Transform Spec to approved state if approval_type=decision"
+      },
+      {
+       "type": "create_adr_from_spec",
+       "params": {
+        "approval_type": "NODE.TASK_SPEC.output.approval_type"
+       },
+       "optional": true,
+       "description": "Create ADR in CKG when spec is approved as decision"
+      }
+    ],
    "timeout_ms": 600000,
    "prompt_id": "sprint/task-review",
    "context": {

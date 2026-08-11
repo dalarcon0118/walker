@@ -11,7 +11,9 @@ SPRING_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
 SPEC_STATUS_FLOW = [
     "draft",
     "specified",
+    "approved",
     "in_progress",
+    "in_review",
     "completed",
     "rejected",
     "backlog",
