@@ -77,7 +77,13 @@ class InMemoryModuleRegistry(IModuleRegistry):
 
     def route(self, name: str) -> RestRoute | None:
         key = f"{{project_id}}/{name}"
-        return self._routes.get(key)
+        route = self._routes.get(key)
+        if route is None:
+            # Tools con ruta bare (list/help/prepare): se registran sin prefijo
+            # {project_id}/. Fallback al path plano para que el MCP dispatch
+            # las resuelva igual que las scoped (status/submit/transition).
+            route = self._routes.get(name)
+        return route
 
     # ── Servicios (DI / IoC) ─────────────────────────────────────────────
 
