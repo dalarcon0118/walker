@@ -101,16 +101,43 @@ class ProjectPaths:
 
     DISTINCIÓN (features/project):
       - ProjectPaths       = este utilitario (rutas calculadas en memoria).
-      - Manifest           = .cognitive/{pid}/data/project.json (identidad
-                             del proyecto; lo lee CognitiveProjectRepository).
+      - Manifest           = <repo>/.cognitive/projects/{pid}/data/project.json
+                             (identidad del proyecto; lo lee
+                             CognitiveProjectRepository).
       - Registry global    = data/projects.json en la raíz del walker (índice
-                             de TODOS los proyectos; lo gestiona ProjectService).
+                             de TODOS los proyectos que el walker administra,
+                             incluido él mismo; lo gestiona ProjectService).
+
+    CONVENCIÓN DE LAYOUT (SSOT — ver también el docstring de
+    libs/path_resolver, Jerarquía de resolución):
+
+      Capa 1 — DENTRO del repo de cada proyecto, creada por `walker prepare`
+      (análogo a `git init`). TODO el espacio cognitivo del proyecto vive
+      aquí: manifiesto + memorias + estado del watcher.
+
+        <repo_path>/.cognitive/projects/<project_id>/data/
+            project.json          ← manifiesto (identidad + location)
+            ckg.json.gz           ← memoria semántica (CKG)
+            trace.json.gz         ← trazabilidad (TraceGraph)
+            cpg.json.gz           ← grafo de código (CPG)
+            change_detected.json  ← estado del watcher
+            .file_snapshot.json   ← baseline del watcher
+
+      Capa 2 — RAÍZ del walker (el administrador):
+        <walker_root>/data/projects.json ← REGISTRO GLOBAL: solo referencias
+        (project_id → repo_path). No contiene memorias ni manifiesto.
+
+      CLAVE: el registro global SOLO RESUELVE rutas; la identidad y las
+      memorias de cada proyecto viven en su propio .cognitive/. Si se
+      prepara un proyecto React "pepe", se crea
+      <pepe>/.cognitive/projects/pepe/data/ (su manifiesto + memorias) y
+      solo se añade pepe → <pepe> al registro global del walker.
 
     Attributes:
         chain_dir: Sprint directory (or "" if bootstrap).
-        project_root: Project root (.cognitive/projects/<pid>/).
+        project_root: Project root (<repo>/.cognitive/projects/<pid>/).
         project_id: Short project identifier.
-        data_dir: data/ directory.
+        data_dir: data/ directory (memorias del proyecto).
         delta_dir: Sprite directory (delta/ or data/spring/).
         workflow_dir: Workflow definitions.
         traces_dir: Trace storage.

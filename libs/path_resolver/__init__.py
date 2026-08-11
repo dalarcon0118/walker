@@ -11,18 +11,43 @@ Fuentes de config (desde config/config.json):
   - data_dir           → nombre del subdirectorio data (default: "data")
   - workflow_dir       → nombre del subdirectorio workflow (default: "workflow.v3")
 
-Jerarquía de resolución:
-  walker_root/                    ← detectado desde ubicación de este archivo
-  └── .cognitive/                 ← cognitive_dir (base de datos persistente)
-      ├── projects/               ← projects_dir
-      │   └── {project_id}/
-      │       ├── delta/          ← sprints del proyecto
-      │       │   └── {sprint_id}/
-      │       ├── data/           ← cpg.json.gz, ckg.json.gz, etc.
-      │       ├── traces/         ← trace logs
-      │       └── project.json    → manifiesto del proyecto
-      └── sessions/               ← sesiones del agente
-          └── agents/{agent_id}/
+Jerarquía de resolución (convención SSOT de layout):
+
+  LAYER 1 — DENTRO del repo de cada proyecto (se crea con `walker prepare`,
+  análogo a `git init`). Contiene TODO el espacio cognitivo del proyecto:
+  su manifiesto (project.json), sus memorias (ckg/trace/cpg) y el estado
+  del watcher. Resolver = get_project_dir(pid) vía projects.json:
+    <repo_path>/                                  ← repo del proyecto
+    └── .cognitive/
+        └── projects/
+            └── {project_id}/                     ← DIRECTORIO COGNITIVO (project_root)
+                ├── data/                         ← TODAS las memorias del proyecto
+                │   ├── project.json              ← manifiesto (identidad + location)
+                │   ├── ckg.json.gz               ← memoria semántica (CKG)
+                │   ├── trace.json.gz             ← trazabilidad (TraceGraph)
+                │   ├── cpg.json.gz               ← grafo de código (CPG)
+                │   ├── change_detected.json      ← estado del watcher
+                │   └── .file_snapshot.json       ← baseline del watcher
+                ├── delta/                        ← sprints (springs) del proyecto
+                │   └── {sprint_id}/
+                └── traces/                       ← trace logs por sprint
+
+  LAYER 2 — RAÍZ del walker (el administrador). Contiene EL REGISTRO de
+  todos los proyectos que administra (incluido él mismo) y su config base.
+  Resolver = get_walker_root() / data/...:
+    <walker_root>/data/
+    ├── projects.json          ← REGISTRO GLOBAL: project_id → repo_path
+    │                            (índice de referencias, NO contiene memorias)
+    ├── projects.json.bak      ← backup de escritura atómica
+    ├── .walkerignore          ← patrones que walker no escanea
+    └── change_detected.json   ← watcher sobre el propio repo del walker
+
+  CLAVE (la distinción): el REGISTRO GLOBAL solo RESUELVE rutas; la
+  identidad y las memorias de cada proyecto viven en su propio
+  .cognitive/projects/<pid>/ dentro de su repo. Si mañana se prepara un
+  proyecto React "pepe", se creará <pepe>/.cognitive/projects/pepe/data/
+  con su project.json + memorias, y solo se añadirá la referencia
+  pepe → <pepe> en data/projects.json del walker.
 """
 
 from __future__ import annotations
