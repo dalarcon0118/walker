@@ -91,6 +91,27 @@ python -c "from features.engine.workflow import WorkflowRepository; wr = Workflo
 
 ---
 
+## Patrón: tests de completitud para registries/bootstrap
+
+Todo registry construido por `bootstrap_*()` o `build_*()` debe tener un test de completitud que valide el conjunto esperado de componentes.
+
+```python
+EXPECTED = {"cpg", "ckg", "delta", "trace", "state", "project", "task"}
+available = set(registry.available())
+missing = EXPECTED - available
+assert not missing, f"Faltan providers: {missing}"
+```
+
+Aplicar a:
+- `build_context_registry()` → providers de contexto
+- `bootstrap_tasks()` → tasks del TaskRegistry
+- `bootstrap_modules()` → tools del ModuleRegistry
+- `SideEffectEngine.register()` → side-effects declarados
+
+Sin este patrón, omisiones como `task`/`state` faltando en el ContextProviderRegistry pasan desapercibidas hasta producción.
+
+---
+
 ## Contribución
 
 1. Leer SPEC-004 (modelos de pensamiento) y `project.md` (invariantes).
