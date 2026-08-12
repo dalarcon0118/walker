@@ -31,7 +31,7 @@ from features.engine.infrastructure.repositories import (
 )
 from features.delta_tracking import spring_service
 from features.delta_tracking.domain.entities import Spec
-from tests.conftest import make_chain_dir, register_mock_tasks, register_side_effects
+from tests.conftest import make_chain_dir, register_mock_tasks
 
 
 # ── Fixtures y helpers ────────────────────────────────────────────────
@@ -379,12 +379,21 @@ class TestWorkflowE2EReal:
     """Flujo completo ejecutando el workflow engine real con mocks."""
 
     def test_full_workflow_executes_real_engine(self, tmp_path, monkeypatch):
-        """Ejecuta el flujo completo usando OrchestrationService real."""
+        """Ejecuta el flujo completo usando OrchestrationService real.
+
+        Composition root real (capa_rout.md D1): bootstrap() produce el
+        registry poblado con las tasks reales (plan_sprint, spec_task,
+        review_code, close_sprint se ejecutan REALES); register_mock_tasks()
+        solo parchea las actions del flujo de test que no tienen handler real
+        (gather_design, user_gate, implement, qa_run, ...).
+        """
+        from features.engine.bootstrap import bootstrap
+
         project_root, chain_dir = _setup_project(tmp_path)
 
-        svc = OrchestrationService()
-        register_side_effects(svc._side_effect_engine)
-        register_mock_tasks(svc._task_registry)
+        registry, se = bootstrap()
+        register_mock_tasks(registry)
+        svc = OrchestrationService(task_registry=registry, side_effect_engine=se)
 
         state_repo = WorkflowStateRepository()
         workflow_repo = WorkflowRepository()

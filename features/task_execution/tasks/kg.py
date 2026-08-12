@@ -226,6 +226,12 @@ def kg_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         # Alias "query" → "text" (schema MCP de kg_search documenta ambos).
         if "query" in payload and "text" not in payload:
             payload["text"] = payload.pop("query")
+        # Alias "index" → "_index": el tool MCP kg_search expone `index` en su
+        # schema, pero el core de búsqueda (_kg_search_payload) espera `_index`.
+        # ANTES el route flags_builder descartaba `index` y la búsqueda caía al
+        # índice default (ckg) sin error — fallo silencioso de dispatch.
+        if "index" in payload and "_index" not in payload:
+            payload["_index"] = payload.pop("index")
     return _kg_search_payload(ctx, cg, payload, project_id)
 
 
@@ -284,13 +290,11 @@ def _kg_search_payload(
 def _kg_search_superseded(project_id: str, query: dict) -> dict | None:
     """Busca en CKG incluyendo decisiones superseded/deprecated."""
     try:
-        from features.cognitive_knowledge.application.ckg import (
-            CodeKnowledgeGraph,
-        )
+        from features.cognitive_knowledge import ckg_service
 
         project_root = _resolve_ckg_project_root(project_id)
         if project_root:
-            ckg = CodeKnowledgeGraph(project_root)
+            ckg = ckg_service(project_root)
             nodes = ckg.query({**query, "include_superseded": True})
             return {
                 "type": "kg_search",
@@ -448,7 +452,7 @@ def save_to_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             },
         )
 
-    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+    from features.cognitive_knowledge import ckg_service
 
     try:
         statement = payload.get("statement", payload.get("label", ""))
@@ -514,7 +518,7 @@ def save_to_ckg(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             degraded = (res.get("result", {}) or {}).get("degraded", [])
             ok = bool(res.get("ok", False))
         else:
-            ckg = CodeKnowledgeGraph(project_root)
+            ckg = ckg_service(project_root)
             res = ckg.save_nodes([node])
             nodes_saved = res.get("nodes_created", 0)
             degraded = res.get("degraded", [])

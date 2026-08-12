@@ -69,10 +69,10 @@ def _read_ckg_file(path: str) -> dict | None:
 
 
 def _get_ckg(chain_dir: str):
-    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+    from features.cognitive_knowledge import ckg_service
 
     paths = ProjectService.resolve_paths(chain_dir)
-    return CodeKnowledgeGraph(str(paths.project_root))
+    return ckg_service(str(paths.project_root))
 
 
 class GatherCkgContextUseCase:
@@ -86,10 +86,10 @@ class GatherCkgContextUseCase:
     ) -> Result[list, Exception]:
         @safe
         def _gather() -> list:
-            from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+            from features.cognitive_knowledge import ckg_service
 
             paths = ProjectService.resolve_paths(chain_dir)
-            ckg = CodeKnowledgeGraph(str(paths.project_root))
+            ckg = ckg_service(str(paths.project_root))
             q = f"task_id:{task_id}" if task_id else query
             return ckg.search(q)[:20]
 
@@ -191,12 +191,10 @@ class GetCkgNodesForTaskUseCase:
 
         @safe
         def _query() -> list[dict]:
-            from features.cognitive_knowledge.application.ckg import (
-                CodeKnowledgeGraph as CKG,
-            )
+            from features.cognitive_knowledge import ckg_service
 
             paths = ProjectService.resolve_paths(chain_dir)
-            ckg = CKG(str(paths.project_root))
+            ckg = ckg_service(str(paths.project_root))
             raw = ckg.query()
             relevant: list[dict] = []
             for doc in raw:
@@ -241,11 +239,8 @@ class IndexRepoUseCase:
         import shutil
         import subprocess
         import tempfile
-        from features.code_analysis.infrastructure.ast_grep_adapter import (
-            run_outline,
-            parse_outline,
-        )
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.code_analysis import run_outline, parse_outline
+        from features.cognitive_knowledge import ckg_service
 
         @safe
         def _index() -> dict:
@@ -323,7 +318,7 @@ class IndexRepoUseCase:
                             "metadata": {"url": url, "type": t, "count": count},
                         }
                     )
-                ckg = CodeKnowledgeGraph(str(paths.project_root))
+                ckg = ckg_service(str(paths.project_root))
                 result = ckg.save_nodes(nodes_data)
                 shutil.rmtree(tmpdir, ignore_errors=True)
                 return {
@@ -355,7 +350,7 @@ class ResearchTopicUseCase:
     def execute(chain_dir: str, topic: str, query: str = "") -> Result[dict, Exception]:
         import urllib.request
         import urllib.parse
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.cognitive_knowledge import ckg_service
 
         @safe
         def _research() -> dict:
@@ -385,7 +380,7 @@ class ResearchTopicUseCase:
                     "author": "opencode",
                     "source": "web-research",
                 }
-                ckg = CodeKnowledgeGraph(str(paths.project_root))
+                ckg = ckg_service(str(paths.project_root))
                 result = ckg.save_nodes([node])
                 node_ids = result.get("node_ids", [])
                 return {

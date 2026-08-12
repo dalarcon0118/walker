@@ -119,12 +119,12 @@ def _resolve_project_root(project_id: str) -> str:
 @safe
 def _init_ckg_core(project_root: str) -> str:
     """Core puro: inicializa el archivo CKG vacío (puede lanzar)."""
-    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+    from features.cognitive_knowledge import ckg_service
     import gzip
     import json
     import os
 
-    CodeKnowledgeGraph(project_root)
+    ckg_service(project_root)
     ckg_path = os.path.join(project_root, "data", "ckg.json.gz")
     os.makedirs(os.path.dirname(ckg_path), exist_ok=True)
     empty_ckg = {"index": "ckg", "docs": [], "edges": [], "token_index": {}}

@@ -112,11 +112,11 @@ def capture_decision(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
         return {"ok": True, "captured": False, "reason": "sin decision que capturar"}
 
     try:
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.cognitive_knowledge import ckg_service
         from features.project import ProjectService
 
         paths = ProjectService.resolve_paths(chain_dir)
-        ckg = CodeKnowledgeGraph(str(paths.project_root))
+        ckg = ckg_service(str(paths.project_root))
 
         # CICLO DE VIDA: detectar si esta decision reemplaza a una anterior
         # sobre el mismo sub_state (PO cambio de opinion).

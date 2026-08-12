@@ -1,8 +1,12 @@
 """
 infrastructure/system_task_registry.py — Vista filtrada de TaskRegistry para tasks públicas.
 
-SRP: Proporciona acceso SOLO a tasks públicas (scope=public/system).
+SRP: Proporciona acceso SOLO a tasks públicas (scope=public).
 Las tasks públicas son invocables desde CLI y MCP directamente.
+
+Visibilidad SSOT (SPEC-005 #7): metadata.scope del registro. No hay listas
+hardcodeadas (_PUBLIC_TASKS eliminado). InMemoryTaskRegistry.register aplica
+scope=public por defecto; las tasks internas/system declaran scope explícito.
 """
 from __future__ import annotations
 
@@ -14,16 +18,7 @@ from ..domain.models import TaskResult, ExecutionContext
 
 
 class SystemTaskRegistry(TaskRegistry):
-    """Vista filtrada de TaskRegistry: solo tasks públicas (scope=public/system)."""
-
-    _PUBLIC_TASKS = frozenset({
-        "help", "list", "prepare", "kg_search", "save_to_ckg", "kg_diagnose",
-        "kg_extract", "index_repo", "kg_qa_evidence", "research_topic",
-        "kg_schema", "kg_sprint_evidence", "kg_task_context", "query",
-        "scan_code_and_build_cpg", "update_project", "capture_task",
-        "project_analyze", "list_projects", "agent_context", "build_initial_ckg",
-        "status", "submit", "transition",
-    })
+    """Vista filtrada de TaskRegistry: solo tasks públicas (scope=public)."""
 
     def __init__(self, base: InMemoryTaskRegistry | None = None, tracer: Any | None = None):
         self._base = base
@@ -55,8 +50,6 @@ class SystemTaskRegistry(TaskRegistry):
                 return True
             if scope == "system":
                 return False
-        if name in self._PUBLIC_TASKS:
-            return True
         return False
 
     def list_tasks(self) -> list[str]:
@@ -116,6 +109,8 @@ class SystemTaskRegistry(TaskRegistry):
                 task_entry["use_cases"] = info["use_cases"]
             if "input_schema" in info:
                 task_entry["input_schema"] = info["input_schema"]
+            if "output_schema" in info:
+                task_entry["output_schema"] = info["output_schema"]
             tasks.append(task_entry)
         return {
             "total": len(tasks),

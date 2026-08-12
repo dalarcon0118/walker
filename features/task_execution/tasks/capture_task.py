@@ -68,6 +68,7 @@ class CaptureTaskInput(TaskInput):
     result_state: str = ""
     description: str = ""
     label: str = ""
+    sprint_id: str = ""
 
     def _validate(self) -> str:
         objective = self.objective or self.label or ""
@@ -114,6 +115,9 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         files: lista de archivos impactados.
         result_state: estado final del resultado.
         description: descripcion detallada.
+        sprint_id (SPEC-005 #4): spring destino explícito (p. ej. el activo del
+            workflow) para que la captura sea visible en agent_context.
+            Default: spring informal del día session-YYYYMMDD.
     """
     payload = data.get("_payload", data)
     # Input validado: la lógica de negocio recibe una entidad limpia
@@ -177,10 +181,17 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
     project_root = os.path.realpath(project_root)
 
-    # 2. Spring informal del dia (modelo unificado: delta = fuente unica)
+    # 2. Spring destino (SPEC-005 #4): sprint_id explícito (p. ej. el sprint
+    #    formal activo del workflow) hace la captura visible para agent_context;
+    #    default = spring informal del día (session-YYYYMMDD).
+    explicit_sprint = bool((inp.sprint_id or "").strip())
     date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
-    sprint_id = f"session-{date_str}"
-    sprint_dir = _sprint_dir(project_root, date_str)
+    sprint_id = (inp.sprint_id or "").strip() or f"session-{date_str}"
+    sprint_dir = (
+        os.path.join(project_root, "data", "spring", sprint_id)
+        if explicit_sprint
+        else _sprint_dir(project_root, date_str)
+    )
 
     from features.delta_tracking import SpringService
 
@@ -196,17 +207,19 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             status="planning",
             project_id=project_id,
             session_id=ctx.session_id or "cli",
-            informal=True,
+            informal=not explicit_sprint,
         )
     else:
+        existing_data = dict(existing)
         # Los session logs NUNCA compiten como sprint activo del workflow:
         # se mantienen en planning (no activos) y siempre informales.
-        existing_data = dict(existing)
-        if existing_data.get("status") == "active":
+        # (Con sprint_id explícito no se toca el estado del sprint formal.)
+        if not explicit_sprint and existing_data.get("status") == "active":
             existing_data["status"] = "planning"
             existing_data["active"] = False
-        existing_data.setdefault("informal", True)
-        existing_data.setdefault("session_id", ctx.session_id or "cli")
+        if not explicit_sprint:
+            existing_data.setdefault("informal", True)
+            existing_data.setdefault("session_id", ctx.session_id or "cli")
         spring_svc.update_spring(sprint_id, existing_data)
 
     # 3. Agregar la tarea como spec en el delta (fuente unica)
@@ -306,9 +319,11 @@ def _capture_decision_core(
     project_root: str, node: dict
 ) -> dict:
     """Core puro: registra una decision en el CKG (puede lanzar)."""
-    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+    from features.cognitive_knowledge import ckg_service
 
-    ckg = CodeKnowledgeGraph(project_root)
+    if not project_root:
+        return {"ok": False, "error": "no project_root"}
+    ckg = ckg_service(project_root)
     return ckg.save_nodes([node])
 
 
@@ -371,9 +386,11 @@ def register(registry: Any) -> None:
             "description": (
                 "Registra una tarea del agente en el spring informal de la fecha "
                 "(session-YYYYMMDD) para que el DeltaGraph la consulte como historico. "
+                "Con 'sprint_id' explícito captura en ese spring (p. ej. el activo "
+                "del workflow) y queda visible para agent_context. "
                 "Invocar al completar trabajo implementado."
             ),
-            "usage": 'walker <project>/capture_task \'{"objective":"...","domain":"...","files":["..."]}\'',
+            "usage": 'walker <project>/capture_task \'{"objective":"...","sprint_id":"<spring-activo>"}\'',
             "scope": "public",
             "tags": ["delta", "history", "capture", "session-log"],
         },

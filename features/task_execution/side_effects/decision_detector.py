@@ -167,9 +167,9 @@ def detect_decisions(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str,
     # 3. Registrar en CKG
     captured = []
     try:
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.cognitive_knowledge import ckg_service
 
-        ckg = CodeKnowledgeGraph(project_root)
+        ckg = ckg_service(project_root)
         for dec in decisions:
             node = {
                 "type": "decision",

@@ -13,6 +13,7 @@ SSOT: Delega en domain/models.py y domain/services.py para las reglas.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from ..domain.models import (
@@ -45,6 +46,8 @@ from ..infrastructure.repositories import (
 )
 from ..infrastructure.side_effects import SideEffectEngine
 from features.engine.domain.contract_validator import ContractValidator, Contract
+
+logger = logging.getLogger(__name__)
 
 
 # ── Shared helper ──────────────────────────────────────────────────────────
@@ -370,8 +373,25 @@ class SubmitDataUseCase:
     ) -> Any:
         """Paso 5: TaskRegistry.execute() + recarga de estado + evidencia."""
         task_result = None
-        if not (sub_state.action and self._task_registry):
+        if not sub_state.action:
             return task_result
+        if not self._task_registry:
+            # FAIL-LOUD (capa_rout.md D1): si el sub-estado declara una action
+            # pero el use case no recibió TaskRegistry, es un error de
+            # composición, no un caso legítimo. ANTES esto era un short-circuit
+            # silencioso (return task_result) que hacía que el flujo CLI/MCP
+            # avanzara SIN ejecutar las actions reales (plan_sprint, spec_task,
+            # verify_predicates...) — bug de producción invisible.
+            logger.error(
+                "Sub-estado '%s.%s' declara action='%s' pero el use case no tiene "
+                "task_registry (composition root roto). Inyecta el registry via "
+                "bootstrap()/get_module_service('task_registry').",
+                state.current_node, sub_state.key, sub_state.action,
+            )
+            raise AutoAdvanceError(
+                state.current_node, sub_state.key, 1,
+                f"task_registry no inyectado (action='{sub_state.action}')",
+            )
 
         exec_ctx = ctx or ExecutionContext.create(
             session_id=chain_dir.split("/")[-1],

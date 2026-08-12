@@ -108,11 +108,11 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     config = _load_project_config(project_root)
     scope = params.get("scope", "incremental")
     try:
-        from features.code_analysis import CPGBuilder
+        from features.code_analysis import cpg_service
         from features.engine.domain.side_effect_contract import (
             ok, failed, degraded,
         )
-        builder = CPGBuilder(str(project_root))
+        builder = cpg_service(project_dir=str(project_root))
         if scope == "full":
             paths = _cpg_build_paths(config, project_root)
             data = builder.build(paths=paths)
@@ -220,8 +220,8 @@ def update_delta_graph(ctx: ExecutionContext, params: dict[str, Any]) -> dict[st
     from features.engine.domain.side_effect_contract import ok, failed
     project_root = _resolve_project_root(ctx)
     try:
-        from features.code_analysis import CpgQueryService
-        svc = CpgQueryService(ctx.chain_dir or str(project_root))
+        from features.code_analysis import cpg_service
+        svc = cpg_service(chain_dir=ctx.chain_dir or "", project_dir=str(project_root))
         result = svc.grep(f"function:{params.get('task_id', ctx.task_id or '')}")
         return ok(
             type="update_delta_graph",

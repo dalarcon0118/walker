@@ -77,6 +77,18 @@ class TestAgentSession:
                 args = {"query": "test"}
             resp = _mcp_call(tool, args, session_id=session.session_id.value)
             assert resp.get("result", {}).get("isError") is not True
+            data = _parse_mcp_result(resp)
+            # Endurecido (fix de asserts débiles): kg_search debe devolver ok=True
+            # con result estructurado — no un fallback (projects_list) ni vacío.
+            if tool == "kg_search":
+                d = data.get("data", {})
+                assert d.get("type") != "projects_list", (
+                    f"kg_search cayó al fallback: {d.get('type')}"
+                )
+                assert d.get("ok") is True, f"kg_search no ok: {d}"
+                assert isinstance(d.get("result", {}), dict), (
+                    f"kg_search result no estructurado: {d}"
+                )
 
     def test_agent_context_preservation_across_tools(self, tmp_path):
         _setup_project(tmp_path)

@@ -69,19 +69,36 @@ class PlanSprintUseCase:
 
         sprint_id = os.path.basename(sprint_dir)
         record = _get_active_record(ctx)
-        project_id = record.project_id if record else ""
+        # PRIMERO el record de sesión; FALLBACK al _project_id del payload
+        # (flujo MCP/CLI sin sesión activa). ANTES: sin record, project_id
+        # quedaba vacío → _resolve_project_root("") = "" → el fallback
+        # dirname(dirname(sprint_dir)) escribía el delta en
+        # cog/data/data/ en vez de cog/data/ (doble segmento 'data') —
+        # plan_sprint escribía en un CognitiveGraph distinto al que lee
+        # spring_service(chain_dir) → specs invisibles para el lector.
+        project_id = (
+            (record.project_id if record else "")
+            or data.get("_project_id", "")
+        )
 
         # ── Fuente unica: crear spring + specs en el delta ────────────
         from features.delta_tracking import SpringService
 
-        project_root = _resolve_project_root(project_id) or os.path.dirname(
-            os.path.dirname(sprint_dir)
+        project_root = _resolve_project_root(project_id) or _resolve_project_root_from_chain(
+            sprint_dir
         )
         spring_svc = SpringService(project_root)
         spring_svc.create_spring(
             sprint_id,
             goal=goal,
-            status="planning",
+            # El sprint del proyecto está ACTIVO desde su planificación.
+            # ANTES se creaba con status="planning": find_active_sprint
+            # (que resuelve el chain_dir en CADA submit/transition del
+            # MCP/CLI) solo ve status="active" → el siguiente submit tras
+            # plan_sprint fallaba con 404 "No active sprint found". La
+            # fase del workflow (PLANNING → PLAN_APPROVAL → ...) la lleva
+            # el workflow-state; el status del sprint no debe degradarse.
+            status="active",
             project_id=project_id,
             session_id=ctx.session_id or "",
         )
@@ -465,7 +482,7 @@ class UpdateSprintStatusUseCase:
         if not spring:
             raise ValueError(f"Spring '{spring_id}' not found in delta")
         current = spring.get("status", "planning")
-        from ..domain.services import SprintStatusUpdater
+        from ..domain.services.spec_service import SprintStatusUpdater
 
         allowed, reason = SprintStatusUpdater.can_transition(current, new_status)
         if not allowed:
@@ -591,6 +608,31 @@ def _resolve_project_root(project_id: str) -> str:
         return str(get_project_dir(project_id))
     except Exception:
         return ""
+
+
+def _resolve_project_root_from_chain(sprint_dir: str) -> str:
+    """Resuelve el project_root desde el chain_dir (misma fuente que
+    SpringService.from_chain_dir / spring_service()).
+
+    ANTES el fallback era dirname(dirname(sprint_dir)) = .cognitive/projects/
+    <id>/data — UN nivel menos que el root real (.cognitive/projects/<id>).
+    Con eso plan_sprint escribía el delta en cog/data/data/delta.json.gz
+    (doble 'data') mientras spring_service(chain_dir) lee cog/data/delta.json.gz:
+    dos CognitiveGraphs distintos → las specs creadas eran invisibles para
+    el lector (smoke/status devolvían delta vacío).
+    """
+    if not sprint_dir:
+        return ""
+    from features.project import ProjectService
+
+    try:
+        paths = ProjectService.resolve_paths(sprint_dir)
+        root = getattr(paths, "project_root", "") or ""
+        if root and os.path.isdir(root):
+            return root
+    except Exception:
+        pass
+    return os.path.dirname(os.path.dirname(os.path.dirname(sprint_dir)))
 
 
 def _get_current_spec_index(sprint_dir: str) -> int:

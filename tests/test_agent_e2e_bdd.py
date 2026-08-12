@@ -21,6 +21,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from features.engine.application.orchestrator import OrchestrationService
 from features.engine.domain.entities import WorkflowState
 from libs.shared_domain.models import ExecutionContext
@@ -32,15 +34,57 @@ from tests.conftest import (
     make_chain_dir,
     make_walker_project,
     register_mock_tasks,
-    register_side_effects,
+    register_project_in_global_registry,
 )
 
 
 # ── Helpers de setup ────────────────────────────────────────────────────
 
 def _setup_project(tmp_path: Path) -> tuple[str, str]:
-    """Crea el proyecto walker + chain_dir sprint-e2e (builders compartidos en conftest)."""
-    return make_walker_project(tmp_path), make_chain_dir(tmp_path, "sprint-e2e")
+    """Crea el proyecto walker + chain_dir sprint-e2e (builders compartidos en conftest).
+
+    Registra walker→tmp en el registro global (reversible) y crea un spring
+    ACTIVO en el delta del proyecto, para que el dispatch MCP real (Camino A:
+    _resolve_project_id → handle_task → _ensure_chain_dir → find_active_sprint)
+    resuelva el chain_dir. ANTES el dispatch no resolvía _project_id (fix del
+    fallback silencioso) y estos tests validaban el fallback projects_list, no
+    la tool real.
+    """
+    project_root = make_walker_project(tmp_path)
+    chain_dir = make_chain_dir(tmp_path, "sprint-e2e")
+
+    # Spring ACTIVO en el delta del proyecto (para find_active_sprint).
+    # _setup_delta crea el spring con status por defecto (planning) — pero
+    # find_active_sprint solo ve "active". El status activo se mantiene tras
+    # el fix de plan_sprint (el sprint del proyecto está activo desde su
+    # planificación).
+    from features.delta_tracking import SpringService
+
+    svc = SpringService(project_root)
+    svc.create_spring(
+        "sprint-e2e", goal="E2E sprint", status="active",
+        project_id="walker", session_id="sess-e2e",
+    )
+    # Sprint dir en el layout real (.cognitive/projects/walker/data/spring/)
+    real_sprint_dir = Path(project_root) / "data" / "spring" / "sprint-e2e"
+    real_sprint_dir.mkdir(parents=True, exist_ok=True)
+    from features.engine.domain.entities import WorkflowState
+    from features.engine.infrastructure.repositories import WorkflowStateRepository
+
+    wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
+    wf.context["chain_dir"] = str(real_sprint_dir)
+    wf.context["project_id"] = "walker"
+    wf.context["session_id"] = "sess-e2e"
+    WorkflowStateRepository().save(str(real_sprint_dir), wf)
+
+    _E2E_REGISTRY_CTX.append(
+        register_project_in_global_registry(str(tmp_path), "walker").__enter__()
+    )
+    return project_root, chain_dir
+
+
+# Contexto del registro global registrado por _setup_project (se restaura en teardown).
+_E2E_REGISTRY_CTX: list = []
 
 
 def _setup_workflow(chain_dir: str) -> None:
@@ -409,16 +453,38 @@ def _parse_mcp_result(resp: dict) -> dict:
 
 
 def _get_orchestration_service(chain_dir: str) -> OrchestrationService:
-    svc = OrchestrationService()
-    register_side_effects(svc._side_effect_engine)
-    register_mock_tasks(svc._task_registry)
-    return svc
+    """Composition root real (capa_rout.md D1): bootstrap() produce el registry
+    poblado y los mocks son PARCHES para las actions sin handler real. ANTES
+    instanciaba OrchestrationService() (DomainTaskRegistry vacío) y los mocks
+    sustituían TODO el registry — enmascarando el bug de composición en
+    producción (el flujo CLI/MCP avanzaba sin ejecutar tasks reales)."""
+    from features.engine.bootstrap import bootstrap
+
+    registry, se = bootstrap()
+    register_mock_tasks(registry)
+    return OrchestrationService(task_registry=registry, side_effect_engine=se)
 
 
 # ── Tests E2E MCP Tools ─────────────────────────────────────────────────
 
 class TestAgentE2E:
     """Flujo completo MCP JSON-RPC 2.0 con engine real + mocks."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_e2e_registry(self):
+        """Restaura el registro global registrado por _setup_project.
+
+        Cada test registra walker→tmp (reversible); al terminar se restauran
+        todos los contextos y se resetea el ModuleRegistry singleton (el
+        dispatch MCP lo cachea con el proyecto temporal).
+        """
+        yield
+        while _E2E_REGISTRY_CTX:
+            ctx = _E2E_REGISTRY_CTX.pop()
+            ctx.__exit__(None, None, None)
+        from features.engine.bootstrap import reset_module_registry
+
+        reset_module_registry()
 
     def test_mcp_tool_status_e2e(self, tmp_path):
         project_root, chain_dir = _setup_project(tmp_path)
@@ -520,18 +586,36 @@ class TestAgentE2E:
         assert state.current_sub_state == "START"
 
     def test_mcp_tool_kg_search_returns_delta(self, tmp_path):
+        """Endurecido (fix de asserts débiles): antes solo validaba status 200.
+
+        kg_search debe devolver ok=True con un result de búsqueda estructurado
+        (hits.total numérico). Un fallback (projects_list) o un result vacío
+        sin estructura ya no pasa. NOTA: hoy el route de kg_search descarta el
+        index (flags_builder solo pasa query) → consulta el índice default."""
         project_root, chain_dir = _setup_project(tmp_path)
         _setup_workflow(chain_dir)
         _setup_delta(chain_dir)
         _setup_workflow_state(chain_dir)
 
         resp = _mcp_call("kg_search", {
+            "_project_id": "walker",
             "query": "E2E MCP spec",
             "index": "delta",
         })
         assert resp.get("result", {}).get("isError") is not True
         data = _parse_mcp_result(resp)
         assert data.get("status_code") == 200
+        d = data.get("data", {})
+        assert d.get("type") != "projects_list", (
+            f"kg_search cayó al fallback projects_list: {d.get('type')}"
+        )
+        assert d.get("ok") is True, f"kg_search no ok: {d}"
+        result = d.get("result", {})
+        assert isinstance(result, dict), f"kg_search result no estructurado: {result}"
+        hits = result.get("hits", {})
+        assert isinstance(hits.get("total"), int), (
+            f"kg_search sin hits.total numérico: {result}"
+        )
 
     def test_mcp_tool_save_to_ckg_persists_decision(self, tmp_path):
         project_root, chain_dir = _setup_project(tmp_path)
@@ -548,9 +632,11 @@ class TestAgentE2E:
         assert resp.get("result", {}).get("isError") is not True
         data = _parse_mcp_result(resp)
         assert data.get("status_code") == 200
+        assert data.get("data", {}).get("type") != "projects_list"
         assert data.get("data", {}).get("ok") is True
 
     def test_mcp_tool_ckg_analyze_returns_nodes(self, tmp_path):
+        """Endurecido: ckg_analyze debe devolver ok=True con result de action."""
         project_root, chain_dir = _setup_project(tmp_path)
         _setup_workflow(chain_dir)
         _setup_delta(chain_dir)
@@ -564,8 +650,18 @@ class TestAgentE2E:
         assert resp.get("result", {}).get("isError") is not True
         data = _parse_mcp_result(resp)
         assert data.get("status_code") == 200
+        d = data.get("data", {})
+        assert d.get("type") != "projects_list", (
+            f"ckg_analyze cayó al fallback projects_list: {d.get('type')}"
+        )
+        assert d.get("ok") is True, f"ckg_analyze no ok: {d}"
+        result = d.get("result", {})
+        assert isinstance(result, dict) and "result" in result, (
+            f"ckg_analyze result sin acción: {result}"
+        )
 
     def test_mcp_tool_cpg_analyze_builds_graph(self, tmp_path):
+        """Endurecido: cpg_analyze debe devolver ok=True con análisis estructurado."""
         project_root, chain_dir = _setup_project(tmp_path)
         _setup_workflow(chain_dir)
         _setup_delta(chain_dir)
@@ -578,6 +674,15 @@ class TestAgentE2E:
         assert resp.get("result", {}).get("isError") is not True
         data = _parse_mcp_result(resp)
         assert data.get("status_code") == 200
+        d = data.get("data", {})
+        assert d.get("type") != "projects_list", (
+            f"cpg_analyze cayó al fallback projects_list: {d.get('type')}"
+        )
+        assert d.get("ok") is True, f"cpg_analyze no ok: {d}"
+        result = d.get("result", {})
+        assert isinstance(result, dict) and "result" in result, (
+            f"cpg_analyze result sin análisis: {result}"
+        )
 
     def test_mcp_tool_trace_push_creates_event(self, tmp_path):
         project_root, chain_dir = _setup_project(tmp_path)

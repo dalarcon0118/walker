@@ -325,8 +325,17 @@ _PROTOCOL_TEXT = _load_protocol_text()
 
 def _resolve_project_id(args: dict) -> str:
     """Resolves the project_id: uses args if provided, otherwise detects it
-    from the CWD (like git detects .git/)."""
-    pid = (args.get("project_id") or "").strip()
+    from the CWD (like git detects .git/).
+
+    SOPORTA AMBOS ALIAS (SSOT de convención): los tools del agente reciben
+    `_project_id` (underscore — el formato que leen las tasks kg/ckg/delta y
+    el que usa el MCP adapter en el dispatch Camino A/B), mientras que los
+    handlers REST/CLI leen `project_id`. ANTES solo se leía `project_id`: un
+    agente que llamara save_to_ckg/kg_search desde un CWD que no es el
+    proyecto (pasando `_project_id`) caía SILENCIOSAMENTE al fallback
+    projects_list (status 200) — el dispatch resolvía la tool equivocada.
+    """
+    pid = (args.get("project_id") or args.get("_project_id") or "").strip()
     if pid:
         return pid
     outcome = _resolve_project_core()
@@ -354,23 +363,23 @@ def _resolve_project_core() -> str:
 
 # ── Tool MCP → REST path translation (SSOT: ModuleRegistry) ───────────
 
-_MODULE_REGISTRY: Any = None
-
-
 def _get_module_registry() -> Any:
-    global _MODULE_REGISTRY
-    if _MODULE_REGISTRY is None:
-        outcome = _bootstrap_modules_core()
-        if is_successful(outcome):
-            _MODULE_REGISTRY = outcome.value_or({})
-        else:
-            logger.warning(
-                "module registry bootstrap failed (%s: %s); usando vacio",
-                type(outcome.failure()).__name__,
-                outcome.failure(),
-            )
-            _MODULE_REGISTRY = {}
-    return _MODULE_REGISTRY
+    """Devuelve el ModuleRegistry canónico de la app.
+
+    Sin cache propia (capa_rout.md D1): bootstrap_modules() ya mantiene el
+    singleton del ModuleRegistry (_APP_MODULE_REGISTRY) compartido con
+    get_module_service y tool_catalog. Este era el tercer punto de
+    composición del catálogo que podía divergir; ahora hay uno solo.
+    """
+    outcome = _bootstrap_modules_core()
+    if is_successful(outcome):
+        return outcome.value_or({})
+    logger.warning(
+        "module registry bootstrap failed (%s: %s); usando vacio",
+        type(outcome.failure()).__name__,
+        outcome.failure(),
+    )
+    return {}
 
 
 @safe
@@ -381,17 +390,63 @@ def _bootstrap_modules_core():
     return bootstrap_modules()
 
 
+def _dispatch_result_to_dict(result) -> dict:
+    """Normaliza el resultado del dispatcher a un dict JSON-safe.
+
+    El Router devuelve Response (con to_dict) o dict; cualquier otro tipo se
+    envuelve en {type: ok}. DRY: ambos caminos de _call_tool comparten esta
+    conversión (antes duplicada 2×).
+    """
+    if hasattr(result, "to_dict"):
+        return result.to_dict()
+    if isinstance(result, dict):
+        return result
+    return {"type": "ok", "data": {"result": result}}
+
+
 def _call_tool(name: str, args: dict) -> dict:
     """Translates an MCP tool to a REST path and delegates to the Router (SSOT).
 
-    Consulta ModuleRegistry para resolver tools y rutas. Si no está registrado,
-    fallback a task pública dinámica (descubrimiento automático).
+    DISPATCH EN DOS CAMINOS (capa_rout.md D2 — ARQ objetivo: "tool → route →
+    flags_builder → handler; fallback system_registry.execute"). Ambos caminos
+    convergen en _ROUTER.dispatch (el dispatcher único de la app); la
+    bifurcación es SOLO en la construcción de path/flags, que es inherente a
+    las dos categorías de tools:
+
+    Camino A — tool con route_def en el ModuleRegistry (status, submit,
+    transition, prepare, list, help): usa la metadata declarada del route
+    (path template + flags_builder + method). El handler es el del controller
+    REST (handle_status/handle_submit/...).
+
+    Camino B — fallback de task pública dinámica (ej. tasks que ningún
+    módulo expone con ruta): construye el path por convención
+    "{project_id}/{name}" y el Router lo resuelve vía ":projectId/:taskName"
+    (o el catch-all ":taskName" cuando no hay proyecto) → _exec_task →
+    handle_task → execute_public_task (el core compartido con el CLI,
+    SPEC-005 #5). Es el "fallback system_registry.execute" del ARQ: cualquier
+    task pública del registro es invocable por nombre aunque ningún mcp.py la
+    declare.
+
+    EDGE conocido (preexistente): el fallback despacha contra las rutas del
+    Router, así que una task cuyo nombre colisionara con una ruta de
+    controller (status, info, list, ...) matchearía ESA ruta REST en vez de
+    handle_task. En la práctica no ocurre: esas tasks tienen route_def
+    (Camino A) y los nombres públicos reales son kg_*/scan_*/build_*. Si el
+    edge molestara, la alternativa es despachar Camino B directo a
+    dispatch_public_task (como hacen los mcp.py de los módulos), que elimina
+    la colisión por completo.
+
+    NO ELIMINAR la bifurcación: es el diseño del ARQ (ruta declarada primero,
+    fallback dinámico después). Forzar Camino B por route_def exigiría
+    duplicar el catálogo de tasks en RestRoutes; y pasar el fallback fuera del
+    Router rompería el principio "todo pasa por el Router" (cli_interface).
     """
     registry = _get_module_registry()
     tool_def = registry.tool(name) if registry else None
     route_def = registry.route(name) if registry else None
 
     if tool_def and route_def:
+        # ── Camino A: tool con ruta declarada (metadata SSOT del route) ──
         project_id = _resolve_project_id(args)
         path = (
             route_def.path.format(project_id=project_id)
@@ -403,26 +458,27 @@ def _call_tool(name: str, args: dict) -> dict:
             if route_def.flags_builder
             else {"_payload": args.get("body", args)}
         )
+        # Canal de invocación (SPEC-002 G-W1): la tool vino por MCP, no por CLI.
+        # ANTES el dispatch pasaba por handle_task con channel="cli" hardcodeado
+        # y las tools con route_def (kg_search, save_to_ckg, ...) trazaban el
+        # canal equivocado en el TraceGraph. El handler lee `_channel`.
+        flags["_channel"] = "mcp"
         from . import _ROUTER
 
         result = _ROUTER.dispatch(path, flags, method=route_def.method or "POST")
-        if hasattr(result, "to_dict"):
-            return result.to_dict()
-        if isinstance(result, dict):
-            return result
-        return {"type": "ok", "data": {"result": result}}
+        return _dispatch_result_to_dict(result)
 
+    # ── Camino B: fallback task pública dinámica (sin ruta declarada) ──
+    # El Router resuelve ":projectId/:taskName" → handle_task →
+    # execute_public_task (mismo core que el CLI, SPEC-005 #5).
     project_id = _resolve_project_id(args)
     path = f"{project_id}/{name}"
     flags = {"_payload": args.get("body", args)}
+    flags["_channel"] = "mcp"
     from . import _ROUTER
 
     result = _ROUTER.dispatch(path, flags, method="POST")
-    if hasattr(result, "to_dict"):
-        return result.to_dict()
-    if isinstance(result, dict):
-        return result
-    return {"type": "ok", "data": {"result": result}}
+    return _dispatch_result_to_dict(result)
 
 
 # ── JSON-RPC 2.0 handler ────────────────────────────────────────────────────
@@ -605,6 +661,12 @@ def serve_stdio() -> int:
     def _reset_server_cache() -> None:
         global _SERVER
         _SERVER = None
+        # El ModuleRegistry (composition root D1) también se invalida: si un
+        # fix agrega/cambia tools o servicios DI, tools/list las refleja sin
+        # reiniciar el proceso (mismo patrón que el server stale).
+        from features.engine.bootstrap import reset_module_registry
+
+        reset_module_registry()
 
     for line in sys.stdin:
         line = line.strip()

@@ -27,9 +27,18 @@ import sys
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from .mcp_adapter import _handle_request, serve_stdio
-
 logger = logging.getLogger(__name__)
+
+# IMPORT LAZY (ciclo de imports con bootstrap_modules, D1):
+#   bootstrap_modules() → _discover_mcp_modules() importa este módulo
+#   (features.cli_interface.mcp) para registrar tools MCP. Si aquí se
+#   importara mcp_adapter a nivel de módulo, y mcp_adapter estuviera
+#   parcialmente inicializado (su init dispara bootstrap_modules vía
+#   _load_protocol_text/tool_catalog), el `from .mcp_adapter import ...`
+#   lanzaría ImportError y el singleton del ModuleRegistry quedaría cacheado
+#   SIN este módulo para toda la sesión (tests MCP/CLI rotos en cascada).
+#   El driver solo necesita _handle_request/serve_stdio en runtime (main /
+#   _self_test), así que el import va lazy dentro de las funciones.
 
 
 def _kill_previous_instances() -> None:
@@ -98,6 +107,8 @@ def _terminate_core(pid: int) -> None:
 
 def _self_test() -> int:
     """Verifica el protocolo MCP sin abrir stdio (modo test)."""
+    from .mcp_adapter import _handle_request
+
     init = _handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     tools = _handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     print("walker MCP (via Router) self-test OK")
@@ -110,6 +121,8 @@ def main() -> int:
     if "--self-test" in sys.argv:
         return _self_test()
     _kill_previous_instances()
+    from .mcp_adapter import serve_stdio
+
     return serve_stdio()
 
 

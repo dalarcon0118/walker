@@ -90,7 +90,7 @@ def _load_conventions(
     if not data_dir:
         return [], []
     try:
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.cognitive_knowledge import ckg_service
 
         # CodeKnowledgeGraph resuelve data/ckg.json.gz relativo al dir que
         # recibe. El CKG vive en <project_root>/data/, así que el project_root
@@ -98,7 +98,7 @@ def _load_conventions(
         project_root = data_dir
         if os.path.basename(project_root) == "data":
             project_root = os.path.dirname(project_root)
-        ckg = CodeKnowledgeGraph(project_root)
+        ckg = ckg_service(project_root)
         nodes = ckg.query({"type": "convention"}) or []
     except Exception as e:
         return [], [f"CKG query failed: {e}"]

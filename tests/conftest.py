@@ -171,7 +171,22 @@ def make_v2_project(tmpdir: str) -> tuple[str, str]:
 
 
 def register_mock_tasks(registry) -> None:
-    """Registra handlers mock para todos los actions del flujo E2E."""
+    """Registra handlers mock para las actions del flujo E2E artificial.
+
+    El flujo de test (test_workflow_e2e_real_bdd.py / test_agent_e2e_bdd.py)
+    escribe su PROPIO workflow.v3 con actions artificiales (gather_design,
+    user_gate, implement, scan_code, qa_run, ...) que no mapean 1:1 a
+    handlers reales con contratos compatibles (spec_task real valida 7
+    campos; review_code real requiere port CPG). Por eso los mocks PARCHAN
+    el registry (pueden pisar tasks reales): el test valida el ENGINE
+    (auto-advance, side effects, delta) con handlers deterministas.
+
+    Composition root real (capa_rout.md D1): el registry DEBE venir de
+    bootstrap()/bootstrap_tasks(). Si bootstrap() no puebla las tasks
+    esperadas, el test de completitud (test_registry_completeness) y el
+    test de regresión del camino real (test_workflow_production_di) fallan
+    — la rotura de composición es visible en CI, no enmascarada aquí.
+    """
     mock_tasks = {
         "plan_sprint": lambda ctx, data: {"status": "planned", "sprint_id": "sprint-e2e"},
         "spec_task": lambda ctx, data: {"task_id": "SPEC-001", "status": "specified"},
@@ -197,4 +212,136 @@ def register_side_effects(engine) -> None:
     from features.task_execution.side_effects.spec_transform import transform_spec
 
     engine.register("transform_spec", transform_spec)
+
+
+def make_orchestration_service(real: bool = True, **overrides):
+    """Construye un OrchestrationService con composition root válido (Gap 1).
+
+    El constructor de OrchestrationService ahora EXIGE task_registry y
+    side_effect_engine (composition root obligatorio, capa_rout.md D1) — no
+    hay defaults que fabriquen registries vacíos. Este helper ofrece los dos
+    caminos documentados:
+
+      real=True (Camino B): bootstrap() produce los registries poblados —
+      para tests que ejercitan submit/transition con tasks reales.
+      real=False (Camino A): registries mínimos explícitos (InMemoryTaskRegistry
+      + SideEffectEngine vacíos) — para tests que solo prueban prompts o
+      side effects y declaran que NO necesitan tasks.
+
+    Los overrides permiten inyectar repos fakes (tests de bajo nivel).
+    """
+    from features.engine.application.orchestrator import OrchestrationService
+
+    kwargs = dict(overrides)
+    if "task_registry" not in kwargs or "side_effect_engine" not in kwargs:
+        if real:
+            from features.engine.bootstrap import bootstrap
+
+            registry, se = bootstrap()
+        else:
+            from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
+            from features.engine.infrastructure.side_effects import SideEffectEngine
+
+            registry = InMemoryTaskRegistry()
+            se = SideEffectEngine()
+        kwargs.setdefault("task_registry", registry)
+        kwargs.setdefault("side_effect_engine", se)
+    return OrchestrationService(**kwargs)
+
+
+def make_project_with_active_sprint(tmp_path, project_id: str = "walker", sprint_id: str = "sprint-cli"):
+    """Monta un proyecto COMPLETO (cognitivo + spring activo + workflow state)
+    y lo registra en el registro global (reversible).
+
+    Uso para tests CLI/MCP que dependen de un sprint activo para resolver el
+    chain_dir (find_active_sprint) — el estado real del repo no debe ser
+    precondición de un test (test_get_status_resuelve_desde_cwd,
+    test_cli_walker_kg_diagnose_identifies_gap).
+
+    Retorna: (tmp_path_str, sprint_dir_str). El registro global queda
+    restaurado al final del test (context manager).
+    """
+    from features.delta_tracking import SpringService
+
+    cog = Path(tmp_path) / ".cognitive" / "projects" / project_id
+    cog.mkdir(parents=True)
+    (cog / "data").mkdir()
+    (cog / "data" / "project.json").write_text(json.dumps({
+        "project_id": project_id,
+        "name": project_id,
+        "repo_path": str(tmp_path),
+        "language": "python",
+        "framework": "unknown",
+        "status": "active",
+    }))
+    from features.delta_tracking.infrastructure.cognitive_delta_repo import (
+        CognitiveDeltaRepository,
+    )
+
+    CognitiveDeltaRepository(str(cog))
+    svc = SpringService(str(cog))
+    svc.create_spring(
+        sprint_id, goal="CLI sprint", status="active",
+        project_id=project_id, session_id="sess-cli",
+    )
+    sprint_dir = cog / "data" / "spring" / sprint_id
+    sprint_dir.mkdir(parents=True, exist_ok=True)
+    from features.engine.infrastructure.repositories import WorkflowStateRepository
+    from features.engine.domain.entities import WorkflowState
+
+    wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
+    wf.context["chain_dir"] = str(sprint_dir)
+    wf.context["project_id"] = project_id
+    wf.context["session_id"] = "sess-cli"
+    WorkflowStateRepository().save(str(sprint_dir), wf)
+
+    reg_ctx = register_project_in_global_registry(str(tmp_path), project_id).__enter__()
+    return str(tmp_path), str(sprint_dir), reg_ctx
+
+
+def register_project_in_global_registry(tmp_path: str, project_id: str = "walker", monkeypatch=None) -> None:
+    """Registra un proyecto temporal en el registro global data/projects.json.
+
+    REVERSIBLE: guarda el estado original y restaura al final del test (teardown
+    vía monkeypatch o manual). Los tests de smoke (MCP submit/transition) escriben
+    este registro para que find_active_sprint/resolve_paths resuelvan el proyecto
+    temporal — pero NO deben contaminar el registro real entre corridas.
+
+    Uso:
+        with register_project_in_global_registry(tmp_path):
+            ...  # el registro queda modificado dentro del bloque
+        # fuera del bloque: restaurado
+    """
+    from libs.path_resolver import get_walker_root
+
+    reg_path = get_walker_root() / "data" / "projects.json"
+    original = reg_path.read_bytes() if reg_path.is_file() else None
+
+    data = {"projects": {}}
+    if original:
+        try:
+            data = json.loads(original)
+        except (json.JSONDecodeError, OSError):
+            data = {"projects": {}}
+    data["projects"][project_id] = {
+        "project_id": project_id,
+        "name": project_id,
+        "repo_path": tmp_path,
+        "active": True,
+    }
+    reg_path.parent.mkdir(parents=True, exist_ok=True)
+    reg_path.write_text(json.dumps(data, indent=2))
+
+    class _Restorer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            if original is not None:
+                reg_path.write_bytes(original)
+            else:
+                reg_path.unlink(missing_ok=True)
+            return False
+
+    return _Restorer()
     engine.register("create_adr_from_spec", create_adr_from_spec)

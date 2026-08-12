@@ -175,7 +175,7 @@ class CheckHealthUseCase:
     @staticmethod
     def execute(project_id: str, repo_path: str, sprint_id: str = "") -> dict:
         from features.project import HealthReportAnalyzer
-        from features.code_analysis.application.use_cases import CheckCpgHealthUseCase
+        from features.code_analysis import CheckCpgHealthUseCase
         from features.cognitive_knowledge.application.use_cases import (
             CheckCkgHealthUseCase,
         )
@@ -513,9 +513,11 @@ def _copy_walkerignore_core(template: str, dest: str) -> None:
 @safe
 def _auto_scan_cpg_core(project_path: str) -> int:
     """Core puro: construye el CPG y devuelve nodos indexados (puede lanzar)."""
-    from features.code_analysis import CPGBuilder
+    from features.code_analysis import cpg_service
 
-    builder = CPGBuilder(project_path)
+    builder = cpg_service(project_dir=project_path)
+    if builder is None:
+        return 0
     result = builder.update() if hasattr(builder, "update") else builder.build()
     if isinstance(result, dict):
         stats = result.get("stats", result)

@@ -67,24 +67,16 @@ def build_intelligence_service(chain_dir: str, project_id: str = ""):
     project_id = paths.project_id or project_id
 
     # Importar los repos concretos SOLO al construir (evita acoplar el import top-level).
-    from features.code_analysis.infrastructure.cognitive_cpg_repo import (
-        CognitiveCpgRepository,
-    )
-    from features.cognitive_knowledge.infrastructure.cognitive_ckg_repo import (
-        CognitiveCkgRepository,
-    )
-    from features.delta_tracking.infrastructure.cognitive_delta_repo import (
-        CognitiveDeltaRepository,
-    )
-    from features.event_tracing.infrastructure.repository import (
-        CognitiveTraceRepository,
-    )
+    from features.code_analysis import cpg_repository
+    from features.cognitive_knowledge import ckg_repository
+    from features.delta_tracking import delta_repository
+    from features.event_tracing import trace_repository
 
     return TaskIntelligenceService(
-        cpg_repo=CognitiveCpgRepository(data_dir, project_id),
-        ckg_repo=CognitiveCkgRepository(project_root),
-        delta_repo=CognitiveDeltaRepository(project_root),
-        trace_repo=CognitiveTraceRepository(),
+        cpg_repo=cpg_repository(data_dir, project_id),
+        ckg_repo=ckg_repository(project_root),
+        delta_repo=delta_repository(project_root),
+        trace_repo=trace_repository(),
     )
 
 

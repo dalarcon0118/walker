@@ -18,10 +18,6 @@ from returns.pipeline import is_successful
 from returns.result import safe
 
 from features.project import ProjectService
-from features.cli_interface.application.project_use_cases import (
-    PrepareProjectUseCase,
-    CheckHealthUseCase,
-)
 from libs.shared_domain import ExecutionContext
 from ..infrastructure.contracts import Request, Response, action
 
@@ -412,7 +408,8 @@ def handle_list_projects(req: Request) -> Response:
 def handle_status(req: Request) -> Response:
     """Use case: show project health + workflow status.
 
-    Llama a CheckHealthUseCase directamente (el CLI es solo formateador).
+    Resuelve CheckHealthUseCase via get_module_service("workflow") (composition
+    root único, capa_rout.md D1) — el CLI es solo formateador.
     NOTA: el MCP es el SSOT para el agente (LLM). El CLI no debe consumir
     el tool MCP 'status' internamente: el circuito CLI->MCP->REST->CLI
     recaia en si mismo (recursion hasta "maximum recursion depth exceeded")
@@ -429,7 +426,9 @@ def handle_status(req: Request) -> Response:
             if repo_path:
                 req.set_repo_path(repo_path)
 
-        health = CheckHealthUseCase.execute(
+        from features.engine.bootstrap import get_module_service
+
+        health = get_module_service("workflow").status(
             project_id=project_id,
             repo_path=repo_path,
         )
@@ -502,7 +501,8 @@ def handle_status(req: Request) -> Response:
 def handle_prepare(req: Request) -> Response:
     """Use case: prepare project (walker prepare).
 
-    Llama a PrepareProjectUseCase directamente (el CLI es solo formateador).
+    Resuelve PrepareProjectUseCase via get_module_service("workflow")
+    (composition root único, capa_rout.md D1) — el CLI es solo formateador.
     El antiguo circuito CLI->MCP->REST envolvia el payload del use case bajo
     'data' del Response, y prepare_output leía claves planas -> todo '?'
     aunque el manifest se hubiera creado correctamente.
@@ -513,7 +513,9 @@ def handle_prepare(req: Request) -> Response:
             req.project_id or req.flags.get("path", os.getcwd())
         )
 
-        result = PrepareProjectUseCase.execute(
+        from features.engine.bootstrap import get_module_service
+
+        result = get_module_service("workflow").prepare(
             project_path=project_path,
             args_flags=req.flags,
         )
@@ -596,28 +598,17 @@ def handle_submit(req: Request) -> Response:
                 ],
             )
 
-        from features.engine.application.use_cases import SubmitDataUseCase
-        from features.engine.infrastructure.repositories import (
-            WorkflowRepository,
-            WorkflowStateRepository,
-            ScriptRunner,
+        # Composition root único (capa_rout.md D1): los use cases del workflow
+        # se resuelven via get_module_service("workflow") — el container DI de
+        # bootstrap_modules. Antes se instanciaban WorkflowRepository()/
+        # WorkflowStateRepository()/ScriptRunner() a mano en cada handler. La
+        # factory construye una instancia fresca del use case por llamada
+        # (SubmitDataUseCase acumula self.events en execute).
+        from features.engine.bootstrap import get_module_service
+
+        result = get_module_service("workflow").submit(
+            chain_dir, fields=submit_data
         )
-
-        tracer = None
-        try:
-            from features.engine.infrastructure.trace_log import TraceLogger
-
-            tracer = TraceLogger()
-        except Exception:
-            pass
-
-        uc = SubmitDataUseCase(
-            workflow_repo=WorkflowRepository(),
-            state_repo=WorkflowStateRepository(),
-            script_runner=ScriptRunner(),
-            tracer=tracer,
-        )
-        result = uc.execute(chain_dir, fields=submit_data)
 
         sub_state = result.get("sub_state", "?")
         fields = list(submit_data.keys())
@@ -691,19 +682,9 @@ def handle_transition(req: Request) -> Response:
                 ],
             )
 
-        from features.engine.application.use_cases import TransitionUseCase
-        from features.engine.infrastructure.repositories import (
-            WorkflowRepository,
-            WorkflowStateRepository,
-            ScriptRunner,
-        )
+        from features.engine.bootstrap import get_module_service
 
-        uc = TransitionUseCase(
-            workflow_repo=WorkflowRepository(),
-            state_repo=WorkflowStateRepository(),
-            script_runner=ScriptRunner(),
-        )
-        result = uc.execute(
+        result = get_module_service("workflow").transition(
             chain_dir,
             gate_name=gate,
             skip_preconditions=force,
@@ -746,9 +727,6 @@ def handle_task(req: Request) -> Response:
                 status_code=400,
                 next_actions=[presenter.go_help()],
             )
-        ctx = ExecutionContext.create(
-            session_id="cli", chain_dir=chain_dir, channel="cli"
-        )
         # Pasar project_id a la task para que pueda resolver paths sin chain_dir
         task_data = dict(req.flags)
         task_data.setdefault("_project_id", req.project_id)
@@ -758,39 +736,46 @@ def handle_task(req: Request) -> Response:
         if isinstance(payload, dict):
             for k, v in payload.items():
                 task_data.setdefault(k, v)
-        from features.engine.bootstrap import bootstrap
 
-        registry, _ = bootstrap()
+        # ── Dispatch único (SPEC-005 #5): mismo core que el MCP. La visibilidad
+        #    interna vive SOLO en SystemTaskRegistry (metadata.scope SSOT). ──
+        from features.engine.application.task_dispatcher import execute_public_task
 
-        # ── Regla de visibilidad: tareas internas del workflow no se invocan desde el CLI ──
-        info = registry.get_task_info(task_name)
-        if info and info.get("scope", "public") == "internal":
+        # Canal de invocación (SPEC-002 G-W1): el MCP adapter inyecta
+        # _channel="mcp" en los flags (Camino A); el CLI no lo pasa → "cli".
+        # ANTES el MCP despachaba por el Router REST con channel="cli" y las
+        # tools con route_def (kg_search, save_to_ckg, ...) trazaban el canal
+        # equivocado en el TraceGraph.
+        channel = req.flags.get("_channel", "cli")
+        outcome = execute_public_task(
+            task_name,
+            req.project_id,
+            chain_dir,
+            task_data,
+            session_id="cli",
+            channel=channel,
+        )
+        if not outcome.get("ok"):
+            if outcome.get("blocked"):
+                return Response.error(
+                    f"Task '{task_name}' es INTERNA del workflow y no se invoca directamente. "
+                    f"El workflow la ejecuta al avanzar; usa 'walker {req.project_id}/status' "
+                    f"para ver el sub-estado y 'walker {req.project_id}/submit' o "
+                    f"'walker {req.project_id}/transition <gate>' para avanzar.",
+                    status_code=400,
+                    next_actions=[
+                        action(
+                            f"walker {req.project_id}/status",
+                            "ver el sub-estado actual e instrucciones",
+                        ),
+                        action(
+                            f"walker {req.project_id}/submit '{{\"...\"}}'",
+                            "enviar los datos del nodo para avanzar",
+                        ),
+                    ],
+                )
             return Response.error(
-                f"Task '{task_name}' es INTERNA del workflow y no se invoca directamente. "
-                f"El workflow la ejecuta al avanzar; usa 'walker {req.project_id}/status' "
-                f"para ver el sub-estado y 'walker {req.project_id}/submit' o "
-                f"'walker {req.project_id}/transition <gate>' para avanzar.",
-                status_code=400,
-                next_actions=[
-                    action(
-                        f"walker {req.project_id}/status",
-                        "ver el sub-estado actual e instrucciones",
-                    ),
-                    action(
-                        f"walker {req.project_id}/submit '{{\"...\"}}'",
-                        "enviar los datos del nodo para avanzar",
-                    ),
-                ],
-            )
-
-        result = registry.execute(task_name, ctx, task_data)
-        result_data = result.data or {}
-        if not result.ok:
-            result_data["error"] = result.error or result_data.get(
-                "error", "Task failed"
-            )
-            return Response.error(
-                result_data["error"],
+                outcome.get("error", "Task failed"),
                 status_code=400,
                 next_actions=[
                     action(
@@ -798,6 +783,7 @@ def handle_task(req: Request) -> Response:
                     ),
                 ],
             )
+        result_data = outcome.get("data", {})
         # Task exitosa: sugerir siguiente acción según el tipo de task
         next_actions = [
             presenter.go_status(req.project_id),
@@ -1158,19 +1144,21 @@ def _open_cognitive_graph_core():
     """
     from features.engine.bootstrap import get_module_service
 
-    root = "."
-    try:
-        from libs.path_resolver import get_cognitive_dir, resolve_project_root
-
-        resolved = resolve_project_root(".")
-        if resolved:
-            root = resolved
-        else:
-            root = str(get_cognitive_dir())
-    except Exception:
-        pass
-
+    # Result pattern: el core @safe nunca lanza; ante fallo de resolución se
+    # degrada a "." (CWD) sin except.
+    root = _resolve_cognitive_root_core().value_or(".")
     return get_module_service("cognitive_graph")(root)
+
+
+@safe
+def _resolve_cognitive_root_core() -> str:
+    """Core puro: resuelve la raíz cognitiva canónica del proyecto (puede lanzar)."""
+    from libs.path_resolver import get_cognitive_dir, resolve_project_root
+
+    resolved = resolve_project_root(".")
+    if resolved:
+        return resolved
+    return str(get_cognitive_dir())
 
 
 @safe

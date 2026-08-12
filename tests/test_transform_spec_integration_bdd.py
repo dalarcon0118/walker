@@ -9,6 +9,7 @@ import pytest
 from features.engine.infrastructure.side_effects import SideEffectEngine
 from features.engine.bootstrap import bootstrap_side_effects
 from features.delta_tracking import spring_service
+from features.delta_tracking.domain.entities import Spec
 from tests.conftest import make_chain_dir
 
 
@@ -155,3 +156,157 @@ class TestTransformSpecIntegration:
         assert spec.get("decision") == "Usar microservicios"
         assert spec.get("architecture") == "API Gateway + servicios independientes"
         assert spec.get("implementation") == "Implementar 3 servicios nuevos"
+
+    # ── SPEC-005: constitución de la spec approved (invariants/project_snapshot) ──
+
+    def test_spec_entity_approved_constitution_roundtrip(self):
+        """La entidad Spec persiste invariants/project_snapshot en approved."""
+        spec = Spec(
+            spring_id="s",
+            objective="o",
+            spec_index=0,
+            status="approved",
+            invariants=["INV-001: WorkflowState nunca se pierde", "INV-012: side effects atómicos"],
+            project_snapshot={
+                "cpg_top": [{"name": "AuthService", "type": "class"}],
+                "delta_refs": ["SPEC-001"],
+                "ckg_decisions": 15,
+            },
+        )
+        data = spec.to_dict()
+        assert data["invariants"] == [
+            "INV-001: WorkflowState nunca se pierde",
+            "INV-012: side effects atómicos",
+        ]
+        assert data["project_snapshot"]["cpg_top"][0]["name"] == "AuthService"
+        restored = Spec.from_dict(data)
+        assert restored.invariants == spec.invariants
+        assert restored.project_snapshot == spec.project_snapshot
+        assert restored.status == "approved"
+
+    def test_spec_entity_constitution_defaults_empty(self):
+        """Los campos nuevos no rompen specs existentes (defaults vacíos)."""
+        spec = Spec(spring_id="s", objective="o", spec_index=0, status="draft")
+        assert spec.invariants == []
+        assert spec.project_snapshot == {}
+        data = spec.to_dict()
+        assert data["invariants"] == []
+        assert data["project_snapshot"] == {}
+        assert Spec.from_dict(data).invariants == []
+
+    def test_transform_spec_approved_persists_constitution_in_delta(self, tmp_path):
+        """Approved persiste invariants/project_snapshot en el índice delta."""
+        chain_dir = _setup_project(tmp_path)
+        svc = spring_service(chain_dir=chain_dir)
+        assert svc is not None
+        spring_id = svc.get_spring_id(chain_dir)
+        svc.create_spring(spring_id, goal="Test goal", project_id="test")
+        svc.add_spec(
+            spring_id, objective="Test spec", domain="test",
+            spec_type="feature", spec_index=0, status="draft",
+        )
+
+        _write_workflow_state(chain_dir, {
+            "SPRINT.TASK_SPEC": {
+                "fields": {
+                    "decision_data": {
+                        "decision": "Usar composition root único",
+                        "architecture": "bootstrap(separated=True)",
+                        "implementation": "Unificar dispatchers",
+                        "invariants": ["INV-001", "INV-012"],
+                        "project_snapshot": {
+                            "cpg_top": [{"name": "App", "type": "file"}],
+                            "delta_refs": ["SPEC-001"],
+                            "ckg_decisions": 15,
+                        },
+                    },
+                }
+            }
+        })
+
+        ctx = MockCtx(chain_dir=chain_dir, node_key="SPRINT_PLANNING.TASK_REVIEW")
+        params = {
+            "status": "approved",
+            "fields": {
+                "decision": "NODE.TASK_SPEC.output.decision_data",
+                "architecture": "NODE.TASK_SPEC.output.decision_data",
+                "implementation": "NODE.TASK_SPEC.output.decision_data",
+                "invariants": "NODE.TASK_SPEC.output.decision_data",
+                "project_snapshot": "NODE.TASK_SPEC.output.decision_data",
+            },
+        }
+
+        engine = SideEffectEngine()
+        bootstrap_side_effects(engine)
+        result = engine._handlers["transform_spec"](ctx, params)
+        assert result.get("ok") is True, result.get("error")
+        assert result.get("status") == "approved"
+        assert "invariants" in result.get("fields_applied", [])
+        assert "project_snapshot" in result.get("fields_applied", [])
+
+        svc_after = spring_service(chain_dir=chain_dir)
+        spec = svc_after.get_specs(spring_id)[0]
+        assert spec.get("invariants") == ["INV-001", "INV-012"]
+        assert spec.get("project_snapshot", {}).get("cpg_top") == [
+            {"name": "App", "type": "file"}
+        ]
+        assert spec.get("project_snapshot", {}).get("ckg_decisions") == 15
+        assert spec.get("status") == "approved"
+
+    def test_sprint_node_approval_contract_includes_constitution(self):
+        """El nodo real de aprobación (sprint.node.json) pide y persiste la
+        constitución de la spec approved (SPEC-005 #2)."""
+        with open("features/engine/workflow/nodes/sprint.node.json") as f:
+            node = json.load(f)
+        sub_states = {s["key"]: s for s in node["sub_states"]}
+        decision_data = sub_states["TASK_SPEC"]["output_schema"]["properties"][
+            "decision_data"
+        ]["properties"]
+        assert "invariants" in decision_data
+        assert "project_snapshot" in decision_data
+        transform = next(
+            se
+            for se in sub_states["TASK_REVIEW"]["side_effects"]
+            if se["type"] == "transform_spec"
+            and se["params"].get("status") == "approved"
+        )
+        fields = transform["params"]["fields"]
+        assert fields["invariants"] == "NODE.TASK_SPEC.output.decision_data"
+        assert fields["project_snapshot"] == "NODE.TASK_SPEC.output.decision_data"
+
+    def test_transform_spec_unresolved_ref_fails_without_persisting(self, tmp_path):
+        """Ref NODE. sin resolver → ok=False y NADA se persiste (ni refs crudas)."""
+        chain_dir = _setup_project(tmp_path)
+        svc = spring_service(chain_dir=chain_dir)
+        assert svc is not None
+        spring_id = svc.get_spring_id(chain_dir)
+        svc.create_spring(spring_id, goal="Test goal", project_id="test")
+        svc.add_spec(
+            spring_id, objective="Test spec", domain="test",
+            spec_type="feature", spec_index=0, status="draft",
+        )
+
+        ctx = MockCtx(chain_dir=chain_dir, node_key="SPRINT_PLANNING.TASK_REVIEW")
+        params = {
+            "status": "approved",
+            "fields": {
+                "decision": "NODE.NO_EXISTE.output.decision_data",
+                "invariants": "NODE.NO_EXISTE.output.invariants",
+            },
+        }
+
+        engine = SideEffectEngine()
+        bootstrap_side_effects(engine)
+        result = engine._handlers["transform_spec"](ctx, params)
+        assert result.get("ok") is False
+        assert "NODE." in result.get("error", "")
+        assert "decision" in result.get("unresolved_refs", [])
+        assert "invariants" in result.get("unresolved_refs", [])
+
+        # La spec queda intacta: sin NODE. crudas en el delta y sin decision.
+        svc_after = spring_service(chain_dir=chain_dir)
+        spec = svc_after.get_specs(spring_id)[0]
+        assert spec.get("status") == "draft"
+        assert spec.get("decision") in (None, {})
+        raw = json.dumps(spec)
+        assert "NODE." not in raw

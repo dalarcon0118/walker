@@ -28,18 +28,14 @@ logger = logging.getLogger(__name__)
 @safe
 def _resolve_default_port(chain_dir: str) -> Any:
     """Core puro: resuelve el adaptador CKG (puede lanzar)."""
-    from features.cognitive_knowledge.infrastructure.adapters.walker_ckg_adapter import (
-        WalkerCkgAdapter,
-    )
-    from features.cognitive_knowledge.infrastructure.cognitive_ckg_repo import (
-        CognitiveCkgRepository,
-    )
-    from features.project import ProjectService
+    from features.cognitive_knowledge import ckg_analysis_adapter
 
-    paths = ProjectService.resolve_paths(chain_dir)
-    data_dir = str(paths.project_root)
-    repo = CognitiveCkgRepository(data_dir)
-    return WalkerCkgAdapter(repo)
+    adapter = ckg_analysis_adapter(chain_dir)
+    if adapter is None:
+        raise RuntimeError(
+            f"no se pudo construir ckg_analysis_adapter({chain_dir!r})"
+        )
+    return adapter
 
 
 @safe
@@ -69,9 +65,9 @@ def _dispatch_fallback(action: str, data: dict, chain_dir: str) -> dict:
             else {"error": str(ckg_result.failure())}
         )
     elif action == "active":
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.cognitive_knowledge import ckg_service
 
-        ckg = CodeKnowledgeGraph(project_root)
+        ckg = ckg_service(project_root)
         type_name = data.get("type", "")
         result["result"] = ckg.query(
             {"status": "active", "type": type_name}
@@ -80,9 +76,9 @@ def _dispatch_fallback(action: str, data: dict, chain_dir: str) -> dict:
         )
     elif action == "context":
         files = data.get("files", [])
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.cognitive_knowledge import ckg_service
 
-        ckg = CodeKnowledgeGraph(project_root)
+        ckg = ckg_service(project_root)
         all_nodes = ckg.query({})
         relevant = []
         for doc in all_nodes:

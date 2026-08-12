@@ -159,11 +159,11 @@ class ContractEvaluator:
         if not chain_dir:
             return f"no chain_dir para verificar decision '{decision}' en CKG"
         try:
-            from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+            from features.cognitive_knowledge import ckg_service
             from features.project import ProjectService
 
             paths = ProjectService.resolve_paths(chain_dir)
-            ckg = CodeKnowledgeGraph(str(paths.project_root))
+            ckg = ckg_service(str(paths.project_root))
             # Filtrar por metadata.decision EN LA CONSULTA (no en resultados):
             # el search limita a 50 hits y las decisiones recientes quedarian
             # fuera si solo se filtra despues. Con el filtro estructurado el

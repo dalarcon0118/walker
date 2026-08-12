@@ -912,9 +912,11 @@ class _FakeCtx:
 
 @given("un OrchestrationService con repos falsos")
 def _svc_fakes(mg_ctx: dict):
-    from features.engine.application.orchestrator import OrchestrationService
+    from tests.conftest import make_orchestration_service
 
-    svc = OrchestrationService()
+    # Camino A: registry mínimo explícito — el test reemplaza los repos por
+    # fakes y solo prueba dispatch de side effects, no ejecuta tasks.
+    svc = make_orchestration_service(real=False)
     svc._workflow_repo = _FakeWorkflowRepo()
     svc._state_repo = _FakeStateRepo()
     svc._tracer = _FakeTracer()

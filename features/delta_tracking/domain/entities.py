@@ -42,10 +42,13 @@ class Spec:
     risks: dict = field(default_factory=dict)
     preconditions: list[str] = field(default_factory=list)
 
-    # Campos de estado approved (solo para type=decision)
+    # Campos de estado approved (decisiones + constitución de la spec, SPEC-005)
     decision: dict = field(default_factory=dict)
     architecture: dict = field(default_factory=dict)
     implementation: dict = field(default_factory=dict)
+    # Constitución (SPEC-005): invariantes del CKG y snapshot top-N del CPG + refs delta
+    invariants: list[str] = field(default_factory=list)
+    project_snapshot: dict = field(default_factory=dict)
 
     # Campos de estado in_progress
     loop_verification: list[str] = field(default_factory=list)
@@ -117,6 +120,8 @@ class Spec:
             "decision": self.decision or {},
             "architecture": self.architecture or {},
             "implementation": self.implementation or {},
+            "invariants": self.invariants or [],
+            "project_snapshot": self.project_snapshot or {},
             # Campos in_progress
             "loop_verification": self.loop_verification or [],
             "loop_acceptance": self.loop_acceptance,
@@ -166,6 +171,8 @@ class Spec:
             decision=data.get("decision", {}),
             architecture=data.get("architecture", {}),
             implementation=data.get("implementation", {}),
+            invariants=data.get("invariants", []),
+            project_snapshot=data.get("project_snapshot", {}),
             # Campos in_progress
             loop_verification=data.get("loop_verification", []),
             loop_acceptance=data.get("loop_acceptance", "all"),

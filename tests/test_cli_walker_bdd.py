@@ -16,7 +16,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.conftest import make_walker_project
+from tests.conftest import make_project_with_active_sprint, make_walker_project
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -30,14 +30,26 @@ def _setup_project(tmp_path: Path) -> Path:
 def _run_main(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
     captured_out = StringIO()
     captured_err = StringIO()
-    with (
-        patch.object(sys, "stdout", captured_out),
-        patch.object(sys, "stderr", captured_err),
-        patch.object(sys, "argv", ["walker"] + args),
-    ):
-        from features.cli_interface import main
+    old_cwd = None
+    if cwd is not None:
+        import os
 
-        rc = main(args)
+        old_cwd = os.getcwd()
+        os.chdir(cwd)
+    try:
+        with (
+            patch.object(sys, "stdout", captured_out),
+            patch.object(sys, "stderr", captured_err),
+            patch.object(sys, "argv", ["walker"] + args),
+        ):
+            from features.cli_interface import main
+
+            rc = main(args)
+    finally:
+        if old_cwd is not None:
+            import os
+
+            os.chdir(old_cwd)
     return rc, captured_out.getvalue(), captured_err.getvalue()
 
 
@@ -82,7 +94,23 @@ class TestCliWalker:
         assert "ok" in out.lower() or "decision" in out.lower()
 
     def test_cli_walker_kg_diagnose_identifies_gap(self, tmp_path):
-        project_dir = _setup_project(tmp_path)
-        rc, out, err = _run_main(["kg_diagnose", "--task_id", "SPEC-003"], cwd=project_dir)
-        assert rc == 0
-        assert "SPEC-003" in out or "diagnose" in out.lower()
+        # Fix de test dependiente del entorno: kg_diagnose requiere un
+        # chain_dir resolvible (sprint activo registrado). ANTES montaba solo
+        # .cognitive/ sin sprint → el CLI no resolvía proyecto y la task
+        # fallaba con "chain_dir vacio" (fallo por estado del repo, no del
+        # código). Ahora monta el sprint activo real y restaura el registro.
+        tmp, sprint_dir, reg_ctx = make_project_with_active_sprint(tmp_path)
+        try:
+            rc, out, err = _run_main(["kg_diagnose", "--task_id", "SPEC-003"], cwd=Path(tmp))
+            assert rc == 0, f"rc={rc}, out={out!r}, err={err!r}"
+            assert "SPEC-003" in out or "diagnose" in out.lower(), (
+                f"sin diagnóstico: out={out!r}"
+            )
+        finally:
+            reg_ctx.__exit__(None, None, None)
+            from features.engine.bootstrap import reset_module_registry
+
+            reset_module_registry()
+            from features.cli_interface import mcp_adapter
+
+            mcp_adapter._SERVER = None

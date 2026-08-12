@@ -73,8 +73,15 @@ class OrchestrationService:
         transition(ctx, gate): Transiciona entre nodos con contracts
         status(ctx):        Snapshot del estado actual
 
-    Uso desde CLI:
-        svc = OrchestrationService()
+    Composition root OBLIGATORIO (capa_rout.md D1): el constructor exige
+    task_registry y side_effect_engine — nunca se crea con registries vacíos.
+    Uso desde CLI (resolviendo el composition root real):
+        from features.engine.bootstrap import bootstrap
+        registry, se_engine = bootstrap()
+        svc = OrchestrationService(
+            task_registry=registry,
+            side_effect_engine=se_engine,
+        )
         result = svc.step(exec_ctx)  # auto → ejecuta, manual → espera submit
         result = svc.submit(exec_ctx, {"decision": "approve"})
         result = svc.transition(exec_ctx, "task_complete")
@@ -98,12 +105,29 @@ class OrchestrationService:
         self._state_repo = state_repo or WorkflowStateRepository()
         self._script_runner = script_runner or ScriptRunner()
         self._tracer = tracer or TraceLogger()
-        self._task_registry = task_registry or DomainTaskRegistry(tracer=self._tracer)
+
+        # Composition root obligatorio (capa_rout.md D1, Gap 1): task_registry
+        # y side_effect_engine son REQUERIDOS — no hay defaults que fabriquen
+        # registries vacíos. El engine solo se construye con registries
+        # poblados por bootstrap() (o un registry mínimo EXPLÍCITO en tests).
+        # ANTES: task_registry or DomainTaskRegistry() creaba un registry vacío
+        # silencioso (bug C2: el flujo CLI/MCP avanzaba sin ejecutar actions).
+        # Si faltan, falla el constructor (fail-fast) — no hay composición
+        # parcial del engine.
+        if task_registry is None:
+            raise ValueError(
+                "OrchestrationService requiere task_registry (composition root "
+                "obligatorio). Usa bootstrap() o get_module_service('task_registry')."
+            )
+        if side_effect_engine is None:
+            raise ValueError(
+                "OrchestrationService requiere side_effect_engine (composition "
+                "root obligatorio). Usa bootstrap() o "
+                "get_module_service('side_effect_engine')."
+            )
+        self._task_registry = task_registry
         self._contract_validator = contract_validator or ContractValidator
-        self._side_effect_engine = side_effect_engine or SideEffectEngine(
-            task_registry=self._task_registry,
-            tracer=self._tracer,
-        )
+        self._side_effect_engine = side_effect_engine
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
         self._signal_bus = signal_bus or SignalBus()

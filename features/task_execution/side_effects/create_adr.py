@@ -86,7 +86,7 @@ def create_adr_from_spec(ctx: Any, params: dict[str, Any]) -> dict[str, Any]:
 
     try:
         from features.delta_tracking import spring_service as _spring_service
-        from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+        from features.cognitive_knowledge import ckg_service
         from features.project import ProjectService
 
         spring_svc = _spring_service(chain_dir=chain_dir)
@@ -108,7 +108,7 @@ def create_adr_from_spec(ctx: Any, params: dict[str, Any]) -> dict[str, Any]:
 
         paths = ProjectService.resolve_paths(chain_dir)
         project_root = str(paths.project_root)
-        ckg = CodeKnowledgeGraph(project_root)
+        ckg = ckg_service(project_root)
 
         existing_adrs = ckg.query({"type": "decision", "metadata.spec_id": spec_id})
         if existing_adrs:

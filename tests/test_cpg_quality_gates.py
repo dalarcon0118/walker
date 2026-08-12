@@ -81,9 +81,11 @@ def _bdd_result_fail(qg_ctx: dict):
 
 @when("el orchestrator despacha los side-effects")
 def _bdd_dispatch(qg_ctx: dict):
-    from features.engine.application.orchestrator import OrchestrationService
+    from tests.conftest import make_orchestration_service
 
-    svc = OrchestrationService()
+    # Camino A: registry mínimo explícito — el test solo despacha side
+    # effects con repos fakes, no ejecuta tasks (composition root obligatorio).
+    svc = make_orchestration_service(real=False)
 
     class FakeWorkflowRepo:
         def load(self, chain_dir):
@@ -163,9 +165,9 @@ def _bdd_result_ok(qg_ctx: dict):
 
 @then("no se dispara ningún evento")
 def _bdd_no_dispara():
-    from features.engine.application.orchestrator import OrchestrationService
+    from tests.conftest import make_orchestration_service
 
-    svc = OrchestrationService()
+    svc = make_orchestration_service(real=False)
 
     class FakeWorkflowRepo:
         def find_event_handler(self, name):

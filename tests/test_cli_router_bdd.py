@@ -20,6 +20,22 @@ def cli_ctx() -> dict:
     return {}
 
 
+@pytest.fixture(autouse=True)
+def _restore_global_registry(cli_ctx):
+    """Restaura el registro global registrado por los given que montan sprint."""
+    yield
+    reg_ctx = cli_ctx.get("_reg_ctx")
+    if reg_ctx is not None:
+        reg_ctx.__exit__(None, None, None)
+        cli_ctx["_reg_ctx"] = None
+        from features.engine.bootstrap import reset_module_registry
+
+        reset_module_registry()
+        from features.cli_interface import mcp_adapter
+
+        mcp_adapter._SERVER = None
+
+
 def _run_main(args: list[str]) -> tuple[int, str, str]:
     captured_out = StringIO()
     captured_err = StringIO()
@@ -43,7 +59,17 @@ def _main_empty(cli_ctx: dict):
 
 
 @given('que ejecuto main con ["status"]')
-def _main_status(cli_ctx: dict):
+def _main_status(cli_ctx: dict, tmp_path, monkeypatch):
+    # Fix de test dependiente del entorno: `walker status` desde el CWD real
+    # mostraba "no active sprint" (el repo no tiene sprint activo) y la salida
+    # no contenía "workflow" — fallo por estado del repo, no del código.
+    # Se monta un sprint activo temporal y se cambia el CWD para que
+    # resolve_from_registry lo encuentre.
+    from tests.conftest import make_project_with_active_sprint
+
+    tmp, sprint_dir, reg_ctx = make_project_with_active_sprint(tmp_path)
+    monkeypatch.chdir(tmp)
+    cli_ctx["_reg_ctx"] = reg_ctx
     rc, out, err = _run_main(["status"])
     cli_ctx["rc"] = rc
     cli_ctx["out"] = out

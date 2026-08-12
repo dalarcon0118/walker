@@ -29,7 +29,13 @@ from __future__ import annotations
 from features.delta_tracking.application.ports.delta_repository import DeltaRepository
 from features.delta_tracking.application.services.spring_service import SpringService
 
-__all__ = ["SpringService", "DeltaRepository", "spring_service", "ConflictDetector"]
+__all__ = [
+    "SpringService",
+    "DeltaRepository",
+    "spring_service",
+    "delta_repository",
+    "ConflictDetector",
+]
 
 
 def spring_service(
@@ -60,3 +66,27 @@ def spring_service(
     if project_root:
         return SpringService(project_root, repo=repo, graph_factory=graph_factory)
     return None
+
+
+def delta_repository(
+    project_root: str = "",
+    graph_factory=None,
+) -> DeltaRepository | None:
+    """Factory del repo Delta (CognitiveDeltaRepository por defecto).
+
+    Punto unico de construccion del repositorio: los consumidores reciben
+    el port DeltaRepository y no importan infraestructura concreta. Devuelve
+    None si no hay project_root resolvible.
+
+    Args:
+        project_root: Directorio cognitivo del proyecto.
+        graph_factory: Factory para CognitiveGraph (inyeccion DI). Si no se
+              provee, CognitiveDeltaRepository lo resuelve internamente.
+    """
+    if not project_root:
+        return None
+    from features.delta_tracking.infrastructure.cognitive_delta_repo import (
+        CognitiveDeltaRepository,
+    )
+
+    return CognitiveDeltaRepository(project_root, graph_factory=graph_factory)

@@ -1,8 +1,8 @@
 """kg_extract — Extract knowledge from code via CPG and guide the LLM to populate CKG.
 
 Flow:
-  1. Reads the full CPG (functions, classes, files, modules)
-  2. Reads the current CKG (to avoid duplicates)
+  1. Reads the full CPG (functions, classes, files, modules) via CpgQueryService
+  2. Reads the current CKG (to avoid duplicates) via CodeKnowledgeGraph
   3. Returns a structured analysis for the LLM to:
      a) Identify architecture patterns
      b) Detect coding conventions
@@ -11,6 +11,20 @@ Flow:
      e) Capture implicit business rules
   4. The LLM analyzes and saves via save_to_ckg
 
+Composición (D3): la task es un adapter delgado — el acceso a datos pasa por
+los SERVICIOS DE MÓDULO, nunca por libs ni por el Searcher DI:
+  - CPG → cpg_service(chain_dir) → CpgQueryService.grep (features.code_analysis)
+  - CKG → ckg_service(project_root) → CodeKnowledgeGraph.query (features.cognitive_knowledge)
+  - project_id → ProjectService.from_project_id (features.project)
+
+CONTRATO DE SALIDA (vs la versión previa con Searcher DI):
+  - CKG: query() del módulo excluye nodos superseded/deprecated por defecto
+    (el Searcher crudo devolvía todos los docs) — deseable para "evitar
+    duplicados", pero es un filtro activo, no un dump.
+  - cpg_analysis: ante fallo parcial de un tipo se devuelve lista vacía y se
+    loggea (patrón returns); ya no se inyectan claves _error_cpg_* en el
+    output. _error_ckg sí se preserva por compatibilidad con consumidores.
+
 Usage:
     walker <project>/kg_extract
     walker <project>/kg_extract '{"scope":"functions"}'
@@ -18,8 +32,13 @@ Usage:
 
 from __future__ import annotations
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
+
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from libs.shared_domain import ExecutionContext, TaskResult
 from libs.shared_domain.validated_vo import TaskInput
 from features.project import ProjectService
@@ -44,37 +63,103 @@ class KgExtractInput(TaskInput):
         return ""
 
 
-def _get_cg(chain_dir: str):
-    """Return searcher from chain_dir, resuelto por DI (clave cognitive_searcher)."""
-    from features.engine.bootstrap import get_module_service
-
-    paths = ProjectService.resolve_paths(chain_dir)
-    searcher_factory = get_module_service("cognitive_searcher")
-    return searcher_factory(paths.project_root)
+# ── Composición: servicios de módulo (composition roots) ──────────────
 
 
-def _project_cg(project_id: str):
-    """Resolve searcher from project_id (no chain_dir needed) via path_resolver DI."""
-    from features.engine.bootstrap import get_module_service
-    import json
-    import os
+@safe
+def _resolve_cpg_core(chain_dir: str):
+    """Core puro: resuelve el CpgQueryService del módulo (puede lanzar)."""
+    from features.code_analysis import cpg_service
 
-    path_resolver = get_module_service("path_resolver")
-    registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
-    if registry_path.exists():
-        with open(registry_path) as f:
-            reg = json.load(f).get("projects", {}).get(project_id, {})
-        repo_path = reg.get("repo_path", "")
-        if repo_path:
-            cog_path = os.path.join(repo_path, ".cognitive", "projects", project_id)
-            if os.path.isdir(cog_path):
-                searcher_factory = get_module_service("cognitive_searcher")
-                return searcher_factory(str(cog_path))
+    return cpg_service(chain_dir=chain_dir)
+
+
+@safe
+def _resolve_ckg_core(project_root: str):
+    """Core puro: resuelve el CodeKnowledgeGraph del módulo (puede lanzar)."""
+    from features.cognitive_knowledge import ckg_service
+
+    return ckg_service(project_root)
+
+
+@safe
+def _resolve_project_root_core(project_id: str) -> str:
+    """Core puro: project_root desde project_id via ProjectService (puede lanzar)."""
+    project = ProjectService.from_project_id(project_id)
+    return str(project.paths.project_root)
+
+
+@safe
+def _resolve_services_core(chain_dir: str, project_id: str) -> tuple[Any, Any, str]:
+    """Core puro: resuelve los servicios de módulo CPG + CKG (puede lanzar).
+
+    Punto único de composición: los consumidores no deciden cómo se arma el
+    CpgQueryService ni el CodeKnowledgeGraph — delegan en los composition
+    roots de cada módulo (cpg_service / ckg_service).
+
+    Returns:
+        (cpg, ckg, project_root) — cpg/ckg pueden ser None si no hay
+        contexto resolvible; project_root se usa solo como diagnóstico.
+    """
+    project_root = ""
+    if chain_dir:
+        from features.project import ProjectService as _PS
+
+        paths = _PS.resolve_paths(chain_dir)
+        project_root = str(paths.project_root)
+    elif project_id:
+        project_root = _safe_build(
+            _resolve_project_root_core(project_id), "project_root"
+        ) or ""
+
+    if not project_root or not os.path.isdir(project_root):
+        return None, None, project_root
+
+    # CpgQueryService se construye desde un chain_dir O desde el project_root
+    # (que es el dir cognitivo del proyecto: <repo>/.cognitive/projects/<pid>
+    # con data/project.json). cpg_service resuelve paths en ambos casos.
+    cpg_context = chain_dir if chain_dir else project_root
+    return _safe_build(_resolve_cpg_core(cpg_context), "CPG"), _safe_build(
+        _resolve_ckg_core(project_root), "CKG"
+    ), project_root
+
+
+def _resolve_services(
+    chain_dir: str = "", project_id: str = ""
+) -> tuple[Any | None, Any | None, str]:
+    """Wrapper: decide con is_successful y loggea el fallo (convention-001)."""
+    result = _resolve_services_core(chain_dir, project_id)
+    if is_successful(result):
+        return result.value_or((None, None, ""))
+    error = result.failure()
+    logger.warning(
+        "kg_extract: no se pudo resolver el proyecto (%s: %s)",
+        type(error).__name__, error,
+    )
+    return None, None, ""
+
+
+def _safe_build(result, label: str):
+    """Wrapper: decide con is_successful y loggea el fallo (convention-001)."""
+    if is_successful(result):
+        return result.value_or(None)
+    error = result.failure()
+    logger.warning(
+        "kg_extract: %s no disponible (%s: %s)", label, type(error).__name__, error,
+    )
     return None
 
 
-def _query_cpg_analysis(cg: Any, scope: str) -> dict:
-    """Consulta el CPG: functions, classes, files, modules segun scope."""
+# ── Consultas CPG via CpgQueryService (módulo code_analysis) ──────────
+
+
+@safe
+def _query_cpg_analysis_core(cpg: Any, scope: str) -> dict:
+    """Core puro: consulta el CPG por tipo via grep del módulo (puede lanzar).
+
+    CpgQueryService.grep("type:function") devuelve matches con el shape
+    {type, name, file, line} — el contrato del módulo code_analysis.
+    """
     analysis = {
         "functions": [],
         "classes": [],
@@ -82,86 +167,124 @@ def _query_cpg_analysis(cg: Any, scope: str) -> dict:
         "modules": [],
     }
 
-    try:
-        if scope in ("all", "functions"):
-            r = cg.search("cpg", {"type": "function"})
-            for h in r.get("hits", {}).get("hits", []):
-                s = h["_source"]
-                analysis["functions"].append(
-                    {
-                        "name": s.get("name", ""),
-                        "file": s.get("file", ""),
-                        "line": s.get("line", 0),
-                    }
-                )
-            r = cg.search("cpg", {"type": "method"})
-            for h in r.get("hits", {}).get("hits", []):
-                s = h["_source"]
-                analysis["functions"].append(
-                    {
-                        "name": s.get("name", ""),
-                        "file": s.get("file", ""),
-                        "line": s.get("line", 0),
-                        "method": True,
-                    }
-                )
-    except Exception as e:
-        analysis["_error_cpg_functions"] = str(e)
+    if scope in ("all", "functions"):
+        r = cpg.grep("type:function")
+        for m in r.get("matches", []):
+            analysis["functions"].append(
+                {
+                    "name": m.get("name", ""),
+                    "file": m.get("file", ""),
+                    "line": m.get("line", 0),
+                }
+            )
+        r = cpg.grep("type:method")
+        for m in r.get("matches", []):
+            analysis["functions"].append(
+                {
+                    "name": m.get("name", ""),
+                    "file": m.get("file", ""),
+                    "line": m.get("line", 0),
+                    "method": True,
+                }
+            )
 
-    try:
-        if scope in ("all", "classes"):
-            r = cg.search("cpg", {"type": "class"})
-            for h in r.get("hits", {}).get("hits", []):
-                s = h["_source"]
-                analysis["classes"].append(
-                    {
-                        "name": s.get("name", ""),
-                        "file": s.get("file", ""),
-                        "line": s.get("line", 0),
-                    }
-                )
-    except Exception as e:
-        analysis["_error_cpg_classes"] = str(e)
+    if scope in ("all", "classes"):
+        r = cpg.grep("type:class")
+        for m in r.get("matches", []):
+            analysis["classes"].append(
+                {
+                    "name": m.get("name", ""),
+                    "file": m.get("file", ""),
+                    "line": m.get("line", 0),
+                }
+            )
 
-    try:
-        if scope in ("all", "files"):
-            r = cg.search("cpg", {"type": "file"})
-            for h in r.get("hits", {}).get("hits", []):
-                s = h["_source"]
-                analysis["files"].append({"path": s.get("file", s.get("name", ""))})
-            r = cg.search("cpg", {"type": "module"})
-            for h in r.get("hits", {}).get("hits", []):
-                s = h["_source"]
-                analysis["modules"].append(
-                    {"name": s.get("name", ""), "file": s.get("file", "")}
-                )
-    except Exception as e:
-        analysis["_error_cpg_files"] = str(e)
+    if scope in ("all", "files"):
+        r = cpg.grep("type:file")
+        for m in r.get("matches", []):
+            analysis["files"].append(
+                {"path": m.get("file", m.get("name", ""))}
+            )
+        r = cpg.grep("type:module")
+        for m in r.get("matches", []):
+            analysis["modules"].append(
+                {"name": m.get("name", ""), "file": m.get("file", "")}
+            )
 
     return analysis
 
 
-def _query_existing_ckg(cg: Any, analysis: dict) -> list[dict]:
-    """Consulta el CKG actual para evitar duplicados."""
+def _query_cpg_analysis(cpg: Any, scope: str) -> dict:
+    """Consulta el CPG con fallback explícito (Result pattern)."""
+    result = _query_cpg_analysis_core(cpg, scope)
+    if is_successful(result):
+        return result.value_or({
+            "functions": [], "classes": [], "files": [], "modules": [],
+        })
+    error = result.failure()
+    logger.warning(
+        "kg_extract: análisis CPG falló (%s: %s)", type(error).__name__, error,
+    )
+    return {"functions": [], "classes": [], "files": [], "modules": []}
+
+
+# ── Consultas CKG via CodeKnowledgeGraph (módulo cognitive_knowledge) ──
+
+
+@safe
+def _query_existing_ckg_core(ckg: Any) -> list[dict]:
+    """Core puro: consulta el CKG actual via query del módulo (puede lanzar)."""
     existing_facts = []
-    try:
-        r = cg.search("ckg", {})
-        for h in r.get("hits", {}).get("hits", []):
-            s = h["_source"]
-            existing_facts.append(
-                {
-                    "type": s.get("type", ""),
-                    "statement": s.get("statement", ""),
-                    "scope": s.get("scope", ""),
-                }
-            )
-    except Exception as e:
-        analysis["_error_ckg"] = str(e)
+    for s in ckg.query({}):
+        existing_facts.append(
+            {
+                "type": s.get("type", ""),
+                "statement": s.get("statement", ""),
+                "scope": s.get("scope", ""),
+            }
+        )
     return existing_facts
 
 
-def _query_project_stats(cg: Any, analysis: dict, existing_facts: list) -> dict:
-    """Consulta los totales del proyecto para el resumen."""
+def _query_existing_ckg(ckg: Any, analysis: dict) -> list[dict]:
+    """Consulta el CKG actual con fallback explícito (Result pattern)."""
+    result = _query_existing_ckg_core(ckg)
+    if is_successful(result):
+        return result.value_or([])
+    error = result.failure()
+    analysis["_error_ckg"] = str(error)
+    logger.warning(
+        "kg_extract: CKG query falló (%s: %s)", type(error).__name__, error,
+    )
+    return []
+
+
+# ── Totales ────────────────────────────────────────────────────────────
+
+
+@safe
+def _grep_total_core(cpg: Any, ntype: str) -> int:
+    """Core puro: total de nodos de un tipo via grep del módulo (puede lanzar)."""
+    r = cpg.grep(f"type:{ntype}")
+    return int(r.get("total", 0))
+
+
+def _grep_total_safe(cpg: Any, ntype: str, fallback: int) -> int:
+    """Wrapper: total con fallback explícito al conteo local (convention-001)."""
+    result = _grep_total_core(cpg, ntype)
+    if is_successful(result):
+        return result.value_or(fallback)
+    error = result.failure()
+    logger.warning(
+        "kg_extract: total de '%s' falló (%s: %s); se usa el local",
+        ntype, type(error).__name__, error,
+    )
+    return fallback
+
+
+@safe
+def _query_project_stats_core(cpg: Any, analysis: dict, existing_facts: list) -> dict:
+    """Core puro: consulta los totales del proyecto (puede lanzar)."""
     counts = {"function": 0, "class": 0, "file": 0, "module": 0}
     totals = {
         "function": len(analysis["functions"]),
@@ -170,19 +293,33 @@ def _query_project_stats(cg: Any, analysis: dict, existing_facts: list) -> dict:
         "module": len(analysis["modules"]),
     }
     for ntype in counts:
-        try:
-            r = cg.search("cpg", {"type": ntype})
-            counts[ntype] = r.get("hits", {}).get("total", totals[ntype])
-        except Exception as e:
-            logger.warning(
-                "kg_extract: total de '%s' fallo (%s: %s); se usa el local",
-                ntype, type(e).__name__, e,
-            )
+        counts[ntype] = _grep_total_safe(cpg, ntype, totals[ntype])
     return {
         "total_functions": counts["function"],
         "total_classes": counts["class"],
         "total_files": counts["file"],
         "total_modules": counts["module"],
+        "existing_ckg_facts": len(existing_facts),
+    }
+
+
+def _query_project_stats(cpg: Any, analysis: dict, existing_facts: list) -> dict:
+    """Consulta los totales con fallback explícito (Result pattern)."""
+    result = _query_project_stats_core(cpg, analysis, existing_facts)
+    if is_successful(result):
+        return result.value_or({
+            "total_functions": 0, "total_classes": 0, "total_files": 0,
+            "total_modules": 0, "existing_ckg_facts": len(existing_facts),
+        })
+    error = result.failure()
+    logger.warning(
+        "kg_extract: stats falló (%s: %s)", type(error).__name__, error,
+    )
+    return {
+        "total_functions": len(analysis.get("functions", [])),
+        "total_classes": len(analysis.get("classes", [])),
+        "total_files": len(analysis.get("files", [])),
+        "total_modules": len(analysis.get("modules", [])),
         "existing_ckg_facts": len(existing_facts),
     }
 
@@ -200,14 +337,9 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     project_id = inp.project_id or data.get("_project_id", "")
     scope = inp.scope
 
-    if chain_dir:
-        try:
-            cg = _get_cg(chain_dir)
-        except Exception as e:
-            return TaskResult.failure(f"CognitiveGraph not available: {e}")
-    elif project_id:
-        cg = _project_cg(project_id)
-        if cg is None:
+    cpg, ckg, project_root = _resolve_services(chain_dir=chain_dir, project_id=project_id)
+    if cpg is None or ckg is None:
+        if project_id:
             return TaskResult.failure(
                 "Project not found",
                 data={
@@ -215,23 +347,22 @@ def kg_extract(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                     "next_step": "Run 'walker prepare <path>' to register the project first",
                 },
             )
-    else:
         return TaskResult.failure(
             "No project context",
             data={
-                "error": "No chain_dir and no project_id available",
+                "error": f"No chain_dir and no project_id available (project_root='{project_root}')",
                 "next_step": "Run 'walker <project>/status' first to register project context",
             },
         )
 
     # ── 1. Query CPG ──
-    analysis = _query_cpg_analysis(cg, scope)
+    analysis = _query_cpg_analysis(cpg, scope)
 
     # ── 2. Query current CKG (avoid duplicates) ──
-    existing_facts = _query_existing_ckg(cg, analysis)
+    existing_facts = _query_existing_ckg(ckg, analysis)
 
     # ── 3. Project stats ──
-    stats = _query_project_stats(cg, analysis, existing_facts)
+    stats = _query_project_stats(cpg, analysis, existing_facts)
 
     # ── 4. LLM Questionnaire ──
     questionnaire = {

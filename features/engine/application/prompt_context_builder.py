@@ -399,9 +399,7 @@ def _build_reflection_placeholders(chain_dir: str, task_id: str, ctx: dict) -> d
     Returns:
         dict con las claves reflection_* (vacío si no hay datos).
     """
-    from features.event_tracing.application.reflection import (
-        build_reflection_context,
-    )
+    from features.event_tracing import build_reflection_context
 
     # Claves genéricas del estado (sin conocer REFINE): ya vienen en ctx si
     # el execution_ctx las cargó; si no, se leen del estado del motor.

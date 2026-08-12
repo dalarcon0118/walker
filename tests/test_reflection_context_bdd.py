@@ -204,10 +204,12 @@ def _build_prompt_context(reflection_ctx: dict):
 @when("el OrchestrationService resuelve el prompt")
 def _resolve_prompt(reflection_ctx: dict):
     from types import SimpleNamespace
-    from features.engine.application.orchestrator import OrchestrationService
+    from tests.conftest import make_orchestration_service
 
     task_id = reflection_ctx.get("task_id", "TASK-005")
-    svc = OrchestrationService()
+    # Camino A: registry mínimo explícito — solo se resuelve el prompt, no se
+    # ejecutan tasks de workflow (composition root obligatorio, Gap 1).
+    svc = make_orchestration_service(real=False)
     ctx_obj = SimpleNamespace(
         chain_dir=reflection_ctx["chain_dir"],
         task_id=task_id,

@@ -218,7 +218,14 @@ class SprintStatusUpdater:
         if new_idx < current_idx:
             return False, f"Cannot move sprint status back from '{current}' to '{new_status}'"
         if new_idx == current_idx:
-            return False, f"Sprint is already '{current}'"
+            # IDEMPOTENCIA: si el sprint ya está en el status deseado, la
+            # transición es un no-op EXITOSO (no un error). Caso real:
+            # plan_sprint crea el sprint en "active" (find_active_sprint lo
+            # necesita para resolver el chain_dir del submit) y PLAN_APPROVAL
+            # declara update_sprint_status→active — el sprint ya está ahí.
+            # ANTES esto fallaba ("Sprint is already 'active'") y el side
+            # effect devolvía None → el workflow no avanzaba a TASK_SPEC.
+            return True, ""
         return True, ""
 
 

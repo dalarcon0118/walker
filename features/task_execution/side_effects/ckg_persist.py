@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 def _get_ckg(chain_dir: str):
-    from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
+    from features.cognitive_knowledge import ckg_service
     paths = ProjectService.resolve_paths(chain_dir)
-    return CodeKnowledgeGraph(str(paths.project_root))
+    return ckg_service(str(paths.project_root))
 
 
 @safe

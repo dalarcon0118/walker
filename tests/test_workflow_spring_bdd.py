@@ -237,11 +237,39 @@ def _assert_spring_closed(wf_ctx: dict):
 
 @then("el submit es exitoso")
 def _assert_submit_ok(wf_ctx: dict):
+    """Endurecido (fix de asserts débiles): antes solo validaba type != error.
+    Ahora valida la ESTRUCTURA real del resultado: type submit_result,
+    submitted=True, step_result.ok=True. Un submit que devolviera un fallback
+    (projects_list) o un step fallido (step_ok=False) ya no pasa."""
     result = wf_ctx.get("submit_result", {})
-    assert result.get("type") != "error"
+    assert result.get("type") != "error", f"submit devolvió error: {result}"
+    assert result.get("type") == "submit_result", (
+        f"submit no devolvió submit_result (¿fallback?): {result.get('type')}"
+    )
+    assert result.get("status_code") == 200, result
+    data = result.get("data", {})
+    assert data.get("submitted") is True, f"submit no persistió: {data}"
+    step = data.get("step_result", {})
+    # step_result puede ser str (repr) o dict según el serializer; el punto
+    # clave es que el paso NO falló (step_ok=True).
+    if isinstance(step, dict):
+        assert step.get("ok") is True, f"step fallido: {step}"
+        assert step.get("error", "") == "", f"step con error: {step}"
 
 
 @then("la transición es exitosa")
 def _assert_transition_ok(wf_ctx: dict):
+    """Endurecido (fix de asserts débiles): antes solo validaba type != error.
+    Ahora valida que hubo un movimiento REAL: ok=True, from_node/to_node/to_sub_state
+    presentes. Una transition que no aplicara el gate (sin to_sub_state) ya no pasa."""
     result = wf_ctx.get("transition_result", {})
-    assert result.get("type") != "error"
+    assert result.get("type") != "error", f"transition devolvió error: {result}"
+    assert result.get("type") == "transition_result", (
+        f"transition no devolvió transition_result: {result.get('type')}"
+    )
+    assert result.get("status_code") == 200, result
+    data = result.get("data", {})
+    assert data.get("ok") is True, f"transition no ok: {data}"
+    assert data.get("from_node"), f"transition sin from_node: {data}"
+    assert data.get("to_node"), f"transition sin to_node: {data}"
+    assert data.get("to_sub_state"), f"transition sin to_sub_state (no aplicó el gate): {data}"

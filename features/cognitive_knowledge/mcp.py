@@ -51,8 +51,8 @@ def register_module(registry: Any) -> None:
         ],
         routes=[
             RestRoute(path="{project_id}/ckg_analyze", method="POST", flags_builder=lambda a: {"_payload": a.get("params", a)}),
-            RestRoute(path="{project_id}/kg_search", method="POST", flags_builder=lambda a: {"_payload": a.get("query", {})}),
-            RestRoute(path="{project_id}/kg_multi", method="POST", flags_builder=lambda a: {"_payload": a.get("layers", {})}),
+            RestRoute(path="{project_id}/kg_search", method="POST", flags_builder=_kg_search_flags),
+            RestRoute(path="{project_id}/kg_multi", method="POST", flags_builder=lambda a: {"_payload": a.get("layers", a.get("query", {}))}),
             RestRoute(path="{project_id}/save_to_ckg", method="POST", flags_builder=lambda a: {"_payload": a.get("body", a)}),
         ],
         metadata={"description": "Cognitive Knowledge Graph module", "tags": ["kg", "ckg"]},
@@ -63,6 +63,20 @@ def register_module(registry: Any) -> None:
 def _kg_search(args: dict) -> dict:
     from features.engine.application.task_dispatcher import dispatch_public_task
     return dispatch_public_task("kg_search", args.get("query", {}))
+
+
+def _kg_search_flags(args: dict) -> dict:
+    """flags_builder del route kg_search (fix del fallo silencioso).
+
+    ANTES: {"_payload": a.get("query", {})} descartaba `index` (y todo lo
+    demás excepto query) — el agente que pedía index="delta" consultaba el
+    índice DEFAULT (ckg) sin error ni aviso. AHORA se preserva el payload
+    completo del tool (query/index/_index/_project_id) para que la task
+    kg_search resuelva el índice solicitado.
+    """
+    payload = dict(args)
+    payload.pop("body", None)
+    return {"_payload": payload}
 
 
 def _kg_multi(args: dict) -> dict:

@@ -399,7 +399,7 @@
           },
           "decision_data": {
             "type": "object",
-            "description": "Datos de la decision arquitectonica: decision, architecture, implementation, quality_gates",
+            "description": "Datos de la decision arquitectonica: decision, architecture, implementation, quality_gates, invariants, project_snapshot",
             "properties": {
               "decision": {
                 "type": "string"
@@ -415,6 +415,18 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "invariants": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Invariantes del sistema aplicables (CKG: INV-001..012) — constitución de la spec approved"
+              },
+              "project_snapshot": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Snapshot top-N de la arquitectura (CPG) + referencias delta — constitución de la spec approved"
               }
             }
           }
@@ -617,11 +629,13 @@
             "fields": {
               "decision": "NODE.TASK_SPEC.output.decision_data",
               "architecture": "NODE.TASK_SPEC.output.decision_data",
-              "implementation": "NODE.TASK_SPEC.output.decision_data"
+              "implementation": "NODE.TASK_SPEC.output.decision_data",
+              "invariants": "NODE.TASK_SPEC.output.decision_data",
+              "project_snapshot": "NODE.TASK_SPEC.output.decision_data"
             }
           },
           "optional": false,
-          "description": "Transform Spec to approved state if approval_type=decision"
+          "description": "Transform Spec to approved state if approval_type=decision (incluye constitución: invariants/project_snapshot)"
         },
         {
           "type": "create_adr_from_spec",

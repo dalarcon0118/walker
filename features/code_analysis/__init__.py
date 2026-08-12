@@ -1,18 +1,41 @@
 """CPG — Code Property Graph builder + query service.
 
 API publica:
-    from features.code_analysis import CPGBuilder, CpgQueryService
+    from features.code_analysis import (
+        CPGBuilder, CpgQueryService, CpgService, cpg_service,
+        CheckCpgHealthUseCase, run_outline, parse_outline,
+        cpg_repository, cpg_analysis_adapter,
+    )
+
+Composition root: cpg_service() centraliza la construccion del builder/query
+(patron espejo de delta_tracking.spring_service / cognitive_knowledge.ckg_service).
+Las factories cpg_repository()/cpg_analysis_adapter() encapsulan la composicion
+de infraestructura (repo por port + adapters). Los consumidores importan desde
+la RAIZ del paquete, NUNCA desde rutas internas (application/, infrastructure/).
+Si la implementacion cambia de lugar o se reemplaza, solo se actualiza este
+modulo — los consumidores no se tocan.
 
 Arquitectura DDD + Hexagonal:
     domain/         → Node, Edge, Graph, Query, BugFinding
-    application/    → BuildGraphUseCase, QueryGraphUseCase, ScanBugsUseCase
+    application/    → BuildGraphUseCase, QueryGraphUseCase, ScanBugsUseCase, CpgService
     infrastructure/ → sg_adapter, repository, ast_grep_calls, filters
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+from features.code_analysis.application.services.cpg_service import CpgService
+from features.code_analysis.application.ports.cpg_repository import CpgRepository
+from features.code_analysis.application.use_cases import CheckCpgHealthUseCase
+from features.code_analysis.infrastructure.ast_grep_adapter import (
+    run_outline,
+    parse_outline,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class CPGBuilder:
@@ -176,3 +199,98 @@ class CpgQueryService:
 
     def read(self, file_path: str, verbose: bool = False) -> dict:
         return self._inner.read(file_path, verbose)
+
+
+def cpg_service(
+    project_dir: str = "",
+    chain_dir: str = "",
+) -> CPGBuilder | CpgQueryService | None:
+    """Composition root del CPG (patron spring_service/ckg_service).
+
+    Punto unico de construccion: los consumidores no deciden como resolver
+    el builder/query service. Si la firma de los constructores cambia o el
+    repo por defecto se reemplaza, solo se toca esta funcion.
+
+    Args:
+        project_dir: Directorio cognitivo del proyecto (.cognitive/projects/...)
+                     → CPGBuilder (construccion/update del grafo).
+        chain_dir:   Directorio del sprint (resuelve paths del proyecto)
+                     → CpgQueryService (consulta sobre el grafo indexado).
+
+    Returns:
+        CPGBuilder o CpgQueryService segun contexto, o None si no hay
+        contexto resolvible.
+    """
+    if chain_dir:
+        return CpgQueryService(chain_dir)
+    if project_dir:
+        return CPGBuilder(project_dir)
+    return None
+
+
+def cpg_repository(
+    data_dir: str = "",
+    project_id: str = "",
+) -> CpgRepository | None:
+    """Factory del repo CPG por port (CpgRepository).
+
+    Construye el repo concreto por defecto (CognitiveCpgRepository) sin que
+    el consumidor importe infraestructura. Si el repo default cambia, solo
+    se toca esta funcion.
+
+    Returns:
+        Repo CPG construido, o None si no hay data_dir.
+    """
+    if not data_dir:
+        return None
+    from features.code_analysis.infrastructure.cognitive_cpg_repo import (
+        CognitiveCpgRepository,
+    )
+
+    return CognitiveCpgRepository(data_dir, project_id)
+
+
+def cpg_analysis_adapter(chain_dir: str = "") -> Any | None:
+    """Factory del adapter de analisis CPG (ICpgAnalysisPort default).
+
+    Encapsula la composicion interna (CognitiveCpgRepository + EventBus +
+    trace publisher) para que consumidores (ej: task_execution/application/
+    cpg_port_resolver) importen solo desde la raiz del paquete.
+
+    Returns:
+        WalkerCpgAnalysisAdapter construido, o None si no hay contexto
+        resolvible. Nunca lanza (convention-001: log ante fallo).
+    """
+    if not chain_dir:
+        return None
+    try:
+        from features.code_analysis.domain.events import EventBus
+        from features.code_analysis.infrastructure.adapters.trace_event_publisher import (
+            create_trace_publisher,
+        )
+        from features.code_analysis.infrastructure.adapters.walker_cpg_adapter import (
+            WalkerCpgAnalysisAdapter,
+        )
+        from features.project import ProjectService
+
+        paths = ProjectService.resolve_paths(chain_dir)
+        data_dir = str(paths.project_root)
+        project_id = paths.project_id
+        from features.code_analysis.infrastructure.cognitive_cpg_repo import (
+            CognitiveCpgRepository,
+        )
+
+        repo = cpg_repository(data_dir, project_id) or CognitiveCpgRepository(
+            data_dir, project_id
+        )
+        bus = EventBus()
+        trace_publisher = create_trace_publisher(chain_dir)
+        if trace_publisher is not None:
+            bus.subscribe(trace_publisher)
+        return WalkerCpgAnalysisAdapter(repo, event_bus=bus)
+    except Exception as e:
+        logger.warning(
+            "code_analysis: no se pudo construir el adapter CPG (%s: %s)",
+            type(e).__name__, e,
+        )
+        return None

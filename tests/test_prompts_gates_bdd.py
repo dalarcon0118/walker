@@ -64,9 +64,11 @@ def _project_with_template(prompts_gates_ctx: dict, tmp_path):
 
 @given("un OrchestrationService")
 def _orchestration_service(prompts_gates_ctx: dict):
-    from features.engine.application.orchestrator import OrchestrationService
+    from tests.conftest import make_orchestration_service
 
-    prompts_gates_ctx["svc"] = OrchestrationService()
+    # Camino A: registry mínimo explícito — el test solo prueba prompts, no
+    # ejecuta tasks de workflow (composition root obligatorio, Gap 1).
+    prompts_gates_ctx["svc"] = make_orchestration_service(real=False)
 
 
 @given("un WorkflowState con Q&A del ANALYZE")
