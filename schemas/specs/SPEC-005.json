@@ -1,0 +1,255 @@
+{
+  "id": "SPEC-005",
+  "type": "feature",
+  "status": "specified",
+  "title": "Secciones de constitución en estado approved de la entidad Spec: invariants/project_snapshot persistidos en DeltaGraph (project.md como proyección derivada)",
+  "summary": "Documentar la investigación sobre cómo evolucionar la entidad Spec para que en estado approved incluya los datos de constitución (invariants del CKG, project_snapshot del CPG, referencias del DeltaGraph) persistidos en el índice delta, con project.md como proyección derivada. La investigación trazó el pipeline de persistencia real, delimitó las consultas de negocio vs. task crudas, detectó la brecha de registro de providers en el árbol actual (trabajo a medias del otro agente), y evidenció la duplicación arquitectónica: dispatch CLI vs MCP en paralelo, tasks que no usan los servicios/casos de uso de los módulos, registries de tasks con visibilidad duplicada y 3 composition roots paralelos.",
+  "objective": "Establecer, con evidencia de código, el diseño para que la especificación en estado approved sea el SSOT de su propia constitución (invariantes, snapshot de arquitectura, decisiones ADR) persistido en DeltaGraph, sin crear entidad nueva ni generador de documentos: project.md se convierte en una proyección derivada legible.",
+  "result_state": "Spec en estado approved con campos invariants (lista de invariantes del CKG) y project_snapshot (vista top-N del CPG + referencias delta) persistidos en el índice delta via el pipeline transform_spec → EDM → SpringService → repo.save_spec; project.md generado por proyección, no por proceso paralelo; tests E2E verdes con tmp_path; sin entidad nueva.",
+  "domain": "delta_tracking",
+  "spring_id": "session-20260811",
+  "priority": "high",
+  "tags": ["delta_tracking", "spec-entity", "constitution", "delta-graph", "project.md", "business-queries", "providers", "research"],
+  "authors": ["agente-walker"],
+  "created_at": "2026-08-11T00:00:00Z",
+  "updated_at": "2026-08-12T10:35:05Z",
+  "problem_statement": "project.md (constitución del proyecto: INV-001..012, ADRs aprobadas, metodología, estado, backlog) fue generado por otro agente como registro de una spec aprobada. Hoy es un documento estático: no hay generador en el código (grep de constitution/constitución/INV- no encuentra productor), y sus datos no viven en el DeltaGraph (SSOT de specs según ADR-WALKER-013/016). El usuario estableció que el documento solo interesa como referencia y que los datos deben persistirse en la BD de especificaciones. Además, la primera captura (SPEC-014 via capture_task) quedó en el spring informal session-20260811 y NO es visible para las consultas de negocio (agent_context), lo que evidencia que el flujo de captura y el de consulta no convergen. La revisión arquitectónica adicional reveló duplicación estructural: (a) la CLI y el MCP despachan por mecanismos paralelos sin un composition root único, (b) las tasks de task_execution reimplementan lógica de libs en vez de usar los servicios DI (get_module_service) y los use cases de los módulos, (c) la visibilidad pública de tasks tiene dos fuentes de verdad (metadata.scope y _PUBLIC_TASKS hardcodeado), y (d) hay 3 puntos de composición paralelos (bootstrap(), bootstrap_modules(), tool_catalog.list_tools) que no comparten el registry canónico.",
+  "evidence": [
+    "No existe generador de project.md: ApproveSpecUseCase (features/delta_tracking/application/use_cases_sprint.py:657-697) solo hace update_spec + memory ops del EDM (ckg save type=decision + trace emit decision_approved)",
+    "La entidad Spec (features/delta_tracking/domain/entities.py:19-68) ya tiene campos por estado; en approved solo existe decision/architecture/implementation (líneas 46-48); faltan invariants y project_snapshot",
+    "SpecService.merge (features/delta_tracking/domain/services/spec_service.py:255-262) es genérico: data.update({k: v for k, v in updates.items() if v is not None}) — acepta cualquier campo nuevo sin cambio de lógica",
+    "Pipeline de persistencia verificado: transform_spec (features/task_execution/side_effects/spec_transform.py:56-140) resuelve refs NODE.SUB.output.field via _resolve_ref (línea 17) → EDM.transform → spring_svc.update_spec (línea 128) → UpdateSpecUseCase.execute (features/delta_tracking/application/use_cases/manage_specs.py:~59) → repo.save_spec → cg.store(INDEX=\"delta\", spec.doc_id, spec.to_dict()) (features/delta_tracking/infrastructure/cognitive_delta_repo.py:~142-143)",
+    "Consulta de negocio vs cruda: ./bin/walker3 walker/agent_context devuelve consolidado por capas con semántica (delta 11 specs SPEC-001..013, ckg 15 decisiones ADR, cpg 8274 símbolos, trace 50 eventos) — y NO lista SPEC-014; en cambio ./bin/walker3 walker/kg_search '{\"_index\":\"delta\",\"text\":\"Spec approved\"}' sí encuentra session-20260811:SPEC-014 (status=draft)",
+    "./bin/walker3 walker/kg_multi '{\"layers\":[\"delta\"],\"query\":\"...\"}' falla: \"Indice 'layers' no registrado. Disponibles: ['ckg','cpg','cpg-ref-socketio','cpg-ref-expressjs','delta','trace']\" — kg_multi espera payload por capas directo, no clave layers/query",
+    "Brecha de registro de providers: register_providers de features/engine/context/providers.py:192-195 solo registran diff y test_results; el status del sprint reportó 'provider task not registered — skipping' y 'provider state not registered — skipping'",
+    "Tree a medias del otro agente: SideEffectEngine.register eliminado en features/engine/infrastructure/side_effects.py (nuevo side_effect_outbox.py untracked) pero tests/conftest.py:199 aún llama engine.register → 3 tests rotos: test_mcp_tool_transition_between_nodes, test_mcp_tool_submit_full_workflow, test_full_workflow_executes_real_engine (AttributeError 'SideEffectEngine' object has no attribute 'register')",
+    "features/delta_tracking/mcp.py está vacío (1 línea): el módulo delta no expone tools MCP propias; el provider delta sí está registrado en features/delta_tracking/context/providers.py:8-45 via bootstrap_providers (bootstrap.py:61-100)",
+    "El nodo sprint_planning (features/engine/workflow/nodes/sprint_planning.node.json) ya declara context.sources con providers ckg/delta/cpg — infraestructura de inyección de datos existente",
+    "DUPLICACIÓN DISPATCH CLI vs MCP: mcp_adapter.py:384-425 (_call_tool) bifurca entre ModuleRegistry route → flags_builder → _ROUTER.dispatch y fallback task pública (path pid/name + _payload); en cambio la CLI (cli_interface/__init__.py:326-369 main → _ROUTER.resolve → handler) y handle_task (handlers.py:735-833) hacen bootstrap() + registry.execute por su cuenta con reglas de visibilidad internal re-implementadas (766-784)",
+    "COMPOSICIÓN INLINE DUPLICADA: handle_submit instancia SubmitDataUseCase(WorkflowRepository(), WorkflowStateRepository(), ScriptRunner(), tracer) a mano (handlers.py:614-619); handle_transition idem (701-705); handle_status llama CheckHealthUseCase.execute directo (432); handle_prepare idem (516). bootstrap(separated=True) (bootstrap.py:158-173) existe pero nadie lo consume",
+    "TASKS NO USAN SERVICIOS DE MÓDULOS: bootstrap.py:225-254 registra DI cognitive_searcher/cognitive_graph/path_resolver con get_module_service (191-201); pero kg.py:201-281 (kg_search) usa cg.search/search_many/schema sobre CognitiveGraph directo, kg.py:287-294 y capture_task.py:309-312 instancian CodeKnowledgeGraph directo — no pasan por los use cases de cognitive_knowledge ni por la DI",
+    "VISIBILIDAD DE TASKS CON DOS FUENTES DE VERDAD: system_task_registry.py:19-26 hardcodea _PUBLIC_TASKS (frozenset) y _is_public_task (50-60) además consulta metadata.scope; tool_catalog.py:65-70 y get_tool (128-130) construyen InMemoryTaskRegistry(tracer=None)+bootstrap_tasks+SystemTaskRegistry en CADA llamada ignorando bootstrap(separated=True); mcp_adapter.py:360-373 cachea bootstrap_modules() — tercer punto de composición",
+    "PROVIDERS DECLARADOS vs REGISTRADOS: bootstrap_providers (bootstrap.py:61-105) dice que el engine expone task/state/diff/test_results, pero features/engine/context/providers.py:192-195 solo registra diff/test_results → 'provider task/state not registered — skipping' observado en status; _discover_and_register traga excepciones en silencio (37-38)"
+  ],
+  "predicates": [
+    "SI una spec pasa a approved, ENTONCES debe persistir invariants y project_snapshot en el índice delta como parte del mismo update (atomicidad via merge)",
+    "SI el ContextComposer no tiene registrado un provider declarado en context.sources, ENTONCES debe fallar o avisar, no degradar en silencio",
+    "SI una spec se captura via capture_task, ENTONCES debe ser visible para las consultas de negocio (mismo spring que leen agent_context/kg_multi del sprint activo)",
+    "SI un valor resuelto por _resolve_ref sigue comenzando con NODE., ENTONCES transform_spec debe fallar (ok=False), no persistir el ref crudo",
+    "SI project.md se regenera, ENTONCES debe derivarse de los datos del DeltaGraph, no de un proceso paralelo",
+    "SI una tool se invoca desde CLI o MCP, ENTONCES debe despacharse por el MISMO composition root y la misma ruta de dispatch (cero bifurcación ad-hoc)",
+    "SI una task del TaskRegistry necesita consultar memorias, ENTONCES debe usar los servicios DI del módulo (get_module_service cognitive_searcher/cognitive_graph) o los use cases del módulo, nunca libs directo",
+    "SI una task es pública, ENTONCES su visibilidad se define SOLO por metadata.scope (SSOT) — sin _PUBLIC_TASKS hardcodeado"
+  ],
+  "acceptance_criteria": [
+    "La entidad Spec tiene campos invariants y project_snapshot en el bloque approved (entities.py)",
+    "El output_schema del nodo de aprobación pide invariants/project_snapshot y el side effect transform_spec los persiste en el índice delta (verificable via kg_search con _index=delta o kg_multi capa delta)",
+    "Una spec approved documento su propia constitución: invariantes, snapshot CPG top-N, decisiones relacionadas",
+    "agent_context (consulta de negocio) lista la spec capturada/refinada sin necesidad de kg_search crudo",
+    "CLI y MCP despachan por el mismo mecanismo: tool → mismo composition root → mismo handler (sin bifurcación _call_tool vs handle_task)",
+    "Las tasks kg_* migradas a servicios DI (get_module_service cognitive_searcher) sin imports directos a libs en task_execution/tasks/",
+    "Paquete system_task_registry.py sin _PUBLIC_TASKS hardcodeado; visibilidad SSOT = metadata.scope",
+    "tool_catalog.list_tools/get_tool consumen bootstrap(separated=True) (registry canónico), sin construir InMemoryTaskRegistry por llamada",
+    "cognitive_knowledge y code_analysis exponen composition root desde su __init__ (patrón spring_service de delta_tracking): los consumidores importan de la raíz del paquete, nunca de internos",
+    "kg_search_superseded pasa por la factory CodeKnowledgeGraph del módulo; el Searcher DI (cognitive_searcher) cubre search/search_many/schema/list_indexes sin extender API",
+    "Los 3 tests de SideEffectEngine.register (conftest.py:199) pasan tras actualizarse a la API del outbox",
+    "project.md queda marcado como proyección derivada, no como fuente"
+  ],
+  "quality_gates": [
+    "pytest tests/test_agent_e2e_bdd.py tests/test_workflow_e2e_real_bdd.py tests/test_task_contract_ssot_bdd.py -v pasa (green)",
+    "Test E2E con tmp_path: approved persiste invariants/project_snapshot en delta index (assert via repo/consulta de negocio)",
+    "Test de fallo: _resolve_ref con ref inexistente → transform_spec ok=False, sin string NODE. en el delta",
+    "Test de registro: composer con providers task/state registrados (0 'not registered' en logs)",
+    "Test de dispatch: la misma tool por CLI y por MCP llega al mismo handler con el mismo composition root (sin bifurcación)",
+    "0 imports directos a libs.cognitive_graph/CodeKnowledgeGraph en features/task_execution/tasks/ (solo get_module_service o use cases)",
+    "0 referencias a kg_store/kg_research/kg_index_repo (rename previo completado)"
+  ],
+  "impacted_artifacts": {
+    "files": [
+      "features/delta_tracking/domain/entities.py",
+      "features/delta_tracking/domain/services/spec_service.py",
+      "features/delta_tracking/application/use_cases_sprint.py",
+      "features/delta_tracking/application/evolutionary_document_model.py",
+      "features/delta_tracking/infrastructure/cognitive_delta_repo.py",
+      "features/task_execution/side_effects/spec_transform.py",
+      "features/engine/workflow/nodes/sprint_planning.node.json",
+      "features/engine/context/composer.py",
+      "features/engine/context/providers.py",
+      "features/delta_tracking/mcp.py",
+      "tests/conftest.py",
+      "project.md"
+    ],
+    "touched_contracts": [
+      "ADR-WALKER-013 (DeltaGraph fuente única)",
+      "ADR-WALKER-016",
+      "ADR-WALKER-018 (context gates)",
+      "ADR-WALKER-015 (clean architecture features/project)"
+    ]
+  },
+  "task_context": {
+    "observation": "project.md existe como documento de constitución pero no hay productor en código; la especificación no guarda su propia constitución; las consultas de negocio (agent_context, kg_multi) leen el sprint formal mientras capture_task escribe en el spring informal.",
+    "structure": "La cadena de datos verifica: nodo sprint_planning (context.sources: ckg/delta/cpg) → ContextComposer inyecta datos → LLM produce output_schema → transform_spec (spec_transform.py) resuelve refs NODE.SUB.output.field → EDM.transform (evolutionary_document_model.py) aplica campos por estado → SpringService.update_spec → UpdateSpecUseCase (manage_specs.py) → SpecService.merge (genérico) → repo.save_spec → cg.store(INDEX=\"delta\"). Esa cadena ya soporta campos arbitrarios sin cambio de lógica; solo faltan los campos en la entidad y el output del nodo. La capa de dispatch tiene 3 composition roots paralelos: bootstrap() (bootstrap.py:124-175, tasks+side_effects+modules, separated=True devuelve domain/system registries), bootstrap_modules() (bootstrap.py:204-222, ModuleRegistry con tool_def/route_def + servicios DI) y tool_catalog.list_tools (tool_catalog.py:65-70, registry efímero por llamada). El MCP entra por mcp_adapter._call_tool (384-425) y la CLI por cli_interface.main (326-369) — convergen en handlers.py pero con bifurcación y composición inline distinta.",
+    "behavior": "Una spec aprobada debe ser autocontenida: quien lea el delta debe obtener invariantes, snapshot de arquitectura y decisiones sin abrir project.md. el archivo project.md es una vista derivada (proyección) que puede regenerarse desde el delta.",
+    "causality": "Las consultas crudas (kg_search con _index) ocultan los problemas de alineación de sprints: SPEC-014 quedó fuera de agent_context porque vive en el spring informal session-20260811, no en el sprint formal del workflow (DESIGN.DESIGN_REVIEW con SPEC-001/002). La capa de negocio es la que delata este desalineamiento. La duplicación arquitectónica tiene la misma raíz: cada entrada (MCP, CLI, catálogo) resolvió su propia composición cuando el contrato cambió, en vez de delegar en un composition root único — por eso hay bifurcación en _call_tool, composición inline en handlers, registries efímeros en tool_catalog y visibilidad hardcodeada en SystemTaskRegistry.",
+    "purpose": "Dar a la especificación la capacidad de documentarse a sí misma en el SSOT (DeltaGraph) y alinear captura/consulta por negocio, evitando documentos paralelos y consultas de bajo nivel.",
+    "principles": "1) DeltaGraph como SSOT (ADR-WALKER-013). 2) La spec es un mismo documento que evoluciona por estados (EDM), no entidades nuevas. 3) Atomicidad: side effects atómicos (outbox). 4) Consultas de negocio primero, crudas solo para diagnóstico. 5) Presupuesto de contexto: project_snapshot top-N, no dump. 6) Un solo composition root: todo dispatch (CLI, MCP, catálogo) consume bootstrap(separated=True)/get_module_service; cero composición inline en handlers. 7) Los módulos exponen servicios y use cases; las tasks son adapters delgados que los invocan, nunca reimplementan libs. 8) Una sola fuente de visibilidad: metadata.scope."
+  },
+  "depends_on": [],
+  "preconditions": [
+    "Rename previo verificado: 72 tests verdes + workflow 7/1; 0 referencias a kg_store/kg_research/kg_index_repo",
+    "Pipeline transform_spec → DeltaGraph funcional (verificado en código, SPEC-010/011/012/013 completadas)",
+    "Resolver la brecha de conftest.py:199 (SideEffectEngine.register) antes de correr la suite completa"
+  ],
+  "risks": {
+    "curvature": 0.5,
+    "pre_churn": 0.4,
+    "commit_trust": 0.6
+  },
+  "loop_verification": [
+    "Capturar spec y verificarla con consulta de negocio (agent_context/kg_multi capa delta), no solo con kg_search crudo",
+    "Refinar SPEC-014 (session-20260811) de draft → specified con problem_statement/acceptance_criteria via SpringService.update_spec",
+    "Probar approved con invariants/project_snapshot en tmp_path y assert en el índice delta",
+    "Verificar que el composer no registre 'provider not registered' al ejecutar el nodo de aprobación"
+  ],
+  "loop_acceptance": "all",
+  "review_metrics": {
+    "business_query_visibility": "100% de specs capturadas visibles en agent_context del sprint activo",
+    "spec_self_constitution": "specs approved contienen invariants + project_snapshot en el índice delta",
+    "no_generator": "project.md derivado por proyección, 0 generadores paralelos",
+    "provider_registry_complete": "0 mensajes 'provider not registered' en ejecución del workflow",
+    "single_composition_root": "CLI, MCP y tool_catalog consumen bootstrap(separated=True)/get_module_service; 0 registries efímeros construidos por llamada",
+    "tasks_use_module_services": "100% de tasks de consulta de memorias usan get_module_service o use cases de módulos; 0 imports directos a libs en tasks",
+    "visibility_single_source": "0 lista hardcodeada de tasks públicas; visibilidad SSOT = metadata.scope",
+    "expected_pass_rate": "100%",
+    "max_execution_time_ms": 5000,
+    "flaky_tests_tolerance": 0
+  },
+  "review_conventions": [
+    "Toda consulta de verificación de specs usa la capa de negocio (agent_context, kg_multi con capas), no _index crudo",
+    "Los datos de constitución viven en el DeltaGraph; los .md son proyecciones",
+    "Campos nuevos en la entidad Spec se agregan con defaults (dataclass) para no romper parsing de specs existentes",
+    "ENFOQUE DEL DOCUMENTO: schemas/specs/*.json + spec-walker.schema.json = persistencia TEMPORAL del desarrollo (bitácora de investigación del agente) mientras walker no esté estable; NO es documentación formal del workflow ni redacción previa a captura. El workflow soporta la entidad Specification VÍA delta spring (captura con capture_task → spring; consulta con agent_context/kg_multi; ciclo EDM) y será el mecanismo real cuando walker esté estable — hasta entonces estos JSON solo mantienen el desarrollo persistido. Los gaps de este bloque pertenecen al engine/DI/dispatch, no a este mecanismo temporal",
+    "TODO cambio pasa el checklist de segundo orden (second_order_impact) antes de merge"
+  ],
+  "review_architecture": [
+    "Especificación autocontenida: la spec approved es su propia constitución persistida en delta",
+    "Inyección: context.sources del nodo (ckg/delta/cpg) → output_schema → transform_spec (sin lógica nueva de merge)",
+    "Persistencia: cadena existente transform_spec → EDM → SpringService → repo.save_spec (INDEX=\"delta\")",
+    "Proyección: project.md = vista derivada regenerable desde el delta",
+    "Alineamiento de sprints: captura (capture_task) y consulta (agent_context) deben apuntar al mismo spring",
+    "ARQ OBJETIVO — Composition root único: bootstrap(separated=True) + ModuleRegistry com singleton compartido por CLI/MCP/tool_catalog; reloader invalida (patrón _SERVER); 0 registries efímeros ni composición inline en handlers",
+    "ARQ OBJETIVO — Dispatcher único: tool → ModuleRegistry route → flags_builder → handler; fallback system_registry.execute; ambas entradas (MCP _call_tool, CLI main) usan el mismo; la validación de visibilidad internal vive SOLO en SystemTaskRegistry",
+    "ARQ OBJETIVO — Tasks como adapters delgados: validan TaskInput y traducen TaskResult; el acceso a datos pasa por servicios de módulos (spring_service, CpgQueryService, factory CodeKnowledgeGraph, DI cognitive_searcher); 0 imports directos a libs",
+    "ARQ OBJETIVO — Visibilidad SSOT = metadata.scope; _PUBLIC_TASKS eliminado; partición domain/system hecha por bootstrap(separated=True)",
+    "ARQ OBJETIVO — Módulos con fachada raíz + composition root en __init__ (patrón delta_tracking.spring_service replicado en cognitive_knowledge/code_analysis)"
+  ],
+  "review_verdict": "approved",
+  "related_decisions": [
+    "ADR-WALKER-013",
+    "ADR-WALKER-016",
+    "ADR-WALKER-018",
+    "ADR-WALKER-015"
+  ],
+  "generates_specs": [],
+  "transformation_map": {
+    "nodes_visited": [],
+    "states": [],
+    "current_status": "specified",
+    "gaps": [
+      "[EN CURSO] SPEC-014 (session-20260811) capturada en spring informal; consolidar con el sprint formal activo",
+      "[RESUELTO] Entidad Spec con invariants/project_snapshot en bloque approved (entities.py) — defaults dataclass + to_dict/from_dict (fase A implementada)",
+      "[ABIERTO] output_schema del nodo de aprobación sin campos de constitución",
+      "[RESUELTO] 3 tests de SideEffectEngine.register (conftest.py:199) verdes — register sigue vivo en side_effects.py:101; el outbox (side_effect_outbox.py) convive como mecanismo paralelo con su propio test",
+      "[RESUELTO] Providers task/state registrados en el contexto (providers.py:197-198); queda abierto el fallo SILENCIOSO de _discover_and_register (bootstrap.py:38 except: pass)",
+      "[ABIERTO] features/delta_tracking/mcp.py vacío — el módulo delta no expone tools MCP de negocio",
+      "[ABIERTO] Dispatch CLI vs MCP bifurcado: _call_tool (mcp_adapter.py:384-425) vs handle_task+bootstrap (handlers.py:735-833)",
+      "[ABIERTO] Composición inline en handlers: SubmitDataUseCase/TransitionUseCase instanciados a mano (handlers.py:614-619, 701-705) en vez de bootstrap(separated=True)",
+      "[ABIERTO] Tasks kg_* usan CognitiveGraph/CodeKnowledgeGraph directo (kg.py:201-281, 287-294; capture_task.py:309-312) en vez de servicios DI/use cases",
+      "[ABIERTO] Visibilidad de tasks con TRES sitios de decisión: _PUBLIC_TASKS hardcodeado (system_task_registry.py:19-26) + _is_public_task/metadata.scope (50-60) + regla internal re-implementada en handlers.py:766-784 (la usan CLI y fallback MCP via router)",
+      "[ABIERTO] tool_catalog.list_tools/get_tool construyen registries efímeros por llamada (tool_catalog.py:65-70, 128-130)",
+      "[ABIERTO] Tercer punto de composición del catálogo: mcp_adapter.py:360-373 cachea bootstrap_modules() en _MODULE_REGISTRY global — el catálogo se compone en 3 sitios (bootstrap_modules, tool_catalog por llamada, mcp_adapter con cache) que pueden divergir (ADR-043)",
+      "[ABIERTO] Contrato de kg_multi desincronizado del catálogo: documenta/espera {\"layers\": [...], \"query\": ...} pero implementa payload por capas directo — error real observado \"Indice 'layers' no registrado\" (evidence adjunta)",
+      "[RESUELTO] Lógica de dominio CKG duplicada: ckg_service() (cognitive_knowledge/__init__.py, patrón spring_service, None sin dir, repo inyectable) creado y TODOS los consumidores migrados a la raíz del paquete — tasks (kg.py ×2, ckg_analyze.py ×2, project_init.py, capture_task.py), 4 side_effects (decision_capture, decision_detector, create_adr, ckg_persist._get_ckg), contracts.py:166, conventions.py:101, use_cases internos (7 sitios); grep verificado: 0 call-sites/imports de application.ckg fuera del paquete (solo __init__ del paquete y re-export de la capa application)",
+      "[RESUELTO] cognitive_knowledge sin composition root: __init__.py expone ckg_service(project_dir, repo=None) con docstring del patrón; 0 imports de internos fuera del paquete; use_cases internos reusan la factory (desapareció el _get_ckg privado duplicado)",
+      "[RESUELTO] CPG composition root completado: cpg_service(project_dir, chain_dir) + cpg_repository(data_dir, project_id) + cpg_analysis_adapter(chain_dir) en code_analysis/__init__.py (patrón spring_service); los 4 imports de internos migrados a la raíz — intelligence_service:70→cpg_repository, cognitive_knowledge use_cases:242→run_outline/parse_outline, project_use_cases:178→CheckCpgHealthUseCase, cpg_port_resolver:23-30→cpg_analysis_adapter (resolver ahora es un delegado delgado de la factory raíz); grep verificado: 0 call-sites/imports de features.code_analysis.application|infrastructure fuera del paquete; verificación: 25 suites contratos + 27 E2E + 3 smoke verdes",
+      "[RESUELTO] Rename kg_store→save_to_ckg, kg_research→research_topic, kg_index_repo→index_repo: 0 referencias restantes",
+      "[RESUELTO] transform_spec rechaza refs NODE. sin resolver: _find_unresolved_refs recursivo (dicts y listas) retorna ok=False con la lista de claves y NADA se persiste (spec_transform.py, predicate 4 con enforcement)",
+      "[RESUELTO] Tests E2E tmp_path verdes: approved persiste invariants/project_snapshot en el indice delta; round-trip entidad; ref inexistente no deja NODE. crudas (test_transform_spec_integration_bdd.py 9/9)",
+      "[RESUELTO] kg.py migrado a DI get_module_service(cognitive_searcher) + ckg_service para superseded; kg_extract.py aun toca cg.search directo (pendiente en fase B)",
+      "[RESUELTO] event_tracing composition root: __init__.py expone build_reflection_context + trace_repository() (patrón spring_service); migrados prompt_context_builder:402 (engine) e intelligence_service:77 (task_execution) a la raíz del paquete; grep verificado: 0 imports de features.event_tracing.application|infrastructure fuera del paquete",
+      "[RESUELTO] Factories de repos CKG/Delta: cognitive_knowledge/__init__.py añade ckg_repository(project_dir) y ckg_analysis_adapter(chain_dir) (reusa la factory de repo, WalkerCkgAdapter con log convention-001); delta_tracking/__init__.py añade delta_repository(project_root, graph_factory=None); intelligence_service.py migrado COMPLETO (líneas 70-79: los 4 repos vía cpg_repository/ckg_repository/delta_repository/trace_repository — desaparecieron los 3 imports directos a infra de CKG/Delta/Trace); ckg_analyze.py:31-42 _resolve_default_port delegado en ckg_analysis_adapter (patrón espejo de cpg_port_resolver); grep verificado: 0 imports de .infrastructure de los 3 módulos fuera de sus paquetes",
+      "[ABIERTO] 2 tests preexistentes rotos (ajenos a la fase A): test_tool_catalog_bdd y test_f5_schema_coherence_bdd fallan por 'kg_diagnose sin outputSchema' en el catalogo fusionado — pertenecen a la fase B"
+    ]
+  },
+  "validation_checklist": [
+    {
+      "description": "Valida SPEC-005 contra el schema canónico schemas/spec-walker.schema.json",
+      "command": "python3 -m jsonschema -i schemas/specs/SPEC-005.json schemas/spec-walker.schema.json",
+      "expected": "valid"
+    },
+    {
+      "description": "Consultas de negocio alcanzan las specs capturadas",
+      "command": "./bin/walker3 walker/agent_context",
+      "expected": "SPEC-005/SPEC-014 visibles en delta.items"
+    },
+    {
+      "description": "Suite sin regresiones",
+      "command": "pytest tests/test_agent_e2e_bdd.py tests/test_workflow_e2e_real_bdd.py tests/test_task_contract_ssot_bdd.py -v",
+      "expected": "PASSED"
+    },
+    {
+      "description": "Dispatch unificado: misma tool por CLI y MCP llega al mismo composition root (sin bifurcación)",
+      "command": "./bin/walker3 walker/kg_search '{\"text\":\"spec\"}' && pytest tests/test_agent_e2e_bdd.py -v",
+      "expected": "mismo handler/resultado en ambos; PASSED"
+    },
+    {
+      "description": "Tasks usan servicios DI: 0 imports directos a libs en features/task_execution/tasks/",
+      "command": "grep -rn 'libs.cognitive_graph\\|CodeKnowledgeGraph(' features/task_execution/tasks/",
+      "expected": "0 matches (solo get_module_service o use cases)"
+    }
+  ],
+  "non_negotiables": [
+    "Los datos de constitución viven en el DeltaGraph (índice delta); project.md es proyección derivada, no fuente",
+    "Sin entidad nueva ni documento paralelo: la spec es un mismo documento que evoluciona por estados (EDM)",
+    "La verificación de specs usa la capa de negocio (agent_context / kg_multi con capas), no kg_search crudo con _index",
+    "Los campos nuevos en la entidad Spec llevan default (dataclass) para no romper specs existentes",
+    "Los side effects son atómicos (patrón outbox): o persiste todo el update o ninguno"
+  ],
+  "attachments": [
+    {
+      "name": "Pipeline de persistencia verificado (evidencia de código)",
+      "kind": "json",
+      "content": "{\"inyeccion\":\"sprint_planning.node.json context.sources = [ckg, delta, cpg] -> ContextComposer -> output_schema\",\"transform\":\"spec_transform.py:56 transform_spec -> _resolve_ref (NODE.SUB.output.field) -> EDM.transform\",\"persistencia\":\"spring_svc.update_spec (spec_transform.py:128) -> UpdateSpecUseCase.execute (manage_specs.py:59) -> SpecService.merge (spec_service.py:255-262) -> repo.save_spec -> cg.store(INDEX='delta')\",\"entidad\":\"Spec (entities.py:19-68); approved block = decision/architecture/implementation (46-48)\"}"
+    },
+    {
+      "name": "Hallazgos de consultas de negocio (comandos reales)",
+      "kind": "json",
+      "content": "{\"captura\":\"./bin/walker3 walker/capture_task {objective:...} -> session-20260811:SPEC-014 (draft), spec_count=13, decisions_captured=4\",\"cruda\":\"./bin/walker3 walker/kg_search '{\\\"_index\\\":\\\"delta\\\",\\\"text\\\":\\\"Spec approved\\\"}' -> encuentra session-20260811:SPEC-014\",\"negocio_ok\":\"./bin/walker3 walker/agent_context -> delta 11 specs (SPEC-001..013), ckg 15, cpg 8274, trace 50; NO lista SPEC-014\",\"negocio_fail\":\"./bin/walker3 walker/kg_multi '{\\\"layers\\\":[\\\"delta\\\"]}' -> 'Indice layers no registrado. Disponibles: [ckg,cpg,delta,trace]' (payload por capas directo)\",\"status\":\"walker/session-20260811/status -> provider task/state not registered - skipping\"}"
+    },
+    {
+      "name": "failure_scenarios (requisito AGENTS.md: min 3; schema no define el campo root, va como adjunto)",
+      "kind": "json",
+      "content": "[{\"escenario\":\"CKG vacio produce invariants vacios en spec approved\",\"fallo\":\"La spec approved se persiste con invariants=[] aunque el sistema tiene invariantes reales (INV-001..012)\",\"causa_raiz\":\"Provider ckg no registrado (o capa ckg vacia antes del nodo); el LLM no recibe evidencia y el output_schema permite lista vacia\",\"mitigacion\":\"output_schema con minItems>=1 para invariants + validacion post-transform que rechaza approved sin invariants; fallback de emergencia a project.md\",\"deteccion\":\"Test E2E con CKG vacio: assert invariants != [] o estado rechazado; monitorear composer logs 'provider not registered'\"},{\"escenario\":\"Ref NODE.*.output no resuelta se persiste cruda\",\"fallo\":\"El campo invariants llega al delta como literal 'NODE.X.output.invariants' (string sin resolver)\",\"causa_raiz\":\"_resolve_ref (spec_transform.py:17-39) devuelve el ref sin resolver (except -> return ref) cuando el sub_state_key no existe o el campo falla\",\"mitigacion\":\"transform_spec detecta valores que aun comienzan con 'NODE.' tras resolver y retorna ok=False (no persiste); UpdateSpecUseCase valida lo mismo\",\"deteccion\":\"Test unitario de _resolve_ref con ref inexistente; assert en delta de que no hay cadenas 'NODE.'\"},{\"escenario\":\"project_snapshot excede el presupuesto de contexto\",\"fallo\":\"La spec approved persiste un project_snapshot gigante (CPG con 8274 nodos), degradando el ContextComposer y el workflow\",\"causa_raiz\":\"output_schema sin limite top-N y sin resumen; el provider cpg devuelve el dump completo\",\"mitigacion\":\"project_snapshot top-N con counts (patron max_results existente); resumen key-only; el campo queda acotado por contrato\",\"deteccion\":\"Excedencia de budget del nodo -> warning ContextComposer; test con CPG grande y assert tokens < budget\"},{\"escenario\":\"Spec capturada fuera del alcance de las consultas de negocio (OBSERVADO)\",\"fallo\":\"SPEC-014 (capturada via capture_task) no aparece en agent_context; solo la ve kg_search crudo con _index\",\"causa_raiz\":\"capture_task escribe en el spring informal session-YYYYMMDD (data/spring/) mientras agent_context/kg_multi leen el sprint formal del workflow v3 activo (DESIGN.DESIGN_REVIEW, SPEC-001/002)\",\"mitigacion\":\"Definir sprint_id explicito en la captura o migrar SPEC-014 al sprint formal antes de refinar; verificacion siempre por consulta de negocio\",\"deteccion\":\"agent_context tras capturar: la spec debe aparecer en delta.items; la consulta cruda no debe ser el canal unico\"},{\"escenario\":\"Refactor a medias deja la suite rota (OBSERVADO en el arbol actual)\",\"fallo\":\"3 tests fallan con AttributeError: 'SideEffectEngine' object has no attribute 'register' en tests/conftest.py:199\",\"causa_raiz\":\"El otro agente elimino register de SideEffectEngine (refactor a outbox, side_effect_outbox.py untracked) sin actualizar conftest.py\",\"mitigacion\":\"Actualizar conftest.py:199 a la API del outbox (registro via outbox) antes de tocar el nodo de aprobacion\",\"deteccion\":\"pytest tests/test_agent_e2e_bdd.py tests/test_workflow_e2e_real_bdd.py -v (deben pasar 100%)\"}]"
+    },
+    {
+      "name": "second_order_impact (checklist SPEC-004: 5 preguntas)",
+      "kind": "json",
+      "content": "[\"Que modulos importan este? -> features/task_execution/side_effects/spec_transform.py, features/delta_tracking/application/evolutionary_document_model.py, spring_service y use_cases de delta_tracking, presenters, cognitive_delta_repo (to_dict de la entidad)\",\"Que side effects dispara? -> transform_spec (persistencia en delta), create_adr (decisiones ADR), memory_orchestrator (ckg save + trace emit)\",\"Que eventos de dominio publica? -> spec_specified / decision_approved en TraceGraph; ckg save type=decision\",\"Que tests dependen de este comportamiento? -> test_agent_e2e_bdd.py (submit/transition), test_task_contract_ssot_bdd.py, use cases de delta_tracking con tmp_path, E2E con tmp_path del approved\",\"Que cambia en MCP adapter, CLI, CKG, DeltaGraph, Trace? -> si features/delta_tracking/mcp.py se puebla, +1 tool MCP de negocio; CLI status puede leer invariants; schema del doc spec aprobada en DeltaGraph gana invariants/project_snapshot; sin cambios en Trace\"]"
+    },
+    {
+      "name": "Diagnostico de duplicacion arquitectonica (mapa de composition roots y dispatchs)",
+      "kind": "json",
+      "content": "{\"composition_roots\":[\"bootstrap() bootstrap.py:124-175 (tasks+side_effects+modules; separated=True -> domain/system registries)\",\"bootstrap_modules() bootstrap.py:204-222 (ModuleRegistry tool_def/route_def + servicios DI cognitive_searcher/cognitive_graph/path_resolver)\",\"tool_catalog.list_tools tool_catalog.py:65-70 (InMemoryTaskRegistry(tracer=None) efimero por llamada)\"],\"dispatch_entries\":{\"mcp\":\"mcp_adapter.py:384-425 _call_tool bifurca (a) ModuleRegistry route -> flags_builder -> _ROUTER.dispatch, (b) fallback task publica pid/name + _payload -> _ROUTER.dispatch\",\"cli\":\"cli_interface/__init__.py:326-369 main -> _ROUTER.resolve -> handler; tasks -> handle_task (handlers.py:735-833) bootstrap()+registry.execute+visibilidad internal propia (766-784)\",\"handlers_inline\":\"handle_submit instancia SubmitDataUseCase a mano (614-619); handle_transition idem (701-705); handle_status->CheckHealthUseCase (432); handle_prepare->PrepareProjectUseCase (516)\"},\"tasks_duplican_libs\":[\"kg.py:201-281 kg_search usa cg.search/search_many/schema directo\",\"kg.py:287-294 instancia CodeKnowledgeGraph directo\",\"capture_task.py:309-312 instancia CodeKnowledgeGraph directo\"],\"visibilidad_duplicada\":[\"system_task_registry.py:19-26 _PUBLIC_TASKS hardcodeado\",\"system_task_registry.py:50-60 _is_public_task consulta metadata.scope\"],\"providers_declarados_vs_registrados\":\"bootstrap.py:61-105 declara task/state/diff/test_results; providers.py:192-195 solo registra diff/test_results; _discover_and_register traga excepciones (bootstrap.py:37-38)\"}"
+    },
+    {
+      "name": "failure_scenarios duplicacion arquitectonica (min 3 requisito AGENTS.md; escenarios de la refactorizacion)",
+      "kind": "json",
+      "content": "[{\"escenario\":\"Unificar dispatch rompe un handler legacy\",\"fallo\":\"Al consolidar CLI y MCP en un solo composition root, la invocacion directa de tasks por CLI (walker <pid>/<task>) o el submit por flags legacy deja de responder igual (recursion, payload envuelto bajo 'data' u otro shape)\",\"causa_raiz\":\"Los handlers actuales tienen composicion inline dependiente del contrato REST (handle_submit:614-619, handle_task:735-833); unificarlos sin adaptar el contrato cambia la semantica de _payload/flags\",\"mitigacion\":\"Adapters delgados por entrada: mismo use case interno, misma traduccion de payload; tests E2E que ejerciten la MISMA tool por CLI y por MCP y comparen resultado antes y despues del cambio\",\"deteccion\":\"pytest tests/test_agent_e2e_bdd.py + tests/test_cli_walker_bdd.py: si la misma tool devuelve shape distinto por CLI vs MCP, falla\"},{\"escenario\":\"Eliminar _PUBLIC_TASKS sin migrar tasks deja tools invisibles\",\"fallo\":\"Al quitar el frozenset _PUBLIC_TASKS (system_task_registry.py:19-26), tasks que dependian del fallback por nombre (no declaradas con scope=public en su register()) desaparecen de tools/list y del CLI\",\"causa_raiz\":\"metadata.scope no es SSOT hoy: algunas tasks publicas no lo declaran y su visibilidad dependia del hardcode\",\"mitigacion\":\"Auditoria previa: cada task en _PUBLIC_TASKS debe declarar scope=public en su register(); test de descubrimiento que aserte la lista esperada antes de eliminar el frozenset\",\"deteccion\":\"tool_catalog.list_tools() devuelve menos tools que la baseline; test_task_contract_ssot_bdd verifica contrato por task\"},{\"escenario\":\"Migrar tasks a DI cambia el contrato de las consultas\",\"fallo\":\"Al reemplazar CognitiveGraph directo por get_module_service('cognitive_searcher'), kg_search/kg_schema devuelven shape distinto en errores (el Searcher devuelve {'ok': False} en vez de lanzar KeyError) y kg_search_superseded pierde la consulta CKG-especifica\",\"causa_raiz\":\"El Searcher (CQRS read-only, cognitive.py:30-50) SI expone search/search_many/schema/list_indexes — el gap no es de API sino de uso: las tasks no usan la DI registrada en bootstrap.py:225-254; kg_search_superseded usa CodeKnowledgeGraph.query (CKG propio)\",\"mitigacion\":\"Migrar task por task mapeando contrato: las kg_* cambian cg=CognitiveGraph() por get_module_service('cognitive_searcher') (misma API; errores ok:False); kg_search_superseded pasa por la factory CodeKnowledgeGraph del modulo; test de contrato por task\",\"deteccion\":\"test_task_contract_ssot_bdd.py (schema input/output por task); ejecutar kg_search/kg_schema y comparar contra baseline pre-migracion\"},{\"escenario\":\"Singleton del tool_catalog queda stale tras recarga en caliente\",\"fallo\":\"Si list_tools deja de construir el registry por llamada y cachea un singleton, tras un cambio en disco (nueva task o fix) tools/list muestra el catalogo viejo\",\"causa_raiz\":\"El reloader (reloader.py) recarga modulos features/ pero el singleton del registry no invalida su cache (mismo bug historico de _SERVER)\",\"mitigacion\":\"Cache invalidado por mtime de los modulos (mismo patron del reloader) o construir desde bootstrap(separated=True) sin cache; test que registre una task nueva y verifique tools/list\",\"deteccion\":\"tools/list tras editar features/task_execution/tasks/: la task nueva debe aparecer sin reiniciar el proceso\"},{\"escenario\":\"Providers declarados pero no registrados degradan en silencio (OBSERVADO)\",\"fallo\":\"El ContextComposer reporta 'provider task/state not registered — skipping' y el workflow inyecta contexto incompleto sin fallar\",\"causa_raiz\":\"bootstrap_providers (bootstrap.py:61-105) declara task/state/diff/test_results pero providers.py:192-195 solo registra diff/test_results; _discover_and_register traga excepciones (37-38)\",\"mitigacion\":\"Validacion de contrato: providers declarados ⊂ registrados al bootstrapear, fallo ruidoso ante discrepancia (no silencioso); registrar TaskProvider/StateProvider faltantes\",\"deteccion\":\"Test que verifique registry keys contra la lista declarada; logs del composer sin 'not registered' al ejecutar el nodo de aprobacion\"}]"
+    },
+    {
+      "name": "Aprobacion (2026-08-12): fase A implementada y verificada — evidencias",
+      "kind": "json",
+      "content": "{\"decision\":\"review_verdict=approved (type=feature; el schema solo valida status=approved para type=decision — convencion SPEC-001/SPEC-003: status=specified + review_verdict=approved)\",\"implementado\":[\"Entidad Spec: invariants (list[str]) y project_snapshot (dict) en bloque approved con defaults dataclass + to_dict/from_dict (entities.py)\",\"transform_spec: _find_unresolved_refs recursivo (dicts y listas) rechaza refs NODE. sin resolver con ok=False y lista de claves; nada se persiste (spec_transform.py, predicate 4)\"],\"tests\":[\"test_transform_spec_integration_bdd.py: 9/9 green (4 nuevos: round-trip entidad, defaults, approved persiste invariants/project_snapshot en delta con tmp_path, ref inexistente sin NODE. crudas)\",\"delta/EDM/task-contract: 38 passed\",\"E2E agent+workflow real: 13/13 passed\",\"suite completa: 502 passed / 2 failed — fallos preexistentes NO relacionados (test_tool_catalog_bdd y test_f5_schema_coherence_bdd: 'kg_diagnose sin outputSchema' en catalogo fusionado, gap ABIERTO de fase B)\"],\"pendiente_fase_B\":[\"output_schema del nodo de aprobacion con invariants/project_snapshot\",\"validacion equivalente en UpdateSpecUseCase para caminos fuera de transform_spec\",\"dispatch unico CLI/MCP (bifurcacion _call_tool vs handle_task)\",\"visibilidad SSOT = metadata.scope (eliminar _PUBLIC_TASKS)\",\"tool_catalog sin registries efimeros por llamada\",\"kg_extract a DI; contrato kg_multi alineado; delta_tracking/mcp.py poblado\",\"endurecer _discover_and_register (log warning, no except: pass)\"]}"
+    }
+  ]
+}

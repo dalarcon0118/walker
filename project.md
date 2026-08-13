@@ -1,5 +1,11 @@
 # Walker Project Constitution
 
+> **NOTA (SPEC-005, aprobada):** Este documento es una **proyección derivada** del
+> DeltaGraph (índice delta — specs `approved` con `invariants`/`project_snapshot`).
+> **No es la fuente de verdad**: la constitución del proyecto vive en
+> `features/delta_tracking` (SSOT, ADR-WALKER-013/016) y este archivo puede
+> regenerarse desde esos datos en cualquier momento.
+
 ## Invariantes del sistema
 
 Estos principios son **inmutables** a menos que se apruebe un ADR explícito que los modifique.
