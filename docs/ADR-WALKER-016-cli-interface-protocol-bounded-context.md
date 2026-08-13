@@ -264,8 +264,8 @@ Después de cada fase: **suite verde** (`python3 -m pytest tests/ -q`). Suite ac
 
 ## 9. Preguntas abiertas (a refinar)
 
-- [ ] ¿`project_use_cases.py` (Prepare/CheckHealth cross-feature) se queda en cli_interface o vuelve a features/project con DI?
-- [ ] ¿`mcp_config_service.py` es application o adapter (genera config de opencode/claude/cursor)?
+- [x] ¿`project_use_cases.py` (Prepare/CheckHealth cross-feature) se queda en cli_interface o vuelve a features/project con DI? → **RESUELTO (ADR-WALKER-046)**: `CheckHealthUseCase.execute` es el contrato público de `status` (expuesto por el facade DI en `bootstrap.py:318` y usado directo por `handlers.handle_status`); el módulo permanece en `cli_interface/application/project_use_cases.py`. La eventual migración a `features/project` con DI queda como deuda registrada en la Fase 1 del ADR-046 (inyección de dependencias).
+- [x] ¿`mcp_config_service.py` es application o adapter (genera config de opencode/claude/cursor)? → **RESUELTO (formato único, MCP_FORMAT="standard")**: es **application** pura — genera `{"mcpServers": {...}}` portable, agnóstico del agente (docstring del módulo: "el walker NO conoce qué agente es"). Ya NO hay bifurcación por agente (se eliminó `--format=`). La config viva del agente (p.ej. `~/.config/opencode/opencode.json`) se genera con `walker mcp-config`; el snapshot histórico `docs/opencode.json` se eliminó por obsoleto (formato `type: local` previo).
 - [ ] ¿El hot-reload (`_reload_features_if_changed`) vive en cli_interface o en un tooling aparte?
 - [ ] ¿`Router` (libs/router) se mantiene como SSOT de dispatch REST o pasa al dominio?
 - [ ] ¿Los eventos del protocolo se registran en `event_tracing` (trace) o en CKG (conocimiento)?
