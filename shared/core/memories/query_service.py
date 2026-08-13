@@ -1,4 +1,4 @@
-"""libs/memories/query_service.py — MemoryQueryService.
+"""shared/memories/query_service.py — MemoryQueryService.
 
 SRP: Fachada unificada para consultar las 4 memorias del walker.
     - kg_search: fulltext + estructurado en cualquier indice
@@ -11,7 +11,7 @@ Los ports (CkgRepo, CpgRepo, DeltaRepo) para operaciones de dominio.
 """
 from __future__ import annotations
 
-from libs.cognitive_graph import CognitiveGraph
+from shared.core.cognitive_graph import CognitiveGraph
 
 
 class MemoryQueryService:

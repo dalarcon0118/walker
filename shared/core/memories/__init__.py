@@ -1,4 +1,4 @@
-"""libs/memories/__init__.py — MemoryQueryService: fachada unificada de memorias.
+"""shared/memories/__init__.py — MemoryQueryService: fachada unificada de memorias.
 
 Unico punto de entrada para consultas a las 4 memorias (CPG, CKG, Delta, Trace).
 Las tools MCP y el workflow engine consultan aqui en vez de CognitiveGraph directo.
@@ -9,6 +9,6 @@ no tiene logica de negocio y ya tiene indices secundarios O(1) + bigramas.
 """
 from __future__ import annotations
 
-from libs.memories.query_service import MemoryQueryService
+from shared.core.memories.query_service import MemoryQueryService
 
 __all__ = ["MemoryQueryService"]

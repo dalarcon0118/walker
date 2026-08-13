@@ -4,7 +4,7 @@ Capa de almacenamiento pura: cada Index es un nx.DiGraph (nodos + edges) con
 TokenIndex opcional para full-text. Sin logica de negocio ni conocimiento de
 los dominios (CPG/CKG/Delta/Trace).
 
-Importado por libs/cognitive_graph/__init__.py (CognitiveGraph facade).
+Importado por shared/cognitive_graph/__init__.py (CognitiveGraph facade).
 """
 
 from __future__ import annotations

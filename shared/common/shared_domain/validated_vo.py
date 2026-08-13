@@ -1,5 +1,5 @@
 """
-libs/shared_domain/validated_vo.py — Value Object validado (framework).
+shared/common/shared_domain/validated_vo.py — Value Object validado (framework).
 
 PROPÓSITO: que la lógica de negocio (tasks) reciba INPUTS LIMPIOS Y
 VALIDADOS, no dicts crudos. Un ValidatedVO:

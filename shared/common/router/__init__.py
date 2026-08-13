@@ -1,11 +1,11 @@
-"""libs/router/ — Router reutilizable tipo NestJS/Express para walker CLI.
+"""shared/router/ — Router reutilizable tipo NestJS/Express para walker CLI.
 
 Permite definir rutas con parametros en el path y middleware pipeline.
 Similar a los routers de frameworks REST pero para CLI.
 
 Uso:
 
-    from libs.router import Router
+    from shared.common.router import Router
 
     router = Router()
 

@@ -4,7 +4,7 @@ Permite definir entidades con fields y relaciones, y usar patron
 ActiveRecord para operaciones CRUD y queries.
 
 Uso:
-    from libs.cognitive_graph.odm import Entity, fields
+    from shared.core.cognitive_graph.odm import Entity, fields
 
     class Task(Entity):
         __index__ = "delta"

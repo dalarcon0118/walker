@@ -1,5 +1,5 @@
 """
-libs/shared_domain/models.py — Pure domain value objects.
+shared/common/shared_domain/models.py — Pure domain value objects.
 
 PRINCIPIO: VOs are pure data. No IO, no path resolution, no infrastructure.
            Factory methods that need IO belong in application services.

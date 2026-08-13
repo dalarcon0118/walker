@@ -1,5 +1,5 @@
 """
-libs/infrastructure/cognitive.py — CognitiveGraph adapters (CQRS read).
+shared/infrastructure/cognitive.py — CognitiveGraph adapters (CQRS read).
 
 SRP:
   CognitiveGraphSearcher — queries indexes (read-only)

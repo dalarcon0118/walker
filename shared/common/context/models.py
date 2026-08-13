@@ -1,4 +1,4 @@
-"""libs/context/models.py — Modelos de dominio del contexto (contrato neutral).
+"""shared/common/context/models.py — Modelos de dominio del contexto (contrato neutral).
 
 ContextPiece: una pieza atómica de contexto producida por un provider.
 ComposedContext: el resultado final de la composición (system + layers + user).

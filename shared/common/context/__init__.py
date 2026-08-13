@@ -1,4 +1,4 @@
-"""libs/context — Contrato neutral de providers de contexto (DIP).
+"""shared/common/context — Contrato neutral de providers de contexto (DIP).
 
 El contrato de plugin (ContextProvider ABC, ContextPiece/ContextBudget/
 ComposedContext y los formatters) vive en libs para que las features de

@@ -1,4 +1,4 @@
-"""libs/context/contracts.py — Contrato de plugin de contexto (ContextProvider).
+"""shared/common/context/contracts.py — Contrato de plugin de contexto (ContextProvider).
 
 El ABC ContextProvider define el contrato que toda feature de negocio
 implementa para aportar capas de contexto (cpg, ckg, trace, state, delta...).

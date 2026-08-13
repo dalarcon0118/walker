@@ -106,7 +106,7 @@ def _get_cfg(key: str, default: Any = None) -> Any:
 
     # Para keys no-path, delegar en config.get() (no causan recursion)
     if key not in ("projects_dir", "sessions_dir", "scripts_dir"):
-        from features.engine.infrastructure.config import get as cfg_get
+        from core.engine.infrastructure.config import get as cfg_get
 
         return cfg_get(key, default)
 
@@ -331,8 +331,19 @@ def get_engine_workflow_dir() -> Path:
     proyecto: vive versionado en features/engine/workflow/ del repo.
     (.cognitive/projects/<pid>/data/ es solo data de cada proyecto.)
     NO hay fallback: si no existe, los llamadores deben ERROR.
+
+    Resolución robusta: sube desde este archivo hasta la raíz del repo
+    (donde vive features/), sin depender del índice posicional (parents[N])
+    que cambió al reorganizar libs/ → shared/core/.
     """
-    return Path(__file__).resolve().parents[2] / "features" / "engine" / "workflow"
+    current = Path(__file__).resolve()
+    # Sube hasta encontrar el dir que contiene features/ + shared/ (raíz del repo)
+    while current != current.parent:
+        if (current / "core").is_dir() and (current / "shared").is_dir():
+            return current / "core" / "engine" / "workflow"
+        current = current.parent
+    # Fallback: relativo a este archivo (cubre layouts no estándar)
+    return current.parents[0] / ".." / "core" / "engine" / "workflow"
 
 
 def get_engine_workflow_path() -> Path:

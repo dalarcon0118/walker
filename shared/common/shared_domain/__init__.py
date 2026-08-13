@@ -1,10 +1,10 @@
 """
-libs/shared_domain/ — Shared domain value objects.
+shared/common/shared_domain/ — Shared domain value objects.
 
 SSOT for cross-feature VOs. Every feature imports from here
 instead of from other features' domain models.
 
-PRINCIPIO: libs/ NO importa de features/. Solo Python stdlib.
+PRINCIPIO: shared/ NO importa de features/. Solo Python stdlib.
 """
 from __future__ import annotations
 

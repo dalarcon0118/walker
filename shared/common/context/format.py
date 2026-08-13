@@ -1,4 +1,4 @@
-"""libs/context/format.py — Helpers de formateo de contexto (mecanismo puro).
+"""shared/common/context/format.py — Helpers de formateo de contexto (mecanismo puro).
 
 Estos helpers formatean piezas de contexto a texto. Las features de negocio
 los importan para formatear sus capas sin duplicar lógica.

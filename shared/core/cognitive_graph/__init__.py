@@ -295,7 +295,7 @@ class CognitiveGraph:
         import gzip as _gzip
 
         try:
-            from libs.path_resolver import get_project_dir
+            from shared.core.path_resolver import get_project_dir
             project_id = os.path.basename(self.chain_dir)
             proj_dir = get_project_dir(project_id)
             if proj_dir:

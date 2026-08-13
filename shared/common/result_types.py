@@ -1,10 +1,10 @@
-"""libs/result_types.py — Result pattern para Walker.
+"""shared/result_types.py — Result pattern para Walker.
 
 Wrapper sobre dry-python/returns que expone los tipos fundamentales
 del patrón Result para manejo de errores explícito.
 
 Uso:
-    from libs.result_types import Result, Success, Failure, safe, is_successful
+    from shared.common.result_types import Result, Success, Failure, safe, is_successful
 
     @safe
     def validate_plan(chain_dir: str) -> dict:

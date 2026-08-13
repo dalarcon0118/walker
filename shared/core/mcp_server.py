@@ -1,4 +1,4 @@
-"""libs/mcp_server.py — McpServer: composite MCP protocol router (adapter fino).
+"""shared/mcp_server.py — McpServer: composite MCP protocol router (adapter fino).
 
 Cada modulo del walker declara sus tools/resources via register(server).
 McpServer compone todos los modulos y rutea JSON-RPC requests.
