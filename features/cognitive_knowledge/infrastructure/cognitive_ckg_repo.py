@@ -5,6 +5,8 @@ a CognitiveGraph (store_many batch, search O(1), delete_many).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from returns.result import safe
 from returns.pipeline import is_successful
 
@@ -12,6 +14,14 @@ from core.engine.bootstrap import get_module_service
 
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
 from features.cognitive_knowledge.entities import KnowledgeFact
+
+# Campos canónicos de un nodo; el resto se normaliza a metadata.
+_FACT_FIELDS = {
+    "label", "description", "rationale", "type", "tags",
+    "metadata", "supersedes", "subject", "statement",
+    "context", "query_hints", "location", "api", "status",
+    "author", "source", "confidence",
+}
 
 
 class CognitiveCkgRepository(CkgRepository):
@@ -40,17 +50,19 @@ class CognitiveCkgRepository(CkgRepository):
 
     def save_nodes(self, nodes_data: list[dict]) -> dict:
         """Batch persist con logica completa de dominio (supersedes, metadata)."""
-        created = []
         degraded = []
         new_docs: dict[str, dict] = {}
         degraded_docs: dict[str, dict] = {}
+        # Escaneo único del índice para el procesamiento de supersedes de TODA
+        # la llamada (una sola lectura, no una por nodo — O(n²) → O(n)).
+        existing = self.query({})
 
-        _FACT_FIELDS = {
-            "label", "description", "rationale", "type", "tags",
-            "metadata", "supersedes", "subject", "statement",
-            "context", "query_hints", "location", "api", "status",
-            "author", "source", "confidence",
-        }
+        # Fix colisión de IDs en batch: next_id() consulta max_key contra el
+        # índice PERSISTIDO, que NO incluye los nodos del batch actual (el
+        # store es al final). Sin offset local, N nodos del mismo tipo
+        # colisionan en el mismo doc_id y new_docs[doc_id] los sobrescribe
+        # silenciosamente (bug diagnosticado: 6 nodos enviados → 2 persistidos).
+        batch_counters: dict[str, int] = {}
 
         for item in nodes_data:
             if not isinstance(item, dict) or "label" not in item:
@@ -58,12 +70,13 @@ class CognitiveCkgRepository(CkgRepository):
             label = item["label"]
             if not label or not str(label).strip():
                 continue
-            doc_id = self.next_id(item.get("type", "node"))
+            t = item.get("type", "node")
+            batch_counters[t] = batch_counters.get(t, 0) + 1
+            doc_id = self.next_id(t, offset=batch_counters[t])
 
-            # ── Resolver supersedes ──
+            # ── Resolver supersedes (match por statement contra el índice) ──
             supersedes = list(item.get("supersedes", []) or [])
             if supersedes:
-                existing = self.query({})
                 for old in existing:
                     old_stmt = old.get("statement", old.get("label", ""))
                     old_id = old.get("_id", old.get("id", ""))
@@ -86,13 +99,11 @@ class CognitiveCkgRepository(CkgRepository):
                 metadata=fact_meta,
                 tags=item.get("tags", []),
             )
-            fact._cg_instance = self._cg
-            new_docs[doc_id] = dict(fact._data)
-            created.append(doc_id)
+            # Seriación vía API pública (to_dict), no atributos privados.
+            new_docs[doc_id] = fact.to_dict()
 
             # ── Degradar decisiones que esta reemplaza ──
             if supersedes:
-                existing = self.query({})
                 for old in existing:
                     old_id = old.get("_id", old.get("id", ""))
                     if old_id in supersedes and old_id != doc_id:
@@ -100,9 +111,7 @@ class CognitiveCkgRepository(CkgRepository):
                         old_meta["superseded_by"] = label
                         old_meta["status"] = "superseded"
                         old_meta["superseded_at"] = (
-                            __import__("datetime").datetime.now(
-                                __import__("datetime").timezone.utc
-                            ).isoformat()
+                            datetime.now(timezone.utc).isoformat()
                         )
                         degraded_docs[old_id] = {
                             **old,
@@ -120,8 +129,15 @@ class CognitiveCkgRepository(CkgRepository):
                     "degraded": [], "error": str(store_result.failure()),
                 }
 
-        return {"ok": True, "nodes_created": len(created), "node_ids": created,
-                "degraded": degraded}
+        # Veracidad de nodes_created: reportar lo que REALMENTE sobrevivió al
+        # dict (claves únicas), no los items iterados (un batch con IDs
+        # colisionantes reportaba 6 aunque solo persistían 2).
+        return {
+            "ok": True,
+            "nodes_created": len(new_docs),
+            "node_ids": list(new_docs.keys()),
+            "degraded": degraded,
+        }
 
     def query(self, filters: dict | None = None) -> list[dict]:
         filters = dict(filters or {})
@@ -155,10 +171,18 @@ class CognitiveCkgRepository(CkgRepository):
             return self._cg.delete_many("ckg", ids)
         return {"ok": True, "nodes_removed": 0}
 
-    def next_id(self, prefix: str = "node") -> str:
+    def next_id(self, prefix: str = "node", offset: int = 0) -> str:
+        """Devuelve el siguiente ID para un prefijo, sobre el índice PERSISTIDO.
+
+        `offset` permite generar IDs únicos dentro del MISMO batch: como el
+        índice persistido no incluye los nodos aún no commiteados, el caller
+        pasa un contador local (1..N) y aquí se suma al máximo persistido —
+        así N nodos del mismo tipo en un batch NO colisionan (fix de pérdida
+        silenciosa de nodos por colisión de IDs en save_nodes).
+        """
         found = self._cg.max_key("ckg", prefix)
         max_num = found[1] if found else 0
-        return f"{prefix}-{max_num + 1:03d}"
+        return f"{prefix}-{max_num + offset:03d}"
 
 
 @safe

@@ -8,7 +8,15 @@ Contrato (ADR-WALKER-043): cada task pública declara input_schema Y output_sche
 en el registro. El `output_schema` se DERIVA del DTO de contrato de la fase
 (`contracts.to_schema()`), nunca se escribe a mano (SSOT del contrato).
 
-Tools de fase:
+NAMING (convención — docs/design/memory-tools-naming-convention.md):
+las tools de fase ya son SEMÁNTICAS (nombre = caso de uso del ADR-023 §3);
+solo sobra el prefijo técnico kg_ que se eliminará por fases (alias primero):
+  - kg_task_context    → objetivo task_context        (Fase IMPLEMENT)
+  - kg_diagnose        → objetivo failure_diagnosis   (Fase REFINE)
+  - kg_qa_evidence     → objetivo qa_evidence         (Fase VERIFY)
+  - kg_sprint_evidence → objetivo sprint_evidence     (Fase SPRINT.PLANNING)
+
+Tools de fase (hoy):
   - kg_task_context      → Fase IMPLEMENT (TaskFileIntelligenceDTO)
   - kg_diagnose          → Fase REFINE    (FailureDiagnosisDTO)
   - kg_qa_evidence       → Fase VERIFY    (QaCoverageDTO)

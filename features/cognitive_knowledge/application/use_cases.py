@@ -3,18 +3,31 @@ application/use_cases.py — Cognitive Knowledge domain use cases.
 
 Refactorizado para usar Result pattern (dry-python/returns).
 Cada use case retorna Result[T, Exception] en vez de dicts con ok/error.
+
+NAMING (convención — docs/design/memory-tools-naming-convention.md):
+estos casos de uso SON el contrato de las tools públicas de memorias:
+  - SaveToCkgUseCase       → tool save_to_ckg / objetivo documenting_knowledge
+  - GatherCkgContextUseCase → tool kg_search / objetivo recalling_knowledge
+  - GetActiveKnowledge     → tool kg_search con filtro type/status
+El nombre de la tool expuesta = operación de negocio (documentar/recordar),
+nunca la infraestructura (ckg_/kg_). Una tool por caso de uso: los dispatchers
+stringly-typed (ckg_analyze action=...) están deprecados y se eliminan.
+Regla dura: _project_id es SELECTOR de proyecto, nunca metadata.task_id.
 """
 
 from __future__ import annotations
 
 import gzip
 import json
+import logging
 import os
 
 from returns.result import Result, Success, safe
 from returns.pipeline import is_successful
 
 from features.project import ProjectService
+
+logger = logging.getLogger(__name__)
 
 
 # ── CKG health check (SSOT: solo cognitive_knowledge lee archivos CKG) ────
@@ -64,7 +77,8 @@ def _read_ckg_file(path: str) -> dict | None:
                 return json.load(f)
         with open(path) as f:
             return json.load(f)
-    except Exception:
+    except Exception:  # noqa: BLE001 — health check tolerante, pero SIN silencio
+        logger.warning("use_cases: no se pudo leer ckg file %r", path, exc_info=True)
         return None
 
 
@@ -97,6 +111,13 @@ class GatherCkgContextUseCase:
         if is_successful(result):
             return result
         else:
+            # ADR-016 regla 6: sin fallo silencioso — el gather degrada a
+            # contexto vacío pero LOGGEA la causa para no enmascarar errores.
+            logger.warning(
+                "GatherCkgContextUseCase fallo (%s: %s) — degradando a contexto vacio",
+                type(result.failure()).__name__,
+                result.failure(),
+            )
             return Success([])
 
 

@@ -2,6 +2,15 @@
 
 Result pattern (dry-python/returns): los cores con @safe nunca lanzan; los
 wrappers degradan con fallback explícito + log (convention-001).
+
+NAMING (convención global — docs/design/memory-tools-naming-convention.md):
+  - kg_search  → objetivo recalling_knowledge  (operación: recordar contexto)
+  - save_to_ckg → objetivo documenting_knowledge (operación: documentar decisiones)
+  - kg_multi   → ELIMINAR (API genérica "Elasticsearch", no caso de negocio,
+                 ADR-023 §3/§9: "es kg_multi con otro nombre, no un caso de negocio")
+Migración por fases: registrar el nombre semántico nuevo + alias viejo deprecado.
+Regla dura: _project_id es SELECTOR de proyecto — nunca metadata.task_id de nodo
+(campo dedicado task_id).
 """
 
 from __future__ import annotations

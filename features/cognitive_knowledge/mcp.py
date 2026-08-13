@@ -2,6 +2,15 @@
 
 Declares tools and resources for the Cognitive Knowledge Graph.
 Auto-discovery via ModuleRegistry.
+
+NAMING (convención global — ver docs/design/memory-tools-naming-convention.md
+y features/cognitive_knowledge/README.md):
+  - La tool se llama por la OPERACIÓN de negocio (documenting/recalling),
+    no por la infraestructura (ckg_/kg_).
+  - Una tool por caso de uso: NO reintroducir dispatchers stringly-typed
+    (ckg_analyze action=... está en vías de eliminación).
+  - _project_id es SELECTOR de proyecto, nunca metadata de nodo.
+Migración por fases: registrar nombre semántico nuevo + alias viejo deprecado.
 """
 from __future__ import annotations
 
@@ -11,6 +20,11 @@ from core.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDef
 
 
 def register(server: McpServer) -> None:
+    # DEPRECATED: ckg_analyze es un dispatcher stringly-typed que duplica a los
+    # casos de uso (SaveToCkgUseCase → save_to_ckg/documenting_knowledge,
+    # GatherCkgContextUseCase → kg_search/recalling_knowledge). Se elimina por
+    # convención de naming semántico; mantener SOLO como compat mientras
+    # migran los clients del protocolo (ADR-023 §3, memory-tools-naming-convention).
     server.tool(
         name="ckg_analyze",
         description="Unified CKG analysis: search, save, active, supersede, context",
@@ -22,6 +36,8 @@ def register_module(registry: Any) -> None:
     module = ModuleDefinition(
         name="cognitive_knowledge",
         tools=[
+            # DEPRECATED (dispatcher stringly-typed): se elimina por convención de
+            # naming semántico — una tool por caso de uso (ver docstring del módulo).
             ToolDefinition(
                 name="ckg_analyze",
                 description="Unified CKG analysis: search, save, active, supersede, context",
@@ -43,10 +59,12 @@ def register_module(registry: Any) -> None:
                     "required": ["action"],
                     "additionalProperties": True,
                 },
-                metadata={"tags": ["ckg", "unified", "analysis"]},
+                metadata={"tags": ["ckg", "unified", "analysis"], "deprecated": True},
             ),
+            # Naming semántico (convención): kg_search → objetivo recalling_knowledge.
             ToolDefinition(name="kg_search", description="Search project memory (CKG).", handler=_public_task("kg_search"), metadata={"tags": ["kg", "search"]}),
             ToolDefinition(name="kg_multi", description="Federated query across multiple indices.", handler=_public_task("kg_multi"), metadata={"tags": ["kg", "federated"]}),
+            # Naming semántico: save_to_ckg → objetivo documenting_knowledge.
             ToolDefinition(name="save_to_ckg", description="Register knowledge in project CKG.", handler=_public_task("save_to_ckg"), metadata={"tags": ["kg", "store"]}),
         ],
         routes=[

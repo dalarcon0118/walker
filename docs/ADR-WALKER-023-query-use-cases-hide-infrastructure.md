@@ -3,6 +3,7 @@
 > **Status:** Accepted
 > **Fecha:** 2026-08-06
 > **Actualizado:** 2026-08-07 — refinamiento: casos de uso **por fase del workflow** + orquestador de joins en `task_execution/application`.
+> **Actualizado:** 2026-08-13 — convención de naming de tools públicas de memorias: los nombres expuestos al agente deben ser **semánticos (operación + momento)**, sin prefijos técnicos (`kg_`, `_to_ckg`) y sin dispatchers stringly-typed. Ver `docs/design/memory-tools-naming-convention.md` y los `README.md` de `features/cognitive_knowledge/` y `features/main/task_execution/tasks/`.
 > **Contexto:** las tools `kg_search`, `kg_multi` y `kg_schema` consultan CognitiveGraph vía
 > `CognitiveGraphSearcher` (libs/infrastructure) — la infraestructura queda expuesta sin pasar por
 > los servicios de dominio de cada feature.

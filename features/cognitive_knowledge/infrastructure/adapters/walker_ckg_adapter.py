@@ -10,8 +10,13 @@ se actualiza.
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
 from features.cognitive_knowledge.domain.services.ckg_service import ICkgService
+
+logger = logging.getLogger(__name__)
 
 
 class WalkerCkgAdapter(ICkgService):
@@ -93,5 +98,11 @@ class WalkerCkgAdapter(ICkgService):
         if self._bus is not None:
             try:
                 self._bus.publish(event)
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 — el bus nunca debe romper el flujo
+                # ADR-016 regla 6: sin except silencioso — loggear siempre.
+                logger.warning(
+                    "ckg_adapter: no se pudo publicar evento %s (%s: %s)",
+                    type(event).__name__,
+                    type(e).__name__,
+                    e,
+                )

@@ -1,6 +1,18 @@
 """ckg_analyze task — API pública unificada del CKG.
 
-Sub-comandos soportados:
+⚠️ DEPRECATED (convención de naming — docs/design/memory-tools-naming-convention.md):
+Este dispatcher stringly-typed (action=search/save/active/...) duplica a los
+casos de uso y se elimina de la superficie pública. Cada action ya tiene su
+caso de uso / tool semántica:
+  - action=save      → SaveToCkgUseCase     → save_to_ckg / documenting_knowledge
+  - action=search    → GatherCkgContextUseCase → kg_search / recalling_knowledge
+  - action=active    → GetActiveKnowledge   → kg_search con filtro type/status
+  - action=supersede → SaveToCkgUseCase con 'supersedes'
+  - action=context   → GatherCkgContextUseCase
+Mantenido como task INTERNA para compat (test_rag_pipeline lo importa directo).
+Regla dura: _project_id es SELECTOR de proyecto, NO metadata.task_id (ver fix L60).
+
+Sub-comandos soportados (legacy):
   walker <project>/ckg_analyze '{"action":"search","query":"auth"}'
   walker <project>/ckg_analyze '{"action":"save","nodes":[...]}'
   walker <project>/ckg_analyze '{"action":"active","type":"decision"}'
@@ -57,7 +69,9 @@ def _dispatch_fallback(action: str, data: dict, chain_dir: str) -> dict:
         result["result"] = ckg_result.value_or([]) if is_successful(ckg_result) else []
     elif action == "save":
         nodes = data.get("nodes", [])
-        task_id = data.get("_project_id", "")
+        # Fix: _project_id es el SELECCIONADOR de proyecto (protocolo MCP/CLI),
+        # NO metadata.task_id del nodo. Si no hay task_id explícito, vacío.
+        task_id = data.get("task_id", "")
         ckg_result = SaveToCkgUseCase.execute(chain_dir, nodes, task_id=task_id)
         result["result"] = (
             ckg_result.value_or({})
