@@ -65,7 +65,7 @@ def _setup_cognitive_graph(project_dir: str, ctx: dict):
 
 @given("que he almacenado decisiones y convenciones del proyecto en el grafo cognitivo")
 def _store_initial_knowledge(project_dir: str, ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     cg = CognitiveGraph(project_dir)
     cg.store(
@@ -83,7 +83,7 @@ def _store_initial_knowledge(project_dir: str, ctx: dict):
 
 @when("el sistema cierra y se reinicia posteriormente")
 def _restart_system(ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     ctx["cg"] = CognitiveGraph(ctx["project_dir"])
 
@@ -105,7 +105,7 @@ def _no_lost_knowledge(ctx: dict):
 
 @given("que el proyecto acumula tareas, decisiones y convenciones en el grafo")
 def _populate_knowledge(ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     cg = CognitiveGraph(ctx["project_dir"])
     cg.store("delta", "T-001", {"type": "task", "objective": "Implementar auth", "domain": "security"})
@@ -140,7 +140,7 @@ def _search_respects_context(ctx: dict):
 
 @given("que almaceno conocimiento en el grafo cognitivo")
 def _store_knowledge(ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     cg = CognitiveGraph(ctx["project_dir"])
     cg.store("ckg", "K-001", {"type": "decision", "statement": "Usar JWT", "scope": "security"})
@@ -172,7 +172,7 @@ def _update_preserves_existing(ctx: dict):
 
 @given("que el proyecto registra dependencias entre tareas, archivos y decisiones")
 def _register_relations(ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     cg = CognitiveGraph(ctx["project_dir"])
     cg.store("delta", "T-042", {"objective": "Fix auth"})
@@ -195,7 +195,7 @@ def _navigate_connections(ctx: dict):
 
 @then("las relaciones se mantienen al persistir y recuperar el grafo")
 def _relations_persist(ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     cg2 = CognitiveGraph(ctx["project_dir"])
     related2 = cg2.get_related("T-042", depth=1)
@@ -295,7 +295,7 @@ def _distinguish_formal_informal(ctx: dict):
 
 @given("que el sistema registra cada consulta de conocimiento realizada")
 def _setup_trace(ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     cg = CognitiveGraph(ctx["project_dir"])
     docs = [
@@ -394,8 +394,8 @@ def _accumulate_knowledge(ctx: dict):
 
 @when("ejecuto la extracción estructurada del conocimiento")
 def _extract_knowledge(ctx: dict):
-    from features.task_execution.tasks.kg_extract import kg_extract
-    from libs.shared_domain import ExecutionContext
+    from features.main.task_execution.tasks.kg_extract import kg_extract
+    from shared.common.shared_domain import ExecutionContext
 
     ctx_obj = ExecutionContext.create(session_id="bdd-extract", chain_dir=ctx["project_dir"])
     ctx["extract_result"] = kg_extract(ctx_obj, {"scope": "all"})

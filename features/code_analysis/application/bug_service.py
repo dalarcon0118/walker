@@ -316,7 +316,7 @@ def _load_repo_data_core(repo: CpgFileRepository) -> dict:
 def _scan_cfg_on_demand_core(chain_dir: str) -> dict:
     """Core puro de _scan_cfg_on_demand (puede lanzar)."""
     from features.code_analysis.application.build_service import BuildGraphUseCase
-    from libs.path_resolver import resolve_project_root
+    from shared.core.path_resolver import resolve_project_root
 
     project_dir = resolve_project_root(chain_dir)
     if project_dir and os.path.isdir(project_dir):

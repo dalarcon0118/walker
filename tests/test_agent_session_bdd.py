@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from features.cli_interface.domain.entities import McpSession
+from features.main.cli_interface.domain.entities import McpSession
 from tests.conftest import make_walker_project
 
 
@@ -26,7 +26,7 @@ def _setup_project(tmp_path: Path) -> Path:
 
 
 def _mcp_call(name: str, arguments: dict, session_id: str | None = None) -> dict:
-    from features.cli_interface.mcp_adapter import _handle_request
+    from features.main.cli_interface.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",

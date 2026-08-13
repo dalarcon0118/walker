@@ -38,7 +38,7 @@ def _empty_phase_registry(phase_intelligence_ctx: dict):
 
 @given("un execution context con chain_dir inexistente")
 def _ctx_no_existe(phase_intelligence_ctx: dict):
-    from libs.shared_domain import ExecutionContext
+    from shared.common.shared_domain import ExecutionContext
 
     phase_intelligence_ctx["ctx"] = ExecutionContext.create(
         session_id="s1", chain_dir="/no/existe"
@@ -47,7 +47,7 @@ def _ctx_no_existe(phase_intelligence_ctx: dict):
 
 @given("el bootstrap de tasks")
 def _bootstrap_tasks_ready(phase_intelligence_ctx: dict):
-    from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
+    from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
 
     phase_intelligence_ctx["registry"] = InMemoryTaskRegistry(tracer=None)
 
@@ -57,7 +57,7 @@ def _bootstrap_tasks_ready(phase_intelligence_ctx: dict):
 
 @when("registro las tasks de fase")
 def _register_phase_tasks(phase_intelligence_ctx: dict):
-    import features.task_execution.tasks.phase_intelligence as phase_tasks
+    import features.main.task_execution.tasks.phase_intelligence as phase_tasks
 
     registry = phase_intelligence_ctx["registry"]
     phase_tasks.register(registry)
@@ -65,7 +65,7 @@ def _register_phase_tasks(phase_intelligence_ctx: dict):
 
 @when("ejecuto kg_task_context")
 def _run_kg_task_context(phase_intelligence_ctx: dict):
-    import features.task_execution.tasks.phase_intelligence as phase_tasks
+    import features.main.task_execution.tasks.phase_intelligence as phase_tasks
 
     ctx = phase_intelligence_ctx["ctx"]
     phase_intelligence_ctx["result"] = phase_tasks.kg_task_context(
@@ -75,10 +75,10 @@ def _run_kg_task_context(phase_intelligence_ctx: dict):
 
 @when("registro las tasks públicas")
 def _bootstrap_public_tasks(phase_intelligence_ctx: dict):
-    from features.engine.bootstrap import bootstrap_tasks
+    from features.main.task_execution.tasks import register_task_execution_tasks
 
     registry = phase_intelligence_ctx["registry"]
-    bootstrap_tasks(registry)
+    register_task_execution_tasks(registry)
     phase_intelligence_ctx["metas"] = {
         t["name"]: t for t in (registry.list_tasks_with_meta(scope="public") or [])
     }
@@ -107,7 +107,7 @@ def _each_has_schemas(phase_intelligence_ctx: dict):
 
 @then("kg_task_context output_schema es TaskFileIntelligenceDTO.to_schema()")
 def _kg_task_context_schema(phase_intelligence_ctx: dict):
-    from features.task_execution.application.contracts import TaskFileIntelligenceDTO
+    from features.main.task_execution.application.contracts import TaskFileIntelligenceDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_task_context"]["metadata"]
     assert meta["output_schema"] == TaskFileIntelligenceDTO.to_schema()
@@ -115,7 +115,7 @@ def _kg_task_context_schema(phase_intelligence_ctx: dict):
 
 @then("kg_diagnose output_schema es FailureDiagnosisDTO.to_schema()")
 def _kg_diagnose_schema(phase_intelligence_ctx: dict):
-    from features.task_execution.application.contracts import FailureDiagnosisDTO
+    from features.main.task_execution.application.contracts import FailureDiagnosisDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_diagnose"]["metadata"]
     assert meta["output_schema"] == FailureDiagnosisDTO.to_schema()
@@ -123,7 +123,7 @@ def _kg_diagnose_schema(phase_intelligence_ctx: dict):
 
 @then("kg_qa_evidence output_schema es QaCoverageDTO.to_schema()")
 def _kg_qa_schema(phase_intelligence_ctx: dict):
-    from features.task_execution.application.contracts import QaCoverageDTO
+    from features.main.task_execution.application.contracts import QaCoverageDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_qa_evidence"]["metadata"]
     assert meta["output_schema"] == QaCoverageDTO.to_schema()
@@ -131,7 +131,7 @@ def _kg_qa_schema(phase_intelligence_ctx: dict):
 
 @then("kg_sprint_evidence output_schema es SprintEvidenceDTO.to_schema()")
 def _kg_sprint_schema(phase_intelligence_ctx: dict):
-    from features.task_execution.application.contracts import SprintEvidenceDTO
+    from features.main.task_execution.application.contracts import SprintEvidenceDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_sprint_evidence"][
         "metadata"

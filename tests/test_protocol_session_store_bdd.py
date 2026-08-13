@@ -22,7 +22,7 @@ def session_ctx() -> dict:
 
 
 def _make_session():
-    from features.cli_interface.domain.entities import McpSession
+    from features.main.cli_interface.domain.entities import McpSession
     return McpSession.create()
 
 
@@ -31,7 +31,7 @@ def _make_session():
 
 @given("un InMemorySessionRepository vacío")
 def _empty_repo(session_ctx: dict):
-    from features.cli_interface.infrastructure.session_store import (
+    from features.main.cli_interface.infrastructure.session_store import (
         InMemorySessionRepository,
     )
     session_ctx["repo"] = InMemorySessionRepository()
@@ -51,7 +51,7 @@ def _session_initialized(session_ctx: dict):
 
 @given("un InMemorySessionRepository con una sesión guardada")
 def _repo_with_session(session_ctx: dict):
-    from features.cli_interface.infrastructure.session_store import (
+    from features.main.cli_interface.infrastructure.session_store import (
         InMemorySessionRepository,
     )
     repo = InMemorySessionRepository()

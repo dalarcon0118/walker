@@ -31,7 +31,7 @@ def create_trace_publisher(chain_dir: str) -> callable | None:
             payload.setdefault("agent_id", "")
             payload["_project_id"] = project_id
             payload.setdefault("source", "code_analysis")
-            from features.engine.application.task_dispatcher import execute_public_task
+            from core.engine.application.task_dispatcher import execute_public_task
 
             # Motor interno (channel='system'): las tasks scope=system solo las
             # ejecuta el motor/adapters internos (ARQ objetivo SPEC-005); desde

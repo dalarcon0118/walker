@@ -13,7 +13,7 @@ Característica: Gate de auto-consulta de convenciones CKG en IMPLEMENT.WORK
   Para garantizar que el codigo producido respeta las decisiones arquitectonicas del proyecto
 
   Antecedentes:
-    Dado que el nodo IMPLEMENT esta definido en features/engine/workflow/nodes/implement.node.json
+    Dado que el nodo IMPLEMENT esta definido en core/engine/workflow/nodes/implement.node.json
 
   @auto-query-gate
   Escenario: WORK declara provider ckg con query type:convention
@@ -55,13 +55,13 @@ Característica: Gate de auto-consulta de convenciones CKG en IMPLEMENT.WORK
 
   @auto-query-gate
   Escenario: DESIGN_GATHER declara las 4 capas de conocimiento
-    Dado que el nodo DESIGN esta definido en features/engine/workflow/nodes/design.node.json
+    Dado que el nodo DESIGN esta definido en core/engine/workflow/nodes/design.node.json
     Cuando se inspecciona el sub-estado DESIGN_GATHER del nodo DESIGN
     Entonces sus fuentes incluyen business, ckg, cpg y delta
 
   @auto-query-gate
   Escenario: El prompt DESIGN_GATHER describe el gate y las capas
-    Dado que el nodo DESIGN esta definido en features/engine/workflow/nodes/design.node.json
+    Dado que el nodo DESIGN esta definido en core/engine/workflow/nodes/design.node.json
     Cuando se carga el template design/design-gather
     Entonces el prompt contiene GATE DE AUTO-CONSULTA
     Y el prompt describe << ckg >>, << cpg >> y << delta >>
@@ -70,7 +70,7 @@ Característica: Gate de auto-consulta de convenciones CKG en IMPLEMENT.WORK
   @auto-query-gate
   Escenario: ContextComposer inyecta capas en DESIGN_GATHER end-to-end
     Dado un proyecto temporal con un CKG minimo
-    Dado que el nodo DESIGN esta definido en features/engine/workflow/nodes/design.node.json
+    Dado que el nodo DESIGN esta definido en core/engine/workflow/nodes/design.node.json
     Cuando se compone el contexto para DESIGN_GATHER con ContextComposer
     Entonces las capas renderizadas incluyen ckg
     Y el prompt renderizado mantiene el GATE DE AUTO-CONSULTA

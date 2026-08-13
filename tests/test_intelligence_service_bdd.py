@@ -97,7 +97,7 @@ class _Event:
 
 
 def _make_service(cpg=None, ckg=None, delta=None, trace=None):
-    from features.task_execution.application.intelligence_service import (
+    from features.main.task_execution.application.intelligence_service import (
         TaskIntelligenceService,
     )
 

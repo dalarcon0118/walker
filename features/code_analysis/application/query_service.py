@@ -40,7 +40,7 @@ class QueryGraphUseCase:
             if self._data_dir:
                 data = self._data_dir
             else:
-                from libs.path_resolver import resolve_project_root
+                from shared.core.path_resolver import resolve_project_root
                 project_root = resolve_project_root(self.chain_dir)
                 data = os.path.join(project_root, "data") if project_root else ""
                 if not data or not os.path.isdir(data):

@@ -30,10 +30,10 @@ import json
 import pytest
 
 from features.delta_tracking import spring_service
-from features.engine.application.use_cases import SubmitDataUseCase
-from features.engine.domain.models import ExecutionContext
-from features.task_execution.tasks.verification import register as register_verify_tasks
-from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
+from core.engine.application.use_cases import SubmitDataUseCase
+from core.engine.domain.models import ExecutionContext
+from features.delta_tracking.tasks.verification import register as register_verify_tasks
+from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -44,7 +44,7 @@ from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
 @pytest.fixture
 def env(tmp_path):
     """Proyecto real con código verificable, delta (CognitiveGraph) y chain."""
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     proj = tmp_path / "proj"
     data_dir = proj / "data"

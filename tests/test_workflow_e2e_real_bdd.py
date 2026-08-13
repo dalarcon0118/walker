@@ -23,9 +23,9 @@ from pathlib import Path
 
 import pytest
 
-from features.engine.application.orchestrator import OrchestrationService
-from features.engine.domain.entities import WorkflowState
-from features.engine.infrastructure.repositories import (
+from core.engine.application.orchestrator import OrchestrationService
+from core.engine.domain.entities import WorkflowState
+from core.engine.infrastructure.repositories import (
     WorkflowRepository,
     WorkflowStateRepository,
 )
@@ -364,7 +364,7 @@ def _setup_workflow_state(chain_dir: str) -> None:
 
 def _build_exec_ctx(chain_dir: str) -> "ExecutionContext":
     """Crea un ExecutionContext para el engine."""
-    from libs.shared_domain.models import ExecutionContext
+    from shared.common.shared_domain.models import ExecutionContext
     return ExecutionContext.create(
         session_id="sess-e2e",
         chain_dir=chain_dir,
@@ -381,17 +381,19 @@ class TestWorkflowE2EReal:
     def test_full_workflow_executes_real_engine(self, tmp_path, monkeypatch):
         """Ejecuta el flujo completo usando OrchestrationService real.
 
-        Composition root real (capa_rout.md D1): bootstrap() produce el
+        Composition root real (capa_rout.md D1): compose_app() produce el
         registry poblado con las tasks reales (plan_sprint, spec_task,
         review_code, close_sprint se ejecutan REALES); register_mock_tasks()
         solo parchea las actions del flujo de test que no tienen handler real
         (gather_design, user_gate, implement, qa_run, ...).
         """
-        from features.engine.bootstrap import bootstrap
+        from features.main.bootstrap import compose_app
 
         project_root, chain_dir = _setup_project(tmp_path)
 
-        registry, se = bootstrap()
+        app = compose_app()
+        registry = app.task_registry
+        se = app.side_effect_engine
         register_mock_tasks(registry)
         svc = OrchestrationService(task_registry=registry, side_effect_engine=se)
 

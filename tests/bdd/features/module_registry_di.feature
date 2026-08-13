@@ -21,14 +21,14 @@ Feature: Module registry DI
     When intento resolver "no_existe"
     Then se lanza KeyError
 
-  Scenario: Bootstrap registra servicios de libs/
+  Scenario: Bootstrap registra servicios de shared/
     Given el composition root bootstrap
     When inicializo el registry con bootstrap_modules
     Then "path_resolver" está registrado y es callable
     And "cognitive_searcher" está registrado como factory callable
     And "mcp_server" está registrado como lazy singleton
 
-  Scenario: El feature recibe servicios por IoC sin importar libs
+  Scenario: El feature recibe servicios por IoC sin importar shared
     Given un registry con "cognitive_searcher" lazy
     When construyo un adapter resolviendo por clave
     Then obtengo el servicio sin importar implementaciones

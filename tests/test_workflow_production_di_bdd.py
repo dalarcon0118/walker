@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import os
 
-from features.engine.domain.entities import WorkflowState
-from features.engine.infrastructure.repositories import WorkflowStateRepository
+from core.engine.domain.entities import WorkflowState
+from core.engine.infrastructure.repositories import WorkflowStateRepository
 from tests.conftest import make_chain_dir
 
 
@@ -89,7 +89,7 @@ class TestProductionDICamino:
     def test_workflow_submit_ejecuta_task_real(self, tmp_path):
         """get_module_service('workflow').submit ejecuta plan_sprint real y
         avanza a TASK_SPEC (antes: submitted=True sin task, congelado)."""
-        from features.engine.bootstrap import get_module_service
+        from core.engine.bootstrap import get_module_service
 
         chain_dir = make_chain_dir(tmp_path, "di-probe", project_name="walker")
         _write_workflow(chain_dir)
@@ -114,7 +114,7 @@ class TestProductionDICamino:
     def test_workflow_submit_ejecuta_spec_task(self, tmp_path):
         """Encadenado: spec_task real (SpecifySpecUseCase) también se ejecuta
         en el camino de producción — valida el registro completo del DI."""
-        from features.engine.bootstrap import get_module_service
+        from core.engine.bootstrap import get_module_service
 
         chain_dir = make_chain_dir(tmp_path, "di-probe2", project_name="walker")
         _write_workflow(chain_dir)

@@ -61,7 +61,7 @@ def test_trace_push_es_invocable_por_el_motor_interno_y_bloqueado_desde_mcp():
     (que descarta el resultado del dispatch) perdía los eventos CPG→trace de
     SPEC-002 G-W1 en silencio.
     """
-    from features.engine.application.task_dispatcher import execute_public_task
+    from core.engine.application.task_dispatcher import execute_public_task
 
     # Entrada externa (MCP/CLI): bloqueada.
     blocked = execute_public_task(
@@ -88,7 +88,7 @@ def test_evento_cpg_publicado_llega_al_indice_trace(tmp_path):
     from features.code_analysis.infrastructure.adapters.trace_event_publisher import (
         create_trace_publisher,
     )
-    from features.engine.bootstrap import get_module_service
+    from core.engine.bootstrap import get_module_service
     from features.project import ProjectService
 
     chain_dir = make_chain_dir(tmp_path, project_id="walker")

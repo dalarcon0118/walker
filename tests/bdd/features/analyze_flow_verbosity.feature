@@ -13,7 +13,7 @@ Característica: Reduccion de verbosidad en el flujo ANALYZE
   Para reducir la verbosidad y los user_input redundantes del PO
 
   Antecedentes:
-    Dado que el nodo ANALYZE esta definido en features/engine/workflow/nodes/analyze.node.json
+    Dado que el nodo ANALYZE esta definido en core/engine/workflow/nodes/analyze.node.json
 
   @analyze
   Escenario: KNOWLEDGE_REVIEW ya no existe en el nodo ANALYZE

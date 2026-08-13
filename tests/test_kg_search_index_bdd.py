@@ -44,16 +44,16 @@ def _kg_project(tmp_path):
         yield str(cog)
     finally:
         reg_ctx.__exit__(None, None, None)
-        from features.engine.bootstrap import reset_module_registry
+        from core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
-        from features.cli_interface import mcp_adapter
+        from features.main.cli_interface import mcp_adapter
 
         mcp_adapter._SERVER = None
 
 
 def _mcp_call(name: str, arguments: dict) -> dict:
-    from features.cli_interface.mcp_adapter import _handle_request
+    from features.main.cli_interface.mcp_adapter import _handle_request
 
     msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
            "params": {"name": name, "arguments": arguments}}

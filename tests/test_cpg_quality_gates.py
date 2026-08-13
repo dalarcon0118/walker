@@ -25,7 +25,7 @@ def qg_ctx() -> dict:
 
 @given("un envelope ok de update_cpg")
 def _bdd_envelope(qg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
+    from core.engine.domain.side_effect_contract import ok
 
     qg_ctx["envelope"] = ok(
         type="update_cpg",
@@ -37,7 +37,7 @@ def _bdd_envelope(qg_ctx: dict):
 
 @then("el envelope es estándar")
 def _bdd_envelope_estandar(qg_ctx: dict):
-    from features.engine.domain.side_effect_contract import is_standard
+    from core.engine.domain.side_effect_contract import is_standard
 
     assert is_standard(qg_ctx["envelope"])
 
@@ -57,7 +57,7 @@ def _bdd_scope(qg_ctx: dict):
 
 @given("un resultado update_cpg con quality_passed en False")
 def _bdd_result_fail(qg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
+    from core.engine.domain.side_effect_contract import ok
 
     qg_ctx["result"] = {
         "side_effects": [
@@ -145,7 +145,7 @@ def _bdd_failed_gates(qg_ctx: dict):
 
 @given("un resultado update_cpg con quality_passed en True")
 def _bdd_result_ok(qg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
+    from core.engine.domain.side_effect_contract import ok
 
     qg_ctx["result"] = {
         "side_effects": [
@@ -188,7 +188,7 @@ def _bdd_no_dispara():
     svc._transition_uc = FakeTransitionCtx()
     svc._tracer = FakeTracer()
 
-    from features.engine.domain.side_effect_contract import ok
+    from core.engine.domain.side_effect_contract import ok
 
     result = {
         "side_effects": [

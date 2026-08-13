@@ -94,8 +94,8 @@ def _sprint_active(wf_ctx: dict):
     svc.create_spring("sprint-test", goal="Sprint test", status="active", project_id="walker", session_id="s1")
     chain_dir = os.path.join(wf_ctx["project_root"], "data", "spring", "sprint-test")
     os.makedirs(chain_dir, exist_ok=True)
-    from features.engine.infrastructure.repositories import WorkflowStateRepository
-    from features.engine.domain.entities import WorkflowState
+    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from core.engine.domain.entities import WorkflowState
     wf = WorkflowState(current_node="SPRINT", current_sub_state="ACTIVE")
     wf.context["chain_dir"] = chain_dir
     wf.context["project_id"] = "walker"
@@ -164,10 +164,10 @@ def _list_specs(wf_ctx: dict):
 
 @when('invoco submit con intent test y evidence ok', target_fixture="wf_ctx")
 def _submit(wf_ctx: dict):
-    from features.cli_interface.application.handlers import handle_submit
-    from features.cli_interface.infrastructure.contracts import Request
+    from features.main.cli_interface.application.handlers import handle_submit
+    from features.main.cli_interface.infrastructure.contracts import Request
     chain_dir = wf_ctx.get("chain_dir", "")
-    req = Request(params={}, flags={"task": "submit", "_payload": {"intent": "test", "evidence": "ok"}})
+    req = Request(params={"projectId": "walker"}, flags={"task": "submit", "_payload": {"intent": "test", "evidence": "ok"}})
     req.params["chain_dir"] = chain_dir
     result = handle_submit(req)
     wf_ctx["submit_result"] = result.to_dict() if hasattr(result, "to_dict") else result
@@ -176,10 +176,10 @@ def _submit(wf_ctx: dict):
 
 @when('invoco transition con gate start_task', target_fixture="wf_ctx")
 def _transition(wf_ctx: dict):
-    from features.cli_interface.application.handlers import handle_transition
-    from features.cli_interface.infrastructure.contracts import Request
+    from features.main.cli_interface.application.handlers import handle_transition
+    from features.main.cli_interface.infrastructure.contracts import Request
     chain_dir = wf_ctx.get("chain_dir", "")
-    req = Request(params={"gate": "start_task"}, flags={"task": "transition", "_payload": {"gate": "start_task"}, "force": True, "reason": "test"})
+    req = Request(params={"projectId": "walker"}, flags={"task": "transition", "_payload": {"gate": "start_task"}, "force": True, "reason": "test"})
     req.params["chain_dir"] = chain_dir
     result = handle_transition(req)
     wf_ctx["transition_result"] = result.to_dict() if hasattr(result, "to_dict") else result

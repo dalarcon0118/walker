@@ -5,9 +5,9 @@ Auto-discovery via ModuleRegistry.
 """
 from __future__ import annotations
 
-from libs.mcp_server import McpServer
+from shared.core.mcp_server import McpServer
 
-from features.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
+from core.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
 
 
 def register(server: McpServer) -> None:
@@ -61,7 +61,7 @@ def register_module(registry: Any) -> None:
 
 
 def _kg_search(args: dict) -> dict:
-    from features.engine.application.task_dispatcher import dispatch_public_task
+    from core.engine.application.task_dispatcher import dispatch_public_task
     return dispatch_public_task("kg_search", args.get("query", {}))
 
 
@@ -80,12 +80,12 @@ def _kg_search_flags(args: dict) -> dict:
 
 
 def _kg_multi(args: dict) -> dict:
-    from features.engine.application.task_dispatcher import dispatch_public_task
+    from core.engine.application.task_dispatcher import dispatch_public_task
     return dispatch_public_task("kg_multi", args.get("layers", args.get("query", {})))
 
 
 def _save_to_ckg(args: dict) -> dict:
-    from features.engine.application.task_dispatcher import dispatch_public_task
+    from core.engine.application.task_dispatcher import dispatch_public_task
     body = args.get("body") or args.get("query") or args.get("search") or args
     if not isinstance(body, dict):
         body = dict(body or {})
@@ -94,6 +94,6 @@ def _save_to_ckg(args: dict) -> dict:
 
 def _public_task(name: str):
     def handler(args: dict) -> dict:
-        from features.engine.application.task_dispatcher import dispatch_public_task
+        from core.engine.application.task_dispatcher import dispatch_public_task
         return dispatch_public_task(name, args.get("body", args))
     return handler

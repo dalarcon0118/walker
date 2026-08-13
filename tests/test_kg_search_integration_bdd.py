@@ -28,7 +28,7 @@ def kg_mcp_ctx() -> dict:
 @given("que el servidor MCP compuesto está registrado")
 def _server_registered(kg_mcp_ctx: dict):
     # Fuerza el build del servidor compuesto (igual que el arranque del MCP).
-    from features.cli_interface.mcp_adapter import _build_server
+    from features.main.cli_interface.mcp_adapter import _build_server
 
     kg_mcp_ctx["server"] = _build_server()
 
@@ -49,7 +49,7 @@ def _query_as_string(kg_mcp_ctx: dict):
 
 
 def _call_kg_search(arguments: dict, kg_mcp_ctx: dict):
-    from features.cli_interface.mcp_adapter import _handle_request
+    from features.main.cli_interface.mcp_adapter import _handle_request
 
     kg_mcp_ctx["resp"] = _handle_request(
         {

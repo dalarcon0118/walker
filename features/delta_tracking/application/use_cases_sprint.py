@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from libs.shared_domain import ExecutionContext
+from shared.common.shared_domain import ExecutionContext
 from ..domain.services.spec_service import (
     SpecValidator,
     SpecBuilder,
@@ -129,11 +129,11 @@ class PlanSprintUseCase:
         # estado inicial del sprint (PLANNING). El motor no lee
         # sprint-state.json: el estado de negocio vive en el delta.
         try:
-            from features.engine.infrastructure.repositories import (
+            from core.engine.infrastructure.repositories import (
                 WorkflowStateRepository,
             )
 
-            from features.engine.domain.entities import WorkflowState
+            from core.engine.domain.entities import WorkflowState
 
             wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
             wf.context["chain_dir"] = sprint_dir
@@ -145,7 +145,7 @@ class PlanSprintUseCase:
 
         if record:
             record.chain_dir = sprint_dir
-            from features.engine.domain.session import SessionStore
+            from core.engine.domain.session import SessionStore
 
             SessionStore.save(record)
             SessionStore.set_active(record.session_id)
@@ -564,7 +564,7 @@ def _resolve_chain_dir(
             return active
         # get_delta_dir ahora resuelve automaticamente desde el registry
         # (via get_project_dir -> _project_dir_from_registry)
-        from libs.path_resolver import get_delta_dir
+        from shared.core.path_resolver import get_delta_dir
 
         delta_dir = str(get_delta_dir(pid))
         os.makedirs(delta_dir, exist_ok=True)
@@ -590,7 +590,7 @@ def _resolve_chain_dir(
 
 
 def _get_active_record(ctx):
-    from features.engine.domain.session import SessionStore
+    from core.engine.domain.session import SessionStore
 
     try:
         return SessionStore.get_active()
@@ -602,7 +602,7 @@ def _resolve_project_root(project_id: str) -> str:
     """Resuelve el directorio cognitivo del proyecto (.cognitive/projects/<id>)."""
     if not project_id:
         return ""
-    from libs.path_resolver import get_project_dir
+    from shared.core.path_resolver import get_project_dir
 
     try:
         return str(get_project_dir(project_id))

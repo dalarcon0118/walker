@@ -8,7 +8,7 @@ from __future__ import annotations
 from returns.result import safe
 from returns.pipeline import is_successful
 
-from features.engine.bootstrap import get_module_service
+from core.engine.bootstrap import get_module_service
 
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
 from features.cognitive_knowledge.entities import KnowledgeFact

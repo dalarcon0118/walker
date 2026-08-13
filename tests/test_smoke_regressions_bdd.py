@@ -36,10 +36,10 @@ def _smoke_project_registry(tmp_path):
         yield tmp
     finally:
         reg_ctx.__exit__(None, None, None)
-        from features.engine.bootstrap import reset_module_registry
+        from core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
-        from features.cli_interface import mcp_adapter
+        from features.main.cli_interface import mcp_adapter
 
         mcp_adapter._SERVER = None
 
@@ -70,8 +70,8 @@ def _setup_project(tmp_path: str) -> tuple[str, str]:
     )
     sprint_dir = cog / "data" / "spring" / "sprint-smoke"
     sprint_dir.mkdir(parents=True, exist_ok=True)
-    from features.engine.infrastructure.repositories import WorkflowStateRepository
-    from features.engine.domain.entities import WorkflowState
+    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from core.engine.domain.entities import WorkflowState
 
     wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
     wf.context["chain_dir"] = str(sprint_dir)
@@ -89,7 +89,7 @@ class TestSmokeRegressions:
         from features.delta_tracking.application.use_cases_sprint import (
             PlanSprintUseCase,
         )
-        from libs.shared_domain import ExecutionContext
+        from shared.common.shared_domain import ExecutionContext
 
         td = str(tmp_path)
         sprint_dir, cog_dir = _setup_project(td)
@@ -122,7 +122,7 @@ class TestSmokeRegressions:
         from features.delta_tracking.application.use_cases_sprint import (
             PlanSprintUseCase,
         )
-        from libs.shared_domain import ExecutionContext
+        from shared.common.shared_domain import ExecutionContext
 
         td = str(tmp_path)
         sprint_dir, cog_dir = _setup_project(td)
@@ -146,8 +146,8 @@ class TestSmokeRegressions:
 
     def test_update_sprint_status_side_effect_no_import_error(self, tmp_path, _smoke_project_registry):
         """El side effect update_sprint_status ejecuta sin ImportError."""
-        from features.engine.domain.models import ExecutionContext
-        from features.task_execution.side_effects.status import update_sprint_status
+        from core.engine.domain.models import ExecutionContext
+        from features.main.task_execution.side_effects.status import update_sprint_status
 
         td = str(tmp_path)
         sprint_dir, _ = _setup_project(td)

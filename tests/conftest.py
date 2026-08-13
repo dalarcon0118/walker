@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from features.engine.domain.session import SessionStore
+from core.engine.domain.session import SessionStore
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +51,7 @@ def _sandbox_global_registry(tmp_path, monkeypatch):
     Backup + restore por test: cada test parte del estado nativo del registro,
     sin importar qué mutaron los tests anteriores.
     """
-    from libs.path_resolver import get_walker_root
+    from shared.core.path_resolver import get_walker_root
 
     reg_path = get_walker_root() / "data" / "projects.json"
     snapshot = None
@@ -64,6 +64,35 @@ def _sandbox_global_registry(tmp_path, monkeypatch):
     else:
         # El archivo no existía al inicio: si un test lo creó, lo eliminamos.
         reg_path.unlink(missing_ok=True)
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_composition_singleton():
+    """Resetea el singleton de features/main/bootstrap.py entre tests."""
+    from features.main.bootstrap import reset_composition
+    reset_composition()
+    yield
+    reset_composition()
+
+
+@pytest.fixture(autouse=True)
+def _populate_service_locator(_sandbox_composition_singleton):
+    """Puebla el service locator neutro de core/engine con el composition root.
+
+    ADR-045: los callers internos de core/engine (trace_log, query_manager,
+    repos de features) resuelven cognitive_graph/cognitive_searcher/workflow
+    por get_module_service(). El composition root (features/main.compose_app)
+    registra TODOS los servicios DI (libs de shared/ + task_registry +
+    side_effect_engine + workflow) y set_service_locator() los expone al
+    facade neutro de core/engine. Así la suite no depende del orden de tests.
+    """
+    from features.main.bootstrap import compose_app
+
+    compose_app()
+    yield
+    from core.engine.bootstrap import reset_module_registry
+
+    reset_module_registry()
 
 
 @pytest.fixture
@@ -92,7 +121,7 @@ def mcp_project(tmp_path):
 
 def call_mcp_tool(project_root: str, tool_name: str, arguments: dict) -> dict:
     """Helper reutilizable: invoca una tool MCP via JSON-RPC y devuelve el payload."""
-    from features.cli_interface.mcp_adapter import _handle_request
+    from features.main.cli_interface.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",
@@ -208,8 +237,8 @@ def register_mock_tasks(registry) -> None:
 
 def register_side_effects(engine) -> None:
     """Registra los side effects reales del flujo E2E (transform_spec, create_adr_from_spec)."""
-    from features.task_execution.side_effects.create_adr import create_adr_from_spec
-    from features.task_execution.side_effects.spec_transform import transform_spec
+    from features.delta_tracking.side_effects.create_adr import create_adr_from_spec
+    from features.main.task_execution.side_effects.spec_transform import transform_spec
 
     engine.register("transform_spec", transform_spec)
 
@@ -230,17 +259,19 @@ def make_orchestration_service(real: bool = True, **overrides):
 
     Los overrides permiten inyectar repos fakes (tests de bajo nivel).
     """
-    from features.engine.application.orchestrator import OrchestrationService
+    from core.engine.application.orchestrator import OrchestrationService
 
     kwargs = dict(overrides)
     if "task_registry" not in kwargs or "side_effect_engine" not in kwargs:
         if real:
-            from features.engine.bootstrap import bootstrap
+            from features.main.bootstrap import compose_app
 
-            registry, se = bootstrap()
+            app = compose_app()
+            registry = app.task_registry
+            se = app.side_effect_engine
         else:
-            from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
-            from features.engine.infrastructure.side_effects import SideEffectEngine
+            from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+            from core.engine.infrastructure.side_effects import SideEffectEngine
 
             registry = InMemoryTaskRegistry()
             se = SideEffectEngine()
@@ -286,8 +317,8 @@ def make_project_with_active_sprint(tmp_path, project_id: str = "walker", sprint
     )
     sprint_dir = cog / "data" / "spring" / sprint_id
     sprint_dir.mkdir(parents=True, exist_ok=True)
-    from features.engine.infrastructure.repositories import WorkflowStateRepository
-    from features.engine.domain.entities import WorkflowState
+    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from core.engine.domain.entities import WorkflowState
 
     wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
     wf.context["chain_dir"] = str(sprint_dir)
@@ -312,7 +343,7 @@ def register_project_in_global_registry(tmp_path: str, project_id: str = "walker
             ...  # el registro queda modificado dentro del bloque
         # fuera del bloque: restaurado
     """
-    from libs.path_resolver import get_walker_root
+    from shared.core.path_resolver import get_walker_root
 
     reg_path = get_walker_root() / "data" / "projects.json"
     original = reg_path.read_bytes() if reg_path.is_file() else None

@@ -22,7 +22,7 @@ class CognitiveCpgRepository(CpgRepository):
 
     def _get_cg(self):
         if self._cg is None:
-            from features.engine.bootstrap import get_module_service
+            from core.engine.bootstrap import get_module_service
 
             graph_factory = get_module_service("cognitive_graph")
             self._cg = graph_factory(

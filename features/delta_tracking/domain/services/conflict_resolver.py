@@ -173,10 +173,10 @@ class ConflictResolver:
             )
         # Workflow strategies: delegar a engine
         try:
-            from features.engine.domain.services.conflict_resolver import (
+            from core.engine.domain.services.conflict_resolver import (
                 WorkflowConflictResolver,
             )
-            from features.engine.domain.entities import WorkflowState, WorkflowGraph
+            from core.engine.domain.entities import WorkflowState, WorkflowGraph
 
             state = WorkflowState(
                 current_node=workflow_state.get("current_node", ""),

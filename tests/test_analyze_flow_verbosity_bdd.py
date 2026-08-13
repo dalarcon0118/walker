@@ -15,7 +15,7 @@ from pytest_bdd import given, scenarios, then, when
 
 scenarios("bdd/features/analyze_flow_verbosity.feature")
 
-NODE_PATH = os.path.join("features", "engine", "workflow", "nodes", "analyze.node.json")
+NODE_PATH = os.path.join("core", "engine", "workflow", "nodes", "analyze.node.json")
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def _load(path):
         return json.load(f)
 
 
-@given("que el nodo ANALYZE esta definido en features/engine/workflow/nodes/analyze.node.json")
+@given("que el nodo ANALYZE esta definido en core/engine/workflow/nodes/analyze.node.json")
 def _load_analyze_node(analyze_ctx: dict):
     analyze_ctx["node"] = _load(NODE_PATH)
 
@@ -80,7 +80,7 @@ def _assert_kc_fin_nodo(analyze_ctx: dict):
 def _load_spring(analyze_ctx: dict):
     import sys
     sys.path.insert(0, ".")
-    from features.engine.infrastructure.repositories import WorkflowRepository
+    from core.engine.infrastructure.repositories import WorkflowRepository
     analyze_ctx["wf"] = WorkflowRepository().load(
         os.path.join(".cognitive", "projects", "walker", "data", "spring", "session-20260731")
     )
@@ -88,7 +88,7 @@ def _load_spring(analyze_ctx: dict):
 
 @when("se ejecuta verify_graph sobre el workflow")
 def _verify_graph(analyze_ctx: dict):
-    from features.engine.domain.services import ValidationService
+    from core.engine.domain.services import ValidationService
     analyze_ctx["v"] = ValidationService.verify_graph(analyze_ctx["wf"])
 
 
@@ -104,7 +104,7 @@ def _assert_no_warnings(analyze_ctx: dict):
 
 @when("se consulta el mapeo de decision gates de REVIEW")
 def _query_review_gate(analyze_ctx: dict):
-    from features.engine.application.use_cases import _DECISION_GATE_OVERRIDES
+    from core.engine.application.use_cases import _DECISION_GATE_OVERRIDES
     analyze_ctx["overrides"] = _DECISION_GATE_OVERRIDES.get("REVIEW", {})
 
 

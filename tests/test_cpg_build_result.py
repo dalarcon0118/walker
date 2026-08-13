@@ -70,7 +70,7 @@ def _bdd_success(br_ctx: dict):
 
 @then("quedan 2 nodos disponibles en el índice cpg")
 def _bdd_nodos_indexados(br_ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     cg = CognitiveGraph(br_ctx["builder"].data_dir, auto_register=True)
     keys = set(cg.keys("cpg"))

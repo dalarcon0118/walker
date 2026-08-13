@@ -1,6 +1,6 @@
 """tests/test_smoke_mcp_workflow_bdd.py — Smoke funcional Capa 1.
 
-Recorre el WORKFLOW REAL (features/engine/workflow/ — nodo SPRINT) a través
+Recorre el WORKFLOW REAL (core/engine/workflow/ — nodo SPRINT) a través
 del protocolo MCP (tools submit vía _handle_request JSON-RPC 2.0), con tasks
 REALES (plan_sprint → PlanSprintUseCase). Asserts por paso sobre:
   - WorkflowState evoluciona (node / sub_state)
@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 from features.delta_tracking import SpringService
-from features.engine.domain.entities import WorkflowState
-from features.engine.infrastructure.repositories import WorkflowStateRepository
+from core.engine.domain.entities import WorkflowState
+from core.engine.infrastructure.repositories import WorkflowStateRepository
 from tests.conftest import register_project_in_global_registry
 
 SPRINT_GOAL = "Implementar modulo de autenticacion completo"
@@ -41,13 +41,13 @@ def _smoke_project(tmp_path):
         yield _setup_project(tmp)
     finally:
         reg_ctx.__exit__(None, None, None)
-        from features.engine.bootstrap import reset_module_registry
+        from core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
         # El McpServer es otro singleton que cachea los handlers de los
         # módulos; se invalida junto al ModuleRegistry para que el próximo
         # test reconstruya el dispatch con el registro global restaurado.
-        from features.cli_interface import mcp_adapter
+        from features.main.cli_interface import mcp_adapter
 
         mcp_adapter._SERVER = None
 
@@ -94,7 +94,7 @@ def _setup_project(tmp_path: str) -> str:
 
 def _mcp_call(name: str, arguments: dict) -> dict:
     """Invoca una tool MCP vía _handle_request (JSON-RPC 2.0 real)."""
-    from features.cli_interface.mcp_adapter import _handle_request
+    from features.main.cli_interface.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",

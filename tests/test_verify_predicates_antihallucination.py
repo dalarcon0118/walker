@@ -11,13 +11,13 @@ Fija el contrato que impide saltarse los criterios de validación de una spec:
 """
 from __future__ import annotations
 
-from libs.shared_domain import ExecutionContext, TaskResult
-from features.engine.domain.state import complete_task
-from features.task_execution.tasks.verification import (
+from shared.common.shared_domain import ExecutionContext, TaskResult
+from core.engine.domain.state import complete_task
+from features.delta_tracking.tasks.verification import (
     verify_predicates,
     _translate_predicates,
 )
-from features.task_execution.infrastructure.verify_engine import (
+from features.main.task_execution.infrastructure.verify_engine import (
     _build_test_command,
     _looks_like_test_target,
     _resolve_test_command,
@@ -138,7 +138,7 @@ def test_test_pass_con_nombre_no_ejecuta_binario_inexistente(tmp_path):
 
 def _verify_test_pass_patch_check(tmp_path):
     """Wrapper: verifica el comportamiento sin depender de tests existentes."""
-    from features.task_execution.infrastructure.verify_engine import (
+    from features.main.task_execution.infrastructure.verify_engine import (
         _build_test_command,
     )
     argv = _build_test_command(str(tmp_path), name="test_no_existe_xyz")

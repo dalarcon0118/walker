@@ -12,12 +12,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from libs.shared_domain.models import ExecutionContext, TaskResult
+from shared.common.shared_domain.models import ExecutionContext, TaskResult
 from features.delta_tracking import spring_service
-from features.task_execution.tasks.cpg_analyze import cpg_analyze
-from features.task_execution.tasks.ckg_analyze import ckg_analyze
-from features.task_execution.tasks.trace_push import trace_push
-from features.task_execution.tasks.kg_extract import kg_extract
+from features.main.task_execution.tasks.cpg_analyze import cpg_analyze
+from features.main.task_execution.tasks.ckg_analyze import ckg_analyze
+from features.main.task_execution.tasks.trace_push import trace_push
+from features.main.task_execution.tasks.kg_extract import kg_extract
 from tests.conftest import make_chain_dir, make_walker_project
 
 
@@ -99,7 +99,7 @@ class TestRagPipeline:
         # trace del mismo root que trace_push usó (audit 2026-08-11: el mock
         # de get_module_service hacía este test ciego a que cg.store no corra).
         from features.project import ProjectService
-        from libs.cognitive_graph import CognitiveGraph
+        from shared.core.cognitive_graph import CognitiveGraph
 
         paths = ProjectService.resolve_paths(chain_dir)
         cg = CognitiveGraph(paths.project_root, auto_register=True)

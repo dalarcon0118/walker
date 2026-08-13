@@ -54,7 +54,7 @@ class ReviewUseCase:
             if self._data_dir:
                 self._repo = CpgFileRepository(self._data_dir)
             else:
-                from libs.path_resolver import resolve_project_root, get_data_dir
+                from shared.core.path_resolver import resolve_project_root, get_data_dir
 
                 project_root = resolve_project_root(self.chain_dir)
                 project_id = os.path.basename(project_root) if project_root else ""
@@ -571,7 +571,7 @@ class ReviewUseCase:
                 type(e).__name__, e,
             )
         # Fallback legacy
-        from libs.path_resolver import resolve_project_root, resolve_source_code_dirs
+        from shared.core.path_resolver import resolve_project_root, resolve_source_code_dirs
 
         proj_dir = resolve_project_root(self.chain_dir)
         project_id = os.path.basename(proj_dir) if proj_dir else ""

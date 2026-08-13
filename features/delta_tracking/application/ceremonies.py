@@ -802,7 +802,7 @@ def _resolve_project_root(project_id: str, chain_dir: str) -> str:
         pass
     if project_id:
         try:
-            from libs.path_resolver import get_project_dir
+            from shared.core.path_resolver import get_project_dir
 
             root = str(get_project_dir(project_id))
             if root and os.path.isdir(root):

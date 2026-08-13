@@ -2,7 +2,7 @@
 
 Spring, Spec, valores de estado, tipos de edge.
 """
-from libs.cognitive_graph.models import TokenIndex, IndexEntry
+from shared.core.cognitive_graph.models import TokenIndex, IndexEntry
 from features.delta_tracking.domain.entities import Spring, Spec
 from features.delta_tracking.domain.values import (
     TYPE_SPRING, TYPE_SPEC,

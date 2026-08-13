@@ -13,7 +13,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from libs.context import ContextPiece, ContextProvider, fmt_tokens, format_cpg_results
+from shared.common.context import ContextPiece, ContextProvider, fmt_tokens, format_cpg_results
 
 
 class CPGProvider(ContextProvider):

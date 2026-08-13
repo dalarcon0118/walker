@@ -42,7 +42,7 @@ def _run_main(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
             patch.object(sys, "stderr", captured_err),
             patch.object(sys, "argv", ["walker"] + args),
         ):
-            from features.cli_interface import main
+            from features.main.cli_interface import main
 
             rc = main(args)
     finally:
@@ -108,9 +108,9 @@ class TestCliWalker:
             )
         finally:
             reg_ctx.__exit__(None, None, None)
-            from features.engine.bootstrap import reset_module_registry
+            from core.engine.bootstrap import reset_module_registry
 
             reset_module_registry()
-            from features.cli_interface import mcp_adapter
+            from features.main.cli_interface import mcp_adapter
 
             mcp_adapter._SERVER = None

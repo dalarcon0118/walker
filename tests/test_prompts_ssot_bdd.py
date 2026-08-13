@@ -18,7 +18,7 @@ scenarios("bdd/features/prompts_ssot.feature")
 
 
 def _template_path(*parts: str) -> str:
-    from features.prompts.loader import canonical_templates_dir
+    from features.main.prompts.loader import canonical_templates_dir
 
     return os.path.join(canonical_templates_dir(), *parts)
 
@@ -38,7 +38,7 @@ def prompts_ssot_ctx() -> dict:
 
 @given("el directorio de templates canónico")
 def _canonical_dir(prompts_ssot_ctx: dict):
-    from features.prompts.loader import canonical_templates_dir
+    from features.main.prompts.loader import canonical_templates_dir
 
     prompts_ssot_ctx["template_dir"] = canonical_templates_dir()
     # Los escenarios 1 y 2 verifican el contenido de templates conocidos sin
@@ -60,7 +60,7 @@ def _rest_template(prompts_ssot_ctx: dict):
 
 @given("el loader patcheado para lanzar TemplateNotFound")
 def _loader_patched(prompts_ssot_ctx: dict, monkeypatch):
-    from features.prompts import loader as loader_mod
+    from features.main.prompts import loader as loader_mod
 
     def _boom(template_id: str):
         raise loader_mod.TemplateNotFound(template_id)
@@ -70,7 +70,7 @@ def _loader_patched(prompts_ssot_ctx: dict, monkeypatch):
 
 @given("un TemplateLoader con chain temporal")
 def _loader_tmp(prompts_ssot_ctx: dict, tmp_path):
-    from features.prompts.loader import TemplateLoader
+    from features.main.prompts.loader import TemplateLoader
 
     prompts_ssot_ctx["loader"] = TemplateLoader(os.path.join(str(tmp_path), "chain"))
 
@@ -82,7 +82,7 @@ def _nodes_dir(prompts_ssot_ctx: dict):
 
 @given("el path resolver")
 def _path_resolver(prompts_ssot_ctx: dict):
-    from libs.path_resolver import get_engine_workflow_dir, get_engine_workflow_path
+    from shared.core.path_resolver import get_engine_workflow_dir, get_engine_workflow_path
 
     prompts_ssot_ctx["wf_dir"] = str(get_engine_workflow_dir())
     prompts_ssot_ctx["wf_path"] = str(get_engine_workflow_path())
@@ -90,7 +90,7 @@ def _path_resolver(prompts_ssot_ctx: dict):
 
 @given("un PromptManager con chain temporal")
 def _pm_tmp(prompts_ssot_ctx: dict, tmp_path):
-    from features.prompts.manager import PromptManager
+    from features.main.prompts.manager import PromptManager
 
     prompts_ssot_ctx["pm"] = PromptManager(os.path.join(str(tmp_path), "chain"))
 
@@ -100,35 +100,35 @@ def _pm_tmp(prompts_ssot_ctx: dict, tmp_path):
 
 @when("comparo con _PROTOCOL_TEXT del mcp_adapter")
 def _compare_mcp(prompts_ssot_ctx: dict):
-    from features.cli_interface.mcp_adapter import _PROTOCOL_TEXT
+    from features.main.cli_interface.mcp_adapter import _PROTOCOL_TEXT
 
     prompts_ssot_ctx["equal"] = _PROTOCOL_TEXT == prompts_ssot_ctx["mcp_text"]
 
 
 @when("construyo el protocolo MCP dinámico")
 def _build_mcp_dynamic(prompts_ssot_ctx: dict):
-    from features.cli_interface.mcp_adapter import _PROTOCOL_TEXT
+    from features.main.cli_interface.mcp_adapter import _PROTOCOL_TEXT
 
     prompts_ssot_ctx["mcp_dynamic"] = _PROTOCOL_TEXT
 
 
 @when("invoco _build_help")
 def _build_help(prompts_ssot_ctx: dict):
-    from features.cli_interface.application.handlers import _build_help
+    from features.main.cli_interface.application.handlers import _build_help
 
     prompts_ssot_ctx["help_data"] = _build_help()
 
 
 @when("cargo el protocolo MCP")
 def _load_mcp(prompts_ssot_ctx: dict):
-    from features.cli_interface.mcp_adapter import _load_protocol_text
+    from features.main.cli_interface.mcp_adapter import _load_protocol_text
 
     prompts_ssot_ctx["mcp_fallback"] = _load_protocol_text()
 
 
 @when("cargo el protocolo REST")
 def _load_rest(prompts_ssot_ctx: dict):
-    from features.cli_interface.application.handlers import _load_protocol_rest
+    from features.main.cli_interface.application.handlers import _load_protocol_rest
 
     prompts_ssot_ctx["rest_fallback"] = _load_protocol_rest()
 
@@ -266,14 +266,14 @@ def _protocol_matches(prompts_ssot_ctx: dict):
 
 @then("devuelve _PROTOCOL_FALLBACK")
 def _mcp_fallback(prompts_ssot_ctx: dict):
-    from features.cli_interface.mcp_adapter import _PROTOCOL_FALLBACK
+    from features.main.cli_interface.mcp_adapter import _PROTOCOL_FALLBACK
 
     assert prompts_ssot_ctx["mcp_fallback"] == _PROTOCOL_FALLBACK
 
 
 @then("devuelve _PROTOCOL_REST_FALLBACK")
 def _rest_fallback(prompts_ssot_ctx: dict):
-    from features.cli_interface.application.handlers import _PROTOCOL_REST_FALLBACK
+    from features.main.cli_interface.application.handlers import _PROTOCOL_REST_FALLBACK
 
     assert prompts_ssot_ctx["rest_fallback"] == _PROTOCOL_REST_FALLBACK
 
@@ -309,9 +309,9 @@ def _count_46(prompts_ssot_ctx: dict):
     assert count == 46, f"esperaba 46 prompts de nodo, hay {count}"
 
 
-@then("features/engine/workflow no tiene carpeta prompts")
+@then("core/engine/workflow no tiene carpeta prompts")
 def _no_workflow_prompts(prompts_ssot_ctx: dict):
-    assert not os.path.exists(os.path.join("features", "engine", "workflow", "prompts"))
+    assert not os.path.exists(os.path.join("core", "engine", "workflow", "prompts"))
 
 
 @then(".cognitive no tiene carpeta workflow.v3")
@@ -334,10 +334,10 @@ def _exactly_49(prompts_ssot_ctx: dict):
     assert len(prompts_ssot_ctx["templates"]) == 49
 
 
-@then("termina en features/engine/workflow")
+@then("termina en core/engine/workflow")
 def _ends_workflow(prompts_ssot_ctx: dict):
     wf_dir = prompts_ssot_ctx["wf_dir_result"]
-    assert wf_dir.endswith(os.path.join("features", "engine", "workflow")), wf_dir
+    assert wf_dir.endswith(os.path.join("core", "engine", "workflow")), wf_dir
 
 
 @then('no contiene ".cognitive"')

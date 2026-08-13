@@ -6,8 +6,8 @@ import os
 
 import pytest
 
-from features.engine.infrastructure.side_effects import SideEffectEngine
-from features.engine.bootstrap import bootstrap_side_effects
+from core.engine.infrastructure.side_effects import SideEffectEngine
+from features.delta_tracking.side_effects import register_delta_tracking_side_effects
 from features.delta_tracking import spring_service
 from features.delta_tracking.domain.entities import Spec
 from tests.conftest import make_chain_dir
@@ -56,7 +56,7 @@ class TestTransformSpecIntegration:
 
     def test_handler_registered_in_bootstrap(self):
         engine = SideEffectEngine()
-        bootstrap_side_effects(engine)
+        register_delta_tracking_side_effects(engine)
         assert "transform_spec" in engine._handlers
 
     def test_transform_spec_specified_persists_in_delta(self, tmp_path):
@@ -78,7 +78,7 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        bootstrap_side_effects(engine)
+        register_delta_tracking_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is True, result.get("error")
         assert result.get("status") == "specified"
@@ -94,7 +94,7 @@ class TestTransformSpecIntegration:
         params = {"status": "unknown_status", "fields": {}}
 
         engine = SideEffectEngine()
-        bootstrap_side_effects(engine)
+        register_delta_tracking_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is False
         assert "error" in result
@@ -106,7 +106,7 @@ class TestTransformSpecIntegration:
         params = {"status": "specified", "fields": {"problem_statement": "test"}}
 
         engine = SideEffectEngine()
-        bootstrap_side_effects(engine)
+        register_delta_tracking_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is False
         assert "No specs found" in result.get("error", "")
@@ -144,7 +144,7 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        bootstrap_side_effects(engine)
+        register_delta_tracking_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is True, result.get("error")
         assert result.get("status") == "approved"
@@ -237,7 +237,7 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        bootstrap_side_effects(engine)
+        register_delta_tracking_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is True, result.get("error")
         assert result.get("status") == "approved"
@@ -256,7 +256,7 @@ class TestTransformSpecIntegration:
     def test_sprint_node_approval_contract_includes_constitution(self):
         """El nodo real de aprobación (sprint.node.json) pide y persiste la
         constitución de la spec approved (SPEC-005 #2)."""
-        with open("features/engine/workflow/nodes/sprint.node.json") as f:
+        with open("core/engine/workflow/nodes/sprint.node.json") as f:
             node = json.load(f)
         sub_states = {s["key"]: s for s in node["sub_states"]}
         decision_data = sub_states["TASK_SPEC"]["output_schema"]["properties"][
@@ -296,7 +296,7 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        bootstrap_side_effects(engine)
+        register_delta_tracking_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is False
         assert "NODE." in result.get("error", "")

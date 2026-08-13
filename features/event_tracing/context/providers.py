@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any
 
-from libs.context import ContextPiece, ContextProvider, fmt_tokens, format_trace_results
+from shared.common.context import ContextPiece, ContextProvider, fmt_tokens, format_trace_results
 
 
 class TraceProvider(ContextProvider):

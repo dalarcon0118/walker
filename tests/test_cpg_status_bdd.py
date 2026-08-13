@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from features.cli_interface.application.project_use_cases import CheckHealthUseCase
+from features.main.cli_interface.application.project_use_cases import CheckHealthUseCase
 
 
 def test_status_incluye_cpg_status_desde_watcher(tmp_path):

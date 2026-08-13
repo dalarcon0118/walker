@@ -25,9 +25,9 @@ def kcs_ctx() -> dict:
 
 
 SCHEMA_PATH = os.path.join(
-    "features", "engine", "workflow", "schema", "knowledge-capture.schema.json"
+    "core", "engine", "workflow", "schema", "knowledge-capture.schema.json"
 )
-WORKFLOW_DIR = os.path.join("features", "engine", "workflow", "nodes")
+WORKFLOW_DIR = os.path.join("core", "engine", "workflow", "nodes")
 CANONICO = "../schema/knowledge-capture.schema.json"
 
 
@@ -139,7 +139,7 @@ def _load_workflow(kcs_ctx: dict):
     import sys
 
     sys.path.insert(0, ".")
-    from features.engine.infrastructure.repositories import WorkflowRepository
+    from core.engine.infrastructure.repositories import WorkflowRepository
 
     kcs_ctx["wf"] = WorkflowRepository().load(kcs_ctx["chain_dir"])
 

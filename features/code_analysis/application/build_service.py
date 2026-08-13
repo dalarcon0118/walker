@@ -139,7 +139,7 @@ def _detect_calls_safe(fp: str, definitions: list, cfg_cache: Any) -> tuple[list
 @safe
 def _sync_core(data_dir: str, data: dict) -> dict:
     """Core puro de la sync CPG -> CognitiveGraph (puede lanzar)."""
-    from features.engine.bootstrap import get_module_service
+    from core.engine.bootstrap import get_module_service
 
     cg = get_module_service("cognitive_graph")(data_dir)
 
@@ -162,7 +162,7 @@ def _sync_core_delta(
     remove: set[str],
 ) -> dict:
     """Sync incremental: solo nodos cambiados + removidos. No envia todos."""
-    from features.engine.bootstrap import get_module_service
+    from core.engine.bootstrap import get_module_service
 
     cg = get_module_service("cognitive_graph")(data_dir)
     deleted = 0

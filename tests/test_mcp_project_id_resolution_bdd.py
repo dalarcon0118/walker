@@ -34,7 +34,7 @@ def _mcp_call(name: str, arguments: dict, cwd: str) -> dict:
     """Invoca la tool MCP con un CWD arbitrario (simula agente fuera del proyecto)."""
     import os
 
-    from features.cli_interface.mcp_adapter import _handle_request
+    from features.main.cli_interface.mcp_adapter import _handle_request
 
     old = os.getcwd()
     try:

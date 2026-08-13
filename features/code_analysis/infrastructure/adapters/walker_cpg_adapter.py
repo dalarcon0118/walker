@@ -20,7 +20,7 @@ from features.code_analysis.application.ports.cpg_repository import CpgRepositor
 from features.code_analysis.domain.events import AnalysisCompleted, EventBus
 from features.code_analysis.domain.services.analysis_service import IBusinessAnalyzer
 from features.code_analysis.domain.services.business_analyzer import analyze
-from features.task_execution.ports.cpg_analysis_port import ICpgAnalysisPort
+from features.main.task_execution.ports.cpg_analysis_port import ICpgAnalysisPort
 
 
 class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):

@@ -23,10 +23,10 @@ from pathlib import Path
 
 import pytest
 
-from features.engine.application.orchestrator import OrchestrationService
-from features.engine.domain.entities import WorkflowState
-from libs.shared_domain.models import ExecutionContext
-from features.engine.infrastructure.repositories import (
+from core.engine.application.orchestrator import OrchestrationService
+from core.engine.domain.entities import WorkflowState
+from shared.common.shared_domain.models import ExecutionContext
+from core.engine.infrastructure.repositories import (
     WorkflowStateRepository,
 )
 from features.delta_tracking import spring_service
@@ -68,8 +68,8 @@ def _setup_project(tmp_path: Path) -> tuple[str, str]:
     # Sprint dir en el layout real (.cognitive/projects/walker/data/spring/)
     real_sprint_dir = Path(project_root) / "data" / "spring" / "sprint-e2e"
     real_sprint_dir.mkdir(parents=True, exist_ok=True)
-    from features.engine.domain.entities import WorkflowState
-    from features.engine.infrastructure.repositories import WorkflowStateRepository
+    from core.engine.domain.entities import WorkflowState
+    from core.engine.infrastructure.repositories import WorkflowStateRepository
 
     wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
     wf.context["chain_dir"] = str(real_sprint_dir)
@@ -435,7 +435,7 @@ def _setup_workflow_state(chain_dir: str) -> None:
 
 
 def _mcp_call(name: str, arguments: dict) -> dict:
-    from features.cli_interface.mcp_adapter import _handle_request
+    from features.main.cli_interface.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",
@@ -453,14 +453,16 @@ def _parse_mcp_result(resp: dict) -> dict:
 
 
 def _get_orchestration_service(chain_dir: str) -> OrchestrationService:
-    """Composition root real (capa_rout.md D1): bootstrap() produce el registry
+    """Composition root real (capa_rout.md D1): compose_app() produce el registry
     poblado y los mocks son PARCHES para las actions sin handler real. ANTES
     instanciaba OrchestrationService() (DomainTaskRegistry vacío) y los mocks
     sustituían TODO el registry — enmascarando el bug de composición en
     producción (el flujo CLI/MCP avanzaba sin ejecutar tasks reales)."""
-    from features.engine.bootstrap import bootstrap
+    from features.main.bootstrap import compose_app
 
-    registry, se = bootstrap()
+    app = compose_app()
+    registry = app.task_registry
+    se = app.side_effect_engine
     register_mock_tasks(registry)
     return OrchestrationService(task_registry=registry, side_effect_engine=se)
 
@@ -482,7 +484,7 @@ class TestAgentE2E:
         while _E2E_REGISTRY_CTX:
             ctx = _E2E_REGISTRY_CTX.pop()
             ctx.__exit__(None, None, None)
-        from features.engine.bootstrap import reset_module_registry
+        from core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
 

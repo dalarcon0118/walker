@@ -1,16 +1,19 @@
 """tests/test_context_registry_completeness_bdd.py — Completitud del ContextProviderRegistry.
 
 Este test es el guardián de INV-010/INV-012: valida que el registry construido
-por build_context_registry() incluye TODOS los providers esperados del sistema.
+por el composition root (features/main.compose_app) incluye TODOS los providers
+esperados del sistema.
 
-Cualquier omisión (como task/state faltando en el registry) se detecta aquí,
-sin tener que ejercitar el camino feliz del ContextComposer.
+ADR-045: core/engine.build_context_registry() es NEUTRO (solo task, state, diff,
+test_results). Los providers de negocio (business, ckg, cpg, delta, project,
+reflection, trace) los registra features/main — el ÚNICO que conoce features/.
+Cualquier omisión se detecta aquí, sin ejercitar el camino feliz del Composer.
 """
 from __future__ import annotations
 
 import pytest
 
-from features.engine.bootstrap import build_context_registry
+from features.main.bootstrap import compose_app
 
 
 EXPECTED_PROVIDERS = {
@@ -29,17 +32,19 @@ EXPECTED_PROVIDERS = {
 
 
 def test_build_context_registry_completeness():
-    registry = build_context_registry()
+    app = compose_app()
+    registry = app.workflow._context_registry
+    assert registry is not None, "composition root sin context_registry"
     available = set(registry.available())
     missing = EXPECTED_PROVIDERS - available
     extra = available - EXPECTED_PROVIDERS
 
     assert not missing, (
-        f"Faltan providers en build_context_registry(): {sorted(missing)}. "
-        "Verificar que bootstrap_providers() registra todos los módulos."
+        f"Faltan providers en el composition root: {sorted(missing)}. "
+        "Verificar que features/main registra todos los providers de negocio."
     )
     assert not extra, (
-        f"Providers inesperados en build_context_registry(): {sorted(extra)}. "
+        f"Providers inesperados: {sorted(extra)}. "
         "Actualizar EXPECTED_PROVIDERS si son legítimos."
     )
     assert len(available) == len(EXPECTED_PROVIDERS), (

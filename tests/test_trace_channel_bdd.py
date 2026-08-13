@@ -17,8 +17,8 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
-from libs.shared_domain import ExecutionContext
+from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+from shared.common.shared_domain import ExecutionContext
 
 scenarios("bdd/features/trace_channel.feature")
 
@@ -83,7 +83,7 @@ def _registry_without_tracer(trace_ctx: dict):
 
 
 def _register_ping(registry: InMemoryTaskRegistry) -> None:
-    from features.engine.domain.models import TaskResult
+    from core.engine.domain.models import TaskResult
 
     registry.register(
         "ping",
@@ -97,7 +97,7 @@ def _register_ping(registry: InMemoryTaskRegistry) -> None:
 
 @when('ejecuto la task "ping" desde el canal mcp')
 def _execute_mcp(trace_ctx: dict):
-    from features.engine.domain.models import SideEffectDef  # noqa: F401  (import consistency)
+    from core.engine.domain.models import SideEffectDef  # noqa: F401  (import consistency)
 
     ctx = ExecutionContext.create(
         session_id="mcp", chain_dir="/tmp/fake-chain-channel", channel="mcp"

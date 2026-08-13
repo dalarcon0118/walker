@@ -32,7 +32,7 @@ class CognitiveDeltaRepository(DeltaRepository):
 
     def __init__(self, project_root: str, graph_factory: Callable[[str], Any] | None = None):
         if graph_factory is None:
-            from features.engine.bootstrap import get_module_service
+            from core.engine.bootstrap import get_module_service
             graph_factory = get_module_service("cognitive_graph")
         self._cg = graph_factory(str(project_root))
 

@@ -23,16 +23,15 @@ def ssot_ctx() -> dict:
 
 @given("el task registry bootstrapeado")
 def _bootstrap_registry(ssot_ctx: dict):
-    from features.engine.bootstrap import bootstrap
-    from features.engine.infrastructure.task_registry import InMemoryTaskRegistry
-    from features.engine.infrastructure.trace_log import TraceLogger
-    registry, _ = bootstrap(InMemoryTaskRegistry(tracer=TraceLogger()))
-    ssot_ctx["registry"] = registry
+    from features.main.bootstrap import compose_app
+
+    app = compose_app()
+    ssot_ctx["registry"] = app.task_registry
 
 
 @given("el handler de help construido")
 def _help_built(ssot_ctx: dict):
-    from features.cli_interface.application.handlers import _build_help
+    from features.main.cli_interface.application.handlers import _build_help
     ssot_ctx["help_data"] = _build_help()
 
 

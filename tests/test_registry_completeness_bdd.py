@@ -34,19 +34,19 @@ class TestRegistryCompleteness:
     """bootstrap() debe producir el registry poblado (composition root D1)."""
 
     def test_bootstrap_tasks_contains_workflow_actions(self):
-        from features.engine.bootstrap import bootstrap
+        from features.main.bootstrap import compose_app
 
-        registry, _se = bootstrap()
+        app = compose_app()
+        registry = app.task_registry
         available = set(registry.list_tasks())
         missing = EXPECTED_WORKFLOW_TASKS - available
-        assert not missing, f"bootstrap_tasks() no registró: {sorted(missing)}"
+        assert not missing, f"compose_app() no registró: {sorted(missing)}"
 
     def test_bootstrap_se_engine_has_side_effects(self):
-        from features.engine.bootstrap import bootstrap
+        from features.main.bootstrap import compose_app
 
-        _registry, se_engine = bootstrap()
-        # Los side effects reales del flujo deben estar registrados
-        # (transform_spec, create_adr_from_spec) — no solo los mocks.
+        app = compose_app()
+        se_engine = app.side_effect_engine
         handlers = getattr(se_engine, "_handlers", {})
         assert "transform_spec" in handlers, "transform_spec no registrado"
         assert "create_adr_from_spec" in handlers, "create_adr_from_spec no registrado"
@@ -55,14 +55,10 @@ class TestRegistryCompleteness:
         """capa_rout.md D1: get_module_service('task_registry') devuelve el
         registry poblado — sin esto, _build_workflow_services no puede
         inyectar tasks en producción."""
-        from features.engine.bootstrap import (
-            _module_registry_singleton,
-            get_module_service,
-        )
+        from features.main.bootstrap import compose_app
 
-        reg = _module_registry_singleton()
-        assert reg.has_service("task_registry"), "task_registry no es servicio DI"
-        assert reg.has_service("side_effect_engine"), "side_effect_engine no es servicio DI"
+        app = compose_app()
+        from core.engine.bootstrap import get_module_service
 
         task_registry = get_module_service("task_registry")
         missing = EXPECTED_WORKFLOW_TASKS - set(task_registry.list_tasks())

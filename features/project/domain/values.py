@@ -109,7 +109,7 @@ class ProjectPaths:
                              incluido él mismo; lo gestiona ProjectService).
 
     CONVENCIÓN DE LAYOUT (SSOT — ver también el docstring de
-    libs/path_resolver, Jerarquía de resolución):
+    shared/core/path_resolver, Jerarquía de resolución):
 
       Capa 1 — DENTRO del repo de cada proyecto, creada por `walker prepare`
       (análogo a `git init`). TODO el espacio cognitivo del proyecto vive

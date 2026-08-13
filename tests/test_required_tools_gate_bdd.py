@@ -20,7 +20,7 @@ from pytest_bdd import given, scenarios, then, when
 scenarios("bdd/features/required_tools_gate.feature")
 
 NODE_PATH = os.path.join(
-    "features", "engine", "workflow", "nodes", "implement.node.json"
+    "core", "engine", "workflow", "nodes", "implement.node.json"
 )
 WALKER_CHAIN_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "data", "spring", "walker-sprint")
@@ -48,7 +48,7 @@ def _substate(node: dict, key: str) -> dict:
 
 
 def _work_substate_obj():
-    from features.engine.infrastructure.repositories import WorkflowRepository
+    from core.engine.infrastructure.repositories import WorkflowRepository
 
     graph = WorkflowRepository().load(WALKER_CHAIN_DIR)
     node = graph.get_node("IMPLEMENT")
@@ -113,7 +113,7 @@ class StubTracer:
 
 
 def _make_submit_orchestrator(tracer_events: list[dict]):
-    from features.engine.infrastructure.repositories import WorkflowRepository
+    from core.engine.infrastructure.repositories import WorkflowRepository
 
     graph = WorkflowRepository().load(WALKER_CHAIN_DIR)
     state_repo = Mock()
@@ -142,7 +142,7 @@ def _make_submit_orchestrator(tracer_events: list[dict]):
         "message": "submitted",
         "advanced_to": "CODE_REVIEW_SCAN",
     }
-    from features.engine.application.submit_orchestrator import SubmitOrchestrator
+    from core.engine.application.submit_orchestrator import SubmitOrchestrator
 
     orch = SubmitOrchestrator(
         state_repo=state_repo,
@@ -166,7 +166,7 @@ def _implement_node(gate_ctx: dict):
 
 @given("el workflow cargado desde el chain_dir")
 def _workflow_loaded(gate_ctx: dict):
-    from features.engine.infrastructure.repositories import WorkflowRepository
+    from core.engine.infrastructure.repositories import WorkflowRepository
 
     gate_ctx["graph"] = WorkflowRepository().load(WALKER_CHAIN_DIR)
 
@@ -238,7 +238,7 @@ def _orch_exploding_tracer(gate_ctx: dict):
         def trace_error(self, *a, **kw):
             pass
 
-    from features.engine.application.submit_orchestrator import SubmitOrchestrator
+    from core.engine.application.submit_orchestrator import SubmitOrchestrator
 
     orch = SubmitOrchestrator(
         state_repo=Mock(),
@@ -255,7 +255,7 @@ def _orch_exploding_tracer(gate_ctx: dict):
 
 @given("el SubState USER_GATE sin required_tools")
 def _user_gate_no_required(gate_ctx: dict):
-    from features.engine.infrastructure.repositories import WorkflowRepository
+    from core.engine.infrastructure.repositories import WorkflowRepository
 
     graph = WorkflowRepository().load(WALKER_CHAIN_DIR)
     node = graph.get_node("IMPLEMENT")
@@ -317,7 +317,7 @@ def _check_gate(gate_ctx: dict):
 
 @when("genero el node briefing")
 def _build_briefing(gate_ctx: dict):
-    from features.engine.application.orchestrator import OrchestrationService
+    from core.engine.application.orchestrator import OrchestrationService
     from unittest.mock import Mock
 
     svc = OrchestrationService.__new__(OrchestrationService)
@@ -328,7 +328,7 @@ def _build_briefing(gate_ctx: dict):
 
 @when("el TraceLogger hace replay")
 def _trace_replay(gate_ctx: dict):
-    from features.engine.infrastructure.trace_log import TraceLogger
+    from core.engine.infrastructure.trace_log import TraceLogger
 
     tl = TraceLogger()
     gate_ctx["events"] = tl.replay(gate_ctx["project_root"])

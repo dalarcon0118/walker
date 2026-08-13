@@ -11,8 +11,8 @@ Módulos bajo prueba (SSOT actual):
   - task_synthesis y ceremonies → features/delta_tracking/application/
   - verify_engine                → features/task_execution/infrastructure/
   - side_effect_contract         → features/engine/domain/
-  - monads (TaskResult)          → libs/shared_domain/models.py
-  - VOs tipados                  → libs/shared_domain/validated_vo.py + tasks/*.py
+  - monads (TaskResult)          → shared/common/shared_domain/models.py
+  - VOs tipados                  → shared/common/shared_domain/validated_vo.py + tasks/*.py
   - checkpoints / MCP config     → features/engine/domain/, features/cli_interface/
 """
 
@@ -335,7 +335,7 @@ def _wsjf_first(mg_ctx: dict):
 
 @given("un proyecto con chain y backlog")
 def _project_with_chain(mg_ctx: dict, tmp_path):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     proj = str(tmp_path / "proj")
     data_dir = f"{proj}/data"
@@ -463,7 +463,7 @@ def _symbol_absent(mg_ctx: dict):
 
 @when("verifico la existencia de símbolos")
 def _verify_symbols(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import verify_predicate
+    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["res_ok"], mg_ctx["info_ok"] = verify_predicate(
         {"type": "symbol_exists", "symbol": "hello_world", "file": "src/foo.py"},
@@ -496,7 +496,7 @@ def _symbol_zombie(mg_ctx: dict):
 
 @when("verifico que el símbolo no exista")
 def _verify_not_exists(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import verify_predicate
+    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["res_zombie"], _ = verify_predicate(
         {"type": "symbol_not_exists", "symbol": mg_ctx["zombie"], "file": "src/foo.py"},
@@ -531,7 +531,7 @@ def _file_missing(mg_ctx: dict):
 
 @when("verifico la existencia de archivos")
 def _verify_files(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import verify_predicate
+    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["file_ok"], _ = verify_predicate(
         {"type": "file_exists", "path": "src/foo.py"}, mg_ctx["proj"]
@@ -558,7 +558,7 @@ def _proj_tmp(mg_ctx: dict, tmp_path):
 
 @when('ejecuto un comando que contiene "42"')
 def _cmd_output(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import verify_predicate
+    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
 
     pred = {
         "type": "command_output",
@@ -575,7 +575,7 @@ def _cmd_passed(mg_ctx: dict):
 
 @then('si busco "NOPE" falla')
 def _cmd_nope_fails(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import verify_predicate
+    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
 
     ok2, _ = verify_predicate(
         {
@@ -590,7 +590,7 @@ def _cmd_nope_fails(mg_ctx: dict):
 
 @when("ejecuto una verificación manual")
 def _manual_verify(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import verify_predicate
+    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["manual_ok"], mg_ctx["manual_info"] = verify_predicate(
         {"type": "manual", "description": "revisar UX a mano"}, mg_ctx["proj"]
@@ -604,7 +604,7 @@ def _manual_passed(mg_ctx: dict):
 
 @when("ejecuto la misma verificación dos veces")
 def _cache_twice(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import (
+    from features.main.task_execution.infrastructure.verify_engine import (
         invalidate_verify_cache,
         verify_predicate,
     )
@@ -632,7 +632,7 @@ def _three_predicates(mg_ctx: dict, tmp_path):
 
 @when("ejecuto el batch")
 def _batch_run(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import (
+    from features.main.task_execution.infrastructure.verify_engine import (
         invalidate_verify_cache,
         verify_predicates_batch,
     )
@@ -659,8 +659,8 @@ def _two_predicates(mg_ctx: dict, tmp_path):
 
 @when("ejecuto verify_predicates como task")
 def _verify_as_task(mg_ctx: dict):
-    from features.task_execution.tasks.verification import verify_predicates
-    from libs.shared_domain import ExecutionContext
+    from features.delta_tracking.tasks.verification import verify_predicates
+    from shared.common.shared_domain import ExecutionContext
 
     ctx = ExecutionContext.create(session_id="s", chain_dir=mg_ctx["proj"])
     mg_ctx["vr"] = verify_predicates(
@@ -711,7 +711,7 @@ def _shell_sentence(mg_ctx: dict):
 
 @when("parseo ambos predicates")
 def _parse_both(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import (
+    from features.main.task_execution.infrastructure.verify_engine import (
         _is_string_a_shell_command,
         _parse_predicate,
     )
@@ -746,7 +746,7 @@ def _test_missing(mg_ctx: dict):
 
 @when("ejecuto run_verification tipo test")
 def _run_test_verification(mg_ctx: dict):
-    from features.task_execution.infrastructure.verify_engine import run_verification
+    from features.main.task_execution.infrastructure.verify_engine import run_verification
 
     mg_ctx["test_ok"] = run_verification(
         {"predicate": "test_demo", "type": "test"}, mg_ctx["proj"]
@@ -776,7 +776,7 @@ def _se_update_cpg(mg_ctx: dict):
 
 @when("creo envelopes ok, failed y degraded")
 def _make_envelopes(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import degraded, failed, ok
+    from core.engine.domain.side_effect_contract import degraded, failed, ok
 
     mg_ctx["e_ok"] = ok(
         type=mg_ctx["se_type"],
@@ -794,7 +794,7 @@ def _make_envelopes(mg_ctx: dict):
 
 @then('ok tiene status "ok" y signals correctos')
 def _envelope_ok(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import is_standard
+    from core.engine.domain.side_effect_contract import is_standard
 
     e = mg_ctx["e_ok"]
     assert is_standard(e)
@@ -820,7 +820,7 @@ def _scope_invalid(mg_ctx: dict):
 
 @when("creo el envelope ok")
 def _make_ok(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
+    from core.engine.domain.side_effect_contract import ok
 
     mg_ctx["e_ok"] = ok(
         type=mg_ctx["se_type"], scope="scope_inexistente", summary="s"
@@ -829,7 +829,7 @@ def _make_ok(mg_ctx: dict):
 
 @then("el scope se degrada a SCOPE_TRACKING")
 def _scope_fallback(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import SCOPE_TRACKING
+    from core.engine.domain.side_effect_contract import SCOPE_TRACKING
 
     assert mg_ctx["e_ok"]["scope"] == SCOPE_TRACKING
 
@@ -841,14 +841,14 @@ def _legacy_dict(mg_ctx: dict):
 
 @when("normalizo al envelope estándar")
 def _normalize_env(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import normalize
+    from core.engine.domain.side_effect_contract import normalize
 
     mg_ctx["env"] = normalize(mg_ctx["legacy"], "update_cpg", "code_index")
 
 
 @then('el envelope es estándar con status "ok"')
 def _env_standard_ok(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import is_standard
+    from core.engine.domain.side_effect_contract import is_standard
 
     assert is_standard(mg_ctx["env"])
     assert mg_ctx["env"]["status"] == "ok"
@@ -925,7 +925,7 @@ def _svc_fakes(mg_ctx: dict):
 
 @given("un side effect con quality_passed=False")
 def _se_quality_fail(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
+    from core.engine.domain.side_effect_contract import ok
 
     mg_ctx["result"] = {
         "side_effects": [
@@ -973,7 +973,7 @@ def _result_registered(mg_ctx: dict):
 
 @given("un side effect con quality_passed=True")
 def _se_quality_ok(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
+    from core.engine.domain.side_effect_contract import ok
 
     mg_ctx["result"] = {
         "side_effects": [
@@ -1001,7 +1001,7 @@ def _none_dispatched(mg_ctx: dict):
 
 @given("un TaskResult exitoso")
 def _tr_success(mg_ctx: dict):
-    from libs.shared_domain.models import TaskResult
+    from shared.common.shared_domain.models import TaskResult
 
     mg_ctx["tr"] = TaskResult.success({"a": 1})
 
@@ -1023,7 +1023,7 @@ def _mapped_ok(mg_ctx: dict):
 
 @given("un TaskResult fallido")
 def _tr_failure(mg_ctx: dict):
-    from libs.shared_domain.models import TaskResult
+    from shared.common.shared_domain.models import TaskResult
 
     mg_ctx["tr"] = TaskResult.failure("boom")
 
@@ -1035,14 +1035,14 @@ def _short_circuit(mg_ctx: dict):
 
 @given("un TaskResult exitoso con valor 2")
 def _tr_two(mg_ctx: dict):
-    from libs.shared_domain.models import TaskResult
+    from shared.common.shared_domain.models import TaskResult
 
     mg_ctx["tr"] = TaskResult.success(2)
 
 
 @when("encadeno and_then con *3 y +1")
 def _and_then(mg_ctx: dict):
-    from libs.shared_domain.models import TaskResult
+    from shared.common.shared_domain.models import TaskResult
 
     mg_ctx["chained"] = (
         mg_ctx["tr"]
@@ -1058,7 +1058,7 @@ def _seven(mg_ctx: dict):
 
 @given("un TaskResult exitoso con valor 1")
 def _tr_one(mg_ctx: dict):
-    from libs.shared_domain.models import TaskResult
+    from shared.common.shared_domain.models import TaskResult
 
     mg_ctx["tr"] = TaskResult.success(1)
     mg_ctx["calls"] = []
@@ -1066,7 +1066,7 @@ def _tr_one(mg_ctx: dict):
 
 @when("encadeno un and_then que falla")
 def _and_then_fail(mg_ctx: dict):
-    from libs.shared_domain.models import TaskResult
+    from shared.common.shared_domain.models import TaskResult
 
     mg_ctx["chained"] = (
         mg_ctx["tr"]
@@ -1082,7 +1082,7 @@ def _and_then_skipped(mg_ctx: dict):
 
 @when("aplico tap para observar")
 def _tap_tr(mg_ctx: dict):
-    from libs.shared_domain.models import TaskResult
+    from shared.common.shared_domain.models import TaskResult
 
     seen = []
     mg_ctx["seen"] = seen
@@ -1106,8 +1106,8 @@ def _recover_value(mg_ctx: dict):
 
 @when("creo un StepResult con ese side effect")
 def _make_step_result(mg_ctx: dict):
-    from features.engine.domain.step_result import StepResult
-    from libs.shared_domain.models import TaskResult
+    from core.engine.domain.step_result import StepResult
+    from shared.common.shared_domain.models import TaskResult
 
     se = mg_ctx["result"]["side_effects"][0]
     sr = StepResult.success(
@@ -1156,7 +1156,7 @@ def _ssd_fields(mg_ctx: dict):
 
 @when("leo el último step result")
 def _read_last(mg_ctx: dict):
-    from features.engine.application.prompt_context_builder import (
+    from core.engine.application.prompt_context_builder import (
         _read_last_step_result,
     )
 
@@ -1190,7 +1190,7 @@ def _last_empty(mg_ctx: dict):
 def _load_template(prompt_id: str) -> dict:
     import tempfile
 
-    from features.prompts.loader import TemplateLoader
+    from features.main.prompts.loader import TemplateLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
         text = TemplateLoader(tmpdir).load(prompt_id)
@@ -1247,7 +1247,7 @@ def _quality_fail_data(mg_ctx: dict):
 
 @when("renderizo cada template con datos")
 def _render_with_data(mg_ctx: dict):
-    from features.prompts.renderer import TemplateRenderer
+    from features.main.prompts.renderer import TemplateRenderer
 
     r = TemplateRenderer()
     mg_ctx["rendered"] = {
@@ -1268,7 +1268,7 @@ def _render_contains(mg_ctx: dict):
 
 @when("renderizo sin datos")
 def _render_empty(mg_ctx: dict):
-    from features.prompts.renderer import TemplateRenderer
+    from features.main.prompts.renderer import TemplateRenderer
 
     r = TemplateRenderer()
     mg_ctx["rendered_empty"] = {
@@ -1292,7 +1292,7 @@ def _render_no_broken(mg_ctx: dict):
 
 @given("una función decorada con scope knowledge")
 def _fn_knowledge(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import (
+    from core.engine.domain.side_effect_contract import (
         SCOPE_KNOWLEDGE,
         as_side_effect,
     )
@@ -1316,7 +1316,7 @@ def _run_side(mg_ctx: dict):
 
 @then("el envelope es estándar con scope SCOPE_KNOWLEDGE")
 def _env_knowledge_scope(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import (
+    from core.engine.domain.side_effect_contract import (
         SCOPE_KNOWLEDGE,
         is_standard,
     )
@@ -1334,7 +1334,7 @@ def _legacy_signals(mg_ctx: dict):
 
 @given("una función decorada con scope decision")
 def _fn_decision(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import (
+    from core.engine.domain.side_effect_contract import (
         SCOPE_DECISION,
         as_side_effect,
     )
@@ -1348,7 +1348,7 @@ def _fn_decision(mg_ctx: dict):
 
 @then("el envelope es estándar con scope SCOPE_DECISION")
 def _env_decision_scope(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import (
+    from core.engine.domain.side_effect_contract import (
         SCOPE_DECISION,
         is_standard,
     )
@@ -1365,7 +1365,7 @@ def _decision_signal(mg_ctx: dict):
 
 @given("una función emit_event")
 def _fn_emit(mg_ctx: dict):
-    from features.task_execution.side_effects.events import emit_event
+    from features.main.task_execution.side_effects.events import emit_event
 
     mg_ctx["fn"] = emit_event
 
@@ -1393,7 +1393,7 @@ def _env_status_ok(mg_ctx: dict):
 
 @given("un side effect emit_event")
 def _se_emit(mg_ctx: dict):
-    from features.task_execution.side_effects.events import emit_event
+    from features.main.task_execution.side_effects.events import emit_event
 
     mg_ctx["result"] = {
         "side_effects": [
@@ -1415,7 +1415,7 @@ def _emit_dispatched(mg_ctx: dict):
 def _vo_files_list(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from libs.shared_domain.validated_vo import TaskInput
+    from shared.common.shared_domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1443,7 +1443,7 @@ def _vo_ok(mg_ctx: dict):
 def _vo_files_str(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from libs.shared_domain.validated_vo import TaskInput
+    from shared.common.shared_domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1471,7 +1471,7 @@ def _vo_bad(mg_ctx: dict):
 def _vo_none(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from libs.shared_domain.validated_vo import TaskInput
+    from shared.common.shared_domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1494,7 +1494,7 @@ def _vo_ok_generic(mg_ctx: dict):
 def _demo_n_two(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from libs.shared_domain.validated_vo import TaskInput
+    from shared.common.shared_domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1517,7 +1517,7 @@ def _vo_twenty(mg_ctx: dict):
 def _demo_n_bad(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from libs.shared_domain.validated_vo import TaskInput
+    from shared.common.shared_domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1533,7 +1533,7 @@ def _vo_no_crash(mg_ctx: dict):
 
 @given("ReviewInput con files y thresholds")
 def _review_input_ok(mg_ctx: dict):
-    from features.task_execution.tasks.review import ReviewInput
+    from features.delta_tracking.tasks.review import ReviewInput
 
     mg_ctx["vo"] = ReviewInput.from_dict(
         {"files": ["a.py"], "thresholds": {"max_cyclo": 10}}
@@ -1542,14 +1542,14 @@ def _review_input_ok(mg_ctx: dict):
 
 @given("ReviewInput con files como string")
 def _review_input_bad(mg_ctx: dict):
-    from features.task_execution.tasks.review import ReviewInput
+    from features.delta_tracking.tasks.review import ReviewInput
 
     mg_ctx["vo"] = ReviewInput.from_dict({"files": "nope"})
 
 
 @given("VerifyInput con predicates normalizados")
 def _verify_input_norm(mg_ctx: dict):
-    from features.task_execution.tasks.verification import VerifyInput
+    from features.delta_tracking.tasks.verification import VerifyInput
 
     mg_ctx["vo"] = VerifyInput.from_dict(
         {"predicates": [{"predicate": "def x", "type": "symbol_exists"}]}
@@ -1576,7 +1576,7 @@ def _vo_falla(mg_ctx: dict):
 
 @given("VerifyInput con predicate único")
 def _verify_input_single(mg_ctx: dict):
-    from features.task_execution.tasks.verification import VerifyInput
+    from features.delta_tracking.tasks.verification import VerifyInput
 
     mg_ctx["vo"] = VerifyInput.from_dict({"predicate": "def y"})
 
@@ -1588,28 +1588,28 @@ def _verify_single(mg_ctx: dict):
 
 @given("VerifyInput vacío")
 def _verify_input_empty(mg_ctx: dict):
-    from features.task_execution.tasks.verification import VerifyInput
+    from features.delta_tracking.tasks.verification import VerifyInput
 
     mg_ctx["vo"] = VerifyInput.from_dict({})
 
 
 @given("ImplementInput con objective y files")
 def _impl_input_ok(mg_ctx: dict):
-    from features.task_execution.tasks.implementation import ImplementInput
+    from features.delta_tracking.tasks.implementation import ImplementInput
 
     mg_ctx["vo"] = ImplementInput.from_dict({"objective": "X", "files": ["a.py"]})
 
 
 @given("ImplementInput con files como string")
 def _impl_input_bad(mg_ctx: dict):
-    from features.task_execution.tasks.implementation import ImplementInput
+    from features.delta_tracking.tasks.implementation import ImplementInput
 
     mg_ctx["vo"] = ImplementInput.from_dict({"files": "nope"})
 
 
 @given("CaptureTaskInput vacío")
 def _capture_empty(mg_ctx: dict):
-    from features.task_execution.tasks.capture_task import CaptureTaskInput
+    from features.main.task_execution.tasks.capture_task import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict({})
 
@@ -1621,7 +1621,7 @@ def _capture_fails(mg_ctx: dict):
 
 @given("CaptureTaskInput con objective y files")
 def _capture_ok(mg_ctx: dict):
-    from features.task_execution.tasks.capture_task import CaptureTaskInput
+    from features.main.task_execution.tasks.capture_task import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict(
         {"objective": "implementar X", "files": ["a.py"]}
@@ -1630,35 +1630,35 @@ def _capture_ok(mg_ctx: dict):
 
 @given("ResearchInput vacío")
 def _research_empty(mg_ctx: dict):
-    from features.task_execution.tasks.research_topic import ResearchInput
+    from features.main.task_execution.tasks.research_topic import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({})
 
 
 @given("ResearchInput con topic")
 def _research_ok(mg_ctx: dict):
-    from features.task_execution.tasks.research_topic import ResearchInput
+    from features.main.task_execution.tasks.research_topic import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({"topic": "vector dbs"})
 
 
 @given("KgExtractInput con scope functions")
 def _kg_extract_ok(mg_ctx: dict):
-    from features.task_execution.tasks.kg_extract import KgExtractInput
+    from features.main.task_execution.tasks.kg_extract import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "functions"})
 
 
 @given("KgExtractInput con scope bogus")
 def _kg_extract_bad(mg_ctx: dict):
-    from features.task_execution.tasks.kg_extract import KgExtractInput
+    from features.main.task_execution.tasks.kg_extract import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "bogus"})
 
 
 @given("ProjectInitInput vacío")
 def _project_init_empty(mg_ctx: dict):
-    from features.task_execution.tasks.project_init import ProjectInitInput
+    from features.main.task_execution.tasks.project_init import ProjectInitInput
 
     mg_ctx["vo"] = ProjectInitInput.from_dict({})
 
@@ -1670,7 +1670,7 @@ def _project_init_fails(mg_ctx: dict):
 
 @given("ProjectInitInput con project_id y language")
 def _project_init_ok(mg_ctx: dict):
-    from features.task_execution.tasks.project_init import ProjectInitInput
+    from features.main.task_execution.tasks.project_init import ProjectInitInput
 
     vo = ProjectInitInput.from_dict({"project_id": "p1", "language": "go"})
     assert vo.ok and vo.data.language == "go"
@@ -1682,8 +1682,8 @@ def _project_init_ok(mg_ctx: dict):
 
 @given("un StepResult con quality_passed=False")
 def _sr_quality_false(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
-    from features.engine.domain.step_result import StepResult
+    from core.engine.domain.side_effect_contract import ok
+    from core.engine.domain.step_result import StepResult
 
     se = {
         "type": "update_cpg",
@@ -1706,7 +1706,7 @@ def _sr_quality_false(mg_ctx: dict):
 
 @when("hago roundtrip JSON")
 def _checkpoint_roundtrip(mg_ctx: dict):
-    from features.engine.domain.step_result import StepResult
+    from core.engine.domain.step_result import StepResult
 
     cp = json.loads(json.dumps(mg_ctx["sr"].to_checkpoint()))
     restored = StepResult.from_checkpoint(cp)
@@ -1732,7 +1732,7 @@ def _cp_bad(mg_ctx: dict):
 
 @when("restauro desde checkpoint")
 def _restore_cp(mg_ctx: dict):
-    from features.engine.domain.step_result import StepResult
+    from core.engine.domain.step_result import StepResult
 
     mg_ctx["cp_res"] = StepResult.from_checkpoint(mg_ctx["cp"])
 
@@ -1750,8 +1750,8 @@ def _cp_no_marker(mg_ctx: dict):
 
 @given("un StepResult con gates fallidas y recommend")
 def _sr_gates(mg_ctx: dict):
-    from features.engine.domain.side_effect_contract import ok
-    from features.engine.domain.step_result import StepResult
+    from core.engine.domain.side_effect_contract import ok
+    from core.engine.domain.step_result import StepResult
 
     se = {
         "type": "update_cpg",
@@ -1774,7 +1774,7 @@ def _sr_gates(mg_ctx: dict):
 
 @when("serializo a checkpoint y lo leo como last_step_result")
 def _cp_to_last(mg_ctx: dict):
-    from features.engine.application.prompt_context_builder import (
+    from core.engine.application.prompt_context_builder import (
         _read_last_step_result,
     )
 
@@ -1805,7 +1805,7 @@ def _cp_corrupt(mg_ctx: dict):
 
 @when("lo leo como last_step_result")
 def _cp_corrupt_read(mg_ctx: dict):
-    from features.engine.application.prompt_context_builder import (
+    from core.engine.application.prompt_context_builder import (
         _read_last_step_result,
     )
 
@@ -1823,7 +1823,7 @@ def _walker_dir(mg_ctx: dict):
 
 @when("busco _walker_root")
 def _find_root(mg_ctx: dict):
-    from features.cli_interface.application.mcp_config_service import _walker_root
+    from features.main.cli_interface.application.mcp_config_service import _walker_root
 
     mg_ctx["walker_root"] = _walker_root()
 
@@ -1839,7 +1839,7 @@ def _root_has_mcp(mg_ctx: dict):
 
 @when("genero mcp_servers_block")
 def _mcp_block(mg_ctx: dict):
-    from features.cli_interface.application.mcp_config_service import (
+    from features.main.cli_interface.application.mcp_config_service import (
         mcp_servers_block,
     )
 
@@ -1861,7 +1861,7 @@ def _walker_args(mg_ctx: dict):
 
 @then("PYTHONPATH incluye el root del walker")
 def _walker_pythonpath(mg_ctx: dict):
-    from features.cli_interface.application.mcp_config_service import _walker_root
+    from features.main.cli_interface.application.mcp_config_service import _walker_root
 
     root = _walker_root()
     assert root in mg_ctx["mcp"]["mcpServers"]["walker"]["env"]["PYTHONPATH"]
@@ -1869,7 +1869,7 @@ def _walker_pythonpath(mg_ctx: dict):
 
 @when("genero para opencode")
 def _gen_opencode(mg_ctx: dict):
-    from features.cli_interface.application.mcp_config_service import generate
+    from features.main.cli_interface.application.mcp_config_service import generate
 
     mg_ctx["oc"] = generate("opencode")
 
@@ -1882,7 +1882,7 @@ def _opencode_block(mg_ctx: dict):
 
 @when("genero para claude")
 def _gen_claude(mg_ctx: dict):
-    from features.cli_interface.application.mcp_config_service import generate
+    from features.main.cli_interface.application.mcp_config_service import generate
 
     mg_ctx["cl"] = generate("claude")
 
@@ -1894,7 +1894,7 @@ def _has_mcp_servers(mg_ctx: dict):
 
 @when("genero para cursor")
 def _gen_cursor(mg_ctx: dict):
-    from features.cli_interface.application.mcp_config_service import generate
+    from features.main.cli_interface.application.mcp_config_service import generate
 
     mg_ctx["cu"] = generate("cursor")
 
@@ -1904,7 +1904,7 @@ def _cmd_mcp_raw(mg_ctx: dict):
     import contextlib
     import io
 
-    from features.cli_interface.application.mcp_config_service import cmd_mcp_config
+    from features.main.cli_interface.application.mcp_config_service import cmd_mcp_config
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -1926,7 +1926,7 @@ def _raw_json(mg_ctx: dict):
 
 @when("llamo _walker_root y mcp_servers_block")
 def _service_both(mg_ctx: dict):
-    from features.cli_interface.application.mcp_config_service import (
+    from features.main.cli_interface.application.mcp_config_service import (
         _walker_root,
         mcp_servers_block,
     )
@@ -1959,14 +1959,14 @@ def _json_serializable(mg_ctx: dict):
 
 @given("una Request vacía")
 def _request_empty(mg_ctx: dict):
-    from features.cli_interface.infrastructure.contracts import Request
+    from features.main.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["req"] = Request(params={})
 
 
 @when("invoco handle_mcp_config")
 def _handle_mcp_config(mg_ctx: dict):
-    from features.cli_interface.application.handlers import handle_mcp_config
+    from features.main.cli_interface.application.handlers import handle_mcp_config
 
     mg_ctx["resp"] = handle_mcp_config(mg_ctx["req"])
 
@@ -1988,8 +1988,8 @@ def _resp_walker_cmd(mg_ctx: dict):
 
 @when("invoco con raw=true")
 def _handle_mcp_raw(mg_ctx: dict):
-    from features.cli_interface.application.handlers import handle_mcp_config
-    from features.cli_interface.infrastructure.contracts import Request
+    from features.main.cli_interface.application.handlers import handle_mcp_config
+    from features.main.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["resp"] = handle_mcp_config(Request(params={"raw": "true"}))
 
@@ -2002,7 +2002,7 @@ def _resp_raw_only(mg_ctx: dict):
 
 @when("invoco handle_help")
 def _handle_help(mg_ctx: dict):
-    from features.cli_interface.application.handlers import handle_help
+    from features.main.cli_interface.application.handlers import handle_help
 
     mg_ctx["resp"] = handle_help(mg_ctx["req"])
 
@@ -2026,7 +2026,7 @@ def _help_format(mg_ctx: dict):
 
 @given("el router de CLI")
 def _router(mg_ctx: dict):
-    import features.cli_interface as ci
+    import features.main.cli_interface as ci
 
     mg_ctx["router"] = ci._ROUTER
 
@@ -2066,7 +2066,7 @@ def _sprint_id_route(mg_ctx: dict):
 
 @when("creo Request con params de ruta")
 def _req_params(mg_ctx: dict):
-    from features.cli_interface.infrastructure.contracts import Request
+    from features.main.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["req"] = Request(params=mg_ctx["resolved"][1], flags={})
 
@@ -2078,7 +2078,7 @@ def _req_sprint_id(mg_ctx: dict):
 
 @when("creo Request con flags sprint_id")
 def _req_flags(mg_ctx: dict):
-    from features.cli_interface.infrastructure.contracts import Request
+    from features.main.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["req"] = Request(params={}, flags={"sprint_id": "session-20260804"})
 

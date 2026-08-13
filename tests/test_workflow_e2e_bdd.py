@@ -21,12 +21,12 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from features.engine.domain.entities import WorkflowGraph, WorkflowState
-from features.engine.infrastructure.repositories import WorkflowStateRepository, WorkflowRepository
+from core.engine.domain.entities import WorkflowGraph, WorkflowState
+from core.engine.infrastructure.repositories import WorkflowStateRepository, WorkflowRepository
 from features.delta_tracking import spring_service
 from features.delta_tracking.application.evolutionary_document_model import EvolutionaryDocumentModel
 from features.delta_tracking.domain.entities import Spec
-from features.task_execution.side_effects.create_adr import create_adr_from_spec
+from features.delta_tracking.side_effects.create_adr import create_adr_from_spec
 from tests.conftest import make_chain_dir, make_walker_project
 
 

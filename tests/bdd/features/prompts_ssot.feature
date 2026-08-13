@@ -43,7 +43,7 @@ Feature: Prompts SSOT
   Scenario: Los prompts de nodo viven en templates/nodes/
     Given el directorio templates/nodes
     Then existen 46 archivos .prompt.json
-    And features/engine/workflow no tiene carpeta prompts
+    And core/engine/workflow no tiene carpeta prompts
     And .cognitive no tiene carpeta workflow.v3
 
   Scenario: TemplateLoader resuelve prompts de nodo
@@ -65,7 +65,7 @@ Feature: Prompts SSOT
   Scenario: Engine workflow es código, no data
     Given el path resolver
     When obtengo el engine workflow dir
-    Then termina en features/engine/workflow
+    Then termina en core/engine/workflow
     And no contiene ".cognitive"
     And existe nodes/implement.node.json
 

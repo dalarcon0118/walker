@@ -42,7 +42,7 @@ def _setup_providers(ctx_contract_ctx: dict):
 
 @when("se consulta CONTEXT_SCHEMAS")
 def _query_context_schemas(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import CONTEXT_SCHEMAS
+    from core.engine.context.contracts import CONTEXT_SCHEMAS
     ctx_contract_ctx["schemas"] = CONTEXT_SCHEMAS
 
 
@@ -60,13 +60,13 @@ def _assert_all_type_object(ctx_contract_ctx: dict):
 
 @when("se consulta context_schema para un provider imaginario")
 def _query_unknown_provider(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import context_schema
+    from core.engine.context.contracts import context_schema
     ctx_contract_ctx["unknown"] = context_schema("provider_imaginario")
 
 
 @when("se consulta context_schema para cadena vacia")
 def _query_empty_provider(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import context_schema
+    from core.engine.context.contracts import context_schema
     ctx_contract_ctx["empty"] = context_schema("")
 
 
@@ -77,7 +77,7 @@ def _assert_empty_schema(ctx_contract_ctx: dict):
 
 @when("se consulta context_schema para cadena vacia")
 def _query_empty_provider(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import context_schema
+    from core.engine.context.contracts import context_schema
     ctx_contract_ctx["empty"] = context_schema("")
 
 
@@ -88,13 +88,13 @@ def _assert_empty_string_schema(ctx_contract_ctx: dict):
 
 @when("se consulta all_context_schemas")
 def _query_all_schemas(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import all_context_schemas
+    from core.engine.context.contracts import all_context_schemas
     ctx_contract_ctx["all"] = all_context_schemas()
 
 
 @when("se consultan todos los context_schemas")
 def _query_all_schemas_alt(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import all_context_schemas
+    from core.engine.context.contracts import all_context_schemas
     ctx_contract_ctx["all"] = all_context_schemas()
 
 
@@ -105,7 +105,7 @@ def _assert_all_9(ctx_contract_ctx: dict):
 
 @when("se inspecciona el schema de cpg")
 def _inspect_cpg(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import CONTEXT_SCHEMAS
+    from core.engine.context.contracts import CONTEXT_SCHEMAS
     ctx_contract_ctx["cpg"] = CONTEXT_SCHEMAS["cpg"]
 
 
@@ -117,7 +117,7 @@ def _assert_cpg_props(ctx_contract_ctx: dict):
 
 @when("se inspecciona el schema de diff")
 def _inspect_diff(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import CONTEXT_SCHEMAS
+    from core.engine.context.contracts import CONTEXT_SCHEMAS
     ctx_contract_ctx["diff"] = CONTEXT_SCHEMAS["diff"]
 
 
@@ -129,7 +129,7 @@ def _assert_diff_props(ctx_contract_ctx: dict):
 
 @when("se inspecciona el schema de test_results")
 def _inspect_test_results(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import CONTEXT_SCHEMAS
+    from core.engine.context.contracts import CONTEXT_SCHEMAS
     ctx_contract_ctx["test_results"] = CONTEXT_SCHEMAS["test_results"]
 
 
@@ -141,7 +141,7 @@ def _assert_test_results_props(ctx_contract_ctx: dict):
 
 @when("se inspecciona el schema de trace")
 def _inspect_trace(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import CONTEXT_SCHEMAS
+    from core.engine.context.contracts import CONTEXT_SCHEMAS
     ctx_contract_ctx["trace"] = CONTEXT_SCHEMAS["trace"]
 
 
@@ -156,7 +156,7 @@ class _SchemaProvider:
         return "Layer: package — test provider."
 
     def collect(self, config, ctx, query_client=None):
-        from features.engine.context.models import ContextPiece
+        from core.engine.context.models import ContextPiece
         return ContextPiece(
             provider="package",
             name="package layer",
@@ -185,8 +185,8 @@ def _setup_schema_provider(ctx_contract_ctx: dict):
 
 @when("se compone el contexto")
 def _compose_with_provider(ctx_contract_ctx: dict):
-    from features.engine.context.composer import ContextComposer
-    from features.engine.context.registry import ContextProviderRegistry
+    from core.engine.context.composer import ContextComposer
+    from core.engine.context.registry import ContextProviderRegistry
 
     provider = ctx_contract_ctx.get("provider") or ctx_contract_ctx.get("stub_provider")
     registry = ContextProviderRegistry()
@@ -217,7 +217,7 @@ class _StubProvider:
         return "Layer: diff."
 
     def collect(self, config, ctx, query_client=None):
-        from features.engine.context.models import ContextPiece
+        from core.engine.context.models import ContextPiece
         return ContextPiece(
             provider="diff",
             name="diff layer",
@@ -234,9 +234,9 @@ def _setup_stub_provider(ctx_contract_ctx: dict):
 
 @when("se compone el contexto para el provider sin output_schema")
 def _compose_stub_provider(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import CONTEXT_SCHEMAS
-    from features.engine.context.composer import ContextComposer
-    from features.engine.context.registry import ContextProviderRegistry
+    from core.engine.context.contracts import CONTEXT_SCHEMAS
+    from core.engine.context.composer import ContextComposer
+    from core.engine.context.registry import ContextProviderRegistry
 
     registry = ContextProviderRegistry()
     registry.register("diff", ctx_contract_ctx["stub_provider"])
@@ -258,7 +258,7 @@ def _assert_stub_composed_has_schema(ctx_contract_ctx: dict):
 
 @then("el schema es el mismo objeto registrado en CONTEXT_SCHEMAS")
 def _assert_same_sso_object(ctx_contract_ctx: dict):
-    from features.engine.context.contracts import CONTEXT_SCHEMAS
+    from core.engine.context.contracts import CONTEXT_SCHEMAS
     assert ctx_contract_ctx["composed"].context_schemas["diff"] is CONTEXT_SCHEMAS["diff"]
 
 
@@ -267,7 +267,7 @@ def _load_workflow_json(ctx_contract_ctx: dict):
     import json
     import os
     here = os.path.dirname(__file__)
-    wf_path = os.path.join(here, "..", "features", "engine", "workflow", "workflow.json")
+    wf_path = os.path.join(here, "..", "core", "engine", "workflow", "workflow.json")
     with open(wf_path) as f:
         ctx_contract_ctx["workflow"] = json.load(f)
 

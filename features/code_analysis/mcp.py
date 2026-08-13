@@ -4,9 +4,9 @@ Declares CPG tools and routes. Auto-discovery via ModuleRegistry.
 """
 from __future__ import annotations
 
-from libs.mcp_server import McpServer
+from shared.core.mcp_server import McpServer
 
-from features.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
+from core.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
 
 
 def register(server: McpServer) -> None:
@@ -55,6 +55,6 @@ def register_module(registry: Any) -> None:
 
 def _public_task(name: str):
     def handler(args: dict) -> dict:
-        from features.engine.application.task_dispatcher import dispatch_public_task
+        from core.engine.application.task_dispatcher import dispatch_public_task
         return dispatch_public_task(name, args.get("body", args))
     return handler

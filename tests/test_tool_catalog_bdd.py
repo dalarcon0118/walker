@@ -24,8 +24,8 @@ def catalog_ctx() -> dict:
 
 
 def _registry_with_tool(output_schema: dict | None = None):
-    from features.engine.infrastructure.module_registry import InMemoryModuleRegistry
-    from features.engine.interface.contracts import ModuleDefinition, ToolDefinition
+    from core.engine.infrastructure.module_registry import InMemoryModuleRegistry
+    from core.engine.interface.contracts import ModuleDefinition, ToolDefinition
 
     registry = InMemoryModuleRegistry()
     registry.register_module(
@@ -77,7 +77,7 @@ def _catalog_bootstrap(catalog_ctx: dict):
 
 @when("listo las tools del catálogo")
 def _list_tools(catalog_ctx: dict):
-    from features.engine.application import tool_catalog
+    from core.engine.application import tool_catalog
 
     registry = catalog_ctx.get("registry")
     if registry is not None:
@@ -88,7 +88,7 @@ def _list_tools(catalog_ctx: dict):
 
 @when("obtengo la tool por nombre")
 def _get_tool(catalog_ctx: dict):
-    from features.engine.application import tool_catalog
+    from core.engine.application import tool_catalog
 
     registry = catalog_ctx["registry"]
     catalog_ctx["tool"] = tool_catalog.get_tool("demo", registry)

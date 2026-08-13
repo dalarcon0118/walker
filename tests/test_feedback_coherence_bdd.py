@@ -33,7 +33,7 @@ def _make_fake_ctx():
 
 @given("un TransitionBlockedError con details de precondiciones")
 def _transition_blocked_error_with_details(fb_ctx: dict):
-    from features.engine.domain.errors import TransitionBlockedError
+    from core.engine.domain.errors import TransitionBlockedError
 
     fb_ctx["error"] = TransitionBlockedError(
         "Precondiciones no cumplidas para gate 'next_task'",
@@ -47,7 +47,7 @@ def _transition_blocked_error_with_details(fb_ctx: dict):
 
 @when("el ErrorHandler maneja el error")
 def _handle_error(fb_ctx: dict):
-    from features.engine.application.error_handler import ErrorHandler
+    from core.engine.application.error_handler import ErrorHandler
 
     handler = ErrorHandler(
         submit_uc=None,
@@ -85,7 +85,7 @@ def _assert_details_in_result(fb_ctx: dict):
 
 @given("un ValidationError con errors de campos")
 def _validation_error_with_errors(fb_ctx: dict):
-    from features.engine.domain.errors import ValidationError
+    from core.engine.domain.errors import ValidationError
 
     fb_ctx["error"] = ValidationError(
         "Datos inválidos para sub-estado TASK_SPEC",
@@ -111,7 +111,7 @@ def _assert_errors_in_details(fb_ctx: dict):
 
 @given("un GateValidationError con stderr")
 def _gate_validation_error_with_stderr(fb_ctx: dict):
-    from features.engine.domain.errors import GateValidationError
+    from core.engine.domain.errors import GateValidationError
 
     fb_ctx["error"] = GateValidationError(
         "task_complete", "exit code 1: missing required field 'decision'"
@@ -132,7 +132,7 @@ def _assert_stderr_in_details(fb_ctx: dict):
 
 @given("un ValidationError genérico sin contexto")
 def _generic_validation_error(fb_ctx: dict):
-    from features.engine.domain.errors import ValidationError
+    from core.engine.domain.errors import ValidationError
 
     fb_ctx["error"] = ValidationError("Algo salio mal")
 
@@ -155,7 +155,7 @@ def _assert_details_present(fb_ctx: dict):
 
 @given("un ExecutionContext y un delta con specs en draft y vacías")
 def _exec_context_with_invalid_specs(fb_ctx: dict):
-    from features.engine.domain.models import ExecutionContext
+    from core.engine.domain.models import ExecutionContext
 
     fb_ctx["ctx"] = ExecutionContext.create(
         session_id="test",
@@ -186,7 +186,7 @@ def _exec_context_with_invalid_specs(fb_ctx: dict):
 
 @when("se ejecuta validate_plan")
 def _execute_validate_plan(fb_ctx: dict):
-    from features.task_execution.side_effects.validate import validate_plan
+    from features.main.task_execution.side_effects.validate import validate_plan
 
     with fb_ctx["patcher"]:
         fb_ctx["result"] = validate_plan(fb_ctx["ctx"], {})
@@ -210,7 +210,7 @@ def _assert_errors_in_metadata(fb_ctx: dict):
 
 @given("un ExecutionContext y un delta con specs válidas")
 def _exec_context_with_valid_specs(fb_ctx: dict):
-    from features.engine.domain.models import ExecutionContext
+    from core.engine.domain.models import ExecutionContext
 
     fb_ctx["ctx"] = ExecutionContext.create(
         session_id="test",
@@ -251,7 +251,7 @@ def _assert_result_ok_true(fb_ctx: dict):
 
 @given("un ExecutionContext y un spring no encontrado")
 def _exec_context_spring_not_found(fb_ctx: dict):
-    from features.engine.domain.models import ExecutionContext
+    from core.engine.domain.models import ExecutionContext
 
     fb_ctx["ctx"] = ExecutionContext.create(
         session_id="test",

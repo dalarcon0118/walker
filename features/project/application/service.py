@@ -2,12 +2,12 @@
 application/service.py — Application service for project operations.
 
 SRP: Unica responsabilidad = orquestar operaciones de proyecto.
-SSOT: Delega en libs.path_resolver para resolucion de paths (la unica
+SSOT: Delega en shared.core.path_resolver para resolucion de paths (la unica
       fuente de verdad). Delega en domain (values/entities/ports) y
       domain/services.py para logica pura.
 
 TODA resolucion de paths en el codebase debe pasar por esta clase.
-NADIE debe importar libs.path_resolver directamente desde ahora.
+NADIE debe importar shared.core.path_resolver directamente desde ahora.
 """
 
 from __future__ import annotations
@@ -119,7 +119,7 @@ class ProjectService:
         Raises:
             ProjectNotFoundError: si el proyecto no existe.
         """
-        from libs.path_resolver import get_project_dir
+        from shared.core.path_resolver import get_project_dir
 
         pid = ProjectId(project_id)
         proj_dir = str(get_project_dir(project_id))
@@ -206,7 +206,7 @@ class ProjectService:
     def resolve_paths(chain_dir: str) -> ProjectPaths:
         """Resuelve todas las rutas desde un chain_dir.
 
-        Unico metodo que hace IO de resolucion de paths (via libs.path_resolver).
+        Unico metodo que hace IO de resolucion de paths (via shared.core.path_resolver).
 
         Args:
             chain_dir: Directorio del sprint.
@@ -217,7 +217,7 @@ class ProjectService:
         Raises:
             ProjectResolutionError: si no se puede resolver.
         """
-        from libs.path_resolver import (
+        from shared.core.path_resolver import (
             resolve_project_root,
             resolve_project_id,
             get_data_dir,
@@ -320,7 +320,7 @@ class ProjectService:
         Returns:
             Path absoluto a .cognitive/ o None si no se encuentra.
         """
-        from libs.path_resolver import find_cognitive_root as _find
+        from shared.core.path_resolver import find_cognitive_root as _find
 
         result = _find(start)
         return str(result) if result else None
@@ -348,7 +348,7 @@ class ProjectService:
             proyecto; el plural es el registro global del walker.
         """
         try:
-            from libs.path_resolver import get_walker_root
+            from shared.core.path_resolver import get_walker_root
 
             registry_path = os.path.join(
                 str(get_walker_root()), "data", "projects.json"
@@ -427,7 +427,7 @@ class ProjectService:
                 svc = spring_service
                 if svc is None:
                     from features.delta_tracking import SpringService, spring_service
-                    from libs.path_resolver import get_project_dir
+                    from shared.core.path_resolver import get_project_dir
 
                     project_root = str(get_project_dir(pid))
                     if os.path.isdir(project_root):
@@ -478,7 +478,7 @@ class ProjectService:
             svc = spring_service
             if svc is None:
                 from features.delta_tracking import SpringService, spring_service
-                from libs.path_resolver import get_project_dir
+                from shared.core.path_resolver import get_project_dir
 
                 project_root = str(get_project_dir(project_id))
                 if os.path.isdir(project_root):
@@ -488,7 +488,7 @@ class ProjectService:
                 if active:
                     spring_id = active.get("_id", "")
                     if spring_id:
-                        from libs.path_resolver import get_sprint_dir
+                        from shared.core.path_resolver import get_sprint_dir
 
                         sprint_dir = str(get_sprint_dir(project_id, spring_id))
                         if os.path.isdir(sprint_dir):
@@ -511,7 +511,7 @@ class ProjectService:
         Returns:
             Dict with project_id, repo_path, name if found, else None.
         """
-        from libs.path_resolver import get_walker_root
+        from shared.core.path_resolver import get_walker_root
 
         registry_path = get_walker_root() / "data" / "projects.json"
         registry: dict = {"projects": {}}
@@ -686,7 +686,7 @@ class ProjectService:
                 "Usa solo letras, numeros, guiones y underscores."
             )
 
-        from libs.path_resolver import get_project_dir, get_data_dir
+        from shared.core.path_resolver import get_project_dir, get_data_dir
 
         pid = ProjectId(project_id)
         name = name or project_id
@@ -750,14 +750,14 @@ class ProjectService:
 
 
 def get_cognitive_dir() -> Path:
-    """Re-export desde libs.path_resolver para conveniencia."""
-    from libs.path_resolver import get_cognitive_dir as _get
+    """Re-export desde shared.core.path_resolver para conveniencia."""
+    from shared.core.path_resolver import get_cognitive_dir as _get
 
     return _get()
 
 
 def get_walker_root() -> Path:
-    """Re-export desde libs.path_resolver para conveniencia."""
-    from libs.path_resolver import get_walker_root as _get
+    """Re-export desde shared.core.path_resolver para conveniencia."""
+    from shared.core.path_resolver import get_walker_root as _get
 
     return _get()

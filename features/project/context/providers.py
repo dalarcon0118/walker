@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any
 
-from libs.context import ContextPiece, ContextProvider, fmt_tokens
+from shared.common.context import ContextPiece, ContextProvider, fmt_tokens
 
 
 def _derive_project_id(chain_dir: str) -> str | None:

@@ -4,9 +4,9 @@ Declares Trace tools and routes. Auto-discovery via ModuleRegistry.
 """
 from __future__ import annotations
 
-from libs.mcp_server import McpServer
+from shared.core.mcp_server import McpServer
 
-from features.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
+from core.engine.interface.contracts import ModuleDefinition, RestRoute, ToolDefinition
 
 
 def register_module(registry: Any) -> None:

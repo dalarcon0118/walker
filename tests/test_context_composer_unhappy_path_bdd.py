@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from features.engine.context.registry import ContextProviderRegistry
-from features.engine.context.composer import ContextComposer
-from libs.shared_domain import ExecutionContext
+from core.engine.context.registry import ContextProviderRegistry
+from core.engine.context.composer import ContextComposer
+from shared.common.shared_domain import ExecutionContext
 
 
 def _make_ctx(chain_dir: str = "/tmp/test-chain") -> ExecutionContext:
@@ -29,7 +29,7 @@ def test_composer_logs_warning_when_provider_missing(caplog, monkeypatch):
     mock_qm = MagicMock()
     mock_qm.query_layer.return_value = {"ok": False, "error": "no project"}
     monkeypatch.setattr(
-        "features.engine.context.composer.QueryManager",
+        "core.engine.context.composer.QueryManager",
         lambda *a, **k: mock_qm,
     )
 
@@ -67,7 +67,7 @@ def test_composer_handles_provider_collect_failure(caplog, monkeypatch):
     mock_qm.query_layer.return_value = {"ok": False, "error": "no project"}
 
     monkeypatch.setattr(
-        "features.engine.context.composer.QueryManager",
+        "core.engine.context.composer.QueryManager",
         lambda *a, **k: mock_qm,
     )
 
@@ -100,7 +100,7 @@ def test_composer_respects_budget_even_with_missing_providers(monkeypatch):
     mock_qm.query_layer.return_value = {"ok": False, "error": "no project"}
 
     monkeypatch.setattr(
-        "features.engine.context.composer.QueryManager",
+        "core.engine.context.composer.QueryManager",
         lambda *a, **k: mock_qm,
     )
 

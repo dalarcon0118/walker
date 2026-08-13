@@ -23,7 +23,7 @@ def protocol_contracts_ctx() -> dict:
 
 @given('un ToolDefinition con nombre "kg_search"')
 def _tool_def_kg_search(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.tool import ToolDefinition
+    from features.main.cli_interface.contracts.tool import ToolDefinition
 
     protocol_contracts_ctx["result"] = ToolDefinition.create(
         "kg_search", "Search memory", {"type": "object"}
@@ -32,14 +32,14 @@ def _tool_def_kg_search(protocol_contracts_ctx: dict):
 
 @given('un ToolDefinition con nombre vacío')
 def _tool_def_empty(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.tool import ToolDefinition
+    from features.main.cli_interface.contracts.tool import ToolDefinition
 
     protocol_contracts_ctx["result"] = ToolDefinition.create("", "desc")
 
 
 @given('un ToolDefinition válido')
 def _tool_def_valid(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.tool import ToolDefinition
+    from features.main.cli_interface.contracts.tool import ToolDefinition
 
     dto, _ = ToolDefinition.create("status", "Status", {"type": "object"})
     protocol_contracts_ctx["dto"] = dto
@@ -47,14 +47,14 @@ def _tool_def_valid(protocol_contracts_ctx: dict):
 
 @given('un JsonRpcRequest con método "tools/list"')
 def _rpc_list(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.rpc import JsonRpcRequest
+    from features.main.cli_interface.contracts.rpc import JsonRpcRequest
 
     protocol_contracts_ctx["req"], _ = JsonRpcRequest.create("tools/list", 1)
 
 
 @given('un JsonRpcRequest con método "bogus/method"')
 def _rpc_bogus(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.rpc import JsonRpcRequest
+    from features.main.cli_interface.contracts.rpc import JsonRpcRequest
 
     protocol_contracts_ctx["req"], protocol_contracts_ctx["errors"] = JsonRpcRequest.create(
         "bogus/method", 1
@@ -63,7 +63,7 @@ def _rpc_bogus(protocol_contracts_ctx: dict):
 
 @given('un JsonRpcRequest con método "notifications/initialized"')
 def _rpc_notification(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.rpc import JsonRpcRequest
+    from features.main.cli_interface.contracts.rpc import JsonRpcRequest
 
     protocol_contracts_ctx["req"], _ = JsonRpcRequest.create(
         "notifications/initialized", None
@@ -85,28 +85,28 @@ def _tool_call_params(protocol_contracts_ctx: dict):
 
 @given('un JsonRpcResult con id=1 y result={"tools": []}')
 def _rpc_result(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.rpc import JsonRpcResult
+    from features.main.cli_interface.contracts.rpc import JsonRpcResult
 
     protocol_contracts_ctx["r"] = JsonRpcResult(id=1, result={"tools": []})
 
 
 @given('un JsonRpcError con code=-32601')
 def _rpc_error(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.rpc import JsonRpcError
+    from features.main.cli_interface.contracts.rpc import JsonRpcError
 
     protocol_contracts_ctx["e"] = JsonRpcError(id=1, code=-32601, message="Not supported")
 
 
 @given('un Response de tipo "status"')
 def _response_status(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.response import Response
+    from features.main.cli_interface.contracts.response import Response
 
     protocol_contracts_ctx["r"] = Response.ok("status", data={"node": "SPRINT"})
 
 
 @given('un Response con mensaje "Not found"')
 def _response_not_found(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.response import Response
+    from features.main.cli_interface.contracts.response import Response
 
     protocol_contracts_ctx["r"] = Response.error(
         "error", "Not found", status_code=404
@@ -115,21 +115,21 @@ def _response_not_found(protocol_contracts_ctx: dict):
 
 @given('un ErrorResponse con code=-32601')
 def _error_response_ok(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.response import ErrorResponse
+    from features.main.cli_interface.contracts.response import ErrorResponse
 
     protocol_contracts_ctx["result"] = ErrorResponse.create(-32601, "Method not found")
 
 
 @given('un ErrorResponse con code=0 y mensaje vacío')
 def _error_response_invalid(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.response import ErrorResponse
+    from features.main.cli_interface.contracts.response import ErrorResponse
 
     protocol_contracts_ctx["result"] = ErrorResponse.create(0, "")
 
 
 @given('una NextAction con run="walker submit"')
 def _next_action(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.response import NextAction
+    from features.main.cli_interface.contracts.response import NextAction
 
     protocol_contracts_ctx["na"] = NextAction(run="walker submit", description="Advance")
 
@@ -157,7 +157,7 @@ def _create_rpc(protocol_contracts_ctx: dict):
 
 @when("creo InitializeRequest")
 def _create_init(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.rpc import InitializeRequest
+    from features.main.cli_interface.contracts.rpc import InitializeRequest
 
     protocol_contracts_ctx["req"] = InitializeRequest.from_params(
         protocol_contracts_ctx["params"]
@@ -166,7 +166,7 @@ def _create_init(protocol_contracts_ctx: dict):
 
 @when("creo ToolCallRequest")
 def _create_tool_call(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.rpc import ToolCallRequest
+    from features.main.cli_interface.contracts.rpc import ToolCallRequest
 
     protocol_contracts_ctx["req"] = ToolCallRequest.from_params(
         protocol_contracts_ctx["params"]
@@ -181,7 +181,7 @@ def _convert_tool(protocol_contracts_ctx: dict):
 
 @when("creo la respuesta ok")
 def _response_ok(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.response import Response
+    from features.main.cli_interface.contracts.response import Response
 
     r = protocol_contracts_ctx["r"]
     if isinstance(r, Response):
@@ -194,7 +194,7 @@ def _response_ok(protocol_contracts_ctx: dict):
 
 @when("creo la respuesta error con 404")
 def _response_error_404(protocol_contracts_ctx: dict):
-    from features.cli_interface.contracts.response import Response
+    from features.main.cli_interface.contracts.response import Response
 
     protocol_contracts_ctx["result"] = Response.error(
         "error", "Not found", status_code=404

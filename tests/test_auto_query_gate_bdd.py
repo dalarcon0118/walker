@@ -21,10 +21,10 @@ from pytest_bdd import given, scenarios, then, when
 scenarios("bdd/features/auto_query_gate.feature")
 
 NODE_PATH = os.path.join(
-    "features", "engine", "workflow", "nodes", "implement.node.json"
+    "core", "engine", "workflow", "nodes", "implement.node.json"
 )
 DESIGN_NODE_PATH = os.path.join(
-    "features", "engine", "workflow", "nodes", "design.node.json"
+    "core", "engine", "workflow", "nodes", "design.node.json"
 )
 
 
@@ -59,7 +59,7 @@ def _design_gather(node: dict) -> dict:
 
 
 @given(
-    "que el nodo IMPLEMENT esta definido en features/engine/workflow/nodes/implement.node.json"
+    "que el nodo IMPLEMENT esta definido en core/engine/workflow/nodes/implement.node.json"
 )
 def _load_implement_node(gate_ctx: dict):
     gate_ctx["node"] = _load(NODE_PATH)
@@ -113,7 +113,7 @@ def _assert_focus_antes(gate_ctx: dict):
 
 @when("se carga el template implement/work")
 def _load_work_template(gate_ctx: dict):
-    from features.prompts.loader import TemplateLoader
+    from features.main.prompts.loader import TemplateLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
         gate_ctx["template"] = TemplateLoader(tmpdir).load("implement/work")
@@ -156,7 +156,7 @@ def _assert_gate_before_quality(gate_ctx: dict):
 
 @when("se renderiza con datos de paso")
 def _render_template(gate_ctx: dict):
-    from features.prompts.renderer import TemplateRenderer
+    from features.main.prompts.renderer import TemplateRenderer
 
     tmpl = gate_ctx["template"]
     data = {
@@ -217,10 +217,10 @@ def _setup_temp_project(gate_ctx: dict, tmp_path):
 
 @when("se compone el contexto para WORK con ContextComposer")
 def _compose_work_context(gate_ctx: dict):
-    from features.engine.bootstrap import build_context_registry
-    from features.engine.context.composer import ContextComposer
+    from core.engine.context.composer import ContextComposer
+    from features.main.bootstrap import compose_app
 
-    registry = build_context_registry()
+    registry = compose_app().workflow._context_registry
     composer = ContextComposer(registry)
     node = _load(NODE_PATH)
     work = _work_substate(node)
@@ -231,7 +231,7 @@ def _compose_work_context(gate_ctx: dict):
         baggage={"sprint_goal": "Migrar modulo"},
     )
     with tempfile.TemporaryDirectory() as tmpdir:
-        from features.prompts.loader import TemplateLoader
+        from features.main.prompts.loader import TemplateLoader
 
         template = TemplateLoader(tmpdir).load("implement/work")
     gate_ctx["result"] = composer.compose(node_config, template, ctx)
@@ -257,7 +257,7 @@ def _assert_result_user_has_gate(gate_ctx: dict):
 
 
 @given(
-    "que el nodo DESIGN esta definido en features/engine/workflow/nodes/design.node.json"
+    "que el nodo DESIGN esta definido en core/engine/workflow/nodes/design.node.json"
 )
 def _load_design_node(gate_ctx: dict):
     gate_ctx["design_node"] = _load(DESIGN_NODE_PATH)
@@ -282,7 +282,7 @@ def _assert_design_gather_providers(gate_ctx: dict):
 
 @when("se carga el template design/design-gather")
 def _load_gather_template(gate_ctx: dict):
-    from features.prompts.loader import TemplateLoader
+    from features.main.prompts.loader import TemplateLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
         gate_ctx["gather_template"] = TemplateLoader(tmpdir).load(
@@ -320,10 +320,10 @@ def _assert_gather_template_gate(gate_ctx: dict):
 
 @when("se compone el contexto para DESIGN_GATHER con ContextComposer")
 def _compose_design_gather_context(gate_ctx: dict):
-    from features.engine.bootstrap import build_context_registry
-    from features.engine.context.composer import ContextComposer
+    from core.engine.context.composer import ContextComposer
+    from features.main.bootstrap import compose_app
 
-    registry = build_context_registry()
+    registry = compose_app().workflow._context_registry
     composer = ContextComposer(registry)
     gather = _design_gather(gate_ctx["design_node"])
     ctx = SimpleNamespace(
@@ -332,7 +332,7 @@ def _compose_design_gather_context(gate_ctx: dict):
         baggage={"sprint_goal": "Diseñar feature"},
     )
     with tempfile.TemporaryDirectory() as tmpdir:
-        from features.prompts.loader import TemplateLoader
+        from features.main.prompts.loader import TemplateLoader
 
         template = TemplateLoader(tmpdir).load("design/design-gather")
     gate_ctx["design_result"] = composer.compose(

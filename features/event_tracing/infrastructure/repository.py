@@ -152,7 +152,7 @@ def _resolve_project_root(chain_dir: str) -> str:
 @safe
 def _resolve_project_root_core(chain_dir: str) -> str:
     """Core puro de _resolve_project_root (puede lanzar)."""
-    from libs.path_resolver import resolve_project_root
+    from shared.core.path_resolver import resolve_project_root
 
     resolved = resolve_project_root(chain_dir)
     return resolved or chain_dir
@@ -168,7 +168,7 @@ def _search_cognitive_graph_core(chain_dir: str) -> list[TraceEvent]:
     en un solo lugar. La raiz CG es project_root (consistente con el task
     trace_push del engine) con fallback a chain_dir.
     """
-    from features.engine.bootstrap import get_module_service
+    from core.engine.bootstrap import get_module_service
 
     graph_factory = get_module_service("cognitive_graph")
     cg = graph_factory(_cg_root(chain_dir))
@@ -187,7 +187,7 @@ def _push_event_core(chain_dir: str, data: dict) -> dict:
 
     Respuesta: {"ok": bool, "data": {"event_id", "event_type"}}.
     """
-    from features.engine.bootstrap import get_module_service
+    from core.engine.bootstrap import get_module_service
 
     ts = datetime.now(timezone.utc).isoformat()
     event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"

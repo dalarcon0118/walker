@@ -78,7 +78,7 @@ def walker_cpg_chain_dir(tmp_path: str) -> str:
         return chain_dir
     finally:
         # limpiar registro global
-        from libs.path_resolver import get_walker_root
+        from shared.core.path_resolver import get_walker_root
 
         reg_path = get_walker_root() / "data" / "projects.json"
         if reg_path.exists():

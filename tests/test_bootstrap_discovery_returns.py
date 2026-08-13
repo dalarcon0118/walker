@@ -33,12 +33,12 @@ def _make_tmp_package(tmp_path, with_bad: bool = True) -> str:
 
 def test_discover_logs_warning_y_continua(tmp_path, caplog):
     """Un módulo que falla al registrar emite warning; el bueno se registra igual."""
-    from features.engine.bootstrap import _discover_and_register
+    from core.engine.bootstrap import _discover_and_register
 
     pkg_name = _make_tmp_package(tmp_path)
     try:
         registry: list = []
-        with caplog.at_level(logging.WARNING, logger="features.engine.bootstrap"):
+        with caplog.at_level(logging.WARNING, logger="core.engine.bootstrap"):
             _discover_and_register("register", registry, pkg_name)
         # El módulo sano se registra aunque el vecino falle (bootstrap resiliente).
         assert registry == ["good"], f"se registro: {registry}"
@@ -58,12 +58,12 @@ def test_discover_logs_warning_y_continua(tmp_path, caplog):
 
 def test_discover_registra_todos_los_modulos_sanos(tmp_path, caplog):
     """Sin fallos, no se emiten warnings y todos los módulos se registran."""
-    from features.engine.bootstrap import _discover_and_register
+    from core.engine.bootstrap import _discover_and_register
 
     pkg_name = _make_tmp_package(tmp_path, with_bad=False)
     try:
         registry: list = []
-        with caplog.at_level(logging.WARNING, logger="features.engine.bootstrap"):
+        with caplog.at_level(logging.WARNING, logger="core.engine.bootstrap"):
             _discover_and_register("register", registry, pkg_name)
         assert registry == ["good"]
         assert [r.message for r in caplog.records] == []

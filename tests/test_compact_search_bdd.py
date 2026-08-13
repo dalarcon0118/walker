@@ -118,7 +118,7 @@ def _setup_project(compact_ctx: dict, tmp_path):
 
 
 def _get_cg(compact_ctx: dict):
-    from libs.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph import CognitiveGraph
 
     return CognitiveGraph(compact_ctx["project_root"])
 
@@ -255,7 +255,7 @@ def _assert_rationale_present(compact_ctx: dict):
 
 @when("se aplica _with_compact_defaults a una query base")
 def _apply_compact_defaults(compact_ctx: dict):
-    from features.task_execution.tasks.kg import _with_compact_defaults
+    from features.main.task_execution.tasks.kg import _with_compact_defaults
 
     base = {"ckg": {"type": "convention"}}
     compact_ctx["out"] = _with_compact_defaults(base)
@@ -279,7 +279,7 @@ def _assert_default_compact(compact_ctx: dict):
 @then("no pisa valores explicitos del caller")
 def _assert_no_override_explicit(compact_ctx: dict):
     custom = {"ckg": {}, "_top_k": 5}
-    from features.task_execution.tasks.kg import _with_compact_defaults
+    from features.main.task_execution.tasks.kg import _with_compact_defaults
 
     out2 = _with_compact_defaults(custom)
     assert out2["_top_k"] == 5, (
@@ -289,7 +289,7 @@ def _assert_no_override_explicit(compact_ctx: dict):
 
 @then("no muta el diccionario original")
 def _assert_no_mutation(compact_ctx: dict):
-    from features.task_execution.tasks.kg import _with_compact_defaults
+    from features.main.task_execution.tasks.kg import _with_compact_defaults
 
     base = {"ckg": {"type": "convention"}}
     _with_compact_defaults(base)
