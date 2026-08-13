@@ -42,9 +42,9 @@ def go_prepare() -> "object":
     return action("walker prepare .", "register the current directory as a project")
 
 
-def go_mcp_config(fmt: str = "opencode") -> "object":
-    """'walker mcp-config' — generar config MCP portátil."""
-    return action(f"walker mcp-config --format={fmt}", f"config para {fmt}")
+def go_mcp_config() -> "object":
+    """'walker mcp-config' — generar config MCP portátil (formato único estándar)."""
+    return action("walker mcp-config", "config MCP portable (formato único estándar)")
 
 
 def project_actions(project_id: str) -> list["object"]:

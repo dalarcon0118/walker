@@ -41,8 +41,31 @@ class WalkerApp:
         )
 
     def status(self, project_id: str, repo_path: str = "", sprint_id: str = "") -> dict:
-        ctx = self._make_ctx(project_id)
-        return self._composition.workflow.status(ctx)
+        """Status de un proyecto con el contrato público completo.
+
+        Delega en CheckHealthUseCase (mismo contrato que el facade DI
+        "workflow.status" en bootstrap.py) — el único contrato que el CLI y
+        el MCP consumen: incluye "checks", "sprint" y "next_steps".
+
+        ANTES: devolvía el snapshot crudo del orchestrator (sin "sprint" ni
+        "next_steps") y usaba project_id como chain_dir literal → el handler
+        resolvía "no active sprint" y el workflow leía
+        "<project_id>/.workflow-state.json" (ruta relativa al CWD del server).
+        Era el fallo residual test_get_status_resuelve_desde_cwd y el timeout
+        del MCP al consultar status desde otro proyecto.
+
+        AHORA: CheckHealthUseCase resuelve el chain_dir real desde el
+        DeltaGraph (find_active_sprint / get_sprint_dir) internamente.
+        """
+        from features.main.cli_interface.application.project_use_cases import (
+            CheckHealthUseCase,
+        )
+
+        return CheckHealthUseCase.execute(
+            project_id=project_id,
+            repo_path=repo_path or "",
+            sprint_id=sprint_id,
+        )
 
     def submit(self, chain_dir: str, fields: dict, **kwargs) -> dict:
         ctx = self._make_ctx(chain_dir, kwargs.pop("task_id", ""))

@@ -1867,36 +1867,17 @@ def _walker_pythonpath(mg_ctx: dict):
     assert root in mg_ctx["mcp"]["mcpServers"]["walker"]["env"]["PYTHONPATH"]
 
 
-@when("genero para opencode")
-def _gen_opencode(mg_ctx: dict):
+@when("genero la configuración MCP")
+def _gen_mcp(mg_ctx: dict):
     from features.main.cli_interface.application.mcp_config_service import generate
 
-    mg_ctx["oc"] = generate("opencode")
+    mg_ctx["mcp"] = generate()
 
 
-@then('el bloque tiene type="local" y command[0]="python3"')
-def _opencode_block(mg_ctx: dict):
-    assert mg_ctx["oc"]["mcp"]["walker"]["type"] == "local"
-    assert mg_ctx["oc"]["mcp"]["walker"]["command"][0] == "python3"
-
-
-@when("genero para claude")
-def _gen_claude(mg_ctx: dict):
-    from features.main.cli_interface.application.mcp_config_service import generate
-
-    mg_ctx["cl"] = generate("claude")
-
-
-@then("incluye mcpServers")
-def _has_mcp_servers(mg_ctx: dict):
-    assert "mcpServers" in mg_ctx["cl"]
-
-
-@when("genero para cursor")
-def _gen_cursor(mg_ctx: dict):
-    from features.main.cli_interface.application.mcp_config_service import generate
-
-    mg_ctx["cu"] = generate("cursor")
+@then("el bloque incluye mcpServers con walker")
+def _mcp_servers_walker(mg_ctx: dict):
+    assert "mcpServers" in mg_ctx["mcp"]
+    assert "walker" in mg_ctx["mcp"]["mcpServers"]
 
 
 @when("ejecuto cmd_mcp_config --raw")
@@ -2018,10 +1999,12 @@ def _help_mcp_config(mg_ctx: dict):
     assert "mcp-config" in names
 
 
-@then('el usage documenta "format"')
-def _help_format(mg_ctx: dict):
+@then("el usage no bifurca por formato de agente")
+def _help_no_format(mg_ctx: dict):
     names = {c["name"]: c for c in mg_ctx["resp"].data.get("commands", [])}
-    assert "format" in names["mcp-config"]["usage"]
+    usage = names["mcp-config"]["usage"]
+    assert "format=" not in usage
+    assert "mcp-config" in usage
 
 
 @given("el router de CLI")

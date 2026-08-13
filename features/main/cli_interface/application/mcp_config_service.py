@@ -1,21 +1,36 @@
 """
 application/mcp_config_service.py — Genera la configuración MCP del walker.
 
-PROPÓSITO: genera configuraciones MCP en formatos estándar con paths
-ABSOLUTOS al módulo MCP real, de modo que funcione en cualquier cliente
-MCP sin importar el CWD.
+PROPÓSITO (auto-registro del MCP por el agente):
+    Un usuario instala el walker en su computador, usa un agente de
+    programación (opencode, Claude Code, Cursor, Cline, Codex, Roo... —
+    cualquiera), y le dice al agente: "ejecuta el comando `walker mcp-config`".
+    El agente ejecuta el comando, recibe esta configuración y con ella
+    registra el MCP en su propia configuración. El usuario no toca archivos
+    de configuración a mano.
 
-Formato estándar:
+    Por eso el walker NO conoce (ni necesita conocer) qué agente es: expone
+    UN solo formato estándar portable (`MCP_FORMAT = "standard"`), con paths
+    ABSOLUTOS al módulo MCP real, de modo que cualquier cliente MCP lo
+    consuma igual sin importar el CWD ni el agente de turno.
+
+FORMATO ÚNICO (registrado en `MCP_FORMAT`):
     {"mcpServers": {"walker": {command, args, env, cwd, ...}}}
 
-El shim en to_clean_next/bootstrap/cli/mcp_config.py re-exporta estas
-funciones para el CLI legacy (walker3).
+Regla: el walker NO bifurca el formato según el agente (opencode/claude/
+cursor). Expone UN solo bloque estándar portable; el agente que ejecute
+`walker mcp-config` lo parsea y se auto-registra.
 """
 
 from __future__ import annotations
 
 import json
 import os
+
+# Formato único registrado: estándar mcpServers, agnóstico del agente.
+# Es la respuesta que `walker mcp-config` devuelve al agente para que
+# se auto-registre como cliente MCP (ver docstring del módulo).
+MCP_FORMAT = "standard"
 
 
 def _walker_root() -> str:
@@ -30,8 +45,8 @@ def _walker_root() -> str:
 
 
 def _mcp_entry() -> list[str]:
-    """Comando de arranque del servidor MCP (portable)."""
-    return ["python3", "-m", "features.cli_interface.mcp"]
+    """Argumentos del servidor MCP (el ejecutable vive en `command`)."""
+    return ["-m", "features.cli_interface.mcp"]
 
 
 def _env() -> dict[str, str]:
@@ -55,7 +70,7 @@ def _server_id() -> str:
 
 
 def mcp_servers_block() -> dict:
-    """Bloque mcpServers estándar (formato portable más común)."""
+    """Bloque mcpServers estándar (formato portable, agnóstico del agente)."""
     root = _walker_root()
     return {
         "mcpServers": {
@@ -71,53 +86,22 @@ def mcp_servers_block() -> dict:
     }
 
 
-def _opencode_format() -> dict:
-    """Formato opencode (opencode.json → mcp.<name>.{type:local,command:[...]})."""
-    return {
-        "$schema": "https://opencode.ai/config.json",
-        "mcp": {
-            _server_id(): {
-                "type": "local",
-                "command": _mcp_entry(),
-                "enabled": True,
-                "environment": _env(),
-            }
-        },
-    }
+def generate() -> dict:
+    """Config MCP del walker — formato único estándar (`MCP_FORMAT`).
 
-
-def _claude_format() -> dict:
-    """Formato Claude Desktop (claude_desktop_config.json)."""
-    return mcp_servers_block()
-
-
-def _cursor_format() -> dict:
-    """Formato Cursor (.cursor/mcp.json)."""
-    return mcp_servers_block()
-
-
-def generate(format: str = "standard") -> dict:
-    """Genera la config en el formato pedido.
-
-    Formatos soportados:
-      - standard: mcpServers plano (compatible con la mayoría de clientes MCP)
-      - opencode: schema específico de opencode
-      - claude: formato Claude Desktop
-      - cursor: formato Cursor
+    Auto-registro: el agente que ejecuta `walker mcp-config` recibe este
+    bloque y se configura como cliente MCP con él. No acepta formatos por
+    agente: el walker no conoce de qué agente proviene la petición, expone
+    siempre el mismo bloque mcpServers portable.
     """
-    fmt = format.lower()
-    if fmt == "opencode":
-        return _opencode_format()
-    if fmt == "claude":
-        return _claude_format()
-    if fmt == "cursor":
-        return _cursor_format()
     return mcp_servers_block()
 
 
 def cmd_mcp_config(args: list[str]) -> int:
-    """CLI handler legacy: walker mcp-config [--format=X] [--raw] [--path]."""
-    fmt = "standard"
+    """CLI handler legacy: walker mcp-config [--raw] [--path].
+
+    `--format=X` ya no existe: el walker expone un único formato estándar.
+    """
     raw = False
     show_path = False
     for a in args:
@@ -125,12 +109,10 @@ def cmd_mcp_config(args: list[str]) -> int:
             raw = True
         elif a == "--path":
             show_path = True
-        elif a.startswith("--format="):
-            fmt = a.split("=", 1)[1]
     if show_path:
         print(_walker_root())
         return 0
-    config = generate(fmt)
+    config = generate()
     if raw:
         print(
             json.dumps(config.get("mcpServers", config), indent=2, ensure_ascii=False)

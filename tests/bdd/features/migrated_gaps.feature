@@ -328,14 +328,12 @@ Feature: Migrated gaps
     And args son ["-m", "features.cli_interface.mcp"]
     And PYTHONPATH incluye el root del walker
 
-  Scenario: generate soporta formatos opencode, claude y cursor
+  Scenario: generate usa formato único estándar (agnóstico del agente)
     Given el directorio del proyecto
-    When genero para opencode
-    Then el bloque tiene type="local" y command[0]="python3"
-    When genero para claude
-    Then incluye mcpServers
-    When genero para cursor
-    Then incluye mcpServers
+    When genero la configuración MCP
+    Then el bloque incluye mcpServers con walker
+    And el servidor walker usa comando python3
+    And args son ["-m", "features.cli_interface.mcp"]
 
   Scenario: cmd_mcp_config con --raw devuelve JSON válido
     Given el directorio del proyecto
@@ -359,12 +357,12 @@ Feature: Migrated gaps
     When invoco con raw=true
     Then incluye solo el bloque walker
 
-  Scenario: help incluye mcp-config con formatos documentados
+  Scenario: help incluye mcp-config sin bifurcar por agente
     Given una Request vacía
     When invoco handle_help
     Then el tipo es "help"
     And los comandos incluyen "mcp-config"
-    And el usage documenta "format"
+    And el usage no bifurca por formato de agente
 
   Scenario: La ruta mcp-config está registrada
     Given el router de CLI

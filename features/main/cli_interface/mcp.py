@@ -42,16 +42,23 @@ logger = logging.getLogger(__name__)
 
 
 def _kill_previous_instances() -> None:
-    """Mata procesos previos de este mismo MCP server (instancias huerfanas).
+    """Mata procesos HUERFANOS de este mismo MCP server (instancias zombies).
 
     PRINCIPIO: cada sesion del cliente MCP spawns un proceso. Si la sesion
-    anterior no murio limpio, queda un zombie que acumula instancias y
-    consume el codigo VIEJO (sintomas de "server stale"). Al arrancar,
-    este guard cierra los procesos previos del MISMO entry point.
+    anterior murio sin cerrar el pipe stdio limpiamente, el proceso queda
+    HUERFANO (reparented a launchd/init, ppid=1) y consume el codigo VIEJO
+    (sintomas de "server stale"). Al arrancar, este guard cierra SOLO los
+    procesos huerfanos reales.
 
-    Seguridad:
+    Seguridad (leccion del bug -32000 "tools desaparecieron"):
       - Excluye el PID actual y el PID padre (opencode/terminal que nos
         spawns) — nunca se mata a si mismo ni a su dueño.
+      - Solo mata procesos con ppid=1 (huerfanos REALES, sin padre vivo).
+        Un server MCP VIVO de otra sesion TAMBIEN matchea el entry point
+        (p. ej. el server del agente opencode con ppid=opencode), pero NO
+        se mata: tiene padre vivo. El guard anterior mataba a ciegas todo
+        proceso previo con el mismo entry point y derribaba el server del
+        agente activo, dejando las tools walker_* sin responder.
       - Solo matchea el entry point exacto `features.cli_interface.mcp`
         (no afecta otros MCP servers ni el resto del sistema).
     """
@@ -74,6 +81,17 @@ def _kill_previous_instances() -> None:
         pid = pid_outcome.value_or(0)
         if pid in (self_pid, parent_pid):
             continue  # no matarse ni matar al dueño
+        ppid_outcome = _ppid_core(pid)
+        if not is_successful(ppid_outcome):
+            logger.debug("ppid de %s no disponible (%s); se omite el proceso",
+                         pid, type(ppid_outcome.failure()).__name__)
+            continue
+        ppid = ppid_outcome.value_or(0)
+        if ppid != 1:
+            # Proceso CON padre vivo (otra sesión MCP activa, p.ej. el server
+            # del agente): NO es huérfano, está en uso → NO se mata.
+            logger.debug("proceso %s tiene padre vivo (%s); se conserva", pid, ppid)
+            continue
         kill_outcome = _terminate_core(pid)
         if not is_successful(kill_outcome):
             logger.debug(
@@ -91,6 +109,22 @@ def _pgrep_core(pattern: str):
         text=True,
         timeout=5,
     )
+
+
+@safe
+def _ppid_core(pid: int) -> int:
+    """Core puro: ppid de un proceso via ps (puede lanzar OSError/Timeout).
+
+    ps devuelve '' si el proceso ya murió (el guard no lo toca).
+    """
+    outcome = subprocess.run(
+        ["ps", "-o", "ppid=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    raw = outcome.stdout.strip()
+    return int(raw) if raw else 0
 
 
 @safe
