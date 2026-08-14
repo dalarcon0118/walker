@@ -365,25 +365,35 @@
             "properties": {
               "type": {
                 "type": "string",
+                "description": "Name canónico del side effect — debe existir en el catálogo real del SideEffectEngine (SPEC-014 F1: checklist de completitud nodos ⊆ catálogo). Durante Fase 3 se aceptan tanto names canónicos como legacy (alias); Fase 4 retira los legacy.",
                 "enum": [
-                  "update_cpg",
+                  "advance_sprint_task",
+                  "advance_task",
+                  "archive_sprint",
+                  "build_project_graph",
+                  "capture_decision",
+                  "create_adr",
+                  "create_adr_from_spec",
+                  "delete_ckg_node",
+                  "delete_ckg_nodes",
+                  "documenting_knowledge",
+                  "emit_event",
+                  "index_code",
+                  "index_delta",
+                  "reindex_delta",
+                  "remove_ckg_node",
+                  "remove_knowledge",
+                  "restore_cpg_snapshot",
                   "save_ckg",
                   "save_to_ckg",
-                  "update_delta_graph",
-                  "emit_event",
-                  "persist_snapshot",
-                  "run_script",
-                  "assign_session",
-                  "detect_context",
-                  "register_catalog",
-                  "init_trace_log",
-                  "archive_sprint",
+                  "sync_delta",
+                  "transform_spec",
+                  "update_ckg_status",
                   "update_code_index",
-                  "build_project_graph",
-                  "notify",
-                  "restore_cpg_snapshot",
-                  "delete_ckg_node",
-                  "rollback_ckg"
+                  "update_cpg",
+                  "update_delta_graph",
+                  "update_sprint_status",
+                  "validate_plan"
                 ]
               },
               "params": {
@@ -399,12 +409,13 @@
                 "properties": {
                   "type": {
                     "type": "string",
+                    "description": "Name canónico del handler de compensación — resuelto contra el MISMO catálogo del SideEffectEngine (fuente única: el grafo declara, el catálogo ejecuta, SPEC-014 Fase 0). Durante Fase 3 se aceptan canónicos y legacy; Fase 4 retira legacy.",
                     "enum": [
                       "delete_ckg_node",
-                      "restore_cpg_snapshot",
-                      "rollback_ckg",
                       "delete_ckg_nodes",
-                      "none"
+                      "remove_ckg_node",
+                      "remove_knowledge",
+                      "restore_cpg_snapshot"
                     ]
                   },
                   "params": {

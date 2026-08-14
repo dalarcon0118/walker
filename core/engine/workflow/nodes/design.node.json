@@ -34,7 +34,7 @@
       "on_failure": "",
       "side_effects": [
         {
-          "type": "update_code_index",
+          "type": "index_code",
           "params": {},
           "optional": true
         },
@@ -327,7 +327,7 @@
       "key": "CKG_SAVE",
       "label": "Save to CKG",
       "execution": "auto",
-      "action": "save_to_ckg",
+      "action": "documenting_knowledge",
       "input_schema": {},
       "output_schema": {
         "type": "object",
@@ -346,15 +346,15 @@
       "on_failure": "DESIGN_REVIEW",
       "side_effects": [
         {
-          "type": "save_ckg",
+          "type": "documenting_knowledge",
           "params": {},
           "compensation": {
-            "type": "delete_ckg_node",
+            "type": "delete_ckg_nodes",
             "description": "If subsequent step fails, revert CKG save"
           }
         },
         {
-          "type": "update_delta_graph",
+          "type": "sync_delta",
           "params": {},
           "optional": true
         }

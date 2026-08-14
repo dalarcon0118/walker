@@ -286,7 +286,7 @@
       "on_failure": "",
       "side_effects": [
         {
-          "type": "save_to_ckg",
+          "type": "documenting_knowledge",
           "params": {},
           "description": "Save initial CKG nodes"
         }

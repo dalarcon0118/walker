@@ -215,7 +215,7 @@
       "on_failure": "PLANNING",
       "side_effects": [
         {
-          "type": "update_sprint_status",
+          "type": "sprint_status",
           "params": {
             "decision": "approve",
             "status": "active"
@@ -609,7 +609,7 @@
       "on_failure": "TASK_SPEC",
       "side_effects": [
         {
-          "type": "advance_task",
+          "type": "advance_sprint_task",
           "params": {}
         },
         {
@@ -638,7 +638,7 @@
           "description": "Transform Spec to approved state if approval_type=decision (incluye constitución: invariants/project_snapshot)"
         },
         {
-          "type": "create_adr_from_spec",
+          "type": "create_adr",
           "params": {
             "approval_type": "NODE.TASK_SPEC.output.approval_type"
           },
@@ -815,7 +815,7 @@
           }
         },
         {
-          "type": "update_sprint_status",
+          "type": "sprint_status",
           "params": {
             "decision": "accept",
             "status": "reviewing"
@@ -1006,7 +1006,7 @@
       "on_failure": "",
       "side_effects": [
         {
-          "type": "save_to_ckg",
+          "type": "documenting_knowledge",
           "params": {}
         },
         {
@@ -1194,7 +1194,7 @@
           "optional": true
         },
         {
-          "type": "reindex_delta",
+          "type": "index_delta",
           "params": {},
           "description": "Reindexar DeltaGraph completo al cerrar el sprint"
         }

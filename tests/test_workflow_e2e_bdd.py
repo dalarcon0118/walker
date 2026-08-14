@@ -26,7 +26,7 @@ from core.engine.infrastructure.repositories import WorkflowStateRepository, Wor
 from features.delta_tracking import spring_service
 from features.delta_tracking.application.evolutionary_document_model import EvolutionaryDocumentModel
 from features.delta_tracking.domain.entities import Spec
-from features.delta_tracking.side_effects.create_adr import create_adr_from_spec
+from features.main.task_execution.side_effects.create_adr import create_adr_from_spec
 from tests.conftest import make_chain_dir, make_walker_project
 
 
@@ -213,7 +213,7 @@ class TestWorkflowE2E:
 
         ops_completed = EvolutionaryDocumentModel(chain_dir=chain_dir)._memory_ops_for_status("completed", spec_spec)
         assert len(ops_completed) == 3
-        assert {"target": "ckg", "op": "save_to_ckg"} in ops_completed
+        assert {"target": "ckg", "op": "documenting_knowledge"} in ops_completed
         assert {"target": "trace", "op": "emit", "event": "spec_completed"} in ops_completed
 
     def test_adr_created_at_approval_phase(self, tmp_path):

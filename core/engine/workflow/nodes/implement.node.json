@@ -122,7 +122,7 @@
       ],
       "side_effects": [
         {
-          "type": "update_cpg",
+          "type": "index_code",
           "params": {},
           "optional": true,
           "compensation": {
@@ -131,7 +131,7 @@
           }
         },
         {
-          "type": "update_ckg_status",
+          "type": "ckg_status",
           "params": {
             "event": "implementation_start"
           },
@@ -252,7 +252,7 @@
       ],
       "side_effects": [
         {
-          "type": "update_cpg",
+          "type": "index_code",
           "params": {
             "scope": "code_review"
           },
@@ -633,7 +633,7 @@
       "on_failure": "",
       "side_effects": [
         {
-          "type": "save_to_ckg",
+          "type": "documenting_knowledge",
           "params": {},
           "description": "Persist knowledge updates after user approves report"
         },

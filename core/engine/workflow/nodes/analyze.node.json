@@ -15,7 +15,7 @@
       "on_failure": "",
       "side_effects": [
         {
-          "type": "update_code_index",
+          "type": "index_code",
           "params": {},
           "optional": true
         }
@@ -433,7 +433,7 @@
       "on_failure": "REVIEW",
       "side_effects": [
         {
-          "type": "save_to_ckg",
+          "type": "documenting_knowledge",
           "params": {},
           "compensation": {
             "type": "delete_ckg_nodes",
@@ -447,7 +447,7 @@
           }
         },
         {
-          "type": "update_ckg_status",
+          "type": "ckg_status",
           "params": {
             "event": "knowledge_captured"
           },

@@ -339,7 +339,7 @@
       "on_failure": "DIAGNOSE",
       "side_effects": [
         {
-          "type": "save_to_ckg",
+          "type": "documenting_knowledge",
           "params": {},
           "compensation": {
             "type": "delete_ckg_nodes",
@@ -567,7 +567,7 @@
           }
         },
         {
-          "type": "save_to_ckg",
+          "type": "documenting_knowledge",
           "params": {},
           "optional": true
         }

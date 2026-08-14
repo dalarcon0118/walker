@@ -139,6 +139,6 @@ class EvolutionaryDocumentModel:
             ops.append({"target": "cpg", "op": "scope", "data": {"scope": "code_review"}})
             ops.append({"target": "trace", "op": "emit", "event": "code_review_scanned"})
         elif status == "completed":
-            ops.append({"target": "ckg", "op": "save_to_ckg"})
+            ops.append({"target": "ckg", "op": "documenting_knowledge"})
             ops.append({"target": "trace", "op": "emit", "event": "spec_completed"})
         return ops
