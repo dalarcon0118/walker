@@ -23,6 +23,7 @@ from ..domain.models import (
     Gate,
     ExecutionContext,
     ExecutionType,
+    TaskResult,
 )
 from ..domain.enums import DomainEventType
 from ..domain.registry import TaskRegistry
@@ -38,6 +39,7 @@ from ..domain.errors import (
     ValidationError,
     SubStateNotFoundError,
     AutoAdvanceError,
+    SideEffectFailedError,
 )
 from ..infrastructure.repositories import (
     WorkflowRepository,
@@ -156,6 +158,7 @@ class SubmitDataUseCase:
         task_registry: TaskRegistry | None = None,
         contract_validator: type[ContractValidator] | None = None,
         side_effect_engine: SideEffectEngine | None = None,
+        action_catalog: Any = None,
         event_dispatcher: Any = None,
         event_log: Any = None,
         tracer: Any = None,
@@ -168,6 +171,7 @@ class SubmitDataUseCase:
         self._side_effect_engine = side_effect_engine or SideEffectEngine(
             tracer=tracer,
         )
+        self._action_catalog = action_catalog
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
         self.events: list[DomainEvent] = []
@@ -385,7 +389,7 @@ class SubmitDataUseCase:
             logger.error(
                 "Sub-estado '%s.%s' declara action='%s' pero el use case no tiene "
                 "task_registry (composition root roto). Inyecta el registry via "
-                "bootstrap()/get_module_service('task_registry').",
+                "bootstrap()/resolve_service('task_registry').",
                 state.current_node, sub_state.key, sub_state.action,
             )
             raise AutoAdvanceError(
@@ -407,7 +411,24 @@ class SubmitDataUseCase:
         # como no-op (all_passed=True falso).
         if sub_state.action == "verify_predicates":
             fields = self._inject_spec_predicates(chain_dir, task_id, fields)
-        task_result = self._task_registry.execute(sub_state.action, exec_ctx, fields)
+        if self._action_catalog is not None:
+            raw = self._action_catalog.execute_action(sub_state.action, exec_ctx, fields)
+            if raw is None:
+                raise AutoAdvanceError(
+                    state.current_node, sub_state.key, 1,
+                    f"ActionCatalog: action '{sub_state.action}' not found",
+                )
+            if isinstance(raw, TaskResult):
+                task_result = raw
+            elif isinstance(raw, dict):
+                ok = raw.get("ok", True)
+                data = raw.get("data") or raw.get("result")
+                error = raw.get("error") if not ok else None
+                task_result = TaskResult(ok=ok, data=data, error=error)
+            else:
+                task_result = TaskResult.success(raw)
+        else:
+            task_result = self._task_registry.execute(sub_state.action, exec_ctx, fields)
         # 5a. Recargar state despues de la tarea (las tareas pueden modificar
         # el estado). EXCEPCION (SPEC-013): si hubo forwarding NO recargar.
         if not _did_forward:
@@ -458,9 +479,9 @@ class SubmitDataUseCase:
         if "predicates" in fields or "predicate" in fields:
             return fields
         try:
-            from features.delta_tracking import spring_service
+            from core.engine.bootstrap import resolve_service
 
-            svc = spring_service(chain_dir=chain_dir)
+            svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
             if svc is None:
                 return fields
             spring_id = svc.get_spring_id(chain_dir)
@@ -571,6 +592,21 @@ class SubmitDataUseCase:
         side_results = self._side_effect_engine.execute(
             exec_ctx, sub_state.side_effects
         )
+        # SPEC-014 F2 — política de fallo unificada (cierra la asimetría):
+        # un side effect OBLIGATORIO (optional=False) que falla se ELEVA como
+        # SideEffectFailedError (fail-loud) en vez de compensar y seguir.
+        # El ErrorHandler lo clasifica como TaskFailedError vía bridge → misma
+        # estrategia por nodo, mismo on_failure. Los optional=True siguen con
+        # warning y continuar (sin cambio).
+        failed_mandatory = [
+            r for r in side_results if not r.get("ok") and not r.get("optional")
+        ]
+        if failed_mandatory:
+            raise SideEffectFailedError(
+                failed_mandatory[0]["type"],
+                "Side effect(s) obligatorio(s) fallaron: "
+                + ", ".join(r["type"] for r in failed_mandatory),
+            )
         # 7a. Recargar state despues de side-effects (modifican estado)
         state = self._state_repo.load(chain_dir)
         state = state.record_submit(
@@ -882,12 +918,16 @@ class TransitionUseCase:
         script_runner: ScriptRunner,
         event_dispatcher: Any = None,
         event_log: Any = None,
+        project_context: Any = None,
+        conflict_resolver: Any = None,
     ):
         self._workflow_repo = workflow_repo
         self._state_repo = state_repo
         self._script_runner = script_runner
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
+        self._project_context = project_context
+        self._conflict_resolver = conflict_resolver
         self.events: list[DomainEvent] = []
 
     def execute(
@@ -934,7 +974,7 @@ class TransitionUseCase:
         if gate.contract:
             from ..domain.contracts import ContractEvaluator
 
-            pre_errors = ContractEvaluator.evaluate_pre(state, gate.contract)
+            pre_errors = ContractEvaluator.evaluate_pre(state, gate.contract, project_context=self._project_context, ckg_service=self._ckg_service)
             if pre_errors:
                 raise TransitionBlockedError(
                     f"Gate '{gate_name}' contract.pre bloqueado", pre_errors
@@ -1000,7 +1040,7 @@ class TransitionUseCase:
         if gate.contract:
             from ..domain.contracts import ContractEvaluator
 
-            post_errors = ContractEvaluator.evaluate_post(state, gate.contract)
+            post_errors = ContractEvaluator.evaluate_post(state, gate.contract, project_context=self._project_context, ckg_service=self._ckg_service)
             if post_errors:
                 raise TransitionBlockedError(
                     f"Gate '{gate_name}' contract.post bloqueado", post_errors
@@ -1240,13 +1280,13 @@ def _is_informal_sprint(chain_dir: str, project_id: str) -> bool:
         return False
     try:
         from shared.core.path_resolver import get_project_dir
-        from features.delta_tracking import SpringService
+        from core.engine.bootstrap import resolve_service
 
         project_root = str(get_project_dir(project_id))
         if not os.path.isdir(project_root):
             return False
         spring_id = _sprint_id_of(chain_dir)
-        spring_svc = SpringService(project_root)
+        spring_svc = self._sprint_service.from_chain_dir(project_root) if self._sprint_service else None
         spring = spring_svc.get_spring(spring_id)
         return bool(spring and spring.get("informal"))
     except Exception:
@@ -1361,9 +1401,9 @@ def _resolve_decision_gate(
             try:
                 chain_dir = state.context.get("chain_dir", "")
                 if chain_dir:
-                    from features.delta_tracking import spring_service
+                    from core.engine.bootstrap import resolve_service
 
-                    spring_svc = spring_service(chain_dir=chain_dir)
+                    spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
                     if spring_svc:
                         spring_id = spring_svc.get_spring_id(chain_dir)
                         spring_svc.ensure_spring_imported(chain_dir, spring_id)

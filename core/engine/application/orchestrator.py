@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.engine.domain.ports import IProjectContext, IConflictResolver, ISprintService, IPromptCollector
 
 from ..domain.models import (
     ExecutionContext,
@@ -30,6 +31,7 @@ from ..infrastructure.repositories import (
     WorkflowStateRepository,
     ScriptRunner,
 )
+from shared.core.path_resolver import get_engine_workflow_path
 from ..infrastructure.side_effects import SideEffectEngine
 from ..infrastructure.task_registry import InMemoryTaskRegistry
 from ..infrastructure.domain_task_registry import DomainTaskRegistry
@@ -96,16 +98,28 @@ class OrchestrationService:
         task_registry: TaskRegistry | None = None,
         contract_validator: type[ContractValidator] | None = None,
         side_effect_engine: SideEffectEngine | None = None,
+        action_catalog: Any = None,
         event_dispatcher: Any = None,
         event_log: Any = None,
         tracer: ITracer | None = None,
         signal_bus: SignalBus | None = None,
         context_registry: ContextProviderRegistry | None = None,
+        project_context: Any = None,
+        conflict_resolver: Any = None,
+        sprint_service: Any = None,
+        prompt_collector: Any = None,
     ):
-        self._workflow_repo = workflow_repo or WorkflowRepository()
+        self._workflow_repo = workflow_repo or WorkflowRepository(
+            workflow_path=str(get_engine_workflow_path())
+        )
         self._state_repo = state_repo or WorkflowStateRepository()
         self._script_runner = script_runner or ScriptRunner()
         self._tracer = tracer or TraceLogger()
+        self._project_context = project_context
+        self._conflict_resolver = conflict_resolver
+        self._sprint_service = sprint_service
+        self._prompt_collector = prompt_collector
+        self._action_catalog = action_catalog
 
         # Composition root obligatorio (capa_rout.md D1, Gap 1): task_registry
         # y side_effect_engine son REQUERIDOS — no hay defaults que fabriquen
@@ -161,26 +175,16 @@ class OrchestrationService:
         self._transition_uc: TransitionUseCase | None = None
         self._validate_uc: ValidateCurrentStateUseCase | None = None
 
-    # ── Properties (lazy) ───────────────────────────────────────────────
+    # ── Prompt collection (via puerto IPromptCollector) ─────────────────
 
-    @property
-    def prompt_manager(self):
-        """PromptManager (IPromptManager): resuelto por DI, no por import directo.
-
-        Se obtiene del ModuleRegistry (clave "prompt_manager"). Fallback: se
-        construye en sitio si el servicio no está registrado (tests unit) —
-        el contrato (IPromptManager) lo respetan siempre.
-        """
-        if self._prompt_manager is None:
-            try:
-                from core.engine.bootstrap import get_module_service
-
-                self._prompt_manager = get_module_service("prompt_manager")
-            except Exception:
-                from features.main.prompts import PromptManager
-
-                self._prompt_manager = PromptManager
-        return self._prompt_manager
+    def _collect_prompt(self, chain_dir: str, context: dict) -> dict:
+        """Recolecta prompts via puerto IPromptCollector."""
+        if self._prompt_collector is None:
+            return {}
+        try:
+            return self._prompt_collector.collect(chain_dir, context)
+        except Exception:
+            return {}
 
     @property
     def submit_uc(self) -> SubmitDataUseCase:
@@ -192,6 +196,7 @@ class OrchestrationService:
                 task_registry=self._task_registry,
                 contract_validator=self._contract_validator,
                 side_effect_engine=self._side_effect_engine,
+                action_catalog=self._action_catalog,
                 event_dispatcher=self._event_dispatcher,
                 event_log=self._event_log,
             )
@@ -206,6 +211,8 @@ class OrchestrationService:
                 script_runner=self._script_runner,
                 event_dispatcher=self._event_dispatcher,
                 event_log=self._event_log,
+                project_context=self._project_context,
+                conflict_resolver=self._conflict_resolver,
             )
         return self._transition_uc
 
@@ -245,7 +252,7 @@ class OrchestrationService:
             extra_data: datos adicionales inyectados sobre collect_all() (prioridad alta)
         """
         try:
-            pm = self.prompt_manager(chain_dir)
+            pm = self._collect_prompt(chain_dir, context)
             ctx = {"task_id": task_id, "node_id": prompt_id.split("/")[-1]}
             if execution_ctx:
                 ctx.update(getattr(execution_ctx, "baggage", {}) or {})

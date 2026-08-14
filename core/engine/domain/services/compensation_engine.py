@@ -127,29 +127,31 @@ class CompensationEngine:
     def _run(effect: Any) -> None:
         if not effect or not effect.compensation:
             return
-        try:
-            if (
-                effect.type == "update_cpg"
-                and effect.compensation == "restore_cpg_snapshot"
-            ):
-                params = effect.params or {}
-                snapshot = params.get("snapshot_id")
-                if snapshot:
-                    from core.engine.legacy.utils import run_script
+        params = effect.params or {}
+        handler_name = effect.compensation
+        from core.engine.infrastructure.side_effects import SideEffectEngine, _run_compensation_handler_core
+        from returns.result import Success, Failure
+        from returns.pipeline import is_successful
 
-                    run_script(f"walker cpg_restore {snapshot}", None, None)
-            elif effect.type == "save_ckg" and effect.compensation == "rollback_ckg":
-                params = effect.params or {}
-                doc_id = params.get("doc_id")
-                if doc_id:
-                    from core.engine.bootstrap import get_module_service
-
-                    cg = get_module_service("cognitive_graph")(
-                        _canonical_cg_root(params)
-                    )
-                    cg.delete("ckg", doc_id)
-        except Exception:
-            pass
+        se = SideEffectEngine({}, {}, {})
+        handler = se._handlers.get(handler_name)
+        if handler is None:
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning(
+                "Compensation handler '%s' not found for %s",
+                handler_name,
+                effect.type,
+            )
+            return
+        outcome = _run_compensation_handler_core(handler, None)
+        if not is_successful(outcome):
+            logger = __import__("logging").getLogger(__name__)
+            logger.error(
+                "Compensation '%s' failed for %s: %s",
+                handler_name,
+                effect.type,
+                outcome.failure(),
+            )
 
     @staticmethod
     def _log_failure(sub_state: str, effect: Any, error: Exception) -> None:
