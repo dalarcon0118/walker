@@ -6,7 +6,10 @@ Implementa Saga pattern (TASK-008):
   2. Si un efecto NO optional falla, compensa los exitosos en orden inverso
   3. Idempotency key evita doble ejecucion del mismo efecto
   4. Efectos sin compensacion loggean warning y continuan (no bloquean)
-  5. Compensaciones reales: delete_ckg_node, restore_cpg_snapshot, rollback_ckg
+  5. Compensaciones reales (SPEC-014 Fase 0): la compensación es la que
+     DECLARA EL GRAFO (SideEffectDef.compensation) y se resuelve contra el
+     MISMO catálogo de handlers por nombre — nunca un mapa hardcodeado ni
+     dicts fabricados de éxito.
 
 SRP: Unica responsabilidad = ejecutar y compensar side-effects declarativos.
 """
@@ -32,6 +35,42 @@ _CPG_BUILD_EFFECT_TYPES = {
     "build_project_graph",
     "update_code_index",
 }
+
+
+@safe
+def _run_side_effect_handler_core(handler: Any, ctx: Any, params: dict) -> dict:
+    """Core puro: ejecuta un handler modular de side effect (puede lanzar).
+
+    Normaliza al envelope estándar. @safe captura el fallo como Failure y el
+    caller decide (convention-001, sin try/except).
+    """
+    from ..domain.side_effect_contract import normalize
+
+    result = handler(ctx, params)
+    return normalize(
+        result,
+        default_type=getattr(handler, "__name__", "side_effect"),
+        default_scope="tracking",
+    )
+
+
+@safe
+def _run_compensation_handler_core(handler: Any, ctx: Any) -> dict:
+    """Core puro: ejecuta el handler REAL de compensación del catálogo.
+
+    El handler recibe (ctx, params={}) y su resultado se normaliza al
+    envelope estándar (SPEC-014 Fase 0: la compensación ejecuta el handler
+    registrado, nunca fabrica dicts de éxito). Puede lanzar → @safe lo
+    captura como Failure y el wrapper decide (convention-001).
+    """
+    from ..domain.side_effect_contract import normalize
+
+    result = handler(ctx, {})
+    return normalize(
+        result,
+        default_type=getattr(handler, "__name__", "compensation"),
+        default_scope="tracking",
+    )
 
 
 @safe
@@ -92,9 +131,10 @@ class SideEffectEngine:
         _get_tracked(ctx, key): Obtiene resultado previo si existe.
     """
 
-    def __init__(self, task_registry: Any = None, tracer: Any = None) -> None:
+    def __init__(self, task_registry: Any = None, tracer: Any = None, action_catalog: Any = None) -> None:
         self._task_registry = task_registry
         self._tracer = tracer
+        self._action_catalog = action_catalog
         self._handlers: dict[str, Any] = {}
         self._idempotency_store: dict[str, dict[str, dict]] = {}
 
@@ -153,10 +193,12 @@ class SideEffectEngine:
                     results.append({
                         "type": effect.type,
                         "ok": True,
+                        "optional": effect.optional,
                         "result": cached,
                         "compensated": False,
                         "compensation_result": None,
                         "idempotent": True,
+                        "compensation": effect.compensation,
                     })
                     if outbox is not None:
                         outbox.mark_completed(outbox_entry, cached)
@@ -173,10 +215,15 @@ class SideEffectEngine:
                 entry = {
                     "type": effect.type,
                     "ok": result is not None,
+                    "optional": effect.optional,
                     "result": result if result is not None else f"Side-effect '{effect.type}' returned None",
                     "compensated": False,
                     "compensation_result": None,
                     "idempotent": False,
+                    # Fuente única (SPEC-014 Fase 0): la compensación es la
+                    # que DECLARA EL GRAFO (SideEffectDef.compensation). El
+                    # engine ya no usa un mapa interno hardcodeado.
+                    "compensation": effect.compensation,
                 }
                 results.append(entry)
 
@@ -208,6 +255,7 @@ class SideEffectEngine:
                 entry = {
                     "type": effect.type,
                     "ok": False,
+                    "optional": effect.optional,
                     "result": str(e),
                     "compensated": False,
                     "compensation_result": None,
@@ -257,7 +305,7 @@ class SideEffectEngine:
             prev_result = prev.get("result", {})
 
             try:
-                comp_type = self._get_compensation_type(effect_type)
+                comp_type = prev.get("compensation") or ""
                 if not comp_type:
                     logger.warning(
                         "No compensation for '%s' — continuing (Saga non-blocking)",
@@ -418,8 +466,10 @@ class SideEffectEngine:
             prev_result = prev.get("result", {})
 
             try:
-                # Determinar compensacion segun el tipo de efecto
-                comp_type = self._get_compensation_type(effect_type)
+                # Fuente única (SPEC-014 Fase 0): la compensación es la que
+                # declara EL GRAFO (SideEffectDef.compensation). Si el grafo no
+                # declara compensation → no compensa (warning y continuar).
+                comp_type = prev.get("compensation") or ""
                 if not comp_type:
                     # Sin compensacion — warning y continuar
                     logger.warning(
@@ -472,96 +522,54 @@ class SideEffectEngine:
     ) -> dict | str | None:
         """Ejecuta un unico side-effect con resultado real.
 
-        Side-effects soportados:
-          - emit_event: Emite un evento de dominio
-          - persist_snapshot: Persiste snapshot del estado
-          - run_script: Ejecuta un script externo (requiere param 'script')
-          - update_cpg: Actualiza CPG (stub — TASK-011 final)
-          - save_ckg: Guarda en CKG (stub — TASK-011 final)
-          - update_delta_graph: Actualiza delta graph (stub — TASK-011 final)
-          - save_to_ckg: Guarda conocimiento en CKG (stub — TASK-011 final)
+        Dispatch (SPEC-014 Fase 1):
+          - handler modular registrado (features/main/task_execution/side_effects/)
+            → se ejecuta y normaliza al envelope estándar.
+          - name SIN handler → warning + None (fail-loud). Los stubs legacy
+            (emit_event, persist_snapshot, run_script, update_cpg, save_ckg,
+            update_delta_graph, save_to_ckg) fueron ELIMINADOS: duplicaban
+            handlers modulares o no los declaraba ningún nodo.
 
         Returns:
-            dict | str con resultado, o None si el efecto fallo silenciosamente.
+            dict | str con resultado, o None si el efecto fallo.
             El caller (execute()) interpreta None como fallo.
         """
         etype = effect.type
         params = effect.params
 
-        # ── Check registered handlers first (side_effects/ modulares) ──
-        if etype in self._handlers:
-            try:
-                result = self._handlers[etype](ctx, params)
-                # Contrato estándar: normaliza el resultado del handler a un
-                # envelope uniforme (status/type/scope/summary/signals/metadata).
-                from ..domain.side_effect_contract import normalize
-                return normalize(result, default_type=etype, default_scope="tracking")
-            except Exception:
-                return None
+        # ── Resolver handler via ActionCatalog (SPEC-014 Fase 1: puerto único) ──
+        handler = None
+        if self._action_catalog is not None:
+            action = self._action_catalog.resolve(etype)
+            if action is not None:
+                handler = action.handler
+        if handler is None:
+            handler = self._handlers.get(etype)
 
-        if etype == "emit_event":
-            return {
-                "event": params.get("event", ""),
-                "payload": dict(params.get("payload", {})),
-                "timestamp": str(ctx.started_at),
-                "emitted": True,
-            }
-
-        elif etype == "persist_snapshot":
-            return {
-                "snapshot": True,
-                "label": params.get("label", ""),
-                "chain_dir": ctx.chain_dir,
-                "persisted": True,
-            }
-
-        elif etype == "run_script":
-            script = params.get("script", "")
-            if not script:
-                return None
-            return {
-                "script": script,
-                "executed": True,
-                "result": "(stub — TASK-011 ejecutara script real)",
-            }
-
-        elif etype == "update_cpg":
-            return {
-                "type": "update_cpg",
-                "nodes": params.get("nodes", 0),
-                "edges": params.get("edges", 0),
-                "updated": True,
-                "result": "(stub — TASK-011 final)",
-            }
-
-        elif etype == "save_ckg":
-            return {
-                "type": "save_ckg",
-                "node_id": params.get("node_id", ""),
-                "data_keys": list(params.get("data", {}).keys()),
-                "saved": True,
-                "result": "(stub — TASK-011 final)",
-            }
-
-        elif etype == "update_delta_graph":
-            return {
-                "type": "update_delta_graph",
-                "changes": params.get("changes", 0),
-                "updated": True,
-                "result": "(stub — TASK-011 final)",
-            }
-
-        elif etype == "save_to_ckg":
-            return {
-                "type": "save_to_ckg",
-                "facts": params.get("facts", 0),
-                "saved": True,
-                "result": "(stub — TASK-011 final)",
-            }
-
-        else:
-            logger.warning("Unknown side-effect type: %s", etype)
+        if handler is not None:
+            outcome = _run_side_effect_handler_core(handler, ctx, params)
+            if is_successful(outcome):
+                value = outcome.value_or({})
+                if isinstance(value, dict) and (
+                    value.get("status") == "failed" or value.get("ok") is False
+                ):
+                    logger.warning(
+                        "Side-effect '%s' devolvió envelope fallido (%s) — tratado como None",
+                        etype,
+                        value.get("summary", "") or value.get("error", ""),
+                    )
+                    return None
+                return value
+            logger.warning(
+                "Side-effect '%s' handler falló (%s: %s) — tratado como None (fail-loud)",
+                etype,
+                type(outcome.failure()).__name__,
+                outcome.failure(),
+            )
             return None
+
+        logger.warning("Unknown side-effect type: %s", etype)
+        return None
 
     def _compensate_single(
         self,
@@ -569,94 +577,46 @@ class SideEffectEngine:
         compensation_type: str,
         original_result: dict | str | None,
     ) -> dict | str | None:
-        """Ejecuta compensacion real para un efecto previamente exitoso.
+        """Ejecuta la compensación REAL declarada por el grafo.
 
-        Compensaciones soportadas:
-          - delete_ckg_node: Elimina nodo CKG creado por save_ckg
-          - restore_cpg_snapshot: Restaura snapshot CPG anterior a update_cpg
-          - rollback_ckg: Revierte cambios CKG de save_to_ckg
-          - restore_delta_graph: Restaura delta graph previo a update_delta_graph
+        Fuente única (SPEC-014 Fase 0+F1): la compensación se resuelve contra
+        ActionCatalog (puerto único) o, si no está disponible, contra
+        self._handlers. Nunca un mapa hardcodeado ni dicts fabricados.
         """
-        original = original_result or {}
-
-        if compensation_type == "delete_ckg_node":
-            node_id = ""
-            if isinstance(original, dict):
-                node_id = original.get("node_id", "")
-            return {
-                "compensation": "delete_ckg_node",
-                "node_id": node_id,
-                "deleted": True,
-                "result": f"Nodo CKG '{node_id}' eliminado (rollback save_ckg)",
-            }
-
-        elif compensation_type == "restore_cpg_snapshot":
-            label = ""
-            if isinstance(original, dict):
-                label = original.get("label", "")
-            return {
-                "compensation": "restore_cpg_snapshot",
-                "snapshot": label or "pre-update",
-                "restored": True,
-                "result": f"CPG restaurado a snapshot '{label or 'pre-update'}' (rollback update_cpg)",
-            }
-
-        elif compensation_type == "rollback_ckg":
-            facts = 0
-            if isinstance(original, dict):
-                facts = original.get("facts", 0)
-            return {
-                "compensation": "rollback_ckg",
-                "facts_reverted": facts,
-                "rolled_back": True,
-                "result": f"CKG reverted: {facts} facts deshechos (rollback save_to_ckg)",
-            }
-
-        elif compensation_type == "restore_delta_graph":
-            changes = 0
-            if isinstance(original, dict):
-                changes = original.get("changes", 0)
-            return {
-                "compensation": "restore_delta_graph",
-                "changes_reverted": changes,
-                "restored": True,
-                "result": f"Delta graph restaurado: {changes} cambios revertidos (rollback update_delta_graph)",
-            }
-
-        elif compensation_type == "rollback_spec":
-            return {
-                "compensation": "rollback_spec",
-                "restored": True,
-                "result": "Spec restaurada al estado anterior (rollback transform_spec)",
-            }
-
-        else:
-            logger.warning("Unknown compensation type: %s", compensation_type)
+        handler = None
+        if self._action_catalog is not None:
+            action = self._action_catalog.resolve(compensation_type)
+            if action is not None:
+                handler = action.handler
+        if handler is None:
+            handler = self._handlers.get(compensation_type)
+        if handler is None:
+            logger.warning(
+                "No handler registrado para compensación '%s' — rollback no ejecutado",
+                compensation_type,
+            )
             return {
                 "compensation": compensation_type,
-                "result": "(unknown compensation — stub)",
+                "ok": False,
+                "error": f"no handler registered for compensation '{compensation_type}'",
             }
+        outcome = _run_compensation_handler_core(handler, ctx)
+        if is_successful(outcome):
+            return outcome.value_or({})
+        failure = outcome.failure()
+        logger.error(
+            "Compensación '%s' falló (%s: %s)",
+            compensation_type,
+            type(failure).__name__,
+            failure,
+        )
+        return {
+            "compensation": compensation_type,
+            "ok": False,
+            "error": str(failure),
+        }
 
     # ── Helpers ──────────────────────────────────────────────────────
-
-    @staticmethod
-    def _get_compensation_type(effect_type: str) -> str:
-        """Retorna el tipo de compensacion para un tipo de efecto.
-
-        Mapeo SSOT: effect_type -> compensation_type.
-        Vacio = no tiene compensacion.
-        """
-        mapping = {
-            "save_ckg": "delete_ckg_node",
-            "update_cpg": "restore_cpg_snapshot",
-            "save_to_ckg": "rollback_ckg",
-            "update_delta_graph": "restore_delta_graph",
-            "transform_spec": "rollback_spec",
-            "emit_event": "",
-            "persist_snapshot": "",
-            "run_script": "",
-        }
-        return mapping.get(effect_type, "")
 
     def _track_result(
         self,

@@ -223,8 +223,9 @@ class AppContainer:
                 metadata={"source": "side_effect_engine"},
             )
 
-        # 8. Inyectar action_catalog en orch (SPEC-014 F1)
+        # 8. Inyectar action_catalog en orch y se_engine (SPEC-014 F1)
         orch._action_catalog = action_catalog
+        se_engine._action_catalog = action_catalog
 
         # 4. DI por clave lógica: las instancias ya construidas en build().
         services: dict[str, Any] = {
