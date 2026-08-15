@@ -93,7 +93,7 @@ def test_bidirectional_completeness(catalog):
     # Un handler está usado si aparece como side_effect O como compensation
     orphans = catalog["side_effects"] - used
     # Los handlers huérfanos conocidos están permitidos hasta Fase 1
-    known_orphans = {"detect_decisions", "rollback_ckg"}
+    known_orphans = set()
     # También permitir handlers que son compensaciones reales
     compensation_only = {"delete_ckg_nodes", "restore_cpg_snapshot"}
     allowed = known_orphans | compensation_only

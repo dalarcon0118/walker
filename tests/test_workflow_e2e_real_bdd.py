@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from core.engine.application.orchestrator import OrchestrationService
+from core.engine.application.use_cases import ScriptRunner
 from core.engine.domain.entities import WorkflowState
 from core.engine.infrastructure.repositories import (
     WorkflowRepository,
@@ -52,9 +53,9 @@ def _write_workflow(chain_dir: str) -> None:
     workflow = {
         "label": "E2E Workflow",
         "description": "Flujo completo de prueba E2E",
-        "initial_state": "SPRINT_PLANNING",
+        "initial_state": "SPRINT",
         "nodes": {
-            "SPRINT_PLANNING": {
+            "SPRINT": {
                 "sub_states": [
                     {
                         "key": "PLANNING",
@@ -336,7 +337,7 @@ def _setup_delta(chain_dir: str) -> None:
 def _setup_workflow_state(chain_dir: str) -> None:
     """Crea el WorkflowState inicial."""
     state = WorkflowState(
-        current_node="SPRINT_PLANNING",
+        current_node="SPRINT",
         current_sub_state="PLANNING",
         sub_state_index=0,
         sub_state_data={},
@@ -395,19 +396,25 @@ class TestWorkflowE2EReal:
         registry = app.task_registry
         se = app.side_effect_engine
         register_mock_tasks(registry)
-        svc = OrchestrationService(task_registry=registry, side_effect_engine=se)
-
+        parent = os.path.dirname(os.path.dirname(chain_dir))
+        workflow_repo = WorkflowRepository(workflow_path=os.path.join(parent, "workflow.v3", "workflow.json"))
         state_repo = WorkflowStateRepository()
-        workflow_repo = WorkflowRepository()
+        svc = OrchestrationService(
+            workflow_repo=workflow_repo,
+            state_repo=state_repo,
+            script_runner=ScriptRunner(),
+            task_registry=registry,
+            side_effect_engine=se,
+        )
 
         # Estado inicial
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "PLANNING"
 
         # ── Paso 1: SPRINT.PLANNING → auto-avance a TASK_SPEC ───────
         ctx1 = _build_exec_ctx(chain_dir)
-        ctx1.baggage = {"node_key": "SPRINT_PLANNING.PLANNING"}
+        ctx1.baggage = {"node_key": "SPRINT.PLANNING"}
         result1 = svc.submit(ctx1, {"goal": "E2E test", "tasks": [{"objective": "Test", "type": "feature", "domain": "test"}]})
         assert "error" not in result1, result1.get("error")
         assert result1.get("advanced_to") == "TASK_SPEC"
@@ -417,7 +424,7 @@ class TestWorkflowE2EReal:
 
         # ── Paso 2: SPRINT.TASK_SPEC → auto-avance a TASK_REVIEW ────
         ctx2 = _build_exec_ctx(chain_dir)
-        ctx2.baggage = {"node_key": "SPRINT_PLANNING.TASK_SPEC"}
+        ctx2.baggage = {"node_key": "SPRINT.TASK_SPEC"}
         result2 = svc.submit(ctx2, {
             "task_id": "SPEC-001",
             "status": "specified",
@@ -449,7 +456,7 @@ class TestWorkflowE2EReal:
 
         # ── Paso 3: SPRINT.TASK_REVIEW → approve → auto-avance a DESIGN_GATHER ─
         ctx3 = _build_exec_ctx(chain_dir)
-        ctx3.baggage = {"node_key": "SPRINT_PLANNING.TASK_REVIEW"}
+        ctx3.baggage = {"node_key": "SPRINT.TASK_REVIEW"}
         result3 = svc.submit(ctx3, {
             "decision": "approve",
             "approval_type": "decision",
@@ -478,51 +485,51 @@ class TestWorkflowE2EReal:
         assert spec_dict.get("status") == "approved"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "DESIGN_GATHER"
 
         # ── Paso 4: DESIGN_GATHER → ANALYZE_GATHER (submit + auto-avance) ─────
         ctx4 = _build_exec_ctx(chain_dir)
-        ctx4.baggage = {"node_key": "SPRINT_PLANNING.DESIGN_GATHER"}
+        ctx4.baggage = {"node_key": "SPRINT.DESIGN_GATHER"}
         result4 = svc.submit(ctx4, {"design_done": True})
         assert "error" not in result4, result4.get("error")
         assert result4.get("advanced_to") == "ANALYZE_GATHER"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "ANALYZE_GATHER"
 
         # ── Paso 5: ANALYZE_GATHER → IMPLEMENT_USER_GATE (submit + auto-avance) ──
         ctx5 = _build_exec_ctx(chain_dir)
-        ctx5.baggage = {"node_key": "SPRINT_PLANNING.ANALYZE_GATHER"}
+        ctx5.baggage = {"node_key": "SPRINT.ANALYZE_GATHER"}
         result5 = svc.submit(ctx5, {"analysis_done": True})
         assert "error" not in result5, result5.get("error")
         assert result5.get("advanced_to") == "IMPLEMENT_USER_GATE"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "IMPLEMENT_USER_GATE"
 
         # ── Paso 6: IMPLEMENT_USER_GATE → IMPLEMENT_WORK (submit) ────────
         ctx6 = _build_exec_ctx(chain_dir)
-        ctx6.baggage = {"node_key": "SPRINT_PLANNING.IMPLEMENT_USER_GATE"}
+        ctx6.baggage = {"node_key": "SPRINT.IMPLEMENT_USER_GATE"}
         result6 = svc.submit(ctx6, {"approved": True})
         assert "error" not in result6, result6.get("error")
         assert result6.get("advanced_to") == "IMPLEMENT_WORK"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "IMPLEMENT_WORK"
 
         # ── Paso 7: IMPLEMENT_WORK → CODE_REVIEW_SCAN (submit) ────────
         ctx7 = _build_exec_ctx(chain_dir)
-        ctx7.baggage = {"node_key": "SPRINT_PLANNING.IMPLEMENT_WORK"}
+        ctx7.baggage = {"node_key": "SPRINT.IMPLEMENT_WORK"}
         result7 = svc.submit(ctx7, {"code_complete": True})
         assert "error" not in result7, result7.get("error")
         assert result7.get("advanced_to") == "CODE_REVIEW_SCAN"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "CODE_REVIEW_SCAN"
 
         # Validar Spec en in_progress (desde IMPLEMENT_WORK)
@@ -532,35 +539,35 @@ class TestWorkflowE2EReal:
 
         # ── Paso 8: CODE_REVIEW_SCAN → CODE_REVIEW_RESULT (auto) ──────
         ctx8 = _build_exec_ctx(chain_dir)
-        ctx8.baggage = {"node_key": "SPRINT_PLANNING.CODE_REVIEW_SCAN"}
+        ctx8.baggage = {"node_key": "SPRINT.CODE_REVIEW_SCAN"}
         result8 = svc.submit(ctx8, {})
         assert "error" not in result8, result8.get("error")
         assert result8.get("advanced_to") == "CODE_REVIEW_RESULT"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "CODE_REVIEW_RESULT"
 
         # ── Paso 9: CODE_REVIEW_RESULT → REPORT_GATE (submit) ─────────
         ctx9 = _build_exec_ctx(chain_dir)
-        ctx9.baggage = {"node_key": "SPRINT_PLANNING.CODE_REVIEW_RESULT"}
+        ctx9.baggage = {"node_key": "SPRINT.CODE_REVIEW_RESULT"}
         result9 = svc.submit(ctx9, {"review_passed": True})
         assert "error" not in result9, result9.get("error")
         assert result9.get("advanced_to") == "REPORT_GATE"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "REPORT_GATE"
 
         # ── Paso 10: REPORT_GATE → VERIFY_USER_GATE (submit + auto-avance) ───────
         ctx10 = _build_exec_ctx(chain_dir)
-        ctx10.baggage = {"node_key": "SPRINT_PLANNING.REPORT_GATE"}
+        ctx10.baggage = {"node_key": "SPRINT.REPORT_GATE"}
         result10 = svc.submit(ctx10, {"report_approved": True})
         assert "error" not in result10, result10.get("error")
         assert result10.get("advanced_to") == "VERIFY_USER_GATE"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "VERIFY_USER_GATE"
 
         # Validar Spec completed
@@ -570,33 +577,33 @@ class TestWorkflowE2EReal:
 
         # ── Paso 11: VERIFY_USER_GATE → QA_RUN (submit) ───────────────
         ctx11 = _build_exec_ctx(chain_dir)
-        ctx11.baggage = {"node_key": "SPRINT_PLANNING.VERIFY_USER_GATE"}
+        ctx11.baggage = {"node_key": "SPRINT.VERIFY_USER_GATE"}
         result11 = svc.submit(ctx11, {"approved": True})
         assert "error" not in result11, result11.get("error")
         assert result11.get("advanced_to") == "QA_RUN"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "QA_RUN"
 
         # ── Paso 12: QA_RUN → PO_ACCEPT (submit) ───────────────
         ctx12 = _build_exec_ctx(chain_dir)
-        ctx12.baggage = {"node_key": "SPRINT_PLANNING.QA_RUN"}
+        ctx12.baggage = {"node_key": "SPRINT.QA_RUN"}
         result12 = svc.submit(ctx12, {"qa_passed": True})
         assert "error" not in result12, result12.get("error")
         assert result12.get("advanced_to") == "PO_ACCEPT"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "PO_ACCEPT"
 
         # ── Paso 13: PO_ACCEPT → ACTIVE (submit + auto-avance) ──
         ctx13 = _build_exec_ctx(chain_dir)
-        ctx13.baggage = {"node_key": "SPRINT_PLANNING.PO_ACCEPT"}
+        ctx13.baggage = {"node_key": "SPRINT.PO_ACCEPT"}
         result13 = svc.submit(ctx13, {"po_approved": True})
         assert "error" not in result13, result13.get("error")
         assert result13.get("advanced_to") == "ACTIVE"
 
         state = state_repo.load(chain_dir)
-        assert state.current_node == "SPRINT_PLANNING"
+        assert state.current_node == "SPRINT"
         assert state.current_sub_state == "ACTIVE"
