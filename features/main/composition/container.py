@@ -244,6 +244,15 @@ class AppContainer:
             if module_registry.has_service(key):
                 services[key] = module_registry.get_service(key)
 
+        # Registrar servicios core en el module_registry para que
+        # get_module_service() / tool_catalog / MCP los resuelvan sin
+        # acoplamiento a features/main.
+        module_registry.register_service("task_registry", registry)
+        module_registry.register_service("side_effect_engine", se_engine)
+        module_registry.register_service("module_registry", module_registry)
+        module_registry.register_service("workflow", workflow_facade)
+        module_registry.register_service("action_catalog", action_catalog)
+
         return cls(
             workflow=orch,
             task_registry=registry,
