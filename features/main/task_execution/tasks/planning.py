@@ -46,7 +46,7 @@ def _sprint_task(service_method: str):
 plan_sprint = _sprint_task("plan_sprint")
 advance_task_index = _sprint_task("advance_spec_index")
 update_spec_status = _sprint_task("update_spec_status")
-update_sprint_status = _sprint_task("update_sprint_status")
+sprint_status = _sprint_task("sprint_status")
 edit_sprint = _sprint_task("edit_sprint")
 close_sprint = _sprint_task("close_sprint")
 

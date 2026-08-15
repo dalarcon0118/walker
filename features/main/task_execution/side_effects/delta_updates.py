@@ -13,7 +13,6 @@ from typing import Any
 from shared.common.shared_domain import ExecutionContext
 from core.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 from features.project import ProjectService
-from features.delta_tracking.application.index_service import index_sprint, index_all
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,12 @@ def index_delta(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]
     try:
         paths = ProjectService.resolve_paths(chain_dir)
         cg = _build_graph(paths.project_root)
-        count = index_sprint(chain_dir, cg)
+        from features.delta_tracking import SpringService
+
+        spring_svc = SpringService.from_chain_dir(chain_dir)
+        if not spring_svc:
+            return {"ok": False, "error": "SpringService no disponible", "indexed_tasks": 0}
+        count = spring_svc.index_sprint(chain_dir, cg)
         return {"ok": True, "indexed_tasks": count}
     except Exception as e:
         logger.warning(
@@ -53,7 +57,12 @@ def reindex_delta(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, An
     try:
         paths = ProjectService.resolve_paths(chain_dir)
         cg = _build_graph(paths.project_root)
-        count = index_all(paths.project_root, cg)
+        from features.delta_tracking import SpringService
+
+        spring_svc = SpringService.from_chain_dir(chain_dir)
+        if not spring_svc:
+            return {"ok": False, "error": "SpringService no disponible", "reindexed_tasks": 0}
+        count = spring_svc.index_all(str(paths.project_root), cg)
         return {"ok": True, "reindexed_tasks": count}
     except Exception as e:
         logger.warning(

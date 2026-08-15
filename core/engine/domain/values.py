@@ -35,7 +35,7 @@ class SideEffectDef:
     """Efecto secundario declarativo a ejecutar tras un sub-estado.
 
     Attributes:
-        type: Tipo de efecto (update_cpg | save_ckg | update_delta_graph |
+        type: Tipo de efecto (index_code | documenting_knowledge | sync_delta |
               emit_event | persist_snapshot | run_script).
         params: Parametros del efecto (dependen del tipo).
         optional: Si True, fallo no bloquea el flujo ni gatilla compensacion.
@@ -45,10 +45,10 @@ class SideEffectDef:
             Si se re-ejecuta con misma key, retorna resultado previo.
     """
 
-    type: str  # update_cpg | save_ckg | update_delta_graph | emit_event | persist_snapshot | run_script
+    type: str  # index_code | documenting_knowledge | sync_delta | emit_event | persist_snapshot | run_script
     params: dict[str, object] = field(default_factory=dict)
     optional: bool = False
-    compensation: str = ""  # delete_ckg_node | restore_cpg_snapshot | rollback_ckg | restore_delta_graph
+    compensation: str = ""  # fuente única (SPEC-014): la que declara el grafo (delete_ckg_nodes | restore_cpg_snapshot | ...)
     idempotency_key: str = ""  # Para evitar doble ejecucion
 
 

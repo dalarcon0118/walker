@@ -95,7 +95,7 @@ def test_bidirectional_completeness(catalog):
     # Los handlers huérfanos conocidos están permitidos hasta Fase 1
     known_orphans = {"detect_decisions", "rollback_ckg"}
     # También permitir handlers que son compensaciones reales
-    compensation_only = {"delete_ckg_node", "delete_ckg_nodes", "restore_cpg_snapshot"}
+    compensation_only = {"delete_ckg_nodes", "restore_cpg_snapshot"}
     allowed = known_orphans | compensation_only
     unexpected = orphans - allowed
     assert not unexpected, f"Handlers sin uso en workflow: {sorted(unexpected)}"
@@ -103,6 +103,6 @@ def test_bidirectional_completeness(catalog):
 
 def test_three_active_bugs_registered(catalog):
     """Los 3 bugs activos de SPEC-014 están registrados."""
-    required = {"advance_task", "create_adr_from_spec", "delete_ckg_nodes"}
+    required = {"advance_sprint_task", "create_adr", "documenting_knowledge"}
     missing = required - catalog["side_effects"]
     assert not missing, f"Handlers de Fase 0 no registrados: {sorted(missing)}"

@@ -26,7 +26,7 @@ from core.engine.infrastructure.repositories import WorkflowStateRepository, Wor
 from features.delta_tracking import spring_service
 from features.delta_tracking.application.evolutionary_document_model import EvolutionaryDocumentModel
 from features.delta_tracking.domain.entities import Spec
-from features.main.task_execution.side_effects.create_adr import create_adr_from_spec
+from features.main.task_execution.side_effects.create_adr import create_adr
 from tests.conftest import make_chain_dir, make_walker_project
 
 
@@ -252,7 +252,7 @@ class TestWorkflowE2E:
         _write_workflow_state(chain_dir, state)
 
         ctx = FakeCtx(chain_dir=chain_dir, node_key="SPRINT_PLANNING.TASK_REVIEW")
-        result = create_adr_from_spec(ctx, {"approval_type": "NODE.TASK_SPEC.output.approval_type"})
+        result = create_adr(ctx, {"approval_type": "NODE.TASK_SPEC.output.approval_type"})
         assert result["ok"] is True
         assert result.get("metadata", {}).get("adr_id") is not None
 

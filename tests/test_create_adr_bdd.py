@@ -1,9 +1,9 @@
-"""tests/test_create_adr_bdd.py — BDD tests for create_adr_from_spec side effect."""
+"""tests/test_create_adr_bdd.py — BDD tests for create_adr side effect."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from features.delta_tracking.side_effects.create_adr import create_adr_from_spec
+from features.main.task_execution.side_effects.create_adr import create_adr
 from tests.conftest import make_chain_dir
 
 
@@ -39,26 +39,26 @@ def _seed_spring_and_spec(chain_dir: str):
 class TestCreateAdrFromSpecBDD:
     def test_skips_when_approval_type_is_standard(self):
         ctx = FakeCtx()
-        result = create_adr_from_spec(ctx, {"approval_type": "standard"})
+        result = create_adr(ctx, {"approval_type": "standard"})
         assert result["ok"] is True
         assert result.get("metadata", {}).get("skipped") is True
 
     def test_skips_when_approval_type_ref_resolves_to_standard(self):
         ctx = FakeCtx()
-        result = create_adr_from_spec(ctx, {"approval_type": "NODE.TASK_SPEC.output.approval_type"})
+        result = create_adr(ctx, {"approval_type": "NODE.TASK_SPEC.output.approval_type"})
         assert result["ok"] is True
         assert result.get("metadata", {}).get("skipped") is True
 
     def test_returns_error_when_no_chain_dir(self):
         ctx = FakeCtx(chain_dir="")
-        result = create_adr_from_spec(ctx, {"approval_type": "decision"})
+        result = create_adr(ctx, {"approval_type": "decision"})
         assert result["ok"] is False
         assert "chain_dir" in result.get("metadata", {}).get("error", "")
 
     def test_returns_error_when_no_spec_found(self, tmp_path):
         chain_dir = _setup_project(tmp_path)
         ctx = FakeCtx(chain_dir=chain_dir)
-        result = create_adr_from_spec(ctx, {"approval_type": "decision"})
+        result = create_adr(ctx, {"approval_type": "decision"})
         assert result["ok"] is False
         assert "no current spec" in result.get("metadata", {}).get("error", "")
 
@@ -71,7 +71,7 @@ class TestCreateAdrFromSpecBDD:
         initial_count = len(ckg_initial.query({"type": "decision"}))
 
         ctx = FakeCtx(chain_dir=chain_dir)
-        result = create_adr_from_spec(ctx, {"approval_type": "decision"})
+        result = create_adr(ctx, {"approval_type": "decision"})
 
         assert result["ok"] is True
         adr_id = result.get("metadata", {}).get("adr_id")
@@ -93,11 +93,11 @@ class TestCreateAdrFromSpecBDD:
         initial_count = len(ckg_initial.query({"type": "decision"}))
 
         ctx = FakeCtx(chain_dir=chain_dir)
-        result1 = create_adr_from_spec(ctx, {"approval_type": "decision"})
+        result1 = create_adr(ctx, {"approval_type": "decision"})
         assert result1["ok"] is True
         adr_id_1 = result1.get("metadata", {}).get("adr_id")
 
-        result2 = create_adr_from_spec(ctx, {"approval_type": "decision"})
+        result2 = create_adr(ctx, {"approval_type": "decision"})
         assert result2["ok"] is True
         adr_id_2 = result2.get("metadata", {}).get("adr_id")
 

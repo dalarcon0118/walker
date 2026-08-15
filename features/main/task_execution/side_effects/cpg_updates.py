@@ -1,4 +1,4 @@
-"""CPG side-effects: update_cpg, build_project_graph, update_code_index, update_delta_graph.
+"""CPG side-effects: index_code, build_project_graph, update_code_index, sync_delta.
 
 Result pattern (dry-python/returns): los cores con @safe nunca lanzan; los
 wrappers degradan con fallback explícito + log (convention-001).
@@ -11,6 +11,7 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 from shared.common.shared_domain import ExecutionContext
+from core.engine.domain.side_effect_contract import as_side_effect, SCOPE_CODE_INDEX
 from features.project import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -103,22 +104,30 @@ def _mark_cpg_indexed_core(project_root: Path) -> None:
     FileWatcher(str(project_root)).mark_indexed("cpg")
 
 
-def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
+@as_side_effect(scope=SCOPE_CODE_INDEX)
+def index_code(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     project_root = _resolve_project_root(ctx)
     config = _load_project_config(project_root)
     scope = params.get("scope", "incremental")
     try:
-        from features.code_analysis import cpg_service
+        from features.code_analysis.application.services.cpg_service import CpgService
         from core.engine.domain.side_effect_contract import (
             ok, failed, degraded,
         )
-        builder = cpg_service(project_dir=str(project_root))
+        builder = CpgService.from_project_dir(str(project_root))
+        if not builder:
+            return failed(
+                type="index_code",
+                scope="code_index",
+                summary=f"index_code falló: no se pudo construir CpgService desde {project_root}",
+                signals={"error": "CpgService no disponible"},
+                metadata={"error": "CpgService no disponible"},
+            )
         if scope == "full":
             paths = _cpg_build_paths(config, project_root)
-            data = builder.build(paths=paths)
+            data = builder.build(scan_paths=paths)
             files_updated = data.get("stats", {}).get("files_scanned", 0)
         else:
-            # incremental: usa watcher + delta sync (BuildGraphUseCase.update)
             data = builder.update()
             files_updated = data.get("files_updated", 0)
         # Mark CPG as up_to_date in watcher (best-effort con log)
@@ -170,7 +179,7 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
 
         if quality_degraded:
             return degraded(
-                type="update_cpg",
+                type="index_code",
                 scope="code_index",
                 summary=(
                     f"CPG indexado ({files_updated} files); calidad degradada "
@@ -182,7 +191,7 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
         if failed_gates:
             names = ", ".join(signals["failed_gate_names"])
             return ok(
-                type="update_cpg",
+                type="index_code",
                 scope="code_index",
                 summary=(
                     f"CPG indexado ({files_updated} files); {len(failed_gates)} "
@@ -192,7 +201,7 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
                 metadata=cpg_metadata,
             )
         return ok(
-            type="update_cpg",
+            type="index_code",
             scope="code_index",
             summary=f"CPG indexado ({files_updated} files); calidad OK",
             signals=signals,
@@ -200,46 +209,58 @@ def update_cpg(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
         )
     except Exception as e:
         return failed(
-            type="update_cpg",
+            type="index_code",
             scope="code_index",
-            summary=f"update_cpg falló: {str(e)[:120]}",
+            summary=f"index_code falló: {str(e)[:120]}",
             signals={"error": str(e)[:200]},
             metadata={"error": str(e)},
         )
 
 
+@as_side_effect(scope=SCOPE_CODE_INDEX)
 def build_project_graph(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
-    return update_cpg(ctx, {"scope": "full"})
+    return index_code(ctx, {"scope": "full"})
 
 
-def update_code_index(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
-    return update_cpg(ctx, {"scope": "incremental"})
+@as_side_effect(scope=SCOPE_CODE_INDEX)
+def index_code(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
+    return index_code(ctx, {"scope": "incremental"})
 
 
-def update_delta_graph(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
+@as_side_effect(scope=SCOPE_CODE_INDEX)
+def sync_delta(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     from core.engine.domain.side_effect_contract import ok, failed
     project_root = _resolve_project_root(ctx)
     try:
-        from features.code_analysis import cpg_service
-        svc = cpg_service(chain_dir=ctx.chain_dir or "", project_dir=str(project_root))
+        from features.code_analysis.application.services.cpg_service import CpgService
+
+        svc = CpgService.from_chain_dir(ctx.chain_dir or "")
+        if not svc:
+            svc = CpgService.from_project_dir(str(project_root))
+        if not svc:
+            return failed(
+                type="sync_delta",
+                scope="code_index",
+                summary="sync_delta falló: CpgService no disponible",
+                signals={"error": "CpgService no disponible"},
+            )
         result = svc.grep(f"function:{params.get('task_id', ctx.task_id or '')}")
         return ok(
-            type="update_delta_graph",
+            type="sync_delta",
             scope="code_index",
             summary="delta graph actualizado",
             signals={"updated": True, "result": result},
         )
     except Exception as e:
         return failed(
-            type="update_delta_graph",
+            type="sync_delta",
             scope="code_index",
-            summary=f"update_delta_graph falló: {str(e)[:120]}",
+            summary=f"sync_delta falló: {str(e)[:120]}",
             signals={"error": str(e)[:200]},
         )
 
 
 def register(engine: Any) -> None:
-    engine.register("update_cpg", update_cpg)
+    engine.register("index_code", index_code)
     engine.register("build_project_graph", build_project_graph)
-    engine.register("update_code_index", update_code_index)
-    engine.register("update_delta_graph", update_delta_graph)
+    engine.register("sync_delta", sync_delta)

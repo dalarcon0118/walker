@@ -23,7 +23,7 @@ EXPECTED_WORKFLOW_TASKS = {
     "add_tasks",                # SPRINT_PLANNING (project_init.py)
     "validate_plan",            # SPRINT_PLANNING (planning.py)
     "gather_context",           # DESIGN.GATHER (gathering.py)
-    "save_to_ckg",              # DESIGN.KNOWLEDGE_UPDATE (kg.py)
+    "documenting_knowledge",    # DESIGN.KNOWLEDGE_UPDATE (kg.py)
     "refine_diagnose",          # REFINE.DIAGNOSE (refinement.py)
     "kg_search",                # memória pública (kg.py)
     "kg_multi",                 # memória federada (kg.py)
@@ -34,30 +34,30 @@ class TestRegistryCompleteness:
     """bootstrap() debe producir el registry poblado (composition root D1)."""
 
     def test_bootstrap_tasks_contains_workflow_actions(self):
-        from features.main.bootstrap import compose_app
+        from features.main.container import AppContainer
 
-        app = compose_app()
+        app = AppContainer.build()
         registry = app.task_registry
         available = set(registry.list_tasks())
         missing = EXPECTED_WORKFLOW_TASKS - available
-        assert not missing, f"compose_app() no registró: {sorted(missing)}"
+        assert not missing, f"AppContainer.build() no registró: {sorted(missing)}"
 
     def test_bootstrap_se_engine_has_side_effects(self):
-        from features.main.bootstrap import compose_app
+        from features.main.container import AppContainer
 
-        app = compose_app()
+        app = AppContainer.build()
         se_engine = app.side_effect_engine
         handlers = getattr(se_engine, "_handlers", {})
         assert "transform_spec" in handlers, "transform_spec no registrado"
-        assert "create_adr_from_spec" in handlers, "create_adr_from_spec no registrado"
+        assert "create_adr" in handlers, "create_adr no registrado"
 
     def test_di_exposes_task_registry_service(self):
         """capa_rout.md D1: get_module_service('task_registry') devuelve el
         registry poblado — sin esto, _build_workflow_services no puede
         inyectar tasks en producción."""
-        from features.main.bootstrap import compose_app
+        from features.main.container import AppContainer
 
-        app = compose_app()
+        app = AppContainer.build()
         from core.engine.bootstrap import get_module_service
 
         task_registry = get_module_service("task_registry")

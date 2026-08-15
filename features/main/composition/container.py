@@ -223,38 +223,6 @@ class AppContainer:
                 metadata={"source": "side_effect_engine"},
             )
 
-        # Fase 3 (SPEC-014): el grafo ya fue migrado a nombres canónicos
-        # (documenting_knowledge, index_code, etc.). Como los handlers
-        # permanecen con nombres legacy hasta Fase 4, registramos entradas
-        # canónicas duplicadas en el catálogo para que resolve() encuentre
-        # el handler. Fase 4 eliminará estas entradas legacy y renombrará
-        # los handlers permanentemente.
-        _LEGACY_TO_CANONICAL = {
-            "save_to_ckg": "documenting_knowledge",
-            "save_ckg": "documenting_knowledge",
-            "update_cpg": "index_code",
-            "update_code_index": "index_code",
-            "update_delta_graph": "sync_delta",
-            "update_ckg_status": "ckg_status",
-            "update_sprint_status": "sprint_status",
-            "advance_task": "advance_sprint_task",
-            "create_adr_from_spec": "create_adr",
-            "reindex_delta": "index_delta",
-            "delete_ckg_nodes": "remove_knowledge",
-            "delete_ckg_node": "remove_ckg_node",
-        }
-        for legacy, canonical in _LEGACY_TO_CANONICAL.items():
-            action = action_catalog.resolve(legacy)
-            if action is not None and action_catalog.resolve(canonical) is None:
-                action_catalog.register(
-                    name=canonical,
-                    kind=action.kind,
-                    scope=action.scope,
-                    handler=action.handler,
-                    compensate=action.compensate,
-                    metadata={**action.metadata, "alias_of": legacy},
-                )
-
         # 8. Inyectar action_catalog en orch y se_engine (SPEC-014 F1)
         orch._action_catalog = action_catalog
         se_engine._action_catalog = action_catalog

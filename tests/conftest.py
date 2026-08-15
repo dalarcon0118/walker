@@ -68,11 +68,12 @@ def _sandbox_global_registry(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _sandbox_composition_singleton():
-    """Resetea el singleton de features/main/bootstrap.py entre tests."""
-    from features.main.bootstrap import reset_composition
-    reset_composition()
+    """Resetea el singleton de AppContainer entre tests."""
+    from features.main.container import AppContainer
+
+    AppContainer.reset()
     yield
-    reset_composition()
+    AppContainer.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -81,14 +82,14 @@ def _populate_service_locator(_sandbox_composition_singleton):
 
     ADR-045: los callers internos de core/engine (trace_log, query_manager,
     repos de features) resuelven cognitive_graph/cognitive_searcher/workflow
-    por get_module_service(). El composition root (features/main.compose_app)
+    por get_module_service(). El composition root (AppContainer.build)
     registra TODOS los servicios DI (libs de shared/ + task_registry +
     side_effect_engine + workflow) y set_service_locator() los expone al
     facade neutro de core/engine. Así la suite no depende del orden de tests.
     """
-    from features.main.bootstrap import compose_app
+    from features.main.container import AppContainer
 
-    compose_app()
+    AppContainer.build()
     yield
     from core.engine.bootstrap import reset_module_registry
 
@@ -236,11 +237,15 @@ def register_mock_tasks(registry) -> None:
 
 
 def register_side_effects(engine) -> None:
-    """Registra los side effects reales del flujo E2E (transform_spec, create_adr_from_spec)."""
-    from features.delta_tracking.side_effects.create_adr import create_adr_from_spec
+    """Registra los side effects reales del flujo E2E (SSOT de main,
+    SPEC-014 Fase 4: nombres canónicos sin alias legacy)."""
+    from features.main.task_execution.side_effects.create_adr import create_adr
+    from features.main.task_execution.side_effects.planning import advance_sprint_task
     from features.main.task_execution.side_effects.spec_transform import transform_spec
 
     engine.register("transform_spec", transform_spec)
+    engine.register("create_adr", create_adr)
+    engine.register("advance_sprint_task", advance_sprint_task)
 
 
 def make_orchestration_service(real: bool = True, **overrides):
@@ -264,9 +269,9 @@ def make_orchestration_service(real: bool = True, **overrides):
     kwargs = dict(overrides)
     if "task_registry" not in kwargs or "side_effect_engine" not in kwargs:
         if real:
-            from features.main.bootstrap import compose_app
+            from features.main.container import AppContainer
 
-            app = compose_app()
+            app = AppContainer.build()
             registry = app.task_registry
             se = app.side_effect_engine
         else:
@@ -375,4 +380,3 @@ def register_project_in_global_registry(tmp_path: str, project_id: str = "walker
             return False
 
     return _Restorer()
-    engine.register("create_adr_from_spec", create_adr_from_spec)

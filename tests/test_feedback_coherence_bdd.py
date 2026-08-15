@@ -269,7 +269,7 @@ def _exec_context_spring_not_found(fb_ctx: dict):
 @given("una lista de side-effects con una fallida")
 def _side_effects_with_failure(fb_ctx: dict):
     fb_ctx["side_effects"] = [
-        {"ok": True, "type": "advance_task"},
+        {"ok": True, "type": "advance_sprint_task"},
         {
             "ok": False,
             "type": "validate_plan",
@@ -329,7 +329,7 @@ def _assert_specific_messages(fb_ctx: dict):
 @given("una lista de side-effects todas exitosas")
 def _all_successful_side_effects(fb_ctx: dict):
     fb_ctx["side_effects"] = [
-        {"ok": True, "type": "advance_task", "summary": "Task avanzada"},
+        {"ok": True, "type": "advance_sprint_task", "summary": "Task avanzada"},
         {"ok": True, "type": "capture_decision"},
     ]
 

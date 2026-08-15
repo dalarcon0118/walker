@@ -11,7 +11,7 @@ para recorrer el flujo completo:
 
 Valida en cada paso:
   - WorkflowState evoluciona (current_node, current_sub_state)
-  - Side effects se ejecutan (transform_spec, create_adr_from_spec)
+  - Side effects se ejecutan (transform_spec, create_adr)
   - Spec evoluciona en DeltaGraph
   - ADR se crea en CKG cuando corresponde
 """
@@ -148,7 +148,7 @@ def _write_workflow(chain_dir: str) -> None:
                                 "optional": False,
                             },
                             {
-                                "type": "create_adr_from_spec",
+                                "type": "create_adr",
                                 "params": {"approval_type": "NODE.TASK_SPEC.output.approval_type"},
                                 "optional": True,
                             },
@@ -381,17 +381,17 @@ class TestWorkflowE2EReal:
     def test_full_workflow_executes_real_engine(self, tmp_path, monkeypatch):
         """Ejecuta el flujo completo usando OrchestrationService real.
 
-        Composition root real (capa_rout.md D1): compose_app() produce el
+        Composition root real (capa_rout.md D1): AppContainer.build() produce el
         registry poblado con las tasks reales (plan_sprint, spec_task,
         review_code, close_sprint se ejecutan REALES); register_mock_tasks()
         solo parchea las actions del flujo de test que no tienen handler real
         (gather_design, user_gate, implement, qa_run, ...).
         """
-        from features.main.bootstrap import compose_app
+        from features.main.container import AppContainer
 
         project_root, chain_dir = _setup_project(tmp_path)
 
-        app = compose_app()
+        app = AppContainer.build()
         registry = app.task_registry
         se = app.side_effect_engine
         register_mock_tasks(registry)
@@ -465,12 +465,12 @@ class TestWorkflowE2EReal:
         # Validar side effect: ADR creado
         adr_created = False
         for se_result in result3.get("side_effects", []):
-            if se_result.get("type") == "create_adr_from_spec":
+            if se_result.get("type") == "create_adr":
                 metadata = se_result.get("result", {}).get("metadata", {})
                 if metadata.get("adr_id"):
                     adr_created = True
                     break
-        assert adr_created, "create_adr_from_spec no ejecutó correctamente"
+        assert adr_created, "create_adr no ejecutó correctamente"
 
         # Validar Spec approved
         spec = svc_delta.get_spec(spring_id, "SPEC-001")
