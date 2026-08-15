@@ -27,9 +27,9 @@
     "PO"
   ],
   "created_at": "2026-08-14T16:00:00-03:00",
-  "updated_at": "2026-08-14T23:06:40-03:00",
-  "adr_dependency": "ADR-WALKER-049 aprobado (2026-08-15). La implementaci\u00f3n Fase 0-4 est\u00e1 alineada y formalizada.",
-  "implementation_status": "Fases 0-4 completadas en c\u00f3digo (commits 7a4a174, 257f070). Pendiente: aprobaci\u00f3n formal ADR-049 y validaci\u00f3n E2E completa.",
+  "updated_at": "2026-08-15T16:39:24-03:00",
+  "adr_dependency": "ADR-WALKER-049 aprobado (2026-08-15). La implementación Fase 0-4 está alineada y formalizada.",
+  "implementation_status": "Fases 0-4 completadas en código (commits 7a4a174, 257f070). Fase 5 (naming semántico ADR-049/051) en progreso. Criterios de validación actualizados a modelo L1-L4 (ADR-051).",
   "problem_statement": "El canal del engine (tasks + side effects del workflow en main) nunca fue tratado como capa arquitectónica: los nodos del workflow declaran acciones en DOS puntos de invocación del MISMO concepto (sub_state.action = task, side_effects[] = efecto), el engine las despacha por nombre contra 4 catálogos fragmentados, y las dos mitades tienen políticas de fallo opuestas. Verificado: (1) 3 names declarados por los nodos no tienen handler (advance_task en sprint:612, create_adr_from_spec en sprint:641, delete_ckg_nodes en analyze:439/refine:345) y caen a None silencioso — el sprint avanza sin avanzar la tarea, las decisiones no generan ADR, el rollback no ejecuta; (2) el puerto de resolución de acciones está roto en 4 catálogos (TaskRegistry, DomainTaskRegistry con 12 fantasmas, module_registry duplicando ~11 tools, SystemTaskRegistry vacío); (3) la capa contiene cosas que no son acciones: 7 test doubles en producción (mocks.py), run_tests falso positivo ({passed: True, total: 0}), 10 stubs passthrough (transforms/refinement/implement), close_sprint duplicado, handlers huérfanos en delta_tracking/side_effects; (4) contrato fragmentado: 7/19 handlers sin envelope @as_side_effect (6 + rollback_ckg), y la compensación tiene DOBLE fuente de verdad: el grafo declara compensation pero el engine la IGNORA (usa el mapa interno hardcodeado _get_compensation_type en side_effects.py:643-660, con 2 fantasmas más: restore_delta_graph y rollback_spec) y _compensate_single (side_effects.py:569-640) FABRICA dicts de éxito sin ejecutar handlers reales — la compensación es un stub que dice 'deleted: True' sin borrar nada; (5) asimetría de fallo: una task que falla rompe el submit (fail-loud, use_cases.py:410), un side effect que falla solo queda ok=False y el submit continúa (silencio) — por eso los bugs activos pasan desapercibidos; (6) 2 handlers registrados sin uso en nodos (detect_decisions, rollback_ckg) — el checklist de completitud debe ser bidireccional.",
   "evidence": [
     "core/engine/workflow/nodes/sprint.node.json:612 — 'advance_task' declarado como side_effect de TASK_REVIEW pero NO registrado → side_effects.py:563 devuelve None (silencio)",
@@ -80,17 +80,21 @@
     "_compensate_single llama handlers reales del catálogo (verificación: inyectar fallo en efecto obligatorio → la compensación ejecuta delete_ckg_node/rollback_ckg REAL, no un dict fabricado)",
     "0 handlers huérfanos: detect_decisions y rollback_ckg conectados a un nodo o eliminados; checklist bidireccional en CI",
     "0 names legacy en side_effects/, tasks/ y nodes/ (grep CI); 0 imports de delta_tracking.side_effects",
-    "Tests E2E verdes después de cada fase"
+    "Tests E2E verdes después de cada fase",
+    "Fase 2 completada: tools/tasks/side-effects renombrados a nombres semánticos de negocio (inspect_codebase, knowledge_query, recall_knowledge, search_memories, extract_knowledge, memory_schema, task_context, diagnose_failure, verify_evidence, sprint_evidence, initialize_knowledge_base, build_code_index, record_rejection); workflow grafo actualizado; tags técnicos reemplazados por tags de dominio; tests migrados",
+    "Validación por capas ADR-051 implementada: L1 architecture tests (tests/architecture/) en CI, L2 contract tests por componente, L3 integration tests, L4 E2E/BDD verdes"
   ],
   "quality_gates": [
-    "SPEC-014 implementada (Fases 0-4 completadas); ADR-WALKER-049 pendiente de aprobaci\u00f3n",
-    "ADR-WALKER-049 aprobado (status: Accepted). failure_scenarios incluidos y verificados.",
+    "SPEC-014 implementada (Fases 0-4 completadas); ADR-WALKER-049 aprobado (Accepted)",
+    "ADR-WALKER-051 aprobado (Accepted): modelo de validación por capas L1-L4 implementado",
+    "Fase 2 completada: renombres semánticos aplicados, workflow grafo actualizado, tests migrados",
     "Checklist de completitud en CI: {action} ∪ {side_effect.type} ∪ {compensation.type} ⊆ ActionCatalog",
     "0 mocks en tasks/ (grep CI); run_tests no reporta verde sin correr (total > 0 o no existe)",
     "0 names legacy en side_effects/, tasks/ y workflow/nodes/ (grep CI)",
     "task_registry ∩ module_registry = ∅ (tools públicas) y DomainTaskRegistry ⊆ TaskRegistry",
+    "L1 architecture tests en CI: pytest tests/architecture/ -v → 0 fallos",
     "Smoke AppContainer.build() + suite E2E verdes tras cada fase",
-    "project.md actualizado con la capa de workflow actions y la referencia a ADR-WALKER-049"
+    "project.md actualizado con la capa de workflow actions y la referencia a ADR-WALKER-049/051"
   ],
   "impacted_artifacts": {
     "files": [
@@ -258,9 +262,38 @@
           "docs/design/memory-tools-naming-convention.md",
           "project.md"
         ],
-        "verification": "grep -rn 'save_to_ckg|update_cpg|delete_ckg_node' features/main/task_execution/ core/engine/workflow/nodes/ → 0; grep 'delta_tracking.side_effects' features/ tests/ core/ → 0; suite E2E completa verde",
+        "verification": "Grep CI: 0 names legacy; 0 delta_tracking.side_effects; 0 mocks en tasks/; task_registry ∩ module_registry = ∅",
         "done": true,
-        "priority": "low"
+        "priority": "medium"
+      },
+      {
+        "description": "Fase 5: Naming semántico de herramientas públicas (ADR-049 + ADR-051 G8). Renombrar tasks/side-effects a nombres de negocio (sin prefijos técnicos cpg_/ckg_/kg_/delta_). Alias deprecated durante transición. Actualizar workflow grafo, tags de metadata y tests. Nombres canónicos: inspect_codebase, knowledge_query, recall_knowledge, search_memories, extract_knowledge, memory_schema, task_context, diagnose_failure, verify_evidence, sprint_evidence, initialize_knowledge_base, build_code_index, record_rejection, update_knowledge_status, remove_knowledge, index_sprint_tasks, rebuild_sprint_index, restore_code_snapshot, sync_sprint_state.",
+        "files": [
+          "features/main/task_execution/tasks/cpg_analyze.py",
+          "features/main/task_execution/tasks/ckg_analyze.py",
+          "features/main/task_execution/tasks/kg_helpers.py",
+          "features/main/task_execution/tasks/phase_intelligence.py",
+          "features/main/task_execution/tasks/project_init.py",
+          "features/main/task_execution/tasks/planning.py",
+          "features/main/task_execution/side_effects/ckg_persist.py",
+          "features/main/task_execution/side_effects/cpg_updates.py",
+          "features/main/task_execution/side_effects/status.py",
+          "features/main/task_execution/side_effects/create_adr.py",
+          "features/main/task_execution/side_effects/delta_updates.py",
+          "core/engine/workflow/nodes/*.json",
+          "core/engine/workflow/schema/workflow.schema.json",
+          "tests/test_workflow_e2e_bdd.py",
+          "tests/test_workflow_e2e_real_bdd.py",
+          "tests/test_registry_completeness_bdd.py",
+          "tests/test_workflow_action_completeness_bdd.py",
+          "tests/test_feedback_coherence_bdd.py",
+          "tests/test_create_adr_bdd.py",
+          "tests/test_cpg_indexed_bdd.py",
+          "tests/conftest.py"
+        ],
+        "verification": "pytest tests/architecture/test_semantic_naming_convention.py -v → 0 fallos; grep -rn '\"cpg_\"|\"ckg_\"|\"kg_\"|\"delta_\"' features/main/task_execution/ → 0; workflow grafo sin prefijos técnicos; tests E2E verdes",
+        "done": false,
+        "priority": "high"
       }
     ]
   },
@@ -396,5 +429,6 @@
       "kind": "table",
       "content": "| Canal | HOY | DEBERÍA |\n|---|---|---|\n| Task (sub_state.action) | fail-loud: TaskResult.failure → AutoAdvanceError → ErrorHandler → on_failure | Igual (ya correcto) |\n| Side effect optional=False (obligatorio) | silencioso: ok=False → compensa → submit continúa | Eleva SideEffectFailedError → bridge TaskFailedError → ErrorHandler → on_failure/retry/block |\n| Side effect optional=True (opcional) | warning y continúa | Igual (ya correcto) |\n| Name en nodo sin handler | None silencioso (3 bugs activos: advance_task, create_adr_from_spec, delete_ckg_nodes) | Checklist de completitud en CI: falla antes de mergear |\n| Compensación | Doble fuente: grafo (ignorado) + _get_compensation_type hardcodeado (2 fantasmas) + _compensate_single fabrica dicts de éxito | Fuente única (grafo/catálogo); _compensate_single ejecuta el handler REAL; 0 stubs declarativos |"
     }
-  ]
+  ],
+  "adr_status": "ADR-WALKER-049 Accepted (2026-08-15). ADR-WALKER-051 Accepted (2026-08-15). Fase 2 (naming semántico) en progreso."
 }
