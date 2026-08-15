@@ -404,21 +404,173 @@ features/<feature>/
 
 ## 6. Validación post-implementación
 
-| Descripción | Comando | Esperado |
-|---|---|---|
-| 0 imports de use_cases desde main | `grep -rn "application.use_cases\|core.engine.application.use_cases" features/main/` | 0 |
-| Tasks del sprint registradas | `python -c "from features.main.container import AppContainer; c = AppContainer.build(); print('plan_sprint' in c.resolve('task_registry').list())"` | True |
-| Tasks/helpers thin (< 200 líneas) | `wc -l features/main/task_execution/tasks/*.py` | max < 200 |
-| 0 imports de features desde engine | `grep -rn "from features\." core/engine/` | 0 |
-| Application Services en DI | `python -c "from features.main.container import AppContainer; c = AppContainer.build(); print(c.resolve('ckg_service'))"` | instancia |
-| orchestration/ no depende de main | `grep -rn "from features.main" orchestration/` | 0 |
-| 0 mcp.py en features | `find features/ -name "mcp.py"` | solo `features/main/cli_interface/mcp.py` |
-| Nombres sin prefijos técnicos | `grep -rn '"cpg_\|"ckg_\|"kg_\|"delta_' features/main/task_execution/` | 0 |
-| 0 imports de infra desde tasks | `grep -rn "task_execution.infrastructure" features/main/task_execution/tasks/ side_effects/` | 0 |
-| Composition root construye | `python -c "from features.main.container import AppContainer; AppContainer.build()"` | OK |
+### 6.1 Modelo de validación por capas
+
+La validación combina **architecture tests** (L1), **contract tests** (L2), **integration tests** (L3) y **E2E/BDD** (L4). Cada capa responde una pregunta distinta:
+
+| Capa | Pregunta que responde | Naturaleza |
+|------|----------------------|------------|
+| **L1 — Architecture** | ¿Se respetan los boundaries y convenciones estructurales? | Automática (tests + CI) |
+| **L2 — Contract** | ¿Cada componente cumple su rol (thin adapter, orchestrator, service)? | Automática (tests unitarios de contrato) |
+| **L3 — Integration** | ¿Las capas se conectan correctamente? | Automática (tests de integración) |
+| **L4 — E2E/BDD** | ¿El negocio funciona de punta a punta? | Automática (tests E2E) + Humana (code review) |
+
+**Regla de aprobación**: L1 es **obligatoria** para aprobar el ADR. L2-L4 son progresivas por módulo/feature.
 
 ---
 
+### 6.2 L1 — Architecture Tests (boundaries y naming)
+
+Tests automáticos en `tests/architecture/` que validan reglas estructurales. Usan `ast` para análisis de imports, no `grep`.
+
+| ID | Criterio | Test | Implementación |
+|----|----------|------|----------------|
+| L1-01 | Features no definen transporte MCP/REST | `test_no_mcp_in_features.py` | `find features/*/mcp.py` → 0 (excepto `main/`) |
+| L1-02 | Tasks no importan use_cases de features | `test_no_use_case_imports_in_tasks.py` | AST: 0 imports de `features.<x>.application.use_cases` desde `tasks/` |
+| L1-03 | Engine no importa features | `test_no_feature_imports_in_engine.py` | AST: 0 `from features.` en `core/engine/**` |
+| L1-04 | Tasks/side-effects no importan infra de main | `test_no_infra_imports_in_tasks.py` | AST: 0 imports de `task_execution.infrastructure` desde `tasks/` y `side_effects/` |
+| L1-05 | Side-effects solo importan de `orchestration/` | `test_side_effects_import_only_orchestration.py` | AST: imports desde `features.` en `side_effects/` → solo `orchestration/` |
+| L1-06 | Nombres semánticos en tools públicas | `test_semantic_naming_convention.py` | Names de tasks/side-effects sin prefijos técnicos (`cpg_`, `ckg_`, `kg_`, `delta_`) |
+| L1-07 | Tags de dominio en metadata | `test_domain_tags_only.py` | Metadata de tools sin tags técnicos |
+| L1-08 | `orchestration/` no depende de main | `test_orchestration_independent.py` | 0 imports de `features.main` desde `orchestration/` |
+| L1-09 | Composition root registra solo Services | `test_composition_root_registers_services_only.py` | 0 Use Cases individuales en `register_all()` |
+| L1-10 | Factories DI retornan instancias | `test_di_factories_return_instances.py` | `registry.resolve("x_service")` es instancia, no clase |
+| L1-11 | Thin adapters (métrica de capa, no solo archivo) | `test_tasks_are_thin_adapters.py` | 0 imports de `repositorios`, `searchers`, `CognitiveGraph` en `tasks/` |
+| L1-12 | Sin handlers huérfanos | `test_no_orphan_handlers.py` | Todo handler registrado en `ActionCatalog` tiene al menos 1 referencia en `nodes/*.json` o es compensación interna |
+
+**Ejemplo de implementación (L1-02)**:
+
+```python
+# tests/architecture/test_no_use_case_imports_in_tasks.py
+import ast
+import pathlib
+
+def test_tasks_do_not_import_feature_use_cases():
+    """Tasks deben consumir Application Services, no Use Cases directos."""
+    root = pathlib.Path("features/main/task_execution/tasks")
+    violations = []
+    for py in root.glob("*.py"):
+        if py.name.startswith("_"):
+            continue
+        tree = ast.parse(py.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module and "application.use_cases" in node.module:
+                    violations.append(f"{py}: importa {node.module}")
+    assert not violations, f"Tasks importan Use Cases: {violations}"
+```
+
+---
+
+### 6.3 L2 — Contract Tests (pruebas de rol por componente)
+
+Cada componente (task, side-effect, orchestrator, service) tiene un test que valida **qué consume y qué produce**, sin importar dónde está físicamente.
+
+| ID | Rol | Criterio | Test |
+|----|-----|----------|------|
+| L2-01 | **Task (thin adapter)** | Consume 1 Application Service/orchestrator; retorna `TaskResult` o dict estándar | `tests/unit/tasks/test_<task>.py`: mock del service, assert 1 llamada, assert contrato salida |
+| L2-02 | **Side-effect (thin adapter)** | Consume 1 Application Service/orchestrator; retorna envelope `{ok, result/error, summary}` | `tests/unit/side_effects/test_<effect>.py`: mock del service, assert 1 llamada, assert envelope |
+| L2-03 | **Orchestrator** | Orquesta 2+ services; no tiene lógica de negocio propia | `tests/unit/orchestration/test_<orchestrator>.py`: mock de 2+ services, assert secuencia de llamadas |
+| L2-04 | **Application Service** | Orquesta use cases internos; traduce entidades ↔ dicts; no importa infraestructura | `tests/unit/features/<feature>/test_<service>_service.py`: mock de repos, assert orquestación |
+| L2-05 | **ActionCatalog** | Resuelve names → handlers; soporta aliases; no hay colisiones | `tests/unit/test_action_catalog.py`: register + resolve + alias + conflictos |
+| L2-06 | **ErrorHandler** | Unifica fallos: task → TaskFailedError; side-effect → SideEffectFailedError → TaskFailedError | `tests/unit/test_error_handler.py`: simulate fallos, assert misma clase final |
+| L2-07 | **ToolCatalog** | Fusiona ModuleRegistry + TaskRegistry; no hay discrepancias | `tests/unit/test_tool_catalog.py`: list_tools() == TaskRegistry.public_tasks() ∪ ModuleRegistry.tools() |
+
+**Regla de rol**: si un componente importa más de lo que su rol permite, el test de contrato falla. Por ejemplo, una task que importa 2 services diferentes viola L2-01.
+
+---
+
+### 6.4 L3 — Integration Tests (contratos entre capas)
+
+Validan que las capas se conectan sin fallos en runtime.
+
+| ID | Criterio | Test | Validación |
+|----|----------|------|------------|
+| L3-01 | Registry/tool_catalog consistency | `tests/integration/test_tool_catalog_consistency.py` | TaskRegistry.public ∩ ModuleRegistry.tools = ∅; list_tools() = unión |
+| L3-02 | ModuleRegistry resuelve servicios DI | `tests/integration/test_module_registry_di.py` | `get_module_service("ckg_service")` retorna instancia; no KeyError |
+| L3-03 | ActionCatalog completeness | `tests/integration/test_action_catalog_completeness.py` | actions + side_effects + compensations ⊆ catálogo |
+| L3-04 | Workflow grafo ⊆ catálogo (bidireccional) | `tests/integration/test_workflow_catalog_bidirectional.py` | Todo `action`, `side_effects[].type`, `compensation[].type` en `nodes/*.json` existe en `ActionCatalog` |
+| L3-05 | Composition root smoke | `tests/integration/test_composition_root_smoke.py` | `AppContainer.build()` sin warnings de handlers duplicados ni servicios faltantes |
+| L3-06 | Sprint workflow cableado | `tests/integration/test_sprint_workflow_handlers.py` | `plan_sprint`, `implement`, `review_code`, `verify_predicates` en `task_registry` |
+| L3-07 | MCP tools ejecutan sin error de protocolo | `tests/integration/test_mcp_tool_invocation.py` | `list_tools()` > 0; `tools/call` con tool válida retorna resultado, no error -32000 |
+
+---
+
+### 6.5 L4 — E2E/BDD (comportamiento del negocio)
+
+Validan flujos completos del negocio sin importar la implementación interna.
+
+| ID | Criterio | Test | Validación |
+|----|----------|------|------------|
+| L4-01 | Workflow E2E | `tests/test_workflow_e2e_bdd.py` | Flujo completo project_init → sprint → design → implement → verify |
+| L4-02 | Workflow real engine | `tests/test_workflow_e2e_real_bdd.py` | Flujo con engine real, state repo, side-effects |
+| L4-03 | MCP agent E2E | `tests/test_agent_e2e_bdd.py` | Agente invoca tools MCP, recibe respuestas correctas |
+| L4-04 | CLI walker | `tests/test_cli_walker_bdd.py` | Comandos prepare, list, submit, transition funcionan |
+| L4-05 | Knowledge lifecycle | `tests/test_knowledge_e2e_bdd.py` | documenting_knowledge → search_knowledge → supersede funciona |
+| L4-06 | Sprint planning E2E | `tests/test_sprint_planning_e2e_bdd.py` | plan_sprint → add_tasks → advance_sprint_task |
+| L4-07 | Code analysis E2E | `tests/test_cpg_indexed_bdd.py` | build_code_index → fingerprint_match → cpg_indexed event |
+
+---
+
+### 6.6 Políticas de migración sin breaking changes (M)
+
+Estas no son tests, sino **reglas de gobernanza** validadas en code review + CI.
+
+| ID | Política | Validación |
+|----|----------|------------|
+| M1 | Aliases durante transición | Renombres mantienen alias `deprecated=True` en `ActionCatalog` hasta release mayor |
+| M2 | Sin eliminación sin plan | Handlers eliminados = antes marcados `deprecated=True` + reemplazo canónico registrado |
+| M3 | Versionado semántico de tools MCP | Breaking changes en CHANGELOG + version bump en tool metadata |
+| M4 | Feature flags para `orchestration/` | `orchestration/` se activa vía config; fallback a orquestación inline con log warning |
+| M5 | Smoke test obligatorio en CI | `python -c "from features.main.container import AppContainer; AppContainer.build()"` pasa sin warnings |
+| M6 | Deprecation warning en runtime | Handlers/tools deprecated emiten `DeprecationWarning` cuando se invocan |
+
+---
+
+### 6.7 Checklist de aprobación por capa
+
+#### Aprobación L1 (obligatoria para aprobar ADR)
+
+- [ ] `pytest tests/architecture/ -v` → 0 fallos
+- [ ] `find features/ -name "mcp.py"` → solo `features/main/cli_interface/mcp.py`
+- [ ] `grep -rn "application.use_cases" features/main/` → 0
+- [ ] `grep -rn "from features\." core/engine/` → 0
+- [ ] `grep -rn "task_execution.infrastructure" features/main/task_execution/` → 0
+
+#### Aprobación L2 (por módulo)
+
+- [ ] Cada task/side-effect nuevo tiene su test de contrato en `tests/unit/tasks/` o `tests/unit/side_effects/`
+- [ ] Cada orchestrator nuevo tiene su test en `tests/unit/orchestration/`
+- [ ] Cada Application Service nuevo tiene su test en `tests/unit/features/<feature>/`
+
+#### Aprobación L3 (por release)
+
+- [ ] `pytest tests/integration/ -v` → 0 fallos
+- [ ] `AppContainer.build()` sin warnings
+
+#### Aprobación L4 (por release)
+
+- [ ] `pytest tests/test_workflow_e2e_bdd.py tests/test_workflow_e2e_real_bdd.py -q` → 0 fallos
+- [ ] `pytest tests/test_agent_e2e_bdd.py -q` → 0 fallos
+
+---
+
+### 6.8 Métricas de salud arquitectónica (dashboard)
+
+Estas métricas se actualizan en CI y se muestran en el dashboard del proyecto:
+
+| Métrica | Fuente | Target |
+|---------|--------|--------|
+| Architecture tests pass rate | `pytest tests/architecture/` | 100% |
+| Thin adapters ratio | `wc -l` + AST imports | 100% tasks/side-effects < 200 líneas y sin imports de repos |
+| Orquestation coverage | `grep -rn "from features\." side_effects/` | 100% orquestación en `orchestration/` |
+| Naming compliance | `test_semantic_naming_convention.py` | 100% tools sin prefijos técnicos |
+| E2E pass rate | `pytest tests/ -k e2e` | 100% |
+| Registry consistency | `test_tool_catalog_consistency.py` | 0 discrepancias |
+| DI health | `test_module_registry_di.py` | 0 KeyError, 100% factories retornan instancias |
+| Sprint workflow completeness | `test_sprint_workflow_handlers.py` | 4/4 handlers registrados |
+
+---
 ## 7. Referencias
 
 - ADR-WALKER-045: `features/main` como composition root final.
