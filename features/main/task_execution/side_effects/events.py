@@ -2,9 +2,10 @@
 from __future__ import annotations
 from typing import Any
 from shared.common.shared_domain import ExecutionContext
-from core.engine.domain.side_effect_contract import ok, SCOPE_EVENT
+from core.engine.domain.side_effect_contract import as_side_effect, ok, SCOPE_EVENT
 
 
+@as_side_effect(scope=SCOPE_EVENT)
 def emit_event(ctx: ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     """Emite un evento de dominio (envelope estándar, scope=event).
 

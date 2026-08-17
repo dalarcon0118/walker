@@ -327,6 +327,17 @@
       "pattern": "^SPEC-[0-9]{3}$",
       "description": "ID de la spec que generó esta decisión (si aplica)."
     },
+    "failure_scenarios": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "type": "string" },
+      "description": "Escenarios de fallo con causa raíz, mitigación y detección (obligatorio por AGENTS.md — ritual de aprobación de specs/ADRs). Formato: 'Si <fallo>, ENTONCES <causa> → mitigación: <acción> | detección: <medio>'. Mínimo 3."
+    },
+    "generated_specs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "IDs de specs derivadas de esta (SPEC-NNN: título corto)."
+    },
     "generates_specs": {
       "type": "array",
       "items": { "type": "string", "pattern": "^SPEC-[0-9]{3}$" },

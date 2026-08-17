@@ -769,9 +769,9 @@ def _test_ghost_failed(mg_ctx: dict):
 # ── 4. side_effect_contract (envelope estándar) ──────────────────
 
 
-@given("un side effect de tipo update_cpg")
-def _se_update_cpg(mg_ctx: dict):
-    mg_ctx["se_type"] = "update_cpg"
+@given("un side effect de tipo index_code")
+def _se_index_code(mg_ctx: dict):
+    mg_ctx["se_type"] = "index_code"
 
 
 @when("creo envelopes ok, failed y degraded")
@@ -843,7 +843,7 @@ def _legacy_dict(mg_ctx: dict):
 def _normalize_env(mg_ctx: dict):
     from core.engine.domain.side_effect_contract import normalize
 
-    mg_ctx["env"] = normalize(mg_ctx["legacy"], "update_cpg", "code_index")
+    mg_ctx["env"] = normalize(mg_ctx["legacy"], "index_code", "code_index")
 
 
 @then('el envelope es estándar con status "ok"')
@@ -930,10 +930,10 @@ def _se_quality_fail(mg_ctx: dict):
     mg_ctx["result"] = {
         "side_effects": [
             {
-                "type": "update_cpg",
+                "type": "index_code",
                 "ok": True,
                 "result": ok(
-                    type="update_cpg",
+                    type="index_code",
                     scope="code_index",
                     summary="CPG indexado; cyclo falla",
                     signals={
@@ -978,10 +978,10 @@ def _se_quality_ok(mg_ctx: dict):
     mg_ctx["result"] = {
         "side_effects": [
             {
-                "type": "update_cpg",
+                "type": "index_code",
                 "ok": True,
                 "result": ok(
-                    type="update_cpg",
+                    type="index_code",
                     scope="code_index",
                     summary="CPG indexado; calidad OK",
                     signals={"quality_passed": True, "recommend": "indexar_ok"},
@@ -1609,7 +1609,7 @@ def _impl_input_bad(mg_ctx: dict):
 
 @given("CaptureTaskInput vacío")
 def _capture_empty(mg_ctx: dict):
-    from features.main.task_execution.tasks.capture_task import CaptureTaskInput
+    from features.main.task_execution.tasks.capture import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict({})
 
@@ -1621,7 +1621,7 @@ def _capture_fails(mg_ctx: dict):
 
 @given("CaptureTaskInput con objective y files")
 def _capture_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.capture_task import CaptureTaskInput
+    from features.main.task_execution.tasks.capture import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict(
         {"objective": "implementar X", "files": ["a.py"]}
@@ -1630,35 +1630,35 @@ def _capture_ok(mg_ctx: dict):
 
 @given("ResearchInput vacío")
 def _research_empty(mg_ctx: dict):
-    from features.main.task_execution.tasks.research_topic import ResearchInput
+    from features.main.task_execution.tasks.research import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({})
 
 
 @given("ResearchInput con topic")
 def _research_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.research_topic import ResearchInput
+    from features.main.task_execution.tasks.research import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({"topic": "vector dbs"})
 
 
 @given("KgExtractInput con scope functions")
 def _kg_extract_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.kg_extract import KgExtractInput
+    from features.main.task_execution.tasks.extract_knowledge import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "functions"})
 
 
 @given("KgExtractInput con scope bogus")
 def _kg_extract_bad(mg_ctx: dict):
-    from features.main.task_execution.tasks.kg_extract import KgExtractInput
+    from features.main.task_execution.tasks.extract_knowledge import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "bogus"})
 
 
 @given("ProjectInitInput vacío")
 def _project_init_empty(mg_ctx: dict):
-    from features.main.task_execution.tasks.project_init import ProjectInitInput
+    from features.main.task_execution.tasks.initialize_project import ProjectInitInput
 
     mg_ctx["vo"] = ProjectInitInput.from_dict({})
 
@@ -1670,7 +1670,7 @@ def _project_init_fails(mg_ctx: dict):
 
 @given("ProjectInitInput con project_id y language")
 def _project_init_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.project_init import ProjectInitInput
+    from features.main.task_execution.tasks.initialize_project import ProjectInitInput
 
     vo = ProjectInitInput.from_dict({"project_id": "p1", "language": "go"})
     assert vo.ok and vo.data.language == "go"
@@ -1686,10 +1686,10 @@ def _sr_quality_false(mg_ctx: dict):
     from core.engine.domain.step_result import StepResult
 
     se = {
-        "type": "update_cpg",
+        "type": "index_code",
         "ok": True,
         "result": ok(
-            type="update_cpg",
+            type="index_code",
             scope="code_index",
             summary="CPG indexado; cyclo falla",
             signals={
@@ -1754,10 +1754,10 @@ def _sr_gates(mg_ctx: dict):
     from core.engine.domain.step_result import StepResult
 
     se = {
-        "type": "update_cpg",
+        "type": "index_code",
         "ok": True,
         "result": ok(
-            type="update_cpg",
+            type="index_code",
             scope="code_index",
             summary="CPG indexado; cyclo falla",
             signals={

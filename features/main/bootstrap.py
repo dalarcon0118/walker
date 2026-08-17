@@ -357,9 +357,33 @@ def compose_app(chain_dir: str = "") -> AppComposition:
     tracer = _build_tracer_core()
     registry = InMemoryTaskRegistry(tracer=tracer)
     se_engine = SideEffectEngine(tracer=tracer)
-    workflow_repo = WorkflowRepository()
+
+    # Resolver workflow_path ANTES de crear el WorkflowRepository (SSOT: main
+    # sabe dónde está el archivo, el engine solo lo carga).
+    from shared.core.path_resolver import get_engine_workflow_path
+    from features.project import ProjectService
+
+    workflow_path = str(get_engine_workflow_path())
     if chain_dir:
-        workflow_repo.load(chain_dir)
+        try:
+            # Replicar la lógica de resolución del WorkflowRepository anterior:
+            # 1. Buscar en parent/workflow.v3/workflow.json (relativo al chain_dir)
+            parent = os.path.dirname(os.path.dirname(chain_dir))
+            wf_dir = "workflow.v3"
+            modular = os.path.join(parent, wf_dir, "workflow.json")
+            if os.path.exists(modular):
+                workflow_path = modular
+            else:
+                # 2. Buscar en project_root/workflow.v3/workflow.json
+                paths = ProjectService.resolve_paths(chain_dir)
+                project_wf = os.path.join(
+                    str(paths.project_root), wf_dir, "workflow.json"
+                )
+                if os.path.exists(project_wf):
+                    workflow_path = project_wf
+        except Exception:
+            pass
+    workflow_repo = WorkflowRepository(workflow_path=workflow_path)
 
     # 1a. ContextProviderRegistry completo: base del engine (task, state,
     # diff, test_results) + providers de negocio de features (business, ckg,
@@ -370,6 +394,36 @@ def compose_app(chain_dir: str = "") -> AppComposition:
     context_registry = build_context_registry()
     _discover_and_register_providers(context_registry)
 
+    # Implementaciones de puertos del engine (core/engine no conoce features/)
+    from features.main.engine_ports import (
+        ProjectContextAdapter,
+        ConflictResolverAdapter,
+        SprintServiceAdapter,
+        PromptCollectorAdapter,
+    )
+    from features.delta_tracking import SpringService
+    from features.delta_tracking.domain.services.conflict_resolver import ConflictResolver
+
+    project_context = ProjectContextAdapter(ProjectService)
+
+    conflict_resolver = ConflictResolverAdapter(
+        conflict_resolver=ConflictResolver()
+    )
+
+    sprint_service = SprintServiceAdapter(
+        spring_service_factory=SpringService.from_chain_dir
+    )
+
+    # PromptCollector: resolver por DI si está disponible, sino None
+    prompt_collector = None
+    try:
+        from core.engine.bootstrap import get_module_service
+        collector = get_module_service(prompt_collector)
+        if collector is not None:
+            prompt_collector = PromptCollectorAdapter(collector)
+    except Exception:
+        pass
+
     orch = OrchestrationService(
         workflow_repo=workflow_repo,
         state_repo=WorkflowStateRepository(),
@@ -378,6 +432,10 @@ def compose_app(chain_dir: str = "") -> AppComposition:
         side_effect_engine=se_engine,
         tracer=tracer,
         context_registry=context_registry,
+        project_context=project_context,
+        conflict_resolver=conflict_resolver,
+        sprint_service=sprint_service,
+        prompt_collector=prompt_collector,
     )
 
     # 2. ModuleRegistry unificado (composition root final, ADR-045)

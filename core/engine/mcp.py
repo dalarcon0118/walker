@@ -168,11 +168,14 @@ def register_module(registry: Any) -> None:
 
 def _workflow_handler(name: str):
     def handler(args: dict) -> dict:
-        from features.main.cli_interface.application.handlers import (
-            handle_status, handle_submit, handle_transition,
-            handle_prepare, handle_list_projects, handle_help,
-        )
-        from features.main.cli_interface.infrastructure.contracts import Request
+        from core.engine.bootstrap import resolve_service
+
+        # ADR-051 G5: el engine NO importa features.main; los handlers y el
+        # contrato Request los inyecta el composition root via service locator.
+        handlers_map = getattr(self, "_cli_handlers", None)
+        Request = getattr(self, "_cli_request", None)
+        if not handlers_map or not Request:
+            return {"error": f"Workflow tool '{name}' no disponible (sin composition root)"}
 
         project_id = args.get("project_id", "")
 
@@ -195,18 +198,10 @@ def _workflow_handler(name: str):
             if "timeout_ms" in args:
                 body["timeout_ms"] = args["timeout_ms"]
 
-        handlers_map = {
-            "status": handle_status,
-            "submit": handle_submit,
-            "transition": handle_transition,
-            "prepare": handle_prepare,
-            "list": handle_list_projects,
-            "help": handle_help,
-        }
         handler_fn = handlers_map.get(name)
         if not handler_fn:
             return {"error": f"Unknown workflow tool: {name}"}
-        
+
         req = Request(
             method="POST" if name in ("submit", "transition", "prepare") else "GET",
             path=f"{project_id}/{name}" if project_id else name,

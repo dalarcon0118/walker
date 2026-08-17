@@ -115,11 +115,11 @@ class PrepareProjectUseCase:
         code_detected, cpg_nodes = _auto_scan_cpg(project_path)
 
         # 8. Check CKG status
-        from features.cognitive_knowledge.application.use_cases import (
-            CheckCkgHealthUseCase,
+        from features.cognitive_knowledge.application.services.ckg_service import (
+            CkgApplicationService,
         )
 
-        ckg_health_result = CheckCkgHealthUseCase.execute(projects_data_dir)
+        ckg_health_result = CkgApplicationService.check_health(projects_data_dir)
         ckg_health = (
             ckg_health_result.value_or({}) if is_successful(ckg_health_result) else {}
         )
@@ -175,11 +175,13 @@ class CheckHealthUseCase:
     @staticmethod
     def execute(project_id: str, repo_path: str, sprint_id: str = "") -> dict:
         from features.project import HealthReportAnalyzer
-        from features.code_analysis import CheckCpgHealthUseCase
-        from features.cognitive_knowledge.application.use_cases import (
-            CheckCkgHealthUseCase,
+        from features.code_analysis.application.services.cpg_service import CpgService
+        from features.cognitive_knowledge.application.services.ckg_service import (
+            CkgApplicationService,
         )
-        from core.engine.application.use_cases import CheckSprintStatusUseCase
+        from core.engine.application.services.status_service import (
+            WorkflowStatusService,
+        )
 
         health: dict = {
             "type": "project_health",
@@ -219,7 +221,7 @@ class CheckHealthUseCase:
                 if cpg_status == "stale":
                     health["warnings"].append(
                         f"CPG is stale: {total} file(s) changed. "
-                        "Run update_cpg to rebuild the code index."
+                        "Run `walker <project>/build_code_index` to rebuild the code index."
                     )
             else:
                 health["checks"]["files"] = "up to date"
@@ -228,15 +230,15 @@ class CheckHealthUseCase:
             health["warnings"].append(f"watcher: {error}")
 
         # 3. Check CPG
-        cpg_health = CheckCpgHealthUseCase.execute(projects_data_dir)
+        cpg_health = CpgService.check_health(project_id, projects_data_dir)
         health["checks"]["cpg"] = cpg_health["status"]
         if cpg_health["status"] == "not scanned":
             health["warnings"].append(
-                "CPG not scanned. Run walker prepare or update_cpg"
+                "CPG not scanned. Run `walker prepare` or `walker <project>/build_code_index`"
             )
 
         # 4. Check CKG
-        ckg_health_result = CheckCkgHealthUseCase.execute(projects_data_dir)
+        ckg_health_result = CkgApplicationService.check_health(projects_data_dir)
         ckg_health = (
             ckg_health_result.value_or({}) if is_successful(ckg_health_result) else {}
         )
@@ -262,7 +264,7 @@ class CheckHealthUseCase:
 
             chain_dir = ProjectService.find_active_sprint(project_id) or ""
 
-        sprint_health = CheckSprintStatusUseCase.execute(chain_dir, project_id)
+        sprint_health = WorkflowStatusService.check_sprint_status(chain_dir, project_id)
         if sprint_health["active"]:
             health["sprint"] = {
                 "node": sprint_health.get("node", "?"),

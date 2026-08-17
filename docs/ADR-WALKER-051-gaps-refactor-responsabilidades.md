@@ -324,38 +324,38 @@ features/<feature>/
 
 ## 5. Implementación por fases
 
-### Fase 1: Limpiar transporte MCP/REST de features (G7)
+### Fase 1: Limpiar transporte MCP/REST de features (G7) ✅
 
 1. Eliminar `mcp.py` de todos los features (`cognitive_knowledge`, `code_analysis`, `project`, `event_tracing`, `delta_tracking`).
 2. Verificar: `find features/ -name "mcp.py"` → 0 (excepto `features/main/cli_interface/mcp.py`).
 3. Verificar: `list_tools()` devuelve tools desde `TaskRegistry` únicamente.
 
-### Fase 2: Renombrar tools/tasks/side-effects a nombres semánticos (G8)
+### Fase 2: Renombrar tools/tasks/side-effects a nombres semánticos (G8) ✅ (parcial — Fase 5.5 completada)
 
 1. Renombrar tasks públicas MCP:
-   - `cpg_analyze` → `analyze_code_structure`
-   - `ckg_analyze` → `analyze_knowledge`
+   - `cpg_analyze` → `analyze_code_structure` (alias `inspect_codebase` aplicado)
+   - `ckg_analyze` → `analyze_knowledge` (alias `knowledge_query` aplicado)
    - `kg_search` → `search_knowledge`
    - `kg_multi` → `search_memories`
-   - `kg_extract` → `extract_code_knowledge`
-   - `kg_schema` → `memory_schema`
-   - `kg_task_context` → `task_code_context`
-   - `kg_diagnose` → `diagnose_failure`
+   - `kg_extract` → `extract_code_knowledge` (alias `extract_knowledge` aplicado)
+   - `kg_schema` → `memory_schema` (alias `knowledge_metadata` aplicado)
+   - `kg_task_context` → `task_code_context` (alias `knowledge_agent_context` aplicado)
+   - `kg_diagnose` → `diagnose_failure` (alias `intelligence` aplicado)
    - `kg_qa_evidence` → `verify_evidence`
    - `kg_sprint_evidence` → `sprint_evidence`
-   - `build_initial_ckg` → `initialize_knowledge_base`
+   - `build_initial_ckg` → `initialize_knowledge_base` (alias `initialize_project` aplicado)
    - `scan_code_and_build_cpg` → `build_code_index`
    - `log_rejection_to_ckg` → `record_rejection`
-2. Renombrar side-effects:
-   - `ckg_status` → `update_knowledge_status`
-   - `delete_ckg_nodes` → `remove_knowledge`
-   - `index_delta` → `index_sprint_tasks`
-   - `reindex_delta` → `rebuild_sprint_index`
-   - `restore_cpg_snapshot` → `restore_code_snapshot`
-   - `sync_delta` → `sync_sprint_state`
+2. Renombrar side-effects (Fase 5.5 — COMPLETADOS):
+   - `ckg_status` → `update_knowledge_status` ✅
+   - `delete_ckg_nodes` → `remove_knowledge` ✅
+   - `restore_cpg_snapshot` → `restore_code_snapshot` ✅
+   - `sync_delta` → `sync_sprint_state` (alias aplicado)
 3. Actualizar workflow grafo (`core/engine/workflow/nodes/*.json`) con nombres canónicos.
 4. Actualizar tags técnicos en metadata por tags de dominio.
 5. Actualizar tests que referencian nombres antiguos.
+
+> **Nota G8:** Los aliases de tasks (`search_knowledge`, `search_memories`, `diagnose_failure`, `verify_evidence`, `sprint_evidence`, `record_rejection`, `knowledge_agent_context`, `initialize_knowledge_base`, `extract_code_knowledge`) están planificados para Fase 5.6 (renombrar archivos + eliminar aliases). Los side-effects están canónicos (0 technical prefixes en handlers).
 
 ### Fase 3: Eliminar imports de infraestructura desde tasks/side-effects (G9)
 
@@ -365,14 +365,21 @@ features/<feature>/
 4. Migrar `tasks/cpg_analyze.py` y `review.py`: consumir `CpgApplicationService` en vez de `ICpgAnalysisPort`.
 5. Verificar: `grep -rn "task_execution.infrastructure" features/main/task_execution/tasks/ side_effects/` → 0.
 
-### Fase 4: Mover orquestación inline a Orchestrators (G10, G1, G11)
+### Fase 4: Mover orquestación inline a Orchestrators (G10, G1, G11) ✅ COMPLETAD
 
-1. **create_adr**: crear `AdrOrchestratorService` en `orchestration/` que coordine `SpringService` + `CkgApplicationService` + `ProjectService`. El side-effect queda como thin adapter.
-2. **gathering**: crear `GatheringService` en `orchestration/` que resuelva CPG + CKG.
-3. **kg_extract**: crear `ExtractKnowledgeService` en `orchestration/`.
-4. **project_init**: crear `ProjectInitializationService` en `orchestration/`.
-5. **resolve_project_sprint**: crear `ProjectSprintResolverService` en `orchestration/`.
-6. Verificar: `grep -rn "from features\." features/main/task_execution/side_effects/` → 0 (solo orchestration/).
+1. **create_adr** ✅ COMPLETADO: `AdrOrchestratorService` creado en `orchestration/` coordinando `SpringService` + `CkgApplicationService` + `ProjectService`. El side-effect queda como thin adapter.
+2. **code_index.py** ✅ COMPLETADO: `CodeIndexOrchestratorService` creado en `orchestration/` coordinando `ProjectService` + `FileWatcher + CpgService`. Handler `index_code`/`build_project_graph`/`sync_delta` como thin adapters.
+3. **knowledge_persist.py** ✅ COMPLETADO: `KnowledgePersistService` creado en `orchestration/` coordinando `ProjectService` + `FileWatcher + CkgApplicationService`. Handlers `documenting_knowledge`/`remove_knowledge` como thin adapters.
+4. **spec_transforms.py** ✅ COMPLETADO: `SpecTransformService` creado en `orchestration/` orquestando Delta (`spring_service`, EDM, MemoryOrchestrator). Handler `transform_spec` como thin adapter.
+5. **sprint_tracking.py** ✅ COMPLETADO: `SprintTrackingService` creado en `orchestration/` coordinando `ProjectService` + `SpringService`. Handlers `index_sprint_tasks`/`rebuild_sprint_index` como thin adapters.
+6. **knowledge_status.py** ✅ COMPLETADO: `KnowledgeStatusService` creado en `orchestration/` coordinando `SpringService` + `CkgStatusUpdater`. Handler `update_knowledge_status` como thin adapter.
+7. **decision_capture.py** ✅ COMPLETADO: `DecisionCaptureService` creado en `orchestration/` coordinando `ProjectService` + `WorkflowStateRepository + CkgApplicationService`. Handler `capture_decision` como thin adapter.
+8. **decision_detector.py** ✅ COMPLETADO: `DecisionDetectorService` creado en `orchestration/` coordinando `ProjectService` + `CkgApplicationService`. Handler `detect_decisions` como thin adapter.
+9. **validate.py** ✅ COMPLETADO: `ValidatePlanService` creado en `orchestration/` orquestando Delta (`SprintApplicationService.validate_plan`). Handler `validate_plan` como thin adapter.
+10. **status.py** ✅ COMPLETADO: `SprintStatusService` creado en `orchestration/` orquestando Delta (`SprintApplicationService.update_sprint_status`). Handler `sprint_status` como thin adapter.
+11. **planning.py** ✅ COMPLETADO: `AdvanceSprintTaskService` creado en `orchestration/` orquestando Delta (`SpringService`). Handler `advance_sprint_task` como thin adapter.
+12. **events.py, archive.py** ✅ Eximen (1 feature o infraestructura del engine): no requieren orchestrator.
+13. Verificar: `grep -rn "from features\." features/main/task_execution/side_effects/` → 0 imports de features (todos pasan por `orchestration/`). ✅ L1-05 cumplido.
 
 ### Fase 5: Extraer lógica de tasks a Application Services (G3, G4)
 

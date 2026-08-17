@@ -239,9 +239,9 @@ def register_mock_tasks(registry) -> None:
 def register_side_effects(engine) -> None:
     """Registra los side effects reales del flujo E2E (SSOT de main,
     SPEC-014 Fase 4: nombres canónicos sin alias legacy)."""
-    from features.main.task_execution.side_effects.create_adr import create_adr
+    from features.main.task_execution.side_effects.decision import create_adr
     from features.main.task_execution.side_effects.planning import advance_sprint_task
-    from features.main.task_execution.side_effects.spec_transform import transform_spec
+    from features.main.task_execution.side_effects.spec_transforms import transform_spec
 
     engine.register("transform_spec", transform_spec)
     engine.register("create_adr", create_adr)

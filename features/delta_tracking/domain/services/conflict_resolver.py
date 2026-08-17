@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from features.delta_tracking.domain.entities.conflict import (
+from features.delta_tracking.domain.conflict import (
     Conflict,
     ResolutionStrategy,
 )

@@ -3,10 +3,8 @@
     "walker": {
       "project_id": "walker",
       "name": "walker",
-      "repo_path": "/Users/davidmartinez/develop/Active-projects/walker",
-      "active": true,
-      "registered_at": "2026-08-03T14:42:53.685379+00:00",
-      "last_accessed": "2026-08-03T14:42:53.685379+00:00"
+      "repo_path": "/private/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/pytest-of-davidmartinez/pytest-1497/test_harness_trace_tiene_canal0",
+      "active": true
     },
     "my_app": {
       "project_id": "my_app",
@@ -57,5 +55,5 @@
       "last_accessed": "2026-07-30T19:15:43.719208+00:00"
     }
   },
-  "updated_at": "2026-08-03T15:16:31.868605+00:00"
+  "updated_at": "2026-08-14T15:28:06.269889+00:00"
 }

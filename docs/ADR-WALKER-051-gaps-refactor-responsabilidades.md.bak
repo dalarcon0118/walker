@@ -1,0 +1,270 @@
+# ADR-WALKER-051: Cierre de gaps del refactor arquitectónico por responsabilidades (ADR-048 + ADR-050)
+
+> **Status:** Propuesta (pendiente de aprobación)
+> **Fecha:** 2026-08-14
+> **Autor:** Kilo (agente) + PO
+> **Complementa:** ADR-WALKER-048b (`schemas/adrs/ADR-WALKER-048.json` — patrón canonical de capa de aplicación), ADR-WALKER-050 (boundaries de `features/main`), SPEC-011 (unificación de capa de aplicación), SPEC-012 (refinamiento de features/main)
+> **Amplía:** la decisión del ADR-050 §2.1 ("cross-feature orchestrators: de main hoy, reutilizable futuro") — este ADR define la división objetivo de main (§2.6) y la extracción a `orchestration/` como el destino concreto de esa columna "futuro".
+> **Contexto de creación:** durante la auditoría post-migración de los ADRs 048/050 se detectó que la migración fue **estructural pero no de responsabilidades**: la estructura de carpetas canonical existe, pero la capa de tasks sigue conteniendo lógica de negocio, los orchestrators importan Use Cases directos, y el sprint workflow quedó sin cablear.
+
+---
+
+## 1. Problema
+
+El refactor definido por ADR-048 (patrón canonical: Use Cases + Application Services + Domain Services) y ADR-050 (boundaries de main: composition root + orchestrators + tasks thin adapters) completó la migración **estructural** — los 5 features tienen `use_cases/` + `services/`, main tiene `composition/` + `api/` + `orchestrators/`, `cognitive_registry.py` se movió a `libs/` — pero una auditoría de consumo reveló **6 gaps que mantienen vivo el anti-patrón** que ambos ADRs pretenden eliminar.
+
+**Síntoma central:** la migración movió archivos de lugar, no responsabilidades de capa. El caso testigo es `kg.py`: cumple la métrica `wc -l < 200` (20 líneas), pero la lógica simplemente se mudó a `kg_helpers.py` (361 líneas) **dentro de la misma capa de tasks**.
+
+### 1.1 Inventario de gaps verificado en código
+
+| # | Gap | Severidad | Evidencia |
+|---|-----|-----------|-----------|
+| G1 | Orchestrators importan Use Cases directos de features y engine (INV-013) | **CRÍTICA** | `orchestrators/prepare_project_service.py:109-113` y `orchestrators/check_health_service.py:28-32` |
+| G2 | Tasks del sprint huérfanas: el workflow de sprint no tiene handlers registrados | **CRÍTICA** | `register_delta_tracking_tasks()` existe en `delta_tracking/tasks/__init__.py:10` pero **nadie lo invoca** |
+| G3 | Extracción de kg cosmética: la lógica vive en `kg_helpers.py` dentro de `tasks/`, no en el Application Service | ALTA | `kg.py` = 20 líneas (✓ métrica) pero `kg_helpers.py` = 361 líneas en la capa de tasks; `agent_context` registrada 2 veces (`kg_metadata.py:146` + `kg_agent_context.py:142`) |
+| G4 | Otras tasks no son thin adapters (lógica de negocio en la capa de tasks) | ALTA | `kg_extract.py` 513, `capture_task.py` 397, `project_init.py` 330, `ckg_analyze.py` 247, `phase_intelligence.py` 245 |
+| G5 | `core/engine` importa `features.*` directo (inversión de dependencia) | MEDIA | `resolve.py`, `legacy/utils.py`, `engine.py`, `mcp.py`, `loader.py`, `task_dispatcher.py`, `prompt_context_builder.py`, `context/query_manager.py`, `context/composer.py` |
+| G6 | Application Services de features no registrados como servicios DI | MEDIA | `composition/registry.py:_register_libs_services` registra infra (`task_registry`, `workflow`, `cognitive_searcher`, `project_service`, `delta_spring_service`…) pero no `SprintApplicationService`, `CkgApplicationService`, `TraceService` |
+
+---
+
+## 2. Decisión
+
+**Cerrar los 6 gaps para que el refactor de ADR-048/050 sea de responsabilidades y no solo de estructura: tasks como thin adapters reales, orchestrators consumiendo Application Services, sprint workflow cableado, engine con DI, Application Services registrados en el composition root, y main reducido a shell (composition + transporte) con los orchestrators extraídos a una capa de aplicación reutilizable `orchestration/` (§2.6).**
+
+### 2.1 Regla de consumo de orchestrators (cierra G1)
+
+Los orchestrators de `cli_interface/application/orchestrators/` son **Application Services cross-feature** (ADR-048 §4, ADR-050 §2.2). NO pueden importar Use Cases de features ni del engine:
+
+```python
+# ANTES (violación INV-013):
+#   check_health_service.py:28-32
+from features.code_analysis import CheckCpgHealthUseCase
+from features.cognitive_knowledge.application.use_cases import CheckCkgHealthUseCase
+from core.engine.application.use_cases import CheckSprintStatusUseCase
+
+# DESPUÉS (consumo de Application Services):
+from features.cognitive_knowledge.application.services.ckg_service import CkgApplicationService
+from features.delta_tracking.application.services.sprint_service import SprintApplicationService
+```
+
+- `CkgApplicationService.check_health(projects_data_dir)` ya existe y NO se usa — los orchestrators deben migrar a él.
+- `CheckSprintStatusUseCase` del engine debe resolverse vía `SprintApplicationService`/`DeltaQueryService` de delta_tracking, no desde `core.engine.application.use_cases`.
+
+### 2.2 Regla de ubicación y registro de tasks del sprint (cierra G2)
+
+- Las tasks del workflow viven **solo** en `features/main/task_execution/tasks/` (ADR-050 §3, ADR-047 Fase 3). Los features son módulos puros: exportan servicios y use cases, **no tasks**.
+- `features/delta_tracking/tasks/{planning,implementation,review,verification}.py` deben migrar a `features/main/task_execution/tasks/` (como thin adapters que consumen `SprintApplicationService`) o, si son específicas del dominio del sprint, quedar documentadas como excepción **pero registradas**.
+- El composition root (`composition/registry.py`) debe invocar el registro de TODAS las tasks del workflow: hoy solo llama `register_task_execution_tasks` (línea 65) y **nunca** `register_delta_tracking_tasks`.
+
+### 2.3 Regla de extracción real de tasks a Application Services (cierra G3, G4)
+
+La métrica `wc -l tasks/<task>.py < 200` (ADR-050 failure #3) es **necesaria pero no suficiente**: mide el archivo, no la capa. La lógica extraída debe vivir en `features/<feature>/application/services/`, nunca en un helper hermano dentro de `tasks/`.
+
+- `kg_helpers.py` (361 líneas): migrar la lógica de búsqueda/transformación (`_build_ckg_node`, payload → nodo CKG) a `CkgApplicationService`; `kg_helpers.py` debe quedar como glue puro (resolución de searcher, formato TaskResult) `< 200 líneas`.
+- `kg_extract.py` (513), `capture_task.py` (397), `project_init.py` (330), `ckg_analyze.py` (247), `phase_intelligence.py` (245): extraer la lógica de negocio a los Application Services/Use Cases de los features correspondientes (code_analysis, cognitive_knowledge, project, delta_tracking).
+- **Una task no debe duplicar registro**: `agent_context` se registra en `kg_metadata.py:146` (vía `KG_TASKS`) y en `kg_agent_context.py:142` (vía su propio `register`). Un solo punto de registro por task.
+
+### 2.4 Regla de boundaries del engine (cierra G5)
+
+`core/engine` es infraestructura pura (ADR-045). Debe resolver servicios de features por **service locator** (`get_module_service`), nunca importando `features.*` en import-time:
+
+- Migrar imports directos de `features.project`, `features.delta_tracking`, `features.event_tracing`, `features.main.*` en `core/engine/**` a `get_module_service("project_service")`, `get_module_service("delta_spring_service")`, etc.
+- `core/engine/resolve.py` (restaurado en el revert) debe evaluarse: si su lógica duplica `delta_tracking/domain/services/conflict_resolver.py`, se elimina (como estaba planificado en el git status inicial: `deleted: core/engine/resolve.py`).
+
+### 2.5 Regla de registro DI de Application Services (cierra G6)
+
+`composition/registry.py` debe registrar los Application Services de features como servicios DI con factories que retornan **instancias** (ADR-050 §2.6):
+
+```python
+registry.register_service("sprint_service", lambda: SprintApplicationService(), lazy=True)
+registry.register_service("ckg_service", lambda: CkgApplicationService(), lazy=True)
+registry.register_service("trace_service", lambda: TraceService(), lazy=True)
+```
+
+Las tasks los resuelven por `get_module_service("ckg_service")` en vez de instanciarlos ad-hoc.
+
+### 2.6 División objetivo de `features/main` según mejores prácticas (cierra el rol dual de main)
+
+El ADR-050 §2.1 clasifica los cross-feature orchestrators como *"de main hoy, reutilizable futuro"*. Según mejores prácticas (clean/hexagonal), main no debe tener dos roles: **composition root + transporte** son de main; la **orquestación cross-feature es capa de aplicación** y debe vivir en un módulo reutilizable aparte. Esta sección define el diseño objetivo.
+
+**Principio:** `main` queda como *shell* delgado (lo que es "de Walker, no reutilizable"); nace `orchestration/` como capa de aplicación reutilizable que absorbe los orchestrators.
+
+```
+walker/
+├── features/                     ← BOUNDED CONTEXTS (dominio puro, uno por feature)
+│   ├── delta_tracking/
+│   ├── code_analysis/
+│   ├── cognitive_knowledge/
+│   ├── project/
+│   └── event_tracing/
+│
+├── orchestration/                ← NUEVA CAPA DE APLICACIÓN cross-context (reutilizable)
+│   ├── __init__.py
+│   ├── prepare_project_service.py    ← era main/cli_interface/application/orchestrators/
+│   ├── check_health_service.py       ← era main/cli_interface/application/orchestrators/
+│   └── intelligence_service.py       ← era main/task_execution/application/
+│
+├── features/main/                ← SOLO COMPOSITION ROOT + TRANSPORTE (shell delgado)
+│   ├── composition/              ← wiring (container, registry, lifecycle)
+│   ├── api/                      ← facades públicas (walker_app, workflow_facade, front_controller)
+│   ├── cli_interface/            ← transporte (mcp_adapter, handlers, contracts, presenter, error_mapping)
+│   ├── task_execution/           ← task layer (tasks/, side_effects/, context/)
+│   └── prompts/                  ← subsistema autónomo
+│
+├── shared/                       ← infraestructura cross-cutting (CognitiveGraph, path_resolver, DTOs)
+└── libs/                         ← librerías (cognitive_graph registry)
+```
+
+**Mapeo qué queda / qué sale:**
+
+| Pieza actual | ¿Dónde queda? | Por qué |
+|---|---|---|
+| `composition/` (container, registry, lifecycle) | ✅ **Se queda** | Razón de ser de main — wiring tonto |
+| `api/` (workflow_facade, app, front_controller) | ✅ **Se queda** | Facades públicas del transporte |
+| `cli_interface/` (mcp_adapter, handlers, contracts, presenter, error_mapping, infrastructure) | ✅ **Se queda** | Transporte puro — entry points |
+| `task_execution/tasks/` + `side_effects/` + `context/` | ✅ **Se queda** | Task layer: verbos thin adapters del workflow |
+| `prompts/` | ✅ **Se queda** | Subsistema autónomo (templates específicos) |
+| `cli_interface/application/orchestrators/` (PrepareProjectService, CheckHealthService) | ➡️ **SALE** → `orchestration/` | Cross-feature orchestration = capa de aplicación, no transporte |
+| `task_execution/application/intelligence_service.py` (TaskIntelligenceService) | ➡️ **SALE** → `orchestration/` | Idem — orquesta CKG×CPG×Delta×Trace, no es del task layer |
+| `task_execution/application/cpg_port_resolver.py`, `contracts/` | ➡️ **SALE** (siguen al orquestador que los use) | Helpers del orquestador |
+
+**Reglas de dependencia después del split:**
+
+```
+transport (main/cli_interface) ──► orchestration/ ──► features/<x>/application/services/
+   └── composition root cablea TODO (incluye orchestration/)       │
+                                                                   ▼
+                                                            features/<x>/use_cases/ (privados)
+```
+
+1. **El transporte y las tasks de main no importan features** — consumen `orchestration/` o Application Services. **Excepción explícita: el composition root (`composition/registry.py`) SÍ importa features** — es su función cablearlas (ver §2.6 nota)
+2. **orchestration/ importa solo Application Services de features** — nunca Use Cases (INV-013), nunca infraestructura directa
+3. **tasks consumen orchestration/ o Application Services** — nunca use cases
+4. **shared/libs no importan nada de features ni orchestration** — infraestructura pura
+
+> **Nota (regla 1):** la regla aplica a la capa de negocio (transporte, tasks, orchestrators). El composition root es la **única excepción**: su responsabilidad es cablear, y para cablear debe conocer e importar los services/domain services de los features (`composition/registry.py` hoy importa `ProjectService`, `SpringService`, `ConflictResolver`). Prohibir imports de features en el registry rompería la composición. La frontera real es: **nada fuera de `composition/` importa features directamente; todo lo demás de main pasa por `orchestration/` o los Application Services.**
+
+**Por qué `orchestration/` y no `shared/`:** `shared/` ya tiene un rol — **infraestructura** (CognitiveGraph, path_resolver, router, DTOs). Los orchestrators NO son infraestructura: son **lógica de aplicación de negocio** (inicializar proyecto = secuencia de pasos de negocio que cruzan features). Meterlos en `shared/` repetiría el error: infraestructura con lógica de negocio. Por eso necesitan su propia capa, a la par de `features/`.
+
+---
+
+## 3. failure_scenarios
+
+| # | Fallo | Causa raíz | Mitigación | Detección |
+|---|-------|-----------|------------|-----------|
+| 1 | Los orchestrators siguen importando Use Cases directos después de la migración | Refactor estructural sin revisión de consumo; el patrón viejo se copia por inercia | Lint rule: prohibir `from features.<x>.application.use_cases` y `from core.engine.application.use_cases` desde `features/main/`; code review enfocado | `grep -rn "application.use_cases\|core.engine.application.use_cases" features/main/` |
+| 2 | El sprint workflow ejecuta `plan`/`implement`/`review`/`verify` y no encuentra handler | Tasks del sprint en `delta_tracking/tasks/` nunca registradas (nadie llama `register_delta_tracking_tasks`) | Mover tasks del sprint a `task_execution/tasks/` + invocar su registro en `register_all()`; test de completitud del TaskRegistry | Smoke: `AppContainer.build()` → verificar que las 4 tasks del sprint están en `task_registry.list()` |
+| 3 | La lógica de kg se vuelve a acumular en la capa de tasks (kg_helpers crece) | Extracción "cosmética": la lógica se muda a un helper hermano en la misma capa | Métrica de capa, no de archivo: grep de imports de searcher/repos en `tasks/`; checklist "si una task o helper > 200 líneas, extraer a services/" | `wc -l features/main/task_execution/tasks/*.py` + `grep -l "searcher\|Repository" features/main/task_execution/tasks/*.py` |
+| 4 | `agent_context` se registra dos veces y el segundo registro pisa al primero | Dos puntos de registro para la misma task (`KG_TASKS` + `register` propio) | Un solo registro por task: eliminar el `register()` propio de `kg_agent_context.py` y dejar solo `KG_TASKS` (o viceversa); warning "already registered" visible | Smoke de registro con duplicados detectados |
+| 5 | El engine vuelve a importar features directo tras la limpieza | `core/engine` no tiene guard de boundaries; la conveniencia de importar directo gana | Lint rule: prohibir `from features.` en `core/engine/`; service locator como único puente | `grep -rn "from features\." core/engine/` |
+| 6 | Los services DI se registran con factories que retornan clases/módulos | Refactor incompleto de factories (ADR-050 §2.6) | Test de tipado: toda factory registrada retorna instancia | Smoke: `registry.resolve("ckg_service")` es instancia, no clase |
+
+---
+
+## 4. Checklist de segundo orden
+
+1. **¿Qué módulos importan esto?**
+   - `features/main/task_execution/tasks/*` (kg_helpers, kg_extract, capture_task, project_init, ckg_analyze, phase_intelligence, kg_agent_context)
+   - `features/main/cli_interface/application/orchestrators/*` (prepare_project_service, check_health_service) → migran a `orchestration/` (Fase 7)
+   - `features/main/composition/registry.py` (register_all — debe registrar también los services de `orchestration/`)
+   - `features/main/cli_interface/application/handlers.py` y `features/main/api/workflow_facade.py` (consumen los orchestrators)
+   - `features/delta_tracking/tasks/*` (planning, implementation, review, verification)
+   - `core/engine/**` (imports de features a migrar a DI)
+   - `features/cognitive_knowledge/application/services/ckg_service.py` (destino de la lógica de kg_helpers)
+
+2. **¿Qué side effects dispara?**
+   - Ninguno nuevo. Los side effects existentes (`register_task_execution_side_effects`) se mantienen.
+
+3. **¿Qué eventos de dominio publica?**
+   - Ninguno nuevo. El workflow sigue emitiendo desde los mismos lugares.
+
+4. **¿Qué tests dependen de este comportamiento?**
+   - `tests/test_container_lifetime_bdd.py` (completitud del registry)
+   - `tests/test_registry_completeness_bdd.py` (providers/tasks/side-effects esperados)
+   - Tests E2E de workflow que ejecutan plan/implement/review/verify
+   - Tests de CKG (`test_kg_search_index_bdd.py`, `test_rn_ckg_only_tmp.py`)
+
+5. **¿Qué cambia en MCP adapter, CLI, CKG, DeltaGraph, Trace?**
+   - MCP/CLI: sin cambio de contrato (las tools mantienen nombre); cambia la implementación interna de los handlers.
+   - CKG: `CkgApplicationService` absorbe la lógica de búsqueda/transformación de kg_helpers.
+   - DeltaGraph: `SprintApplicationService` pasa a ser el punto de entrada de tasks del sprint.
+   - Trace: sin cambios.
+   - Orquestación cross-feature: cambia de ubicación (`main/cli_interface` y `main/task_execution` → `orchestration/`), sin cambio de contrato.
+
+---
+
+## 5. Implementación por fases
+
+### Fase 1: Orquestadores a Application Services (G1)
+
+1. Migrar `prepare_project_service.py` y `check_health_service.py` a `CkgApplicationService.check_health()` y `SprintApplicationService`/`DeltaQueryService`.
+2. Eliminar todos los imports de `application.use_cases` y `core.engine.application.use_cases` desde `features/main/`.
+3. Verificar: `grep -rn "application.use_cases" features/main/` → 0.
+
+### Fase 2: Cablear el sprint workflow (G2)
+
+1. Migrar `delta_tracking/tasks/{planning,implementation,review,verification}.py` a `task_execution/tasks/` como thin adapters que consumen `SprintApplicationService`.
+2. Invocar su registro en `composition/registry.py::register_all`.
+3. Verificar: `AppContainer.build()` expone `plan_sprint`, `implement`, `review`, `verify` en el TaskRegistry.
+
+### Fase 3: Extracción real de kg (G3)
+
+1. Mover `_build_ckg_node` y la lógica de búsqueda de `kg_helpers.py` a `CkgApplicationService`.
+2. Reducir `kg_helpers.py` a glue puro < 200 líneas.
+3. Unificar el registro de `agent_context` (un solo punto).
+4. Verificar: `wc -l kg_helpers.py < 200` + `grep -l "searcher" tasks/` sin lógica.
+
+### Fase 4: Adelgazar tasks grandes (G4)
+
+1. Extraer la lógica de `kg_extract.py`, `capture_task.py`, `project_init.py`, `ckg_analyze.py`, `phase_intelligence.py` a los Application Services de los features correspondientes.
+2. Verificar: tasks < 200 líneas y sin imports de repos/searchers.
+
+### Fase 5: Boundaries del engine (G5)
+
+1. Migrar imports de `features.*` en `core/engine/**` a service locator.
+2. Evaluar eliminación de `core/engine/resolve.py` (duplica `conflict_resolver`).
+3. Verificar: `grep -rn "from features\." core/engine/` → 0.
+
+### Fase 6: Registro DI de Application Services (G6)
+
+1. Registrar `sprint_service`, `ckg_service`, `trace_service` en `composition/registry.py` (factories → instancias).
+2. Migrar tasks a `get_module_service`.
+3. Verificar: smoke de registry con factories que retornan instancias.
+
+### Fase 7: Extraer orchestrators a `orchestration/` (§2.6)
+
+1. Crear `orchestration/` con `prepare_project_service.py`, `check_health_service.py`, `intelligence_service.py` (movidos desde main, sin cambios de lógica).
+2. Actualizar imports en `cli_interface/` (handlers, workflow_facade) y tasks que consumían los orchestrators.
+3. Registrar los services de `orchestration/` en el composition root (`composition/registry.py`).
+4. Eliminar `main/cli_interface/application/orchestrators/` y `main/task_execution/application/intelligence_service.py` (archivos viejos).
+5. Verificar: `grep -rn "from features.main" orchestration/` → 0 (orchestration no depende de main); `AppContainer.build()` OK.
+
+---
+
+## 6. Validación post-implementación
+
+| Descripción | Comando | Esperado |
+|---|---|---|
+| 0 imports de use_cases desde main | `grep -rn "application.use_cases\|core.engine.application.use_cases" features/main/` | 0 |
+| Tasks del sprint registradas | `python -c "from features.main.container import AppContainer; c = AppContainer.build(); print('plan_sprint' in c.resolve('task_registry').list())"` | True |
+| Tasks/helpers thin (< 200 líneas) | `wc -l features/main/task_execution/tasks/*.py` | max < 200 |
+| 0 imports de features desde engine | `grep -rn "from features\." core/engine/` | 0 |
+| Application Services en DI | `python -c "from features.main.container import AppContainer; c = AppContainer.build(); print(c.resolve('ckg_service'))"` | instancia |
+| orchestration/ no depende de main | `grep -rn "from features.main" orchestration/` | 0 |
+| Composition root construye | `python -c "from features.main.container import AppContainer; AppContainer.build()"` | OK |
+
+---
+
+## 7. Referencias
+
+- ADR-WALKER-048b (`schemas/adrs/ADR-WALKER-048.json`): Patrón canonical de capa de aplicación — Use Cases + Application Services + Domain Services.
+- ADR-WALKER-050 (`docs/ADR-WALKER-050.md`): Refinamiento de `features/main` — boundaries entre composition root, cross-feature orchestrators y librería reutilizable.
+- SPEC-011: Unificación de capa de aplicación.
+- SPEC-012: Refinamiento de features/main.
+- ADR-WALKER-045: `features/main` como composition root final.
+- ADR-WALKER-047: Registry conflation — modelo refinado.
+- `capa_rout.md` (`docs/design/`): D1 (composition roots paralelos), D3 (tasks usan servicios de módulo).
+- `project.md`: INV-013 (Use Cases internos / Application Services públicos), INV-014 (main no es un feature).
+- Seemann, M. — *Dependency Injection in .NET* (patrón Composition Root): el composition root es dumb wiring, sin lógica de negocio.
+- Clean/Hexagonal Architecture — *Dependency Rule*: las dependencias apuntan hacia adentro; la orquestación cross-context es capa de aplicación, no del composition root.

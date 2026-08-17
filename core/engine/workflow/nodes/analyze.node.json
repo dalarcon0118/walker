@@ -436,7 +436,7 @@
           "type": "documenting_knowledge",
           "params": {},
           "compensation": {
-            "type": "delete_ckg_nodes",
+            "type": "remove_knowledge",
             "description": "If transition to next phase fails, rollback captured knowledge"
           }
         },
@@ -447,7 +447,7 @@
           }
         },
         {
-          "type": "ckg_status",
+          "type": "update_knowledge_status",
           "params": {
             "event": "knowledge_captured"
           },

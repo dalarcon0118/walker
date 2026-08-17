@@ -138,7 +138,7 @@ def compose_workflow_map(chain_dir: str = "") -> dict:
     from ..infrastructure.repositories import WorkflowRepository
 
     repo = WorkflowRepository()
-    graph = repo.load(chain_dir or "")
+    graph = repo.load()
 
     nodes = [_node_to_dict(n) for n in graph.nodes.values()]
     edges = [_gate_to_dict(g) for g in graph.edges]

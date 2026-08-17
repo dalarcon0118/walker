@@ -36,11 +36,95 @@ class IWorkflowIO(ABC):
         ...
 
 
+
+
+class IProjectContext(ABC):
+    """Puerto para acceso al contexto del proyecto (paths, metadata).
+
+    El engine NO conoce features.project. Solo necesita resolver rutas
+    del proyecto. El main/project_service implementa este puerto.
+    """
+
+    @abstractmethod
+    def resolve_paths(self, chain_dir: str) -> Any:
+        """Resuelve paths del proyecto desde chain_dir."""
+        ...
+
+    @abstractmethod
+    def get_workflow_json_path(self, chain_dir: str) -> str:
+        """Retorna la ruta a workflow.json del proyecto."""
+        ...
+
+    @abstractmethod
+    def list_available(self) -> list[dict]:
+        """Lista proyectos disponibles."""
+        ...
+
+    @abstractmethod
+    def find_active_sprint(self, project_id: str) -> str:
+        """Busca el sprint activo del proyecto."""
+        ...
+
+
+class IConflictResolver(ABC):
+    """Puerto para resolución de conflictos del workflow.
+
+    El engine NO conoce delta_tracking. Solo necesita resolver conflictos.
+    El main/delta_tracking implementa este puerto.
+    """
+
+    @abstractmethod
+    def resolve(
+        self,
+        conflict: Any,
+        strategy: str,
+        payload: dict[str, Any],
+        workflow_state: dict[str, Any],
+        specs: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Resuelve un conflicto aplicando la estrategia indicada."""
+        ...
+
+
+class ISprintService(ABC):
+    """Puerto para acceso al sprint/spring del workflow.
+
+    El engine NO conoce delta_tracking. Solo necesita consultar/actualizar
+    el estado del sprint. El main/delta_tracking implementa este puerto.
+    """
+
+    @abstractmethod
+    def from_chain_dir(self, chain_dir: str) -> Any:
+        """Construye el servicio desde chain_dir."""
+        ...
+
+    @abstractmethod
+    def load_tasks(self, chain_dir: str) -> list[dict]:
+        """Carga las tasks del sprint."""
+        ...
+
+    @abstractmethod
+    def get_spring(self, spring_id: str) -> dict | None:
+        """Obtiene un spring por ID."""
+        ...
+
+
+class IPromptCollector(ABC):
+    """Puerto para recolección de prompts/contexto.
+
+    El engine NO conoce features.main.prompts. Solo necesita recolectar
+    prompts. El main implementa este puerto.
+    """
+
+    @abstractmethod
+    def collect(self, chain_dir: str, context: dict[str, Any]) -> dict[str, Any]:
+        """Recolecta prompts para el contexto."""
+        ...
 class IWorkflowLoader(ABC):
     """Puerto para carga de workflow y estado desde disco."""
 
     @abstractmethod
-    def load_workflow(self, chain_dir: str) -> WorkflowGraph:
+    def load_workflow(self, workflow_repo: 'WorkflowRepository') -> WorkflowGraph:
         ...
 
     @abstractmethod
@@ -69,6 +153,90 @@ class IPresenter(ABC):
 
     @abstractmethod
     def show_flow_progress(self, state: dict) -> None:
+        ...
+
+
+class IProjectContext(ABC):
+    """Puerto para acceso al contexto del proyecto (paths, metadata).
+
+    El engine NO conoce features.project. Solo necesita resolver rutas
+    del proyecto. El main/project_service implementa este puerto.
+    """
+
+    @abstractmethod
+    def resolve_paths(self, chain_dir: str) -> Any:
+        """Resuelve paths del proyecto desde chain_dir."""
+        ...
+
+    @abstractmethod
+    def get_workflow_json_path(self, chain_dir: str) -> str:
+        """Retorna la ruta a workflow.json del proyecto."""
+        ...
+
+    @abstractmethod
+    def list_available(self) -> list[dict]:
+        """Lista proyectos disponibles."""
+        ...
+
+    @abstractmethod
+    def find_active_sprint(self, project_id: str) -> str:
+        """Busca el sprint activo del proyecto."""
+        ...
+
+
+class IConflictResolver(ABC):
+    """Puerto para resolución de conflictos del workflow.
+
+    El engine NO conoce delta_tracking. Solo necesita resolver conflictos.
+    El main/delta_tracking implementa este puerto.
+    """
+
+    @abstractmethod
+    def resolve(
+        self,
+        conflict: Any,
+        strategy: str,
+        payload: dict[str, Any],
+        workflow_state: dict[str, Any],
+        specs: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Resuelve un conflicto aplicando la estrategia indicada."""
+        ...
+
+
+class ISprintService(ABC):
+    """Puerto para acceso al sprint/spring del workflow.
+
+    El engine NO conoce delta_tracking. Solo necesita consultar/actualizar
+    el estado del sprint. El main/delta_tracking implementa este puerto.
+    """
+
+    @abstractmethod
+    def from_chain_dir(self, chain_dir: str) -> Any:
+        """Construye el servicio desde chain_dir."""
+        ...
+
+    @abstractmethod
+    def load_tasks(self, chain_dir: str) -> list[dict]:
+        """Carga las tasks del sprint."""
+        ...
+
+    @abstractmethod
+    def get_spring(self, spring_id: str) -> dict | None:
+        """Obtiene un spring por ID."""
+        ...
+
+
+class IPromptCollector(ABC):
+    """Puerto para recolección de prompts/contexto.
+
+    El engine NO conoce features.main.prompts. Solo necesita recolectar
+    prompts. El main implementa este puerto.
+    """
+
+    @abstractmethod
+    def collect(self, chain_dir: str, context: dict[str, Any]) -> dict[str, Any]:
+        """Recolecta prompts para el contexto."""
         ...
 
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 
 from returns.pipeline import is_successful
@@ -42,20 +43,20 @@ def _build_server() -> McpServer:
     """Construye el servidor MCP desde el composition root único.
 
     ADR-045 (capa_rout.md D1): NO registra módulos hardcodeados en paralelo
-    al ModuleRegistry. consume compose_app() — el composition root final de
+    al ModuleRegistry. consume AppContainer.build() — el composition root final de
     features/main registra MCP modules + libs services + tasks + side effects
     y puebla el service locator neutro de core/engine. El server se sincroniza
     con el catálogo fusionado (ModuleRegistry + TaskRegistry, ADR-043).
     """
     from core.engine.infrastructure.trace_log import TraceLogger
-    from features.main.bootstrap import compose_app
+    from features.main.container import AppContainer
     from features.main.cli_interface.domain.services import ToolRegistry
 
     # Composition root obligatorio (D1): puebla el service locator de
     # core/engine y registra todos los módulos MCP. Sin esto, list_tools()
     # y _call_tool() resuelven servicios inexistentes y el server crashea
     # (error MCP -32000 Connection closed).
-    compose_app()
+    AppContainer.build()
 
     registry = ToolRegistry()
     server = McpServer(registry=registry, tracer=TraceLogger())
@@ -217,9 +218,9 @@ def _tool_catalog_core() -> list[dict]:
     server queda sin tools (error MCP -32000 Connection closed).
     """
     from core.engine.application.tool_catalog import list_tools
-    from features.main.bootstrap import compose_app
+    from features.main.container import AppContainer
 
-    compose_app()
+    AppContainer.build()
     return list_tools()
 
 
@@ -334,6 +335,13 @@ def _resolve_project_id(args: dict) -> str:
     pid = (args.get("project_id") or args.get("_project_id") or "").strip()
     if pid:
         return pid
+    # Override explícito del proyecto activo (ADR-WALKER-018): si el cliente
+    # MCP definió WALKER_PROJECT_ID, respetalo aunque el CWD del server no
+    # coincida (servers persistentes entre proyectos). Reusa el mecanismo ya
+    # usado por walker-session.js. El CWD sigue siendo el fallback git-like.
+    env_pid = (os.environ.get("WALKER_PROJECT_ID") or "").strip()
+    if env_pid:
+        return env_pid
     outcome = _resolve_project_core()
     if is_successful(outcome):
         return outcome.value_or("")

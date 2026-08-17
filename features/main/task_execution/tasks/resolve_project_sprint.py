@@ -49,9 +49,9 @@ def resolve_project_sprint_handler(
 @safe
 def _has_sprint_state_core(chain_dir: str) -> bool:
     """Core puro: verifica que el sprint tenga estado en el delta (puede lanzar)."""
-    from features.delta_tracking import spring_service
+    from features.delta_tracking import SpringService
 
-    spring_svc = spring_service(chain_dir=chain_dir)
+    spring_svc = SpringService.from_chain_dir(chain_dir)
     if not spring_svc:
         return False
     spring_id = spring_svc.get_spring_id(chain_dir)
@@ -109,4 +109,15 @@ def _update_session(ctx: ExecutionContext, project_id: str, chain_dir: str) -> N
         )
 
 
+def register(registry: Any) -> None:
+    registry.register(
+        "resolve_project_sprint",
+        resolve_project_sprint_handler,
+        metadata={
+            "description": "Resuelve SPRINT.ACTIVE vs SPRINT.PLANNING desde el estado del proyecto.",
+            "usage": "walker <project>/resolve_project_sprint",
+            "tags": ["workflow", "routing"],
+            "scope": "internal",
+        },
+    )
 

@@ -18,6 +18,7 @@ from typing import Any
 from features.cognitive_knowledge.application.ckg import CodeKnowledgeGraph
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
 from features.cognitive_knowledge.domain.knowledge_graph import KnowledgeNode as Node, KnowledgeEdge as Edge, KnowledgeGraph as Graph
+from features.cognitive_knowledge.domain.values import CkgNodeId, CkgEdgeId, SearchFilters, KnowledgeScope
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ __all__ = [
     "ckg_service",
     "ckg_repository",
     "ckg_analysis_adapter",
+    "CkgNodeId",
+    "CkgEdgeId",
+    "SearchFilters",
+    "KnowledgeScope",
 ]
 
 

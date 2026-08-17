@@ -59,6 +59,12 @@ def _env() -> dict[str, str]:
         parts.insert(0, root)
     env["PYTHONPATH"] = ":".join(parts)
     env["WALKER_DIR"] = os.environ.get("WALKER_DIR", root)
+    # Override explícito del proyecto activo (ADR-WALKER-018). Si el cliente
+    # MCP define WALKER_PROJECT_ID, el servidor resuelve ese proyecto aunque su
+    # CWD no coincida (servers persistentes entre proyectos). Reusa el mecanismo
+    # ya documentado y usado por el hook walker-session.js.
+    if os.environ.get("WALKER_PROJECT_ID"):
+        env["WALKER_PROJECT_ID"] = os.environ["WALKER_PROJECT_ID"]
     for k in ("WALKER_SESSION_ID", "WALKER_AGENT_ID"):
         if os.environ.get(k):
             env[k] = os.environ[k]
@@ -78,7 +84,14 @@ def mcp_servers_block() -> dict:
                 "command": "python3",
                 "args": _mcp_entry(),
                 "env": _env(),
-                "cwd": root,
+                # IMPORTANTE (fix bug multi-proyecto): NO fijar cwd en la raíz del
+                # walker. El walker es git-like — resuelve el proyecto activo desde
+                # el CWD del proceso (find_cognitive_root / resolve_from_registry).
+                # Si el servidor arranca con cwd = raíz del walker, TODO se resuelve
+                # a .cognitive/projects/walker/ aunque el agente trabaje en OTRO
+                # proyecto. Al omitir cwd, el cliente MCP (IDE) lanza el server con
+                # su propio directorio de trabajo (la carpeta del proyecto activo) y
+                # la detección por CWD funciona por proyecto.
                 "description": "Walker workflow + CPG/CKG/delta knowledge tools",
                 "type": "stdio",
             }

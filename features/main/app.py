@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from features.main.bootstrap import AppComposition
+from features.main.container import AppContainer
 from shared.common.shared_domain.models import ExecutionContext
 
 
@@ -18,7 +18,7 @@ class WalkerApp:
     las operaciones de workflow, tasks, y MCP tools.
     """
 
-    def __init__(self, composition: AppComposition) -> None:
+    def __init__(self, composition: AppContainer) -> None:
         self._composition = composition
 
     @property
@@ -43,9 +43,10 @@ class WalkerApp:
     def status(self, project_id: str, repo_path: str = "", sprint_id: str = "") -> dict:
         """Status de un proyecto con el contrato público completo.
 
-        Delega en CheckHealthUseCase (mismo contrato que el facade DI
-        "workflow.status" en bootstrap.py) — el único contrato que el CLI y
-        el MCP consumen: incluye "checks", "sprint" y "next_steps".
+        Delega en CheckHealthService (Application Service cross-feature,
+        ADR-WALKER-048 — mismo contrato que el facade DI "workflow.status")
+        — el único contrato que el CLI y el MCP consumen: incluye "checks",
+        "sprint" y "next_steps".
 
         ANTES: devolvía el snapshot crudo del orchestrator (sin "sprint" ni
         "next_steps") y usaba project_id como chain_dir literal → el handler
@@ -54,14 +55,12 @@ class WalkerApp:
         Era el fallo residual test_get_status_resuelve_desde_cwd y el timeout
         del MCP al consultar status desde otro proyecto.
 
-        AHORA: CheckHealthUseCase resuelve el chain_dir real desde el
+        AHORA: CheckHealthService resuelve el chain_dir real desde el
         DeltaGraph (find_active_sprint / get_sprint_dir) internamente.
         """
-        from features.main.cli_interface.application.project_use_cases import (
-            CheckHealthUseCase,
-        )
+        from orchestration.check_health_service import CheckHealthService
 
-        return CheckHealthUseCase.execute(
+        return CheckHealthService.execute(
             project_id=project_id,
             repo_path=repo_path or "",
             sprint_id=sprint_id,
@@ -76,5 +75,6 @@ class WalkerApp:
         return self._composition.workflow.transition(ctx, gate_name, **kwargs)
 
     def prepare(self, project_path: str, args_flags: dict | None = None) -> dict:
-        from features.main.cli_interface.application.project_use_cases import PrepareProjectUseCase
-        return PrepareProjectUseCase.execute(project_path, args_flags or {})
+        from orchestration.prepare_project_service import PrepareProjectService
+
+        return PrepareProjectService.execute(project_path, args_flags or {})

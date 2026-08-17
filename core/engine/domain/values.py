@@ -48,7 +48,7 @@ class SideEffectDef:
     type: str  # index_code | documenting_knowledge | sync_delta | emit_event | persist_snapshot | run_script
     params: dict[str, object] = field(default_factory=dict)
     optional: bool = False
-    compensation: str = ""  # fuente única (SPEC-014): la que declara el grafo (delete_ckg_nodes | restore_cpg_snapshot | ...)
+    compensation: str = ""  # fuente única (SPEC-014): la que declara el grafo (remove_knowledge | restore_code_snapshot | ...)
     idempotency_key: str = ""  # Para evitar doble ejecucion
 
 

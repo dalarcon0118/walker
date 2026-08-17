@@ -78,7 +78,7 @@ def classify_error(error: Exception) -> ErrorType:
         return ErrorType.VALIDATION
     elif isinstance(error, (GateValidationError, TransitionBlockedError)):
         return ErrorType.TRANSITION
-    elif isinstance(error, AutoAdvanceError):
+    elif isinstance(error, (AutoAdvanceError, SideEffectFailedError)):
         return ErrorType.EXECUTION
     elif isinstance(error, (NodeNotFoundError, SubStateNotFoundError, GateNotFoundError, TaskNotFoundError)):
         return ErrorType.STATE
@@ -159,4 +159,21 @@ class AutoAdvanceError(WorkflowEngineError):
         super().__init__(
             f"Auto-advance fallo en '{node_id}.{sub_key}' (exit={exit_code})",
             {"node_id": node_id, "sub_key": sub_key, "exit_code": exit_code, "stderr": stderr}
+        )
+
+
+class SideEffectFailedError(WorkflowEngineError):
+    """Un side effect OBLIGATORIO (optional=False) fallo (SPEC-014 Fase 2).
+
+    Cierra la asimetría: una task que falla llega al ErrorHandler (fail-loud);
+    un side effect obligatorio que falla AHORA TAMBIÉN — se eleva desde el
+    pipeline (use_cases._execute_side_effects) y el ErrorHandler lo clasifica
+    como TaskFailedError vía bridge → misma estrategia por nodo (on_failure/
+    retry/block/escalate). Los efectos optional=True siguen con warning y
+    continuar (sin cambio).
+    """
+    def __init__(self, effect_type: str, message: str = ""):
+        super().__init__(
+            message or f"Side effect obligatorio '{effect_type}' falló",
+            {"effect_type": effect_type},
         )

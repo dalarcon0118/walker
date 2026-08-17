@@ -142,7 +142,7 @@ class IModuleRegistry(ABC):
 class IWorkflowEngine:
     """Contrato del motor de workflow."""
 
-    def load_workflow(self, chain_dir: str) -> WorkflowGraph:
+    def load_workflow(self, workflow_repo: 'WorkflowRepository') -> WorkflowGraph:
         ...
 
     def load_state(self, chain_dir: str) -> WorkflowState:

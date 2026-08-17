@@ -349,7 +349,7 @@
           "type": "documenting_knowledge",
           "params": {},
           "compensation": {
-            "type": "delete_ckg_nodes",
+            "type": "remove_knowledge",
             "description": "If subsequent step fails, revert CKG save"
           }
         },

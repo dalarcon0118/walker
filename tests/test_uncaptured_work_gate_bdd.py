@@ -124,9 +124,10 @@ def _make_ctx(chain_dir: str, sub_state: str = "REVIEW", node: str = "SPRINT"):
 
 def _make_orchestrator(chain_dir: str):
     from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.path_resolver import get_engine_workflow_path
     from core.engine.application.submit_orchestrator import SubmitOrchestrator
 
-    graph = WorkflowRepository().load(WALKER_CHAIN_DIR)
+    graph = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
 
     class _StateStub:
         def __init__(self, node, sub):

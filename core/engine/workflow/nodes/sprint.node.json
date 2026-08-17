@@ -1194,7 +1194,7 @@
           "optional": true
         },
         {
-          "type": "index_delta",
+          "type": "rebuild_sprint_index",
           "params": {},
           "description": "Reindexar DeltaGraph completo al cerrar el sprint"
         }

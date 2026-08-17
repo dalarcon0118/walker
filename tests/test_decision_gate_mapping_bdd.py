@@ -58,7 +58,8 @@ def _write_workflow(chain_dir: str, nodes, edges: list[dict]) -> None:
 
 def _load_graph(chain_dir: str):
     from core.engine.infrastructure.repositories import WorkflowRepository
-    return WorkflowRepository().load(chain_dir)
+    from shared.core.path_resolver import get_engine_workflow_path
+    return WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
 
 
 @given("un workflow con DESIGN y DESIGN_REVIEW")
@@ -71,7 +72,8 @@ def _design_review_workflow(tmp_path, dgm_ctx: dict):
         [],
     )
     from core.engine.infrastructure.repositories import WorkflowRepository
-    dgm_ctx["graph"] = WorkflowRepository().load(chain_dir)
+    from shared.core.path_resolver import get_engine_workflow_path
+    dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "DESIGN", "current_sub_state": "DESIGN_REVIEW"})()
 
 
@@ -85,7 +87,8 @@ def _task_review_workflow(tmp_path, dgm_ctx: dict):
         [],
     )
     from core.engine.infrastructure.repositories import WorkflowRepository
-    dgm_ctx["graph"] = WorkflowRepository().load(chain_dir)
+    from shared.core.path_resolver import get_engine_workflow_path
+    dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "SPRINT", "current_sub_state": "TASK_REVIEW"})()
 
 
@@ -106,7 +109,8 @@ def _verify_qa_workflow(tmp_path, dgm_ctx: dict):
         [],
     )
     from core.engine.infrastructure.repositories import WorkflowRepository
-    dgm_ctx["graph"] = WorkflowRepository().load(chain_dir)
+    from shared.core.path_resolver import get_engine_workflow_path
+    dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "VERIFY", "current_sub_state": "QA"})()
 
 
@@ -127,7 +131,8 @@ def _verify_po_workflow(tmp_path, dgm_ctx: dict):
         [],
     )
     from core.engine.infrastructure.repositories import WorkflowRepository
-    dgm_ctx["graph"] = WorkflowRepository().load(chain_dir)
+    from shared.core.path_resolver import get_engine_workflow_path
+    dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "VERIFY", "current_sub_state": "PO_ACCEPT"})()
 
 

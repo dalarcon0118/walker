@@ -24,6 +24,8 @@ Estos principios son **inmutables** a menos que se apruebe un ADR explícito que
 | INV-010 | ModuleRegistry y TaskRegistry son SSOT separados | ModuleRegistry = tools MCP; TaskRegistry = handlers. No hay registro paralelo |
 | INV-011 | Toda operación retorna `Result[T, E]` de `returns` | Evita excepciones como control de flujo; hace el fallo explícito y testeable |
 | INV-012 | Las funciones públicas deben ser puras o casi-puras | Sin efectos secundarios ocultos; todo IO se declara en la firma (port/repository/side_effect) |
+| INV-013 | Use Cases son implementación interna del feature; Application Services son la fachada pública (ADR-WALKER-048) | Nadie fuera del feature importa Use Cases directos; el composition root registra solo Application Services y Domain Services; tasks y side-effects consumen fachadas |
+| INV-014 | features/main NO es un feature: es composition root + cross-feature orchestrator (ADR-WALKER-050) | main no tiene Use Cases propios, pero sí Application Services cross-feature (orquestación multi-feature); los tasks son thin adapters sin lógica de negocio |
 
 ---
 
@@ -36,6 +38,24 @@ Estos principios son **inmutables** a menos que se apruebe un ADR explícito que
 | ADR-WALKER-036 | `delta_tracking` es SSOT y SRP del spring | Aprobada |
 | ADR-WALKER-043 | Schemas de tools definidos una sola vez (ToolRegistry) | Aprobada |
 | ADR-WALKER-016 | DIP: task_execution define puertos, code_analysis implementa | Aprobada |
+| ADR-WALKER-048 | Patrón canonical de capa de aplicación: Use Cases + Application Services + Domain Services (SPEC-011) | Aprobada |
+| ADR-WALKER-050 | Boundaries de `features/main`: composition root, cross-feature orchestrators, tasks thin adapters | Aprobada |
+
+### Capa de aplicación canonical (ADR-WALKER-048 / SPEC-011)
+
+Todo feature adopta la estructura `application/use_cases/ + application/services/ + domain/services/`:
+
+| Capa | Ubicación | Responsabilidad | Visibilidad |
+|------|-----------|-----------------|-------------|
+| **Use Cases** | `features/<feature>/application/use_cases/` | Lógica de negocio atómica. Una clase = una acción. Recibe puertos, devuelve entidades o `Result[T, E]`. No sabe de HTTP/MCP/CLI/dicts | Interna al módulo (INV-013) |
+| **Application Services** | `features/<feature>/application/services/` | Fachada pública: orquesta use cases, traduce entidades ↔ dicts. Punto de entrada para MCP/CLI/engine. Sin lógica de negocio | Pública (la registra el composition root) |
+| **Domain Services** | `features/<feature>/domain/services/` | Lógica pura sin IO: invariantes, validaciones, transiciones de estado | Pública |
+| **App Services cross-feature** | `features/main/cli_interface/application/` y `features/main/task_execution/application/` | Orquestan múltiples features (ej: `PrepareProjectService`, `CheckHealthService`, `TaskIntelligenceService`) | Pública |
+
+Reglas de consumo:
+- Use Cases NUNCA se importan desde fuera del feature (INV-013) y NUNCA se registran en el composition root.
+- Tasks y side-effects de `features/main/task_execution/` consumen Application Services (0 imports de `use_cases`).
+- El composition root (`features/main/composition/`) registra solo Application Services, Domain Services e infrastructure.
 
 ---
 

@@ -453,18 +453,47 @@ def _parse_mcp_result(resp: dict) -> dict:
 
 
 def _get_orchestration_service(chain_dir: str) -> OrchestrationService:
-    """Composition root real (capa_rout.md D1): compose_app() produce el registry
+    """Composition root real (capa_rout.md D1): AppContainer.build() produce el registry
     poblado y los mocks son PARCHES para las actions sin handler real. ANTES
     instanciaba OrchestrationService() (DomainTaskRegistry vacío) y los mocks
     sustituían TODO el registry — enmascarando el bug de composición en
     producción (el flujo CLI/MCP avanzaba sin ejecutar tasks reales)."""
-    from features.main.bootstrap import compose_app
+    from features.main.container import AppContainer
+    from core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
+    from shared.core.path_resolver import get_engine_workflow_path
+    from features.project import ProjectService
 
-    app = compose_app()
+    app = AppContainer.build()
     registry = app.task_registry
     se = app.side_effect_engine
     register_mock_tasks(registry)
-    return OrchestrationService(task_registry=registry, side_effect_engine=se)
+
+    # Resolver workflow_path para el chain_dir del test
+    workflow_path = str(get_engine_workflow_path())
+    if chain_dir:
+        try:
+            parent = os.path.dirname(os.path.dirname(chain_dir))
+            wf_dir = 'workflow.v3'
+            modular = os.path.join(parent, wf_dir, 'workflow.json')
+            if os.path.exists(modular):
+                workflow_path = modular
+            else:
+                paths = ProjectService.resolve_paths(chain_dir)
+                project_wf = os.path.join(
+                    str(paths.project_root), wf_dir, 'workflow.json'
+                )
+                if os.path.exists(project_wf):
+                    workflow_path = project_wf
+        except Exception:
+            pass
+
+    return OrchestrationService(
+        workflow_repo=WorkflowRepository(workflow_path=workflow_path),
+        state_repo=WorkflowStateRepository(),
+        script_runner=ScriptRunner(),
+        task_registry=registry,
+        side_effect_engine=se,
+    )
 
 
 # ── Tests E2E MCP Tools ─────────────────────────────────────────────────

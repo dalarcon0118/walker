@@ -114,6 +114,15 @@ def normalize(result: Any, default_type: str, default_scope: str) -> dict[str, A
     if isinstance(result, dict) and is_standard(result):
         return result
     if isinstance(result, dict):
+        # SPEC-014 F2: un dict legacy con ok=False es un FALLO — no se envuelve
+        # como éxito (asimetría silenciosa: el workflow lo registraba ok=True).
+        # Mismo criterio que as_side_effect (status = failed si ok is False).
+        if result.get("ok") is False:
+            return failed(
+                type=default_type, scope=default_scope,
+                summary=f"{default_type} falló: {str(result.get('error', ''))[:200]}",
+                metadata=result,
+            )
         return ok(
             type=default_type, scope=default_scope,
             summary=f"{default_type} completado",

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from features.main.bootstrap import AppComposition
+from features.main.container import AppContainer
 
 
 class FrontController:

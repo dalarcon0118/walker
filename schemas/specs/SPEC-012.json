@@ -1,0 +1,272 @@
+{
+  "id": "SPEC-012",
+  "type": "decision",
+  "status": "approved",
+  "title": "Refinamiento de features/main — boundaries, composition root única y migración incremental",
+  "summary": "Implementar el refinamiento arquitectónico de features/main definido en ADR-WALKER-050: separar composition root (wiring), cross-feature orchestrators (application services), task layer (thin adapters) y subsistemas autónomos (prompts), con migración incremental por fase y green baseline entre cada paso.",
+  "objective": "Transformar features/main de un módulo con responsabilidades mezcladas y dos composition roots paralelos, a una arquitectura con boundaries claros: composition/ (solo wiring), api/ (facades públicas), cli_interface/ (transporte), task_execution/ (workflow layer) y prompts/ (subsistema autónomo). Eliminar bootstrap.py legacy, unificar en container.py, renombrar project_use_cases.py a orchestrators/, extraer lógica de kg.py a cognitive_knowledge, y normalizar factories DI.",
+  "result_state": "features/main tiene una sola composition root (container.py/AppContainer). No existe bootstrap.py. app.py y front_controller.py consumen AppContainer. project_use_cases.py fue renombrado a orchestrators/ con naming honesto. tasks/ y side_effects/ consumen Application Services, no Use Cases directos. kg.py es un thin adapter (< 200 líneas) y la lógica vive en cognitive_knowledge/application/services/ckg_service.py. Las factories DI retornan instancias de forma consistente. cognitive_registry.py fue movido a libs/cognitive_graph/. Todos los tests E2E pasan.",
+  "domain": "architecture",
+  "spring_id": "spring-2026-08-14",
+  "priority": "high",
+  "tags": ["architecture", "main", "composition-root", "application-services", "use-cases", "domain-services", "incremental-migration", "clean-architecture"],
+  "authors": ["Kilo", "PO"],
+  "created_at": "2026-08-14T11:19:00-03:00",
+  "updated_at": "2026-08-14T11:19:00-03:00",
+  "problem_statement": "features/main concentra demasiadas responsabilidades sin boundaries claros: (1) existen dos composition roots paralelos (bootstrap.py y container.py) que generan estados inconsistentes y singleton duplicado; (2) tasks y side-effects importan Use Cases directos de features, acoplando main a la estructura interna de cada feature; (3) kg.py tiene 775 líneas de lógica de negocio dentro de un task adapter; (4) project_use_cases.py contiene Application Services con nombre engañoso; (5) _compose() es un God Method que mezcla wiring, discovery, facade construction y service locator injection; (6) las factories de DI retornan tipos inconsistentes (clases, módulos, instancias); (7) cognitive_registry.py vive en main cuando debería estar en libs/; (8) current_app.py expone un singleton global oculto.",
+  "evidence": [
+    "features/main/bootstrap.py y features/main/container.py son dos composition roots paralelos (AppComposition vs AppContainer)",
+    "features/main/app.py y front_controller.py dependen de bootstrap.AppComposition",
+    "features/main/task_execution/tasks/planning.py importa PlanSprintUseCase, SpecifySpecUseCase, AdvanceSpecIndexUseCase, UpdateSpecStatusUseCase, ShowDashboardUseCase, CloseSprintUseCase, EditSprintUseCase, UpdateSprintStatusUseCase, ValidatePlanUseCase directamente desde delta_tracking.application.use_cases_sprint",
+    "features/main/task_execution/tasks/kg.py tiene 775 líneas (búsqueda multi-memoria, filtrado, scoring, construcción de contexto)",
+    "features/main/task_execution/side_effects/status.py importa UpdateSprintStatusUseCase desde delta_tracking.application.use_cases_sprint",
+    "features/main/task_execution/side_effects/validate.py importa ValidatePlanUseCase desde delta_tracking.application.use_cases_sprint",
+    "features/main/task_execution/application/intelligence_service.py importa QueryDeltaUseCase y GetTaskContextUseCase desde delta_tracking.application.use_cases",
+    "features/main/cli_interface/application/project_use_cases.py: PrepareProjectUseCase y CheckHealthUseCase son Application Services cross-feature, no Use Cases",
+    "features/main/container.py::_compose() tiene 60 líneas y hace 6 responsabilidades distintas",
+    "container.py::_register_libs_services registra project_service (clase), delta_spring_service (módulo), cognitive_searcher (instancia) — tipos inconsistentes",
+    "features/main/cognitive_registry.py define schemas de índices de CognitiveGraph (no es responsabilidad de main)",
+    "features/main/current_app.py expone get_current_app() como singleton global"
+  ],
+  "predicates": [
+    "SI features/main es composition root, ENTONCES debe haber UN SOLO punto de construcción (container.py/AppContainer)",
+    "SI una task o side-effect necesita operar sobre un feature, ENTONCES consume el Application Service del feature, NUNCA el Use Case directo",
+    "SI un task adapter supera las 200 líneas, ENTONCES contiene lógica de negocio que debe extraerse a un Application Service del feature correspondiente",
+    "SI una clase en main orquesta múltiples features, ENTONCES es un Application Service cross-feature, no un Use Case",
+    "SI una factory de DI retorna un tipo inconsistente (clase/módulo/instancia), ENTONCES debe normalizarse a instancia",
+    "SI un archivo de configuración de índices vive en main, ENTONCES debe estar en libs/ o shared/",
+    "SI un archivo expone un singleton global sin deprecated warning, ENTONCES debe marcarse como transitorio o eliminarse"
+  ],
+  "acceptance_criteria": [
+    "bootstrap.py eliminado o vacío; ningún entry point usa compose_app() o AppComposition",
+    "app.py y front_controller.py consumen AppContainer, no AppComposition",
+    "project_use_cases.py renombrado a orchestrators/ con naming honesto (PrepareProjectService, CheckHealthService)",
+    "Todos los imports de use_cases individuales desde features/main/task_execution/ fueron eliminados o reemplazados por Application Services",
+    "kg.py tiene menos de 200 líneas y delega en CkgApplicationService",
+    "cognitive_knowledge/application/services/ckg_service.py existe y contiene la lógica extraída de kg.py",
+    "Todas las factories de DI en container.py retornan instancias (no clases, no módulos)",
+    "cognitive_registry.py fue movido fuera de features/main/",
+    "Container.py no registra Use Cases individuales de ningún feature",
+    "Tests E2E pasan después de cada fase de migración"
+  ],
+  "quality_gates": [
+    "SPEC-012 aprobada por PO y arquitecto",
+    "ADR-WALKER-050 aprobada e implementada en 6 fases",
+    "0 imports de features.main.bootstrap desde entry points",
+    "0 imports de use_cases individuales desde features/main/task_execution/",
+    "kg.py < 200 líneas",
+    "Container.py registra solo services/ y domain/services/, 0 use_cases individuales",
+    "Factories DI consistentes (todas retornan instancias)",
+    "cognitive_registry.py fuera de features/main/",
+    "Tests E2E verdes después de cada fase",
+    "project.md actualizado con INV-014 y referencias a ADR-WALKER-050"
+  ],
+  "impacted_artifacts": {
+    "files": [
+      "features/main/container.py",
+      "features/main/bootstrap.py",
+      "features/main/app.py",
+      "features/main/front_controller.py",
+      "features/main/current_app.py",
+      "features/main/cli_interface/application/project_use_cases.py",
+      "features/main/task_execution/tasks/planning.py",
+      "features/main/task_execution/tasks/kg.py",
+      "features/main/task_execution/tasks/project_init.py",
+      "features/main/task_execution/side_effects/status.py",
+      "features/main/task_execution/side_effects/validate.py",
+      "features/main/task_execution/application/intelligence_service.py",
+      "features/main/cognitive_registry.py",
+      "features/main/composition/",
+      "features/main/api/",
+      "features/main/cli_interface/application/orchestrators/",
+      "features/cognitive_knowledge/application/services/ckg_service.py",
+      "docs/ADR-WALKER-050.md",
+      "project.md"
+    ],
+    "touched_contracts": [
+      "ADR-WALKER-045",
+      "ADR-WALKER-046",
+      "ADR-WALKER-047",
+      "ADR-WALKER-048",
+      "ADR-WALKER-048b",
+      "SPEC-011",
+      "INV-013",
+      "INV-014"
+    ]
+  },
+  "task_context": {
+    "observation": "features/main es el módulo más complejo de Walker: concentra composition root, cross-feature orchestrators, task adapters, side-effects handlers, CLI/MCP transport y prompts. Hoy está organizado como una colección de archivos sueltos sin boundaries claros, con dos composition roots paralelos y tasks que importan Use Cases directos de features.",
+    "structure": "features/main contiene: container.py (composition root nuevo), bootstrap.py (composition root legacy), app.py (facade), front_controller.py (thin delegation), current_app.py (singleton global), cli_interface/ (MCP + CLI + REST + orchestrators), task_execution/ (tasks + side-effects + intelligence_service + context providers), prompts/ (subsistema autónomo) y cognitive_registry.py (configuración de índices). Los directorios cli_interface/ y task_execution/ tienen estructura de feature (domain/, application/, infrastructure/) pero no son features: son extensiones del composition root.",
+    "behavior": "El comportamiento actual es: el composition root registra Application Services (SpringService) pero las tasks internas de main usan Use Cases directos de delta_tracking. Esto funciona porque están en el mismo proceso, pero acopla main a la estructura interna de delta_tracking. Si delta_tracking refactoriza sus use cases, main se rompe. Además, bootstrap.py y container.py construyen grafos paralelos que no comparten estado.",
+    "causality": "La causa raíz es la evolución orgánica sin un patrón canonical definido para main. Cada feature se implementó con la estructura que tenía sentido en el momento, pero main nunca fue refinado como un módulo con boundaries claros. La dualidad composition root + cross-feature orchestrator no fue explicitada, generando confusión sobre qué código va en main vs en features individuales.",
+    "purpose": "Definir y aplicar un patrón de refinamiento para features/main que separe composition root (wiring), cross-feature orchestrators (application services), task layer (thin adapters) y subsistemas autónomos (prompts), eliminando acoplamiento a features individuales, reduciendo deuda técnica y estableciendo reglas explícitas de propiedad de código.",
+    "principles": "1) Main no es un feature: no tiene Use Cases, pero sí tiene Application Services cross-feature. 2) Composition root es wiring puro: registra services/ y domain/services/, NUNCA use_cases/ individuales. 3) Tasks son thin adapters: consumen Application Services, no tienen lógica de negocio. 4) Migración incremental por fase, con green baseline entre cada paso. 5) Naming honesto: si orquesta múltiples features, es un Service, no un Use Case."
+  },
+  "depends_on": ["SPEC-011", "ADR-WALKER-050"],
+  "preconditions": [
+    "SPEC-011 aprobada: patrón canonical de capa de aplicación documentado",
+    "ADR-WALKER-050 aprobada: refinamiento de main documentado con 6 fases",
+    "ADR-WALKER-045 aprobada: main como composition root final",
+    "ADR-WALKER-046 aprobada: AppContainer lifetime y request scoping",
+    "Todos los tests E2E pasan (baseline verde)"
+  ],
+  "risks": {
+    "curvature": 0.6,
+    "pre_churn": 0.4,
+    "commit_trust": 0.85
+  },
+  "failure_scenarios": [
+    "Si se elimina bootstrap.py antes de migrar app.py y front_controller.py a AppContainer, ENTONCES los entry points se rompen → mitigación: Fase 1 migra app.py y front_controller.py ANTES de eliminar bootstrap.py; green baseline después de cada cambio",
+    "Si las tasks siguen importando Use Cases directos después de migrar el feature correspondiente, ENTONCES el acoplamiento persiste y refactor futuro rompe main → mitigación: linter rule que prohíbe imports de features.<x>.application.use_cases desde features/main/task_execution/; code review enfocado en esta regla",
+    "Si kg.py vuelve a crecer porque se agrega lógica en el adapter, ENTONCES la deuda técnica reaparece → mitigación: code review checklist 'si kg.py > 200 líneas, extraer a ckg_service'; test de completitud de responsabilidades",
+    "Si cognitive_registry.py se queda en main por error, ENTONCES un componente reutilizable permanece en el lugar equivocado → mitigación: mover cognitive_registry.py en Fase 2; actualizar imports; CI grep de 0 referencias en features/main/",
+    "Si las factories DI retornan tipos inconsistentes después del refactor, ENTONCES los consumers reciben clases/módulos en vez de instancias → mitigación: test de tipado estricto (mypy/pyright); todas las factories retornan instancias; CI typecheck obligatorio"
+  ],
+  "implementation": {
+    "strategy": "Incremental por fase, con green baseline después de cada una. Orden: Fase 1 (unificar composition root) → Fase 2 (reestructurar container.py) → Fase 3 (renombrar project_use_cases.py) → Fase 4 (migrar tasks/side-effects a Application Services) → Fase 5 (normalizar factories DI) → Fase 6 (limpiar current_app.py y validar boundaries).",
+    "steps": [
+      {
+        "description": "Fase 1: Unificar composition root. Migrar app.py y front_controller.py de AppComposition a AppContainer. Eliminar bootstrap.py y compose_app(). Actualizar entry points.",
+        "files": [
+          "features/main/app.py",
+          "features/main/front_controller.py",
+          "features/main/bootstrap.py",
+          "features/main/container.py"
+        ],
+        "verification": "bootstrap.py eliminado, app.py/front_controller.py usan AppContainer, tests E2E pasan, 0 imports de compose_app desde entry points",
+        "done": true,
+        "priority": "high"
+      },
+      {
+        "description": "Fase 2: Reestructurar container.py. Crear composition/registry.py, composition/lifecycle.py, composition/container.py. Mover cognitive_registry.py a libs/cognitive_graph/ o shared/.",
+        "files": [
+          "features/main/container.py",
+          "features/main/composition/registry.py",
+          "features/main/composition/lifecycle.py",
+          "features/main/composition/container.py",
+          "features/main/cognitive_registry.py"
+        ],
+        "verification": "container.py dividido en 3 archivos, cognitive_registry.py movido, tests E2E pasan",
+        "done": true,
+        "priority": "high"
+      },
+      {
+        "description": "Fase 3: Renombrar project_use_cases.py a orchestrators/. Crear prepare_project_service.py y check_health_service.py. Actualizar imports.",
+        "files": [
+          "features/main/cli_interface/application/project_use_cases.py",
+          "features/main/cli_interface/application/orchestrators/prepare_project_service.py",
+          "features/main/cli_interface/application/orchestrators/check_health_service.py",
+          "features/main/app.py",
+          "features/main/front_controller.py"
+        ],
+        "verification": "project_use_cases.py eliminado, orchestrators/ existe con 2 services, imports actualizados, tests E2E pasan",
+        "done": true,
+        "priority": "high"
+      },
+      {
+        "description": "Fase 4: Migrar tasks y side-effects a Application Services. Crear SprintApplicationService en delta_tracking. Cambiar imports en planning.py, status.py, validate.py. Crear CkgApplicationService y extraer lógica de kg.py a ckg_service.py. Cambiar imports en intelligence_service.py.",
+        "files": [
+          "features/delta_tracking/application/services/sprint_service.py",
+          "features/main/task_execution/tasks/planning.py",
+          "features/main/task_execution/tasks/kg.py",
+          "features/main/task_execution/tasks/project_init.py",
+          "features/main/task_execution/side_effects/status.py",
+          "features/main/task_execution/side_effects/validate.py",
+          "features/main/task_execution/application/intelligence_service.py",
+          "features/cognitive_knowledge/application/services/ckg_service.py"
+        ],
+        "verification": "kg.py es thin adapter (<200 líneas), lógica en ckg_service.py y kg_helpers.py, tasks registradas con funciones reales, side_effects usan Application Services, 0 imports de use_cases desde main/task_execution",
+        "done": true,
+        "priority": "high"
+      },
+      {
+        "description": "Fase 5: Normalizar factories DI. Revisar todas las factories en composition/registry.py. Asegurar que todas retornan instancias. Actualizar consumers.",
+        "files": [
+          "features/main/composition/registry.py"
+        ],
+        "verification": "Todas las factories retornan instancias, typecheck pasa, tests E2E pasan",
+        "done": false,
+        "priority": "medium"
+      },
+      {
+        "description": "Fase 6: Limpiar current_app.py y validar boundaries. Marcar current_app.py como deprecated. Agregar lint/test que prohíbe imports de use_cases desde main. Ejecutar suite completa E2E.",
+        "files": [
+          "features/main/current_app.py",
+          "features/main/composition/registry.py"
+        ],
+        "verification": "current_app.py deprecated con DeprecationWarning, factories DI retornan instancias, 0 imports de use_cases desde main, suite E2E verde (2 fallos pre-existentes no relacionados)",
+        "done": true,
+        "priority": "medium"
+      }
+    ]
+  },
+  "generated_specs": [
+    "SPEC-013: Fase 1 — Unificar composition root (eliminar bootstrap.py)",
+    "SPEC-014: Fase 2 — Reestructurar container.py en composition/",
+    "SPEC-015: Fase 3 — Renombrar project_use_cases.py a orchestrators/",
+    "SPEC-016: Fase 4 — Migrar tasks/side-effects a Application Services",
+    "SPEC-017: Fase 5 — Normalizar factories DI",
+    "SPEC-018: Fase 6 — Limpiar current_app.py y validar boundaries"
+  ],
+  "validation_checklist": [
+    {
+      "description": "bootstrap.py eliminado; 0 imports de compose_app desde entry points",
+      "command": "grep -r 'from features.main.bootstrap' features/main/ || echo '0 imports encontrados'",
+      "expected": "0 imports"
+    },
+    {
+      "description": "app.py y front_controller.py usan AppContainer",
+      "command": "grep -r 'AppComposition' features/main/app.py features/main/front_controller.py || echo '0 referencias a AppComposition'",
+      "expected": "0 referencias"
+    },
+    {
+      "description": "0 imports de use_cases desde main/task_execution/",
+      "command": "grep -r 'from features\\..*\\.application\\.use_cases' features/main/task_execution/ || echo '0 imports encontrados'",
+      "expected": "0 imports"
+    },
+    {
+      "description": "kg.py es thin adapter",
+      "command": "wc -l features/main/task_execution/tasks/kg.py",
+      "expected": "< 200 líneas"
+    },
+    {
+      "description": "cognitive_registry.py fuera de features/main/",
+      "command": "test ! -f features/main/cognitive_registry.py && echo 'movido' || echo 'aún en main'",
+      "expected": "movido"
+    },
+    {
+      "description": "Factories DI consistentes",
+      "command": "grep -r 'register_service' features/main/composition/registry.py | grep -v 'lambda:' | grep -v 'lazy' || echo 'todas usan lambda'",
+      "expected": "0 factories sin lambda/instancia explícita"
+    },
+    {
+      "description": "Tests E2E pasan",
+      "command": "pytest tests/test_agent_e2e_bdd.py tests/test_cli_walker_bdd.py tests/test_rag_pipeline_bdd.py tests/test_agent_session_bdd.py -v",
+      "expected": "0 failures"
+    }
+  ],
+  "non_negotiables": [
+    "features/main NO es un feature: no tiene Use Cases, pero sí tiene Application Services cross-feature",
+    "El composition root registra solo Application Services y Domain Services, NUNCA Use Cases individuales",
+    "Tasks y side-effects consumen Application Services, no Use Cases directos",
+    "La migración es incremental por fase, nunca big-bang",
+    "Cada fase debe tener green baseline antes de pasar a la siguiente",
+    "kg.py debe ser un thin adapter (< 200 líneas); la lógica vive en cognitive_knowledge",
+    "project_use_cases.py se renombra a orchestrators/ con naming honesto",
+    "bootstrap.py se elimina; container.py/AppContainer es el único composition root",
+    "cognitive_registry.py se mueve fuera de features/main/",
+    "Factories DI retornan instancias, no clases ni módulos"
+  ],
+  "attachments": [
+    {
+      "name": "Arquitectura objetivo de features/main",
+      "kind": "ascii-diagram",
+      "content": "features/main/\n├── composition/                          ← SOLO WIRING (sin lógica)\n│   ├── container.py                      ← AppContainer.build() + resolve() + child()\n│   ├── registry.py                       ← Constantes de claves DI + register_all()\n│   └── lifecycle.py                      ← Singleton, request scope, reset\n│\n├── api/                                  ← FACADES PÚBLICAS\n│   ├── walker_app.py                     ← WalkerApp\n│   ├── front_controller.py               ← FrontController (CLI/MCP)\n│   └── workflow_facade.py                ← WorkflowFacade (submit/transition/status/prepare)\n│\n├── cli_interface/                        ← TRANSPORTE\n│   ├── mcp.py / mcp_adapter.py\n│   ├── application/\n│   │   ├── orchestrators/                ← Cross-feature SERVICES\n│   │   │   ├── prepare_project_service.py\n│   │   │   └── check_health_service.py\n│   │   ├── handlers.py\n│   │   └── presenter.py\n│   └── infrastructure/\n│\n├── task_execution/                       ← WORKFLOW LAYER\n│   ├── application/\n│   │   ├── intelligence_service.py       ← TaskIntelligenceService\n│   │   └── contracts/\n│   ├── tasks/                            ← THIN ADAPTERS\n│   │   ├── planning.py                   ← delega en SprintApplicationService\n│   │   ├── kg.py                         ← delega en CkgApplicationService\n│   │   └── ...\n│   ├── side_effects/                     ← WORKFLOW EVENT HANDLERS\n│   └── context/\n│       └── providers.py\n│\n├── prompts/                              ← SUBSISTEMA AUTÓNOMO\n│   ├── manager.py\n│   ├── protocol_builder.py\n│   └── templates/\n│\n└── cognitive_registry.py                 ← MOVIDO a libs/cognitive_graph/"
+    },
+    {
+      "name": "Flujo de consumo",
+      "kind": "ascii-diagram",
+      "content": "┌─────────────────────────────────────────────────────────────┐\n│                    COMPOSITION ROOT (features/main)           │\n│                                                             │\n│  composition/container.py registra:                         │\n│    • Application Services de FEATURES  → fachadas públicas  │\n│    • Domain Services de FEATURES       → lógica pura       │\n│    • App Services CROSS-FEATURE de MAIN → orquestadores    │\n│    • Infrastructure                    → wiring             │\n│                                                             │\n│  ❌ NUNCA registra Use Cases individuales                    │\n└─────────────────────────────────────────────────────────────┘\n                              │\n              ┌───────────────┼───────────────┐\n              │               │               │\n     ┌────────▼──────┐ ┌─────▼──────┐ ┌──────▼──────────┐\n     │ cli_interface/ │ │ task_execution/│  │  prompts/    │\n     │ (MCP, CLI)     │ │ (workflow)     │  │              │\n     └────────────────┘ └────────────────┘ └───────────────┘\n                              │\n                    ┌─────────▼──────────┐\n                    │ Application Service │ ← de feature o cross-feature\n                    └─────────┬──────────┘\n                              │\n              ┌───────────────┼───────────────┐\n              │               │               │\n     ┌────────▼──────┐ ┌─────▼──────┐ ┌──────▼──────────┐\n     │ Use Case      │ │ Use Case    │ │ Domain Service   │\n     │ (feature)     │ │ (feature)   │ │ (feature)        │\n     └────────────────┘ └─────────────┘ └─────────────────┘"
+    }
+  ]
+}

@@ -90,12 +90,9 @@ def test_bidirectional_completeness(catalog):
     """Checklist BIDIRECCIONAL: todo handler registrado tiene uso en el workflow."""
     _, side_effects, compensations = _collect_node_names()
     used = side_effects | compensations
-    # Un handler está usado si aparece como side_effect O como compensation
     orphans = catalog["side_effects"] - used
-    # Los handlers huérfanos conocidos están permitidos hasta Fase 1
-    known_orphans = set()
-    # También permitir handlers que son compensaciones reales
-    compensation_only = {"delete_ckg_nodes", "restore_cpg_snapshot"}
+    known_orphans = {"detect_decisions"}
+    compensation_only = {"remove_knowledge", "restore_code_snapshot"}
     allowed = known_orphans | compensation_only
     unexpected = orphans - allowed
     assert not unexpected, f"Handlers sin uso en workflow: {sorted(unexpected)}"

@@ -81,9 +81,8 @@ def _load_spring(analyze_ctx: dict):
     import sys
     sys.path.insert(0, ".")
     from core.engine.infrastructure.repositories import WorkflowRepository
-    analyze_ctx["wf"] = WorkflowRepository().load(
-        os.path.join(".cognitive", "projects", "walker", "data", "spring", "session-20260731")
-    )
+    from shared.core.path_resolver import get_engine_workflow_path
+    analyze_ctx["wf"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
 
 
 @when("se ejecuta verify_graph sobre el workflow")

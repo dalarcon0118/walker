@@ -76,15 +76,19 @@ class TestCliWalker:
         assert "walker" in out
 
     def test_cli_walker_kg_search_finds_spec(self, tmp_path):
+        # Nombre canónico (SPEC-014 Fase 4): kg_search → recall_knowledge
         project_dir = _setup_project(tmp_path)
-        rc, out, err = _run_main(["kg_search", "--query", "SPEC-003"], cwd=project_dir)
+        rc, out, err = _run_main(
+            ["recall_knowledge", "--query", "SPEC-003"], cwd=project_dir
+        )
         assert rc == 0
-        assert "kg_search" in out or "executed successfully" in out
+        assert "recall_knowledge" in out or "executed successfully" in out
 
     def test_cli_walker_save_to_ckg_saves_decision(self, tmp_path):
+        # Nombre canónico (SPEC-014 Fase 4): save_to_ckg → documenting_knowledge
         project_dir = _setup_project(tmp_path)
         rc, out, err = _run_main([
-            "save_to_ckg",
+            "documenting_knowledge",
             "--type", "decision",
             "--statement", "SPEC-003 requiere tests E2E MCP",
             "--scope", "testing",
@@ -94,14 +98,17 @@ class TestCliWalker:
         assert "ok" in out.lower() or "decision" in out.lower()
 
     def test_cli_walker_kg_diagnose_identifies_gap(self, tmp_path):
-        # Fix de test dependiente del entorno: kg_diagnose requiere un
+        # Nombre canónico (SPEC-014 Fase 4): kg_diagnose → diagnose_failure.
+        # Fix de test dependiente del entorno: diagnose_failure requiere un
         # chain_dir resolvible (sprint activo registrado). ANTES montaba solo
         # .cognitive/ sin sprint → el CLI no resolvía proyecto y la task
         # fallaba con "chain_dir vacio" (fallo por estado del repo, no del
         # código). Ahora monta el sprint activo real y restaura el registro.
         tmp, sprint_dir, reg_ctx = make_project_with_active_sprint(tmp_path)
         try:
-            rc, out, err = _run_main(["kg_diagnose", "--task_id", "SPEC-003"], cwd=Path(tmp))
+            rc, out, err = _run_main(
+                ["diagnose_failure", "--task_id", "SPEC-003"], cwd=Path(tmp)
+            )
             assert rc == 0, f"rc={rc}, out={out!r}, err={err!r}"
             assert "SPEC-003" in out or "diagnose" in out.lower(), (
                 f"sin diagnóstico: out={out!r}"

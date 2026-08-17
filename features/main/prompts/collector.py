@@ -51,9 +51,9 @@ def collect_project_info(chain_dir: str) -> dict:
 
 
 def collect_available_tasks(chain_dir: str, node_id: str | None = None) -> list[dict]:
-    from features.main.bootstrap import compose_app
+    from features.main.container import AppContainer
 
-    app = compose_app()
+    app = AppContainer.build()
     tasks = app.task_registry.list_tasks_with_meta()
     result = []
     for t in tasks:

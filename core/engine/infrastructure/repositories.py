@@ -11,7 +11,7 @@ import json
 import os
 import subprocess
 
-from .config import get as cfg
+# config import moved to composition root
 from ..application.context_resolver import ContextResolver
 from ..domain.entities import (
     WorkflowGraph,
@@ -34,32 +34,48 @@ class WorkflowRepository:
 
     SRP: Unica responsabilidad = cargar y construir WorkflowGraph.
     SSOT: El workflow.json es la fuente unica de verdad para la definicion.
+
+    El workflow_path se resuelve FUERA del repo (main/composition root).
+    El repo solo abre y parsea el archivo que le pasan.
     """
 
-    def load(self, chain_dir: str) -> WorkflowGraph:
-        """Carga el workflow del motor (SSOT): proyecto o plantilla canónica.
+    def __init__(self, workflow_path: str = ""):
+        """Recibe el workflow_path resuelto por el caller.
 
-        PRINCIPIO: NO hay fallback hardcoded ni WorkflowGraph() vacío.
-        Si no hay workflow, ERROR — el problema debe ser visible.
+        Args:
+            workflow_path: Ruta absoluta a workflow.json.
+                          Si es vacío, busca en config del engine (DEPRECATED).
+        """
+        if workflow_path:
+            self._workflow_path = workflow_path
+        else:
+            import warnings
+            from shared.core.path_resolver import get_engine_workflow_path
+            warnings.warn(
+                "WorkflowRepository() sin workflow_path: usando fallback a "
+                "get_engine_workflow_path(). El caller debe resolver el path "
+                "(main/composition root).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._workflow_path = str(get_engine_workflow_path())
 
-        Incluye validación de provides/needs (context_resolver).
-        Los errores de validación se registran como warning pero
-        no bloquean la carga (backwards compatible).
+    def load(self, chain_dir: str | None = None) -> WorkflowGraph:
+        """Carga el workflow desde el path configurado en el constructor.
+
+        Args:
+            chain_dir: DEPRECATED. No se usa para resolver paths.
+                       Se mantiene por backward compatibility con callers existentes.
 
         Raises:
-            FileNotFoundError: si no hay workflow del proyecto ni plantilla del motor.
+            FileNotFoundError: si el workflow_path no existe.
         """
-        path = self._resolve_path(chain_dir)
-        if not path or not os.path.exists(path):
-            from shared.core.path_resolver import get_engine_workflow_path
-            engine_wf = str(get_engine_workflow_path())
-            if os.path.exists(engine_wf):
-                path = engine_wf
-            else:
-                raise FileNotFoundError(
-                    f"No se encontró workflow para chain_dir='{chain_dir}' "
-                    f"ni plantilla canónica del motor en '{engine_wf}'."
-                )
+        path = self._workflow_path
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"No se encontró workflow.json en '{path}'. "
+                "El main/composition root debe resolver y pasar el workflow_path."
+            )
 
         with open(path) as f:
             raw = json.load(f)
@@ -76,17 +92,15 @@ class WorkflowRepository:
             errors = resolver.validate_graph(graph)
             if errors:
                 import logging
-
                 log = logging.getLogger(__name__)
                 for err in errors:
                     log.warning("[context] %s", err)
         except Exception:
             pass  # Non-blocking
 
-        # ── Verificación estructural del workflow (teoría de grafos) ──
+        # Verificación estructural del workflow (teoría de grafos)
         try:
             from ..domain.services import ValidationService
-
             report = ValidationService.verify_graph(graph)
             import logging
             log = logging.getLogger(__name__)
@@ -132,59 +146,6 @@ class WorkflowRepository:
         result.pop("import", None)
         return result
 
-    def _resolve_path(self, chain_dir: str) -> str | None:
-        """Resuelve la ruta al workflow desde un chain_dir.
-
-        Orden de preferencia (SSOT workflow.v3 del motor):
-          1. workflow.v3/workflow.json del proyecto (relativo al chain_dir)
-          2. workflow.v3/workflow.json canónico del proyecto (project_dir)
-          3. plantilla workflow.v3 canónica del motor (get_engine_workflow_path)
-          4. None — el caller decide (ERROR, sin fallback hardcoded)
-
-        El workflow legacy inline (workflow.json v4/v5 hardcoded) NO existe
-        como opción: es un fallback silencioso que escondía el problema.
-        """
-        if not chain_dir:
-            return None
-        parent = os.path.dirname(os.path.dirname(chain_dir))
-
-        # 1. workflow.v3 del proyecto (formato modular, relativo al chain_dir)
-        wf_dir = cfg("workflow_dir")
-        modular = os.path.join(parent, wf_dir, "workflow.json")
-        if os.path.exists(modular):
-            return modular
-
-        # 2. workflow.v3 canónico del proyecto (derivado del project_dir)
-        canonical = self._canonical_workflow_path(chain_dir)
-        if canonical and os.path.exists(canonical):
-            return canonical
-
-        # 3. Plantilla canónica del motor (SSOT)
-        from shared.core.path_resolver import get_engine_workflow_path
-        engine_wf = str(get_engine_workflow_path())
-        if os.path.exists(engine_wf):
-            return engine_wf
-
-        return None
-
-    @staticmethod
-    def _canonical_workflow_path(chain_dir: str = "") -> str | None:
-        """Retorna la ruta al workflow canonico usando project_id derivado del chain_dir."""
-        try:
-            from features.project import ProjectService
-
-            paths = ProjectService.resolve_paths(chain_dir)
-            project_dir = paths.project_root
-            if not project_dir or not os.path.isdir(project_dir):
-                root = cfg("repo_root")
-                if not root:
-                    return None
-                project_dir = root
-            wf_dir = cfg("workflow_dir")
-            return os.path.join(project_dir, wf_dir, "workflow.json")
-        except Exception:
-            return None
-
     def _build_graph(self, raw: dict) -> WorkflowGraph:
         """Construye WorkflowGraph desde el JSON crudo."""
         nodes_dict: dict[str, WorkflowNode] = {}
@@ -201,11 +162,16 @@ class WorkflowRepository:
                 side_effects = []
                 for se_raw in ss_raw.get("side_effects", []):
                     if isinstance(se_raw, dict):
+                        comp_raw = se_raw.get("compensation")
+                        if isinstance(comp_raw, dict):
+                            comp_raw = comp_raw.get("type", "")
                         side_effects.append(
                             SideEffectDef(
                                 type=se_raw.get("type", ""),
                                 params=dict(se_raw.get("params", {})),
                                 optional=bool(se_raw.get("optional", False)),
+                                compensation=str(comp_raw or ""),
+                                idempotency_key=se_raw.get("idempotency_key", ""),
                             )
                         )
 
@@ -237,7 +203,7 @@ class WorkflowRepository:
                 on_success = ss_raw.get("on_success", "")
                 on_failure = ss_raw.get("on_failure", "")
 
-                # ── Validar on_success / on_failure apunten a sub-estados existentes ──
+                # Validar on_success / on_failure apunten a sub-estados existentes
                 sub_state_keys = [
                     s.get("key") for s in node_raw.get("sub_states", [])
                 ]
@@ -258,7 +224,7 @@ class WorkflowRepository:
                     SubState(
                         key=ss_key,
                         label=ss_raw.get("label", ""),
-                        execution=execution,
+                        execution=exec_raw,
                         action=ss_raw.get("action", ""),
                         input_schema=dict(ss_raw.get("input_schema", {})),
                         output_schema=dict(ss_raw.get("output_schema", {})),
@@ -336,9 +302,6 @@ class WorkflowRepository:
         return graph
 
 
-# ── WorkflowState Repository ─────────────────────────────────────────────────
-
-
 class WorkflowStateRepository:
     """Persistencia del estado del workflow (PURO: solo WorkflowState).
 
@@ -391,7 +354,9 @@ class WorkflowStateRepository:
 
         @safe
         def _reconcile() -> tuple[WorkflowState, list[str]]:
-            graph = WorkflowRepository().load(chain_dir)
+            from shared.core.path_resolver import get_engine_workflow_path
+            wf_repo = WorkflowRepository(workflow_path=str(get_engine_workflow_path()))
+            graph = wf_repo.load()
             return state.reconcile_index(graph)
 
         rec_result = _reconcile()

@@ -182,6 +182,7 @@ class AppContainer:
             task_registry=registry,
             side_effect_engine=se_engine,
             tracer=tracer,
+            context_registry=context_registry,
         )
 
         # 5. WorkflowFacade (depende de orch)

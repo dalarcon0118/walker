@@ -5,6 +5,8 @@ El searcher se resuelve por clave en el ModuleRegistry ("cognitive_searcher")
 en vez de importar la implementación concreta de shared/ (inversión de control).
 """
 
+from typing import Any
+
 SUPPORTED_LAYERS = {"cpg", "ckg", "delta", "trace", "state"}
 
 
@@ -19,14 +21,15 @@ class QueryManager:
     """
 
     def __init__(
-        self, chain_dir: str, task_id: str | None = None, session_id: str | None = None
+        self, chain_dir: str, task_id: str | None = None, session_id: str | None = None,
+        project_service: Any = None,
     ):
-        from features.project import ProjectService
-        paths = ProjectService.resolve_paths(chain_dir)
-        self._searcher = None
-        if paths.project_root:
-            from core.engine.bootstrap import get_module_service
+        from core.engine.bootstrap import resolve_service
 
+        project_svc = project_service or self._project_context
+        paths = project_svc.resolve_paths(chain_dir) if project_svc else None
+        self._searcher = None
+        if paths and paths.project_root:
             searcher_factory = get_module_service("cognitive_searcher")
             self._searcher = searcher_factory(paths.project_root)
         self._chain_dir = chain_dir
@@ -155,9 +158,9 @@ class QueryManager:
         sprint_status = ""
         sprint_goal = ""
         try:
-            from features.delta_tracking import spring_service
+            from core.engine.bootstrap import resolve_service
 
-            spring_svc = spring_service(chain_dir=self._chain_dir)
+            spring_svc = self._sprint_service.from_chain_dir(self._chain_dir) if self._sprint_service else None
             if spring_svc:
                 spring_id = spring_svc.get_spring_id(self._chain_dir)
                 spring_svc.ensure_spring_imported(self._chain_dir, spring_id)

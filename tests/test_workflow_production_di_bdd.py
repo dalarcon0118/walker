@@ -2,66 +2,32 @@
 
 Verifica que el flujo de PRODUCCIÓN (get_module_service("workflow").submit,
 usado por handle_submit del CLI y por el tool MCP 'submit') ejecuta las
-tasks REALES del workflow. ANTES este camino devolvía submitted=True sin
-ejecutar plan_sprint: _build_workflow_services construía SubmitDataUseCase
-sin task_registry y el fallback silencioso de _execute_task hacía que el
-workflow avanzara congelado en PLANNING.
+tasks REALES del workflow (plan_sprint, spec_task). ANTES este camino
+devolvía submitted=True sin ejecutar plan_sprint: _build_workflow_services
+construía SubmitDataUseCase sin task_registry y el fallback silencioso de
+_execute_task hacía que el workflow avanzara congelado en PLANNING.
 
 Fix (capa_rout.md D1): bootstrap() registra task_registry/side_effect_engine
 como servicios DI y _build_workflow_services los inyecta en los use cases.
+
+NOTA (SPEC-014 Fase 3, workflow v3.1): el camino de producción resuelve el
+workflow SIEMPRE desde el engine (get_engine_workflow_path → workflow.json
+v3.1). La planificación vive DENTRO del nodo SPRINT (sub-estados PLANNING →
+PLAN_APPROVAL → TASK_SPEC); el nodo separado SPRINT_PLANNING (v3.0) ya no
+existe. El test ejercita el workflow REAL, no un workflow.v3 fake (ese
+fichero no se lee en este camino).
 """
 from __future__ import annotations
-
-import os
 
 from core.engine.domain.entities import WorkflowState
 from core.engine.infrastructure.repositories import WorkflowStateRepository
 from tests.conftest import make_chain_dir
 
 
-def _write_workflow(chain_dir: str) -> None:
-    """Workflow mínimo con dos sub-estados con action real."""
-    import json
-
-    workflow = {
-        "label": "DI Probe",
-        "initial_state": "SPRINT_PLANNING",
-        "nodes": {
-            "SPRINT_PLANNING": {
-                "sub_states": [
-                    {
-                        "key": "PLANNING",
-                        "execution": "llm_task",
-                        "action": "plan_sprint",
-                        "input_schema": {"type": "object"},
-                        "output_schema": {"type": "object"},
-                        "on_success": "TASK_SPEC",
-                        "side_effects": [],
-                    },
-                    {
-                        "key": "TASK_SPEC",
-                        "execution": "llm_task",
-                        "action": "spec_task",
-                        "input_schema": {"type": "object"},
-                        "output_schema": {"type": "object"},
-                        "side_effects": [],
-                    },
-                ]
-            }
-        },
-        "edges": [],
-        "on_events": {},
-    }
-    parent = os.path.dirname(os.path.dirname(chain_dir))
-    wf_dir = os.path.join(parent, "workflow.v3")
-    os.makedirs(wf_dir, exist_ok=True)
-    with open(os.path.join(wf_dir, "workflow.json"), "w") as f:
-        json.dump(workflow, f, indent=2)
-
-
 def _setup_state(chain_dir: str) -> None:
+    """Estado inicial del workflow real v3.1: nodo SPRINT, sub-estado PLANNING."""
     state = WorkflowState(
-        current_node="SPRINT_PLANNING",
+        current_node="SPRINT",
         current_sub_state="PLANNING",
         sub_state_index=0,
         sub_state_data={},
@@ -88,11 +54,10 @@ class TestProductionDICamino:
 
     def test_workflow_submit_ejecuta_task_real(self, tmp_path):
         """get_module_service('workflow').submit ejecuta plan_sprint real y
-        avanza a TASK_SPEC (antes: submitted=True sin task, congelado)."""
+        avanza a PLAN_APPROVAL (antes: submitted=True sin task, congelado)."""
         from core.engine.bootstrap import get_module_service
 
         chain_dir = make_chain_dir(tmp_path, "di-probe", project_name="walker")
-        _write_workflow(chain_dir)
         _setup_state(chain_dir)
 
         svc = get_module_service("workflow")
@@ -107,27 +72,36 @@ class TestProductionDICamino:
         assert "planned" in task_result, f"plan_sprint no devolvió planned: {task_result}"
 
         state = WorkflowStateRepository().load(chain_dir)
-        assert state.current_sub_state == "TASK_SPEC", (
-            f"no avanzó a TASK_SPEC: {state.current_sub_state}"
+        assert state.current_sub_state == "PLAN_APPROVAL", (
+            f"no avanzó a PLAN_APPROVAL: {state.current_sub_state}"
         )
 
     def test_workflow_submit_ejecuta_spec_task(self, tmp_path):
-        """Encadenado: spec_task real (SpecifySpecUseCase) también se ejecuta
-        en el camino de producción — valida el registro completo del DI."""
+        """Encadenado: PO aprueba el plan y spec_task real (SpecifySpecUseCase)
+        también se ejecuta en el camino de producción — valida el registro
+        completo del DI contra el workflow v3.1."""
         from core.engine.bootstrap import get_module_service
 
         chain_dir = make_chain_dir(tmp_path, "di-probe2", project_name="walker")
-        _write_workflow(chain_dir)
         _setup_state(chain_dir)
 
         svc = get_module_service("workflow")
         result = svc.submit(chain_dir, fields={"goal": "g", "tasks": []})
         assert result.get("task_executed") is True
 
-        # Estado avanzó a TASK_SPEC; el siguiente submit ejecuta spec_task
+        # plan_sprint → PLAN_APPROVAL (PO decide approve/revise)
         state = WorkflowStateRepository().load(chain_dir)
-        assert state.current_sub_state == "TASK_SPEC"
+        assert state.current_sub_state == "PLAN_APPROVAL"
 
+        # PO aprueba el plan → TASK_SPEC (XOR-split del workflow v3.1)
+        result_approve = svc.submit(chain_dir, fields={"decision": "approve"})
+        assert "error" not in result_approve, result_approve.get("error")
+        state = WorkflowStateRepository().load(chain_dir)
+        assert state.current_sub_state == "TASK_SPEC", (
+            f"no avanzó a TASK_SPEC tras approve: {state.current_sub_state}"
+        )
+
+        # El siguiente submit ejecuta spec_task (SpecifySpecUseCase)
         result2 = svc.submit(
             chain_dir,
             fields={

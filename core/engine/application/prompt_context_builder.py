@@ -88,9 +88,9 @@ class PromptContextBuilder:
 def _load_spring_data(chain_dir: str) -> tuple[dict | None, list[dict]]:
     """Carga spring y tasks desde el delta (fuente unica)."""
     try:
-        from features.delta_tracking import spring_service
+        from core.engine.bootstrap import resolve_service
 
-        spring_svc = spring_service(chain_dir=chain_dir)
+        spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
         if spring_svc:
             spring_id = os.path.basename(os.path.normpath(chain_dir))
             spring_svc.ensure_spring_imported(chain_dir, spring_id)
@@ -106,9 +106,9 @@ def _load_current_task_index(chain_dir: str) -> int:
     """Lee el indice de la tarea actual desde el contexto del spring."""
     current_idx = 0
     try:
-        from features.delta_tracking import spring_service
+        from core.engine.bootstrap import resolve_service
 
-        spring_svc = spring_service(chain_dir=chain_dir)
+        spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
         if spring_svc:
             spring_id = os.path.basename(os.path.normpath(chain_dir))
             spring_svc.ensure_spring_imported(chain_dir, spring_id)
@@ -311,9 +311,11 @@ def _fill_current_task_context(
     ctx["a3"] = an_fields.get("a3", "")
 
     # ── QUÉ SUCEDIÓ (briefing estándar de user gates) ──
-    from features.main.prompts.gate_briefing import what_happened_from_state
+    from core.engine.bootstrap import resolve_service
 
-    ctx["what_happened"] = what_happened_from_state(an_fields)
+    what_happened = self._gate_briefing if hasattr(self, "_gate_briefing") else None
+    if what_happened:
+        ctx["what_happened"] = what_happened(an_fields)
 
     # ── StepResult del paso anterior (patrón monádico) ──
     last_step = _read_last_step_result(ssd)
@@ -399,7 +401,11 @@ def _build_reflection_placeholders(chain_dir: str, task_id: str, ctx: dict) -> d
     Returns:
         dict con las claves reflection_* (vacío si no hay datos).
     """
-    from features.event_tracing import build_reflection_context
+    from core.engine.bootstrap import resolve_service
+
+    build_reflection_context = self._trace_reflection if hasattr(self, "_trace_reflection") else None
+    if not build_reflection_context:
+        return {}
 
     # Claves genéricas del estado (sin conocer REFINE): ya vienen en ctx si
     # el execution_ctx las cargó; si no, se leen del estado del motor.

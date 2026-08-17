@@ -49,8 +49,10 @@ def _substate(node: dict, key: str) -> dict:
 
 def _work_substate_obj():
     from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.path_resolver import get_engine_workflow_path
 
-    graph = WorkflowRepository().load(WALKER_CHAIN_DIR)
+    repo = WorkflowRepository(workflow_path=str(get_engine_workflow_path()))
+    graph = repo.load()
     node = graph.get_node("IMPLEMENT")
     for ss in node.sub_states:
         if ss.key == "WORK":

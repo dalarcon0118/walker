@@ -1,0 +1,514 @@
+{
+  "id": "ADR-WALKER-048",
+  "title": "Patrón canonical de capa de aplicación: Use Cases + Application Services + Domain Services",
+  "status": "Accepted",
+  "status_note": "Especificación aprobada. Implementación completada (8/9 steps): features migrados a use_cases/ + services/, main/task_execution con 0 imports de use_cases, composition root sin UseCase, project.md documentado. Pendiente: step 2 (extracción de lógica de búsqueda de kg.py a ckg_service.py) — kg.py sigue siendo 649 líneas con el searcher legacy.",
+  "date": "2026-08-14",
+  "authors": [
+    "Kilo",
+    "PO"
+  ],
+  "summary": "Definir el patrón único de capa de aplicación para todos los features de Walker, estableciendo Use Cases como núcleo hexagonal, Application Services como fachada pública y Domain Services como lógica pura. Clarificar el rol de features/main como composition root + cross-feature orchestrator, y establecer qué registra container.py.",
+  "related": [
+    {
+      "id": "ADR-WALKER-036",
+      "relation": "complements",
+      "note": "delta_tracking como SSOT del spring"
+    },
+    {
+      "id": "ADR-WALKER-032",
+      "relation": "complements",
+      "note": "delta_analyze como API unificada"
+    },
+    {
+      "id": "ADR-WALKER-033",
+      "relation": "complements",
+      "note": "domain events en delta_tracking"
+    },
+    {
+      "id": "ADR-WALKER-045",
+      "relation": "depends-on",
+      "note": "features/main como composition root final"
+    },
+    {
+      "id": "ADR-WALKER-046",
+      "relation": "complements",
+      "note": "AppContainer lifetime y request scoping"
+    },
+    {
+      "id": "ADR-WALKER-023",
+      "relation": "complements",
+      "note": "casos de uso de consulta"
+    },
+    {
+      "id": "SPEC-011",
+      "relation": "depends-on",
+      "note": "especificación de unificación de capa de aplicación"
+    }
+  ],
+  "tags": [
+    "architecture",
+    "ddd",
+    "hexagonal",
+    "use-cases",
+    "application-services",
+    "domain-services",
+    "clean-architecture",
+    "composition-root",
+    "cross-cutting"
+  ],
+  "module": "architecture",
+  "ckg_record": "pendiente de registrar",
+  "problem_statement": "Los features de Walker usan estructuras inconsistentes para la capa de aplicación: algunos usan directorios use_cases/, otros archivos únicos, algunos tienen services/, otros no. El composition root (main) importa use cases directos acoplándose a la estructura interna de features. No hay reglas claras sobre qué va en cada capa, especialmente en features/main que cumple dos roles: composition root (wiring) y cross-feature orchestrator (lógica de aplicación).",
+  "evidence": [
+    "delta_tracking/application/use_cases/ tiene 5 archivos (maduro) pero main/task_execution los importa directamente",
+    "code_analysis/application/use_cases.py es un archivo único con 5 clases mezcladas",
+    "code_analysis/application/services/ tiene 6 archivos con responsabilidades solapadas",
+    "cognitive_knowledge/application/use_cases.py es un archivo único sin services/",
+    "project/application/use_cases.py + service.py duplican responsabilidades",
+    "event_tracing/application/search_service.py es una función suelta sin estructura",
+    "main/task_execution/tasks/planning.py importa PlanSprintUseCase directamente desde delta_tracking.application.use_cases_sprint",
+    "main/task_execution/tasks/kg.py tiene 775 líneas de lógica de negocio (no es thin adapter)",
+    "main/task_execution/application/intelligence_service.py importa QueryDeltaUseCase y GetTaskContextUseCase directamente desde delta_tracking.application.use_cases",
+    "main/container.py registra SpringService pero tasks usan use cases directos"
+  ],
+  "affected_modules": [
+    "delta_tracking",
+    "code_analysis",
+    "cognitive_knowledge",
+    "project",
+    "event_tracing",
+    "task_execution",
+    "engine",
+    "cli_interface"
+  ],
+  "affected_paths": [
+    "features/delta_tracking/application/use_cases/",
+    "features/delta_tracking/application/services/spring_service.py",
+    "features/delta_tracking/domain/services/",
+    "features/code_analysis/application/use_cases.py",
+    "features/code_analysis/application/services/",
+    "features/cognitive_knowledge/application/use_cases.py",
+    "features/project/application/use_cases.py",
+    "features/project/application/service.py",
+    "features/event_tracing/application/search_service.py",
+    "features/main/task_execution/tasks/",
+    "features/main/task_execution/tasks/kg.py",
+    "features/main/task_execution/side_effects/",
+    "features/main/task_execution/application/intelligence_service.py",
+    "features/main/cli_interface/application/project_use_cases.py",
+    "features/main/container.py",
+    "features/main/bootstrap.py"
+  ],
+  "decision": {
+    "statement": "Adoptar el patrón Use Cases + Application Services + Domain Services como estructura canonical de capa de aplicación para todos los features de Walker. Clarificar que features/main NO es un feature, sino un composition root + cross-feature orchestrator que SÍ tiene sus propios Application Services pero NUNCA Use Cases individuales.",
+    "rationale": "La arquitectura actual es inconsistente y genera acoplamiento entre main y la estructura interna de features. Unificar bajo un patrón claro elimina la confusión sobre dónde poner nueva lógica, reduce acoplamiento, mejora la testeabilidad y establece reglas explícitas de consumo. Use Cases (hexagonal) proveen lógica de negocio testeable y pura. Application Services (DDD) proveen una fachada estable para el exterior. Domain Services (DDD) proveen lógica irreducible sin IO. Juntos forman una arquitectura limpia, mantenible y escalable. features/main es el composition root (ADR-WALKER-045) y el único que conoce todos los features, pero no es un feature con su propio dominio: no tiene Use Cases, pero sí tiene Application Services cross-feature para orquestar múltiples features.",
+    "pattern": {
+      "name": "Use Cases + Application Services + Domain Services (con main como composition root + cross-feature orchestrator)",
+      "layers": [
+        {
+          "name": "Use Cases",
+          "location": "features/<feature>/application/use_cases/",
+          "responsibility": "Lógica de negocio atómica. Una clase = una acción. Recibe puertos, usa entidades, devuelve entidades o Result[T, E]. No sabe de HTTP, MCP, CLI, dicts.",
+          "visibility": "interna al módulo",
+          "example": "CreateSpringUseCase, QueryDeltaUseCase",
+          "note": "NUNCA se registran en container.py. NUNCA se importan desde fuera del módulo, excepto main/task_execution/ DURANTE la migración."
+        },
+        {
+          "name": "Application Services",
+          "location": "features/<feature>/application/services/",
+          "responsibility": "Fachada pública del feature. Orquesta use cases, traduce entre entidades y formatos de presentación (dicts). Es el punto de entrada para MCP, CLI, engine. No contiene lógica de negocio.",
+          "visibility": "pública (registrada en composition root)",
+          "example": "SpringService, CpgService, ProjectService"
+        },
+        {
+          "name": "Domain Services",
+          "location": "features/<feature>/domain/services/",
+          "responsibility": "Lógica pura sin IO. Invariantes, validaciones, transiciones de estado, reglas de negocio irreducible.",
+          "visibility": "pública (registrada en composition root)",
+          "example": "ConflictResolver, CkgStatusUpdater, compute_project_paths"
+        },
+        {
+          "name": "Cross-Feature Application Services (en main)",
+          "location": "features/main/cli_interface/application/ y features/main/task_execution/application/",
+          "responsibility": "Orquestan lógica que cruza múltiples features (project + CPG + CKG + Delta + Trace). No pertenecen a ningún feature individual. Son Application Services, no Use Cases.",
+          "visibility": "pública (registrada en composition root)",
+          "example": "PrepareProjectUseCase, CheckHealthUseCase, TaskIntelligenceService",
+          "note": "Estos SÍ son Application Services (orquestación cross-feature). No son Use Cases porque no son acciones atómicas de un dominio específico."
+        }
+      ],
+      "directory_structure": {
+        "feature": {
+          "application": {
+            "use_cases/": "un archivo por use case (clase) — IMPLEMENTACIÓN INTERNA",
+            "services/": "un archivo por application service (fachada pública)",
+            "ports/": "interfaces (puertos) que implementa la infraestructura",
+            "presenters.py": "transformación de entidades a dicts para API",
+            "projections.py": "proyecciones legacy"
+          },
+          "domain": {
+            "entities/": "entidades del dominio",
+            "services/": "domain services (lógica pura)",
+            "values/": "value objects",
+            "events/": "domain events"
+          },
+          "infrastructure": {
+            "repositories/": "implementaciones de puertos"
+          }
+        },
+        "main_composition_root": {
+          "container.py": "SOLO wiring: registra services/ y domain/services/ de features, más infrastructure",
+          "bootstrap.py": "Legacy composition root (ser reemplazado por container.py)",
+          "app.py": "Facade pública (WalkerApp)",
+          "front_controller.py": "Thin delegation para CLI/MCP",
+          "current_app.py": "Process-wide singleton"
+        },
+        "main_cross_feature": {
+          "cli_interface/": "Transporte (MCP, CLI, REST) + cross-feature orchestrators",
+          "application/": {
+            "intelligence_service.py": "TaskIntelligenceService (cross-feature CKG×CPG×Delta×Trace)"
+          },
+          "task_execution/": "Task layer (workflow verbs)",
+          "tasks/": "THIN ADAPTERS — consumen Application Services, no Use Cases directos",
+          "side_effects/": "Workflow event handlers",
+          "context/": "Context providers"
+        }
+      }
+    },
+    "subsections": [
+      {
+        "title": "1. El rol de features/main: composition root + cross-feature orchestrator",
+        "content": "features/main NO es un feature. Es dos cosas: (1) Composition root: cablea toda la aplicación (container.py, bootstrap.py). (2) Cross-feature orchestrator: coordina lógica que cruza múltiples features (cli_interface, task_execution, prompts). No tiene su propio dominio, por lo tanto no tiene Use Cases. Sí tiene Application Services cross-feature porque orquesta features individuales."
+      },
+      {
+        "title": "2. Reglas de responsabilidad",
+        "content": "Use Case: una acción atómica de negocio de UN feature. Application Service (feature): fachada pública de UN feature. Domain Service: lógica pura sin IO de UN feature. Application Service (main cross-feature): orquesta MÚLTIPLES features. Task (main): thin adapter entre workflow engine y features. Side-effect (main): handler de eventos de workflow. Infrastructure: persistencia y sistemas externos."
+      },
+      {
+        "title": "3. Reglas de visibilidad y consumo",
+        "content": "Use Cases son implementación interna del módulo. Nadie fuera del feature debe importarlos directamente (INV-013). Application Services y Domain Services son la API pública del feature. El composition root registra solo Application Services y Domain Services. Tasks, side-effects y otros consumers externos usan Application Services."
+      },
+      {
+        "title": "4. Reglas del composition root (container.py)",
+        "content": "features/main/container.py registra EXACTAMENTE: (1) Application Services de features (SpringService, CpgService, CkgService, ProjectService, TraceService). (2) Domain Services de features (ConflictResolver, CkgStatusUpdater, etc.). (3) Application Services cross-feature de main (TaskIntelligenceService, PrepareProjectOrchestrator, CheckHealthOrchestrator). (4) Infrastructure (task_registry, side_effect_engine, module_registry, cognitive_graph, cognitive_searcher, path_resolver, prompt_manager, mcp_server). (5) MCP modules (discovered + explicit). NUNCA registra Use Cases individuales de ningún feature."
+      },
+      {
+        "title": "5. Reglas de tasks y side-effects",
+        "content": "Las tasks en features/main/task_execution/tasks/ son THIN ADAPTERS: reciben el payload del workflow engine, construyen/obtienen el Application Service correspondiente, le pasan los datos, y retornan el resultado. NUNCA contienen lógica de negocio. NUNCA importan Use Cases directos de features. Las side-effects en features/main/task_execution/side_effects/ son handlers de eventos de workflow que consumen Application Services."
+      },
+      {
+        "title": "6. Reglas de migración",
+        "content": "La migración es incremental por feature. Cada feature se migra de forma independiente, manteniendo backward compatibility durante la transición. Se valida green baseline después de cada migración. No se permite big-bang. Durante la migración, las tasks de main pueden consumir Use Cases directos TEMPORALMENTE, pero una vez migrado el feature, deben usar el Application Service."
+      },
+      {
+        "title": "7. El caso especial de kg.py (deuda técnica)",
+        "content": "features/main/task_execution/tasks/kg.py tiene ~775 líneas y contiene lógica de negocio sustancial (búsqueda multi-memoria, filtrado, scoring, construcción de contexto). Esto es INCORRECTO: un task debe ser un thin adapter. La lógica debe extraerse a cognitive_knowledge/application/services/ (ej: CkgQueryService). Una vez extraída, kg.py se convierte en un adapter delgado que consume el Application Service."
+      }
+    ]
+  },
+  "impact": {
+    "affected_components": [
+      "features/delta_tracking/application/use_cases/",
+      "features/delta_tracking/application/services/spring_service.py",
+      "features/delta_tracking/domain/services/",
+      "features/code_analysis/application/use_cases.py",
+      "features/code_analysis/application/services/",
+      "features/cognitive_knowledge/application/use_cases.py",
+      "features/project/application/use_cases.py",
+      "features/project/application/service.py",
+      "features/event_tracing/application/search_service.py",
+      "features/main/task_execution/tasks/",
+      "features/main/task_execution/tasks/kg.py",
+      "features/main/task_execution/side_effects/",
+      "features/main/task_execution/application/intelligence_service.py",
+      "features/main/cli_interface/application/project_use_cases.py",
+      "features/main/container.py",
+      "features/main/bootstrap.py"
+    ],
+    "changes": [
+      {
+        "area": "code_analysis/application/use_cases.py",
+        "before": "archivo único con 5 clases",
+        "after": "directorio use_cases/ con 5 archivos (uno por clase)"
+      },
+      {
+        "area": "code_analysis/application/services/",
+        "before": "6 archivos con responsabilidades mezcladas",
+        "after": "consolidado: services/ como fachada, use_cases/ como implementación"
+      },
+      {
+        "area": "cognitive_knowledge/application/use_cases.py",
+        "before": "archivo único",
+        "after": "directorio use_cases/ + services/ como fachada"
+      },
+      {
+        "area": "project/application/use_cases.py + service.py",
+        "before": "dos archivos con duplicación",
+        "after": "use_cases/ + services/ sin duplicación"
+      },
+      {
+        "area": "event_tracing/application/search_service.py",
+        "before": "función suelta sin estructura",
+        "after": "use_cases/ + services/ canonical"
+      },
+      {
+        "area": "main/task_execution/tasks/planning.py",
+        "before": "importa PlanSprintUseCase directo de delta_tracking",
+        "after": "consume SprintApplicationService (Application Service)"
+      },
+      {
+        "area": "main/task_execution/tasks/kg.py",
+        "before": "775 líneas de lógica de negocio en task",
+        "after": "thin adapter; lógica extraída a cognitive_knowledge/application/services/ckg_service.py"
+      },
+      {
+        "area": "main/task_execution/application/intelligence_service.py",
+        "before": "importa QueryDeltaUseCase y GetTaskContextUseCase directos",
+        "after": "consume Application Services de features"
+      },
+      {
+        "area": "main/container.py",
+        "before": "registra SpringService + ConflictResolver",
+        "after": "registra Services y Domain Services de todos los features + services cross-feature de main"
+      },
+      {
+        "area": "main/bootstrap.py",
+        "before": "legacy composition root con discover_* patterns",
+        "after": "eliminado o reemplazado por container.py"
+      }
+    ],
+    "risks": [
+      "Migración sin backward compatibility rompe MCP/CLI → mitigación: migración incremental, mantener aliases transitorios, tests de regresión por feature",
+      "Tasks siguen importando use cases después de migración → mitigación: lint rule, code review, ADR prohíbe explícitamente (INV-013)",
+      "Lógica de negocio en services → mitigación: regla estricta: services no tienen lógica, solo orquestación",
+      "Composition root registra use cases → mitigación: lint rule, test de completitud del registry",
+      "kg.py es una deuda técnica grande (775 líneas) → mitigación: extracción incremental por método, no big-bang"
+    ],
+    "tradeoffs": [
+      "Costo de migrar todos los features → se acepta porque elimina inconsistencias permanentes y reduce deuda técnica",
+      "Overhead de mantener 3 capas en features → se acepta porque cada capa tiene responsabilidad única y testeable",
+      "Application Service como capa adicional → se acepta porque provee estabilidad contractual al exterior",
+      "Main tiene Application Services cross-feature → se acepta porque es el único lugar donde la lógica cross-feature puede vivir sin acoplar features entre sí"
+    ],
+    "unchanged": [
+      "delta_tracking/application/use_cases/ (ya está maduro, solo ajustes)",
+      "La lógica de negocio existente (solo se mueve de archivo a archivo)",
+      "Los contratos públicos de MCP, CLI y engine (se mantienen igual)",
+      "Los tests de regresión (deben seguir pasando)"
+    ]
+  },
+  "alternatives": [
+    {
+      "option": "Status quo: mantener estructuras inconsistentes",
+      "rejected_reason": "Genera confusión permanente, acoplamiento oculto, dificulta la contribución de nuevos desarrolladores y agentes LLM."
+    },
+    {
+      "option": "Solo usar Use Cases, sin Application Services",
+      "rejected_reason": "Los consumidores externos (MCP, CLI, engine) tendrían que conocer y componer todos los use cases individualmente, duplicando orquestación y rompiendo encapsulación."
+    },
+    {
+      "option": "Solo usar Services (eliminar use cases)",
+      "rejected_reason": "Los services se volverían God classes con toda la lógica de negocio, perdiendo testeabilidad y violando SRP."
+    },
+    {
+      "option": "Big-bang migration (todos los features a la vez)",
+      "rejected_reason": "Alto riesgo de regresión, rollback difícil, bloquea otros desarrollos. La migración incremental es más segura."
+    },
+    {
+      "option": "Hacer de main un feature con su propio use_cases/ y services/",
+      "rejected_reason": "Main no tiene un dominio propio. Sus 'acciones' son orquestación cross-feature, que son services, no use cases. Convertirlo en feature complicaría la arquitectura sin beneficio."
+    }
+  ],
+  "implementation": {
+    "strategy": "Incremental por feature, con green baseline entre cada migración. Orden: delta_tracking (ajustes: eliminar imports de use_cases desde main) → main/task_execution (cambiar imports a services) → code_analysis (mayor impacto) → cognitive_knowledge → project → event_tracing.",
+    "steps": [
+      {
+        "description": "Ajustar delta_tracking: crear Application Services que faltan, eliminar imports de use_cases desde main/task_execution",
+        "files": [
+          "features/delta_tracking/application/services/spring_service.py",
+          "features/main/task_execution/tasks/planning.py",
+          "features/main/task_execution/tasks/kg.py",
+          "features/main/task_execution/tasks/project_init.py",
+          "features/main/task_execution/side_effects/status.py",
+          "features/main/task_execution/side_effects/validate.py",
+          "features/main/task_execution/application/intelligence_service.py"
+        ],
+        "verification": "0 imports de use_cases desde main/task_execution, tests E2E pasan",
+        "done": true,
+        "priority": "high",
+        "evidence": "use_cases_sprint.py (854 líneas, 13 clases) splitteado a use_cases/ con un archivo por clase + _sprint_helpers.py; shim use_cases_sprint.py para compat. Nuevos Application Services: services/sprint_service.py (SprintApplicationService, 9 operaciones) y services/delta_query_service.py (DeltaQueryService). main/task_execution con 0 imports de use_cases (grep verificado)"
+      },
+      {
+        "description": "Refactorizar main/task_execution/tasks/kg.py: extraer lógica a cognitive_knowledge/application/services/ckg_service.py",
+        "files": [
+          "features/main/task_execution/tasks/kg.py",
+          "features/cognitive_knowledge/application/services/ckg_service.py"
+        ],
+        "verification": "kg.py es thin adapter, lógica en ckg_service.py, tests pasan",
+        "done": false,
+        "priority": "high",
+        "evidence": "PARCIAL: CkgApplicationService creado en services/ckg_service.py y kg.py ya consume save_nodes vía el Application Service (INV-013). PENDIENTE: kg.py (649 líneas) conserva la lógica de búsqueda (kg_search/kg_schema/kg_multi) sobre el searcher legacy — la extracción a ckg_service.py y el thin adapter < 200 líneas quedan como deuda. Nota: la versión actual de kg.py es la legacy del usuario (post-revert de ADR-047 F3)."
+      },
+      {
+        "description": "Migrar code_analysis: use_cases.py → use_cases/ (directorio), consolidar services/ como fachada",
+        "files": [
+          "features/code_analysis/application/use_cases.py",
+          "features/code_analysis/application/use_cases/check_cpg_health.py",
+          "features/code_analysis/application/use_cases/gather_cpg_context.py",
+          "features/code_analysis/application/use_cases/detect_unused_functions.py",
+          "features/code_analysis/application/use_cases/review_code.py",
+          "features/code_analysis/application/use_cases/project_metrics.py",
+          "features/code_analysis/application/services/cpg_service.py",
+          "features/code_analysis/application/services/bug_service.py",
+          "features/code_analysis/application/services/review_service.py",
+          "features/code_analysis/application/services/query_service.py",
+          "features/code_analysis/application/services/build_service.py",
+          "features/code_analysis/application/services/business_analyzer.py"
+        ],
+        "verification": "code_analysis tests pasan, 0 imports rotos, estructura use_cases/ existe",
+        "done": true,
+        "priority": "high",
+        "evidence": "use_cases/ con 5 archivos (uno por clase) + _common.py + __init__.py shim; el módulo use_cases.py fue eliminado (reemplazado por el paquete); import smoke OK incluyendo features.code_analysis.__init__ (CheckCpgHealthUseCase vía root facade)"
+      },
+      {
+        "description": "Migrar cognitive_knowledge: use_cases.py → use_cases/, crear services/ como fachada",
+        "files": [
+          "features/cognitive_knowledge/application/use_cases.py",
+          "features/cognitive_knowledge/application/use_cases/check_ckg_health.py",
+          "features/cognitive_knowledge/application/use_cases/gather_ckg_context.py",
+          "features/cognitive_knowledge/application/use_cases/save_to_ckg.py",
+          "features/cognitive_knowledge/application/use_cases/collect_knowledge.py",
+          "features/cognitive_knowledge/application/use_cases/get_ckg_nodes_for_task.py",
+          "features/cognitive_knowledge/application/use_cases/index_repo.py",
+          "features/cognitive_knowledge/application/use_cases/research_topic.py",
+          "features/cognitive_knowledge/application/services/ckg_service.py"
+        ],
+        "verification": "cognitive_knowledge tests pasan, estructura use_cases/ existe",
+        "done": true,
+        "priority": "high",
+        "evidence": "use_cases/ con 7 archivos (uno por clase) + _common.py; services/ckg_service.py con CkgApplicationService (save_nodes, collect_knowledge, index_repo, research_topic, check_health, gather_context, get_nodes_for_task); el módulo use_cases.py fue eliminado (reemplazado por el paquete con __init__ shim); import smoke OK"
+      },
+      {
+        "description": "Migrar project: consolidar use_cases.py + service.py en use_cases/ + services/",
+        "files": [
+          "features/project/application/use_cases.py",
+          "features/project/application/service.py",
+          "features/project/application/use_cases/project_detector.py",
+          "features/project/application/use_cases/detect_project_context.py",
+          "features/project/application/use_cases/update_project.py",
+          "features/project/application/services/project_service.py"
+        ],
+        "verification": "project tests pasan, sin duplicación de responsabilidades",
+        "done": true,
+        "priority": "high",
+        "evidence": "use_cases/ con project_detector, health_report_analyzer, detect_project_context, update_project + __init__.py shim; services/project_service.py con ProjectService (Application Service); service.py queda como shim; los archivos únicos use_cases.py/service.py fueron reemplazados; import smoke OK (ProjectService idéntico en los 3 paths)"
+      },
+      {
+        "description": "Migrar event_tracing: crear use_cases/ para lógica, services/ como facade",
+        "files": [
+          "features/event_tracing/application/search_service.py",
+          "features/event_tracing/application/use_cases/search_traces.py",
+          "features/event_tracing/application/services/trace_service.py"
+        ],
+        "verification": "event_tracing tests pasan, estructura canonical adoptada",
+        "done": true,
+        "priority": "medium",
+        "evidence": "use_cases/search_traces.py con SearchTracesUseCase (fail-closed, ADR-WALKER-018) + alias funcional search_traces; services/trace_service.py con TraceService (search y load_and_search); search_service.py queda como shim; import smoke OK"
+      },
+      {
+        "description": "Actualizar main/container.py: registrar solo Application Services y Domain Services de features + services cross-feature de main",
+        "files": [
+          "features/main/container.py"
+        ],
+        "verification": "container.py registra services/ y domain/services/, 0 use_cases individuales, tests E2E pasan",
+        "done": true,
+        "priority": "high",
+        "evidence": "container.py es hoy re-export de features/main/composition/ (migración ADR-WALKER-050 del usuario). grep 'UseCase' en container.py + composition/ → 0. PrepareProjectUseCase→PrepareProjectService y CheckHealthUseCase→CheckHealthService (Application Services cross-feature, aliases de compatibilidad). AppContainer.build() OK: 27 tasks + tool_catalog 27 tools"
+      },
+      {
+        "description": "Eliminar main/bootstrap.py legacy (reemplazado por container.py)",
+        "files": [
+          "features/main/bootstrap.py"
+        ],
+        "verification": "bootstrap.py eliminado o vacío, todos los call sites migrados a container.py, tests pasan",
+        "done": true,
+        "priority": "medium",
+        "evidence": "features/main/bootstrap.py ya no existe (eliminado por el usuario en la migración a features/main/composition/, ADR-WALKER-050). Los únicos referencias a compose_app() restantes son docstrings/mensajes de error en core/engine/bootstrap.py (no call sites reales)"
+      },
+      {
+        "description": "Actualizar project.md con la decisión arquitectónica",
+        "files": [
+          "project.md"
+        ],
+        "verification": "project.md documenta el patrón canonical de capa de aplicación y rol de main",
+        "done": true,
+        "priority": "medium",
+        "evidence": "project.md actualizado: INV-013 (Use Cases internos / Application Services públicos) e INV-014 (main no es un feature), ADR-WALKER-048/050 en decisiones, sección 'Capa de aplicación canonical' con las 4 capas y reglas de consumo"
+      }
+    ]
+  },
+  "validation_checklist": [
+    {
+      "description": "Todos los features tienen estructura canonical de capa de aplicación",
+      "command": "find features/ -mindepth 2 -maxdepth 2 -type d -name use_cases | sort",
+      "expected": "5 directorios use_cases/ (delta_tracking, code_analysis, cognitive_knowledge, project, event_tracing)"
+    },
+    {
+      "description": "No hay imports de use_cases individuales desde features/main/task_execution/",
+      "command": "grep -r 'from features\\..*\\.application\\.use_cases' features/main/task_execution/ || echo '0 imports encontrados'",
+      "expected": "0 imports"
+    },
+    {
+      "description": "Container.py no registra use cases individuales",
+      "command": "grep -r 'UseCase' features/main/container.py || echo '0 registros de UseCase'",
+      "expected": "0 registros"
+    },
+    {
+      "description": "kg.py es thin adapter (no contiene lógica de negocio sustancial)",
+      "command": "wc -l features/main/task_execution/tasks/kg.py",
+      "expected": "< 200 líneas (después de extraer lógica a ckg_service.py)"
+    },
+    {
+      "description": "Tests E2E pasan después de cada migración",
+      "command": "pytest tests/test_agent_e2e_bdd.py tests/test_cli_walker_bdd.py tests/test_rag_pipeline_bdd.py tests/test_agent_session_bdd.py -v",
+      "expected": "0 failures"
+    },
+    {
+      "description": "Todos los tests de unidad pasan",
+      "command": "pytest tests/ -v --ignore=tests/test_agent_e2e_bdd.py --ignore=tests/test_cli_walker_bdd.py --ignore=tests/test_rag_pipeline_bdd.py --ignore=tests/test_agent_session_bdd.py",
+      "expected": "0 failures"
+    }
+  ],
+  "non_negotiables": [
+    "Use Cases son la implementación interna del feature, no parte de la API pública",
+    "Application Services son la fachada pública que registra el composition root",
+    "El composition root NUNCA registra Use Cases individuales",
+    "Tasks y side-effects consumen Application Services, no Use Cases directos",
+    "Domain Services contienen solo lógica pura sin IO (invariantes, validaciones, transiciones de estado)",
+    "Application Services no contienen lógica de negocio, solo orquestación y traducción de formatos",
+    "La migración es incremental feature por feature, nunca big-bang",
+    "Cada feature migrado debe mantener backward compatibility durante la transición",
+    "Un Use Case = una clase = una acción atómica de negocio",
+    "Si un use_cases.py es un archivo único con múltiples clases, debe ser un directorio use_cases/",
+    "features/main NO es un feature: no tiene Use Cases, pero sí tiene Application Services cross-feature",
+    "container.py registra: (1) Application Services de features, (2) Domain Services de features, (3) Application Services cross-feature de main, (4) Infrastructure, (5) MCP modules",
+    "tasks/ son THIN ADAPTERS: no contienen lógica de negocio"
+  ],
+  "attachments": [
+    {
+      "name": "Arquitectura completa de capa de aplicación",
+      "kind": "ascii-diagram",
+      "content": "┌─────────────────────────────────────────────────────────────────────────────┐\n│                        FEATURES/MAIN (Composition Root)                      │\n│                                                                             │\n│  ┌─────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐    │\n│  │  container.py   │  │  bootstrap.py    │  │  app.py / front_controller│    │\n│  │  (wiring)       │  │  (legacy)        │  │  (facade)                 │    │\n│  └────────┬────────┘  └──────────────────┘  └──────────────────────────┘    │\n│           │                                                                 │\n│  ┌────────▼──────────────────────────────────────────────────────────┐     │\n│  │                    REGISTRA / RESUELVE                             │     │\n│  │  • Application Services de features (SpringService, CpgService)   │     │\n│  │  • Domain Services de features (ConflictResolver)                 │     │\n│  │  • App Services cross-feature (TaskIntelligenceService)           │     │\n│  │  • Infrastructure (task_registry, side_effect_engine, etc.)       │     │\n│  │  • MCP modules                                                    │     │\n│  └───────────────────────────────────────────────────────────────────┘     │\n└─────────────────────────────────────────────────────────────────────────────┘\n                                    │\n              ┌───────────────────────┼───────────────────────┐\n              │                       │                       │\n     ┌────────▼──────┐      ┌────────▼──────┐      ┌────────▼──────┐\n     │ cli_interface/ │      │ task_execution/│      │   prompts/    │\n     │ (MCP, CLI)     │      │ (workflow)     │      │               │\n     └───────┬────────┘      └───────┬────────┘      └───────────────┘\n             │                       │\n             │    ┌──────────────────┼──────────────────┐\n             │    │                  │                  │\n       ┌─────▼─────┐      ┌───────▼──────┐   ┌───────▼──────┐\n       │application │      │  tasks/      │   │ side_effects/│\n       │ project_   │      │  (thin       │   │ (workflow    │\n       │ use_cases  │      │   adapters)  │   │  handlers)   │\n       │ (cross)    │      └──────┬──────┘   └──────────────┘\n       └────────────┘             │\n                                 │ consume\n                                 ▼\n                  ┌──────────────────────────┐\n                  │   Application Services    │\n                  │   (de features individuales)│\n                  │  SpringService, CpgService,│\n                  │  CkgService, etc.          │\n                  └────────────┬─────────────┘\n                               │ consume\n                               ▼\n                  ┌──────────────────────────┐\n                  │      Use Cases           │\n                  │   (implementación interna)│\n                  │  CreateSpringUseCase,     │\n                  │  QueryDeltaUseCase, etc.  │\n                  └──────────────────────────┘"
+    },
+    {
+      "name": "Flujo de consumo detallado",
+      "kind": "ascii-diagram",
+      "content": "┌─────────────────────────────────────────────────────────────────────────────┐\n│                    COMPOSITION ROOT (features/main)                         │\n│                                                                             │\n│  container.py registra:                                                     │\n│    • Application Services de FEATURES  → fachadas públicas                 │\n│    • Domain Services de FEATURES       → lógica pura                      │\n│    • App Services CROSS-FEATURE de MAIN → orquestadores                   │\n│    • Infrastructure                    → wiring                            │\n│                                                                             │\n│  ❌ NUNCA registra Use Cases individuales                                    │\n└─────────────────────────────────────────────────────────────────────────────┘\n                                    │\n              ┌───────────────────────┼───────────────────────┐\n              │                       │                       │\n     ┌────────▼──────┐      ┌────────▼──────┐      ┌────────▼──────┐\n     │ MCP Adapter   │      │  CLI/REST     │      │  Engine       │\n     └───────┬───────┘      └───────┬───────┘      └───────┬──────┘\n             │                       │                       │\n             └───────────────────────┼───────────────────────┘\n                                     │\n                           ┌─────────▼──────────┐\n                           │ Application Service │ ← Puede ser de feature o cross-feature\n                           │  (EntityService)    │\n                           └─────────┬──────────┘\n                                     │\n                   ┌─────────────────┼─────────────────┐\n                   │                 │                 │\n         ┌─────────▼──────┐  ┌──────▼──────┐  ┌──────▼──────────┐\n         │ Use Case       │  │ Use Case    │  │ Domain Service   │\n         │ create_entity  │  │ query_entity│  │ entity_rules     │\n         └────────────────┘  └─────────────┘  └─────────────────┘"
+    },
+    {
+      "name": "Estructura canonical de capa de aplicación (por feature)",
+      "kind": "ascii-diagram",
+      "content": "features/<feature>/\n├── application/\n│   ├── use_cases/              ← Núcleo hexagonal (privado al módulo)\n│   │   ├── create_entity.py    │   • Una clase = una acción atómica\n│   │   ├── query_entity.py     │   • Recibe puertos, devuelve entidades/Result\n│   │   └── update_entity.py    │   • No sabe de HTTP, MCP, CLI, dicts\n│   │                            │   • NUNCA se registra en container.py\n│   ├── services/               ← Fachada pública (registrada en main)\n│   │   └── entity_service.py   │   • Orquesta use cases\n│   │                            │   • Traduce entidades ↔ dicts\n│   │                            │   • Punto de entrada para MCP/CLI/engine\n│   ├── ports/                  ← Interfaces (puertos)\n│   │   └── entity_repository.py│   • Contratos que implementa infrastructure\n│   ├── presenters.py           ← Entidad → dict para API\n│   └── projections.py          ← Proyecciones legacy\n├── domain/\n│   ├── entities/               ← Entidades del dominio\n│   ├── services/               ← Lógica pura sin IO\n│   │   └── entity_rules.py     │   • Invariantes, validaciones, transiciones\n│   └── values/                 ← Value objects\n└── infrastructure/\n    └── repositories/           ← Implementaciones de puertos"
+    }
+  ]
+}

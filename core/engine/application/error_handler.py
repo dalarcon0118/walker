@@ -30,6 +30,7 @@ from ..domain.errors import (
 _ERROR_CLASS_BRIDGE: dict[str, str] = {
     "AutoAdvanceError": "TaskFailedError",
     "TaskNotFoundError": "TaskFailedError",
+    "SideEffectFailedError": "TaskFailedError",  # SPEC-014 F2: misma estrategia que una task que falla
     "ValidationError": "SchemaViolation",
     "TransitionBlockedError": "PreconditionError",
     "GateValidationError": "PreconditionError",
@@ -246,7 +247,7 @@ class ErrorHandler:
 
         @safe
         def _do_escalate() -> dict:
-            workflow = self._workflow_repo.load(ctx.chain_dir) if self._workflow_repo else None
+            workflow = self._workflow_repo.load() if self._workflow_repo else None
             state = self._state_repo.load(ctx.chain_dir) if self._state_repo else None
             
             if not state or not workflow:
@@ -331,7 +332,7 @@ class ErrorHandler:
 
             wf_repo = self._workflow_repo or WorkflowRepository()
             st_repo = self._state_repo or WorkflowStateRepository()
-            graph = wf_repo.load(ctx.chain_dir)
+            graph = wf_repo.load()
             state = st_repo.load(ctx.chain_dir)
 
             jumped = AdvanceService.jump_to_sub_state(

@@ -126,9 +126,9 @@ class ContextResolver:
         if not chain_dir:
             return None
         try:
-            from features.delta_tracking import spring_service
+            from core.engine.bootstrap import resolve_service
 
-            spring_svc = spring_service(chain_dir=chain_dir)
+            spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
             if not spring_svc:
                 return None
             spring_id = spring_svc.get_spring_id(chain_dir)

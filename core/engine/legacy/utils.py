@@ -252,9 +252,9 @@ def _load_tasks(chain_dir: str) -> tuple[list[dict], str]:
     if not chain_dir:
         return [], "chain_dir vacio."
     try:
-        from features.delta_tracking import spring_service
+        # resolve_service removed
 
-        spring_svc = spring_service(chain_dir=chain_dir)
+        spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
         if not spring_svc:
             return [], "No se pudo resolver SpringService."
         tasks = spring_svc.load_tasks(chain_dir)
@@ -400,10 +400,10 @@ def _resolve_chain_id(chain_id: str) -> str | None:
         if not os.path.isdir(project_root):
             continue
         try:
-            from features.delta_tracking import SpringService
+            # resolve_service removed
             from shared.core.path_resolver import get_sprint_dir
 
-            spring_svc = SpringService(project_root)
+            spring_svc = self._sprint_service.from_chain_dir(project_root) if self._sprint_service else None
             for spring in spring_svc.list_springs():
                 spring_id = spring.get("_id", "")
                 if spring_id != search_id:
@@ -465,9 +465,9 @@ def _list_project_sprints(project_path: str) -> int:
     sprints = []
     project_root = os.path.dirname(delta_dir)
     try:
-        from features.delta_tracking import SpringService
+        # resolve_service removed
 
-        spring_svc = SpringService(project_root)
+        spring_svc = self._sprint_service.from_chain_dir(project_root) if self._sprint_service else None
         for spring in spring_svc.list_springs():
             spring_id = spring.get("_id", "")
             status = spring.get("status", "unknown")
@@ -628,10 +628,10 @@ def _find_active_sprints() -> list[dict]:
         if not os.path.isdir(project_root):
             continue
         try:
-            from features.delta_tracking import SpringService
+            # resolve_service removed
             from shared.core.path_resolver import get_sprint_dir
 
-            spring_svc = SpringService(project_root)
+            spring_svc = self._sprint_service.from_chain_dir(project_root) if self._sprint_service else None
             for spring in spring_svc.list_springs():
                 chain_id = spring.get("_id", "")
                 if not chain_id or chain_id in seen_chains:

@@ -76,6 +76,20 @@ def get_module_registry() -> Any:
     return get_module_service("module_registry")
 
 
+def resolve_service(name: str, default: Any = None) -> Any:
+    """Resuelve un servicio DI degradando a `default` (ADR-051 G5).
+
+    Facade neutro del engine: los módulos de core/engine consumen features
+    SOLO via service locator (0 imports de features.*). Ante un entorno sin
+    composition root inyectado (tests aislados, bootstrap parcial) degrada a
+    `default` de forma explícita — nunca lanza KeyError silencioso.
+    """
+    try:
+        return get_module_service(name)
+    except Exception:
+        return default
+
+
 def _discover_and_register(
     register_fn_name: str, registry: Any, package_name: str
 ) -> None:

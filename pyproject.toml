@@ -81,6 +81,7 @@ Documentation = "https://github.com/davidmartinez/walker3"
 
 [project.scripts]
 walker3 = "features.cli_interface:main"
+walker = "features.cli_interface:main"
 
 [tool.setuptools.packages.find]
-include = ["features*", "shared*"]
+include = ["features*", "shared*", "core*", "orchestration*", "libs*"]

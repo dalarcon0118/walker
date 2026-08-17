@@ -28,20 +28,20 @@ from .infrastructure.repositories import WorkflowRepository, WorkflowStateReposi
 # ═════════════════════════════════════════════════════════════════════════
 
 
-def load_workflow(chain_dir: str) -> WorkflowGraph:
-    """Carga el workflow. ERROR si no existe.
+def load_workflow(workflow_repo: WorkflowRepository) -> WorkflowGraph:
+    """Carga el workflow desde el repo configurado. ERROR si no existe.
+
+    Args:
+        workflow_repo: WorkflowRepository configurado con el workflow_path
+                       resuelto por el main/composition root.
 
     Raises:
-        FileNotFoundError: ruta canónica no encontrada.
+        FileNotFoundError: si el workflow_path no existe.
     """
-    repo = WorkflowRepository()
-    graph = repo.load(chain_dir)
+    graph = workflow_repo.load()
     if not graph or not graph.nodes:
-        from features.project import ProjectService
-
-        paths = ProjectService.resolve_paths(chain_dir)
         raise FileNotFoundError(
-            f"No se encontró workflow.json en '{paths.workflow_json_path}'"
+            f"Workflow vacío en '{workflow_repo._workflow_path}'"
         )
     return graph
 

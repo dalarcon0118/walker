@@ -177,9 +177,10 @@ class WorkflowAPI:
 
         # Inicializar el estado del workflow desde workflow.initial_state
         try:
-            wf_repo = WorkflowRepository()
+            from shared.core.path_resolver import get_engine_workflow_path
+            wf_repo = WorkflowRepository(workflow_path=str(get_engine_workflow_path()))
             st_repo = WorkflowStateRepository()
-            workflow = wf_repo.load(self._chain_dir)
+            workflow = wf_repo.load()
             state = st_repo.load(self._chain_dir)
 
             if workflow.initial_state and not state.current_node:
@@ -243,9 +244,9 @@ class WorkflowAPI:
         if self._chain_dir:
             # Fuente unica: el delta. task_id = spec actual del spring.
             try:
-                from features.delta_tracking import spring_service
+                from core.engine.bootstrap import resolve_service
 
-                spring_svc = spring_service(chain_dir=self._chain_dir)
+                spring_svc = self._sprint_service.from_chain_dir(self._chain_dir) if self._sprint_service else None
                 if spring_svc:
                     spring_id = spring_svc.get_spring_id(self._chain_dir)
                     spring_svc.ensure_spring_imported(self._chain_dir, spring_id)

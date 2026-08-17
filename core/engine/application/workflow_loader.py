@@ -9,11 +9,12 @@ from core.engine.engine import load_workflow
 from core.engine.domain.entities import WorkflowGraph
 
 
-def find_workflow(chain_dir: str) -> dict:
+def find_workflow(chain_dir: str, workflow_repo: 'WorkflowRepository | None' = None) -> dict:
     """Carga workflow como dict. ERROR si no hay chain_dir o no existe workflow."""
     if not chain_dir:
         raise ValueError("chain_dir vacío — no se puede resolver el workflow")
-    graph = load_workflow(chain_dir)
+    repo = workflow_repo or WorkflowRepository()
+    graph = load_workflow(repo)
     return _graph_to_dict(graph)
 
 

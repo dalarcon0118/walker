@@ -393,9 +393,9 @@ def _sprint_with_side_effects(bpmn_ctx: dict):
     d = dict(_load_work_substate(node_dict))
     d["side_effects"] = [
         SideEffectDef(
-            type="update_cpg",
+            type="index_code",
             params={"snapshot_id": "snap_123"},
-            compensation="restore_cpg_snapshot",
+            compensation="restore_code_snapshot",
         ),
         SideEffectDef(
             type="notify", params={"channel": "slack"}, compensation="notify_revert"

@@ -1,22 +1,7 @@
-"""features/delta_tracking/tasks/ — Tasks de dominio del sprint."""
+"""delta_tracking/tasks — Shim de backward-compat (ADR-051 G2).
 
-from __future__ import annotations
-
-from typing import Any
-
-from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-
-
-def register_delta_tracking_tasks(registry: InMemoryTaskRegistry) -> None:
-    """Registra todas las tasks de dominio de delta_tracking en el registry."""
-    from features.delta_tracking.tasks import (
-        implementation,
-        planning,
-        review,
-        verification,
-    )
-
-    planning.register(registry)
-    implementation.register(registry)
-    verification.register(registry)
-    review.register(registry)
+Las tasks del sprint viven en features/main/task_execution/tasks/
+(ADR-050 §3: el task layer es de main, no del feature). Este paquete solo
+re-exporta los símbolos legacy para no romper imports de tests/consumidores
+antiguos (migración incremental, nunca big-bang).
+"""

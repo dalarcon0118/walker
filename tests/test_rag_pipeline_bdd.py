@@ -14,10 +14,10 @@ from pathlib import Path
 
 from shared.common.shared_domain.models import ExecutionContext, TaskResult
 from features.delta_tracking import spring_service
-from features.main.task_execution.tasks.cpg_analyze import cpg_analyze
-from features.main.task_execution.tasks.ckg_analyze import ckg_analyze
+from features.main.task_execution.tasks.inspect_codebase import inspect_codebase
+from features.main.task_execution.tasks.knowledge_query import knowledge_query
 from features.main.task_execution.tasks.trace_push import trace_push
-from features.main.task_execution.tasks.kg_extract import kg_extract
+from features.main.task_execution.tasks.extract_knowledge import extract_knowledge
 from tests.conftest import make_chain_dir, make_walker_project
 
 
@@ -63,8 +63,8 @@ class TestRagPipeline:
         _setup_delta(chain_dir)
         ctx = _build_exec_ctx(chain_dir)
 
-        result: TaskResult = cpg_analyze(ctx, {"scope": project_root})
-        assert result.ok, f"cpg_analyze failed: {result.error}"
+        result: TaskResult = inspect_codebase(ctx, {"scope": project_root})
+        assert result.ok, f"inspect_codebase failed: {result.error}"
 
     def test_rag_delta_to_ckg_spec_flow(self, tmp_path):
         project_root, chain_dir = _setup_project(tmp_path)
@@ -75,8 +75,8 @@ class TestRagPipeline:
         specs = svc.get_specs(spring_id)
         assert len(specs) >= 1
 
-        result: TaskResult = ckg_analyze(ctx, {"action": "search", "query": "RAG pipeline spec"})
-        assert result.ok, f"ckg_analyze failed: {result.error}"
+        result: TaskResult = knowledge_query(ctx, {"action": "search", "query": "RAG pipeline spec"})
+        assert result.ok, f"knowledge_query failed: {result.error}"
 
     def test_rag_trace_links_workflow_to_delta(self, tmp_path):
         project_root, chain_dir = _setup_project(tmp_path)
@@ -124,5 +124,5 @@ class TestRagPipeline:
         with open(code_file, "w") as f:
             f.write("def hello():\n    return 'world'\n")
 
-        result: TaskResult = kg_extract(ctx, {"scope": "functions", "files": [code_file]})
-        assert result.ok, f"kg_extract failed: {result.error}"
+        result: TaskResult = extract_knowledge(ctx, {"scope": "functions", "files": [code_file]})
+        assert result.ok, f"extract_knowledge failed: {result.error}"

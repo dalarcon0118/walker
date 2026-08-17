@@ -28,10 +28,16 @@ class WorkflowConflictResolver:
     - compensate: ejecuta compensación (BlockResolver)
     - edit: actualiza spec en delta_tracking (delegado)
     - merge: integra specs sin perder información (delegado)
+
+    El conflict resolver se inyecta por puerto IConflictResolver.
+    Si no se provee, las estrategias edit/merge no están disponibles.
     """
 
-    @staticmethod
+    def __init__(self, conflict_resolver: Any = None):
+        self._conflict_resolver = conflict_resolver
+
     def resolve(
+        self,
         state: WorkflowState,
         strategy: str,
         payload: dict[str, Any],
@@ -50,26 +56,26 @@ class WorkflowConflictResolver:
             Failure(reason) si no se pudo resolver
         """
         if strategy in ("edit", "merge"):
-            return WorkflowConflictResolver._resolve_spec_strategy(
-                state, strategy, payload
+            return self._resolve_spec_strategy(
+                state, strategy, payload, graph=graph
             )
         return BlockResolver.resolve(state, strategy, payload, graph=graph)
 
-    @staticmethod
     def _resolve_spec_strategy(
+        self,
         state: WorkflowState,
         strategy: str,
         payload: dict[str, Any],
     ) -> Result[WorkflowState, str]:
         """Delega en delta_tracking para estrategias de specs."""
         try:
-            from features.delta_tracking.domain.services.conflict_resolver import (
-                ConflictResolver as DeltaConflictResolver,
-            )
+            ConflictResolver = self._conflict_resolver
+            if DeltaConflictResolver is None:
+                return Failure("conflict resolver de delta no disponible (sin composition root)")
 
             # DeltaConflictResolver opera sobre dicts, no entidades
             state_dict = state.to_dict() if hasattr(state, "to_dict") else state
-            new_state_dict, _ = DeltaConflictResolver.resolve(
+            new_state_dict, _ = ConflictResolver.resolve(
                 conflict=None,
                 strategy=strategy,
                 payload=payload,

@@ -321,8 +321,11 @@ class ContextComposer:
         chain_dir = getattr(ctx, "chain_dir", None) or ctx_dict.get("chain_dir", "")
         if chain_dir:
             try:
-                from features.main.prompts.collector import collect_all
-                ctx_dict.update(collect_all(chain_dir=chain_dir, context=ctx_dict))
+                from core.engine.bootstrap import resolve_service
+
+                collect_all = self._prompt_collector if hasattr(self, "_prompt_collector") else None
+                if collect_all:
+                    ctx_dict.update(collect_all(chain_dir=chain_dir, context=ctx_dict))
             except Exception:
                 pass
 

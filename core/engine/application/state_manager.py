@@ -70,6 +70,7 @@ def apply_state_transition(
     reason: str,
     chain_dir: str | None,
     task_id: str | None,
+    workflow_repo: 'WorkflowRepository | None' = None,
 ) -> WorkflowState:
     """Aplica transición entre nodos y persiste."""
     if isinstance(state, dict):
@@ -77,7 +78,8 @@ def apply_state_transition(
     else:
         sprint_state = state
 
-    graph = load_workflow(chain_dir)
+    repo = workflow_repo or WorkflowRepository()
+    graph = load_workflow(repo)
     from core.engine.domain.services import TransitionService
 
     sprint_state = TransitionService.apply(sprint_state, graph, target)

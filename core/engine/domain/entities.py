@@ -17,6 +17,23 @@ from core.engine.domain.values import (
 )
 
 
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _compensation_type(raw: Any) -> str:
+    """Normaliza el campo compensation de un side_effect del grafo.
+
+    El grafo declara compensation como dict {"type": ...} (SPEC-014 Fase 0:
+    fuente única — el engine compensa con lo que declara el grafo, nunca un
+    mapa hardcodeado interno).
+    """
+    if isinstance(raw, dict):
+        return str(raw.get("type", ""))
+    if raw is None:
+        return ""
+    return str(raw)
+
+
 # ── Entity: SubState (v3) ─────────────────────────────────────────────────────
 
 
@@ -141,7 +158,7 @@ class SubState:
                 type=se.get("type", ""),
                 params=dict(se.get("params", {})),
                 optional=bool(se.get("optional", False)),
-                compensation=se.get("compensation", ""),
+                compensation=_compensation_type(se.get("compensation")),
                 idempotency_key=se.get("idempotency_key", ""),
             )
             for se in data.get("side_effects", [])

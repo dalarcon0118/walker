@@ -229,7 +229,7 @@
           }
         },
         {
-          "type": "index_delta",
+          "type": "index_sprint_tasks",
           "params": {},
           "description": "Indexar tarea en DeltaGraph para busqueda federada"
         },

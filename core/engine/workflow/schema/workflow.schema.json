@@ -366,25 +366,26 @@
               "type": {
                 "type": "string",
                 "description": "Name canónico del side effect — debe existir en el catálogo real del SideEffectEngine (SPEC-014 F4: sin alias legacy).",
-                "enum": [
-                  "advance_sprint_task",
-                  "archive_sprint",
-                  "build_project_graph",
-                  "capture_decision",
-                  "create_adr",
-                  "delete_ckg_nodes",
-                  "documenting_knowledge",
-                  "emit_event",
-                  "index_code",
-                  "index_delta",
-                  "reindex_delta",
-                  "restore_cpg_snapshot",
-                  "sync_delta",
-                  "transform_spec",
-                  "ckg_status",
-                  "sprint_status",
-                  "validate_plan"
-                ]
+                 "enum": [
+                   "advance_sprint_task",
+                   "archive_sprint",
+                   "build_project_graph",
+                   "capture_decision",
+                   "create_adr",
+                   "remove_knowledge",
+                   "detect_decisions",
+                   "documenting_knowledge",
+                   "emit_event",
+                   "index_code",
+                   "index_sprint_tasks",
+                   "rebuild_sprint_index",
+                   "restore_code_snapshot",
+                   "sync_delta",
+                   "transform_spec",
+                   "update_knowledge_status",
+                   "sprint_status",
+                   "validate_plan"
+                 ]
               },
               "params": {
                 "type": "object"
@@ -401,8 +402,8 @@
                     "type": "string",
                     "description": "Name canónico del handler de compensación — resuelto contra el MISMO catálogo del SideEffectEngine (fuente única: el grafo declara, el catálogo ejecuta, SPEC-014 Fase 0). Fase 4: sin alias legacy.",
                     "enum": [
-                      "delete_ckg_nodes",
-                      "restore_cpg_snapshot"
+                      "remove_knowledge",
+                      "restore_code_snapshot"
                     ]
                   },
                   "params": {

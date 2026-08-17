@@ -36,10 +36,11 @@ def execute_public_task(
     channel='system' (ARQ objetivo SPEC-005; trace_event_publisher usa esa
     puerta para los eventos CPG→trace).
     """
-    from core.engine.bootstrap import get_module_service
+    # resolve_service removed - using injected ports
+    from core.engine.bootstrap import resolve_service
     from shared.common.shared_domain import ExecutionContext
 
-    registry = get_module_service("task_registry")
+    registry = resolve_service("task_registry")
 
     # Visibilidad SSOT = metadata.scope (sin listas hardcodeadas, SPEC-005 #7).
     # - Task inexistente → se deja que registry.execute emita el error estándar
@@ -92,18 +93,11 @@ def dispatch_public_task(name: str, body: dict) -> dict:
     from returns.result import safe
     from returns.pipeline import is_successful
 
-    def _resolve_project_id() -> str:
-        from features.project import ProjectService
-
-        resolved = ProjectService.resolve_from_registry()
-        if resolved:
-            return resolved.get("project_id", "")
+    def _resolve_project_id(self) -> str:
         return ""
 
-    def _ensure_chain_dir(project_id: str) -> str:
-        from features.project import ProjectService
-
-        return ProjectService.find_active_sprint(project_id) or ""
+    def _ensure_chain_dir(self, project_id: str) -> str:
+        return ""
 
     @safe
     def _exec() -> dict:

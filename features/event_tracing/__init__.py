@@ -1,7 +1,7 @@
 """
 features/event_tracing/ — TraceGraph: historial de eventos del workflow.
 
-Domain:     TraceEvent (dataclass — SSOT del modelo, ADR-WALKER-018)
+Domain:     TraceEvent (entity), values, events (ADR-048)
 Application: search_traces (fail-closed), build_reflection_context (reflexión)
 Infrastructure: CognitiveTraceRepository (indice trace canonical)
 
@@ -20,7 +20,9 @@ from typing import Any
 
 from features.event_tracing.application.search_service import search_traces
 from features.event_tracing.infrastructure.repository import load_traces
-from features.event_tracing.domain.models import TraceEvent
+from features.event_tracing.domain.entities import TraceEvent
+from features.event_tracing.domain.values import EventId, EventType, EventSource, TraceFilters
+from features.event_tracing.domain.events import EventRecorded, TraceQueried, TraceIndexed
 from features.event_tracing.application.reflection import build_reflection_context
 
 __all__ = [
@@ -28,6 +30,13 @@ __all__ = [
     "load_traces",
     "search_traces",
     "TraceEvent",
+    "EventId",
+    "EventType",
+    "EventSource",
+    "TraceFilters",
+    "EventRecorded",
+    "TraceQueried",
+    "TraceIndexed",
     "build_reflection_context",
     "trace_repository",
 ]

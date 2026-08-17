@@ -3,6 +3,11 @@ infrastructure/domain_task_registry.py — Vista filtrada de TaskRegistry para t
 
 SRP: Proporciona acceso SOLO a tasks internas del workflow engine.
 Las tasks de dominio son invocadas por el motor de workflow, no por CLI/MCP.
+
+SPEC-014 Fase 1: la vista se DERIVA del registro real (metadata.scope =
+internal/domain). _DOMAIN_TASKS hardcodeado eliminado — contenía 12
+fantasmas (qa_run, implement, po_accept, user_gate...) que no existían en
+el registro real. 0 listas hardcodeadas (patrón SystemTaskRegistry, SPEC-005 #7).
 """
 from __future__ import annotations
 
@@ -14,16 +19,11 @@ from ..domain.models import TaskResult, ExecutionContext
 
 
 class DomainTaskRegistry(TaskRegistry):
-    """Vista filtrada de TaskRegistry: solo tasks de dominio (scope=internal/domain)."""
+    """Vista filtrada de TaskRegistry: solo tasks de dominio (scope=internal/domain).
 
-    _DOMAIN_TASKS = frozenset({
-        "plan_sprint", "spec_task", "review_task", "gather_design", "gather_analysis",
-        "user_gate", "implement", "scan_code", "review_code", "report_gate",
-        "verify_user_gate", "qa_run", "po_accept", "start_task", "close_sprint",
-        "advance_task", "update_sprint_progress", "show_dashboard",
-        "log_rejection_to_ckg", "notify_po_escalation", "archive_sprint_metrics",
-        "prepare_analysis_context", "build_verification_context", "build_task_briefing",
-    })
+    Sin lista hardcodeada: la visibilidad es el metadata.scope del registro
+    real (SPEC-005 #7, mismo patrón que SystemTaskRegistry).
+    """
 
     def __init__(self, base: InMemoryTaskRegistry | None = None, tracer: Any | None = None):
         self._base = base
@@ -55,10 +55,7 @@ class DomainTaskRegistry(TaskRegistry):
         info = base.get_task_info(name)
         if info:
             scope = info.get("scope")
-            if scope in ("internal", "domain"):
-                return True
-        if name in self._DOMAIN_TASKS:
-            return True
+            return scope in ("internal", "domain")
         return False
 
     def list_tasks_with_meta(self, scope: str | None = None) -> list[dict]:

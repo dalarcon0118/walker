@@ -335,6 +335,36 @@ class SpringService:
             return []
         return load_spring_tasks(self, chain_dir)
 
+    # ── Indexación en CognitiveGraph (ADR-WALKER-049) ────────────────
+
+    def index_sprint(self, chain_dir: str, cg: Any) -> int:
+        """Indexa las tareas del sprint en el indice delta de CognitiveGraph.
+
+        Args:
+            chain_dir: Directorio del sprint.
+            cg: Instancia de CognitiveGraph.
+
+        Returns:
+            Numero de specs indexadas.
+        """
+        from features.delta_tracking.application.index_service import index_sprint
+
+        return index_sprint(chain_dir, cg)
+
+    def index_all(self, project_root: str, cg: Any) -> int:
+        """Indexa todos los sprints del proyecto en el indice delta.
+
+        Args:
+            project_root: Directorio cognitivo del proyecto.
+            cg: Instancia de CognitiveGraph.
+
+        Returns:
+            Numero total de specs indexadas.
+        """
+        from features.delta_tracking.application.index_service import index_all
+
+        return index_all(project_root, cg)
+
 
 # ── Cores @safe (Result pattern, convention-001) ─────────────────
 

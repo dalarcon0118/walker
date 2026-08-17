@@ -7,10 +7,28 @@ import os
 import pytest
 
 from core.engine.infrastructure.side_effects import SideEffectEngine
-from features.delta_tracking.side_effects import register_delta_tracking_side_effects
+from features.main.task_execution.side_effects import register_task_execution_side_effects
 from features.delta_tracking import spring_service
+
 from features.delta_tracking.domain.entities import Spec
 from tests.conftest import make_chain_dir
+
+
+def _env_error(result: dict) -> str:
+    """Extrae el error del envelope @as_side_effect (SPEC-014 F2).
+
+    El envelope estandarizado mueve el detalle a metadata.error; el ok
+    queda a nivel top-level. Los tests escritos contra el shape legacy
+    (error a nivel top-level) leen via este helper.
+    """
+    return _env_field(result, "error")
+
+
+def _env_field(result: dict, key: str):
+    """Lee un campo del envelope (busca en top-level y en metadata)."""
+    if key in result:
+        return result.get(key)
+    return (result.get("metadata") or {}).get(key)
 
 
 class MockCtx:
@@ -56,7 +74,7 @@ class TestTransformSpecIntegration:
 
     def test_handler_registered_in_bootstrap(self):
         engine = SideEffectEngine()
-        register_delta_tracking_side_effects(engine)
+        register_task_execution_side_effects(engine)
         assert "transform_spec" in engine._handlers
 
     def test_transform_spec_specified_persists_in_delta(self, tmp_path):
@@ -78,11 +96,11 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        register_delta_tracking_side_effects(engine)
+        register_task_execution_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
-        assert result.get("ok") is True, result.get("error")
+        assert result.get("ok") is True, _env_error(result)
         assert result.get("status") == "specified"
-        assert "problem_statement" in result.get("fields_applied", [])
+        assert "problem_statement" in _env_field(result, "fields_applied") or []
 
     def test_transform_spec_invalid_transition_returns_error(self, tmp_path):
         chain_dir = _setup_project(tmp_path)
@@ -94,10 +112,10 @@ class TestTransformSpecIntegration:
         params = {"status": "unknown_status", "fields": {}}
 
         engine = SideEffectEngine()
-        register_delta_tracking_side_effects(engine)
+        register_task_execution_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is False
-        assert "error" in result
+        assert _env_error(result)
 
     def test_transform_spec_no_specs_returns_error(self, tmp_path):
         chain_dir = _setup_project(tmp_path)
@@ -106,10 +124,10 @@ class TestTransformSpecIntegration:
         params = {"status": "specified", "fields": {"problem_statement": "test"}}
 
         engine = SideEffectEngine()
-        register_delta_tracking_side_effects(engine)
+        register_task_execution_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is False
-        assert "No specs found" in result.get("error", "")
+        assert "No specs found" in _env_error(result)
 
     def test_transform_spec_resolves_node_output_references(self, tmp_path):
         chain_dir = _setup_project(tmp_path)
@@ -144,9 +162,9 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        register_delta_tracking_side_effects(engine)
+        register_task_execution_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
-        assert result.get("ok") is True, result.get("error")
+        assert result.get("ok") is True, _env_error(result)
         assert result.get("status") == "approved"
 
         svc_after = spring_service(chain_dir=chain_dir)
@@ -237,12 +255,12 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        register_delta_tracking_side_effects(engine)
+        register_task_execution_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
-        assert result.get("ok") is True, result.get("error")
+        assert result.get("ok") is True, _env_error(result)
         assert result.get("status") == "approved"
-        assert "invariants" in result.get("fields_applied", [])
-        assert "project_snapshot" in result.get("fields_applied", [])
+        assert "invariants" in _env_field(result, "fields_applied") or []
+        assert "project_snapshot" in _env_field(result, "fields_applied") or []
 
         svc_after = spring_service(chain_dir=chain_dir)
         spec = svc_after.get_specs(spring_id)[0]
@@ -296,12 +314,13 @@ class TestTransformSpecIntegration:
         }
 
         engine = SideEffectEngine()
-        register_delta_tracking_side_effects(engine)
+        register_task_execution_side_effects(engine)
         result = engine._handlers["transform_spec"](ctx, params)
         assert result.get("ok") is False
-        assert "NODE." in result.get("error", "")
-        assert "decision" in result.get("unresolved_refs", [])
-        assert "invariants" in result.get("unresolved_refs", [])
+        assert "NODE." in _env_error(result)
+        assert "decision" in _env_field(result, "unresolved_refs") or []
+        # El envelope mueve el detalle a metadata; nada de lo declarado se persiste
+        assert "invariants" in _env_field(result, "unresolved_refs") or []
 
         # La spec queda intacta: sin NODE. crudas en el delta y sin decision.
         svc_after = spring_service(chain_dir=chain_dir)

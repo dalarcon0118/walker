@@ -1,0 +1,175 @@
+"""task_execution/infrastructure/kg_context.py — Resolución de contexto KG.
+
+Glue de infraestructura del task layer (ADR-051 G3): resuelve el searcher,
+el project_root y el trace de queries KG vía DI. NO contiene lógica de
+negocio — es cómo el task adapter obtiene sus dependencias del composition
+root (service locator).
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+from typing import Any
+
+from shared.common.shared_domain import ExecutionContext
+
+logger = logging.getLogger(__name__)
+
+
+def _trace_kg_query(
+    chain_dir: str, index: str, query: dict, ctx: ExecutionContext
+) -> None:
+    """Registra un evento kg_query en el TraceGraph (best-effort con log)."""
+    try:
+        from core.engine.infrastructure.trace_log import TraceLogger
+
+        tracer = TraceLogger()
+        safe_query = {}
+        for k, v in (query or {}).items():
+            if isinstance(v, str) and len(v) > 200:
+                safe_query[k] = v[:200] + "..."
+            else:
+                safe_query[k] = v
+        tracer.trace(
+            chain_dir,
+            "kg_query",
+            data={
+                "index": index,
+                "query": safe_query,
+                "project_id": getattr(ctx, "project_id", ""),
+            },
+            task_id=ctx.task_id or "",
+            session_id=ctx.session_id or "",
+        )
+    except Exception as e:
+        logger.warning(
+            "kg: _trace_kg_query no pudo persistir el evento (%s: %s)",
+            type(e).__name__, e,
+        )
+
+
+def _resolve_searcher(chain_dir: str, project_id: str = "") -> Any:
+    """Resuelve CognitiveGraphSearcher desde chain_dir o project_id (sin sprint)."""
+    from features.project import ProjectService
+
+    if chain_dir:
+        try:
+            from core.engine.bootstrap import get_module_service
+
+            paths = ProjectService.resolve_paths(chain_dir)
+            searcher_factory = get_module_service("cognitive_searcher")
+            return searcher_factory(paths.project_root)
+        except Exception as e:
+            logger.warning(
+                "kg: _get_searcher(%s) fallo (%s: %s); intento por registry",
+                chain_dir, type(e).__name__, e,
+            )
+    if project_id:
+        from core.engine.bootstrap import get_module_service
+
+        path_resolver = get_module_service("path_resolver")
+        registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
+        if registry_path.exists():
+            with open(registry_path) as f:
+                reg = json.load(f).get("projects", {}).get(project_id, {})
+            repo_path = reg.get("repo_path", "")
+            if repo_path:
+                cog_proj = os.path.join(repo_path, ".cognitive", "projects", project_id)
+                if os.path.isdir(cog_proj):
+                    searcher_factory = get_module_service("cognitive_searcher")
+                    return searcher_factory(str(cog_proj))
+    return None
+
+
+def _resolve_ckg_project_root(project_id: str) -> str:
+    """Resuelve project_root desde registry para operaciones CKG sin sprint."""
+    from core.engine.bootstrap import get_module_service
+
+    path_resolver = get_module_service("path_resolver")
+    registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
+    if registry_path.exists():
+        with open(registry_path) as f:
+            reg = json.load(f).get("projects", {}).get(project_id, {})
+        repo_path = reg.get("repo_path", "")
+        if repo_path:
+            cog_proj = os.path.join(repo_path, ".cognitive", "projects", project_id)
+            if os.path.isdir(cog_proj):
+                return str(cog_proj)
+    return ""
+
+
+def _resolve_project_root(chain_dir: str, project_id: str = "") -> str:
+    """Resuelve project_root desde chain_dir o project_id."""
+    if chain_dir:
+        from features.project import ProjectService
+
+        try:
+            paths = ProjectService.resolve_paths(chain_dir)
+            return str(paths.project_root)
+        except Exception:
+            pass
+    if project_id:
+        return _resolve_ckg_project_root(project_id)
+    return ""
+
+
+def resolve_cpg_ckg_services(
+    chain_dir: str, project_id: str = ""
+) -> tuple[Any | None, Any | None, str]:
+    """Resuelve CpgService + CkgApplicationService + project_root (glue DI).
+
+    Punto único de composición del task layer (ADR-051 G4): los consumers
+    no deciden cómo se arma el CpgQueryService ni el CKG — delegan aquí.
+    Returns (cpg, ckg, project_root) con cpg/ckg None si no hay contexto
+    resolvible; project_root solo como diagnóstico.
+    """
+    from returns.pipeline import is_successful
+    from returns.result import safe
+
+    @safe
+    def _resolve_project_root_core(pid: str) -> str:
+        from features.project import ProjectService
+
+        project = ProjectService.from_project_id(pid)
+        return str(project.paths.project_root)
+
+    @safe
+    def _resolve_cpg_core(ctx_dir: str):
+        from features.code_analysis.application.services.cpg_service import (
+            CpgService,
+        )
+
+        return CpgService.from_chain_dir(ctx_dir)
+
+    def _safe_build(result, label: str):
+        if is_successful(result):
+            return result.value_or(None)
+        error = result.failure()
+        logger.warning(
+            "kg_context: %s no disponible (%s: %s)",
+            label, type(error).__name__, error,
+        )
+        return None
+
+    project_root = ""
+    if chain_dir:
+        from features.project import ProjectService as _PS
+
+        paths = _PS.resolve_paths(chain_dir)
+        project_root = str(paths.project_root)
+    elif project_id:
+        project_root = _safe_build(
+            _resolve_project_root_core(project_id), "project_root"
+        ) or ""
+
+    if not project_root or not os.path.isdir(project_root):
+        return None, None, project_root
+
+    cpg_context = chain_dir if chain_dir else project_root
+    cpg = _safe_build(_resolve_cpg_core(cpg_context), "CPG")
+    from features.cognitive_knowledge.application.services.ckg_service import (
+        CkgApplicationService,
+    )
+
+    return cpg, CkgApplicationService, project_root

@@ -164,9 +164,9 @@ def _build_reflection(reflection_ctx: dict):
 
 @when("consulto los providers disponibles")
 def _available_providers(reflection_ctx: dict):
-    from features.main.bootstrap import compose_app
+    from features.main.container import AppContainer
 
-    registry = compose_app().workflow._context_registry
+    registry = AppContainer.build().workflow._context_registry
     reflection_ctx["available"] = registry.available()
 
 

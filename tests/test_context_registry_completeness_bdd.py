@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from features.main.bootstrap import compose_app
+from features.main.container import AppContainer
 
 
 EXPECTED_PROVIDERS = {
@@ -26,13 +26,14 @@ EXPECTED_PROVIDERS = {
     "reflection",
     "state",
     "task",
+    "task_intelligence",
     "test_results",
     "trace",
 }
 
 
 def test_build_context_registry_completeness():
-    app = compose_app()
+    app = AppContainer.build()
     registry = app.workflow._context_registry
     assert registry is not None, "composition root sin context_registry"
     available = set(registry.available())

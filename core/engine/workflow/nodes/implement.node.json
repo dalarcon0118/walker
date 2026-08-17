@@ -126,12 +126,12 @@
           "params": {},
           "optional": true,
           "compensation": {
-            "type": "restore_cpg_snapshot",
+            "type": "restore_code_snapshot",
             "description": "If code review fails, restore CPG to previous state"
           }
         },
         {
-          "type": "ckg_status",
+          "type": "update_knowledge_status",
           "params": {
             "event": "implementation_start"
           },

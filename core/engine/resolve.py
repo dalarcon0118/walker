@@ -19,7 +19,7 @@ from core.engine.legacy.utils import (
     _get_current_node,
     _get_current_sub_key,
 )
-from .loader import find_workflow, ensure_state
+# loader removed - find_workflow and ensure_state no longer available
 
 
 # ── Detection helpers ─────────────────────────────────────────────────────────
@@ -48,10 +48,10 @@ def _detect_close_check_with_pending(chain_dir: str | None) -> tuple[bool, list[
     if not chain_dir:
         return False, []
 
-    from features.delta_tracking import spring_service
+    from core.engine.bootstrap import resolve_service
 
     try:
-        spring_svc = spring_service(chain_dir=chain_dir)
+        spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
         if not spring_svc:
             return False, []
         spring_id = spring_svc.get_spring_id(chain_dir)
@@ -302,9 +302,7 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
     Ahora usa WorkflowConflictResolver de engine en lugar de ConflictResolver
     legacy para estrategias de workflow.
     """
-    from features.delta_tracking.domain.services.conflict_resolver import (
-        ConflictResolver,
-    )
+    from core.engine.bootstrap import resolve_service
     from core.engine.domain.services.conflict_resolver import (
         WorkflowConflictResolver,
     )
@@ -313,15 +311,16 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
     )
     from returns.result import Success
 
+    ConflictResolver = self._conflict_resolver
+
     s = _SSR().load(chain_dir).to_dict() or {}
     s.get("current_node", "")
     s.get("current_sub_state", "")
 
     workflow = find_workflow(chain_dir)
-    from features.delta_tracking import spring_service
 
     try:
-        spring_svc = spring_service(chain_dir=chain_dir)
+        spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
         if spring_svc:
             spring_id = spring_svc.get_spring_id(chain_dir)
             specs = spring_svc.get_specs(spring_id)
@@ -372,7 +371,8 @@ def _resolve_conflict(chain_dir: str, tid: str) -> int:
     state = WorkflowState.from_dict(s)
     graph = WorkflowGraph.from_dict(workflow)
 
-    result = WorkflowConflictResolver.resolve(
+    resolver = WorkflowConflictResolver(conflict_resolver=self._conflict_resolver)
+    result = resolver.resolve(
         state, "skip", {"task_id": tid}, graph=graph
     )
 

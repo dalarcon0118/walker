@@ -13,8 +13,8 @@ y arma el grafo completo de dependencias:
 Entry points (CLI, MCP, WorkflowAPI) consumen esta composición.
 """
 
-from features.main.bootstrap import compose_app, AppComposition
+from features.main.container import AppContainer
 from features.main.front_controller import FrontController
 from features.main.app import WalkerApp
 
-__all__ = ["compose_app", "AppComposition", "WalkerApp", "FrontController"]
+__all__ = ["AppContainer", "WalkerApp", "FrontController"]

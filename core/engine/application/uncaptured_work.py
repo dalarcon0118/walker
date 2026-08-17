@@ -141,7 +141,7 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
     """
     try:
         from shared.core.path_resolver import resolve_project_root
-        from features.delta_tracking import SpringService
+        from core.engine.bootstrap import resolve_service
 
         # Resolver el project_root desde el project.json local (mismo
         # mecanismo que TraceLogger.replay). NO usar ProjectService.resolve_paths
@@ -159,7 +159,7 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
         #    Usar el spring del chain_dir actual (get_spring_id) con fallback
         #    al activo global: get_active_spring() es ambiguo cuando hay
         #    varios springs con status "active".
-        spring_svc = SpringService(project_root)
+        spring_svc = self._sprint_service.from_chain_dir(project_root) if self._sprint_service else None
         covered, spring = _collect_covered_files(spring_svc, chain_dir)
 
         # 3. Diferencia → trabajo sin capturar

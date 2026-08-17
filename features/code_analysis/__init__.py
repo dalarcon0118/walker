@@ -4,7 +4,7 @@ API publica:
     from features.code_analysis import (
         CPGBuilder, CpgQueryService, CpgService, cpg_service,
         CheckCpgHealthUseCase, run_outline, parse_outline,
-        cpg_repository, cpg_analysis_adapter,
+        cpg_repository, cpg_analysis_adapter, CodeNode,
     )
 
 Composition root: cpg_service() centraliza la construccion del builder/query
@@ -16,7 +16,7 @@ Si la implementacion cambia de lugar o se reemplaza, solo se actualiza este
 modulo — los consumidores no se tocan.
 
 Arquitectura DDD + Hexagonal:
-    domain/         → Node, Edge, Graph, Query, BugFinding
+    domain/         → entities, values, events, services
     application/    → BuildGraphUseCase, QueryGraphUseCase, ScanBugsUseCase, CpgService
     infrastructure/ → sg_adapter, repository, ast_grep_calls, filters
 """
@@ -34,6 +34,7 @@ from features.code_analysis.infrastructure.ast_grep_adapter import (
     run_outline,
     parse_outline,
 )
+from features.code_analysis.domain.entities import CodeNode
 
 logger = logging.getLogger(__name__)
 

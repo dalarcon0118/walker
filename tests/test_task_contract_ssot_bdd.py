@@ -23,9 +23,9 @@ def ssot_ctx() -> dict:
 
 @given("el task registry bootstrapeado")
 def _bootstrap_registry(ssot_ctx: dict):
-    from features.main.bootstrap import compose_app
+    from features.main.container import AppContainer
 
-    app = compose_app()
+    app = AppContainer.build()
     ssot_ctx["registry"] = app.task_registry
 
 

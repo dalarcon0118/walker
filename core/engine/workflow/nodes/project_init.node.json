@@ -231,7 +231,7 @@
       "key": "SCAN_CODE",
       "label": "Scan code and build CPG",
       "execution": "auto",
-      "action": "scan_code_and_build_cpg",
+      "action": "build_code_index",
       "input_schema": {},
       "output_schema": {
         "type": "object",
@@ -269,7 +269,7 @@
       "key": "BUILD_CKG",
       "label": "Build initial knowledge graph",
       "execution": "auto",
-      "action": "build_initial_ckg",
+      "action": "initialize_knowledge_base",
       "input_schema": {},
       "output_schema": {
         "type": "object",

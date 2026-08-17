@@ -575,10 +575,35 @@ class BuildGraphUseCase:
         que recargaba y reescribia el indice completo por cada nodo
         (O(n²) — hacia el build inviable con miles de nodos).
 
+        FULL REINDEX (fix bug multi-renombre): ademas de agregar/actualizar
+        los nodos nuevos, ELIMINA los nodos del indice `cpg` que ya no
+        existen en el CPG reconstruido. Sin esto, un rename de 151 archivos
+        deja los nombres tecnicos viejos (ej. cpg_updates.py, ckg_persist.py)
+        colgando en el indice consultable (kg_search _index:cpg / analyze_code)
+        aunque el cpg.json.gz en disco ya no los tenga.
+
         Result pattern (dry-python/returns): el core con @safe convierte
         excepciones en Failure; aqui se decide loggear (G2/convention-001:
         un fallo silencioso enmascararia un indice cpg desincronizado).
         """
+        # 1. Podar nodos huerfanos del indice `cpg` (solo este indice; los
+        #    indices de referencia cpg-ref-* son separados y no se tocan).
+        try:
+            from core.engine.bootstrap import get_module_service
+
+            cg = get_module_service("cognitive_graph")(self.data_dir)
+            current_ids = set(data.get("nodes", {}).keys())
+            existing_ids = set(cg.keys("cpg"))
+            stale = existing_ids - current_ids
+            if stale:
+                cg.delete_many("cpg", stale)
+        except Exception as prune_err:
+            logger.error(
+                "Podado de indices cpg fallo (%s: %s); se continua con store_many",
+                type(prune_err).__name__,
+                prune_err,
+            )
+        # 2. Agregar/actualizar nodos nuevos.
         result = _sync_core(self.data_dir, data)
         if is_successful(result):
             return result.value_or({})
