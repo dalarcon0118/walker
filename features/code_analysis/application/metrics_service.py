@@ -8,10 +8,13 @@ salida (task inspect_codebase), nunca en el puerto/adaptador.
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 
 from returns.result import Result, Success, Failure
+
+logger = logging.getLogger(__name__)
 
 from features.code_analysis.domain.metrics import ProjectMetrics, FileMetrics
 from features.code_analysis.infrastructure.repository import CpgFileRepository
@@ -76,8 +79,8 @@ def _count_loc(repo_path: str, scope_rel: str, code_paths: list[str]) -> tuple[i
                 with open(fp, "rb") as fh:
                     loc += sum(1 for _ in fh)
                 n_files += 1
-            except OSError:
-                continue
+            except OSError as exc:
+                logger.warning("LOC: archivo ilegible %s (%s)", fp, exc)
         return n_files, loc
 
     # fallback: walk con extensiones canónicas del indexador

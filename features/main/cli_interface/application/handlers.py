@@ -773,8 +773,12 @@ def handle_task(req: Request) -> Response:
                     repo_path=_pctx.repo_path,
                     sprint_chain_dir=_pctx.sprint_chain_dir,
                 )
-        except Exception:
-            pass  # resolución best-effort: los guards legacy siguen operando
+        except Exception as exc:
+            # Best-effort: los guards legacy siguen operando, pero VISIBLE
+            # (convention-001: nunca silencioso).
+            logger.warning(
+                "_project_ctx no se pudo resolver (%s: %s)", type(exc).__name__, exc
+            )
 
         # ── Dispatch único (SPEC-005 #5): mismo core que el MCP. La visibilidad
         #    interna vive SOLO en SystemTaskRegistry (metadata.scope SSOT). ──

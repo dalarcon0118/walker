@@ -11,8 +11,11 @@ Precedencia EXPLÍCITO > AMBIENTAL:
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,7 +49,8 @@ def resolve_project_context(
 
             resolved = ProjectService.resolve_from_registry()
             pid = (resolved or {}).get("project_id", "")
-        except Exception:
+        except Exception as exc:
+            logger.warning("contexto por cwd fallo (%s: %s)", type(exc).__name__, exc)
             pid = ""
 
     if not pid:
@@ -60,7 +64,8 @@ def resolve_project_context(
 
         project = ProjectService.from_project_id(pid)
         repo_path = str(project.manifest.repo_path or "")
-    except Exception:
+    except Exception as exc:
+        logger.warning("from_project_id(%r) fallo (%s: %s)", pid, type(exc).__name__, exc)
         repo_path = ""
 
     sprint_chain_dir = ""
@@ -70,7 +75,8 @@ def resolve_project_context(
         )
 
         sprint_chain_dir = _PS.find_active_sprint(pid) or ""
-    except Exception:
+    except Exception as exc:
+        logger.warning("find_active_sprint(%r) fallo (%s: %s)", pid, type(exc).__name__, exc)
         sprint_chain_dir = ""
 
     return ProjectContext(project_id=pid, repo_path=repo_path, sprint_chain_dir=sprint_chain_dir)
@@ -93,8 +99,11 @@ def resolve_repo_path(data: dict, ctx) -> str:
             )
 
             return str(ProjectService.from_project_id(explicit).manifest.repo_path or "")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "resolve_repo_path: project_id %r no resolvió (%s: %s)",
+                explicit, type(exc).__name__, exc,
+            )
 
     if pctx.get("repo_path"):
         return str(pctx["repo_path"])

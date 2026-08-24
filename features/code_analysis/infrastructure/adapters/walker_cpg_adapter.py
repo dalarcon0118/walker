@@ -163,8 +163,14 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             paths = ProjectService.resolve_paths(data_dir)
             repo_root = paths.repo_path or paths.project_root or ""
             data_dir = paths.data_dir or data_dir
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "project_metrics: resolve_paths(%s) fallo (%s: %s); "
+                "se usa el store tal cual",
+                data_dir, type(exc).__name__, exc,
+            )
 
         # Blindaje de alcance: si el filtro apunta DENTRO de .cognitive es un
         # artefacto de resolución (el scope real para métricas es el repo).
