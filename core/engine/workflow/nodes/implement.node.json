@@ -42,14 +42,10 @@
         {
           "type": "transform_spec",
           "params": {
-            "status": "in_progress",
-            "fields": {
-              "loop_verification": "NODE.USER_GATE.output.loop_verification",
-              "loop_acceptance": "NODE.USER_GATE.output.loop_acceptance"
-            }
+            "status": "in_progress"
           },
           "optional": false,
-          "description": "Transform Spec to in_progress with loop verification"
+          "description": "Transform Spec to in_progress"
         }
       ],
       "timeout_ms": 600000,

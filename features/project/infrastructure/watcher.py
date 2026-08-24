@@ -217,7 +217,11 @@ class FileWatcher:
     # ── Fingerprint ──
 
     def compute_fingerprint(self, snapshot: dict[str, str] | None = None) -> str:
-        """SHA256 fingerprint of source code."""
+        """SHA256 fingerprint of source code.
+
+        Aggregates lightweight per-file fingerprints (size + mtime) into
+        a project-level hash. Changes when any tracked file is modified.
+        """
         hasher = hashlib.sha256()
         items = sorted(snapshot.items()) if snapshot is not None else sorted(self._compute_snapshot().items())
         for rel, file_hash in items:
@@ -248,7 +252,11 @@ class FileWatcher:
     # ── Snapshot ──
 
     def _compute_snapshot(self) -> dict[str, str]:
-        """Walk watch dirs, compute SHA256 per file."""
+        """Walk watch dirs, compute lightweight fingerprint per file.
+
+        Uses size + mtime instead of content SHA256 to avoid reading every
+        file. This makes incremental scans fast even for large codebases.
+        """
         snapshot: dict[str, str] = {}
         for watch_dir in self.watch_dirs:
             if not watch_dir.is_dir():
@@ -261,8 +269,8 @@ class FileWatcher:
                     if self._ignore.is_ignored(rel):
                         continue
                     try:
-                        with open(fpath, "rb") as f:
-                            snapshot[rel] = hashlib.sha256(f.read()).hexdigest()
+                        stat = os.stat(fpath)
+                        snapshot[rel] = f"{stat.st_size}:{stat.st_mtime_ns}"
                     except (OSError, PermissionError):
                         continue
         return snapshot

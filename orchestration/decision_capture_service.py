@@ -68,7 +68,16 @@ class DecisionCaptureService:
                 node["supersedes"] = supersedes
 
             result = CkgApplicationService.save_nodes(chain_dir, [node])
-            result.setdefault("supersedes_detected", supersedes)
+            if is_successful(result):
+                result = result.value_or({})
+                result.setdefault("supersedes_detected", supersedes)
+            else:
+                logger.warning(
+                    "decision_capture: save_nodes fallo (%s: %s)",
+                    type(result.failure()).__name__,
+                    result.failure(),
+                )
+                result = {}
             return {"ok": True, "captured": True, "result": result}
         except Exception as e:
             logger.warning(

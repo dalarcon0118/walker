@@ -28,6 +28,26 @@ def _resolve_default_port(chain_dir: str) -> Any:
     return resolve_cpg_port(chain_dir)
 
 
+def _resolve_project_root_from_chain_dir(chain_dir: str) -> str:
+    """Resuelve el project_root real desde el chain_dir del sprint."""
+    try:
+        from features.project import ProjectService
+        paths = ProjectService.resolve_paths(chain_dir)
+        return str(paths.project_root)
+    except Exception:
+        return chain_dir
+
+
+def _effective_scope(scope: str, chain_dir: str) -> str:
+    """Deriva el scope efectivo: usa el scope del usuario si es un path real;
+    si no, cae a project_root para no escanear archivos JSON del sprint."""
+    if not scope:
+        return _resolve_project_root_from_chain_dir(chain_dir)
+    if scope == chain_dir:
+        return _resolve_project_root_from_chain_dir(chain_dir)
+    return scope
+
+
 @safe
 def _dispatch_action(
     port: Any,
@@ -37,24 +57,50 @@ def _dispatch_action(
 ) -> dict:
     """Core puro: despacha la acción al port (puede lanzar)."""
     result: dict[str, Any] = {"scope": scope, "action": action}
+    target = _effective_scope(scope, chain_dir)
+
     if action == "business":
-        result["result"] = port.business_layer(focus=scope)
+        result["result"] = port.business_layer(focus=target)
     elif action == "dead_code":
-        result["result"] = port.detect_unused_functions(file_filter=scope)
+        result["result"] = port.detect_unused_functions(file_filter=target)
     elif action == "security":
-        result["result"] = port.scan_dfg(action="start", project_root=chain_dir)
+        result["result"] = port.scan_dfg(action="start", project_root=target)
         result["result"]["action"] = "security_scan"
     elif action == "review":
         result["result"] = port.review_code()
     elif action == "metrics":
-        result["result"] = port.project_metrics(file_filter=scope)
+        result["result"] = port.project_metrics(file_filter=target)
     elif action == "build":
-        result["result"] = port.build_cpg(project_root=scope or chain_dir)
+        result["result"] = port.build_cpg(project_root=target)
+    elif action == "update":
+        # Sync incremental via watcher: solo archivos cambiados (build_service.update).
+        # Si el puerto no soporta update, fallback a build con warning VISIBLE
+        # en el resultado (antes se tragaba en un logger.warning invisible).
+        if hasattr(port, "update"):
+            try:
+                result["result"] = port.update(project_root=target)
+            except TypeError:
+                # Puertos legacy con update() sin kwargs
+                result["result"] = port.update()
+            result["action"] = "update"
+            # Auto-ensenanza: el agente que llamo sin conocer force descubre
+            # aqui la via de escape al rebuild completo (parametro muerto -> vivo).
+            result["mode"] = "incremental"
+            result["next_step"] = (
+                'Si sospechas drift o necesitas re-scan total: '
+                'walker <project>/build_code_index {"force": true}'
+            )
+        else:
+            result["result"] = port.build_cpg(project_root=target)
+            result["warning"] = (
+                "puerto CPG sin update(); fallback a build completo "
+                "(esperado solo en puertos legacy)"
+            )
     elif action == "context":
         files = [scope] if scope else None
         result["result"] = port.gather_context(files=files)
     else:
-        result["result"] = port.business_layer(focus=scope)
+        result["result"] = port.business_layer(focus=target)
     return result
 
 
@@ -67,6 +113,11 @@ def _coerce_scope(value: Any) -> str:
 
 
 def _detect_action(data: dict[str, Any]) -> str:
+    # Override explícito: permite pedir acciones no cubiertas por flags
+    # legacy (p.ej. action="update" para el sync incremental del watcher).
+    explicit = data.get("action")
+    if isinstance(explicit, str) and explicit:
+        return explicit
     if data.get("detect") == "dead_code":
         return "dead_code"
     if data.get("detect") == "security":

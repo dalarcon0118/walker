@@ -3,6 +3,16 @@ WALKER PROTOCOL (MCP) — MANDATORY BEHAVIOR CONTRACT:
 1. GIT-LIKE: the walker operates on the current directory. Each project
    has its own .cognitive/. prepare(path) initializes, list() shows managed.
 
+1b. MULTI-PROJECT (MANDATORY when working outside the server's cwd):
+   EVERY tool accepts `project_id`. If you are coding in a project whose
+   path differs from the walker installation, ALWAYS send it:
+     - status({project_id: "react-native-frontend"})  → that project's health
+     - read_code({file, project_id})                  → that project's files
+     - task_context / sprint_evidence / submit ...    → same rule
+   Omitting it silently anchors to the server's startup project — the #1
+   cause of "empty context" or wrong-sprint responses. When unsure which
+   id to use: list() shows all registered projects.
+
 2. TO ADVANCE in the workflow, use submit with the node's data.
    If the node is a decision (XOR), use submit with 'intent'.
 

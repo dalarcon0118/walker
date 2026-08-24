@@ -26,6 +26,11 @@ import logging
 import os
 import sys
 
+_SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+_WALKER_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_SCRIPT_DIR)))
+if _WALKER_ROOT not in sys.path:
+    sys.path.insert(0, _WALKER_ROOT)
+
 from returns.pipeline import is_successful
 from returns.result import safe
 
@@ -198,13 +203,44 @@ def _get_tool_catalog() -> list[dict]:
     """
     outcome = _tool_catalog_core()
     if is_successful(outcome):
-        return outcome.value_or([])
+        return _ensure_project_id_discoverable(outcome.value_or([]))
     logger.warning(
         "tool catalog unavailable (%s: %s)",
         type(outcome.failure()).__name__,
         outcome.failure(),
     )
     return []
+
+
+_PROJECT_ID_PARAM = {
+    "type": "string",
+    "description": (
+        "ID del proyecto del registry de walker sobre el que operar "
+        "(ej. 'react-native-frontend'). ENVIALO SIEMPRE que trabajas en un "
+        "proyecto distinto al cwd del server — si lo omitís, la tool se "
+        "resuelve contra el proyecto del directorio de arranque."
+    ),
+}
+
+
+def _ensure_project_id_discoverable(tools: list[dict]) -> list[dict]:
+    """Inyecta `project_id` opcional en el schema de TODAS las tools MCP.
+
+    Lección descubribilidad (fix build_code_index): un parámetro que el
+    agente no ve en el schema es un parámetro muerto. El dispatch YA leía
+    args.project_id / args._project_id (_resolve_project_id) para ambos
+    caminos A y B — lo que faltaba era DECLARARLO para que los clientes
+    MCP puedan enviarlo. Idempotente: no toca schemas que ya lo exponen.
+    """
+    for tool in tools:
+        schema = tool.setdefault("inputSchema", {}) or {}
+        props = schema.setdefault("properties", {})
+        if "project_id" not in props and "_project_id" not in props:
+            props["project_id"] = dict(_PROJECT_ID_PARAM)
+        required = schema.get("required")
+        if isinstance(required, list) and "project_id" in required:
+            required.remove("project_id")
+    return tools
 
 
 @safe
@@ -453,8 +489,6 @@ def _call_tool(name: str, args: dict) -> dict:
         # y las tools con route_def (kg_search, save_to_ckg, ...) trazaban el
         # canal equivocado en el TraceGraph. El handler lee `_channel`.
         flags["_channel"] = "mcp"
-        import sys
-        print(f"DEBUG _call_tool CAMINO A name={name} path={path} method={route_def.method} flags={flags}", file=sys.stderr)
         from . import _ROUTER
 
         result = _ROUTER.dispatch(path, flags, method=route_def.method or "POST")
@@ -638,6 +672,38 @@ def _read_resource_core(uri: str) -> dict:
 # infrastructure/reloader.py (F4 — thin adapters).
 
 
+def _reset_server_cache() -> None:
+    """Invalida caches del server tras una cascada de hot-reload.
+
+    Extraído de serve_stdio (closure → módulo) para poder testear el
+    contrato de recomposición eager sin levantar el loop stdio.
+    """
+    global _SERVER
+    _SERVER = None
+    # El ModuleRegistry (composition root D1) también se invalida: si un
+    # fix agrega/cambia tools o servicios DI, tools/list las refleja sin
+    # reiniciar el proceso (mismo patrón que el server stale).
+    from core.engine.bootstrap import reset_module_registry
+
+    reset_module_registry()
+    # Recomposicion EAGER post-reload (fix -32001): sin esto, la primera
+    # tarea tras una cascada pagaba AppContainer.build() completo DENTRO
+    # de su presupuesto de respuesta (handlers.handle_task reconstruye
+    # cuando el locator esta vacio) → timeout del cliente. Recomponer
+    # aqui, fuera del request, deja el locator listo para el proximo
+    # dispatch. Best-effort: si falla, handle_task reintenta por su cuenta.
+    try:
+        from features.main.container import AppContainer
+
+        AppContainer.build()
+    except Exception as exc:
+        logger.warning(
+            "Recomposicion post-reload fallo (best-effort, "
+            "handle_task reintentara): %s",
+            exc,
+        )
+
+
 def serve_stdio() -> int:
     """stdio JSON-RPC loop: reads requests line by line, responds.
 
@@ -645,20 +711,12 @@ def serve_stdio() -> int:
     request se verifica si los modulos de features/ cambiaron en disco.
     Si cambian, se recargan via importlib.reload para que el server tome
     los fixes SIN reiniciar el proceso ni perder la conexion MCP.
+    Desde el fix de cooldown/budget (reloader.py), las cascadas se coalescen:
+    ráfagas de ediciones producen UNA cascada por ventana, nunca por request.
 
     Las NOTIFICACIONES (sin id) se procesan pero NO se responden — el
     protocolo MCP las usa como señales one-way (initialized, cancelled).
     """
-
-    def _reset_server_cache() -> None:
-        global _SERVER
-        _SERVER = None
-        # El ModuleRegistry (composition root D1) también se invalida: si un
-        # fix agrega/cambia tools o servicios DI, tools/list las refleja sin
-        # reiniciar el proceso (mismo patrón que el server stale).
-        from core.engine.bootstrap import reset_module_registry
-
-        reset_module_registry()
 
     for line in sys.stdin:
         line = line.strip()

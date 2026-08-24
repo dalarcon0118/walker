@@ -58,7 +58,79 @@ def gather_task_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResu
 
 
 def register(registry: Any) -> None:
-    registry.register("gather_context", gather_context,
-                      metadata={"description": "Gather context from CPG + CKG", "tags": ["gathering"], "scope": "internal"})
-    registry.register("gather_task_context", gather_task_context,
-                      metadata={"description": "Gather task-specific context", "tags": ["gathering"], "scope": "internal"})
+    registry.register(
+        "gather_context",
+        gather_context,
+        metadata={
+            "description": "Reúne contexto del CPG + CKG para archivos específicos.",
+            "usage": 'walker <project>/gather_context \'{"files":["src/auth.py"]}\'',
+            "example": 'walker <project>/gather_context \'{"files":["src/auth.py"],"task_id":"TASK-042"}\'',
+            "tags": ["code", "context", "cpg", "ckg"],
+            "scope": "public",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Archivos a analizar (relativos al project_root).",
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "ID de tarea para enriquecer con contexto específico.",
+                    },
+                    "context": {
+                        "type": "object",
+                        "description": "Contexto adicional del llamador.",
+                    },
+                },
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "context": {"type": "object"},
+                    "files_analyzed": {"type": "integer"},
+                },
+                "required": ["context", "files_analyzed"],
+            },
+        },
+    )
+    registry.register(
+        "gather_task_context",
+        gather_task_context,
+        metadata={
+            "description": "Reúne contexto del CPG + CKG para una tarea específica.",
+            "usage": 'walker <project>/gather_task_context \'{"files":["src/auth.py"],"task_id":"TASK-042"}\'',
+            "example": 'walker <project>/gather_task_context \'{"files":["src/auth.py"]}\'',
+            "tags": ["code", "context", "cpg", "ckg", "task"],
+            "scope": "public",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Archivos a analizar (relativos al project_root).",
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "ID de tarea para filtrar conocimiento específico.",
+                    },
+                    "context": {
+                        "type": "object",
+                        "description": "Contexto adicional del llamador.",
+                    },
+                },
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "context": {"type": "object"},
+                    "files_analyzed": {"type": "integer"},
+                },
+                "required": ["context", "files_analyzed"],
+            },
+        },
+    )

@@ -124,6 +124,11 @@ def create_first_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResu
 
 
 def build_code_index(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    """Full CPG rebuild from scratch.
+
+    Use this for initial setup or when the index is corrupted/stale.
+    For routine maintenance, use update_incremental_code.
+    """
     chain_dir = ctx.chain_dir or ""
     if chain_dir:
         paths = ProjectService.resolve_paths(chain_dir)
@@ -137,14 +142,16 @@ def build_code_index(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
     from features.main.task_execution.tasks.inspect_codebase import inspect_codebase  # ADR-021: no duplicar CPGBuilder
 
-    result = inspect_codebase(ctx, {"scope": project_root, "build": True})
-    if not is_successful(result):
-        error = result.failure()
-        logger.warning("build_code_index fallo (%s: %s)", type(error).__name__, error)
+    payload: dict[str, Any] = {"scope": project_root, "build": True}
+    result = inspect_codebase(ctx, payload)
+    if not result.is_success():
+        error = result.error or "unknown error"
+        logger.warning("build_code_index failed (%s)", error)
         return TaskResult.success(
             data={"built": False, "error": str(error), "next_step": "Check CPG configuration"}
         )
-    built = result.value_or({})
+
+    built = result.data or {}
     return TaskResult.success(
         data={
             "built": True,
@@ -199,9 +206,21 @@ def register(registry: Any) -> None:
         "build_code_index",
         build_code_index,
         metadata={
-            "description": "Construye el indice de codigo CPG.",
-            "usage": "walker <project>/build_code_index",
-            "tags": ["code", "index"],
+            "description": (
+                "Full CPG rebuild from scratch. "
+                "Use this for initial setup or when the index is corrupted/stale. "
+                "For routine maintenance, use update_incremental_code."
+            ),
+            "usage": 'walker <project>/build_code_index',
+            "example": 'walker <project>/build_code_index',
+            "query_instructions": (
+                "When to use: "
+                "(1) Initial project setup; "
+                "(2) CPG is corrupted or stale; "
+                "(3) Need a fresh full rebuild. "
+                "For incremental updates after code changes, use update_incremental_code."
+            ),
+            "tags": ["code", "cpg", "build", "rebuild"],
             "scope": "public",
         },
     )

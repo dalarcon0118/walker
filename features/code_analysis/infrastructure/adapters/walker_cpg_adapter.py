@@ -215,6 +215,49 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         )
         return result_dict
 
+    def update(
+        self, refresh: bool = False, project_root: str = ""
+    ) -> dict[str, object]:
+        """Sync incremental del CPG via watcher (delega en CPGBuilder.update).
+
+        FIX (rebuild innecesario): el adapter no exponia update(), por lo que
+        toda peticion incremental degradaba silenciosamente a build_cpg()
+        (rescan completo). Ahora el camino rapido es real.
+
+        Returns resumen ligero (mismo shape que build_cpg) para no arrastrar
+        el documento CPG completo por el CLI/MCP.
+        """
+        if not project_root:
+            # Sin contexto no hay fingerprint contra quien comparar:
+            # rebuild completo es la unica opcion segura.
+            raise ValueError(
+                "update() requiere project_root; usa build_cpg si no lo tienes"
+            )
+
+        from features.code_analysis import CPGBuilder
+
+        builder = CPGBuilder(project_root)
+        result = builder.update(refresh=refresh)
+        stats = result.get("stats", result)
+        result_dict: dict[str, object] = {
+            "built": bool(refresh),
+            "mode": "full" if refresh else "incremental",
+            "nodes": stats.get("total_nodes", len(result.get("nodes", {}))),
+            "edges": stats.get("total_edges", len(result.get("edges", []))),
+            "files_updated": result.get("files_updated", 0),
+        }
+        warnings = result.get("warnings")
+        if warnings:
+            result_dict["warnings"] = warnings
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="cpg_update" if not refresh else "cpg_build",
+                scope=project_root,
+                result_summary={"mode": result_dict["mode"], "files_updated": result_dict["files_updated"]},
+            )
+        )
+        return result_dict
+
     def index_ref(
         self,
         url: str,

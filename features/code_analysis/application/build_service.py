@@ -703,10 +703,21 @@ class BuildGraphUseCase:
                 data_dir=self.data_dir or None,
             )
             status = watcher.scan()
-        except Exception:
-            # Watcher no disponible: fallback a full build
-            logger.warning("Watcher no disponible, fallback a full build")
-            return self.build()
+        except Exception as e:
+            # FIX (fallback visible): antes este path hacia build() completo en
+            # silencio (solo logger.warning), ocultando la causa de los rebuilds.
+            # Ahora el warning viaja en el resultado para CLI/MCP/status.
+            fallback = self.build()
+            warning = (
+                f"watcher no disponible ({type(e).__name__}: {e}); "
+                "fallback a build completo"
+            )
+            logger.warning("%s", warning)
+            if isinstance(fallback, dict):
+                warnings = list(fallback.get("warnings", []))
+                warnings.append(warning)
+                fallback["warnings"] = warnings
+            return fallback
 
         changed = status.get("files_changed", [])
         if not changed and status.get("cpg_status") == "up_to_date":
@@ -811,6 +822,8 @@ class BuildGraphUseCase:
             "files_updated": len(existing),
             "nodes_added": len(new_nodes),
             "nodes_removed": len(paths_to_remove),
+            "total_nodes": len(data["nodes"]),
+            "total_edges": len(data["edges"]),
             "scope": "task",
             "quality_report": qr,
             "bug_proposals": bp,

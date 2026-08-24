@@ -406,23 +406,24 @@ def _build_cli_handlers() -> Any:
     El módulo MCP del engine (core/engine/mcp.py) delega en los handlers de
     cli_interface; main los inyecta por DI para invertir la dependencia
     (ADR-051 G5): core/engine no importa features.main.
-    """
-    from features.main.cli_interface.application.handlers import (
-        handle_help,
-        handle_list_projects,
-        handle_prepare,
-        handle_status,
-        handle_submit,
-        handle_transition,
-    )
 
+    FIX ciclo de imports: la resolución es DINÁMICA (import_module) para no
+    crear arista estática registry → handlers. Con el ImportFrom clásico, el
+    grafo estático cerraba container → registry → handlers → container y el
+    hot-reload topológico detectaba el SCC como ciclo.
+    """
+    import importlib
+
+    handlers_mod = importlib.import_module(
+        "features.main.cli_interface.application.handlers"
+    )
     return {
-        "status": handle_status,
-        "submit": handle_submit,
-        "transition": handle_transition,
-        "prepare": handle_prepare,
-        "list": handle_list_projects,
-        "help": handle_help,
+        "status": handlers_mod.handle_status,
+        "submit": handlers_mod.handle_submit,
+        "transition": handlers_mod.handle_transition,
+        "prepare": handlers_mod.handle_prepare,
+        "list": handlers_mod.handle_list_projects,
+        "help": handlers_mod.handle_help,
     }
 
 

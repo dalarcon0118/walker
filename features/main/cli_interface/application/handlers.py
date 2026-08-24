@@ -427,7 +427,7 @@ def handle_status(req: Request) -> Response:
             if repo_path:
                 req.set_repo_path(repo_path)
 
-        from features.main import WalkerApp
+        from features.main.app import WalkerApp
 
         app = WalkerApp(AppContainer.build())
         health = app.status(
@@ -515,7 +515,7 @@ def handle_prepare(req: Request) -> Response:
             req.project_id or req.flags.get("path", os.getcwd())
         )
 
-        from features.main import WalkerApp
+        from features.main.app import WalkerApp
 
         app = WalkerApp(AppContainer.build())
         result = app.prepare(
@@ -584,6 +584,10 @@ def handle_submit(req: Request) -> Response:
         payload = req.flags.get("_payload", {})
         submit_data = payload if isinstance(payload, dict) else req.flags
 
+        from features.main.container import AppContainer
+
+        AppContainer.build()
+
         chain_dir = (
             req.params.get("chain_dir", "")
             or req.flags.get("_chain_dir", "")
@@ -601,13 +605,7 @@ def handle_submit(req: Request) -> Response:
                 ],
             )
 
-        # Composition root único (capa_rout.md D1): los use cases del workflow
-        # se resuelven via get_module_service("workflow") — el container DI de
-        # bootstrap_modules. Antes se instanciaban WorkflowRepository()/
-        # WorkflowStateRepository()/ScriptRunner() a mano en cada handler. La
-        # factory construye una instancia fresca del use case por llamada
-        # (SubmitDataUseCase acumula self.events en execute).
-        from features.main import WalkerApp
+        from features.main.app import WalkerApp
 
         app = WalkerApp(AppContainer.build())
         result = app.submit(chain_dir, fields=submit_data)
@@ -667,6 +665,10 @@ def handle_transition(req: Request) -> Response:
                 status_code=400,
             )
 
+        from features.main.container import AppContainer
+
+        AppContainer.build()
+
         chain_dir = (
             req.params.get("chain_dir", "")
             or req.flags.get("_chain_dir", "")
@@ -684,7 +686,7 @@ def handle_transition(req: Request) -> Response:
                 ],
             )
 
-        from features.main import WalkerApp
+        from features.main.app import WalkerApp
 
         app = WalkerApp(AppContainer.build())
         result = app.transition(
@@ -722,6 +724,14 @@ def handle_task(req: Request) -> Response:
     def _exec():
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
+
+        # ── Composition root: poblar el service locator (task_registry, etc.)
+        #    antes de despachar. Los otros handlers (status/submit/transition)
+        #    lo hacen via WalkerApp(AppContainer.build()); handle_task lo omitía,
+        #    dejando el locator vacío → resolve_service("task_registry") = None →
+        #    'NoneType' object has no attribute 'get_task_info'. ──
+        AppContainer.build()
+
         chain_dir = _ensure_chain_dir(req.project_id, req.sprint_id)
         task_name = req.task_name or (req.positional[0] if req.positional else "")
         if not task_name:
@@ -739,13 +749,6 @@ def handle_task(req: Request) -> Response:
         if isinstance(payload, dict):
             for k, v in payload.items():
                 task_data.setdefault(k, v)
-
-        # ── Composition root: poblar el service locator (task_registry, etc.)
-        #    antes de despachar. Los otros handlers (status/submit/transition)
-        #    lo hacen via WalkerApp(AppContainer.build()); handle_task lo omitía,
-        #    dejando el locator vacío → resolve_service("task_registry") = None →
-        #    'NoneType' object has no attribute 'get_task_info'. ──
-        AppContainer.build()
 
         # ── Dispatch único (SPEC-005 #5): mismo core que el MCP. La visibilidad
         #    interna vive SOLO en SystemTaskRegistry (metadata.scope SSOT). ──
