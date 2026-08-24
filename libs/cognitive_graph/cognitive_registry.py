@@ -63,6 +63,13 @@ def cpg_index_config() -> dict[str, Any]:
         "fields": {"function": "name", "file": "path", "type": "type"},
         "types": {"function": {}, "class": {}, "file": {}, "module": {}},
         "storage": {"path": "data/cpg.json.gz", "format": "json.gz"},
+        # FIX FTS sordo: sin este bloque has_fulltext()=False → _token_index
+        # None → toda búsqueda textual devolvía 0 hits aunque los docs
+        # existieran (el CPG llevaba años mudo para kg_search/recall).
+        "search": {
+            "type": "fulltext",
+            "fields": ["name", "path", "signature", "kind"],
+        },
         "description": "CPG: Code Property Graph - estructura del codigo fuente",
     }
 
