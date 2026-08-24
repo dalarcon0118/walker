@@ -129,20 +129,32 @@ def build_code_index(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     Use this for initial setup or when the index is corrupted/stale.
     For routine maintenance, use update_incremental_code.
     """
-    chain_dir = ctx.chain_dir or ""
-    if chain_dir:
-        paths = ProjectService.resolve_paths(chain_dir)
-        project_root = paths.repo_path or paths.project_root
-    elif data.get("project_id"):
-        from shared.core.path_resolver import get_project_dir
+    # ADR-WALKER-053: contexto explícito > ambiental, ambas claves de proyecto
+    pid = (data.get("project_id") or data.get("_project_id") or "").strip()
+    project_root = ""
+    if pid:
+        from features.project.application.services.project_service import ProjectService as _PS
 
-        project_root = str(get_project_dir(data["project_id"]))
-    else:
-        return TaskResult.success(data={"built": False, "error": "No chain_dir or project_id"})
+        project_root = str(_PS.from_project_id(pid).manifest.repo_path or "")
+    if not project_root and ctx.chain_dir:
+        paths = ProjectService.resolve_paths(ctx.chain_dir)
+        project_root = paths.repo_path or paths.project_root
+    if not project_root:
+        return TaskResult.success(
+            data={
+                "built": False,
+                "error": "No chain_dir or project_id",
+                "next_step": 'Pasá {"project_id": "..."} o corré dentro del proyecto',
+            }
+        )
 
     from features.main.task_execution.tasks.inspect_codebase import inspect_codebase  # ADR-021: no duplicar CPGBuilder
 
-    payload: dict[str, Any] = {"scope": project_root, "build": True}
+    payload: dict[str, Any] = {
+        "scope": project_root,
+        "build": True,
+        "project_id": pid,
+    }
     result = inspect_codebase(ctx, payload)
     if not result.is_success():
         error = result.error or "unknown error"
