@@ -45,6 +45,13 @@ _SLOW_RELOAD_BUDGET = float(os.environ.get("WALKER_MCP_RELOAD_BUDGET", "15"))
 _last_reload_ts: float = 0.0
 _reload_stats = {"cascades": 0, "deferred": 0}
 
+# ── Baseline de arranque (fix -32001 en cold start) ────────────────────────
+# El cache nace vacío: sin baseline, el PRIMER request post-boot ve los ~167
+# módulos como "cambiados" y paga la cascada completa dentro de su ventana
+# de respuesta. Los archivos con mtime anterior al arranque del proceso son
+# estado conocido, no cambios.
+_BOOT_TIME = time.time()
+
 
 def _now() -> float:
     """Reloj monotonic inyectable (los tests lo monkeypatchean)."""
@@ -56,11 +63,13 @@ def _detect_changes() -> list[tuple[str, tuple[float, int]]]:
 
     NO muta _reload_cache: el consumo de firmas ocurre solo cuando la
     cascada realmente corre, para que un cambio detectado durante el
-    cooldown no se pierda.
+    cooldown no se pierda. En el primer pase post-boot siembra el baseline:
+    los archivos previos al arranque se marcan vistos SIN recargar.
     """
     if not os.path.isdir(_FEATURES_DIR):
         return []
     changed: list[tuple[str, tuple[float, int]]] = []
+    first_pass = not _reload_cache
     for root, dirs, files in os.walk(_FEATURES_DIR):
         dirs[:] = [d for d in dirs if d != "__pycache__"]
         for f in files:
@@ -72,6 +81,10 @@ def _detect_changes() -> list[tuple[str, tuple[float, int]]]:
                 continue  # archivo desapareció (race): se omite
             sig = stat_outcome.value_or((0, 0))
             if _reload_cache.get(path) == sig:
+                continue
+            if first_pass and sig[0] <= _BOOT_TIME:
+                # Pre-existente al boot: baseline, nunca dispara cascada.
+                _reload_cache[path] = sig
                 continue
             changed.append((path, sig))
     return changed

@@ -110,3 +110,25 @@ def test_sin_debug_print_en_camino_a():
 
     source = inspect.getsource(mcp_adapter)
     assert "DEBUG _call_tool" not in source
+
+
+def test_baseline_arranque_no_dispara_cascada(_isolated_reload_state):
+    """Cold start: archivos pre-existentes al boot se siembran como vistos
+    SIN recargar (el primer request del server nunca paga una cascada).
+    Un cambio POSTERIOR al arranque sí dispara."""
+    fired = []
+    old_file = _isolated_reload_state / "preexistente.py"
+    old_file.write_text("VALUE = 1\n")
+    past = reloader._BOOT_TIME - 100  # mtime anterior al arranque del proceso
+    import os as _os
+
+    _os.utime(old_file, (past, past))
+
+    assert reloader.reload_features_if_changed(on_changed=lambda: fired.append(1)) is False
+    assert fired == []  # sin cascada
+    assert str(old_file) in reloader._reload_cache  # pero sembrado como visto
+
+    # Cambio posterior al boot → cascada normal.
+    _touch(old_file)
+    assert reloader.reload_features_if_changed(on_changed=lambda: fired.append(2)) is True
+    assert len(fired) == 1
