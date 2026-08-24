@@ -272,6 +272,7 @@ class AppContainer:
             "side_effect_engine": se_engine,
             "workflow": workflow_facade,
             "action_catalog": action_catalog,
+            "project_service": ProjectService,
         }
         for key in (
             "cognitive_searcher",

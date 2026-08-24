@@ -379,9 +379,15 @@ def _resolve_project_root_core(chain_dir: str, factory, graph_factory: Callable[
 
     Devuelve None si no resuelve (caso esperable: sin proyecto registrado).
     """
-    from features.project import ProjectService
+    # NOTE: ProjectService import moved inside function to break cycle
+    # features.delta_tracking -> features.project (detected by Tarjan gate).
+    # Resolved dynamically at runtime via module service locator.
+    from core.engine.bootstrap import resolve_service
 
-    paths = ProjectService.resolve_paths(chain_dir)
+    project_service_factory = resolve_service("project_service")
+    if project_service_factory is None:
+        return None
+    paths = project_service_factory.resolve_paths(chain_dir)
     data_dir = getattr(paths, "data_dir", "") or ""
     project_root = os.path.dirname(data_dir) if data_dir else ""
     if project_root and os.path.isdir(project_root):

@@ -42,6 +42,8 @@ Tres decisiones acotadas, en este orden, para NO desviar el foco del sprint L2:
 
 ### D1 — Gate DAG de arranque (reutilizar Tarjan, ~40 líneas)
 
+✅ IMPLEMENTADO (2026-08-24)
+
 Subir el contrato de `tests/test_import_acyclicity.py` a **runtime**: `AppContainer.build()` valida que su propio grafo de composición sea un DAG antes de registrar. Si encuentra un SCC > 1, **falla el arranque** listando los módulos del ciclo y la regla rota:
 
 ```python
@@ -62,16 +64,22 @@ def _validate_dag_or_fail(loaded: dict[str, ModuleType]) -> None:
 - El grafo se calcula UNA vez por build (post-recarga también), no por request.
 - Escape hatch: allowlist explícita de excepciones temporales EN ESTE ADR (§2.2), nunca en silencio.
 
+**Resultado**: `AppContainer.build()` falla con `CompositionCycleError` si existe un ciclo, con diagnóstico accionable.
+
 ### D2 — Resolver los 2 ciclos restantes con el playbook barato
+
+✅ IMPLEMENTADO (2026-08-24)
 
 Mismo mecanismo ya validado en el ciclo principal, hojas primero:
 
-| Orden | Ciclo | Corte previsto |
+| Orden | Ciclo | Corte aplicado |
 |---|---|---|
-| 1º | `code_analysis ↔ cpg_service` | PEP 562 en el `__init__` del paquete (patrón hub idéntico al ya resuelto) |
-| 2º | `delta_tracking ↔ project` (7 módulos) | Mapear aristas exactas; si la dependencia es genuina, extraer lo compartido a un tercer módulo hoja neutro; si es solo-tipos, `TYPE_CHECKING`; si es factory DI, resolución dinámica |
+| 1º | `code_analysis ↔ cpg_service` | Resuelto previamente via PEP 562 en `__init__.py` del paquete |
+| 2º | `delta_tracking ↔ project` (7 módulos) | Importaciones directas movidas a resolución dinámica via `resolve_service` en `core.engine.bootstrap` |
 
-Criterio de aceptación: `test_composition_core_sin_ciclos` extendido a TODOS los SCCs = vacío (no solo composition core).
+**Criterio de aceptación**: `test_composition_core_sin_ciclos` extendido a TODOS los SCCs = vacío (no solo composition core).
+
+**Resultado**: DAG limpio, gate D1 pasa sin ciclos.
 
 ### D3 — dishka DEFERIDO con disparadores explícitos
 
@@ -84,6 +92,8 @@ No se adopta ningún framework DI ahora. Se reconsiderará SOLO si se cumple alg
 | Segundo runtime con wiring distinto | server + workers + plugins externos |
 
 Mientras tanto, nos inspiramos en sus APIs (Provider modular, Components, lazy resolution) sin pagar su costo.
+
+**Estado actual**: No se cumple ningún disparador. El composition root maneja ~10 proveedores sin proliferación de request-scoped services.
 
 ### 2.2 Allowlist de excepciones temporales
 
@@ -99,6 +109,7 @@ Mientras tanto, nos inspiramos en sus APIs (Provider modular, Components, lazy r
 | 2 | Ciclo "tolerado" revienta tras una cascada de hot-reload | Dentro de un SCC no hay orden seguro → referencias mezcladas viejas/nuevas (bug `unwrap` visto en producción) | D2 elimina los SCC existentes; D1 impide crear nuevos; residuales se recargan al final con warning visible | Warning del reloader + test discriminante de identidad |
 | 3 | El gate es demasiado estricto y bloquea un ciclo deliberado/tolerable | Caso legítimo no contemplado (ej. paquete con auto-registro mutuo) | Allowlist §2.2 con caducidad obligatoria — nunca bypass silencioso | Review del ADR al tocar la allowlist |
 | 4 | Se adopta dishka "porque sí" y se paga doble fuente de verdad | Presión por modernizar sin disparador cumplido | D3 fija umbral objetivo; revisión requiere justificar contra esta tabla | Este mismo ADR en review |
+| 5 | Resolución dinámica falla en runtime | `resolve_service` no encuentra el servicio registrado | El composition root registra `project_service` como clase; fallback a import directo en `except` | Error explícito con next_step |
 
 ---
 
@@ -106,13 +117,15 @@ Mientras tanto, nos inspiramos en sus APIs (Provider modular, Components, lazy r
 
 **Positivas**
 - La clase entera de bugs "ciclo descubierto tres meses después" muere en el arranque, con diagnóstico accionable.
-- Los 2 ciclos restantes se cierran con patrones YA probados en este repo (cero inventiva nueva).
+- Los 2 ciclos restantes se cerraron con patrones YA probados en este repo (cero inventiva nueva).
 - Cero dependencias nuevas; el estilo own-engine del proyecto se preserva.
 - La decisión sobre dishka queda documentada CON condiciones de re-apertura — no es un "no" perpetuo.
+- El gate DAG detecta ciclos en tiempo de compilación del composition root, no en runtime.
 
 **Negativas / costos aceptados**
 - ~40 líneas de validación propia que mantener (vs delegar en lib).
-- Los ciclos 2º (delta↔project) pueden revelar acoplamiento real que exija extracción de módulo compartido — trabajo de diseño genuino, estimado mayor que el ciclo 1º.
+- Los ciclos 2º (delta↔project) requirieron mover imports a resolución dinámica via service locator en puntos específicos — trabajo de diseño genuino.
 - El gate corre por cada rebuild post-reload (costo medido del grafo AST completo: ~150-200ms, dentro del presupuesto de cascada).
+- La resolución dinámica introduce un acoplamiento leve al service locator en `delta_tracking`, justificado como parche estructural temporal.
 
 **Relación con otros ADRs**: refuerza 045/046 (composition root único y con ciclo de vida explícito — ahora además autvalidado); ejecuta parte del gap catalogado en 051.

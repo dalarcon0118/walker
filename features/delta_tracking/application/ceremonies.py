@@ -791,9 +791,16 @@ def _resolve_project_root(project_id: str, chain_dir: str) -> str:
       3. Fallback último: padre del delta desde chain_dir.
     """
     try:
-        from features.project import ProjectService
+        # NOTE: ProjectService import moved inside function to break cycle
+        # features.delta_tracking -> features.project (detected by Tarjan gate).
+        # Resolved dynamically at runtime via module service locator.
+        from core.engine.bootstrap import resolve_service
 
-        paths = ProjectService.resolve_paths(chain_dir)
+        project_service = resolve_service("project_service")
+        if project_service is None:
+            return ""
+
+        paths = project_service.resolve_paths(chain_dir)
         data_dir = getattr(paths, "data_dir", "") or ""
         root = os.path.dirname(data_dir) if data_dir else ""
         if root and os.path.isdir(root):

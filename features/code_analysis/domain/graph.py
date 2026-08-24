@@ -16,6 +16,8 @@ class Node:
     signature: str = ""
     is_import: bool = False
     ast_kind: str = ""
+
+
     cyclo: int | None = None
     loc: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
@@ -52,6 +54,15 @@ class Node:
             d["loc"] = self.loc
         d.update(self.extra)
         return d
+
+
+# ── Roles semánticos canónicos (SSOT) ──────────────────────────────────────
+# Los productores de nodos (sg_adapter / ast_grep_adapter) asignan estos
+# `type`. Cualquier consumidor que agrupe por rol DEBE usar estas constantes,
+# nunca re-hardcodear strings (lección ADR-WALKER-053 §metrics).
+FUNCTION_TYPES = frozenset({"function", "method"})
+CLASS_TYPES = frozenset({"class", "struct"})
+
 
 
 @dataclass

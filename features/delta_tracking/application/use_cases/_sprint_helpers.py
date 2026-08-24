@@ -56,13 +56,17 @@ def _resolve_chain_dir(
     ):
         return cd
 
-    from features.project import ProjectService
+    from core.engine.bootstrap import resolve_service
+
+    project_service = resolve_service("project_service")
+    if project_service is None:
+        return ""
 
     record = _get_active_record(ctx)
     pid = project_id or (getattr(record, "project_id", "") if record else "")
 
     if pid:
-        active = ProjectService.find_active_sprint(pid)
+        active = project_service.find_active_sprint(pid)
         if active:
             return active
         # get_delta_dir ahora resuelve automaticamente desde el registry
@@ -126,10 +130,14 @@ def _resolve_project_root_from_chain(sprint_dir: str) -> str:
     """
     if not sprint_dir:
         return ""
-    from features.project import ProjectService
+    from core.engine.bootstrap import resolve_service
+
+    project_service = resolve_service("project_service")
+    if project_service is None:
+        return ""
 
     try:
-        paths = ProjectService.resolve_paths(sprint_dir)
+        paths = project_service.resolve_paths(sprint_dir)
         root = getattr(paths, "project_root", "") or ""
         if root and os.path.isdir(root):
             return root

@@ -144,20 +144,50 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         return result_dict
 
     def project_metrics(self, file_filter: str = "") -> dict[str, object]:
-        from features.code_analysis.application.review_service import ReviewUseCase
-        from features.project import ProjectService
+        """Métricas CPG-nativas (ADR-WALKER-053): sin binario externo.
 
-        data_dir = ""
+        El cómputo vive en metrics_service (value objects + Result); este
+        adaptador traduce contexto y serializa UNA vez para la task.
+        """
+        from returns.pipeline import is_successful
+
+        from features.code_analysis.application.metrics_service import (
+            compute_cpg_metrics,
+        )
+
+        data_dir = self._repo._file_repo.data_dir
+        repo_root = ""
         try:
-            paths = ProjectService.resolve_paths(self._repo._file_repo.data_dir)
-            data_dir = paths.data_dir or ""
-        except Exception:
-            data_dir = self._repo._file_repo.data_dir
+            from features.project import ProjectService
 
-        svc = ReviewUseCase(self._repo._file_repo.data_dir, data_dir=data_dir or None)
-        files = [file_filter] if file_filter else None
-        result = svc.review_files(files=files)
-        result_dict = result.to_dict()
+            paths = ProjectService.resolve_paths(data_dir)
+            repo_root = paths.repo_path or paths.project_root or ""
+            data_dir = paths.data_dir or data_dir
+        except Exception:
+            pass
+
+        # Blindaje de alcance: si el filtro apunta DENTRO de .cognitive es un
+        # artefacto de resolución (el scope real para métricas es el repo).
+        scope = file_filter or ""
+        if not scope or os.sep + ".cognitive" in scope or "/.cognitive" in scope:
+            scope = ""
+
+        outcome = compute_cpg_metrics(
+            repo_path=repo_root or data_dir, data_dir=data_dir, scope=scope
+        )
+        if not is_successful(outcome):
+            err = str(outcome.failure())
+            self._emit(
+                AnalysisCompleted(
+                    analysis_type="project_metrics",
+                    scope=file_filter or "project",
+                    result_summary={"error": err},
+                )
+            )
+            return {"error": err, "source": "cpg-native"}
+
+        report = outcome.value_or(None)
+        result_dict = report.to_dict() if report else {"error": "empty"}
         self._emit(
             AnalysisCompleted(
                 analysis_type="project_metrics",

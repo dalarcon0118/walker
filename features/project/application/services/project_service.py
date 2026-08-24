@@ -430,12 +430,18 @@ class ProjectService:
             try:
                 svc = spring_service
                 if svc is None:
-                    from features.delta_tracking import SpringService, spring_service
-                    from shared.core.path_resolver import get_project_dir
+                    # NOTE: SpringService import moved inside function to break cycle
+                    # features.project -> features.delta_tracking (detected by Tarjan gate).
+                    # Resolved dynamically at runtime via module service locator.
+                    from core.engine.bootstrap import resolve_service
 
-                    project_root = str(get_project_dir(pid))
-                    if os.path.isdir(project_root):
-                        svc = SpringService(project_root)
+                    spring_factory = resolve_service("spring_factory")
+                    if spring_factory:
+                        from shared.core.path_resolver import get_project_dir
+
+                        project_root = str(get_project_dir(pid))
+                        if os.path.isdir(project_root):
+                            svc = spring_factory(project_root=project_root)
                 if svc:
                     for spring in svc.list_springs():
                         st = spring.get("status", "")

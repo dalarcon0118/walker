@@ -259,7 +259,11 @@ def cpg_analysis_adapter(chain_dir: str = "") -> Any | None:
         from features.project import ProjectService
 
         paths = ProjectService.resolve_paths(chain_dir)
-        data_dir = str(paths.project_root)
+        # FIX off-by-one-path-segment: el store físico (cpg.json.gz) vive en
+        # <repo>/.cognitive/projects/<pid>/DATA — no en <pid>/ ni en la raíz.
+        # Antes se guardaba project_root aquí y el adapter leía un store
+        # vacío (silencioso) → analyzers en cero.
+        data_dir = str(paths.data_dir)
         project_id = paths.project_id
         from features.code_analysis.infrastructure.cognitive_cpg_repo import (
             CognitiveCpgRepository,
