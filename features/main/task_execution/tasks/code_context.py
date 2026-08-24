@@ -24,11 +24,24 @@ def code_context(
     Preferred path: code_context_service is injected by the composition root.
     Fallback path: resolves via resolver when called from registry/CLI/MCP.
     """
-    chain_dir = ctx.chain_dir or ""
-    if not chain_dir:
+    # ADR-WALKER-053 D3: la task CONSUME contexto resuelto, no lo arma.
+    # repo path efectivo = payload explícito → _project_ctx inyectado por el
+    # despachador → chain_dir ambiental (legacy sprint-dir).
+    from features.main.task_execution.application.project_context import (
+        resolve_repo_path,
+    )
+
+    repo_path = resolve_repo_path(data, ctx)
+    chain_dir = getattr(ctx, "chain_dir", "") or ""
+    if not repo_path and not chain_dir:
         return TaskResult.failure(
-            "chain_dir not available",
-            data={"next_step": "Run from a project sprint or pass project_id"},
+            "no project context",
+            data={
+                "next_step": (
+                    "Pasá {project_id} o corré dentro de un proyecto "
+                    "(walker <project>/list muestra los disponibles)"
+                )
+            },
         )
 
     service = code_context_service
@@ -36,7 +49,7 @@ def code_context(
         from features.main.task_execution.application.code_context_resolver import (
             resolve_code_context_service,
         )
-        service = resolve_code_context_service(chain_dir)
+        service = resolve_code_context_service(repo_path or chain_dir)
 
     if service is None:
         return TaskResult.failure(

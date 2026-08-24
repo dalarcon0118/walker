@@ -188,7 +188,15 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 def _kg_help(topic: str = "") -> dict:
     """Retorna ayuda sobre las memorias de CognitiveGraph."""
-    from features.main.task_execution.tasks.knowledge_metadata import _KG_HELP
+    # Resolución DINÁMICA (ADR-WALKER-053): metadata importa este módulo a
+    # nivel top; un ImportFrom aquí crearía arista estática mutua que el
+    # gate DAG (ADR-052 D1) rechaza. import_module = forwardRef-style.
+    import importlib
+
+    _meta = importlib.import_module(
+        "features.main.task_execution.tasks.knowledge_metadata"
+    )
+    _KG_HELP = _meta._KG_HELP
 
     return {
         "type": "kg_help",

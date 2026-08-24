@@ -78,7 +78,7 @@ def _features_graph() -> dict[str, set[str]]:
     excluye bloques TYPE_CHECKING) para que este contrato y el plan de
     recarga no puedan divergir.
     """
-    from features.main.cli_interface.infrastructure import reloader
+    from features.main.composition.import_graph import module_deps
 
     loaded = {
         n: getattr(m, "__file__", "")
@@ -87,7 +87,7 @@ def _features_graph() -> dict[str, set[str]]:
     }
     graph: dict[str, set[str]] = {}
     for name, path in loaded.items():
-        deps = reloader._module_deps(name, path.replace(".pyc", ".py"))
+        deps = module_deps(name, path.replace(".pyc", ".py"))
         graph[name] = {d for d in deps if d in loaded}
     return graph
 

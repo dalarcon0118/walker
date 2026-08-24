@@ -156,82 +156,7 @@ def reload_features_if_changed(on_changed=None) -> bool:
 _FEATURES_PREFIX = "features."
 
 
-def _type_checking_ranges(tree: ast.AST) -> list[tuple[int, int]]:
-    """Rangos [lineno, end_lineno] de bloques `if TYPE_CHECKING:`.
-
-    Los imports bajo TYPE_CHECKING no existen en runtime (solo anotaciones),
-    así que NO deben generar aristas en el grafo estático ni entrar al plan
-    de recarga (las anotaciones entrecomilladas no requieren rebindeo).
-    """
-    ranges: list[tuple[int, int]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.If):
-            continue
-        test = node.test
-        guarded = False
-        if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
-            guarded = True
-        elif (
-            isinstance(test, ast.Attribute)
-            and test.attr == "TYPE_CHECKING"
-        ):
-            guarded = True
-        if guarded and node.end_lineno:
-            ranges.append((node.lineno, node.end_lineno))
-    return ranges
-
-
-def _module_deps(mod_name: str, mod_path: str) -> set[str]:
-    """Nombres features.* que importa el módulo (parse AST del source).
-
-    Resuelve imports relativos a absolutos con la fórmula estándar de
-    importlib (level sobre __package__). Solo devueltos los nombres que
-    empiezan por el prefijo y no son el propio módulo. Los imports bajo
-    `if TYPE_CHECKING:` se excluyen: no existen en runtime.
-    """
-    try:
-        with open(mod_path, "r", encoding="utf-8", errors="replace") as f:
-            source = f.read()
-        tree = ast.parse(source)
-    except Exception:
-        return set()
-    tc_ranges = _type_checking_ranges(tree)
-
-    package = getattr(sys.modules.get(mod_name), "__package__", "") or ""
-    pkg_parts = package.split(".") if package else []
-    deps: set[str] = set()
-
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Import, ast.ImportFrom)):
-            continue
-        if any(lo <= node.lineno <= hi for lo, hi in tc_ranges):
-            continue  # solo-tipos: sin arista estática
-        candidates: list[str] = []
-        if isinstance(node, ast.Import):
-            candidates = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom):
-            # level=0 (absoluto) → SIN base: `from features.x import y` es
-            # literal. Solo los relativos (level>=1) resuelven contra
-            # __package__ del módulo actual.
-            base_parts: list[str] = []
-            if node.level > 0:
-                # level=1 → paquete actual; level=2 → padre; etc.
-                base_parts = (
-                    pkg_parts[: len(pkg_parts) - (node.level - 1)] if pkg_parts else []
-                )
-                if not base_parts:
-                    continue
-            if node.module:
-                candidates.append(".".join(base_parts + node.module.split(".")))
-            else:
-                # `from . import hermano` → el paquete y cada hermano
-                base = ".".join(base_parts)
-                candidates.append(base)
-                candidates.extend(f"{base}.{a.name}" for a in node.names)
-        for name in candidates:
-            if name.startswith(_FEATURES_PREFIX) and name != mod_name:
-                deps.add(name)
-    return deps
+from features.main.composition.import_graph import _type_checking_ranges, module_deps
 
 
 def _plan_reload(changed_realpaths: set[str]) -> list[tuple[str, Any]]:
@@ -267,7 +192,7 @@ def _plan_reload(changed_realpaths: set[str]) -> list[tuple[str, Any]]:
     graph: dict[str, set[str]] = {}
     importers: dict[str, set[str]] = {}
     for mod_name in loaded:
-        deps = _module_deps(mod_name, loaded[mod_name][0])
+        deps = module_deps(mod_name, loaded[mod_name][0], prefix=_FEATURES_PREFIX)
         graph[mod_name] = {d for d in deps if d in loaded}
         for d in graph[mod_name]:
             importers.setdefault(d, set()).add(mod_name)

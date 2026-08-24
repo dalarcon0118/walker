@@ -750,6 +750,32 @@ def handle_task(req: Request) -> Response:
             for k, v in payload.items():
                 task_data.setdefault(k, v)
 
+        # ── ADR-WALKER-053: contexto de proyecto resuelto UNA vez aquí.
+        # Precedencia explícito > ambiental: payload.project_id/_project_id
+        # gana sobre req.project_id del route. Viaja como _project_ctx;
+        # ctx.chain_dir conserva su semántica legacy (sprint dir). ──
+        try:
+            from features.main.task_execution.application.project_context import (
+                resolve_project_context,
+            )
+
+            _pctx = resolve_project_context(
+                payload_pid=(
+                    payload.get("project_id") or payload.get("_project_id") or ""
+                )
+                if isinstance(payload, dict)
+                else "",
+                route_pid=req.project_id,
+            )
+            if _pctx.resolved:
+                task_data["_project_ctx"] = dict(
+                    project_id=_pctx.project_id,
+                    repo_path=_pctx.repo_path,
+                    sprint_chain_dir=_pctx.sprint_chain_dir,
+                )
+        except Exception:
+            pass  # resolución best-effort: los guards legacy siguen operando
+
         # ── Dispatch único (SPEC-005 #5): mismo core que el MCP. La visibilidad
         #    interna vive SOLO en SystemTaskRegistry (metadata.scope SSOT). ──
         from core.engine.application.task_dispatcher import execute_public_task

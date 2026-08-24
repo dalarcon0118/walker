@@ -17,9 +17,12 @@ Reglas del container:
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Any
 
+from features.main.composition.errors import CompositionCycleError
+from features.main.composition.import_graph import module_deps, tarjan
 from features.main.composition.lifecycle import RequestScope, _CONTAINER, _inject_service_locator
 from features.main.composition.registry import register_all
 
@@ -119,6 +122,35 @@ class AppContainer:
             pass
 
     @classmethod
+    def _validate_dag_or_fail(cls) -> None:
+        """Validates that the composition graph is a DAG (ADR-052 D1).
+
+        Builds a static import graph from loaded features.* modules using
+        AST parsing (reuses module_deps from import_graph.py). Applies
+        Tarjan's algorithm to find SCCs. If any SCC has len > 1, raises
+        CompositionCycleError with the cycle modules.
+        """
+        loaded = {
+            name: mod
+            for name, mod in sys.modules.items()
+            if (
+                name.startswith("features.")
+                or name.startswith("core.")
+                or name.startswith("shared.")
+            )
+            and hasattr(mod, "__file__")
+            and mod.__file__
+        }
+        graph = {name: module_deps(name, mod.__file__) for name, mod in loaded.items()}
+        sccs = tarjan(graph)
+        cycles = [sorted(scc) for scc in sccs if len(scc) > 1]
+        if cycles:
+            raise CompositionCycleError(
+                f"Composition cycle detected: {cycles}. "
+                "Fix: lazy exports (PEP 562), SSOT imports, or dynamic DI resolution."
+            )
+
+    @classmethod
     def _compose(cls, chain_dir: str = "") -> "AppContainer":
         """Construye el grafo completo (implementación interna de build())."""
         # 1. Infraestructura base del engine
@@ -170,6 +202,11 @@ class AppContainer:
         from features.main.composition.registry import _build_workflow_facade
 
         module_registry = InMemoryModuleRegistry()
+
+        # ADR-052 D1: Gate DAG de arranque — valida que el grafo de composición
+        # sea un DAG antes de registrar. Si encuentra un SCC > 1, falla el
+        # arranque listando los módulos del ciclo.
+        cls._validate_dag_or_fail()
 
         # 4. OrchestrationService sin action_catalog todavía (se inyecta después
         # de register_all para romper el ciclo orch → facade → register_all).

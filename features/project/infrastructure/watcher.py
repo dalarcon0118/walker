@@ -131,6 +131,17 @@ class FileWatcher:
         """Scan files, accumulate changes, verify against CPG fingerprint."""
         previous = self._load_snapshot()
         current = self._compute_snapshot()
+
+        # If the previous snapshot used SHA256 content hashes and the new
+        # snapshot uses lightweight size+mtime fingerprints, discard the
+        # previous snapshot. Comparing across formats would report every
+        # file as changed (false-positive storm).
+        if previous and current:
+            prev_sample = next(iter(previous.values()))
+            curr_sample = next(iter(current.values()))
+            if len(prev_sample) == 64 and ":" in curr_sample:
+                previous = {}
+
         self._save_snapshot(current)
 
         is_baseline = not previous
