@@ -127,46 +127,53 @@ def test_fallback_de_watcher_es_visible_en_el_resultado(monkeypatch):
 
 
 def test_task_build_code_index_usa_update_por_defecto():
-    """La task pública NO debe forzar rebuild: default incremental, full solo con force."""
+    """Contrato ACTUALIZADO (arquitectura L2, task dedicada): la rutina
+    incremental vive en update_incremental_code; build_code_index es rebuild
+    completo y deriva la rutina a ella (sin sync inline)."""
     import inspect as _inspect
 
     from features.main.task_execution.tasks.initialize_project import (
         build_code_index,
     )
+    from features.main.task_execution.tasks.update_incremental_code import (
+        update_incremental_code,
+    )
 
-    src = _inspect.getsource(build_code_index)
-    assert '"action": "update"' in src, "default debe ser sync incremental"
-    assert 'data.get("force")' in src, "rebuild completo requiere force explícito"
+    assert "update_incremental_code" in _inspect.getsource(build_code_index), (
+        "build_code_index debe derivar la rutina incremental a su task dedicada"
+    )
+    assert '"action": "update"' in _inspect.getsource(update_incremental_code), (
+        "la task dedicada debe pedir action=update al inspect_codebase"
+    )
 
 
 def test_metadata_descubrible_el_parametro_force_se_ensena():
-    """CONTRATO DE DESCUBRIBILIDAD: un agente que nunca vio esta task debe poder
-    descubrir 'force' SOLO desde help/discover. Si la metadata deja de enseñarlo,
-    el parámetro muere (nadie invoca lo que no conoce)."""
+    """CONTRATO DE DESCUBRIBILIDAD (actualizado a task dedicada):
+    - update_incremental_code declara project_id en su schema (multi-proyecto)
+      y su resultado enseña la vía de escape al rebuild completo (next_step).
+    Un parámetro/ruta que el agente no puede descubrir es un parámetro muerto."""
     from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-    from features.main.task_execution.tasks import initialize_project as mod
+    from features.main.task_execution.tasks.update_incremental_code import register
 
     registry = InMemoryTaskRegistry()
-    mod.register(registry)
+    register(registry)
 
-    info = registry.get_task_info("build_code_index")
-    assert info, "build_code_index debe estar registrada"
+    info = registry.get_task_info("update_incremental_code")
+    assert info, "update_incremental_code debe estar registrada"
 
-    # 1) input_schema formal: la via machine-readable de descubrimiento
     schema_props = (info.get("input_schema") or {}).get("properties", {})
-    assert "force" in schema_props, "input_schema.properties.force es obligatorio"
-    assert "default" in schema_props["force"], "el default de force debe documentarse"
+    assert "project_id" in schema_props, "schema debe declarar project_id"
 
-    # 2) example copiable: muestra la invocacion con force tal cual
-    example = info.get("example", "")
-    assert "force" in example, "el example debe mostrar la forma con force"
-
-    # 3) query_instructions: cuando usar cada modo (guia de decision)
     qinstructions = info.get("query_instructions", "")
-    assert "force" in qinstructions and "incremental" in qinstructions.lower()
+    assert "build_code_index" in qinstructions, (
+        "query_instructions debe enseñar cuándo usar el rebuild completo"
+    )
 
-    # 4) discover() público expone todo lo anterior (mismo camino que el agente)
-    discovered = {t["name"]: t for t in registry.discover(scope="all")["tasks"]}
-    entry = discovered["build_code_index"]
-    assert entry["input_schema"] == info["input_schema"]
-    assert entry["example"] == example
+    # La vía de escape al full rebuild se enseña EN EL RESULTADO (runtime):
+    from features.main.task_execution.tasks.inspect_codebase import _dispatch_action
+
+    import inspect as _inspect
+
+    assert "force" in _inspect.getsource(_dispatch_action), (
+        "el dispatch de update debe auto-enseñar build_code_index {force: true}"
+    )

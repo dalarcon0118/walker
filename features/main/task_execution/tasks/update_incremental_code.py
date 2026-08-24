@@ -23,20 +23,47 @@ def update_incremental_code(ctx: ExecutionContext, data: dict[str, Any]) -> Task
     Returns:
         TaskResult with update summary (files_updated, nodes_added, etc.).
     """
-    chain_dir = ctx.chain_dir or ""
-    if chain_dir:
-        from features.project import ProjectService
-        paths = ProjectService.resolve_paths(chain_dir)
-        project_root = paths.repo_path or paths.project_root
-    elif data.get("project_id"):
-        from shared.core.path_resolver import get_project_dir
-        project_root = str(get_project_dir(data["project_id"]))
-    else:
-        return TaskResult.success(data={"built": False, "error": "No chain_dir or project_id"})
+    # Precedencia EXPLÍCITO > AMBIENTAL: un project_id en el payload gana
+    # sobre el chain_dir del proceso (server MCP anclado a otro proyecto).
+    project_id = (data.get("project_id") or data.get("_project_id") or "").strip()
+    project_root = ""
+    if project_id:
+        try:
+            from features.project.application.services.project_service import (
+                ProjectService,
+            )
+
+            _project = ProjectService.from_project_id(project_id)
+            project_root = str(_project.manifest.repo_path or "")
+        except Exception as exc:
+            logger.warning(
+                "update_incremental_code: project_id '%s' no resolvió (%s)",
+                project_id,
+                exc,
+            )
+    if not project_root:
+        chain_dir = ctx.chain_dir or ""
+        if chain_dir:
+            from features.project import ProjectService
+
+            paths = ProjectService.resolve_paths(chain_dir)
+            project_root = paths.repo_path or paths.project_root
+        elif not project_id:
+            return TaskResult.success(
+                data={"built": False, "error": "No chain_dir or project_id"}
+            )
+    if not project_root:
+        return TaskResult.success(
+            data={"updated": False, "error": f"project '{project_id}' sin repo_path", "next_step": "Run 'walker prepare <path>' first"}
+        )
 
     from features.main.task_execution.tasks.inspect_codebase import inspect_codebase
 
-    payload: dict[str, Any] = {"scope": project_root, "action": "update"}
+    payload: dict[str, Any] = {
+        "scope": project_root,
+        "action": "update",
+        "project_id": project_id,
+    }
     result = inspect_codebase(ctx, payload)
     if not result.is_success():
         error = result.error or "unknown error"

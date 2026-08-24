@@ -139,7 +139,27 @@ def inspect_codebase(
     port: Any | None = None,
 ) -> TaskResult:
     """Task canónica: inspecciona el código del proyecto."""
+    # Resolución de contexto (principio explícito > ambiental): un
+    # project_id en el payload GANA sobre el chain_dir del proceso. Esto es
+    # lo que permite operar proyectos remotos desde un server MCP anclado a
+    # otro cwd (multi-proyecto, regla 1b del protocolo).
     chain_dir = ctx.chain_dir or ""
+    explicit_pid = (data.get("project_id") or data.get("_project_id") or "").strip()
+    if explicit_pid:
+        try:
+            from features.project.application.services.project_service import (
+                ProjectService,
+            )
+
+            _project = ProjectService.from_project_id(explicit_pid)
+            chain_dir = str(_project.manifest.repo_path or "") or chain_dir
+        except Exception as exc:
+            logger.warning(
+                "inspect_codebase: project_id '%s' no resolvió (%s); "
+                "se usa contexto ambiental",
+                explicit_pid,
+                exc,
+            )
     if not chain_dir:
         return TaskResult.failure(
             "chain_dir not available",
