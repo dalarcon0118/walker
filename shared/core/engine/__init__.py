@@ -18,8 +18,6 @@ API pública:
         bootstrap,
         bootstrap_modules,
         build_context_registry,
-        # Task dispatching
-        dispatch_public_task,
         # Domain models
         ExecutionType,
         NodeType,
@@ -91,9 +89,6 @@ from shared.core.engine.bootstrap import (
     build_context_registry,
 )
 
-# ── Task dispatching ─────────────────────────────────────────────────────────
-from shared.core.engine.application.task_dispatcher import dispatch_public_task
-
 __all__ = [
     # Domain models
     "ExecutionType",
@@ -135,6 +130,4 @@ __all__ = [
     # Bootstrap
     "bootstrap",
     "build_context_registry",
-    # Task dispatching
-    "dispatch_public_task",
 ]
