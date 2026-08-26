@@ -17,6 +17,8 @@ from features.delta_tracking.domain.values import (
     TYPE_SPEC,
     spec_doc_id,
 )
+from libs.cognitive_graph.cognitive_registry import memory_data_dir
+from shared.core.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +32,15 @@ class CognitiveDeltaRepository(DeltaRepository):
 
     INDEX = "delta"
 
-    def __init__(self, project_root: str, graph_factory: Callable[[str], Any] | None = None):
+    def __init__(self, project_root: str, graph_factory: Callable[[Any], Any] | None = None):
         if graph_factory is None:
-            from core.engine.bootstrap import get_module_service
-            graph_factory = get_module_service("cognitive_graph")
-        self._cg = graph_factory(str(project_root))
+            raise ValueError(
+                "CognitiveDeltaRepository requiere graph_factory inyectado. "
+                "Pásalo desde el composition root (features.main.bootstrap)."
+            )
+        # ADR-WALKER-061 (F6): la conexión se lee de CONFIG (env), no de un
+        # path crudo. El repo resuelve su raíz y el config aporta backend/db.
+        self._cg = graph_factory(load_memory_connection(memory_data_dir(str(project_root))))
 
     @property
     def cg(self) -> Any:

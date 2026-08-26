@@ -35,7 +35,7 @@ Característica: CLI Router — entry point del walker
     Entonces el exit code es 0
 
   Escenario: task directa
-    Dado que ejecuto main con ["task", "kg_search", "--query", "ckg"]
+    Dado que ejecuto main con ["task", "recall_knowledge", "--query", "ckg"]
     Entonces el exit code es 0
 
   Escenario: JSON body en positional
@@ -43,7 +43,7 @@ Característica: CLI Router — entry point del walker
     Entonces el exit code es 1
 
   Escenario: query params estilo URL
-    Dado que ejecuto main con ["kg_search?index=ckg"]
+    Dado que ejecuto main con ["recall_knowledge?index=ckg"]
     Entonces el exit code es 0
 
   Escenario: ruta desconocida

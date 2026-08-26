@@ -59,7 +59,7 @@ Característica: Gate de required_tools en submit
     Y submit_uc es llamado una vez
 
   @contrato
-  Escenario: Submit avanza con kg_multi que cubre capas
+  Escenario: Submit avanza con search_memories que cubre capas
     Dado un SubmitOrchestrator con tracer con kg_query index multi
     Y un contexto en IMPLEMENT.WORK con required_tools
     Cuando ejecuto submit

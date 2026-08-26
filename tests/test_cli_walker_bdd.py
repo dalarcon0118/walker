@@ -5,7 +5,7 @@ Nivel 2 de testing (según SPEC-003):
 - test_cli_walker_help_shows_tools
 - test_cli_walker_status_shows_project
 - test_cli_walker_list_shows_projects
-- test_cli_walker_kg_search_finds_spec
+- test_cli_walker_recall_knowledge_finds_spec
 - test_cli_walker_save_to_ckg_saves_decision
 - test_cli_walker_kg_diagnose_identifies_gap
 """
@@ -75,8 +75,8 @@ class TestCliWalker:
         assert rc == 0
         assert "walker" in out
 
-    def test_cli_walker_kg_search_finds_spec(self, tmp_path):
-        # Nombre canónico (SPEC-014 Fase 4): kg_search → recall_knowledge
+    def test_cli_walker_recall_knowledge_finds_spec(self, tmp_path):
+        # Nombre canónico (SPEC-014 Fase 4): recall_knowledge → recall_knowledge
         project_dir = _setup_project(tmp_path)
         rc, out, err = _run_main(
             ["recall_knowledge", "--query", "SPEC-003"], cwd=project_dir
@@ -115,7 +115,7 @@ class TestCliWalker:
             )
         finally:
             reg_ctx.__exit__(None, None, None)
-            from core.engine.bootstrap import reset_module_registry
+            from shared.core.engine.bootstrap import reset_module_registry
 
             reset_module_registry()
             from features.main.cli_interface import mcp_adapter

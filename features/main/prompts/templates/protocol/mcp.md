@@ -20,7 +20,7 @@ WALKER PROTOCOL (MCP) — MANDATORY BEHAVIOR CONTRACT:
     The walker has a STRUCTURED CODE MEMORY (CPG) with a query layer.
     Do NOT reason about code from scratch NOR read files directly.
     BEFORE analyzing/implementing/verifying, query the project CPG:
-      - kg_search with _index:cpg + file:'<area>'  → symbols, signatures, imports
+      - recall_knowledge with _index:cpg + file:'<area>'  → symbols, signatures, imports
       - cpg_business with file:'<area>'            → pure functions, flows, patterns
       - analyze_code with area:'<area>'            → full code analysis
     The CPG is the source of truth for the code (real names, real signatures).
@@ -28,7 +28,7 @@ WALKER PROTOCOL (MCP) — MANDATORY BEHAVIOR CONTRACT:
     <!-- ANALYSIS_TOOLS -->
 
 4. KNOWLEDGE MEMORY (CKG): query ckg before deciding patterns and
-   conventions. Use save_to_ckg to REGISTER decisions, conventions and
+   conventions. Use documenting_knowledge to REGISTER decisions, conventions and
    patterns. ALWAYS persist in the project where you are actually
    working: if you develop walker code, store in project 'walker';
    if you validate another project, store there. Do not mix contexts.

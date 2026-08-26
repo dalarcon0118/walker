@@ -2,7 +2,7 @@
 `_project_id` (fix del fallback silencioso).
 
 ANTES: _resolve_project_id solo leía `project_id`. Un agente que llamara
-save_to_ckg/kg_search desde un CWD que NO es el proyecto, pasando `_project_id`,
+save_to_ckg/recall_knowledge desde un CWD que NO es el proyecto, pasando `_project_id`,
 caía SILENCIOSAMENTE al fallback projects_list (status 200) — el dispatch
 resolvía la tool equivocada sin error.
 
@@ -79,12 +79,12 @@ class TestProjectIdResolution:
         assert data.get("status_code") == 200, data
         assert data.get("data", {}).get("ok") is True, data
 
-    def test_kg_search_con_project_id_desde_cwd_arbitrario(self, tmp_path):
+    def test_recall_knowledge_con_project_id_desde_cwd_arbitrario(self, tmp_path):
         _, chain_dir = _setup_project(tmp_path)
         cwd_otro = str(tmp_path / "otro-dir-2")
         Path(cwd_otro).mkdir(exist_ok=True)
 
-        resp = _mcp_call("kg_search", {
+        resp = _mcp_call("recall_knowledge", {
             "_project_id": "walker",
             "query": "spec proyecto",
             "index": "delta",

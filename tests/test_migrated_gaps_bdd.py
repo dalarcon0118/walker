@@ -776,7 +776,7 @@ def _se_index_code(mg_ctx: dict):
 
 @when("creo envelopes ok, failed y degraded")
 def _make_envelopes(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import degraded, failed, ok
+    from shared.core.engine.domain.side_effect_contract import degraded, failed, ok
 
     mg_ctx["e_ok"] = ok(
         type=mg_ctx["se_type"],
@@ -794,7 +794,7 @@ def _make_envelopes(mg_ctx: dict):
 
 @then('ok tiene status "ok" y signals correctos')
 def _envelope_ok(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import is_standard
+    from shared.core.engine.domain.side_effect_contract import is_standard
 
     e = mg_ctx["e_ok"]
     assert is_standard(e)
@@ -820,7 +820,7 @@ def _scope_invalid(mg_ctx: dict):
 
 @when("creo el envelope ok")
 def _make_ok(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import ok
+    from shared.core.engine.domain.side_effect_contract import ok
 
     mg_ctx["e_ok"] = ok(
         type=mg_ctx["se_type"], scope="scope_inexistente", summary="s"
@@ -829,7 +829,7 @@ def _make_ok(mg_ctx: dict):
 
 @then("el scope se degrada a SCOPE_TRACKING")
 def _scope_fallback(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import SCOPE_TRACKING
+    from shared.core.engine.domain.side_effect_contract import SCOPE_TRACKING
 
     assert mg_ctx["e_ok"]["scope"] == SCOPE_TRACKING
 
@@ -841,14 +841,14 @@ def _legacy_dict(mg_ctx: dict):
 
 @when("normalizo al envelope estándar")
 def _normalize_env(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import normalize
+    from shared.core.engine.domain.side_effect_contract import normalize
 
     mg_ctx["env"] = normalize(mg_ctx["legacy"], "index_code", "code_index")
 
 
 @then('el envelope es estándar con status "ok"')
 def _env_standard_ok(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import is_standard
+    from shared.core.engine.domain.side_effect_contract import is_standard
 
     assert is_standard(mg_ctx["env"])
     assert mg_ctx["env"]["status"] == "ok"
@@ -925,7 +925,7 @@ def _svc_fakes(mg_ctx: dict):
 
 @given("un side effect con quality_passed=False")
 def _se_quality_fail(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import ok
+    from shared.core.engine.domain.side_effect_contract import ok
 
     mg_ctx["result"] = {
         "side_effects": [
@@ -973,7 +973,7 @@ def _result_registered(mg_ctx: dict):
 
 @given("un side effect con quality_passed=True")
 def _se_quality_ok(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import ok
+    from shared.core.engine.domain.side_effect_contract import ok
 
     mg_ctx["result"] = {
         "side_effects": [
@@ -1106,7 +1106,7 @@ def _recover_value(mg_ctx: dict):
 
 @when("creo un StepResult con ese side effect")
 def _make_step_result(mg_ctx: dict):
-    from core.engine.domain.step_result import StepResult
+    from shared.core.engine.domain.step_result import StepResult
     from shared.common.shared_domain.models import TaskResult
 
     se = mg_ctx["result"]["side_effects"][0]
@@ -1156,7 +1156,7 @@ def _ssd_fields(mg_ctx: dict):
 
 @when("leo el último step result")
 def _read_last(mg_ctx: dict):
-    from core.engine.application.prompt_context_builder import (
+    from shared.core.engine.application.prompt_context_builder import (
         _read_last_step_result,
     )
 
@@ -1292,7 +1292,7 @@ def _render_no_broken(mg_ctx: dict):
 
 @given("una función decorada con scope knowledge")
 def _fn_knowledge(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import (
+    from shared.core.engine.domain.side_effect_contract import (
         SCOPE_KNOWLEDGE,
         as_side_effect,
     )
@@ -1316,7 +1316,7 @@ def _run_side(mg_ctx: dict):
 
 @then("el envelope es estándar con scope SCOPE_KNOWLEDGE")
 def _env_knowledge_scope(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import (
+    from shared.core.engine.domain.side_effect_contract import (
         SCOPE_KNOWLEDGE,
         is_standard,
     )
@@ -1334,7 +1334,7 @@ def _legacy_signals(mg_ctx: dict):
 
 @given("una función decorada con scope decision")
 def _fn_decision(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import (
+    from shared.core.engine.domain.side_effect_contract import (
         SCOPE_DECISION,
         as_side_effect,
     )
@@ -1348,7 +1348,7 @@ def _fn_decision(mg_ctx: dict):
 
 @then("el envelope es estándar con scope SCOPE_DECISION")
 def _env_decision_scope(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import (
+    from shared.core.engine.domain.side_effect_contract import (
         SCOPE_DECISION,
         is_standard,
     )
@@ -1682,8 +1682,8 @@ def _project_init_ok(mg_ctx: dict):
 
 @given("un StepResult con quality_passed=False")
 def _sr_quality_false(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import ok
-    from core.engine.domain.step_result import StepResult
+    from shared.core.engine.domain.side_effect_contract import ok
+    from shared.core.engine.domain.step_result import StepResult
 
     se = {
         "type": "index_code",
@@ -1706,7 +1706,7 @@ def _sr_quality_false(mg_ctx: dict):
 
 @when("hago roundtrip JSON")
 def _checkpoint_roundtrip(mg_ctx: dict):
-    from core.engine.domain.step_result import StepResult
+    from shared.core.engine.domain.step_result import StepResult
 
     cp = json.loads(json.dumps(mg_ctx["sr"].to_checkpoint()))
     restored = StepResult.from_checkpoint(cp)
@@ -1732,7 +1732,7 @@ def _cp_bad(mg_ctx: dict):
 
 @when("restauro desde checkpoint")
 def _restore_cp(mg_ctx: dict):
-    from core.engine.domain.step_result import StepResult
+    from shared.core.engine.domain.step_result import StepResult
 
     mg_ctx["cp_res"] = StepResult.from_checkpoint(mg_ctx["cp"])
 
@@ -1750,8 +1750,8 @@ def _cp_no_marker(mg_ctx: dict):
 
 @given("un StepResult con gates fallidas y recommend")
 def _sr_gates(mg_ctx: dict):
-    from core.engine.domain.side_effect_contract import ok
-    from core.engine.domain.step_result import StepResult
+    from shared.core.engine.domain.side_effect_contract import ok
+    from shared.core.engine.domain.step_result import StepResult
 
     se = {
         "type": "index_code",
@@ -1774,7 +1774,7 @@ def _sr_gates(mg_ctx: dict):
 
 @when("serializo a checkpoint y lo leo como last_step_result")
 def _cp_to_last(mg_ctx: dict):
-    from core.engine.application.prompt_context_builder import (
+    from shared.core.engine.application.prompt_context_builder import (
         _read_last_step_result,
     )
 
@@ -1805,7 +1805,7 @@ def _cp_corrupt(mg_ctx: dict):
 
 @when("lo leo como last_step_result")
 def _cp_corrupt_read(mg_ctx: dict):
-    from core.engine.application.prompt_context_builder import (
+    from shared.core.engine.application.prompt_context_builder import (
         _read_last_step_result,
     )
 

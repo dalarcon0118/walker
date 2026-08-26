@@ -4,7 +4,7 @@ features/task_execution/ — Sistema de ejecución de tareas del workflow.
 Cada tarea es una función que recibe (ExecutionContext, data) → TaskResult.
 Las tareas se registran en el TaskRegistry del engine por nombre.
 
-Los nodos del workflow (workflow.v3/*.node.json) referencian tareas por
+Los nodos del workflow (data/workflow/nodes/*.node.json) referencian tareas por
 su nombre registrado en el campo "action" de cada sub-estado.
 
 Arquitectura (SPEC-014 Fase 3):

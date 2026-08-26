@@ -50,15 +50,15 @@ def _build_server() -> McpServer:
     ADR-045 (capa_rout.md D1): NO registra módulos hardcodeados en paralelo
     al ModuleRegistry. consume AppContainer.build() — el composition root final de
     features/main registra MCP modules + libs services + tasks + side effects
-    y puebla el service locator neutro de core/engine. El server se sincroniza
+    y puebla el service locator neutro de shared/core/engine. El server se sincroniza
     con el catálogo fusionado (ModuleRegistry + TaskRegistry, ADR-043).
     """
-    from core.engine.infrastructure.trace_log import TraceLogger
+    from shared.core.engine.infrastructure.trace_log import TraceLogger
     from features.main.container import AppContainer
     from features.main.cli_interface.domain.services import ToolRegistry
 
     # Composition root obligatorio (D1): puebla el service locator de
-    # core/engine y registra todos los módulos MCP. Sin esto, list_tools()
+    # shared/core/engine y registra todos los módulos MCP. Sin esto, list_tools()
     # y _call_tool() resuelven servicios inexistentes y el server crashea
     # (error MCP -32000 Connection closed).
     AppContainer.build()
@@ -93,10 +93,13 @@ def _sync_module_registry_to_server(server: McpServer) -> None:
 @safe
 def _sync_catalog_core(server: McpServer) -> None:
     """Core puro: sincroniza tools del ModuleRegistry (puede lanzar)."""
-    from core.engine.application.tool_catalog import list_tools
+    from shared.core.engine.application.tool_catalog import list_tools
+    from features.main.container import AppContainer
 
+    app = AppContainer.build()
+    registry = app.module_registry if app else None
     existing = {t.get("name", "") for t in server.list_tools()}
-    for tool in list_tools():
+    for tool in list_tools(registry=registry):
         if tool["name"] not in existing:
             server.tool(
                 name=tool["name"],
@@ -139,7 +142,7 @@ def _register_help_resource(server: McpServer) -> None:
 @safe
 def _build_help_content(tool: str) -> dict:
     """Core puro: construye el contenido del recurso help (puede lanzar)."""
-    from core.engine.application.tool_catalog import build_tool_help
+    from shared.core.engine.application.tool_catalog import build_tool_help
 
     uri = f"walker://help/{tool}"
     help_doc = build_tool_help(tool)
@@ -250,14 +253,15 @@ def _tool_catalog_core() -> list[dict]:
     Composition root obligatorio (ADR-045, capa_rout.md D1): tools/list es
     la PRIMERA request MCP del handshake — antes de listar, el composition
     root (features/main.compose_app) debe haber poblado el service locator de
-    core/engine. Sin esto, list_tools() resuelve servicios inexistentes y el
+    shared/core/engine. Sin esto, list_tools() resuelve servicios inexistentes y el
     server queda sin tools (error MCP -32000 Connection closed).
     """
-    from core.engine.application.tool_catalog import list_tools
+    from shared.core.engine.application.tool_catalog import list_tools
     from features.main.container import AppContainer
 
-    AppContainer.build()
-    return list_tools()
+    app = AppContainer.build()
+    registry = app.module_registry if app else None
+    return list_tools(registry=registry)
 
 
 # ── Tools metadata ─────────────────────────────────────────────────────────
@@ -284,27 +288,27 @@ _PROTOCOL_FALLBACK = (
     "   The walker has a STRUCTURED CODE MEMORY (CPG) with a query layer.\n"
     "   Do NOT reason about code from scratch NOR read files directly.\n"
     "   BEFORE analyzing/implementing/verifying, query the project CPG:\n"
-    "     - cpg_analyze with scope + depth/detect/review/metrics → unified analysis\n"
-    "     - kg_search with _index:cpg + file:'<area>'               → symbols, signatures\n"
+    "     - inspect_codebase with scope + depth/detect/review/metrics → unified analysis\n"
+    "     - recall_knowledge with _index:cpg + file:'<area>'               → symbols, signatures\n"
     "   The CPG is the source of truth for the code (real names, real signatures).\n"
     "   Use what the CPG returns to build solutions; do NOT invent APIs.\n"
     "\n"
     "4. KNOWLEDGE MEMORY (CKG): query ckg before deciding patterns and\n"
-    "   conventions. Use save_to_ckg to REGISTER decisions, conventions and\n"
+    "   conventions. Use documenting_knowledge to REGISTER decisions, conventions and\n"
     "   patterns. ALWAYS persist in the project where you are actually\n"
     "   working: if you develop walker code, store in project 'walker';\n"
     "   if you validate another project, store there. Do not mix contexts.\n"
     "   (Workflow decisions are captured automatically by capture_decision.)\n"
     "\n"
-    "5. REUSE what exists: cpg_analyze reveals already-implemented pure\n"
+    "5. REUSE what exists: inspect_codebase reveals already-implemented pure\n"
     "   functions and business flows. Reusing them avoids reinventing the wheel.\n"
     "\n"
     "6. PHASE INTELLIGENCE TOOLS (MANDATORY per workflow phase):\n"
     "   Use these tools to query structured knowledge at each phase:\n"
-    "     - kg_task_context   → file/task context before editing (IMPLEMENT phase)\n"
-    "     - kg_diagnose       → failure diagnosis with conventions (REFINE phase)\n"
-    "     - kg_qa_evidence    → verification coverage (VERIFY phase)\n"
-    "     - kg_sprint_evidence → sprint planning evidence (SPRINT.PLANNING phase)\n"
+    "     - task_context   → file/task context before editing (IMPLEMENT phase)\n"
+    "     - diagnose_failure → failure diagnosis with conventions (REFINE phase)\n"
+    "     - verify_evidence → verification coverage (VERIFY phase)\n"
+    "     - sprint_evidence → sprint planning evidence (SPRINT.PLANNING phase)\n"
 )
 
 
@@ -344,7 +348,7 @@ def _get_protocol_text() -> str:
 
     ADR-045 (capa_rout.md D1): el protocolo incluye las tools vivas del
     composition root (list_tools). Si se calculara en import-time, el
-    service locator de core/engine aún no está poblado y el catálogo queda
+    service locator de shared/core/engine aún no está poblado y el catálogo queda
     vacío. Se resuelve per-request, tras tools/list (que compone la app).
     """
     global _PROTOCOL_TEXT
@@ -364,7 +368,7 @@ def _resolve_project_id(args: dict) -> str:
     `_project_id` (underscore — el formato que leen las tasks kg/ckg/delta y
     el que usa el MCP adapter en el dispatch Camino A/B), mientras que los
     handlers REST/CLI leen `project_id`. ANTES solo se leía `project_id`: un
-    agente que llamara save_to_ckg/kg_search desde un CWD que no es el
+    agente que llamara documenting_knowledge/recall_knowledge desde un CWD que no es el
     proyecto (pasando `_project_id`) caía SILENCIOSAMENTE al fallback
     projects_list (status 200) — el dispatch resolvía la tool equivocada.
     """
@@ -407,13 +411,19 @@ def _get_module_registry() -> Any:
     """Devuelve el ModuleRegistry canónico de la app.
 
     ADR-045 (capa_rout.md D1): features/main compone el ModuleRegistry
-    completo (discovery de MCP modules, libs services, tasks, etc.) y lo
-    expone al facade neutro core.engine.bootstrap.get_module_registry().
-    El adapter NO construye registries propios — consume el composition root.
+    completo (discovery de MCP modules, libs services, tasks, etc.).
+    El adapter consume el composition root via AppContainer (DI directa,
+    ADR-WALKER-058).
     """
-    from core.engine.bootstrap import get_module_registry
+    from features.main.container import AppContainer
 
-    return get_module_registry()
+    app = AppContainer.build()
+    if app is not None and app.module_registry is not None:
+        return app.module_registry
+    raise RuntimeError(
+        "ModuleRegistry no disponible: AppContainer.build() falló. "
+        "Asegúrate de que features.main.compose_app() se ejecutó."
+    )
 
 
 def _dispatch_result_to_dict(result) -> dict:
@@ -486,7 +496,7 @@ def _call_tool(name: str, args: dict) -> dict:
         )
         # Canal de invocación (SPEC-002 G-W1): la tool vino por MCP, no por CLI.
         # ANTES el dispatch pasaba por handle_task con channel="cli" hardcodeado
-        # y las tools con route_def (kg_search, save_to_ckg, ...) trazaban el
+        # y las tools con route_def (recall_knowledge, documenting_knowledge, ...) trazaban el
         # canal equivocado en el TraceGraph. El handler lee `_channel`.
         flags["_channel"] = "mcp"
         from . import _ROUTER
@@ -683,9 +693,9 @@ def _reset_server_cache() -> None:
     # El ModuleRegistry (composition root D1) también se invalida: si un
     # fix agrega/cambia tools o servicios DI, tools/list las refleja sin
     # reiniciar el proceso (mismo patrón que el server stale).
-    from core.engine.bootstrap import reset_module_registry
+    from features.main.bootstrap import reset_composition
 
-    reset_module_registry()
+    reset_composition()
     # Recomposicion EAGER post-reload (fix -32001): sin esto, la primera
     # tarea tras una cascada pagaba AppContainer.build() completo DENTRO
     # de su presupuesto de respuesta (handlers.handle_task reconstruye

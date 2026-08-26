@@ -18,6 +18,15 @@ export const WalkerHooks = async ({ project, $, directory }) => {
   // llamadas `runWalker` usan la ruta `{PROJECT_ID}/<task>`.
   const PROJECT_ID = process.env.WALKER_PROJECT_ID || "walker"
 
+  // ── Guard .cognitive/ (ADR-WALKER-018) ─────────────────────────
+  // Booleano que habilita/deshabilita la PROTECCIÓN de .cognitive/.
+  //   WALKER_GUARD_ENABLED=0|false → no bloquea edit/write/read/bash
+  //   sobre .cognitive/ (debug: inspeccionar/limpiar el estado cognitivo).
+  //   Default: habilitado (protección activa).
+  const WALKER_GUARD_ENABLED =
+    process.env.WALKER_GUARD_ENABLED !== "0" &&
+    process.env.WALKER_GUARD_ENABLED !== "false"
+
   // ── Message template ──
 
   const WALKER_LABEL = "[WALKER]"
@@ -28,7 +37,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
     `Allowed: ${allowed}`
 
   const ALLOWED_TOOLS =
-    "walker_save_to_ckg, walker_kg_search, walker_kg_multi, " +
+    "walker_documenting_knowledge, walker_recall_knowledge, walker_search_memories, " +
     "walker_cpg_business, walker_analyze_code, " +
     "walker_submit, walker_transition, walker_capture_task"
 
@@ -94,7 +103,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
       items: [
         {
           key: "grep-multi",
-          task: "kg_multi",
+          task: "search_memories",
           buildArgs: (ctx) => {
             const scope = ckgScopeFor(ctx.filePath || ctx.directory)
             return JSON.stringify({
@@ -106,7 +115,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         },
         {
           key: "grep-schema",
-          task: "kg_schema",
+          task: "memory_schema",
           buildArgs: () => JSON.stringify({}),
           why: "descubrir índices disponibles",
         },
@@ -117,7 +126,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
       items: [
         {
           key: "glob-multi",
-          task: "kg_multi",
+          task: "search_memories",
           buildArgs: (ctx) =>
             JSON.stringify({
               cpg: ctx.pattern ? { name: ctx.pattern } : { file: relPath(ctx.filePath) },
@@ -128,13 +137,13 @@ export const WalkerHooks = async ({ project, $, directory }) => {
     },
     // read NO está en GATES a propósito: ya inyecta contexto rico vía
     // queryCpgForFile (IMPORTS/SYMBOLS/CONOCIMIENTO) en tool.execute.after.
-    // Correr también gates duplicaría la consulta kg_multi por archivo.
+    // Correr también gates duplicaría la consulta search_memories por archivo.
     edit: {
       why: "decisions/conventions of the scope apply before modifying code",
       items: [
         {
           key: "edit-ckg",
-          task: "kg_multi",
+          task: "search_memories",
           buildArgs: (ctx) => {
             const scope = ckgScopeFor(ctx.filePath)
             return JSON.stringify({ ckg: { scope } })
@@ -148,7 +157,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
       items: [
         {
           key: "write-ckg",
-          task: "kg_multi",
+          task: "search_memories",
           buildArgs: (ctx) => {
             const scope = ckgScopeFor(ctx.filePath)
             return JSON.stringify({ ckg: { scope } })
@@ -162,7 +171,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
       items: [
         {
           key: "bash-trace",
-          task: "kg_search",
+          task: "recall_knowledge",
           buildArgs: () => JSON.stringify({ index: "trace", query: { tool: "bash" } }),
           why: "historial reciente de comandos (trace)",
         },
@@ -204,7 +213,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
     }
   }
 
-  // Convierte la respuesta de kg_multi/kg_search/kg_schema en un resumen corto.
+  // Convierte la respuesta de search_memories/recall_knowledge/memory_schema en un resumen corto.
   const summarizeHits = (data, gate) => {
     const parts = []
     const resp = data.responses || data
@@ -225,7 +234,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
   // anexado al output en tool.execute.after (misma callID).
   const pendingCpgByCall = new Map()
 
-  // Consulta federada kg_multi ANTES de que el agente lea un archivo:
+  // Consulta federada search_memories ANTES de que el agente lea un archivo:
   //   - cpg:  estructura indexada del archivo (imports, functions, classes,
   //           methods) — qué existe ya, para que el modelo no re-descubra.
   //   - ckg:  decisiones/convenciones con scope relacionado al archivo.
@@ -244,7 +253,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         : parts.slice(0, -1).join("/") || rel
     try {
       const raw = await runWalker(
-        "kg_multi",
+        "search_memories",
         JSON.stringify({ cpg: { file: base }, ckg: { scope } })
       )
       const data = extractJson(raw)
@@ -289,14 +298,14 @@ export const WalkerHooks = async ({ project, $, directory }) => {
       if (lines.length) {
         pendingCpgByCall.set(callID, lines.join("\n"))
       }
-      console.log(`[WALKER][debug] kg_multi ${base}: cpg=${cpgHits.length} exact=${exact.length} ckg=${ckgHits.length} lines=${lines.length}`)
-    } catch (e) { console.log(`[WALKER][debug] kg_multi ${base} ERROR: ${e}`) /* silencioso a proposito: el read nunca se bloquea por el contexto */ }
+      console.log(`[WALKER][debug] search_memories ${base}: cpg=${cpgHits.length} exact=${exact.length} ckg=${ckgHits.length} lines=${lines.length}`)
+    } catch (e) { console.log(`[WALKER][debug] search_memories ${base} ERROR: ${e}`) /* silencioso a proposito: el read nunca se bloquea por el contexto */ }
   }
 
   const ckgSave = async (type, statement, tags = []) => {
-    // Via MCP tool save_to_ckg (walker_save_to_ckg) — nunca python directo.
+    // Via MCP tool documenting_knowledge (walker_documenting_knowledge) — nunca python directo.
     const payload = JSON.stringify({ type, statement, tags })
-    return await runWalker("save_to_ckg", payload)
+    return await runWalker("documenting_knowledge", payload)
   }
 
   const isProtected = (fp) => {
@@ -464,8 +473,8 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         }
       }
 
-      // Block edit / write / read on .cognitive/ (read solo via walker kg_search)
-      if (tool === "edit" || tool === "write" || tool === "read") {
+      // Block edit / write / read on .cognitive/ (read solo via walker recall_knowledge)
+      if (WALKER_GUARD_ENABLED && (tool === "edit" || tool === "write" || tool === "read")) {
         const fp = output?.args?.filePath || input?.args?.filePath || ""
         if (isProtected(fp)) {
           throw new Error(
@@ -480,7 +489,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
       }
 
       // Block destructive bash on .cognitive/
-      if (tool === "bash") {
+      if (WALKER_GUARD_ENABLED && tool === "bash") {
         const cmd = String(output?.args?.command || input?.args?.command || "")
 
         // Block inline Python — force walker MCP tool usage
@@ -598,9 +607,9 @@ export const WalkerHooks = async ({ project, $, directory }) => {
     "experimental.session.compacting": async (input, output) => {
       let ckgInfo = ""
       try {
-        // Contar nodos via walker kg_search (no python directo) — args array.
-        const res = await runWalker("kg_search", JSON.stringify({ index: "ckg", query: { text: "" } }))
-        ckgInfo = `\n- CKG: consultado via kg_search (ver walker kg_schema para conteo)\n`
+        // Contar nodos via walker recall_knowledge (no python directo) — args array.
+        const res = await runWalker("recall_knowledge", JSON.stringify({ index: "ckg", query: { text: "" } }))
+        ckgInfo = `\n- CKG: consultado via recall_knowledge (ver walker memory_schema para conteo)\n`
       } catch { /* ignore */ }
 
       output.context.push(
@@ -615,15 +624,15 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         `### CONTEXT GATES (impuesto por el hook — ADR-WALKER-018)\n` +
         `The hook auto-injects, before each action tool, a checklist like:\n` +
         `  Before <tool>, execute this checklist gates:\n` +
-        `    [x] kg_multi  → hits indexados (CPG/CKG/Delta)\n` +
-        `    [x] kg_schema → índices disponibles\n` +
+        `    [x] search_memories  → hits indexados (CPG/CKG/Delta)\n` +
+        `    [x] memory_schema → índices disponibles\n` +
         `Use that injected gate result as your PRIMARY context. Only if the gates\n` +
         `return no hits should you fall back to grep/read on disk.\n` +
         `\n` +
         `### MEMORY QUERIES (available on demand)\n` +
-        `1. walker_kg_schema → discover available indices (ckg, cpg, delta, trace)\n` +
-        `2. walker_kg_search → query CKG (knowledge, ADRs, decisions, patterns, conventions)\n` +
-        `3. walker_kg_multi → federated query across CPG + CKG + Delta + Trace\n` +
+        `1. walker_memory_schema → discover available indices (ckg, cpg, delta, trace)\n` +
+        `2. walker_recall_knowledge → query CKG (knowledge, ADRs, decisions, patterns, conventions)\n` +
+        `3. walker_search_memories → federated query across CPG + CKG + Delta + Trace\n` +
         `4. walker_cpg_business → business layer: reusable functions, flows, patterns\n` +
         `5. walker_analyze_code → full code analysis via CPG\n` +
         `6. walker_kg_task_context → file/task context before editing (IMPLEMENT phase)\n` +
@@ -643,10 +652,10 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         `- FORBIDDEN: python3 -c / python3 << / python3 script.py → use walker MCP tools\n` +
         `- FORBIDDEN: direct reads/edits of .cognitive/ → use walker MCP tools\n` +
         `- FORBIDDEN: echo/cat con > >> tee hacia .cognitive/ o data/*.json.gz\n` +
-        `- walker_save_to_ckg → register ADRs and conventions after architectural decisions\n` +
+        `- walker_documenting_knowledge → register ADRs and conventions after architectural decisions\n` +
         `- walker_submit / walker_transition → navigate spring workflow\n` +
         `- walker_capture_task → capture specs into active sprint\n` +
-        `- CONVENTIONS: chequear walker_kg_search type=convention y cumplirlas\n`
+        `- CONVENTIONS: chequear walker_recall_knowledge type=convention y cumplirlas\n`
       )
     },
   }

@@ -34,6 +34,7 @@ _EXPORTS: dict[str, str] = {
     "cpg_repository": "features.code_analysis.builder",
     "cpg_analysis_adapter": "features.code_analysis.builder",
     "CpgService": "features.code_analysis.application.services.cpg_service",
+    "CodeAnalysisService": "features.code_analysis.application.services.code_analysis_service",
     "CheckCpgHealthUseCase": "features.code_analysis.application.use_cases",
     "run_outline": "features.code_analysis.infrastructure.ast_grep_adapter",
     "parse_outline": "features.code_analysis.infrastructure.ast_grep_adapter",

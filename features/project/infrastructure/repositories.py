@@ -8,7 +8,7 @@ DISTINCIÓN DE CONCEPTOS (features/project):
   - Este repo opera sobre el **MANIFIESTO del proyecto**
     (.cognitive/{project_id}/data/project.json): vive dentro del directorio
     cognitivo del proyecto y describe SU identidad (name, language, repo_path,
-    code_paths). Es el "project.json del proyecto" que se está trabajando.
+    repo_path). Es el "project.json del proyecto" que se está trabajando.
   - NO confundir con el **REGISTRO GLOBAL** (data/projects.json en la raíz
     del walker): es el índice de TODOS los proyectos que el walker administra
     (project_id → repo_path, active, last_accessed). Lo gestiona
@@ -63,7 +63,6 @@ class CognitiveProjectRepository(ProjectRepository):
                 },
                 "location": {
                     "repo_path": project.manifest.repo_path,
-                    "code_paths": project.manifest.code_paths,
                 },
             }
         }

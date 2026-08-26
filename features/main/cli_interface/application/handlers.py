@@ -74,7 +74,7 @@ def _record_forced_transition(
 
     @safe
     def _trace() -> bool:
-        from core.engine.infrastructure.trace_log import TraceLogger
+        from shared.core.engine.infrastructure.trace_log import TraceLogger
 
         TraceLogger().trace(
             req.flags.get("_chain_dir", ""),
@@ -128,17 +128,22 @@ def _sync_watcher_core(project_id: str) -> None:
     repo_path = _resolve_repo_path_from_registry(project_id)
     if repo_path and os.path.isdir(repo_path):
         from features.project import FileWatcher
-        from shared.core.path_resolver import get_data_dir, get_code_paths
+        from shared.core.path_resolver import get_data_dir
+        from features.code_analysis.infrastructure.repository import (
+            make_cpg_fingerprint_reader,
+        )
 
         # data_dir canónico = .cognitive/projects/<pid>/data (fuera del árbol
         # escaneado). Si se usa el default (<repo>/data), change_detected.json
         # y .file_snapshot.json se escriben DENTRO del scope del watcher →
         # auto-invalidación en cada scan (fingerprint nunca coincide con el
-        # CPG → stale perpetuo). code_paths acota el scope a código real.
+        # CPG → stale perpetuo). Scope = repo_path completo (ADR-WALKER-054 D1).
         watcher = FileWatcher(
             repo_path,
-            code_paths=get_code_paths(project_id) or None,
             data_dir=str(get_data_dir(project_id)),
+            cpg_fingerprint_reader=make_cpg_fingerprint_reader(
+                str(get_data_dir(project_id))
+            ),
         )
         watcher.scan()
 
@@ -325,7 +330,6 @@ def handle_project_info(req: Request) -> Response:
                 identity = proj.get("identity", {})
                 info["language"] = identity.get("language", "")
                 info["framework"] = identity.get("framework", "")
-                info["code_paths"] = identity.get("code_paths", [])
             else:
                 error = proj_outcome.failure()
                 info["warnings"].append(f"project.json read failed: {error}")
@@ -456,7 +460,7 @@ def handle_status(req: Request) -> Response:
                     f"Project '{project_id}' — sprint informal '{sprint_id}' "
                     f"(session log de captura). No tiene estado de workflow; "
                     f"consulta su historico con "
-                    f"walker {project_id}/kg_search "
+                    f"walker {project_id}/recall_knowledge "
                     f'\'{{"_index":"delta","text":"{sprint_id}"}}\''
                 )
             else:
@@ -485,7 +489,7 @@ def handle_status(req: Request) -> Response:
         if not actions:
             actions.append(
                 action(
-                    f"walker {project_id}/kg_schema",
+                    f"walker {project_id}/memory_schema",
                     "consult project memory indices before touching source code",
                 )
             )
@@ -725,12 +729,12 @@ def handle_task(req: Request) -> Response:
         if not _resolve_project_from_cwd(req):
             return _list_from_global_registry_with_prompt()
 
-        # ── Composition root: poblar el service locator (task_registry, etc.)
-        #    antes de despachar. Los otros handlers (status/submit/transition)
-        #    lo hacen via WalkerApp(AppContainer.build()); handle_task lo omitía,
-        #    dejando el locator vacío → resolve_service("task_registry") = None →
-        #    'NoneType' object has no attribute 'get_task_info'. ──
-        AppContainer.build()
+        # ── Composition root: construir el contenedor y OBTENER el
+        #    task_registry para inyectarlo al dispatcher. Los otros handlers
+        #    lo hacen via WalkerApp(AppContainer.build()); handle_task solo
+        #    construía el contenedor sin pasarlo → ADR-WALKER-059: el
+        #    dispatcher exige registry inyectado (sin service locator). ──
+        _app = AppContainer.build()
 
         chain_dir = _ensure_chain_dir(req.project_id, req.sprint_id)
         task_name = req.task_name or (req.positional[0] if req.positional else "")
@@ -782,12 +786,12 @@ def handle_task(req: Request) -> Response:
 
         # ── Dispatch único (SPEC-005 #5): mismo core que el MCP. La visibilidad
         #    interna vive SOLO en SystemTaskRegistry (metadata.scope SSOT). ──
-        from core.engine.application.task_dispatcher import execute_public_task
+        from shared.core.engine.application.task_dispatcher import execute_public_task
 
         # Canal de invocación (SPEC-002 G-W1): el MCP adapter inyecta
         # _channel="mcp" en los flags (Camino A); el CLI no lo pasa → "cli".
         # ANTES el MCP despachaba por el Router REST con channel="cli" y las
-        # tools con route_def (kg_search, save_to_ckg, ...) trazaban el canal
+        # tools con route_def (recall_knowledge, documenting_knowledge, ...) trazaban el canal
         # equivocado en el TraceGraph.
         channel = req.flags.get("_channel", "cli")
         outcome = execute_public_task(
@@ -797,6 +801,7 @@ def handle_task(req: Request) -> Response:
             task_data,
             session_id="cli",
             channel=channel,
+            registry=_app.module_registry.get_service("task_registry"),
         )
         if not outcome.get("ok"):
             if outcome.get("blocked"):
@@ -835,14 +840,14 @@ def handle_task(req: Request) -> Response:
             next_actions.insert(
                 0,
                 action(
-                    f"walker {req.project_id}/kg_search",
+                    f"walker {req.project_id}/recall_knowledge",
                     "search the project memory with a text query",
                 ),
             )
         elif task_name in (
             "scan_code_and_build_cpg",
             "build_initial_ckg",
-            "kg_extract",
+            "extract_knowledge",
             "update_project",
         ):
             next_actions.insert(
@@ -963,9 +968,9 @@ _PROTOCOL_REST_FALLBACK = (
     "  - walker <project>/transition <gate> → avanza por una gate\n"
     "Las tareas del workflow (plan_sprint, spec_task, etc.) son INTERNAS: el workflow\n"
     "las ejecuta al recibir los datos. El agente no las llama directamente.\n"
-    "Las tareas PUBLICAS (memorias kg_search/kg_schema/cpg/ckg) si se llaman directo:\n"
-    "  walker <project>/kg_schema → descubre los indices disponibles\n"
-    '  walker <project>/kg_search \'{"text":"..."}\' → busca en las memorias\n'
+    "Las tareas PUBLICAS (memorias recall_knowledge/memory_schema/cpg/ckg) si se llaman directo:\n"
+    "  walker <project>/memory_schema → descubre los indices disponibles\n"
+    '  walker <project>/recall_knowledge \'{"_index":"ckg","text":"..."}\' → busca en las memorias\n'
     "Antes de leer archivos del codigo fuente, consulta las memorias.\n"
 )
 
@@ -1185,12 +1190,12 @@ def _open_cognitive_graph_core():
     abre con CWD (raíz del repo), cualquier store() escribiria las memorias
     en <repo>/data en vez de .cognitive/projects/<pid>/data.
     """
-    from core.engine.bootstrap import get_module_service
+    from features.main.bootstrap import _build_graph
 
     # Result pattern: el core @safe nunca lanza; ante fallo de resolución se
     # degrada a "." (CWD) sin except.
     root = _resolve_cognitive_root_core().value_or(".")
-    return get_module_service("cognitive_graph")(root)
+    return _build_graph(root)
 
 
 @safe
@@ -1213,6 +1218,6 @@ def _index_schema_core(cg, name: str) -> dict:
 @safe
 def _compose_workflow_map_core() -> dict:
     """Core puro: compone el mapa del workflow (puede lanzar)."""
-    from core.engine.application.workflow_map import compose_workflow_map
+    from shared.core.engine.application.workflow_map import compose_workflow_map
 
     return compose_workflow_map()

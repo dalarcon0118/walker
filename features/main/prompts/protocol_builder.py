@@ -12,16 +12,16 @@ Mezcla:
 from __future__ import annotations
 
 
-from core.engine.application.tool_catalog import list_tools
-from core.engine.application.workflow_map import compose_workflow_map
+from shared.core.engine.application.tool_catalog import list_tools
+from shared.core.engine.application.workflow_map import compose_workflow_map
 
 
 ANALYSIS_TOOL_PREFIXES = ("cpg_", "kg_", "analyze_")
 PHASE_TOOL_NAMES = {
-    "kg_task_context": "file/task context before editing (IMPLEMENT phase)",
+    "task_context": "file/task context before editing (IMPLEMENT phase)",
     "diagnose_failure": "failure diagnosis with conventions (REFINE phase)",
-    "kg_qa_evidence": "verification coverage (VERIFY phase)",
-    "kg_sprint_evidence": "sprint planning evidence (SPRINT.PLANNING phase)",
+    "verify_evidence": "verification coverage (VERIFY phase)",
+    "sprint_evidence": "sprint planning evidence (SPRINT.PLANNING phase)",
 }
 
 
@@ -32,11 +32,12 @@ def _load_static_template() -> str:
 
 
 def _build_tools_section() -> str:
-    from core.engine.application.tool_catalog import list_tools
+    from shared.core.engine.application.tool_catalog import list_tools
     from features.main.container import AppContainer
 
-    AppContainer.build()
-    tools = list_tools()
+    app = AppContainer.build()
+    registry = app.module_registry if app else None
+    tools = list_tools(registry=registry)
     if not tools:
         return "No tools available."
     lines = ["Available tools:"]
@@ -92,7 +93,10 @@ def _build_capture_task_section(wf_map: dict) -> str:
 
 
 def _build_analysis_section() -> str:
-    tools = list_tools()
+    from features.main.container import AppContainer
+    app = AppContainer.build()
+    registry = app.module_registry if app else None
+    tools = list_tools(registry=registry)
     if not tools:
         return ""
 

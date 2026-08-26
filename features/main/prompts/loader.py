@@ -143,7 +143,7 @@ class TemplateLoader:
 
     def _resolve_sources(self, template_id: str) -> list[tuple[str | None, str]]:
         prompt_dir = os.path.join(self._script_dir, "prompt", "templates")
-        wf_dir = os.path.join(self.project_dir, "workflow.v3", "prompts")
+        # ELIMINADO (ADR-WALKER-061): fuente legacy project_dir/workflow.v3/prompts.
         nodes_dir = canonical_nodes_dir()  # SSOT del motor: templates/nodes/
         # Fallback legacy: prompts del workflow v3.1 que aún viven en la data del motor
         result = _engine_wf_dir_core()
@@ -167,7 +167,7 @@ class TemplateLoader:
         sources.append((os.path.join(prompt_dir, f"{template_id}.md"), "text"))
         sources.append((os.path.join(prompt_dir, f"{template_id}.txt"), "text"))
         # Precedencia de prompts de nodo: proyecto-local > templates/nodes/ (motor) > data del motor
-        for wf in (wf_dir, nodes_dir, engine_wf_dir):
+        for wf in (nodes_dir, engine_wf_dir):
             sources.extend(self._node_prompt_sources(wf, template_id))
         sources.append((os.path.join(tpl_dir, template_id), "text"))
         sources.append((os.path.join(tpl_dir, f"{template_id}.txt"), "text"))

@@ -66,5 +66,5 @@ Característica: Use cases de aplicación del CPG
     Cuando se computan las métricas del proyecto
     Entonces el resultado incluye metrics y gates
     Y las métricas reportan archivos y LOC mayores a cero
-    Y los gates incluyen cyclomatic_complexity y dead_code
+    Y los gates incluyen dead_code y loc_per_file
     Y cada gate expone threshold, actual y passed

@@ -69,7 +69,7 @@ class SprintTrackingService:
 
 def _build_graph(project_root: str) -> Any:
     """Resuelve el orquestador CognitiveGraph vía DI (key "cognitive_graph")."""
-    from core.engine.bootstrap import get_module_service
+    from shared.core.engine.bootstrap import get_module_service
 
     graph_factory = get_module_service("cognitive_graph")
     return graph_factory(project_root)

@@ -162,7 +162,7 @@ def _trace_with_events(is_ctx: dict):
                 timestamp="2026-08-07T10:00",
                 files=["src/auth.py"],
             ),
-            _Event(tool="kg_search", timestamp="2026-08-07T11:00", files=[]),
+            _Event(tool="recall_knowledge", timestamp="2026-08-07T11:00", files=[]),
         ]
     )
 

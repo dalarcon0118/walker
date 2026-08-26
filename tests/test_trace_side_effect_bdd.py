@@ -14,8 +14,8 @@ import time
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-from core.engine.domain.models import SideEffectDef
-from core.engine.infrastructure.side_effects import SideEffectEngine
+from shared.core.engine.domain.models import SideEffectDef
+from shared.core.engine.infrastructure.side_effects import SideEffectEngine
 from shared.common.shared_domain import ExecutionContext
 
 scenarios("bdd/features/trace_side_effect.feature")
@@ -65,7 +65,7 @@ def _make_ctx() -> ExecutionContext:
 
 
 def _standard_ok(tool: str, scope: str = "tracking", **signals) -> dict:
-    from core.engine.domain.side_effect_contract import ok
+    from shared.core.engine.domain.side_effect_contract import ok
 
     if not signals:
         signals = {"quality_passed": True}
@@ -124,7 +124,7 @@ def _execute(se_ctx: dict):
 
 @when('ejecuto ese side-effect "fail_effect" con un ExecutionContext con chain_dir')
 def _execute_fail(se_ctx: dict):
-    from core.engine.domain.models import SideEffectDef
+    from shared.core.engine.domain.models import SideEffectDef
 
     se_ctx["engine"].execute(_make_ctx(), [SideEffectDef(type="fail_effect")])
 

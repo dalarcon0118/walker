@@ -115,15 +115,12 @@ class ProjectContextProvider(ContextProvider):
 
     @staticmethod
     def _location_parts(proj: dict) -> list[str]:
-        """Partes de ubicacion: repo root y code_paths."""
+        """Partes de ubicacion: repo root."""
         parts: list[str] = []
         loc = proj.get("location", {})
         repo = loc.get("repo_path", "")
-        code_paths = loc.get("code_paths", [])
         if repo:
             parts.append(f"root: {repo}")
-        if code_paths:
-            parts.append(f"code_paths: {', '.join(code_paths[:5])}")
         return parts
 
     @staticmethod

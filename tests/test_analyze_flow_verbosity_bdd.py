@@ -80,14 +80,14 @@ def _assert_kc_fin_nodo(analyze_ctx: dict):
 def _load_spring(analyze_ctx: dict):
     import sys
     sys.path.insert(0, ".")
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
     from shared.core.path_resolver import get_engine_workflow_path
     analyze_ctx["wf"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
 
 
 @when("se ejecuta verify_graph sobre el workflow")
 def _verify_graph(analyze_ctx: dict):
-    from core.engine.domain.services import ValidationService
+    from shared.core.engine.domain.services import ValidationService
     analyze_ctx["v"] = ValidationService.verify_graph(analyze_ctx["wf"])
 
 
@@ -103,7 +103,7 @@ def _assert_no_warnings(analyze_ctx: dict):
 
 @when("se consulta el mapeo de decision gates de REVIEW")
 def _query_review_gate(analyze_ctx: dict):
-    from core.engine.application.use_cases import _DECISION_GATE_OVERRIDES
+    from shared.core.engine.application.use_cases import _DECISION_GATE_OVERRIDES
     analyze_ctx["overrides"] = _DECISION_GATE_OVERRIDES.get("REVIEW", {})
 
 

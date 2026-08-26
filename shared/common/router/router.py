@@ -205,7 +205,7 @@ class Router:
         """Resuelve un path contra las rutas registradas.
 
         Args:
-            path: Path a resolver (ej: "walker/task/kg_search")
+            path: Path a resolver (ej: "walker/task/recall_knowledge")
             flags: Flags adicionales del CLI (ej: {"index": "delta"})
             method: Verbo HTTP ("GET", "POST", ...). Si es None, ignora
                     el verbo y matchea solo por path (estilo CLI simple).
@@ -231,7 +231,7 @@ class Router:
             return None, {}, flags or {}, []
 
         # Priorizar la ruta más específica: exacto (0 params) > menos params.
-        # Ej: "task/kg_schema" matchea "task/:taskName" (1 param) y
+        # Ej: "task/memory_schema" matchea "task/:taskName" (1 param) y
         #     ":projectId/task/:taskName" (2 params) → gana la de 1 param.
         best = min(matched, key=lambda rp: len(rp[1]))
 

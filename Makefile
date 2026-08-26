@@ -3,7 +3,7 @@
 # ═══════════════════════════════════════════════════════════════
 # Main targets:
 #   make install       → Install everything: CLI deps + Python package
-#   make install-deps  → Only install CLI deps (ast-grep, qlty)
+#   make install-deps  → Only install CLI deps (ast-grep)
 #   make pip-install   → Only install the Python package
 #   make check         → Verify all deps are OK
 #   make doctor        → Full environment diagnostics
@@ -19,7 +19,7 @@ install: install-deps pip-install
 	@echo "  → Run 'walker3 help' to get started."
 	@echo ""
 
-# ── External CLI deps (ast-grep, qlty) ────────────────────────
+# ── External CLI deps (ast-grep) ──────────────────────────────
 install-deps:
 	@echo ""
 	@echo "  ╔═══════════════════════════════════════════════╗"
@@ -32,9 +32,6 @@ install-deps:
 # ── Dependencia específica ────────────────────────────────────
 install-ast-grep:
 	@bash bin/install-deps.sh ast-grep
-
-install-qlty:
-	@bash bin/install-deps.sh qlty
 
 # ── Paquete Python ────────────────────────────────────────────
 pip-install:
@@ -71,7 +68,7 @@ help:
 	@echo "  Walker3 — Available commands:"
 	@echo ""
 	@echo "  make install         Full install (recommended)"
-	@echo "  make install-deps    CLI deps only (ast-grep, qlty)"
+	@echo "  make install-deps    CLI deps only (ast-grep)"
 	@echo "  make pip-install     Python package only"
 	@echo "  make check           Verify dependencies"
 	@echo "  make doctor          Full diagnostics"

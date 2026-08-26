@@ -47,13 +47,13 @@ def _all_llm_tasks():
 
 @given("el registro WORKFLOW_OUTPUTS")
 def _workflow_outputs(wf_ctx: dict):
-    from core.engine.workflow.contracts import WORKFLOW_OUTPUTS
+    from data.workflow.contracts import WORKFLOW_OUTPUTS
     wf_ctx["WORKFLOW_OUTPUTS"] = WORKFLOW_OUTPUTS
 
 
 @given("los DTOs TaskSpecOutput, DiagnoseOutput y CodeReviewOutput")
 def _dtos_available(wf_ctx: dict):
-    from core.engine.workflow.contracts import TaskSpecOutput, DiagnoseOutput, CodeReviewOutput
+    from data.workflow.contracts import TaskSpecOutput, DiagnoseOutput, CodeReviewOutput
     wf_ctx["TaskSpecOutput"] = TaskSpecOutput
     wf_ctx["DiagnoseOutput"] = DiagnoseOutput
     wf_ctx["CodeReviewOutput"] = CodeReviewOutput
@@ -61,26 +61,26 @@ def _dtos_available(wf_ctx: dict):
 
 @given("los DTOs SelectOutput y AddTaskOutput")
 def _enum_dtos_available(wf_ctx: dict):
-    from core.engine.workflow.contracts import SelectOutput, AddTaskOutput
+    from data.workflow.contracts import SelectOutput, AddTaskOutput
     wf_ctx["SelectOutput"] = SelectOutput
     wf_ctx["AddTaskOutput"] = AddTaskOutput
 
 
 @given("el DTO TaskSpecOutput")
 def _task_spec_dto(wf_ctx: dict):
-    from core.engine.workflow.contracts import TaskSpecOutput
+    from data.workflow.contracts import TaskSpecOutput
     wf_ctx["TaskSpecOutput"] = TaskSpecOutput
 
 
 @given("el validador de salida llm_task")
 def _validator(wf_ctx: dict):
-    from core.engine.workflow.contracts import validate_llm_task_output
+    from data.workflow.contracts import validate_llm_task_output
     wf_ctx["validate_llm_task_output"] = validate_llm_task_output
 
 
 @given("entidades SubState con diferentes ejecuciones")
 def _substate_entities(wf_ctx: dict):
-    from core.engine.domain.entities import SubState
+    from shared.core.engine.domain.entities import SubState
     wf_ctx["llm_sub"] = SubState(key="WORK", execution="llm_task")
     wf_ctx["manual_sub"] = SubState(key="WORK", execution="manual")
     wf_ctx["auto_sub"] = SubState(key="VALIDATE", execution="auto")

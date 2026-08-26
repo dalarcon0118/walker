@@ -1,18 +1,16 @@
-"""Deep analysis: ast-grep patterns triggered by qlty findings + unconditional scans."""
+"""Deep analysis: ast-grep patterns (sin qlty).
+
+Antes se correlacionaban reglas de qlty con patrones ast-grep; con la
+eliminación del binario externo (ADR-WALKER-054), el deep analysis corre
+patrones de producción/seguridad/código-innecesario de forma incondicional
+(filtrados por lenguaje).
+"""
 from __future__ import annotations
 
 from pathlib import Path
 
 from .config import _DEEP_PATTERNS, AST_GREP_AVAILABLE
 from .ast_grep import run_ast_grep, ast_grep_lang
-
-
-def _get_deep_patterns_for_rule(rule_id: str) -> list[dict]:
-    """Return ast-grep patterns relevant to a given qlty rule ID."""
-    for key, patterns in _DEEP_PATTERNS.items():
-        if key in rule_id:
-            return patterns
-    return []
 
 
 def _append_pattern_findings(
@@ -39,12 +37,11 @@ def _append_pattern_findings(
             })
 
 
-def deep_analyze_checks(checks: list[dict], filepath: Path, cyclo: int = 0) -> dict:
-    """Correlate qlty findings with ast-grep structural queries.
+def deep_analyze_file(filepath: Path) -> dict:
+    """Deep analysis ast-grep incondicional (sin reglas de qlty).
 
-    For each unique rule type found by qlty, run ast-grep patterns
-    that deepen the analysis (classify exception types, find nested
-    structures, locate exact unused imports, etc.).
+    Corre los grupos danger / production-bugs / unnecessary-code / ts-js
+    filtrados por lenguaje del archivo. Nunca lanza.
     """
     if not AST_GREP_AVAILABLE:
         return {}
@@ -55,29 +52,23 @@ def deep_analyze_checks(checks: list[dict], filepath: Path, cyclo: int = 0) -> d
 
     findings = []
 
-    # 1. Deep patterns triggered by specific qlty rules
-    if checks:
-        rule_types = set(c["rule_id"] for c in checks)
-        for rule_id in rule_types:
-            patterns = _get_deep_patterns_for_rule(rule_id)
-            _append_pattern_findings(findings, patterns, filepath, lang, rule_id)
-
-    # 2. High-cyclo patterns (triggered by metrics)
-    if cyclo > 20:
-        _append_pattern_findings(
-            findings, _DEEP_PATTERNS.get("high-cyclo", []), filepath, lang,
-            f"cyclo={cyclo}",
-        )
-
-    # 3. Danger patterns (triggered by security issues)
-    has_security = checks and any(
-        "B1" in c["rule_id"] or "B6" in c["rule_id"] for c in checks
+    # 1. Danger / security patterns
+    _append_pattern_findings(
+        findings, _DEEP_PATTERNS.get("danger", []), filepath, lang,
+        "danger",
     )
-    if has_security:
-        _append_pattern_findings(
-            findings, _DEEP_PATTERNS.get("danger", []), filepath, lang,
-            "security-context",
-        )
+
+    # 2. Production-bug patterns (always run, filtered by language)
+    _append_pattern_findings(
+        findings, _DEEP_PATTERNS.get("production-bugs", []), filepath, lang,
+        "production-bug",
+    )
+
+    # 3. Unnecessary-code patterns (always run, filtered by language)
+    _append_pattern_findings(
+        findings, _DEEP_PATTERNS.get("unnecessary-code", []), filepath, lang,
+        "unnecessary-code",
+    )
 
     # 4. TypeScript/JavaScript patterns (triggered by file type)
     if lang in ("typescript", "tsx", "javascript", "jsx"):
@@ -86,16 +77,13 @@ def deep_analyze_checks(checks: list[dict], filepath: Path, cyclo: int = 0) -> d
             f"lang={lang}",
         )
 
-    # 5. Production-bug patterns (always run, filtered by language)
-    _append_pattern_findings(
-        findings, _DEEP_PATTERNS.get("production-bugs", []), filepath, lang,
-        "production-bug",
-    )
-
-    # 6. Unnecessary-code patterns (always run, filtered by language)
-    _append_pattern_findings(
-        findings, _DEEP_PATTERNS.get("unnecessary-code", []), filepath, lang,
-        "unnecessary-code",
-    )
-
     return {"deep_findings": findings, "total_deep": len(findings)}
+
+
+def deep_analyze_checks(checks: list[dict], filepath: Path, cyclo: int = 0) -> dict:
+    """Versión CLI (codereview): deep analysis sin correlación qlty.
+
+    `checks` se conserva por compatibilidad de firma pero ya no dispara
+    patrones (no hay linter externo). El análisis es incondicional.
+    """
+    return deep_analyze_file(filepath)

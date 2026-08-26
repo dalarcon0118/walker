@@ -9,7 +9,7 @@ from typing import Any
 from returns.result import safe
 from returns.pipeline import is_successful
 from shared.common.shared_domain import ExecutionContext
-from core.engine.domain.side_effect_contract import as_side_effect, SCOPE_DECISION
+from shared.core.engine.domain.side_effect_contract import as_side_effect, SCOPE_DECISION
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @safe
 def _read_decision_from_state_core(chain_dir: str) -> dict:
     """Core puro: lee la decision del estado del workflow (puede lanzar)."""
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 
     state = WorkflowStateRepository().load(chain_dir)
     ss_data = state.get_sub_state_data(state.current_sub_state)

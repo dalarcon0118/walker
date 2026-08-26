@@ -8,6 +8,8 @@ inyecta el repositorio via puerto (CpgRepository).
 """
 from __future__ import annotations
 
+from typing import Any
+
 from features.code_analysis.application.ports.cpg_repository import CpgRepository
 from features.code_analysis.infrastructure.cognitive_cpg_repo import CognitiveCpgRepository
 from features.code_analysis.application.build_service import BuildGraphUseCase
@@ -21,7 +23,6 @@ class CpgService:
         project_id: str,
         data_dir: str,
         code_root: str,
-        code_paths: list[str] | None = None,
         repo_path: str = "",
         repo: CpgRepository | None = None,
         chain_dir: str = "",
@@ -31,7 +32,6 @@ class CpgService:
             project_id=project_id,
             data_dir=data_dir,
             code_root=code_root,
-            code_paths=code_paths,
             repo_path=repo_path,
         )
         self._chain_dir = chain_dir

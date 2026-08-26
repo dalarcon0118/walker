@@ -21,12 +21,12 @@ def protocol_contracts_ctx() -> dict:
 # ── Given ─────────────────────────────────────────────────────────────────────
 
 
-@given('un ToolDefinition con nombre "kg_search"')
-def _tool_def_kg_search(protocol_contracts_ctx: dict):
+@given('un ToolDefinition con nombre "recall_knowledge"')
+def _tool_def_recall_knowledge(protocol_contracts_ctx: dict):
     from features.main.cli_interface.contracts.tool import ToolDefinition
 
     protocol_contracts_ctx["result"] = ToolDefinition.create(
-        "kg_search", "Search memory", {"type": "object"}
+        "recall_knowledge", "Search memory", {"type": "object"}
     )
 
 
@@ -224,9 +224,9 @@ def _dto_valid(protocol_contracts_ctx: dict):
     assert dto is not None and not errors
 
 
-@then('el nombre es "kg_search"')
-def _name_kg_search(protocol_contracts_ctx: dict):
-    assert protocol_contracts_ctx["dto"].name == "kg_search"
+@then('el nombre es "recall_knowledge"')
+def _name_recall_knowledge(protocol_contracts_ctx: dict):
+    assert protocol_contracts_ctx["dto"].name == "recall_knowledge"
 
 
 @then("el DTO es None")

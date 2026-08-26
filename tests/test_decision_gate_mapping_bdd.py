@@ -57,7 +57,7 @@ def _write_workflow(chain_dir: str, nodes, edges: list[dict]) -> None:
 
 
 def _load_graph(chain_dir: str):
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
     from shared.core.path_resolver import get_engine_workflow_path
     return WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
 
@@ -71,7 +71,7 @@ def _design_review_workflow(tmp_path, dgm_ctx: dict):
         {"DESIGN": {"sub_states": [{"key": "DESIGN_REVIEW", "execution": "user_input"}]}},
         [],
     )
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
     from shared.core.path_resolver import get_engine_workflow_path
     dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "DESIGN", "current_sub_state": "DESIGN_REVIEW"})()
@@ -86,7 +86,7 @@ def _task_review_workflow(tmp_path, dgm_ctx: dict):
         {"SPRINT": {"sub_states": [{"key": "TASK_REVIEW", "execution": "user_input"}]}},
         [],
     )
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
     from shared.core.path_resolver import get_engine_workflow_path
     dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "SPRINT", "current_sub_state": "TASK_REVIEW"})()
@@ -108,7 +108,7 @@ def _verify_qa_workflow(tmp_path, dgm_ctx: dict):
         },
         [],
     )
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
     from shared.core.path_resolver import get_engine_workflow_path
     dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "VERIFY", "current_sub_state": "QA"})()
@@ -130,7 +130,7 @@ def _verify_po_workflow(tmp_path, dgm_ctx: dict):
         },
         [],
     )
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
     from shared.core.path_resolver import get_engine_workflow_path
     dgm_ctx["graph"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
     dgm_ctx["state"] = type("WS", (), {"current_node": "VERIFY", "current_sub_state": "PO_ACCEPT"})()
@@ -220,7 +220,7 @@ def _add_design_approved_with_contract(dgm_ctx: dict):
 
 @when("el usuario expresa approve")
 def _user_approves(dgm_ctx: dict):
-    from core.engine.application.use_cases import _resolve_decision_gate
+    from shared.core.engine.application.use_cases import _resolve_decision_gate
     dgm_ctx["gate"] = _resolve_decision_gate(
         dgm_ctx["state"], dgm_ctx["graph"], "approve", {"decision": "approve"}
     )
@@ -228,7 +228,7 @@ def _user_approves(dgm_ctx: dict):
 
 @when("el usuario expresa refine")
 def _user_refines(dgm_ctx: dict):
-    from core.engine.application.use_cases import _resolve_decision_gate
+    from shared.core.engine.application.use_cases import _resolve_decision_gate
     dgm_ctx["gate"] = _resolve_decision_gate(
         dgm_ctx["state"], dgm_ctx["graph"], "refine", {"decision": "refine"}
     )
@@ -236,7 +236,7 @@ def _user_refines(dgm_ctx: dict):
 
 @when("el usuario expresa all_done")
 def _user_all_done(dgm_ctx: dict):
-    from core.engine.application.use_cases import _resolve_decision_gate
+    from shared.core.engine.application.use_cases import _resolve_decision_gate
     dgm_ctx["gate"] = _resolve_decision_gate(
         dgm_ctx["state"], dgm_ctx["graph"], "all_done", {"decision": "all_done"}
     )
@@ -244,7 +244,7 @@ def _user_all_done(dgm_ctx: dict):
 
 @when("el workflow clasifica el sub-estado como guarded")
 def _classify_guarded(dgm_ctx: dict):
-    from core.engine.domain.services import ValidationService
+    from shared.core.engine.domain.services import ValidationService
     dgm_ctx["graph_type"] = ValidationService.classify_sub_state(
         dgm_ctx["state"], dgm_ctx["graph"]
     )
@@ -252,7 +252,7 @@ def _classify_guarded(dgm_ctx: dict):
 
 @then("resolve_xor_by_intent encuentra la gate")
 def _resolve_xor(dgm_ctx: dict):
-    from core.engine.domain.services import ValidationService
+    from shared.core.engine.domain.services import ValidationService
     gate_name = dgm_ctx.get("gate")
     dgm_ctx["resolved"] = ValidationService.resolve_xor_by_intent(
         dgm_ctx["state"], dgm_ctx["graph"], gate_name

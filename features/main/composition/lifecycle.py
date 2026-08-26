@@ -44,6 +44,6 @@ def _inject_service_locator(container: "AppContainer") -> None:
     core/engine sigue sin conocer features/: solo recibe el callable
     (module_registry.get_service) vía set_service_locator().
     """
-    from core.engine.bootstrap import set_service_locator
+    from shared.core.engine.bootstrap import set_service_locator
 
     set_service_locator(container.module_registry.get_service)

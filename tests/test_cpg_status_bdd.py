@@ -29,7 +29,7 @@ def test_status_incluye_cpg_status_desde_watcher(tmp_path):
         "project": {
             "id": "test-proj",
             "name": "Test",
-            "location": {"code_paths": [str(project_root)]},
+            "location": {"repo_path": str(project_root)},
         }
     }))
 

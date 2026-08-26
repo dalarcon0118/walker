@@ -1,7 +1,7 @@
 """features/main/bootstrap.py — Composition root final de Walker.
 
 Arma el grafo completo:
-- core/engine: infraestructura de workflow
+- shared/core/engine: infraestructura de workflow
 - delta_tracking: modelo de desarrollo
 - code_analysis: análisis de código
 - cognitive_knowledge: conocimiento
@@ -23,12 +23,12 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from core.engine.application.orchestrator import OrchestrationService
-from core.engine.domain.models import WorkflowState
-from core.engine.infrastructure.module_registry import InMemoryModuleRegistry
-from core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
-from core.engine.infrastructure.side_effects import SideEffectEngine
-from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+from shared.core.engine.application.orchestrator import OrchestrationService
+from shared.core.engine.domain.models import WorkflowState
+from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
+from shared.core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
+from shared.core.engine.infrastructure.side_effects import SideEffectEngine
+from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +49,10 @@ _COMPOSITION_SINGLETON: AppComposition | None = None
 
 
 def reset_composition() -> None:
-    """Resetea el singleton (solo para tests) y el service locator de core/engine."""
+    """Resetea el singleton (solo para tests) y el service locator de shared/core/engine."""
     global _COMPOSITION_SINGLETON
     _COMPOSITION_SINGLETON = None
-    from core.engine.bootstrap import reset_module_registry
+    from shared.core.engine.bootstrap import reset_module_registry
 
     reset_module_registry()
 
@@ -70,7 +70,7 @@ def get_module_service(name: str) -> Any:
 
     Es el SSOT de resolución de servicios: delega en el ModuleRegistry
     del composition root único (features/main). Los callers internos de
-    core/engine usan el facade neutro core.engine.bootstrap.get_module_service
+    shared/core/engine usan el facade neutro shared.core.engine.bootstrap.get_module_service
     (service locator inyectado en compose_app) para no importar features/main.
     """
     return _module_registry_singleton().get_service(name)
@@ -79,8 +79,9 @@ def get_module_service(name: str) -> Any:
 def _build_tracer_core() -> Any:
     """Tracer best-effort (no bloquea el composition root)."""
     try:
-        from core.engine.infrastructure.trace_log import TraceLogger
-        return TraceLogger()
+        from shared.core.engine.infrastructure.trace_log import TraceLogger
+        from shared.core import path_resolver as _pr
+        return TraceLogger(path_resolver=_pr, cognitive_graph_factory=_build_graph_from_path)
     except Exception as exc:
         logger.debug("main: tracer no disponible (%s)", exc)
         return None
@@ -171,7 +172,7 @@ def _discover_and_register_mcp_modules(registry: Any) -> None:
     ADR-045: el discovery de MCP modules es responsabilidad EXCLUSIVA de
     features/main y solo escanea features/ (nunca core/). El módulo MCP del
     engine (status/submit/transition/prepare/list/help) se registra
-    EXPLÍCITAMENTE en compose_app() — features/main conoce core/engine.
+    EXPLÍCITAMENTE en compose_app() — features/main conoce shared/core/engine.
     """
     for base in ["features"]:
         pkg = importlib.import_module(base)
@@ -211,7 +212,7 @@ def _register_libs_services(registry: Any) -> None:
     de depender de la estructura interna de shared/ (inversión de control).
     Las factories lazy se construyen al primer get_service() (singleton).
 
-    ANTES esto vivía en core/engine/bootstrap.py (_register_libs_services) —
+    ANTES esto vivía en shared/core/engine/bootstrap.py (_register_libs_services) —
     compitiendo con la inyección directa de features/main (desvío 3). El
     discovery de libs services es responsabilidad EXCLUSIVA de features/main.
     """
@@ -239,30 +240,69 @@ def _register_libs_services(registry: Any) -> None:
     )
 
 
-def _build_graph(project_root: str = "") -> Any:
+def _build_graph(conn: "MemoryConnection | str") -> Any:
     """Factory del orquestador CognitiveGraph (escritura + búsqueda).
 
-    Se resuelve por clave "cognitive_graph". Composición: CognitiveGraph
-    auto-registra sus índices por defecto (ckg/cpg/delta/trace).
+    ADR-WALKER-061 (F4): firma canónica Callable[[MemoryConnection], Any].
+    El backend (FileBackend) y el CognitiveGraph se construyen a partir de la
+    conexión resuelta (config), no de un path crudo. Un DbBackend futuro se
+    enchufa por config sin tocar este factory.
+
+    Por backward-compat (callers del engine que pasan un path str) también
+    acepta un str, que se resuelve a MemoryConnection vía memory_data_dir.
     """
     from shared.core.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph.connection import MemoryConnection
+    from shared.core.cognitive_graph.file_backend import FileBackend
+    from libs.cognitive_graph.cognitive_registry import (
+        register_cognitive_indexes,
+        memory_data_dir,
+    )
 
-    return CognitiveGraph(project_root or ".")
+    if isinstance(conn, str):
+        conn = MemoryConnection(uri="file://" + memory_data_dir(conn))
+    # ADR-WALKER-061 (F6): el adapter se resuelve por config (conn.backend).
+    from shared.core.cognitive_graph.backends import resolve_storage_backend
+    backend = resolve_storage_backend(conn)
+    graph = CognitiveGraph(backend=backend, conn=conn)
+    register_cognitive_indexes(graph)
+    return graph
 
 
-def _build_searcher(project_root: str = "") -> Any:
+def _build_graph_from_path(chain_dir: str = "") -> Any:
+    """Wrapper path->MemoryConnection para TraceLogger (shared/core/engine).
+
+    TraceLogger invoca el factory con un path (no conoce MemoryConnection);
+    este wrapper resuelve el data_dir y construye la conexión desde CONFIG
+    (env). Vive en features/main (no en shared/core/engine) para no acoplar
+    el engine a features (ADR-WALKER-045/058).
+    """
+    from libs.cognitive_graph.cognitive_registry import memory_data_dir
+    from shared.core.cognitive_graph.config import load_memory_connection
+
+    conn = load_memory_connection(memory_data_dir(chain_dir))
+    return _build_graph(conn)
+
+
+def _build_searcher(chain_dir: str = "") -> Any:
     """Factory del lector CQRS sobre CognitiveGraph (capa de lectura).
 
     Composición (único lugar donde se arma el grafo):
-        CognitiveGraph(project_root) → CognitiveGraphSearcher(graph)
+        CognitiveGraph(memory_data_dir) + register_cognitive_indexes(graph)
+        → CognitiveGraphSearcher(graph)
 
     El Searcher recibe el grafo inyectado (DI): no sabe cómo se construye.
     Se resuelve por clave "cognitive_searcher" en el registry.
     """
     from shared.core.cognitive_graph import CognitiveGraph
     from shared.core.cognitive_searcher import CognitiveGraphSearcher
+    from libs.cognitive_graph.cognitive_registry import (
+        register_cognitive_indexes,
+        memory_data_dir,
+    )
 
-    graph = CognitiveGraph(project_root or ".")
+    graph = CognitiveGraph(memory_data_dir(chain_dir))
+    register_cognitive_indexes(graph)
     return CognitiveGraphSearcher(graph)
 
 
@@ -342,7 +382,7 @@ def compose_app(chain_dir: str = "") -> AppComposition:
     """Composition root final de Walker.
 
     Construye y retorna la aplicación completa:
-    - core/engine: OrchestrationService (infraestructura)
+    - shared/core/engine: OrchestrationService (infraestructura)
     - features/*: tasks, side effects, providers, MCP modules
     - libs/*: servicios DI
 
@@ -358,43 +398,25 @@ def compose_app(chain_dir: str = "") -> AppComposition:
     registry = InMemoryTaskRegistry(tracer=tracer)
     se_engine = SideEffectEngine(tracer=tracer)
 
-    # Resolver workflow_path ANTES de crear el WorkflowRepository (SSOT: main
-    # sabe dónde está el archivo, el engine solo lo carga).
-    from shared.core.path_resolver import get_engine_workflow_path
-    from features.project import ProjectService
+    # Resolver workflow_path ANTES de crear el WorkflowRepository.
+    # ADR-WALKER-061: manifiesto ÚNICO desde config central (key
+    # 'workflow.manifest' → data/workflow/workflow.json). Sin búsquedas
+    # legacy workflow.v3/ ni fallbacks por proyecto (cero deuda).
+    from shared.core.engine.infrastructure.config import get_workflow_manifest_path
 
-    workflow_path = str(get_engine_workflow_path())
-    if chain_dir:
-        try:
-            # Replicar la lógica de resolución del WorkflowRepository anterior:
-            # 1. Buscar en parent/workflow.v3/workflow.json (relativo al chain_dir)
-            parent = os.path.dirname(os.path.dirname(chain_dir))
-            wf_dir = "workflow.v3"
-            modular = os.path.join(parent, wf_dir, "workflow.json")
-            if os.path.exists(modular):
-                workflow_path = modular
-            else:
-                # 2. Buscar en project_root/workflow.v3/workflow.json
-                paths = ProjectService.resolve_paths(chain_dir)
-                project_wf = os.path.join(
-                    str(paths.project_root), wf_dir, "workflow.json"
-                )
-                if os.path.exists(project_wf):
-                    workflow_path = project_wf
-        except Exception:
-            pass
+    workflow_path = get_workflow_manifest_path()
     workflow_repo = WorkflowRepository(workflow_path=workflow_path)
 
     # 1a. ContextProviderRegistry completo: base del engine (task, state,
     # diff, test_results) + providers de negocio de features (business, ckg,
     # cpg, delta, project, reflection, trace). ADR-045: el composition root
     # es el ÚNICO que arma este registry — el engine no conoce features/.
-    from core.engine.bootstrap import build_context_registry
+    from shared.core.engine.bootstrap import build_context_registry
 
     context_registry = build_context_registry()
     _discover_and_register_providers(context_registry)
 
-    # Implementaciones de puertos del engine (core/engine no conoce features/)
+    # Implementaciones de puertos del engine (shared/core/engine no conoce features/)
     from features.main.engine_ports import (
         ProjectContextAdapter,
         ConflictResolverAdapter,
@@ -417,7 +439,7 @@ def compose_app(chain_dir: str = "") -> AppComposition:
     # PromptCollector: resolver por DI si está disponible, sino None
     prompt_collector = None
     try:
-        from core.engine.bootstrap import get_module_service
+        from shared.core.engine.bootstrap import get_module_service
         collector = get_module_service(prompt_collector)
         if collector is not None:
             prompt_collector = PromptCollectorAdapter(collector)
@@ -447,9 +469,12 @@ def compose_app(chain_dir: str = "") -> AppComposition:
 
     # 3a. Módulo MCP del engine: features/main lo registra EXPLÍCITAMENTE
     # (ADR-045 — el discovery automático solo escanea features/, no core/).
-    from core.engine.mcp import register_module as _register_engine_mcp
+    # Se inyecta el workflow facade para que los handlers no dependan del
+    # service locator (ADR-WALKER-058 — DI directa).
+    from features.main.cli_interface.engine_mcp import register_module as _register_engine_mcp
 
-    _register_engine_mcp(module_registry)
+    _workflow_facade = _build_workflow_facade(orch)
+    _register_engine_mcp(module_registry, workflow=_workflow_facade)
 
     # 3b. Tasks y side effects de dominio (features/*/)
     _discover_and_register_tasks(registry)
@@ -459,12 +484,12 @@ def compose_app(chain_dir: str = "") -> AppComposition:
     # get_module_service() las resuelva desde features/main.
     module_registry.register_service("task_registry", registry)
     module_registry.register_service("side_effect_engine", se_engine)
-    module_registry.register_service("workflow", _build_workflow_facade(orch))
+    module_registry.register_service("workflow", _workflow_facade)
 
     # 5. Service locator neutro de core/engine (capa_rout.md D1): los callers
-    # internos de core/engine resuelven servicios por get_module_service()
+    # internos de shared/core/engine resuelven servicios por get_module_service()
     # sin importar features/main. El resolutor lo inyecta el composition root.
-    from core.engine.bootstrap import set_service_locator
+    from shared.core.engine.bootstrap import set_service_locator
 
     set_service_locator(module_registry.get_service)
 

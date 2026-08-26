@@ -120,7 +120,7 @@ def help_output(data: dict) -> None:
     if indices:
         print()
         print("  ── CognitiveGraph Indices ──")
-        print('  (Usa kg_schema \'{"index":"<nombre>"}\' para ver campos y tipos)')
+        print('  (Usa memory_schema \'{"index":"<nombre>"}\' para ver campos y tipos)')
         for idx in indices:
             name = idx.get("name", "?")
             desc = idx.get("description", "")
@@ -377,7 +377,6 @@ def prepare_output(data: dict) -> None:
     print(f"  Global registry: {data.get('registered_in', 'not registered')}")
     print(f"  Detected language: {detected.get('language', '?')}")
     print(f"  Detected framework: {detected.get('framework', '?')}")
-    print(f"  Detected code paths: {detected.get('code_paths', [])}")
     if data.get("cpg_built", 0) > 0:
         print(f"  CPG built: {data.get('cpg_built')} nodes")
     if data.get("watcher_installed"):

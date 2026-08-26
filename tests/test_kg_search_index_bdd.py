@@ -1,11 +1,11 @@
-"""tests/test_kg_search_index_bdd.py — Regresión del flags_builder de kg_search.
+"""tests/test_recall_knowledge_index_bdd.py — Regresión del flags_builder de recall_knowledge.
 
 ANTES: el route flags_builder hacía {"_payload": a.get("query", {})} — descartaba
 `index`. Un agente que pedía index="delta" consultaba el índice DEFAULT (ckg)
 sin error ni aviso: fallo silencioso de dispatch.
 
 AHORA: el payload completo del tool se preserva (query/index/_index/_project_id)
-y la task kg_search acepta el alias index → _index.
+y la task recall_knowledge acepta el alias index → _index.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def _kg_project(tmp_path):
         yield str(cog)
     finally:
         reg_ctx.__exit__(None, None, None)
-        from core.engine.bootstrap import reset_module_registry
+        from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
         from features.main.cli_interface import mcp_adapter
@@ -67,10 +67,10 @@ def _parse(resp: dict) -> dict:
 
 
 class TestKgSearchIndex:
-    """kg_search respeta el índice solicitado (fix del fallo silencioso)."""
+    """recall_knowledge respeta el índice solicitado (fix del fallo silencioso)."""
 
-    def test_kg_search_index_delta_consulta_delta(self, _kg_project):
-        resp = _mcp_call("kg_search", {
+    def test_recall_knowledge_index_delta_consulta_delta(self, _kg_project):
+        resp = _mcp_call("recall_knowledge", {
             "_project_id": "walker",
             "query": "login",
             "index": "delta",
@@ -78,32 +78,32 @@ class TestKgSearchIndex:
         data = _parse(resp)
         assert data.get("status_code") == 200, data
         d = data.get("data", {})
-        assert d.get("ok") is True, f"kg_search no ok: {d}"
+        assert d.get("ok") is True, f"recall_knowledge no ok: {d}"
         result = d.get("result", {})
         # ANTES: consultaba ckg (index default) aunque pidieran delta
         assert result.get("index") == "delta", (
-            f"kg_search consultó '{result.get('index')}' en vez de 'delta' — "
+            f"recall_knowledge consultó '{result.get('index')}' en vez de 'delta' — "
             f"fallo silencioso del flags_builder: {result}"
         )
         assert isinstance(result.get("hits", {}).get("total"), int)
 
-    def test_kg_search_sin_index_usa_default_ckg(self, _kg_project):
-        resp = _mcp_call("kg_search", {
+    def test_recall_knowledge_sin_index_usa_default_ckg(self, _kg_project):
+        resp = _mcp_call("recall_knowledge", {
             "_project_id": "walker",
             "query": "login",
         })
         data = _parse(resp)
         assert data.get("status_code") == 200, data
         d = data.get("data", {})
-        assert d.get("ok") is True, f"kg_search no ok: {d}"
+        assert d.get("ok") is True, f"recall_knowledge no ok: {d}"
         result = d.get("result", {})
         assert result.get("index") == "ckg", (
             f"sin index debería consultar ckg, consultó {result.get('index')}"
         )
 
-    def test_kg_search_con_under_index(self, _kg_project):
+    def test_recall_knowledge_con_under_index(self, _kg_project):
         """El formato legacy _index sigue funcionando."""
-        resp = _mcp_call("kg_search", {
+        resp = _mcp_call("recall_knowledge", {
             "_project_id": "walker",
             "text": "login",
             "_index": "delta",
@@ -111,5 +111,5 @@ class TestKgSearchIndex:
         data = _parse(resp)
         assert data.get("status_code") == 200, data
         d = data.get("data", {})
-        assert d.get("ok") is True, f"kg_search no ok: {d}"
+        assert d.get("ok") is True, f"recall_knowledge no ok: {d}"
         assert d.get("result", {}).get("index") == "delta"

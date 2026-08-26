@@ -1,10 +1,13 @@
-"""Configuración y constantes para el sistema de code review."""
+"""Configuración y constantes para el sistema de code review.
+
+Sin dependencia del binario externo qlty (ADR-WALKER-054): solo ast-grep
+y los patrones deep propios.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -40,40 +43,9 @@ def _probe_binary_core(bin_name: str) -> bool:
     return r.returncode == 0
 
 
-# ── Qlty binary ──────────────────────────────────────────────
-QLTY = os.environ.get("QLTY_BIN") or "qlty"
-QLTY_AVAILABLE = _probe_binary(QLTY)
-
 # ── ast-grep binary ─────────────────────────────────────────
 AST_GREP = os.environ.get("AST_GREP_BIN") or "ast-grep"
 AST_GREP_AVAILABLE = _probe_binary(AST_GREP)
-
-# ── ANSI escape stripping ───────────────────────────────────
-_ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-
-
-def strip_ansi(text: str) -> str:
-    return _ANSI_RE.sub("", text)
-
-
-def split_pipe(line: str) -> list[str]:
-    clean = strip_ansi(line)
-    return [p.strip() for p in clean.split("|")]
-
-
-# ── Qlty metrics table headers ──────────────────────────────
-_METRICS_HEADERS = [
-    "name",
-    "classes",
-    "funcs",
-    "fields",
-    "cyclo",
-    "complex",
-    "lcom",
-    "lines",
-    "loc",
-]
-_FUNC_HEADERS = ["function", "fields", "cyclo", "cognitive", "lines", "loc"]
 
 
 # ── Language map: file extension → ast-grep language ────────

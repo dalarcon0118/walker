@@ -1,8 +1,9 @@
 """
 infrastructure/watcher.py — File change watcher.
 
-SRP: Monitorea code_paths del proyecto, acumula cambios y verifica
-     fingerprint del CPG para determinar si es espejo del código.
+SRP: Monitorea el repo_path del proyecto (scope completo, ADR-WALKER-054 D1),
+     acumula cambios y verifica fingerprint del CPG para determinar si es
+     espejo del código.
 
 Layer: Infrastructure (pure IO — filesystem polling, snapshotting).
 Does NOT import application layer or CognitiveGraph.
@@ -12,7 +13,6 @@ Tracing is delegated via an optional callback.
 from __future__ import annotations
 
 import fnmatch
-import gzip
 import hashlib
 import json
 import os
@@ -69,11 +69,11 @@ class FileWatcher:
     def __init__(
         self,
         project_root: str,
-        code_paths: list[str] | None = None,
         *,
         data_dir: str | None = None,
         cpg_path: str | None = None,
         on_trace_event: Callable[[str, dict], None] | None = None,
+        cpg_fingerprint_reader: Callable[[], str] | None = None,
     ):
         self.project_root = Path(project_root)
         self._ignore = IgnoreRules(str(project_root))
@@ -92,11 +92,14 @@ class FileWatcher:
         self.change_path = self.data_dir / CHANGE_FILE
         self.snapshot_path = self.data_dir / ".file_snapshot.json"
         self._cpg_path_override = cpg_path
+        # Inyección DI (ADR-WALKER-055 F1): lector del fingerprint del CPG
+        # proveído por el feature que posee el dominio cpg (code_analysis).
+        # Este watcher NO conoce el formato del CPG — recibe el valor ya
+        # resuelto (default None → sin fingerprint → mirror no verificable).
+        self._cpg_fingerprint_reader = cpg_fingerprint_reader
 
-        if code_paths:
-            self.watch_dirs = [self.project_root / p for p in code_paths]
-        else:
-            self.watch_dirs = [self.project_root]
+        # Scope = repo_path completo (ADR-WALKER-054 D1: sin code_paths)
+        self.watch_dirs = [self.project_root]
 
         # Inyección: tracing handler (no-op por defecto, CognitiveGraph en producción)
         self._on_trace = on_trace_event or (lambda _event_type, _data: None)
@@ -243,22 +246,18 @@ class FileWatcher:
         return hasher.hexdigest()
 
     def _read_cpg_fingerprint(self) -> str:
-        """Read source_fingerprint from CPG, if it exists."""
-        for fname in ("cpg.json.gz", "cpg.json"):
-            cpg_path = self._cpg_path_override or self.data_dir / fname
-            cpg_path = Path(cpg_path) if not cpg_path else cpg_path
-            if isinstance(cpg_path, Path) and cpg_path.exists():
-                try:
-                    if str(cpg_path).endswith(".gz"):
-                        with gzip.open(cpg_path) as f:
-                            data = json.load(f)
-                    else:
-                        with open(cpg_path) as f:
-                            data = json.load(f)
-                    return data.get("source_fingerprint", "") or ""
-                except Exception:
-                    pass
-        return ""
+        """Devuelve el fingerprint del CPG provisto por DI (si está inyectado).
+
+        ADR-WALKER-055 F1: este watcher NO parsea el archivo del CPG ni
+        conoce su formato — el feature code_analysis provee el valor via
+        `cpg_fingerprint_reader` (composition root).
+        """
+        if self._cpg_fingerprint_reader is None:
+            return ""
+        try:
+            return str(self._cpg_fingerprint_reader() or "")
+        except Exception:
+            return ""
 
     # ── Snapshot ──
 

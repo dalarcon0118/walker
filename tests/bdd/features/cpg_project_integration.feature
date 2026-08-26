@@ -17,7 +17,6 @@ Característica: Integración del CPG con el proyecto registrado
     Cuando se resuelve el proyecto desde chain_dir
     Entonces el manifest expone el repo_path
     Y el manifest expone el nombre declarado
-    Y code_paths incluye los paths declarados
 
   @regresion
   Escenario: CPGBuilder usa repo_path del manifest

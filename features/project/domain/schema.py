@@ -41,7 +41,6 @@ PROJECT_SCHEMA = {
                 "type": "string",
                 "description": "Subdir for .cognitive",
             },
-            "code_paths": {"type": "array", "description": "Subdirs with source code"},
         },
     },
     "design": {

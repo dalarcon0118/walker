@@ -23,7 +23,7 @@ class ValidatePlanService:
     def validate_plan(chain_dir: str) -> dict[str, Any]:
         """Valida el plan de forma pura. Puede lanzar excepciones."""
         try:
-            from core.engine.domain.models import ExecutionContext
+            from shared.core.engine.domain.models import ExecutionContext
             from features.delta_tracking.application.services.sprint_service import (
                 SprintApplicationService,
             )

@@ -81,6 +81,15 @@ class ScanBugsUseCase:
         )
         return {}
 
+    def _load_projection(self, name: str) -> dict:
+        """Carga una proyección (analysis_results.json / dfg.json, F3b/R4).
+
+        R4 (ADR-WALKER-055): delega en el ProjectionStore compartido.
+        """
+        from shared.core.projection_store import ProjectionStore
+
+        return ProjectionStore(self._repo.data_dir).read(name)
+
     # ── Bugs ──────────────────────────────────────────────────────────
 
     def handle_bugs(self, query: Query) -> dict | None:
@@ -99,7 +108,10 @@ class ScanBugsUseCase:
 
         if target in ("dead_branches", "missing_returns", "infinite_loops"):
             data = self._load_repo_data()
-            cfg_data = data.get("analysis_results", {})
+            cfg_data = (
+                self._load_projection("analysis_results.json")
+                or data.get("analysis_results", {})
+            )
             if not cfg_data:
                 cfg_data = self._scan_cfg_on_demand()
             cfg_map = {
@@ -123,7 +135,12 @@ class ScanBugsUseCase:
 
         elif target in ("uninitialized_vars", "taint_paths", "data_gaps"):
             data = self._load_repo_data()
-            dfg_data = data.get("dfg", {})
+            dfg_data = (
+                self._load_projection("dfg.json")
+                or data.get("dfg", {})
+            )
+            if not dfg_data:
+                dfg_data = self._scan_dfg_on_demand()
             dfg_map = {
                 "uninitialized_vars": "uninitialized_vars",
                 "taint_paths": "taint_paths",
@@ -247,6 +264,22 @@ class ScanBugsUseCase:
         )
         return {}
 
+    def _scan_dfg_on_demand(self) -> dict:
+        """Corre scan_dfg on-demand si dfg no está proyectado (F3b).
+
+        Result pattern: el core @safe nunca lanza; ante fallo devuelve {}
+        y loggea el error (convention-001: nunca except silencioso).
+        """
+        result = _scan_dfg_on_demand_core(self.chain_dir)
+        if is_successful(result):
+            return result.value_or({})
+        error = result.failure()
+        logger.error(
+            "scan_dfg on-demand fallo (%s: %s); sin dfg",
+            type(error).__name__, error,
+        )
+        return {}
+
     # ── Security ─────────────────────────────────────────────────────
 
     def handle_security(self, query: Query) -> dict | None:
@@ -257,7 +290,9 @@ class ScanBugsUseCase:
         attr_filters = query.exclude_keys({"security"})
 
         data = self._load_repo_data()
-        dfg_data = data.get("dfg", {})
+        dfg_data = self._load_projection("dfg.json") or data.get("dfg", {})
+        if not dfg_data:
+            dfg_data = self._scan_dfg_on_demand()
         taint_paths = dfg_data.get("taint_paths", [])
         hardcoded = dfg_data.get("hardcoded_secrets", [])
         security_findings = []
@@ -327,4 +362,21 @@ def _scan_cfg_on_demand_core(chain_dir: str) -> dict:
             code_root=project_dir,
         )
         return builder.scan_cfg()
+    return {}
+
+
+@safe
+def _scan_dfg_on_demand_core(chain_dir: str) -> dict:
+    """Core puro de _scan_dfg_on_demand (puede lanzar)."""
+    from features.code_analysis.application.build_service import BuildGraphUseCase
+    from shared.core.path_resolver import resolve_project_root
+
+    project_dir = resolve_project_root(chain_dir)
+    if project_dir and os.path.isdir(project_dir):
+        builder = BuildGraphUseCase(
+            project_id=os.path.basename(project_dir),
+            data_dir=os.path.join(project_dir, "data"),
+            code_root=project_dir,
+        )
+        return builder.scan_dfg()
     return {}

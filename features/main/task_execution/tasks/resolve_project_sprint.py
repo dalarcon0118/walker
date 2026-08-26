@@ -9,7 +9,7 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 from shared.common.shared_domain import ExecutionContext, TaskResult
-from core.engine.domain.session import SessionStore
+from shared.core.engine.domain.session import SessionStore
 from features.project import ProjectService
 
 logger = logging.getLogger(__name__)

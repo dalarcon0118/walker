@@ -1,5 +1,0 @@
-{"ts": "2026-07-22T22:01:20.264643+00:00", "event": "transition:back_to_active", "from": "SPRINT", "to": "SPRINT"}
-{"ts": "2026-07-22T22:05:00.447780+00:00", "event": "transition:back_to_active", "from": "SPRINT", "to": "SPRINT"}
-{"ts": "2026-07-22T22:07:58.474302+00:00", "event": "transition:start_planning", "from": "SPRINT", "to": "SPRINT_PLANNING"}
-{"ts": "2026-07-22T22:22:42.350357+00:00", "event": "transition:analysis_approved", "from": "ANALYZE", "to": "IMPLEMENT"}
-{"ts": "2026-07-22T22:22:55.901432+00:00", "event": "transition:implementation_done", "from": "IMPLEMENT", "to": "VERIFY"}

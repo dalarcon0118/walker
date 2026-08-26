@@ -36,7 +36,7 @@ def _smoke_project_registry(tmp_path):
         yield tmp
     finally:
         reg_ctx.__exit__(None, None, None)
-        from core.engine.bootstrap import reset_module_registry
+        from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
         from features.main.cli_interface import mcp_adapter
@@ -70,8 +70,8 @@ def _setup_project(tmp_path: str) -> tuple[str, str]:
     )
     sprint_dir = cog / "data" / "spring" / "sprint-smoke"
     sprint_dir.mkdir(parents=True, exist_ok=True)
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
-    from core.engine.domain.entities import WorkflowState
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.domain.entities import WorkflowState
 
     wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
     wf.context["chain_dir"] = str(sprint_dir)
@@ -146,7 +146,7 @@ class TestSmokeRegressions:
 
     def test_update_sprint_status_side_effect_no_import_error(self, tmp_path, _smoke_project_registry):
         """El side effect update_sprint_status ejecuta sin ImportError."""
-        from core.engine.domain.models import ExecutionContext
+        from shared.core.engine.domain.models import ExecutionContext
         from features.main.task_execution.side_effects.status import update_sprint_status
 
         td = str(tmp_path)

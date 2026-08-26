@@ -103,11 +103,11 @@ class PlanSprintUseCase:
         # estado inicial del sprint (PLANNING). El motor no lee
         # sprint-state.json: el estado de negocio vive en el delta.
         try:
-            from core.engine.infrastructure.repositories import (
+            from shared.core.engine.infrastructure.repositories import (
                 WorkflowStateRepository,
             )
 
-            from core.engine.domain.entities import WorkflowState
+            from shared.core.engine.domain.entities import WorkflowState
 
             wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
             wf.context["chain_dir"] = sprint_dir
@@ -119,7 +119,7 @@ class PlanSprintUseCase:
 
         if record:
             record.chain_dir = sprint_dir
-            from core.engine.domain.session import SessionStore
+            from shared.core.engine.domain.session import SessionStore
 
             SessionStore.save(record)
             SessionStore.set_active(record.session_id)

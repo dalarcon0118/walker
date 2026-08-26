@@ -25,7 +25,7 @@ from features.main.cli_interface.application import handlers as cli_handlers
 
 def test_handle_task_self_bootstraps_composition_root(monkeypatch, mcp_project):
     """Sin bootstrap previo, handle_task debe poblar el service locator."""
-    from core.engine.bootstrap import reset_module_registry
+    from shared.core.engine.bootstrap import reset_module_registry
 
     # Simula un proceso CLI fresco: locator vacío.
     reset_module_registry()

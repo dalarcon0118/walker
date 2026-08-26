@@ -61,12 +61,17 @@ def ckg_service(
     return CodeKnowledgeGraph(project_dir, repo=repo)
 
 
-def ckg_repository(project_dir: str = "") -> CkgRepository | None:
+def ckg_repository(project_dir: str = "", graph_factory=None) -> CkgRepository | None:
     """Factory del repo CKG (CognitiveCkgRepository por defecto).
 
     Punto unico de construccion del repositorio: los consumidores reciben
     el port CkgRepository y no importan infraestructura concreta. Devuelve
     None si no hay project_dir resolvible.
+
+    Args:
+        project_dir: Directorio cognitivo del proyecto.
+        graph_factory: Factory para CognitiveGraph (inyeccion DI). Si no se
+              provee, CognitiveCkgRepository lo resuelve internamente.
     """
     if not project_dir:
         return None
@@ -74,7 +79,7 @@ def ckg_repository(project_dir: str = "") -> CkgRepository | None:
         CognitiveCkgRepository,
     )
 
-    return CognitiveCkgRepository(project_dir)
+    return CognitiveCkgRepository(project_dir, graph_factory=graph_factory)
 
 
 def ckg_analysis_adapter(chain_dir: str = "") -> Any | None:

@@ -47,7 +47,7 @@ def _ctx_no_existe(phase_intelligence_ctx: dict):
 
 @given("el bootstrap de tasks")
 def _bootstrap_tasks_ready(phase_intelligence_ctx: dict):
-    from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+    from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
 
     phase_intelligence_ctx["registry"] = InMemoryTaskRegistry(tracer=None)
 

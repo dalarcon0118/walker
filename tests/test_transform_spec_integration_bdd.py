@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from core.engine.infrastructure.side_effects import SideEffectEngine
+from shared.core.engine.infrastructure.side_effects import SideEffectEngine
 from features.main.task_execution.side_effects import register_task_execution_side_effects
 from features.delta_tracking import spring_service
 

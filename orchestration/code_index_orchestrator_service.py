@@ -31,7 +31,7 @@ class CodeIndexOrchestratorService:
         try:
             from features.project import ProjectService, FileWatcher
             from features.code_analysis.application.services.cpg_service import CpgService
-            from core.engine.domain.side_effect_contract import ok, failed, degraded
+            from shared.core.engine.domain.side_effect_contract import ok, failed, degraded
 
             if not chain_dir:
                 return failed(
@@ -140,7 +140,7 @@ class CodeIndexOrchestratorService:
         try:
             from features.project import ProjectService
             from features.code_analysis.application.services.cpg_service import CpgService
-            from core.engine.domain.side_effect_contract import ok, failed
+            from shared.core.engine.domain.side_effect_contract import ok, failed
 
             if not chain_dir:
                 return failed(
@@ -181,10 +181,11 @@ class CodeIndexOrchestratorService:
 
 
 def _load_project_config(project_root: Path) -> dict:
-    """Carga la configuración del project.json (con fallback)."""
-    from returns.result import safe, is_successful
+    """Carga la configuración del project.json (con fallback).
 
-    config = {"code_paths": [], "code_extensions": ["py", "js", "ts", "tsx", "css", "json", "md"]}
+    ADR-WALKER-054 D1: sin code_paths — el scope de escaneo es repo_path.
+    """
+    config = {"code_extensions": ["py", "js", "ts", "tsx", "css", "json", "md"]}
     proj_file = project_root / "project.json"
     if not proj_file.exists():
         return config
@@ -205,14 +206,12 @@ def _load_project_config_core(proj_file: Path) -> dict:
         data = json.load(f)
     loc = data.get("project", {}).get("location", {})
     return {
-        "code_paths": loc.get("code_paths", []),
         "code_extensions": loc.get("code_extensions", ["py", "js", "ts", "tsx", "css", "json", "md"]),
     }
 
 
 def _build_paths(config: dict, project_root: Path) -> list[str]:
-    code_paths = config.get("code_paths", [])
-    return [str(project_root / p) for p in code_paths] if code_paths else [str(project_root)]
+    return [str(project_root)]
 
 
 def _verify_cpg_mirror(ctx: Any, project_root: str, source_fingerprint: str) -> bool:

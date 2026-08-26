@@ -4,7 +4,7 @@
       "project_id": "walker",
       "version": "1.0",
       "created_at": "2026-08-03T14:42:53.684612+00:00",
-      "updated_at": "2026-08-03T14:42:53.684660+00:00"
+      "updated_at": "2026-08-24T21:37:46.015085+00:00"
     },
     "identity": {
       "name": "walker",
@@ -12,13 +12,7 @@
       "framework": "unknown"
     },
     "location": {
-      "repo_path": "/Users/davidmartinez/develop/Active-projects/walker",
-      "code_paths": [
-        "features",
-        "libs",
-        "tests",
-        "to_clean_next"
-      ]
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/walker"
     },
     "design": {
       "patterns": [],

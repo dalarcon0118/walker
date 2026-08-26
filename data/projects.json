@@ -4,9 +4,7 @@
       "project_id": "walker",
       "name": "walker",
       "repo_path": "/Users/davidmartinez/develop/Active-projects/walker",
-      "active": true,
-      "registered_at": "2026-08-23T15:59:00.000000+00:00",
-      "last_accessed": "2026-08-23T15:59:00.000000+00:00"
+      "active": true
     },
     "my_app": {
       "project_id": "my_app",

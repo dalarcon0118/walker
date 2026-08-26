@@ -15,7 +15,7 @@ import pkgutil
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from core.engine.infrastructure.side_effects import SideEffectEngine
+from shared.core.engine.infrastructure.side_effects import SideEffectEngine
 
 logger = logging.getLogger(__name__)
 

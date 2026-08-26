@@ -36,7 +36,7 @@ def _diagnose_schema() -> dict:
 
 @given("que existe un contrato de salida con target y reason")
 def _setup_contract(cv_ctx: dict):
-    from core.engine.domain.contract_validator import Contract, ContractValidator
+    from shared.core.engine.domain.contract_validator import Contract, ContractValidator
     cv_ctx["contract"] = Contract.from_dict(_diagnose_schema())
     cv_ctx["validator"] = ContractValidator
 
@@ -113,7 +113,7 @@ def _assert_no_false_positives(cv_ctx: dict):
 
 @when("se crea un contrato desde el schema")
 def _create_contract_from_dict(cv_ctx: dict):
-    from core.engine.domain.contract_validator import Contract
+    from shared.core.engine.domain.contract_validator import Contract
     cv_ctx["contract"] = Contract.from_dict(_diagnose_schema())
 
 
@@ -157,8 +157,8 @@ def _assert_pre_mentions_reason(cv_ctx: dict):
 
 @when("verify_post falla y se lanza ValidationError")
 def _trigger_validation_error(cv_ctx: dict):
-    from core.engine.domain.contract_validator import Contract, ContractValidator
-    from core.engine.domain.errors import ValidationError
+    from shared.core.engine.domain.contract_validator import Contract, ContractValidator
+    from shared.core.engine.domain.errors import ValidationError
 
     contract = Contract.from_dict(_diagnose_schema())
     report = ContractValidator.verify_post(contract, {"target": "bogus"})

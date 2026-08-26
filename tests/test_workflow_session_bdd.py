@@ -14,8 +14,8 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-from core.engine.domain.session import SessionRecord, SessionStore
-from core.engine.application.workflow_api import WorkflowAPI
+from shared.core.engine.domain.session import SessionRecord, SessionStore
+from shared.core.engine.application.workflow_api import WorkflowAPI
 
 scenarios("bdd/features/workflow_session.feature")
 

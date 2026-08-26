@@ -119,13 +119,13 @@ def _make_workflow_dict():
 
 
 def _build_graph(raw):
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
 
     return WorkflowRepository()._build_graph(raw)
 
 
 def _make_state(workflow, sub_state: str, sub_state_index: int, fields=None):
-    from core.engine.domain.models import WorkflowState, SubStateData
+    from shared.core.engine.domain.models import WorkflowState, SubStateData
 
     sub_state_data = {}
     if fields:
@@ -281,7 +281,7 @@ def _workflow_requires_goal_specs(dd_ctx: dict):
 
 
 def _names_for(dd_ctx, sub, idx, fields=None):
-    from core.engine.domain.services import ValidationService
+    from shared.core.engine.domain.services import ValidationService
 
     return [
         g.name
@@ -371,7 +371,7 @@ def _state_in_init(dd_ctx: dict):
 
 @when("se busca el gate start_execution desde INIT")
 def _find_gate_from_init(dd_ctx: dict):
-    from core.engine.application.use_cases import TransitionUseCase
+    from shared.core.engine.application.use_cases import TransitionUseCase
 
     dd_ctx["gate"] = TransitionUseCase._find_gate(
         dd_ctx["workflow"], dd_ctx["state"].current_node, "start_execution", "INIT"
@@ -385,7 +385,7 @@ def _assert_gate_not_found(dd_ctx: dict):
 
 @when("se busca el gate start_planning desde INIT")
 def _find_valid_gate(dd_ctx: dict):
-    from core.engine.application.use_cases import TransitionUseCase
+    from shared.core.engine.application.use_cases import TransitionUseCase
 
     dd_ctx["gate_ok"] = TransitionUseCase._find_gate(
         dd_ctx["workflow"], dd_ctx["state"].current_node, "start_planning", "INIT"
@@ -409,7 +409,7 @@ def _review_without_decision(dd_ctx: dict):
 
 @when("se verifican precondiciones para approve")
 def _check_preconditions(dd_ctx: dict):
-    from core.engine.domain.services import ValidationService
+    from shared.core.engine.domain.services import ValidationService
 
     dd_ctx["errs"] = ValidationService.check_transition_preconditions(
         dd_ctx["state_review_empty"], dd_ctx["workflow"], "approve"
@@ -424,7 +424,7 @@ def _assert_precondition_errors(dd_ctx: dict):
 
 @when("el estado cambia a REVIEW con decision pero fases previas vacías")
 def _review_with_decision_empty_prev(dd_ctx: dict):
-    from core.engine.domain.models import WorkflowState, SubStateData
+    from shared.core.engine.domain.models import WorkflowState, SubStateData
 
     dd_ctx["state_review_partial"] = WorkflowState(
         current_node=dd_ctx["workflow"].initial_state,
@@ -437,7 +437,7 @@ def _review_with_decision_empty_prev(dd_ctx: dict):
 
 @when("se re-verifican precondiciones para approve")
 def _check_preconditions_partial(dd_ctx: dict):
-    from core.engine.domain.services import ValidationService
+    from shared.core.engine.domain.services import ValidationService
 
     dd_ctx["errs_partial"] = ValidationService.check_transition_preconditions(
         dd_ctx["state_review_partial"], dd_ctx["workflow"], "approve"
@@ -451,7 +451,7 @@ def _assert_partial_still_fails(dd_ctx: dict):
 
 @when("el estado cambia a REVIEW con todas las fases previas completas")
 def _all_phases_complete(dd_ctx: dict):
-    from core.engine.domain.models import WorkflowState, SubStateData
+    from shared.core.engine.domain.models import WorkflowState, SubStateData
 
     goal_specs = {"goal": "g", "specifications": "[]"}
     dd_ctx["state_complete"] = WorkflowState(
@@ -469,7 +469,7 @@ def _all_phases_complete(dd_ctx: dict):
 
 @when("se verifican precondiciones finales para approve")
 def _check_preconditions_final(dd_ctx: dict):
-    from core.engine.domain.services import ValidationService
+    from shared.core.engine.domain.services import ValidationService
 
     dd_ctx["errs_ok"] = ValidationService.check_transition_preconditions(
         dd_ctx["state_complete"], dd_ctx["workflow"], "approve"

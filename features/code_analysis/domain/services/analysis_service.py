@@ -39,6 +39,52 @@ class ISecurityScanner(ABC):
         ...
 
 
+def find_unused_functions(
+    nodes: dict[str, dict],
+    edges: list[dict],
+    *,
+    is_false_positive_dead_code,
+    is_referenced,
+    main_guard=None,
+) -> list[dict[str, Any]]:
+    """Detecta funciones/métodos sin callers (dead code) — scanner ÚNICO (F7).
+
+    Comparte la lógica entre review_service y build_service (antes duplicada
+    en _scan_dead_code y _collect_bug_proposals_core). Filtros inyectados:
+      - is_false_positive_dead_code(name, type, signature, path) → bool
+      - is_referenced(name, path, line) → bool  (DeadCodeReferenceScanner)
+      - main_guard(name, path) opcional → True si debe SKIP (CLI entrypoints)
+
+    Devuelve [{id, name, file, line, is_private}] — cada caller adapta el
+    shape a su salida.
+    """
+    incoming_ids = {e.get("from") for e in edges if e.get("type") == "CALLS"}
+    results: list[dict[str, Any]] = []
+    for nid, n in nodes.items():
+        if not isinstance(n, dict):
+            continue
+        if n.get("type") not in ("function", "method") or n.get("is_import"):
+            continue
+        name = str(n.get("name", ""))
+        if nid in incoming_ids or name.startswith("__"):
+            continue
+        ntype = n.get("type", "")
+        sig = str(n.get("signature", ""))
+        path = str(n.get("path", ""))
+        line = int(n.get("line", 0) or 0)
+        if is_false_positive_dead_code(name, ntype, sig, path):
+            continue
+        if is_referenced(name, path, line):
+            continue
+        if main_guard is not None and main_guard(name, path):
+            continue
+        results.append({
+            "id": nid, "name": name, "file": path, "line": line,
+            "is_private": name.startswith("_"),
+        })
+    return results
+
+
 class IImpactAnalyzer(ABC):
     """Contrato para análisis de impacto de cambios."""
 

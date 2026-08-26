@@ -10,14 +10,14 @@ en los use cases y traduce formatos.
 
 También es el destino de la lógica de consulta extraída de
 features/main/task_execution/tasks/kg.py (ADR-WALKER-048 §7): la búsqueda
-multi-memoria, filtrado y construcción de contexto viven aquí, y kg.py
+multi-memoria, filtrado y construcción de contexto viven aquí, y knowledge_helpers.py
 queda como thin adapter.
 """
 from __future__ import annotations
 
 from typing import Any
 
-# ── Questionnaire de kg_extract (ADR-051 G4) ──────────────────────────
+# ── Questionnaire de extract_knowledge (ADR-051 G4) ──────────────────────
 # Guía al LLM para analizar la estructura CPG y poblar el CKG. Vive en el
 # Application Service (no en la task) porque es parte del contrato de
 # extracción de conocimiento del feature.
@@ -28,7 +28,7 @@ _KG_EXTRACT_QUESTIONNAIRE: dict = {
         "Analyze it and answer the following questions. "
         "Your answers will be saved in the CKG (Knowledge Graph) "
         "so they are available in future sprints. "
-        "Use 'walker <project>/save_to_ckg' to save each answer. "
+        "Use 'walker <project>/documenting_knowledge' to save each answer. "
         "IMPORTANT: Do NOT save knowledge that already exists in CKG."
     ),
     "questions": [
@@ -240,7 +240,7 @@ class CkgApplicationService:
                 if supersedes
                 else "Decision activa registrada."
             ),
-            "next_step": "Run 'walker <project>/kg_search' to verify saved knowledge",
+            "next_step": "Run 'walker <project>/recall_knowledge' to verify saved knowledge",
         }
 
     @staticmethod
@@ -254,7 +254,7 @@ class CkgApplicationService:
         )
 
     @staticmethod
-    def kg_schema(searcher: Any, index: str = "") -> dict:
+    def schema(searcher: Any, index: str = "") -> dict:
         if index:
             try:
                 return searcher.schema(index)
@@ -264,12 +264,12 @@ class CkgApplicationService:
                     "message": f"Index '{index}' not found. Disponibles: {searcher.list_indexes()}",
                 }
         return {
-            "type": "kg_schema",
+            "type": "schema",
             "indexes": searcher.list_indexes(),
         }
 
     @staticmethod
-    def kg_search(searcher: Any, payload: dict, project_id: str = "") -> dict:
+    def search(searcher: Any, payload: dict, project_id: str = "") -> dict:
         if set(payload.keys()) == {"_index"} or (len(payload) == 1 and "_index" in payload):
             index = payload.get("_index", "ckg")
             try:
@@ -298,6 +298,17 @@ class CkgApplicationService:
                 "kind",
                 "domain",
                 "include_superseded",
+                # Campos del índice trace (ADR-WALKER-055): sin estos,
+                # cualquier query estructurada del trace (tool/session/
+                # node/sub_state/source/agent) caía en search_many (federado)
+                # → error "Indice 'tool' no registrado".
+                "tool",
+                "session",
+                "agent",
+                "sprint",
+                "node",
+                "sub_state",
+                "source",
             )
         )
         if not has_single_query_keys and len(payload) > 0:
@@ -307,7 +318,7 @@ class CkgApplicationService:
         query = {k: v for k, v in payload.items() if k != "_index"}
         include_superseded = query.pop("include_superseded", False)
         if index == "ckg" and include_superseded:
-            superseded = CkgApplicationService._kg_search_superseded(project_id, query)
+            superseded = CkgApplicationService._search_superseded(project_id, query)
             if superseded:
                 return superseded
         try:
@@ -319,7 +330,7 @@ class CkgApplicationService:
             }
 
     @staticmethod
-    def kg_multi(searcher: Any, payload: dict) -> dict:
+    def search_many(searcher: Any, payload: dict) -> dict:
         return searcher.search_many(CkgApplicationService._with_compact_defaults(payload))
 
     @staticmethod
@@ -332,7 +343,7 @@ class CkgApplicationService:
         return out
 
     @staticmethod
-    def _kg_search_superseded(project_id: str, query: dict) -> dict | None:
+    def _search_superseded(project_id: str, query: dict) -> dict | None:
         try:
             from features.project import ProjectService
             from features.cognitive_knowledge import ckg_service
@@ -344,7 +355,7 @@ class CkgApplicationService:
             ckg = ckg_service(project_root)
             nodes = ckg.query({**query, "include_superseded": True})
             return {
-                "type": "kg_search",
+                "type": "search",
                 "index": "ckg",
                 "hits": len(nodes),
                 "results": nodes,
@@ -412,7 +423,7 @@ class CkgApplicationService:
 
     @staticmethod
     def build_extract_payload(cpg: Any, scope: str, chain_dir: str) -> dict:
-        """Análisis de código para poblar el CKG (extraído de kg_extract.py).
+        """Análisis de código para poblar el CKG (extraído de extract_knowledge.py).
 
         Cruza CPG (puerto inyectado — CpgService.grep) × CKG actual y
         devuelve el payload de extracción: análisis por tipo, facts
@@ -465,7 +476,7 @@ class CkgApplicationService:
         if is_successful(result):
             return result.value_or({"functions": [], "classes": [], "files": [], "modules": []})
         error = result.failure()
-        logger.warning("kg_extract: análisis CPG falló (%s: %s)", type(error).__name__, error)
+        logger.warning("extract_knowledge: análisis CPG falló (%s: %s)", type(error).__name__, error)
         return {"functions": [], "classes": [], "files": [], "modules": []}
 
     @staticmethod
@@ -489,7 +500,7 @@ class CkgApplicationService:
             return result.value_or([])
         error = result.failure()
         analysis["_error_ckg"] = str(error)
-        logger.warning("kg_extract: CKG query falló (%s: %s)", type(error).__name__, error)
+        logger.warning("extract_knowledge: CKG query falló (%s: %s)", type(error).__name__, error)
         return []
 
     @staticmethod

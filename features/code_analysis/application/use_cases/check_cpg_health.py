@@ -1,14 +1,12 @@
 """use_cases/check_cpg_health.py — CheckCpgHealthUseCase.
 
 Check CPG health: node count and status.
-SSOT: solo code_analysis lee archivos CPG.
+SSOT: solo code_analysis lee archivos CPG (via CpgFileRepository, adaptador
+del índice — ADR-WALKER-055 F1: sin parseo crudo en la capa de aplicación).
 """
 from __future__ import annotations
 
-import gzip
-import json
 import logging
-import os
 
 from returns.pipeline import is_successful
 from returns.result import safe
@@ -33,45 +31,26 @@ class CheckCpgHealthUseCase:
         Returns:
             dict with keys: status (str), node_count (int)
         """
-        # Try .json.gz first (canonical), then .json (legacy)
-        cpg_path = os.path.join(projects_data_dir, "cpg.json.gz")
-        data = _read_cpg_file(cpg_path)
-        if data is not None:
-            total = len(data.get("nodes", data.get("docs", [])))
-            return {"status": f"{total} nodes", "node_count": total}
+        from features.code_analysis.infrastructure.repository import CpgFileRepository
 
-        cpg_old = os.path.join(projects_data_dir, "cpg.json")
-        old_data = _read_cpg_file(cpg_old)
-        if old_data is not None:
-            total = len(old_data.get("nodes", old_data.get("docs", [])))
-            return {"status": f"{total} nodes", "node_count": total}
+        repo = CpgFileRepository(projects_data_dir)
+        if not repo.exists():
+            return {"status": "not scanned", "node_count": 0}
 
+        result = _load_cpg_core(repo)
+        if is_successful(result):
+            data = result.value_or({})
+            total = len(data.get("nodes", {}))
+            return {"status": f"{total} nodes", "node_count": total}
+        error = result.failure()
+        logger.warning(
+            "No se pudo leer CPG en %s (%s: %s); se reporta no escaneado",
+            projects_data_dir, type(error).__name__, error,
+        )
         return {"status": "not scanned", "node_count": 0}
 
 
-def _read_cpg_file(path: str) -> dict | None:
-    """Read a CPG file (.json or .json.gz).
-
-    Result pattern: el core @safe nunca lanza; ante fallo devuelve None
-    y loggea el error (convention-001).
-    """
-    if not os.path.exists(path):
-        return None
-    result = _read_cpg_file_core(path)
-    if is_successful(result):
-        return result.value_or(None)
-    error = result.failure()
-    logger.warning(
-        "No se pudo leer CPG %s (%s: %s)", path, type(error).__name__, error,
-    )
-    return None
-
-
 @safe
-def _read_cpg_file_core(path: str) -> dict:
-    """Core puro de lectura de CPG (puede lanzar)."""
-    if path.endswith(".gz"):
-        with gzip.open(path) as f:
-            return json.load(f)
-    with open(path) as f:
-        return json.load(f)
+def _load_cpg_core(repo) -> dict:
+    """Core puro de carga del CPG vía repository (puede lanzar)."""
+    return repo.load()

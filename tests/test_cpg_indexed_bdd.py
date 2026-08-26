@@ -17,8 +17,8 @@ from __future__ import annotations
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-from core.engine.domain.models import SideEffectDef
-from core.engine.infrastructure.side_effects import SideEffectEngine
+from shared.core.engine.domain.models import SideEffectDef
+from shared.core.engine.infrastructure.side_effects import SideEffectEngine
 from shared.common.shared_domain import ExecutionContext
 
 scenarios("bdd/features/cpg_indexed.feature")
@@ -65,7 +65,7 @@ def _make_ctx() -> ExecutionContext:
 
 
 def _cpg_ok(fingerprint: bool, quality: bool = True) -> dict:
-    from core.engine.domain.side_effect_contract import ok
+    from shared.core.engine.domain.side_effect_contract import ok
 
     return ok(
         type="index_code",

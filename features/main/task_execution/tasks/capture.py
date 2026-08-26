@@ -170,7 +170,7 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "ok": True,
             **result,
             "next_step": (
-                "Consulta el historico con: walker <project>/kg_search "
+                "Consulta el historico con: walker <project>/recall_knowledge "
                 '{\"_index\":\"delta\",\"text\":\"<domain>\"}'
             ),
         }

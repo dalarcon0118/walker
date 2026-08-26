@@ -7,5 +7,5 @@
     "sprint",
     "close"
   ],
-  "template": "SPRINT.CLOSE - Closing sprint...\n\nArchiving sprint data, running full CPG reindex of all project\ncode (scans files with extensions from project.json code_extensions\nacross all code_paths). This ensures the CPG has the complete\nmulti-language project map for the next sprint.\nThis runs automatically - no action needed."
+  "template": "SPRINT.CLOSE - Closing sprint...\n\nArchiving sprint data, running full CPG reindex of all project\ncode (scans files with extensions from project.json code_extensions\nacross the full repo). This ensures the CPG has the complete\nmulti-language project map for the next sprint.\nThis runs automatically - no action needed."
 }

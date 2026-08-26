@@ -41,7 +41,7 @@ def compute_quality_metrics(
     raw_lines: int = 0,
     comment_lines: int = 0,
 ) -> dict:
-    """Compute ALL quality metrics from qlty raw data."""
+    """Compute quality metrics from local analysis data (sin qlty)."""
     cyclo = metrics.get("cyclo", 0)
     complexity_n = metrics.get("complexity", 0)
     classes = metrics.get("classes", 0)

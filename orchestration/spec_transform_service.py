@@ -43,7 +43,7 @@ class SpecTransformService:
 @safe
 def _resolve_ref_from_state(chain_dir: str, sub_state_key: str, field: str) -> Any:
     """Core puro: lee el workflow state y resuelve NODE.SUB.output.field (puede lanzar)."""
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 
     state = WorkflowStateRepository().load(chain_dir)
     prefixed = ""

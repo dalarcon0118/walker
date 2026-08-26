@@ -39,10 +39,24 @@ def sanitize_project_id(value: str) -> str:
 # ── Path derivation (backward-compat: returns dict) ──
 
 def compute_project_paths(project_root: str) -> dict[str, str]:
-    """Compute project paths from project_root. Returns dict (backward-compat)."""
+    """Compute project paths from project_root. Returns dict (backward-compat).
+
+    ADR-WALKER-061 F6: el flujo del sprint es ÚNICO y global (SSOT del motor).
+    El manifiesto canónico se resuelve desde la config central — NO hay
+    workflow.v3 por proyecto ni fallbacks (cero deuda técnica). Los paths de
+    workflow derivan de ``get_workflow_manifest_dir/path`` (config central),
+    no de ``project_root``.
+    """
+    from shared.core.engine.infrastructure.config import (
+        get_workflow_manifest_dir,
+        get_workflow_manifest_path,
+    )
+
     data_dir = os.path.join(project_root, "data")
     delta_dir = os.path.join(project_root, "delta")
-    workflow_dir = os.path.join(project_root, "data", "workflow")
+    # Manifiesto canónico global (config central): data/workflow del motor.
+    workflow_dir = get_workflow_manifest_dir()
+    workflow_json = get_workflow_manifest_path()
 
     return {
         "project_root": project_root,
@@ -54,10 +68,10 @@ def compute_project_paths(project_root: str) -> dict[str, str]:
         "ckg_path": os.path.join(data_dir, "ckg.json.gz"),
         # project.json canónico: <project_root>/data/project.json (todo en data/).
         # Antes apuntaba a <project_root>/project.json (inexistente en el layout
-        # cognitivo), lo que dejaba el manifest vacío (code_paths=[] → el build
-        # fingerprint cubría todo el repo y nunca coincidía con el watcher).
+        # cognitivo), lo que dejaba el manifest vacío (el build fingerprint
+        # cubría todo el repo y nunca coincidía con el watcher).
         "project_json_path": os.path.join(data_dir, "project.json"),
-        "workflow_json_path": os.path.join(workflow_dir, "workflow.json"),
+        "workflow_json_path": workflow_json,
     }
 
 

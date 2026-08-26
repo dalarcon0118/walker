@@ -56,11 +56,7 @@ def _resolve_chain_dir(
     ):
         return cd
 
-    from core.engine.bootstrap import resolve_service
-
-    project_service = resolve_service("project_service")
-    if project_service is None:
-        return ""
+    from features.project import ProjectService as project_service
 
     record = _get_active_record(ctx)
     pid = project_id or (getattr(record, "project_id", "") if record else "")
@@ -97,7 +93,7 @@ def _resolve_chain_dir(
 
 
 def _get_active_record(ctx):
-    from core.engine.domain.session import SessionStore
+    from shared.core.engine.domain.session import SessionStore
 
     try:
         return SessionStore.get_active()
@@ -130,11 +126,7 @@ def _resolve_project_root_from_chain(sprint_dir: str) -> str:
     """
     if not sprint_dir:
         return ""
-    from core.engine.bootstrap import resolve_service
-
-    project_service = resolve_service("project_service")
-    if project_service is None:
-        return ""
+    from features.project import ProjectService as project_service
 
     try:
         paths = project_service.resolve_paths(sprint_dir)

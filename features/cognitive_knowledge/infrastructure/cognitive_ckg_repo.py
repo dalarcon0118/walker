@@ -10,10 +10,11 @@ from datetime import datetime, timezone
 from returns.result import safe
 from returns.pipeline import is_successful
 
-from core.engine.bootstrap import get_module_service
 
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
 from features.cognitive_knowledge.entities import KnowledgeFact
+from libs.cognitive_graph.cognitive_registry import memory_data_dir
+from shared.core.cognitive_graph.config import load_memory_connection
 
 # Campos canónicos de un nodo; el resto se normaliza a metadata.
 _FACT_FIELDS = {
@@ -27,12 +28,18 @@ _FACT_FIELDS = {
 class CognitiveCkgRepository(CkgRepository):
     """Implementacion sobre CognitiveGraph (indice 'ckg').
 
-    El orquestador CognitiveGraph se resuelve por DI (key "cognitive_graph").
+    El orquestador CognitiveGraph se recibe por constructor injection
+    (graph_factory). DEBE proveerse; no hay fallback al service locator.
     """
 
-    def __init__(self, project_root: str):
-        graph_factory = get_module_service("cognitive_graph")
-        self._cg = graph_factory(project_root)
+    def __init__(self, project_root: str, graph_factory=None):
+        if graph_factory is None:
+            raise ValueError(
+                "CognitiveCkgRepository requiere graph_factory inyectado. "
+                "Pásalo desde el composition root (features.main.bootstrap)."
+            )
+        # ADR-WALKER-061 (F6): la conexión se lee de CONFIG (env).
+        self._cg = graph_factory(load_memory_connection(memory_data_dir(str(project_root))))
         if "ckg" not in self._cg.list_indexes():
             self._cg.register_index("ckg", {
                 "fields": {
@@ -44,7 +51,6 @@ class CognitiveCkgRepository(CkgRepository):
                     "decision": {}, "refactor": {}, "convention": {},
                     "pattern": {}, "rule": {}, "component": {},
                 },
-                "storage": {"path": "data/ckg.json.gz", "format": "json.gz"},
                 "search": {"type": "fulltext", "fields": ["statement", "rationale"]},
             })
 

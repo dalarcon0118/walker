@@ -20,7 +20,7 @@ def rfr_ctx() -> dict:
 
 
 def _make_sub_state(input_schema=None, output_schema=None, legacy=None):
-    from core.engine.domain.models import SubState
+    from shared.core.engine.domain.models import SubState
     return SubState(
         key="TEST",
         input_schema=input_schema or {},
@@ -96,19 +96,19 @@ def _sub_state_with_input(rfr_ctx: dict):
 
 @when("se derivan los campos requeridos")
 def _derive_fields(rfr_ctx: dict):
-    from core.engine.domain.services import RequiredFieldResolver
+    from shared.core.engine.domain.services import RequiredFieldResolver
     rfr_ctx["result"] = RequiredFieldResolver.derive(rfr_ctx["sub_state"])
 
 
 @when("se resuelven los campos requeridos con resolve_required")
 def _resolve_required_fields(rfr_ctx: dict):
-    from core.engine.domain.services import RequiredFieldResolver
+    from shared.core.engine.domain.services import RequiredFieldResolver
     rfr_ctx["result"] = RequiredFieldResolver.resolve_required(rfr_ctx["sub_state"])
 
 
 @when("se derivan los campos requeridos con resolve_required")
 def _resolve_required_fields(rfr_ctx: dict):
-    from core.engine.domain.services import RequiredFieldResolver
+    from shared.core.engine.domain.services import RequiredFieldResolver
     rfr_ctx["result"] = RequiredFieldResolver.resolve_required(rfr_ctx["sub_state"])
 
 

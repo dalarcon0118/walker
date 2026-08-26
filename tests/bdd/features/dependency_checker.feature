@@ -32,11 +32,6 @@ Característica: Dependency Checker — verificación de CLI tools
     Cuando ejecuto ensure_ast_grep
     Entonces el resultado es True
 
-  Escenario: ensure_qlty devuelve True si está disponible
-    Dado que el cache tiene qlty disponible
-    Cuando ejecuto ensure_qlty
-    Entonces el resultado es True
-
   Escenario: reset_cache limpia el cache
     Dado que el cache tiene python3 disponible
     Cuando ejecuto reset_cache

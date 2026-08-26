@@ -33,7 +33,7 @@ def _make_tmp_package(tmp_path, with_bad: bool = True) -> str:
 
 def test_discover_logs_warning_y_continua(tmp_path, caplog):
     """Un módulo que falla al registrar emite warning; el bueno se registra igual."""
-    from core.engine.bootstrap import _discover_and_register
+    from shared.core.engine.bootstrap import _discover_and_register
 
     pkg_name = _make_tmp_package(tmp_path)
     try:
@@ -58,7 +58,7 @@ def test_discover_logs_warning_y_continua(tmp_path, caplog):
 
 def test_discover_registra_todos_los_modulos_sanos(tmp_path, caplog):
     """Sin fallos, no se emiten warnings y todos los módulos se registran."""
-    from core.engine.bootstrap import _discover_and_register
+    from shared.core.engine.bootstrap import _discover_and_register
 
     pkg_name = _make_tmp_package(tmp_path, with_bad=False)
     try:

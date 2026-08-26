@@ -8,17 +8,19 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from core.engine.bootstrap import get_module_service
 from features.project import ProjectService
 
 logger = logging.getLogger(__name__)
 
 
-def _build_cg(chain_dir: str) -> Any:
-    """Construye el searcher vía DI (key "cognitive_searcher") para el chain_dir."""
+def _build_cg(chain_dir: str, searcher_factory=None) -> Any:
+    """Construye el searcher vía DI para el chain_dir."""
     paths = ProjectService.resolve_paths(chain_dir)
-    searcher_factory = get_module_service("cognitive_searcher")
-    return searcher_factory(paths.project_root)
+    if searcher_factory is not None:
+        return searcher_factory(paths.project_root)
+    # Fallback: importar desde composition root (sin cycle risk)
+    from features.main.bootstrap import _build_searcher
+    return _build_searcher(paths.project_root)
 
 
 def collect_activity(chain_dir: str, node_id: str | None = None) -> dict:
@@ -155,7 +157,7 @@ def collect_all(
 @safe
 def _load_workflow_state_core(chain_dir: str) -> Any | None:
     """Core puro: estado del workflow (.workflow-state.json, puede lanzar)."""
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 
     return WorkflowStateRepository().load(chain_dir)
 

@@ -6,10 +6,39 @@ estos schemas. CognitiveGraph (shared/core) no conoce nombres de dominio.
 
 Antes (deuda): CognitiveGraph._register_ckg_index()/_register_delta_index()
 hardcodeaban schemas en infraestructura. Ahora cada dominio provee el suyo.
+
+ADR-WALKER-061 (F3): el schema NO lleva 'storage'. El filename se deriva del
+nombre del índice ({name}.json.gz); el directorio base lo resuelve la
+MemoryConnection (uri file://...) en el composition root.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
+
+
+def memory_data_dir(chain_dir: str) -> str:
+    """Raíz canónica de memorias (data/) para un chain_dir (ADR-WALKER-054 D4).
+
+    Única fuente de verdad: .cognitive/projects/<pid>/data (resuelto por
+    ProjectService.resolve_paths). Si chain_dir ya es la raíz data, se usa
+    tal cual; si es el dir del proyecto u otro, se deriva. Fallback defensivo
+    (tests/proyectos sin manifest): chain_dir o chain_dir/data.
+    """
+    if not chain_dir:
+        return ""
+    try:
+        from features.project import ProjectService
+
+        paths = ProjectService.resolve_paths(chain_dir)
+        if paths.data_dir:
+            return str(paths.data_dir)
+    except Exception:
+        pass
+    if os.path.isfile(os.path.join(chain_dir, "project.json")):
+        return chain_dir
+    data_dir = os.path.join(chain_dir, "data")
+    return data_dir if os.path.isdir(data_dir) else chain_dir
 
 
 def ckg_index_config() -> dict[str, Any]:
@@ -28,7 +57,6 @@ def ckg_index_config() -> dict[str, Any]:
             "refactor": {"description": "Refactorizacion aplicada"},
             "convention": {"description": "Convencion de estilo"},
         },
-        "storage": {"path": "data/ckg.json.gz", "format": "json.gz"},
         "description": "CKG: Knowledge Graph - decisiones, convenciones, patrones",
         "search": {
             "type": "fulltext",
@@ -48,7 +76,6 @@ def delta_index_config() -> dict[str, Any]:
             "type": "type",
         },
         "types": {"spec": {}, "spring": {}},
-        "storage": {"path": "data/delta.json.gz", "format": "json.gz"},
         "description": "DeltaGraph: specs y springs del proyecto",
         "search": {
             "type": "fulltext",
@@ -62,10 +89,9 @@ def cpg_index_config() -> dict[str, Any]:
     return {
         "fields": {"function": "name", "file": "path", "type": "type"},
         "types": {"function": {}, "class": {}, "file": {}, "module": {}},
-        "storage": {"path": "data/cpg.json.gz", "format": "json.gz"},
         # FIX FTS sordo: sin este bloque has_fulltext()=False → _token_index
         # None → toda búsqueda textual devolvía 0 hits aunque los docs
-        # existieran (el CPG llevaba años mudo para kg_search/recall).
+        # existieran (el CPG llevaba años mudo para recall_knowledge).
         "search": {
             "type": "fulltext",
             "fields": ["name", "path", "signature", "kind"],
@@ -75,7 +101,15 @@ def cpg_index_config() -> dict[str, Any]:
 
 
 def trace_index_config() -> dict[str, Any]:
-    """Schema del índice Trace (memoria de ejecucion) para CognitiveGraph."""
+    """Schema del índice Trace (memoria de ejecucion) para CognitiveGraph.
+
+    ADR-WALKER-055 (arquetipo "índice consultable"): el trace se consulta
+    ESTRUCTURADO (type/tool/session/task — índices secundarios O(1)), NO
+    fulltext: con 56k docs el TokenIndex serializado (snippets por entrada)
+    hace la migración G3 inviable (minutos). El fulltext fue probado y
+    revertido por ese motivo. El type index funciona gracias al fix de
+    `_index_doc` (resuelve type por el schema → event_type).
+    """
     return {
         "fields": {
             "task": "task_id",
@@ -97,7 +131,6 @@ def trace_index_config() -> dict[str, Any]:
             "file_impact": {},
             "kg_query": {},
         },
-        "storage": {"path": "data/trace.json.gz", "format": "json.gz"},
         "description": "TraceGraph: memoria de ejecucion (workflow + agente + tools)",
     }
 

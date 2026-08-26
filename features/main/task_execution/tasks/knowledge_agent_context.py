@@ -103,7 +103,7 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             str(error),
             data={
                 "error": "La consulta consolidada no pudo completarse",
-                "next_step": "Reintenta o revisa los índices con kg_schema",
+                "next_step": "Reintenta o revisa los índices con memory_schema",
             },
         )
 
@@ -121,11 +121,11 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "insights": payload.get("insights", []),
             "next_actions": [
                 {
-                    "command": "walker kg_schema",
+                    "command": "walker memory_schema",
                     "reason": "discover available indices",
                 },
                 {
-                    "command": "walker kg_multi {'ckg':{},'trace':{}}",
+                    "command": "walker search_memories {'ckg':{},'trace':{}}",
                     "reason": "knowledge + recent activity",
                 },
                 {

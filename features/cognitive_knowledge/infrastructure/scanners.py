@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 from features.cognitive_knowledge.domain.knowledge_graph import KnowledgeEdge as Edge
 from features.cognitive_knowledge.domain.models import EdgeType
@@ -100,13 +99,3 @@ class SymbolScanner:
             if names:
                 symbols[rel] = names
         return symbols
-
-
-class QltyScanner:
-    """Wrapper para integración con qlty metrics."""
-
-    def __init__(self, project_root: str) -> None:
-        self.project_root = Path(project_root)
-
-    def run(self) -> dict[str, Any]:
-        return {"status": "ok", "issues": 0}

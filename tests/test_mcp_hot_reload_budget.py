@@ -10,8 +10,8 @@ su ventana de respuesta (timeout -32001 del cliente). Este suite congela:
      la segunda queda diferida y se aplica en la ventana siguiente.
   2. No-consumo: un cambio detectado durante el defer NO se marca como
      visto — no se pierde aunque el archivo no vuelva a cambiar.
-  3. Recomposición eager: _reset_server_cache deja el service locator
-     utilizable (get_module_registry resuelve) sin esperar al request.
+  3. Recomposición eager: _reset_server_cache deja el composition root
+     reconstruido (AppContainer.build() resuelve) sin esperar al request.
   4. Higiene: sin prints DEBUG en el dispatch Camino A.
 """
 import importlib
@@ -20,9 +20,7 @@ import sys
 import pytest
 
 from features.main.cli_interface.infrastructure import reloader
-# NOTA: `from core.engine import bootstrap` traería la FUNCIÓN bootstrap
-# (expuesta en __init__) que hace sombra al submódulo. Importar símbolos.
-from core.engine.bootstrap import get_module_registry, reset_module_registry
+from shared.core.engine.bootstrap import reset_module_registry
 
 
 @pytest.fixture(autouse=True)
@@ -89,17 +87,18 @@ def test_no_consume_cambio_durante_defer(_isolated_reload_state, monkeypatch):
     assert reloader._reload_cache.get(str(target)) == sig  # consumida recién ahora
 
 
-def test_reset_server_cache_recompone_locator_eager():
-    """Tras invalidar, _reset_server_cache deja el locator utilizable YA."""
+def test_reset_server_cache_recompone_composition_eager():
+    """Tras invalidar, _reset_server_cache deja el composition root utilizable YA."""
+    from features.main.container import AppContainer
     from features.main.cli_interface.mcp_adapter import _reset_server_cache
 
     reset_module_registry()
-    with pytest.raises(KeyError):
-        get_module_registry()
-
+    AppContainer.reset()
     _reset_server_cache()
-    registry = get_module_registry()
+    app = AppContainer.build()
+    registry = app.module_registry
     assert registry is not None
+    assert len(registry.list_services()) > 0
 
 
 def test_sin_debug_print_en_camino_a():

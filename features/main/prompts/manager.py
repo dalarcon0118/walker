@@ -14,7 +14,7 @@ from .loader import TemplateLoader
 from .renderer import TemplateRenderer
 from .collector import collect_all
 from features.main.prompts.application.ports.prompt_manager import IPromptManager
-from core.engine.infrastructure.config import get as cfg
+from shared.core.engine.infrastructure.config import get as cfg
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +121,8 @@ class PromptManager(IPromptManager):
         return sorted(result)
 
     def compose(self, node_config: dict, prompt_template: str, ctx: Any, chain_dir: str | None = None, extra_data: dict | None = None) -> str:
-        from core.engine.context.composer import ContextComposer
-        from core.engine.bootstrap import build_context_registry
+        from shared.core.engine.context.composer import ContextComposer
+        from shared.core.engine.bootstrap import build_context_registry
         cg_dir = chain_dir or getattr(ctx, "chain_dir", self.chain_dir)
         # FIX (prompt rendering): si prompt_template es un ID de template
         # (ej. "analyze/review" sin placeholders), cargar el template REAL.

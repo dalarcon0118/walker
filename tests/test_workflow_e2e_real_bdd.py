@@ -23,10 +23,10 @@ from pathlib import Path
 
 import pytest
 
-from core.engine.application.orchestrator import OrchestrationService
-from core.engine.application.use_cases import ScriptRunner
-from core.engine.domain.entities import WorkflowState
-from core.engine.infrastructure.repositories import (
+from shared.core.engine.application.orchestrator import OrchestrationService
+from shared.core.engine.application.use_cases import ScriptRunner
+from shared.core.engine.domain.entities import WorkflowState
+from shared.core.engine.infrastructure.repositories import (
     WorkflowRepository,
     WorkflowStateRepository,
 )

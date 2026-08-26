@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from core.engine.domain.models import SideEffectDef
-from core.engine.infrastructure.side_effect_outbox import SideEffectOutbox, OutboxEntry
+from shared.core.engine.domain.models import SideEffectDef
+from shared.core.engine.infrastructure.side_effect_outbox import SideEffectOutbox, OutboxEntry
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────

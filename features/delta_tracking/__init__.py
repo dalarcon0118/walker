@@ -21,7 +21,7 @@ index_sprint/index_all sin agregar valor y clear() manipulaba internals de
 CognitiveGraph. La busqueda (search_service.search_tasks) tenia como unico
 caller a DeltaGraphService.search — sin consumidores externos — por lo que
 search_service.py fue eliminado como codigo muerto. La busqueda sobre el
-delta se hace via CognitiveGraph.search directo (kg_search/kg_multi).
+delta se hace via CognitiveGraph.search directo (recall_knowledge/search_memories).
 """
 
 from __future__ import annotations

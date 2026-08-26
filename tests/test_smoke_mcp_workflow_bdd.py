@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 from features.delta_tracking import SpringService
-from core.engine.domain.entities import WorkflowState
-from core.engine.infrastructure.repositories import WorkflowStateRepository
+from shared.core.engine.domain.entities import WorkflowState
+from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 from tests.conftest import register_project_in_global_registry
 
 SPRINT_GOAL = "Implementar modulo de autenticacion completo"
@@ -41,7 +41,7 @@ def _smoke_project(tmp_path):
         yield _setup_project(tmp)
     finally:
         reg_ctx.__exit__(None, None, None)
-        from core.engine.bootstrap import reset_module_registry
+        from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
         # El McpServer es otro singleton que cachea los handlers de los

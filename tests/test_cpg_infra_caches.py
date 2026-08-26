@@ -3,9 +3,11 @@ Tests BDD (pytest-bdd) — Caches incrementales de infraestructura del CPG.
 
 Escenarios: bdd/features/cpg_infra_caches.feature
 
-Cubre metrics_cache (IncrementalMetricsCache), calls_cache (CallsCache) y
-scan_dfg (BuildGraphUseCase con cache + async). Contrato: cache hits en la
-segunda corrida, invalidación al modificar, persistencia entre instancias.
+Cubre calls_cache (CallsCache) y scan_dfg (BuildGraphUseCase con cache +
+async). Contrato: cache hits en la segunda corrida, invalidación al
+modificar, persistencia entre instancias.
+
+Nota: metrics_cache fue eliminado junto a qlty (ADR-WALKER-054).
 """
 
 from __future__ import annotations
@@ -25,61 +27,7 @@ def cache_ctx() -> dict:
     return {}
 
 
-# ── Escenario 1: metrics_cache ───────────────────────────────────
-
-
-@given("un módulo Python y un caché de métricas")
-def _bdd_metrics_cache(tmp_path: Path, cache_ctx: dict):
-    f = tmp_path / "mod.py"
-    f.write_text("def a():\n    return 1\n")
-    cache_ctx["file"] = str(f)
-    cache_ctx["tmp"] = str(tmp_path)
-    from features.code_analysis.infrastructure.metrics_cache import (
-        IncrementalMetricsCache,
-    )
-
-    cache_ctx["cache"] = IncrementalMetricsCache(
-        str(tmp_path), data_dir=str(tmp_path / "data")
-    )
-
-
-@when("se consultan los archivos stale")
-def _bdd_metrics_stale(cache_ctx: dict):
-    fresh, stale = cache_ctx["cache"].get_stale_files([cache_ctx["tmp"]])
-    cache_ctx["fresh"], cache_ctx["stale"] = fresh, stale
-
-
-@then("el módulo es stale")
-def _bdd_metrics_es_stale(cache_ctx: dict):
-    assert cache_ctx["file"] in cache_ctx["stale"]
-    assert cache_ctx["file"] not in cache_ctx["fresh"]
-
-
-@then("al actualizarlo el caché lo marca fresco")
-def _bdd_metrics_fresco(cache_ctx: dict):
-    cache_ctx["cache"].update(
-        cache_ctx["file"], metrics={"file": cache_ctx["file"], "cyclo": 0}
-    )
-    cache_ctx["cache"].save()
-    cache2 = cache_ctx["cache"].__class__(
-        cache_ctx["tmp"], data_dir=str(Path(cache_ctx["tmp"]) / "data")
-    )
-    fresh2, stale2 = cache2.get_stale_files([cache_ctx["tmp"]])
-    assert cache_ctx["file"] in fresh2
-    assert cache_ctx["file"] not in stale2
-
-
-@then("al modificar el archivo se vuelve stale")
-def _bdd_metrics_reinvalida(cache_ctx: dict):
-    Path(cache_ctx["file"]).write_text(
-        "def a():\n    return 1\n\ndef b():\n    return 2\n"
-    )
-    fresh3, stale3 = cache_ctx["cache"].get_stale_files([cache_ctx["tmp"]])
-    assert cache_ctx["file"] not in fresh3
-    assert cache_ctx["file"] in stale3
-
-
-# ── Escenario 2: calls_cache ─────────────────────────────────────
+# ── Escenario 1: calls_cache ─────────────────────────────────────
 
 
 @given("un módulo Python con funciones")
@@ -131,7 +79,7 @@ def _bdd_calls_persiste(cache_ctx: dict):
     assert len(calls) > 0
 
 
-# ── Escenario 3: scan_dfg cache ──────────────────────────────────
+# ── Escenario 2: scan_dfg cache ──────────────────────────────────
 
 
 @given("un builder del CPG con un módulo que contiene un secreto")
@@ -173,7 +121,7 @@ def _bdd_dfg_coinciden(cache_ctx: dict):
     )
 
 
-# ── Escenario 4: scan_dfg async ──────────────────────────────────
+# ── Escenario 3: scan_dfg async ──────────────────────────────────
 
 
 @given("un builder del CPG con un módulo bajo src")
@@ -212,40 +160,3 @@ def _bdd_dfg_ok(cache_ctx: dict):
         time.sleep(0.1)
     assert st.get("status") == "ok"
     assert st.get("summary")
-
-
-# ── Escenario 5: expand_paths ────────────────────────────────────
-
-
-@given("un directorio con archivos .py, .js, .md y .pyc")
-def _bdd_expand_dir(tmp_path: Path, cache_ctx: dict):
-    (tmp_path / "a.py").write_text("x = 1\n")
-    (tmp_path / "b.js").write_text("const x = 1\n")
-    (tmp_path / "README.md").write_text("# doc\n")
-    (tmp_path / "skip_me.pyc").write_bytes(b"\x00")
-    cache_ctx["tmp"] = str(tmp_path)
-    from features.code_analysis.infrastructure.metrics_cache import (
-        IncrementalMetricsCache,
-    )
-
-    cache_ctx["cache"] = IncrementalMetricsCache(
-        str(tmp_path), data_dir=str(tmp_path / "data")
-    )
-
-
-@when("se expanden los paths")
-def _bdd_expand(cache_ctx: dict):
-    cache_ctx["files"] = cache_ctx["cache"]._expand_paths([cache_ctx["tmp"]])
-
-
-@then("incluye los .py y .js")
-def _bdd_expand_incluye(cache_ctx: dict):
-    names = {os.path.basename(f) for f in cache_ctx["files"]}
-    assert "a.py" in names and "b.js" in names
-
-
-@then("excluye README.md y el .pyc")
-def _bdd_expand_excluye(cache_ctx: dict):
-    names = {os.path.basename(f) for f in cache_ctx["files"]}
-    assert "README.md" not in names
-    assert "skip_me.pyc" not in names

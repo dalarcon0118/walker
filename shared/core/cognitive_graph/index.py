@@ -8,7 +8,6 @@ Importado por shared/cognitive_graph/__init__.py (CognitiveGraph facade).
 """
 
 from __future__ import annotations
-import gzip
 import json
 import os
 import time
@@ -19,19 +18,29 @@ from returns.pipeline import is_successful
 
 import networkx as nx
 
+from .file_io import read_blob, write_blob
 from .models import TokenIndex
 
 
 
 class IndexSchema:
-    """Schema de un indice: fields, types, storage, search config."""
+    """Schema de un indice: fields, types, search config.
+
+    ADR-WALKER-061 (F3): el 'storage' NO vive en el schema. El filename se
+    deriva del nombre del indice ({name}.json.gz); el directorio viene de
+    la MemoryConnection. Solo se conserva 'storage.path' para el caso
+    legado de referencias (cpg.ref.<name>.json.gz).
+    """
 
     def __init__(self, config: dict):
         self.fields: dict[str, str] = config.get("fields", {})
         self.types: dict[str, dict] = config.get("types", {})
-        storage = config.get("storage", {})
-        self.storage_path: str = storage.get("path", "data/index.json.gz")
-        self.storage_format: str = storage.get("format", "json.gz")
+        storage = config.get("storage")
+        if storage:
+            # Unico caso que conserva ruta explicita: referencias legacy.
+            self.storage_path: str | None = storage.get("path")
+        else:
+            self.storage_path = None
         self.description: str = config.get("description", "")
         # Config de busqueda full-text
         search_cfg = config.get("search", {})
@@ -73,6 +82,10 @@ class Index:
         self._token_index: TokenIndex | None = (
             TokenIndex() if schema.has_fulltext() else None
         )
+        # Metadata genérica del indice (passthrough de claves top-level del
+        # dominio — ej. el CPG guarda version/project_id/source_fingerprint/
+        # business_layer/etc. junto a docs+edges; ADR-WALKER-054 D5).
+        self._metadata: dict = {}
         # Indices secundarios: O(1) lookup por type y por field=value.
         # self._type_index[type] = set of doc_ids
         # self._field_index[(field, value)] = set of doc_ids
@@ -85,12 +98,20 @@ class Index:
     # ── Helpers de indices secundarios ──────────────────────────────
 
     def _index_doc(self, doc_id: str, data: dict) -> None:
-        """Registra doc en indices secundarios (type + fields del schema)."""
-        dtype = data.get("type", "")
+        """Registra doc en indices secundarios (type + fields del schema).
+
+        FIX (ADR-WALKER-055, multi-proyecto): el type se resuelve por el
+        schema (`type` → doc field). Antes se leía `data.get("type")` crudo
+        → para índices cuyo field de tipo es otro (trace: `event_type`) todos
+        los docs caían en el bucket "unknown" → consultas estructuradas por
+        type devolvían 0.
+        """
+        type_rfield = self.schema.resolve_field("type")
+        dtype = self._resolve_field(data, type_rfield) or ""
         if dtype:
             self._type_index.setdefault(dtype, set()).add(doc_id)
         for qfield, rfield in self.schema.fields.items():
-            if rfield == "type":
+            if rfield == type_rfield:
                 continue  # ya indexado arriba
             val = self._resolve_field(data, rfield)
             if isinstance(val, str) and val:
@@ -127,30 +148,20 @@ class Index:
 
     @property
     def _path(self) -> str:
-        if os.path.isabs(self.schema.storage_path):
-            return self.schema.storage_path
-        return os.path.join(self.chain_dir, self.schema.storage_path)
+        # ADR-WALKER-061 (F3): filename derivado del nombre del índice
+        # ({name}.json.gz) salvo que el schema provea storage_path explícito
+        # (caso ref: cpg.ref.<name>.json.gz legado).
+        if self.schema.storage_path:
+            if os.path.isabs(self.schema.storage_path):
+                return self.schema.storage_path
+            return os.path.join(self.chain_dir, self.schema.storage_path)
+        return os.path.join(self.chain_dir, f"{self.name}.json.gz")
 
     # ── Persistencia ──
 
     def _read_gz(self, path: str) -> str:
-        """Lee archivo .gz con fallback manual si gzip.decompress falla."""
-        raw_bytes = open(path, "rb").read()
-        try:
-            return gzip.decompress(raw_bytes).decode()
-        except Exception:
-            pass
-        # Fallback: skip 10-byte gzip header, decompress raw deflate
-        try:
-            import zlib
-            return zlib.decompress(raw_bytes[10:], -zlib.MAX_WBITS).decode()
-        except Exception:
-            pass
-        # Ultimo fallback: leer como JSON plano
-        try:
-            return raw_bytes.decode("utf-8")
-        except Exception:
-            raise
+        """Lee archivo .gz (o .json) usando file_io.read_blob (ADR-061 F2)."""
+        return read_blob(path)
 
     def _load(self) -> None:
         # E3: si ya cargado, verificar si otro proceso escribio (stale
@@ -198,6 +209,8 @@ class Index:
                 ti_data = data.get("token_index")
                 if ti_data and self._token_index is not None:
                     self._token_index = TokenIndex.from_dict(ti_data)
+                # Restaurar metadata de dominio (passthrough, ADR-WALKER-054 D5)
+                self._metadata = data.get("metadata", {}) or {}
 
                 # Reconstruir indices secundarios (type + field) para
                 # busqueda O(1) sin iterar todos los docs.
@@ -218,36 +231,46 @@ class Index:
                 # desde que se guardo el indice, el TokenIndex esta stale
                 # (faltan/sobran tokens). Reconstruir inline (sin llamar a
                 # rebuild_token_index() que llama a _load() → recursion).
+                # ADR-WALKER-055: el cambio de schema también reconstruye los
+                # ÍNDICES SECUNDARIOS (type/field) — antes quedaban stale
+                # (ej. trace con todos los docs en type=unknown por un bug
+                # previo de _index_doc). Rebuild O(1)-secundario, no fulltext.
                 stored_hash = data.get("schema_hash", "")
                 current_hash = self._schema_hash
-                if stored_hash != current_hash and self._token_index is not None:
+                if stored_hash != current_hash:
                     logger = __import__("logging").getLogger(__name__)
                     logger.warning(
                         "CognitiveGraph: schema del indice '%s' cambio "
-                        "(hash %s -> %s). Reconstruyendo TokenIndex...",
+                        "(hash %s -> %s). Reconstruyendo indices...",
                         self.name,
                         stored_hash[:8],
                         current_hash[:8],
                     )
-                    self._token_index = TokenIndex()
-                    for doc_id, doc in self._docs.items():
-                        for field in self.schema.fulltext_fields:
-                            value = self._resolve_field(doc, field)
-                            if isinstance(value, str) and value:
-                                self._token_index.index_node(doc_id, value, field)
-                            elif isinstance(value, list):
-                                for item in value:
-                                    if isinstance(item, str):
-                                        self._token_index.index_node(doc_id, item, field)
-                    # Persistir inmediatamente para que el schema_hash
-                    # quede guardado y no se re-migre en cada _load()
-                    self._save()
-                    logger.info(
-                        "CognitiveGraph: TokenIndex de '%s' reconstruido "
-                        "(%d docs indexados) tras migracion de schema",
-                        self.name,
-                        len(self._docs),
-                    )
+                    self._rebuild_secondary_indexes()
+                    if self._token_index is not None:
+                        self._token_index = TokenIndex()
+                        for doc_id, doc in self._docs.items():
+                            for field in self.schema.fulltext_fields:
+                                value = self._resolve_field(doc, field)
+                                if isinstance(value, str) and value:
+                                    self._token_index.index_node(doc_id, value, field)
+                                elif isinstance(value, list):
+                                    for item in value:
+                                        if isinstance(item, str):
+                                            self._token_index.index_node(doc_id, item, field)
+                    # Persistir inmediatamente SOLO si el archivo ya es de
+                    # CognitiveGraph (tiene schema_hash). Si el archivo es
+                    # ajeno (formato CPG legacy sin schema_hash), se
+                    # reconstruye en memoria SIN escribir — nunca clobber de
+                    # un archivo que el indice no posee (ADR-WALKER-054 D5).
+                    if stored_hash:
+                        self._save()
+                        logger.info(
+                            "CognitiveGraph: indices de '%s' reconstruidos "
+                            "(%d docs indexados) tras migracion de schema",
+                            self.name,
+                            len(self._docs),
+                        )
             except Exception as e:
                 # G2: error no-silencioso — un indice corrupto se reporta en vez
                 # de resetear a vacio silenciosamente (convention-001: nunca
@@ -282,6 +305,9 @@ class Index:
                 for u, v, data in self._graph.edges(data=True)
             ],
         }
+        # Metadata de dominio (passthrough, ADR-WALKER-054 D5)
+        if self._metadata:
+            data["metadata"] = self._metadata
         if self._token_index is not None:
             data["token_index"] = self._token_index.to_dict()
         # E6: persistir indices secundarios para no reconstruir en _load()
@@ -298,18 +324,7 @@ class Index:
         if not self._write_locked:
             self._acquire_write_lock()
         try:
-            tmp_path = path + ".tmp"
-            if path.endswith(".gz"):
-                with open(tmp_path, "wb") as f:
-                    f.write(gzip.compress(payload.encode()))
-                    f.flush()
-                    os.fsync(f.fileno())
-            else:
-                with open(tmp_path, "w") as f:
-                    f.write(payload)
-                    f.flush()
-                    os.fsync(f.fileno())
-            os.replace(tmp_path, path)
+            write_blob(path, payload)
             # E3: actualizar mtime tras escritura (consistencia multi-proceso)
             self._file_mtime = os.path.getmtime(path)
         finally:
@@ -478,6 +493,117 @@ class Index:
         self._save()
         return {"ok": True, "stored": len(docs), "_index": self.name,
                 "skipped": skipped, "touched": touched}
+
+    # ── Metadata y edges de dominio (ADR-WALKER-054 D5) ─────────────
+
+    def replace_blob(
+        self, nodes: dict[str, dict], edges: list[dict], metadata: dict
+    ) -> dict:
+        """Reemplaza TODO el índice en UN ciclo lock/read-modify-write (F2).
+
+        ADR-WALKER-055 F2: elimina la write amplification del save (antes
+        store_many + sync_edges + set_metadata = 3 escrituras separadas).
+        Este método: carga, reemplaza docs/edges/metadata completos y
+        persiste UNA vez — atómico (o se escribe todo o nada).
+        """
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            self._load()
+            self._docs = {}
+            self._graph = nx.DiGraph()
+            self._token_index = TokenIndex() if self.schema.has_fulltext() else None
+            self._type_index.clear()
+            self._field_index.clear()
+            self._metadata = dict(metadata or {})
+            for doc_id, doc in (nodes or {}).items():
+                if not isinstance(doc, dict):
+                    raise TypeError(
+                        f"nodo '{doc_id}' inválido (esperaba dict, obtuvo "
+                        f"{type(doc).__name__})"
+                    )
+                self._index_doc(doc_id, doc)
+                self._docs[doc_id] = doc
+                self._graph.add_node(doc_id, **doc)
+                if self._token_index is not None:
+                    for field in self.schema.fulltext_fields:
+                        value = self._resolve_field(doc, field)
+                        if isinstance(value, str) and value:
+                            self._token_index.index_node(doc_id, value, field)
+                        elif isinstance(value, list):
+                            for item in value:
+                                if isinstance(item, str):
+                                    self._token_index.index_node(doc_id, item, field)
+            for edge in edges or []:
+                u = edge.get("from", "")
+                v = edge.get("to", "")
+                if not u or not v:
+                    continue
+                attrs = {k: val for k, val in edge.items() if k not in ("from", "to")}
+                self._graph.add_edge(u, v, **attrs)
+            self._save()
+            return {"ok": True, "stored": len(nodes or {}), "edges": len(edges or [])}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    def set_metadata(self, metadata: dict) -> dict:
+        """Persiste metadata de dominio junto a docs/edges (passthrough).
+
+        Ej. el CPG guarda version/project_id/source_fingerprint/
+        business_layer/quality_report/bug_proposals en metadata.
+        """
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            self._load()
+            self._metadata = dict(metadata or {})
+            self._save()
+            return {"ok": True, "_index": self.name}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    def sync_edges(self, edges: list[dict]) -> dict:
+        """Reemplaza TODOS los edges del indice (sync completo).
+
+        El grafo (nx.DiGraph) se reconstruye desde cero para que no queden
+        edges huerfanos de nodos removidos.
+        """
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            self._load()
+            self._graph = nx.DiGraph()
+            for doc_id, doc in self._docs.items():
+                self._graph.add_node(doc_id, **doc)
+            for edge in edges or []:
+                u = edge.get("from", "")
+                v = edge.get("to", "")
+                if not u or not v:
+                    continue
+                attrs = {k: val for k, val in edge.items() if k not in ("from", "to")}
+                self._graph.add_edge(u, v, **attrs)
+            self._save()
+            return {"ok": True, "edges": len(edges or []), "_index": self.name}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    def get_docs(self) -> dict[str, dict]:
+        self._load()
+        return dict(self._docs)
+
+    def get_all_edges(self) -> list[dict]:
+        self._load()
+        return [
+            {"from": u, "to": v, **data}
+            for u, v, data in self._graph.edges(data=True)
+        ]
+
+    def get_metadata(self) -> dict:
+        self._load()
+        return dict(self._metadata)
 
     def get(self, doc_id: str) -> dict | None:
         self._load()
@@ -672,7 +798,7 @@ class Index:
           - fulltext:   {"text": "autenticacion"}
           - combinado:  {"text": "auth", "type": "task"}
 
-        Si el indice tiene search_handler (CPG legacy), delega en el.
+        Si el indice tiene search_handler (legacy: trace/ref), delega en el.
         Si no, busca nativamente usando TokenIndex + grafo.
         """
         if self._search_handler:

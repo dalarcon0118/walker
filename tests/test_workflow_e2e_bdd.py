@@ -21,8 +21,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from core.engine.domain.entities import WorkflowGraph, WorkflowState
-from core.engine.infrastructure.repositories import WorkflowStateRepository, WorkflowRepository
+from shared.core.engine.domain.entities import WorkflowGraph, WorkflowState
+from shared.core.engine.infrastructure.repositories import WorkflowStateRepository, WorkflowRepository
 from features.delta_tracking import spring_service
 from features.delta_tracking.application.evolutionary_document_model import EvolutionaryDocumentModel
 from features.delta_tracking.domain.entities import Spec

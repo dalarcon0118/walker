@@ -18,7 +18,7 @@ def error_type_to_status(error_type: str, error: Exception) -> int:
       state/notfound       → 404 (recurso inexistente)
       execution/infra      → 500 (fallo interno, no recuperable por el agente)
     """
-    from core.engine.domain.errors import (
+    from shared.core.engine.domain.errors import (
         ErrorType,
         NodeNotFoundError,
         SubStateNotFoundError,
@@ -51,11 +51,11 @@ def map_engine_error(error: Exception) -> dict:
     """
     from returns.result import safe
     from returns.pipeline import is_successful
-    from core.engine.domain.errors import WorkflowEngineError
+    from shared.core.engine.domain.errors import WorkflowEngineError
 
     @safe
     def _build() -> dict:
-        from core.engine.domain.errors import classify_error
+        from shared.core.engine.domain.errors import classify_error
 
         error_type = classify_error(error)
         details: list[str] = []

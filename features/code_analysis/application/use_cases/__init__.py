@@ -11,7 +11,7 @@ directos (INV-013).
 """
 from __future__ import annotations
 
-from .check_cpg_health import CheckCpgHealthUseCase, _read_cpg_file
+from .check_cpg_health import CheckCpgHealthUseCase
 from .gather_cpg_context import GatherCpgContextUseCase
 from .detect_unused_functions import DetectUnusedFunctionsUseCase
 from .review_code import ReviewCodeUseCase
@@ -23,5 +23,4 @@ __all__ = [
     "DetectUnusedFunctionsUseCase",
     "ReviewCodeUseCase",
     "ProjectMetricsUseCase",
-    "_read_cpg_file",
 ]

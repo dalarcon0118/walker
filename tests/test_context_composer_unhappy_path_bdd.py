@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.engine.context.registry import ContextProviderRegistry
-from core.engine.context.composer import ContextComposer
+from shared.core.engine.context.registry import ContextProviderRegistry
+from shared.core.engine.context.composer import ContextComposer
 from shared.common.shared_domain import ExecutionContext
 
 

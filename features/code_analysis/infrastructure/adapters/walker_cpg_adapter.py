@@ -10,45 +10,51 @@ se actualiza.
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+from typing import Any
 
 from features.code_analysis.application.ports.cpg_repository import CpgRepository
 from features.code_analysis.domain.events import AnalysisCompleted, EventBus
 from features.code_analysis.domain.services.analysis_service import IBusinessAnalyzer
-from features.code_analysis.domain.services.business_analyzer import analyze
 from features.main.task_execution.ports.cpg_analysis_port import ICpgAnalysisPort
 
 
 class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
-    """Implementación del puerto de task_execution sobre code_analysis."""
+    """Implementación del puerto de task_execution sobre code_analysis.
+
+    Nest-like (ADR-052/053): el adapter SOLO traduce el puerto (repo +
+    eventos); la orquestación de la lógica vive en el Application Service
+    (CodeAnalysisService) inyectado. build/scan/index son operaciones de
+    mantenimiento que se mantienen acá (vía BuildGraphUseCase).
+    """
 
     def __init__(
         self,
         repo: CpgRepository,
         analyzer: IBusinessAnalyzer | None = None,
         event_bus: EventBus | None = None,
+        service: Any = None,
     ):
         self._repo = repo
         self._analyzer = analyzer
         self._bus = event_bus
+        # Application Service inyectado (DI). Default defensivo: construido
+        # desde el data_dir del repo (mismo resultado que el provider DI).
+        if service is None:
+            from features.code_analysis.application.services.code_analysis_service import (
+                CodeAnalysisService,
+            )
+
+            service = CodeAnalysisService(self._repo._file_repo.data_dir)
+        self._service = service
 
     def business_layer(self, focus: str = "") -> dict[str, object]:
-        data = self._repo.load()
-        nodes = data.get("nodes", {})
-        edges = data.get("edges", [])
-
-        if focus:
-            nodes = self._filter_nodes(nodes, focus)
-
-        if self._analyzer is not None:
-            result = self._analyzer.analyze({"file": focus} if focus else None)
-        else:
-            result = analyze(nodes, edges)
-
+        result = self._service.business_layer(focus=focus)
         self._emit(
             AnalysisCompleted(
                 analysis_type="business_layer",
@@ -63,73 +69,23 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         return result
 
     def detect_unused_functions(self, file_filter: str = "") -> dict[str, object]:
-        query: dict = {"type": "function"}
-        if file_filter:
-            query["file"] = file_filter
-        result = self._repo.search_nodes(query, max_results=200)
-        hits = result.get("hits", {}).get("hits", [])
-        candidates = []
-        for h in hits:
-            src = h.get("_source", {})
-            if src.get("is_import"):
-                continue
-            candidates.append(
-                {
-                    "id": h.get("_id", ""),
-                    "name": src.get("name", ""),
-                    "file": src.get("path", src.get("file", "")),
-                    "line": src.get("line", 0),
-                    "type": src.get("type", ""),
-                }
-            )
-        result = {
-            "query": "bug:unused_functions",
-            "total": len(candidates),
-            "matches": candidates,
-        }
+        result = self._service.detect_unused_functions(file_filter=file_filter)
         self._emit(
             AnalysisCompleted(
                 analysis_type="dead_code",
                 scope=file_filter or "project",
-                result_summary={"total": len(candidates)},
+                result_summary={"total": result.get("total", 0)},
             )
         )
         return result
 
     def gather_context(self, files: list[str] | None = None) -> dict[str, object]:
-        if files:
-            context = {}
-            for f in files:
-                result = self._repo.search_nodes({"file": f})
-                if result.get("hits", {}).get("total"):
-                    context[f] = result
-            return {"files": context, "files_analyzed": len(files)}
-
-        result = self._repo.search_nodes({"type": "function"}, max_results=20)
-        hits = result.get("hits", {}).get("hits", [])
-        if not hits:
-            result = self._repo.search_nodes({"type": "class"}, max_results=20)
-        return {
-            "structure": result,
-            "files_analyzed": 0,
-        }
+        return self._service.gather_context(files=files)
 
     def review_code(
         self, files: list[str] | None = None, thresholds: dict | None = None
     ) -> dict[str, object]:
-        from features.code_analysis.application.review_service import ReviewUseCase
-        from features.project import ProjectService
-
-        data_dir = ""
-        try:
-            paths = ProjectService.resolve_paths(self._repo._file_repo.data_dir)
-            data_dir = paths.data_dir or ""
-        except Exception:
-            data_dir = self._repo._file_repo.data_dir
-
-        svc = ReviewUseCase(self._repo._file_repo.data_dir, data_dir=data_dir or None)
-        result = svc.review_files(files=files, thresholds=thresholds)
-        result_dict = result.to_dict()
+        result_dict = self._service.review_code(files=files, thresholds=thresholds)
         self._emit(
             AnalysisCompleted(
                 analysis_type="code_review",
@@ -144,61 +100,18 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         return result_dict
 
     def project_metrics(self, file_filter: str = "") -> dict[str, object]:
-        """Métricas CPG-nativas (ADR-WALKER-053): sin binario externo.
+        """Métricas del proyecto (delegadas al Application Service).
 
-        El cómputo vive en metrics_service (value objects + Result); este
-        adaptador traduce contexto y serializa UNA vez para la task.
+        ADR-WALKER-053: CPG-nativas, sin binario externo.
         """
-        from returns.pipeline import is_successful
-
-        from features.code_analysis.application.metrics_service import (
-            compute_cpg_metrics,
-        )
-
-        data_dir = self._repo._file_repo.data_dir
-        repo_root = ""
-        try:
-            from features.project import ProjectService
-
-            paths = ProjectService.resolve_paths(data_dir)
-            repo_root = paths.repo_path or paths.project_root or ""
-            data_dir = paths.data_dir or data_dir
-        except Exception as exc:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "project_metrics: resolve_paths(%s) fallo (%s: %s); "
-                "se usa el store tal cual",
-                data_dir, type(exc).__name__, exc,
-            )
-
-        # Blindaje de alcance: si el filtro apunta DENTRO de .cognitive es un
-        # artefacto de resolución (el scope real para métricas es el repo).
-        scope = file_filter or ""
-        if not scope or os.sep + ".cognitive" in scope or "/.cognitive" in scope:
-            scope = ""
-
-        outcome = compute_cpg_metrics(
-            repo_path=repo_root or data_dir, data_dir=data_dir, scope=scope
-        )
-        if not is_successful(outcome):
-            err = str(outcome.failure())
-            self._emit(
-                AnalysisCompleted(
-                    analysis_type="project_metrics",
-                    scope=file_filter or "project",
-                    result_summary={"error": err},
-                )
-            )
-            return {"error": err, "source": "cpg-native"}
-
-        report = outcome.value_or(None)
-        result_dict = report.to_dict() if report else {"error": "empty"}
+        result_dict = self._service.project_metrics(file_filter=file_filter)
         self._emit(
             AnalysisCompleted(
                 analysis_type="project_metrics",
                 scope=file_filter or "project",
-                result_summary=result_dict.get("metrics", {}),
+                result_summary=result_dict.get("metrics", {})
+                if result_dict.get("metrics")
+                else {"error": result_dict.get("error", "empty")},
             )
         )
         return result_dict
@@ -396,16 +309,3 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
                 self._bus.publish(event)
             except Exception:
                 pass
-
-    @staticmethod
-    def _filter_nodes(nodes: dict[str, dict], focus: str) -> dict[str, dict]:
-        focus_lower = focus.lower()
-        return {
-            nid: node
-            for nid, node in nodes.items()
-            if isinstance(node, dict)
-            and (
-                focus_lower in node.get("path", "").lower()
-                or focus_lower in node.get("name", "").lower()
-            )
-        }

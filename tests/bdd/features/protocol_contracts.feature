@@ -4,10 +4,10 @@ Feature: Protocol contracts
   Y que las respuestas y errores se serialicen bien
 
   Scenario: ToolDefinition crea un DTO válido
-    Given un ToolDefinition con nombre "kg_search"
+    Given un ToolDefinition con nombre "recall_knowledge"
     When creo el DTO
     Then el DTO es válido
-    And el nombre es "kg_search"
+    And el nombre es "recall_knowledge"
 
   Scenario: ToolDefinition rechaza nombre vacío
     Given un ToolDefinition con nombre vacío

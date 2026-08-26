@@ -123,9 +123,9 @@ def _make_ctx(chain_dir: str, sub_state: str = "REVIEW", node: str = "SPRINT"):
 
 
 def _make_orchestrator(chain_dir: str):
-    from core.engine.infrastructure.repositories import WorkflowRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository
     from shared.core.path_resolver import get_engine_workflow_path
-    from core.engine.application.submit_orchestrator import SubmitOrchestrator
+    from shared.core.engine.application.submit_orchestrator import SubmitOrchestrator
 
     graph = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
 
@@ -192,7 +192,7 @@ def _make_orchestrator(chain_dir: str):
 
 @given("un resultado limpio sin trabajo sin capturar")
 def _clean_result(ctx: dict):
-    from core.engine.application.uncaptured_work import (
+    from shared.core.engine.application.uncaptured_work import (
         UncapturedWorkResult,
         UncapturedStatus,
     )
@@ -207,7 +207,7 @@ def _clean_result(ctx: dict):
 
 @given("un resultado con trabajo sin capturar en archivos específicos")
 def _uncaptured_result(ctx: dict):
-    from core.engine.application.uncaptured_work import (
+    from shared.core.engine.application.uncaptured_work import (
         UncapturedWorkResult,
         UncapturedStatus,
     )
@@ -223,7 +223,7 @@ def _uncaptured_result(ctx: dict):
 
 @given("un resultado de error de detección")
 def _error_result(ctx: dict):
-    from core.engine.application.uncaptured_work import (
+    from shared.core.engine.application.uncaptured_work import (
         UncapturedWorkResult,
         UncapturedStatus,
     )
@@ -240,21 +240,21 @@ def _query_result(ctx: dict):
 
 @then("el estado es limpio")
 def _assert_clean(ctx: dict):
-    from core.engine.application.uncaptured_work import UncapturedStatus
+    from shared.core.engine.application.uncaptured_work import UncapturedStatus
 
     assert ctx["result"].status == UncapturedStatus.CLEAN, ctx["result"]
 
 
 @then("el estado indica trabajo sin capturar")
 def _assert_uncaptured(ctx: dict):
-    from core.engine.application.uncaptured_work import UncapturedStatus
+    from shared.core.engine.application.uncaptured_work import UncapturedStatus
 
     assert ctx["result"].status == UncapturedStatus.UNCAPTURED, ctx["result"]
 
 
 @then("el estado indica error")
 def _assert_error(ctx: dict):
-    from core.engine.application.uncaptured_work import UncapturedStatus
+    from shared.core.engine.application.uncaptured_work import UncapturedStatus
 
     assert ctx["result"].status == UncapturedStatus.ERROR, ctx["result"]
 
@@ -360,21 +360,21 @@ def _project_change_detected_only(tmp_path, ctx: dict):
 
 @when("se ejecuta la detección de trabajo sin capturar")
 def _run_detection(ctx: dict):
-    from core.engine.application.uncaptured_work import detect_uncaptured_work
+    from shared.core.engine.application.uncaptured_work import detect_uncaptured_work
 
     ctx["result"] = detect_uncaptured_work(ctx["chain_dir"])
 
 
 @then("el detector determina que no hay trabajo invisible")
 def _assert_detector_clean(ctx: dict):
-    from core.engine.application.uncaptured_work import UncapturedStatus
+    from shared.core.engine.application.uncaptured_work import UncapturedStatus
 
     assert ctx["result"].status == UncapturedStatus.CLEAN, ctx["result"]
 
 
 @then("el detector identifica el trabajo sin capturar")
 def _assert_detector_uncaptured(ctx: dict):
-    from core.engine.application.uncaptured_work import UncapturedStatus
+    from shared.core.engine.application.uncaptured_work import UncapturedStatus
 
     assert ctx["result"].status == UncapturedStatus.UNCAPTURED, ctx["result"]
 

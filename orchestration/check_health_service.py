@@ -30,7 +30,7 @@ class CheckHealthService:
         from features.cognitive_knowledge.application.services.ckg_service import (
             CkgApplicationService,
         )
-        from core.engine.application.services.status_service import (
+        from shared.core.engine.application.services.status_service import (
             WorkflowStatusService,
         )
 
@@ -174,7 +174,6 @@ def _check_project_json(
         "language": identity.get("language", ""),
         "framework": identity.get("framework", ""),
         "repo_path": location.get("repo_path", repo_path),
-        "code_paths": location.get("code_paths", []),
     }
     schema_errors = ProjectSchemaValidator.validate(pd)
     if schema_errors:
@@ -188,14 +187,22 @@ def _check_project_json(
 
 @safe
 def _scan_watcher_core(project_id: str, repo_path: str) -> dict:
-    """Core puro: escanea cambios con FileWatcher (puede lanzar)."""
+    """Core puro: escanea cambios con FileWatcher (puede lanzar).
+
+    Scope = repo_path completo (ADR-WALKER-054 D1).
+    """
     from features.project import FileWatcher
-    from shared.core.path_resolver import get_data_dir, get_code_paths
+    from shared.core.path_resolver import get_data_dir
+    from features.code_analysis.infrastructure.repository import (
+        make_cpg_fingerprint_reader,
+    )
 
     return FileWatcher(
         repo_path,
-        code_paths=get_code_paths(project_id) or None,
         data_dir=str(get_data_dir(project_id)),
+        cpg_fingerprint_reader=make_cpg_fingerprint_reader(
+            str(get_data_dir(project_id))
+        ),
     ).scan()
 
 
@@ -206,7 +213,7 @@ def _discover_task_catalog_core() -> list:
     ADR-051 §2.6: orchestration/ no importa features.main; el registry
     llega por service locator (clave "task_registry").
     """
-    from core.engine.bootstrap import resolve_service
+    from shared.core.engine.bootstrap import resolve_service
 
     registry = resolve_service("task_registry")
     if registry is None:

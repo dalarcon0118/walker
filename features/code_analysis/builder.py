@@ -48,7 +48,6 @@ class CPGBuilder:
 
         project = ProjectService.from_project_id(self.project_id)
         self.repo_path = project.manifest.repo_path or str(self.project_dir)
-        self.code_paths = list(project.manifest.code_paths)
         self.cognitive_subdir = ""
 
         code_root = self.project_dir
@@ -71,7 +70,6 @@ class CPGBuilder:
             project_id=self.project_id,
             data_dir=str(cognitive_data),
             code_root=str(code_root),
-            code_paths=self.code_paths,
             repo_path=self.repo_path,
         )
 
@@ -276,7 +274,14 @@ def cpg_analysis_adapter(chain_dir: str = "") -> Any | None:
         trace_publisher = create_trace_publisher(chain_dir)
         if trace_publisher is not None:
             bus.subscribe(trace_publisher)
-        return WalkerCpgAnalysisAdapter(repo, event_bus=bus)
+        # Nest-like (ADR-052/053): el Application Service viaja inyectado al
+        # adapter — este solo traduce el puerto (repo + eventos).
+        from features.code_analysis.application.services.code_analysis_service import (
+            CodeAnalysisService,
+        )
+
+        service = CodeAnalysisService(chain_dir)
+        return WalkerCpgAnalysisAdapter(repo, event_bus=bus, service=service)
     except Exception as e:
         logger.warning(
             "code_analysis: no se pudo construir el adapter CPG (%s: %s)",

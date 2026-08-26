@@ -22,7 +22,7 @@ def _trace_kg_query(
 ) -> None:
     """Registra un evento kg_query en el TraceGraph (best-effort con log)."""
     try:
-        from core.engine.infrastructure.trace_log import TraceLogger
+        from shared.core.engine.infrastructure.trace_log import TraceLogger
 
         tracer = TraceLogger()
         safe_query = {}
@@ -49,16 +49,19 @@ def _trace_kg_query(
         )
 
 
-def _resolve_searcher(chain_dir: str, project_id: str = "") -> Any:
+def _resolve_searcher(chain_dir: str, project_id: str = "", searcher_factory=None) -> Any:
     """Resuelve CognitiveGraphSearcher desde chain_dir o project_id (sin sprint)."""
     from features.project import ProjectService
 
+    if searcher_factory is None:
+        raise ValueError(
+            "_resolve_searcher requiere searcher_factory inyectado. "
+            "Pásalo desde el composition root."
+        )
+
     if chain_dir:
         try:
-            from core.engine.bootstrap import get_module_service
-
             paths = ProjectService.resolve_paths(chain_dir)
-            searcher_factory = get_module_service("cognitive_searcher")
             return searcher_factory(paths.project_root)
         except Exception as e:
             logger.warning(
@@ -66,9 +69,8 @@ def _resolve_searcher(chain_dir: str, project_id: str = "") -> Any:
                 chain_dir, type(e).__name__, e,
             )
     if project_id:
-        from core.engine.bootstrap import get_module_service
+        from shared.core import path_resolver
 
-        path_resolver = get_module_service("path_resolver")
         registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
         if registry_path.exists():
             with open(registry_path) as f:
@@ -77,16 +79,17 @@ def _resolve_searcher(chain_dir: str, project_id: str = "") -> Any:
             if repo_path:
                 cog_proj = os.path.join(repo_path, ".cognitive", "projects", project_id)
                 if os.path.isdir(cog_proj):
-                    searcher_factory = get_module_service("cognitive_searcher")
                     return searcher_factory(str(cog_proj))
     return None
 
 
-def _resolve_ckg_project_root(project_id: str) -> str:
+def _resolve_ckg_project_root(project_id: str, path_resolver=None) -> str:
     """Resuelve project_root desde registry para operaciones CKG sin sprint."""
-    from core.engine.bootstrap import get_module_service
-
-    path_resolver = get_module_service("path_resolver")
+    if path_resolver is None:
+        raise ValueError(
+            "_resolve_ckg_project_root requiere path_resolver inyectado. "
+            "Pásalo desde el composition root."
+        )
     registry_path = path_resolver.get_walker_root() / "data" / "projects.json"
     if registry_path.exists():
         with open(registry_path) as f:

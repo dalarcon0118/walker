@@ -1,9 +1,0 @@
-{
-  "prompt_id": "design/design-gather",
-  "timestamp": "2026-07-27T23:50:26.666146+00:00",
-  "metadata": {
-    "chain_dir": "/Users/davidmartinez/develop/Active-projects/game_reset/.cognitive/projects/delta-skill/delta/taskregistry-migration-20260724",
-    "task_id": "TASK-001"
-  },
-  "prompt": "📌 DESIGN.DESIGN_GATHER - Gathering context...\n\nCollecting code structure, knowledge graph, and previous sprint data.\nThis runs automatically - no action needed."
-}

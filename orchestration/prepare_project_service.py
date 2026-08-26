@@ -27,6 +27,9 @@ class PrepareProjectService:
     def execute(project_path: str, args_flags: dict) -> dict:
         from features.project import ProjectDetector
         from features.project import FileWatcher
+        from features.code_analysis.infrastructure.repository import (
+            make_cpg_fingerprint_reader,
+        )
         from shared.core.path_resolver import get_walker_root as _get_walker_root
 
         pid = os.path.basename(os.path.abspath(project_path))
@@ -69,15 +72,6 @@ class PrepareProjectService:
             setup_warnings.append(
                 f"framework not detected. Set with: walker {pid}/task/update_project"
             )
-        if not detections["code_paths"]:
-            setup_warnings.append(
-                f"code_paths not detected. Set with: walker {pid}/task/update_project"
-            )
-        else:
-            setup_warnings.append(
-                f"detected code paths: {detections['code_paths']}. "
-                f"Verify with: walker {pid}/task/update_project"
-            )
 
         # 3. Create .cognitive directory structure
         cognitive_dir = os.path.join(project_path, ".cognitive")
@@ -92,7 +86,6 @@ class PrepareProjectService:
             final_language,
             final_framework,
             project_path,
-            detections["code_paths"],
         )
 
         # 5. Register in global registry
@@ -125,8 +118,8 @@ class PrepareProjectService:
         # 9. Init watcher baseline
         watcher = FileWatcher(
             project_path,
-            code_paths=detections["code_paths"] or None,
             data_dir=projects_data_dir,
+            cpg_fingerprint_reader=make_cpg_fingerprint_reader(projects_data_dir),
         )
         watcher.scan()
         _reset_watcher_baseline(watcher)
@@ -159,7 +152,6 @@ def _write_project_json(
     language: str,
     framework: str,
     repo_path: str,
-    code_paths: list[str],
 ) -> None:
     project_json = {
         "project": {
@@ -170,7 +162,7 @@ def _write_project_json(
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
             "identity": {"name": name, "language": language, "framework": framework},
-            "location": {"repo_path": repo_path, "code_paths": code_paths},
+            "location": {"repo_path": repo_path},
             "design": {"patterns": [], "layer_rules": {}, "forbidden_dependencies": []},
             "architecture": {"module_organization": ""},
             "coding": {
@@ -290,14 +282,22 @@ def _reset_watcher_baseline(watcher: Any) -> None:
 
 @safe
 def _scan_watcher_core(project_id: str, repo_path: str) -> dict:
-    """Core puro: escanea cambios con FileWatcher (puede lanzar)."""
+    """Core puro: escanea cambios con FileWatcher (puede lanzar).
+
+    Scope = repo_path completo (ADR-WALKER-054 D1).
+    """
     from features.project import FileWatcher
-    from shared.core.path_resolver import get_data_dir, get_code_paths
+    from shared.core.path_resolver import get_data_dir
+    from features.code_analysis.infrastructure.repository import (
+        make_cpg_fingerprint_reader,
+    )
 
     return FileWatcher(
         repo_path,
-        code_paths=get_code_paths(project_id) or None,
         data_dir=str(get_data_dir(project_id)),
+        cpg_fingerprint_reader=make_cpg_fingerprint_reader(
+            str(get_data_dir(project_id))
+        ),
     ).scan()
 
 
@@ -308,7 +308,7 @@ def _discover_task_catalog_core() -> list:
     ADR-051 §2.6: orchestration/ no importa features.main; el registry
     llega por service locator (clave "task_registry").
     """
-    from core.engine.bootstrap import resolve_service
+    from shared.core.engine.bootstrap import resolve_service
 
     registry = resolve_service("task_registry")
     if registry is None:

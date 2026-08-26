@@ -2,7 +2,7 @@
 
 Feature value: el agente consulta automaticamente las convenciones del CKG antes
 de tocar codigo, mediante provider ckg + focus con constraint de auto-consulta +
-prompt que ordena kg_schema/kg_multi.
+prompt que ordena memory_schema/search_memories.
 
 Escenarios: bdd/features/auto_query_gate.feature
 """
@@ -99,9 +99,9 @@ def _assert_focus_gate(gate_ctx: dict):
     assert "GATE DE AUTO-CONSULTA" in gate_ctx["constraints"], gate_ctx["constraints"]
 
 
-@then("el focus contiene kg_multi")
-def _assert_focus_kg_multi(gate_ctx: dict):
-    assert "kg_multi" in gate_ctx["constraints"], gate_ctx["constraints"]
+@then("el focus contiene search_memories")
+def _assert_focus_search_memories(gate_ctx: dict):
+    assert "search_memories" in gate_ctx["constraints"], gate_ctx["constraints"]
 
 
 @then("el focus contiene ANTES de tocar cualquier archivo")
@@ -125,16 +125,16 @@ def _assert_template_gate(gate_ctx: dict):
     assert "GATE DE AUTO-CONSULTA DE CONVENCIONES CKG" in tmpl, tmpl[:200]
 
 
-@then("el prompt contiene walker <project>/kg_schema")
-def _assert_template_kg_schema(gate_ctx: dict):
+@then("el prompt contiene walker <project>/memory_schema")
+def _assert_template_memory_schema(gate_ctx: dict):
     tmpl = gate_ctx["template"]
-    assert "walker <project>/kg_schema" in tmpl, tmpl[:200]
+    assert "walker <project>/memory_schema" in tmpl, tmpl[:200]
 
 
-@then("el prompt contiene kg_multi")
-def _assert_template_kg_multi(gate_ctx: dict):
+@then("el prompt contiene search_memories")
+def _assert_template_search_memories(gate_ctx: dict):
     tmpl = gate_ctx["template"]
-    assert "kg_multi" in tmpl, tmpl[:200]
+    assert "search_memories" in tmpl, tmpl[:200]
 
 
 @then('el prompt contiene "ckg" y "type" y "convention" y "scope"')
@@ -217,7 +217,7 @@ def _setup_temp_project(gate_ctx: dict, tmp_path):
 
 @when("se compone el contexto para WORK con ContextComposer")
 def _compose_work_context(gate_ctx: dict):
-    from core.engine.context.composer import ContextComposer
+    from shared.core.engine.context.composer import ContextComposer
     from features.main.container import AppContainer
 
     registry = AppContainer.build().workflow._context_registry
@@ -296,7 +296,7 @@ def _assert_gather_describes_gate_and_layers(gate_ctx: dict):
     assert "GATE DE AUTO-CONSULTA" in tmpl, tmpl[:200]
     for layer in ("<< ckg >>", "<< cpg >>", "<< delta >>"):
         assert layer in tmpl, f"prompt no describe capa {layer}"
-    assert "kg_schema" in tmpl and "kg_multi" in tmpl, tmpl[:200]
+    assert "memory_schema" in tmpl and "search_memories" in tmpl, tmpl[:200]
 
 
 @then("el prompt describe << ckg >>, << cpg >> y << delta >>")
@@ -306,10 +306,10 @@ def _assert_gather_layers_y(gate_ctx: dict):
         assert layer in tmpl, f"prompt no describe capa {layer}"
 
 
-@then("el prompt contiene kg_schema y kg_multi")
-def _assert_gather_kg_schema_and_multi(gate_ctx: dict):
+@then("el prompt contiene memory_schema y search_memories")
+def _assert_gather_memory_schema_and_multi(gate_ctx: dict):
     tmpl = gate_ctx["gather_template"]
-    assert "kg_schema" in tmpl and "kg_multi" in tmpl, tmpl[:200]
+    assert "memory_schema" in tmpl and "search_memories" in tmpl, tmpl[:200]
 
 
 @then("el prompt contiene GATE DE AUTO-CONSULTA")
@@ -320,7 +320,7 @@ def _assert_gather_template_gate(gate_ctx: dict):
 
 @when("se compone el contexto para DESIGN_GATHER con ContextComposer")
 def _compose_design_gather_context(gate_ctx: dict):
-    from core.engine.context.composer import ContextComposer
+    from shared.core.engine.context.composer import ContextComposer
     from features.main.container import AppContainer
 
     registry = AppContainer.build().workflow._context_registry

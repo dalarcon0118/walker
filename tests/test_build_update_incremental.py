@@ -21,7 +21,6 @@ def _make_self(watcher_cls, cached: dict):
     return SimpleNamespace(
         repo_path="/tmp/fake-repo",
         code_root=None,
-        code_paths=None,
         data_dir=None,
         project_id="proj-test",
         _repo=SimpleNamespace(load=lambda pid: cached),
@@ -152,7 +151,7 @@ def test_metadata_descubrible_el_parametro_force_se_ensena():
     - update_incremental_code declara project_id en su schema (multi-proyecto)
       y su resultado enseña la vía de escape al rebuild completo (next_step).
     Un parámetro/ruta que el agente no puede descubrir es un parámetro muerto."""
-    from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+    from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
     from features.main.task_execution.tasks.update_incremental_code import register
 
     registry = InMemoryTaskRegistry()

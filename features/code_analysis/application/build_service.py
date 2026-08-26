@@ -9,15 +9,17 @@ Orchestrates the CPG build pipeline:
 from __future__ import annotations
 import logging
 import os
+import sys
 from typing import Any
 
 from returns.result import safe
 from returns.pipeline import is_successful
 
+from features.code_analysis.application.ports.cpg_repository import CpgRepository
 from features.code_analysis.infrastructure.repository import (
-    CpgFileRepository,
     CPG_VERSION,
     _now,
+    make_cpg_fingerprint_reader,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ def _analyze_business(data: dict) -> dict:
     Result pattern (dry-python/returns): convierte excepciones en Failure
     para que el caller decida (fail-open con log, nunca silencioso).
     """
-    from features.code_analysis.application.business_analyzer import analyze
+    from features.code_analysis.domain.services.business_analyzer import analyze
 
     return analyze(data.get("nodes", {}), data.get("edges", []))
 
@@ -46,13 +48,12 @@ def _load_ignore_core(root: str) -> Any | None:
 @safe
 def _watcher_fingerprint_core(
     root: str,
-    code_paths: list[str] | None = None,
     data_dir: str | None = None,
 ) -> str:
     """Core puro del fingerprint del codigo (puede lanzar).
 
     El scope del fingerprint DEBE coincidir con el del watcher de status
-    (code_paths reales): si build y status escanean conjuntos distintos,
+    (repo_path completo): si build y status escanean conjuntos distintos,
     los fingerprints nunca coinciden y el CPG se reporta stale para siempre.
 
     data_dir: ruta CANONICA de estado del watcher (.cognitive/projects/
@@ -64,22 +65,8 @@ def _watcher_fingerprint_core(
 
     return FileWatcher(
         root,
-        code_paths=code_paths or None,
         data_dir=data_dir or None,
     ).compute_fingerprint()
-
-
-@safe
-def _auto_fix_core(paths: list[str]) -> None:
-    """Core puro del auto-fix qlty (puede lanzar)."""
-    import subprocess
-
-    subprocess.run(
-        ["qlty", "check", "--fix", "--no-fail"] + list(paths),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
 
 
 @safe
@@ -94,36 +81,14 @@ def _resolve_project_root_core(root: str) -> str | None:
 
 
 @safe
-def _ensure_qlty_config_core(qlty_root: str) -> bool:
-    """Core puro de setup qlty (puede lanzar)."""
-    import subprocess
+def _write_projection(data_dir: str, name: str, payload: dict) -> None:
+    """Core puro de escritura de una proyección de derivado (R4).
 
-    check = subprocess.run(
-        ["qlty", "metrics", "--quiet", qlty_root],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if check.returncode != 0 and "No qlty config" in check.stderr:
-        subprocess.run(
-            ["qlty", "init", "--yes"],
-            cwd=qlty_root,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    return True
+    Delega en ProjectionStore (shared) — un solo writer de proyecciones.
+    """
+    from shared.core.projection_store import ProjectionStore
 
-
-@safe
-def _write_json_file(path: str, payload: dict) -> None:
-    """Core puro de escritura de reporte JSON (puede lanzar)."""
-    import json as _json
-    import os as _os
-
-    _os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        _json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
+    ProjectionStore(data_dir).write(name, payload)
 
 
 @safe
@@ -137,34 +102,38 @@ def _detect_calls_safe(fp: str, definitions: list, cfg_cache: Any) -> tuple[list
 
 
 @safe
-def _sync_core(data_dir: str, data: dict) -> dict:
-    """Core puro de la sync CPG -> CognitiveGraph (puede lanzar)."""
-    from core.engine.bootstrap import get_module_service
+def _sync_core(cg: Any, data: dict) -> dict:
+    """Core puro de la sync CPG -> CognitiveGraph (puede lanzar).
 
-    cg = get_module_service("cognitive_graph")(data_dir)
+    ADR-WALKER-054 D5: el indice cpg ES el almacén — se guardan los nodos
+    COMPLETOS como docs + edges + metadata (claves top-level del CPG) en
+    data/cpg.json.gz (único archivo; sin shadow data/data/).
+    ADR-WALKER-055 F2: una sola escritura atómica (replace_blob), no 3.
+    ADR-WALKER-055 F6: el grafo viaja INYECTADO (sin service locator).
+    """
+    nodes = data.get("nodes", {}) or {}
+    edges = data.get("edges", []) or []
+    from features.code_analysis.infrastructure.repository import CPG_DERIVED_KEYS
 
-    nodes = data.get("nodes", {})
-    docs = {}
-    for nid, node_data in nodes.items():
-        docs[nid] = {
-            "name": node_data.get("name", ""),
-            "type": node_data.get("type", ""),
-            "file": node_data.get("path", ""),
-            "line": node_data.get("line", 0),
-        }
-    return cg.store_many("cpg", docs)
+    metadata = {
+        k: v
+        for k, v in data.items()
+        if k not in ("nodes", "edges") and k not in CPG_DERIVED_KEYS
+    }
+    cg.replace_blob("cpg", dict(nodes), edges, metadata)
+    return {"ok": True, "stored": len(nodes), "edges": len(edges), "index": "cpg"}
 
 
 @safe
 def _sync_core_delta(
-    data_dir: str,
+    cg: Any,
     add_or_update: dict[str, dict],
     remove: set[str],
 ) -> dict:
-    """Sync incremental: solo nodos cambiados + removidos. No envia todos."""
-    from core.engine.bootstrap import get_module_service
+    """Sync incremental: solo nodos cambiados + removidos. No envia todos.
 
-    cg = get_module_service("cognitive_graph")(data_dir)
+    ADR-WALKER-055 F6: el grafo viaja INYECTADO (sin service locator).
+    """
     deleted = 0
     for nid in remove:
         r = cg.delete("cpg", nid)
@@ -237,13 +206,15 @@ def _collect_bug_proposals_core(data: dict) -> dict[str, list[dict]]:
             )
 
     # unused_functions: nodos función sin CALLS incoming.
-    # Filtra falsos positivos: fields de dataclass/ODM (firma sin
-    # 'def'), constantes de clase, dunders y test_* (pytest) +
-    # detección de referencias por texto (registry dinámico,
-    # imports lazy, dispatch intra-archivo).
+    # Scanner ÚNICO compartido con review_service (ADR-055 F7):
+    # filtra falsos positivos (fields de dataclass/ODM, dunders, test_*)
+    # + detección de referencias por texto (registry dinámico).
     from features.code_analysis.domain.analysis import (
         DeadCodeReferenceScanner,
         is_false_positive_dead_code,
+    )
+    from features.code_analysis.domain.services.analysis_service import (
+        find_unused_functions,
     )
 
     nodes = data.get("nodes", {})
@@ -251,32 +222,20 @@ def _collect_bug_proposals_core(data: dict) -> dict[str, list[dict]]:
     scanner = DeadCodeReferenceScanner(
         sorted({n.get("path", "") for n in nodes.values() if isinstance(n, dict)})
     )
-    incoming_ids = {e.get("from") for e in edges if e.get("type") == "CALLS"}
-    for nid, n in nodes.items():
-        if not isinstance(n, dict):
-            continue
-        if n.get("type") in ("function", "method") and not n.get("is_import"):
-            if nid not in incoming_ids and not n.get("name", "").startswith("__"):
-                if is_false_positive_dead_code(
-                    n.get("name", ""),
-                    n.get("type", ""),
-                    n.get("signature", ""),
-                    n.get("path", ""),
-                ):
-                    continue
-                if scanner.is_referenced(
-                    n.get("name", ""), n.get("path", ""), n.get("line", 0)
-                ):
-                    continue
-                proposals["unused_functions"].append(
-                    {
-                        "severity": "warning",
-                        "label": f"función sin llamadas: {n.get('name')}",
-                        "file": n.get("path", ""),
-                        "line": n.get("line", 0),
-                        "detail": f"{n.get('name')} no tiene callers en el CPG",
-                    }
-                )
+    for f in find_unused_functions(
+        nodes, edges,
+        is_false_positive_dead_code=is_false_positive_dead_code,
+        is_referenced=scanner.is_referenced,
+    ):
+        proposals["unused_functions"].append(
+            {
+                "severity": "warning",
+                "label": f"función sin llamadas: {f['name']}",
+                "file": f["file"],
+                "line": f["line"],
+                "detail": f"{f['name']} no tiene callers en el CPG",
+            }
+        )
 
     for item in dfg.get("hardcoded_secrets", []) or []:
         proposals["hardcoded_secrets"].append(
@@ -309,15 +268,39 @@ class BuildGraphUseCase:
         project_id: str,
         data_dir: str,
         code_root: str,
-        code_paths: list[str] | None = None,
         repo_path: str = "",
+        repo: "CpgRepository | None" = None,
+        graph: Any = None,
     ):
         self.project_id = project_id
         self.data_dir = data_dir
         self.code_root = code_root
-        self.code_paths = code_paths or []
         self.repo_path = repo_path
-        self._repo = CpgFileRepository(data_dir)
+        # ADR-WALKER-055 F4: dependencia del PORT CpgRepository (no del repo
+        # concreto). Default = CognitiveCpgRepository; la fábrica
+        # cpg_repository() (builder.py) es el composition point alternativo.
+        if repo is not None:
+            self._repo = repo
+        else:
+            from features.code_analysis.infrastructure.cognitive_cpg_repo import (
+                CognitiveCpgRepository,
+            )
+
+            self._repo = CognitiveCpgRepository(data_dir, project_id)
+        # ADR-WALKER-055 F6: grafo CognitiveGraph INYECTADO (sin service
+        # locator). Default: construcción directa (mismo resultado que la
+        # factory DI con data_dir canónico).
+        if graph is not None:
+            self._cg = graph
+        else:
+            from libs.cognitive_graph.cognitive_registry import (
+                register_cognitive_indexes,
+            )
+            from shared.core.cognitive_graph import CognitiveGraph
+
+            cg = CognitiveGraph(data_dir, auto_register=True)
+            register_cognitive_indexes(cg)
+            self._cg = cg
         # SSOT de exclusion: .walkerignore del proyecto (si existe)
         self._ignore = self._load_ignore()
 
@@ -341,16 +324,22 @@ class BuildGraphUseCase:
         return None
 
     def resolve_code_paths(self, paths: list[str] | None = None) -> list[str]:
-        """Resuelve los paths a escanear, igual que el CPGBuilder original."""
+        """Resuelve los paths a escanear.
+
+        ADR-WALKER-054 D1: sin code_paths — el scope es el repo completo
+        (repo_path o code_root). Si se pasan paths explícitos, se usan.
+        Guard: si repo_path del manifest es stale (no es dir), cae a code_root.
+        """
         if paths is not None:
             return paths
         base = self.repo_path or self.code_root
-        if self.code_paths:
-            return [os.path.join(base, p) for p in self.code_paths]
-        project_code = os.path.join(base, "projects", self.project_id)
-        if os.path.isdir(project_code):
-            return [project_code]
-        return [self.code_root]
+        if self.repo_path and not os.path.isdir(self.repo_path):
+            logger.warning(
+                "repo_path del manifest no existe (%s); se usa code_root %s",
+                self.repo_path, self.code_root,
+            )
+            base = self.code_root
+        return [base]
 
     def _watcher_fingerprint(self) -> str:
         """Computa fingerprint del código usando el watcher (mismo algoritmo).
@@ -363,7 +352,6 @@ class BuildGraphUseCase:
         """
         result = _watcher_fingerprint_core(
             self.repo_path or self.code_root,
-            self.code_paths or None,
             self.data_dir or None,
         )
         if is_successful(result):
@@ -376,45 +364,22 @@ class BuildGraphUseCase:
         )
         return ""
 
-    def _auto_fix(self, paths: list[str]) -> None:
-        """Auto-fix lint issues antes de escanear.
-
-        Interno: usa qlty check --fix. Nadie fuera de este método
-        necesita saber qué herramienta se usa.
-
-        Best-effort con log: si qlty falla no rompe el build (convention-001:
-        nunca except silencioso).
-        """
-        result = _auto_fix_core(paths[:10])
-        if not is_successful(result):
-            error = result.failure()
-            logger.error(
-                "Auto-fix qlty fallo (%s: %s); build continua sin fix",
-                type(error).__name__,
-                error,
-            )
-
     def _persist_quality_report(self, paths: list[str]) -> dict:
-        """Corre code review (métricas + quality gates) y lo persiste como
-        quality_report.json junto al CPG.
+        """Corre code review CPG-native (métricas + quality gates) y lo persiste
+        como quality_report.json junto al CPG.
 
-        El CPG siempre refleja el código (aunque tenga malas métricas), pero
-        así el usuario/agente CONOCE el estado de calidad en el momento del
-        index y en cada status posterior, sin consultar.
+        Sin binario externo (ADR-WALKER-054): usa compute_cpg_metrics, que
+        deriva todo del MISMO build del grafo. El CPG siempre refleja el
+        código (aunque tenga malas métricas), pero así el usuario/agente
+        CONOCE el estado de calidad en el momento del index.
 
-        Best-effort: si qlty no está disponible/configurado, intenta
-        inicializarlo; si falla, guarda un reporte degradado explícito
-        (nunca un falso "PASS" con métricas en 0).
+        Best-effort: si el CPG no está disponible, guarda un reporte
+        degradado explícito (nunca un falso "PASS" con métricas en 0).
         """
         # 0. Resolver repo real del código (el que el CPG refleja). Si el
         #    project.json legacy define location.repo_path, ProjectService lo
         #    resuelve; si no, usamos code_root directamente.
         project_root = self.code_root or self.repo_path or "."
-        # Siempre pasar paths explícitos al review (nunca None → _resolve_default_paths
-        # puede fallar si el repo no tiene project.json en la jerarquía).
-        code_paths: list[str] = (
-            list(paths or []) if paths else self.resolve_code_paths()
-        )
         resolved = _resolve_project_root_core(self.repo_path or self.code_root)
         if is_successful(resolved):
             found = resolved.value_or(None)
@@ -428,48 +393,39 @@ class BuildGraphUseCase:
                 error,
             )
 
-        # 1. Asegurar qlty config (best-effort: qlty init --yes en repo real)
-        qlty_setup = _ensure_qlty_config_core(project_root)
-        if not is_successful(qlty_setup):
-            error = qlty_setup.failure()
-            logger.error(
-                "Setup de qlty fallo (%s: %s); quality report puede degradarse",
-                type(error).__name__,
-                error,
-            )
-
         try:
-            from features.code_analysis.application.review_service import ReviewUseCase
-            from features.code_analysis.infrastructure.metrics_cache import (
-                IncrementalMetricsCache,
+            from features.code_analysis.application.metrics_service import (
+                compute_cpg_metrics,
             )
 
-            # Cache incremental de métricas qlty: se reutiliza entre builds,
-            # evita re-ejecutar qlty sobre archivos no modificados.
-            cache = IncrementalMetricsCache(project_root, data_dir=self.data_dir)
-
-            svc = ReviewUseCase(
-                project_root,
-                project_id=self.project_id,
-                scan_paths=code_paths,
-                data_dir=self.data_dir,
-                cache=cache,
+            outcome = compute_cpg_metrics(
+                repo_path=project_root, data_dir=self.data_dir, scope=""
             )
-            result = svc.review_files(files=code_paths)
-            report = result.to_dict()
-            report["cache"] = cache.stats
+            if is_successful(outcome):
+                report = outcome.value_or(None).to_dict() if outcome.value_or(None) else {}
+            else:
+                report = {
+                    "passed": True,
+                    "degraded": True,
+                    "error": f"métricas CPG-nativas: {str(outcome.failure())[:200]}",
+                    "summary": "⚠️ quality report degradado (CPG no disponible)",
+                    "gates": [],
+                    "metrics": {},
+                    "findings": {},
+                    "recommendations": [],
+                    "issues": [],
+                    "files_scanned": [],
+                }
 
-            # Detectar falso PASS por qlty no disponible (metrics 0 reales)
+            # Detectar falso PASS (métricas en 0 sin fuente de datos)
             metrics = report.get("metrics", {}) or {}
-            degraded = report.get("degraded", False)
-            if not degraded and metrics.get("files", 0) == 0:
+            if not report.get("degraded", False) and metrics.get("files", 0) == 0:
                 report["degraded"] = True
                 report["error"] = (
-                    "qlty metrics no produjo archivos — probablemente qlty no "
-                    "está configurado para este repo. Corre 'qlty init' o "
-                    "indexa desde el status del proyecto."
+                    "el CPG no produjo métricas — ejecuta build_code_index "
+                    "para poblar el grafo."
                 )
-                report["summary"] = "⚠️ quality report degradado (qlty sin config)"
+                report["summary"] = "⚠️ quality report degradado (CPG sin file-nodes)"
         except Exception as exc:
             report = {
                 "passed": True,
@@ -486,9 +442,7 @@ class BuildGraphUseCase:
 
         report["generated_at"] = _now()
         report["scope"] = "build"
-        saved = _write_json_file(
-            os.path.join(self.data_dir, "quality_report.json"), report
-        )
+        saved = _write_projection(self.data_dir, "quality_report.json", report)
         if not is_successful(saved):
             error = saved.failure()
             logger.error(
@@ -530,9 +484,7 @@ class BuildGraphUseCase:
             "by_type": {k: len(v) for k, v in proposals.value_or({}).items() if v},
             "findings": findings[:200],
         }
-        saved = _write_json_file(
-            os.path.join(self.data_dir, "bug_proposals.json"), payload
-        )
+        saved = _write_projection(self.data_dir, "bug_proposals.json", payload)
         if not is_successful(saved):
             error = saved.failure()
             logger.error(
@@ -569,42 +521,18 @@ class BuildGraphUseCase:
         }
 
     def _sync_to_cognitive(self, data: dict) -> dict:
-        """Sincroniza nodos CPG a CognitiveGraph via batch store.
+        """Sincroniza nodos CPG a CognitiveGraph (reemplazo completo, F2).
 
-        Usa store_many (escritura UNICA) en vez de save() por nodo,
-        que recargaba y reescribia el indice completo por cada nodo
-        (O(n²) — hacia el build inviable con miles de nodos).
-
-        FULL REINDEX (fix bug multi-renombre): ademas de agregar/actualizar
-        los nodos nuevos, ELIMINA los nodos del indice `cpg` que ya no
-        existen en el CPG reconstruido. Sin esto, un rename de 151 archivos
-        deja los nombres tecnicos viejos (ej. cpg_updates.py, ckg_persist.py)
-        colgando en el indice consultable (kg_search _index:cpg / analyze_code)
-        aunque el cpg.json.gz en disco ya no los tenga.
+        ADR-WALKER-055 F2: `_sync_core` usa `Index.replace_blob` (un solo
+        ciclo atómico) — el FULL REINDEX (incl. poda de nodos huerfanos por
+        renames/borrados) ya está cubierto por el replace: no hace falta el
+        prune manual previo.
 
         Result pattern (dry-python/returns): el core con @safe convierte
         excepciones en Failure; aqui se decide loggear (G2/convention-001:
         un fallo silencioso enmascararia un indice cpg desincronizado).
         """
-        # 1. Podar nodos huerfanos del indice `cpg` (solo este indice; los
-        #    indices de referencia cpg-ref-* son separados y no se tocan).
-        try:
-            from core.engine.bootstrap import get_module_service
-
-            cg = get_module_service("cognitive_graph")(self.data_dir)
-            current_ids = set(data.get("nodes", {}).keys())
-            existing_ids = set(cg.keys("cpg"))
-            stale = existing_ids - current_ids
-            if stale:
-                cg.delete_many("cpg", stale)
-        except Exception as prune_err:
-            logger.error(
-                "Podado de indices cpg fallo (%s: %s); se continua con store_many",
-                type(prune_err).__name__,
-                prune_err,
-            )
-        # 2. Agregar/actualizar nodos nuevos.
-        result = _sync_core(self.data_dir, data)
+        result = _sync_core(self._cg, data)
         if is_successful(result):
             return result.value_or({})
         error = result.failure()
@@ -623,9 +551,6 @@ class BuildGraphUseCase:
         Al finalizar, sincroniza nodos CPG a CognitiveGraph via CodeNode entities.
         """
         paths = self.resolve_code_paths(scan_paths)
-
-        # 0. Auto-fix antes de escanear (oculto, qlty es detalle interno)
-        self._auto_fix(paths)
 
         # 1. ast-grep scan (multi-language) → nodos + imports
         from features.code_analysis.infrastructure.ast_grep_adapter import scan_files
@@ -693,14 +618,17 @@ class BuildGraphUseCase:
         try:
             from features.project import FileWatcher
 
-            # Scope y data_dir alineados con el watcher de status: code_paths
-            # reales + data_dir canónico (.cognitive/projects/<pid>/data).
-            # Si no, los fingerprints nunca coinciden y el CPG se reporta
-            # stale para siempre (auto-invalidación + scope distinto).
+            # Scope y data_dir alineados con el watcher de status: repo_path
+            # completo (ADR-WALKER-054 D1) + data_dir canónico
+            # (.cognitive/projects/<pid>/data). Si no, los fingerprints nunca
+            # coinciden y el CPG se reporta stale para siempre
+            # (auto-invalidación + scope distinto).
             watcher = FileWatcher(
                 self.repo_path or self.code_root,
-                code_paths=self.code_paths or None,
                 data_dir=self.data_dir or None,
+                cpg_fingerprint_reader=make_cpg_fingerprint_reader(
+                    self.data_dir or (self.repo_path or self.code_root)
+                ),
             )
             status = watcher.scan()
         except Exception as e:
@@ -811,7 +739,7 @@ class BuildGraphUseCase:
                 "file": node_data.get("path", ""),
                 "line": node_data.get("line", 0),
             }
-        _sync_core_delta(self.data_dir, add_or_update=cpg_docs,
+        _sync_core_delta(self._cg, add_or_update=cpg_docs,
                          remove=paths_to_remove)
         # Quality report sobre los archivos re-indexados
         qr = self._persist_quality_report(existing)
@@ -1058,6 +986,9 @@ class BuildGraphUseCase:
         if isinstance(result, dict):
             result["cfg_cache"] = cfg_cache.stats
             result["cfg_cache_hits"] = cache_hits
+        # F3b: proyección de analysis_results fuera del blob (bug_service la
+        # consume con fallback on-demand)
+        _write_projection(self.data_dir, "analysis_results.json", result)
         return result
 
     def _scan_dfg_files(
@@ -1175,7 +1106,7 @@ class BuildGraphUseCase:
                         # Excluir el data_dir (cachés/JSONs generados) y archivos de cache
                         if os.path.realpath(full).startswith(_data_dir_abs):
                             continue
-                        if f.endswith(_cache_markers) or f == "qlty_metrics_cache.json":
+                        if f.endswith(_cache_markers):
                             continue
                         all_files.append(full)
 
@@ -1226,6 +1157,9 @@ class BuildGraphUseCase:
             "cache": dfg_cache.stats,
         }
         self._repo.save(data)
+        # F3b: proyección de dfg fuera del blob (bug_service la consume con
+        # fallback on-demand)
+        _write_projection(self.data_dir, "dfg.json", all_results)
         # Quality report tras DFG (security findings disponibles)
         self._persist_quality_report(all_files)
         if verbose:

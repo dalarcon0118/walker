@@ -57,7 +57,6 @@ def walker_cpg_chain_dir(tmp_path: str) -> str:
                     "identity": {"name": "Test Proj", "language": "python"},
                     "location": {
                         "repo_path": repo_root,
-                        "code_paths": ["src"],
                     },
                 }
             },
@@ -295,13 +294,13 @@ def _bdd_metrics_pobladas(uc_ctx: dict):
     assert metrics.get("loc", 0) > 0, metrics
 
 
-@then("los gates incluyen cyclomatic_complexity y dead_code")
+@then("los gates incluyen dead_code y loc_per_file")
 def _bdd_gates_nombres(uc_ctx: dict):
     gates = uc_ctx["result"].get("gates", [])
-    assert len(gates) >= 3, gates
+    assert len(gates) >= 2, gates
     names = {g.get("name") for g in gates}
-    assert "cyclomatic_complexity" in names
     assert "dead_code" in names
+    assert "loc_per_file" in names
 
 
 @then("cada gate expone threshold, actual y passed")

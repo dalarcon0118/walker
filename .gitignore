@@ -36,7 +36,6 @@ Thumbs.db
 # Caches y reportes generados
 **/dfg_cache.json
 **/cfg_calls_cache.json
-**/qlty_metrics_cache.json
 **/quality_report.json
 **/bug_proposals.json
 
@@ -48,9 +47,3 @@ Thumbs.db
 .cognitive/projects/*/data/spring/
 .cognitive/projects/*/data/data/
 .cognitive/docs/
-
-# Herramientas de análisis (runtime)
-.qlty/results/
-.qlty/logs/
-.qlty/out/
-.qlty/plugin_cachedir/

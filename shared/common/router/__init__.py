@@ -17,14 +17,14 @@ Uso:
 
     @router.on(":projectId/task/:taskName")
     def task_handler(params, flags):
-        # params = {"projectId": "walker", "taskName": "kg_search"}
+        # params = {"projectId": "walker", "taskName": "recall_knowledge"}
         ...
 
     # Middleware global
     router.use(lambda params, flags, next: next())
 
     # Resolver
-    handler, params, flags = router.resolve("walker/task/kg_search")
+    handler, params, flags = router.resolve("walker/task/recall_knowledge")
 """
 
 from .router import Router

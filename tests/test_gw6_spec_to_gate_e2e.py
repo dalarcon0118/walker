@@ -30,10 +30,10 @@ import json
 import pytest
 
 from features.delta_tracking import spring_service
-from core.engine.application.use_cases import SubmitDataUseCase
-from core.engine.domain.models import ExecutionContext
+from shared.core.engine.application.use_cases import SubmitDataUseCase
+from shared.core.engine.domain.models import ExecutionContext
 from features.delta_tracking.tasks.verification import register as register_verify_tasks
-from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
 
 
 # ═══════════════════════════════════════════════════════════════════

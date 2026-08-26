@@ -131,7 +131,6 @@ class Project:
             "language": self.manifest.language,
             "framework": self.manifest.framework,
             "repo_path": self.manifest.repo_path,
-            "code_paths": self.manifest.code_paths,
             "description": self.manifest.description,
             "active_sprint_id": self.active_sprint_id,
         }

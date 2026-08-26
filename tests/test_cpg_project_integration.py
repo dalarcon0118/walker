@@ -45,7 +45,6 @@ def _make_project(tmp: str) -> tuple[str, str]:
                     "identity": {"name": "Test Proj", "language": "python"},
                     "location": {
                         "repo_path": repo_root,
-                        "code_paths": ["src"],
                     },
                 }
             },
@@ -117,11 +116,6 @@ def _bdd_manifest_repo(pi_arr: dict):
 @then("el manifest expone el nombre declarado")
 def _bdd_manifest_name(pi_arr: dict):
     assert pi_arr["project"].manifest.name == "Test Proj"
-
-
-@then("code_paths incluye los paths declarados")
-def _bdd_manifest_paths(pi_arr: dict):
-    assert "src" in pi_arr["project"].manifest.code_paths
 
 
 # ── Escenario 2 ──────────────────────────────────────────────────

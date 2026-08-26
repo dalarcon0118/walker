@@ -37,13 +37,13 @@ def memory_schema(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if payload and isinstance(payload, dict):
         index = payload.get("index", "")
         if index:
-            result = CkgApplicationService.kg_schema(cg, index)
+            result = CkgApplicationService.schema(cg, index)
             if result.get("type") == "error":
                 return TaskResult.failure(result["message"])
             return TaskResult.success(data=result)
     index = data.get("index", "")
     if index:
-        result = CkgApplicationService.kg_schema(cg, index)
+        result = CkgApplicationService.schema(cg, index)
         if result.get("type") == "error":
             return TaskResult.failure(result["message"])
         return TaskResult.success(data=result)
@@ -57,7 +57,7 @@ def memory_schema(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 
 def recall_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    """Búsqueda de conocimiento (antes kg_search)."""
+    """Búsqueda en un índice de CognitiveGraph (fulltext o estructurado)."""
     project_id = data.get("_project_id", "")
     cg = _resolve_searcher(ctx.chain_dir or "", project_id)
     if cg is None:
@@ -78,7 +78,7 @@ def recall_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             payload["text"] = payload.pop("query")
         if "index" in payload and "_index" not in payload:
             payload["_index"] = payload.pop("index")
-    result = CkgApplicationService.kg_search(cg, payload, project_id)
+    result = CkgApplicationService.search(cg, payload, project_id)
     if isinstance(result, dict) and result.get("type") == "error":
         return TaskResult.failure(result["message"])
     _trace_kg_query(ctx.chain_dir or "", payload.get("_index", "ckg"), payload, ctx)
@@ -86,7 +86,7 @@ def recall_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 
 def search_memories(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    """Búsqueda multi-memoria (antes kg_multi)."""
+    """Query federada multi-índice (delta, ckg, cpg, trace)."""
     project_id = data.get("_project_id", "")
     cg = _resolve_searcher(ctx.chain_dir or "", project_id)
     if cg is None:
@@ -99,7 +99,7 @@ def search_memories(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
     payload = data.get("_payload", None)
     if payload and isinstance(payload, dict):
-        result = CkgApplicationService.kg_multi(cg, payload)
+        result = CkgApplicationService.search_many(cg, payload)
         _trace_kg_query(ctx.chain_dir or "", "multi", payload, ctx)
         return TaskResult.success(data=result)
     queries_raw = data.get("queries", "")
@@ -111,19 +111,29 @@ def search_memories(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
     except json.JSONDecodeError:
         return TaskResult.failure(f"Invalid queries JSON: {queries_raw}")
-    result = CkgApplicationService.kg_multi(cg, queries)
+    result = CkgApplicationService.search_many(cg, queries)
     _trace_kg_query(ctx.chain_dir or "", "multi", queries, ctx)
     return TaskResult.success(data=result)
 
 
 def documenting_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    chain_dir = ctx.chain_dir or ""
-    project_id = data.get("_project_id", "")
+    # ADR-WALKER-053: resolver repo path con precedencia explícito > ambiental
+    from features.main.task_execution.application.project_context import (
+        resolve_repo_path,
+    )
+
+    chain_dir = resolve_repo_path(data, ctx)
+    project_id = (
+        data.get("_project_id") or data.get("project_id") or ""
+    )
     payload = data.get("_payload", data)
     nodes = payload.get("nodes")
     if isinstance(nodes, list) and nodes:
         if not chain_dir:
-            return TaskResult.failure("chain_dir not available")
+            return TaskResult.failure(
+                "no project context",
+                data={"next_step": "Pasá {project_id} o corré dentro del proyecto"},
+            )
         from returns.pipeline import is_successful
 
         result = CkgApplicationService.save_nodes(

@@ -382,11 +382,8 @@ def _resolve_project_root_core(chain_dir: str, factory, graph_factory: Callable[
     # NOTE: ProjectService import moved inside function to break cycle
     # features.delta_tracking -> features.project (detected by Tarjan gate).
     # Resolved dynamically at runtime via module service locator.
-    from core.engine.bootstrap import resolve_service
-
-    project_service_factory = resolve_service("project_service")
-    if project_service_factory is None:
-        return None
+    
+    from features.project import ProjectService as project_service_factory
     paths = project_service_factory.resolve_paths(chain_dir)
     data_dir = getattr(paths, "data_dir", "") or ""
     project_root = os.path.dirname(data_dir) if data_dir else ""

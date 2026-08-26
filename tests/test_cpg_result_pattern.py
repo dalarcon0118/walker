@@ -80,7 +80,7 @@ def _bdd_builder_con_nodos(ctx: dict):
 
 @when("se sincronizan los nodos al índice cpg")
 def _bdd_sync_nodos(ctx: dict, builder: BuildGraphUseCase):
-    ctx["result"] = _sync_core(builder.data_dir, ctx["data"])
+    ctx["result"] = _sync_core(builder._cg, ctx["data"])
 
 
 @then("el resultado es un Success de la librería returns")
@@ -93,8 +93,10 @@ def _bdd_es_success(ctx: dict):
 @then("los 2 nodos quedan disponibles en el índice cpg")
 def _bdd_nodos_indexados(ctx: dict, builder: BuildGraphUseCase):
     from shared.core.cognitive_graph import CognitiveGraph
+    from libs.cognitive_graph.cognitive_registry import register_cognitive_indexes
 
     cg = CognitiveGraph(builder.data_dir, auto_register=True)
+    register_cognitive_indexes(cg)
     keys = set(cg.keys("cpg"))
     assert {"n1", "n2"} <= keys, keys
 
@@ -110,7 +112,7 @@ def _bdd_builder_nodo_invalido(ctx: dict):
 
 @when("se sincroniza el nodo al índice cpg")
 def _bdd_sync_nodo_invalido(ctx: dict, builder: BuildGraphUseCase):
-    ctx["result"] = _sync_core(builder.data_dir, ctx["data"])
+    ctx["result"] = _sync_core(builder._cg, ctx["data"])
 
 
 @then("el resultado es un Failure de la librería returns")
@@ -147,7 +149,7 @@ def _bdd_resultado_success(ctx: dict, builder: BuildGraphUseCase):
         },
         "edges": [],
     }
-    ctx["result"] = _sync_core(builder.data_dir, data)
+    ctx["result"] = _sync_core(builder._cg, data)
 
 
 @when("se decide el camino con la función de chequeo de la librería returns")
@@ -192,7 +194,7 @@ def _bdd_core_que_lanza(ctx: dict):
 @when("la ejecución vía @safe envuelve la excepción")
 def _bdd_safe_envuelve(ctx: dict, builder: BuildGraphUseCase):
     # _sync_core está decorado con @safe: la excepción se convierte en Failure
-    ctx["result"] = _sync_core(builder.data_dir, ctx["data"])
+    ctx["result"] = _sync_core(builder._cg, ctx["data"])
 
 
 @then("el caller recibe un Failure en vez de que se propague")

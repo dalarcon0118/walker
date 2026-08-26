@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from core.engine.domain.session import SessionStore
+from shared.core.engine.domain.session import SessionStore
 
 
 @pytest.fixture(autouse=True)
@@ -91,7 +91,7 @@ def _populate_service_locator(_sandbox_composition_singleton):
 
     AppContainer.build()
     yield
-    from core.engine.bootstrap import reset_module_registry
+    from shared.core.engine.bootstrap import reset_module_registry
 
     reset_module_registry()
 
@@ -264,7 +264,7 @@ def make_orchestration_service(real: bool = True, **overrides):
 
     Los overrides permiten inyectar repos fakes (tests de bajo nivel).
     """
-    from core.engine.application.orchestrator import OrchestrationService
+    from shared.core.engine.application.orchestrator import OrchestrationService
 
     kwargs = dict(overrides)
     if "task_registry" not in kwargs or "side_effect_engine" not in kwargs:
@@ -275,8 +275,8 @@ def make_orchestration_service(real: bool = True, **overrides):
             registry = app.task_registry
             se = app.side_effect_engine
         else:
-            from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-            from core.engine.infrastructure.side_effects import SideEffectEngine
+            from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+            from shared.core.engine.infrastructure.side_effects import SideEffectEngine
 
             registry = InMemoryTaskRegistry()
             se = SideEffectEngine()
@@ -322,8 +322,8 @@ def make_project_with_active_sprint(tmp_path, project_id: str = "walker", sprint
     )
     sprint_dir = cog / "data" / "spring" / sprint_id
     sprint_dir.mkdir(parents=True, exist_ok=True)
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
-    from core.engine.domain.entities import WorkflowState
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.domain.entities import WorkflowState
 
     wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
     wf.context["chain_dir"] = str(sprint_dir)

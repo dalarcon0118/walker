@@ -29,7 +29,7 @@ def _write_project_json(cog_project_dir: str, repo_root: str, pid: str) -> None:
                 "project": {
                     "meta": {"project_id": pid, "version": "1.0"},
                     "identity": {"name": "Proj", "language": "python"},
-                    "location": {"repo_path": repo_root, "code_paths": ["src"]},
+                    "location": {"repo_path": repo_root},
                 }
             },
             f,

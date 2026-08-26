@@ -1,6 +1,6 @@
 """engine_ports.py — Implementaciones de puertos del engine.
 
-El engine define interfaces (puertos) en core/engine/domain/ports.py.
+El engine define interfaces (puertos) en shared/core/engine/domain/ports.py.
 Este módulo implementa esos puertos delegando a los services de features
 específicos. El composition root (bootstrap.py) inyecta estas implementaciones
 en el engine.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.engine.domain.ports import (
+from shared.core.engine.domain.ports import (
     IProjectContext,
     IConflictResolver,
     ISprintService,

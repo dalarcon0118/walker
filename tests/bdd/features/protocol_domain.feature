@@ -17,7 +17,7 @@ Característica: Dominio del Protocolo MCP
     Dado un validador de nombres de tool
     Cuando creo un ToolName con un nombre válido
     Entonces el ToolName es válido
-    Y su valor es kg_search
+    Y su valor es recall_knowledge
 
   @contrato
   Escenario: ToolName rechaza nombres con caracteres inválidos

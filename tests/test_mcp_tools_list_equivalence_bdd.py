@@ -24,7 +24,7 @@ def equivalence_ctx() -> dict:
 
 
 def _registry_tools() -> list[dict]:
-    from core.engine.application.tool_catalog import list_tools
+    from shared.core.engine.application.tool_catalog import list_tools
 
     return list_tools() or []
 

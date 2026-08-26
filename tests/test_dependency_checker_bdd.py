@@ -43,13 +43,6 @@ def _cache_ast_grep(dep_ctx: dict):
     return dep_ctx
 
 
-@given("que el cache tiene qlty disponible", target_fixture="dep_ctx")
-def _cache_qlty(dep_ctx: dict):
-    from features.dependency_checker import _cache
-    _cache["qlty"] = True
-    return dep_ctx
-
-
 @when("consulto is_available python3", target_fixture="dep_ctx")
 def _is_available(dep_ctx: dict):
     from features.dependency_checker import is_available
@@ -75,13 +68,6 @@ def _ensure_missing(dep_ctx: dict):
 def _ensure_ast_grep(dep_ctx: dict):
     from features.dependency_checker import ensure_ast_grep
     dep_ctx["result"] = ensure_ast_grep()
-    return dep_ctx
-
-
-@when("ejecuto ensure_qlty", target_fixture="dep_ctx")
-def _ensure_qlty(dep_ctx: dict):
-    from features.dependency_checker import ensure_qlty
-    dep_ctx["result"] = ensure_qlty()
     return dep_ctx
 
 

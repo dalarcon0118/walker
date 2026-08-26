@@ -208,8 +208,6 @@ class HealthReportAnalyzer:
             missing.append("language")
         if not proj.get("framework"):
             missing.append("framework")
-        if not proj.get("code_paths"):
-            missing.append("code_paths")
         if missing:
             task_name = HealthReportAnalyzer._resolve_task(
                 task_catalog, "project_update"

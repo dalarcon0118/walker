@@ -325,7 +325,7 @@ class QueryGraphUseCase:
             "symbols": symbols,
         }
         if verbose:
-            result["note"] = "Use 'walker <project>/kg_multi' for source access"
+            result["note"] = "Use 'walker <project>/search_memories' for source access"
         return result
 
 
@@ -344,6 +344,6 @@ def _business_layer_core(repo: CpgFileRepository, project_id: str) -> dict:
     layer = data.get("business_layer", {})
     if not layer:
         # Capa no construida aun: derivarla on-the-fly
-        from features.code_analysis.application.business_analyzer import analyze
+        from features.code_analysis.domain.services.business_analyzer import analyze
         layer = analyze(data.get("nodes", {}), data.get("edges", []))
     return layer

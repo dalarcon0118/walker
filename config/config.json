@@ -1,11 +1,10 @@
 {
   "debug_level": 0,
-  "workflow_dir": "workflow.v3",
   "data_dir": "data",
   "sprint_dir": "spring",
   "port": 8000,
   "delta": {
-    "curvature_budget": 0.50
+    "curvature_budget": 0.5
   },
   "tools": {
     "ast_grep_bin": "sg",
@@ -22,9 +21,9 @@
     "coverage_min": 80,
     "maintainability": {
       "A": 0.05,
-      "B": 0.10,
-      "C": 0.20,
-      "D": 0.50
+      "B": 0.1,
+      "C": 0.2,
+      "D": 0.5
     },
     "security": {
       "A": 0,

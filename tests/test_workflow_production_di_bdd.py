@@ -1,6 +1,6 @@
 """tests/test_workflow_production_di_bdd.py — Regresión del camino real CLI/MCP.
 
-Verifica que el flujo de PRODUCCIÓN (get_module_service("workflow").submit,
+Verifica que el flujo de PRODUCCIÓN (module_registry.get_service("workflow").submit,
 usado por handle_submit del CLI y por el tool MCP 'submit') ejecuta las
 tasks REALES del workflow (plan_sprint, spec_task). ANTES este camino
 devolvía submitted=True sin ejecutar plan_sprint: _build_workflow_services
@@ -19,8 +19,8 @@ fichero no se lee en este camino).
 """
 from __future__ import annotations
 
-from core.engine.domain.entities import WorkflowState
-from core.engine.infrastructure.repositories import WorkflowStateRepository
+from shared.core.engine.domain.entities import WorkflowState
+from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 from tests.conftest import make_chain_dir
 
 
@@ -53,14 +53,14 @@ class TestProductionDICamino:
     """El camino de producción ejecuta tasks reales (no se congela)."""
 
     def test_workflow_submit_ejecuta_task_real(self, tmp_path):
-        """get_module_service('workflow').submit ejecuta plan_sprint real y
+        """module_registry.get_service('workflow').submit ejecuta plan_sprint real y
         avanza a PLAN_APPROVAL (antes: submitted=True sin task, congelado)."""
-        from core.engine.bootstrap import get_module_service
+        from features.main.container import AppContainer
 
         chain_dir = make_chain_dir(tmp_path, "di-probe", project_name="walker")
         _setup_state(chain_dir)
 
-        svc = get_module_service("workflow")
+        svc = AppContainer.build().module_registry.get_service("workflow")
         result = svc.submit(chain_dir, fields={"goal": "g", "tasks": []})
 
         assert "error" not in result, result.get("error")
@@ -80,12 +80,12 @@ class TestProductionDICamino:
         """Encadenado: PO aprueba el plan y spec_task real (SpecifySpecUseCase)
         también se ejecuta en el camino de producción — valida el registro
         completo del DI contra el workflow v3.1."""
-        from core.engine.bootstrap import get_module_service
+        from features.main.container import AppContainer
 
         chain_dir = make_chain_dir(tmp_path, "di-probe2", project_name="walker")
         _setup_state(chain_dir)
 
-        svc = get_module_service("workflow")
+        svc = AppContainer.build().module_registry.get_service("workflow")
         result = svc.submit(chain_dir, fields={"goal": "g", "tasks": []})
         assert result.get("task_executed") is True
 

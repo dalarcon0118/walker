@@ -3,7 +3,7 @@
 Este módulo es el ÚNICO que conoce todos los módulos de la aplicación
 y arma el grafo completo de dependencias:
 
-- core/engine: infraestructura de workflow
+- shared/core/engine: infraestructura de workflow
 - delta_tracking: modelo de desarrollo
 - code_analysis: análisis de código
 - cognitive_knowledge: conocimiento

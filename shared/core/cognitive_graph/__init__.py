@@ -23,30 +23,65 @@ import os
 import time
 from typing import Any
 
+from .connection import MemoryConnection
+from .file_backend import FileBackend
 from .index import Index, IndexSchema
+from .ports import StorageBackend
 # ═══════════════════════════════════════════════════════════════════
 #  CognitiveGraph — Facade
 # ═══════════════════════════════════════════════════════════════════
 
 class CognitiveGraph:
-    """Facade unificada. Los dominios registran sus indices aqui."""
+    """Facade unificada. Los dominios registran sus indices aqui.
 
-    def __init__(self, chain_dir: str, auto_register: bool = True):
+    ADR-WALKER-061 (F3): construccion via (backend, conn). La conexion
+    (MemoryConnection) resuelve el directorio base; el backend (StorageBackend)
+    es el dueno logico del storage. El schema del indice NO lleva 'storage'
+    (el filename se deriva del nombre: {name}.json.gz).
+    """
+
+    def __init__(
+        self,
+        chain_dir: str = "",
+        *,
+        backend: StorageBackend | None = None,
+        conn: MemoryConnection | None = None,
+        auto_register: bool = True,
+    ):
         self.chain_dir = chain_dir
-        self._indexes: dict[str, Index] = {}
+        self._conn = conn
+        # Resolucion del directorio base (prioridad):
+        #   backend._base_dir > conn.uri > chain_dir
+        if backend is not None and getattr(backend, "_base_dir", None):
+            self._base_dir: str = backend._base_dir
+        elif conn is not None:
+            self._base_dir = FileBackend._resolve_base_dir(conn)
+        else:
+            self._base_dir = chain_dir
+        # ADR-WALKER-061 (F3 corregido): CognitiveGraph ES un StorageBackend
+        # que DELEGA a un backend concreto. El backend es el dueño real del
+        # storage. Si no se inyecta, se construye un FileBackend por defecto
+        # (comportamiento backward-compatible).
+        if backend is None:
+            backend = FileBackend(MemoryConnection(uri="file://" + os.path.abspath(self._base_dir)))
+        self._backend: StorageBackend = backend
+        # Mapa ligero de schemas (solo metadatos, para ref/trace checks).
+        self._indexes: dict[str, IndexSchema] = {}
         if auto_register:
             self.register_defaults()
 
     def register_defaults(self) -> None:
-        """Registra los 4 indices por defecto: ckg, cpg, delta, trace.
+        """Registra los indices por defecto: ckg, delta, trace + ref.
+
+        ADR-WALKER-054 D2: el indice cpg NO se registra aquí — el dominio CPG
+        se registra SOLO en el composition root via
+        `register_cognitive_indexes()` (libs/cognitive_graph/cognitive_registry).
 
         CKG usa storage interno nativo (con CognitiveGraph.store()).
-        CPG usa search_handler que lee CpgFileRepository (legacy).
         Delta usa storage interno nativo + fulltext search.
         Trace usa storage interno nativo.
         """
         self._register_ckg_index()
-        self._register_cpg_index()
         self._register_ref_indexes()
         self._register_delta_index()
         self._register_trace_index()
@@ -69,91 +104,9 @@ class CognitiveGraph:
                     "refactor": {"description": "Refactorizacion aplicada"},
                     "convention": {"description": "Convencion de estilo"},
                 },
-                "storage": {"path": "data/ckg.json.gz", "format": "json.gz"},
                 "description": "CKG: Knowledge Graph - decisiones, convenciones, patrones",
             },
         )
-
-    def _register_cpg_index(self) -> None:
-        """Registra el indice CPG con search_handler que lee CpgFileRepository."""
-        self.register_index(
-            "cpg",
-            {
-                "fields": {"function": "name", "file": "path", "type": "type"},
-                "types": {"function": {}, "class": {}, "file": {}, "module": {}},
-                "storage": {"path": "data/cpg.json.gz", "format": "json.gz"},
-                "description": "CPG: Code Property Graph - estructura del codigo fuente",
-            },
-            search_handler=self._make_cpg_search_handler(),
-        )
-
-    def _make_cpg_search_handler(self):
-        """Crea el handler de busqueda del indice CPG (legacy CpgFileRepository)."""
-        from features.code_analysis.infrastructure.repository import CpgFileRepository
-
-        def _cpg_search(query):
-            repo = CpgFileRepository(os.path.join(self.chain_dir, "data"))
-            g = repo.load_graph()
-            results = []
-            filters = query or {}
-            max_results = (
-                filters.get("max_results")
-                or filters.get("size")
-                or filters.get("max_events")
-            )
-            try:
-                max_results = int(max_results) if max_results else 50
-            except (TypeError, ValueError):
-                max_results = 50
-            _from_raw = filters.get("_from") or filters.get("from") or 0
-            try:
-                _from = max(int(_from_raw), 0)
-            except (TypeError, ValueError):
-                _from = 0
-            skip_keys = {"max_results", "size", "max_events", "_index", "query",
-                         "text", "_from", "from"}
-            for nid, node in g.nodes.items():
-                match = True
-                for k, v in filters.items():
-                    if k in skip_keys:
-                        continue
-                    if k == "function" and v not in node.name:
-                        match = False
-                    elif k == "file" and v not in node.path:
-                        match = False
-                    elif k == "type" and node.type != v:
-                        match = False
-                    elif k == "signature" and v not in (node.signature or ""):
-                        match = False
-                    elif k == "kind" and v not in (node.kind or ""):
-                        match = False
-                if match:
-                    results.append(
-                        {
-                            "_id": nid,
-                            "_source": {
-                                "name": node.name,
-                                "type": node.type,
-                                "file": node.path,
-                                "line": node.line,
-                                "signature": node.signature,
-                                "kind": node.kind,
-                            },
-                        }
-                    )
-            return {
-                "took": 0,
-                "index": "cpg",
-                "hits": {
-                    "total": len(results),
-                    "hits": results[_from : _from + max_results],
-                    "from": _from,
-                    "size": max_results,
-                },
-                "schema": {},
-            }
-
-        return _cpg_search
 
     def _register_delta_index(self) -> None:
         """Registra el indice Delta (specs y springs) con fulltext search.
@@ -174,7 +127,6 @@ class CognitiveGraph:
                     "type": "type",
                 },
                 "types": {"spec": {}, "spring": {}},
-                "storage": {"path": "data/delta.json.gz", "format": "json.gz"},
                 "description": "DeltaGraph: specs y springs del proyecto",
                 "search": {
                     "type": "fulltext",
@@ -208,11 +160,14 @@ class CognitiveGraph:
                     "file_impact": {},
                     "kg_query": {},
                 },
-                "storage": {"path": "data/trace.json.gz", "format": "json.gz"},
                 "description": "TraceGraph: memoria de ejecucion (workflow + agente + tools)",
             },
             search_handler=self._make_trace_search_handler(),
         )
+
+    def _register_trace_index_legacy(self) -> None:  # pragma: no cover - remove
+        """ELIMINADO en F3: el storage del trace ya no vive en el schema."""
+        raise NotImplementedError
 
     def _make_trace_search_handler(self):
         """Crea el handler de busqueda del indice Trace (storage nativo)."""
@@ -478,31 +433,21 @@ class CognitiveGraph:
 
     def register_index(
         self, name: str, config: dict, search_handler: callable | None = None
-    ) -> Index:
-        """Registra un indice con su schema.
+    ) -> IndexSchema:
+        """Registra un indice con su schema (delega al backend StorageBackend).
 
-        Args:
-            name: nombre del indice (ckg, cpg, delta, trace)
-            config: schema del indice (fields, types, storage, description, search)
-            search_handler: funcion opcional para busqueda custom.
-                           Si se provee, reemplaza la busqueda default.
-                           Util para CPG legacy que tiene su propio backend.
-
-        Returns:
-            El indice registrado.
+        ADR-WALKER-061 (F3 corregido): el backend es el dueño del storage.
+        CognitiveGraph conserva solo un mapa ligero de schemas para checks
+        de ref/trace. El search_handler (si existe) se pasa al backend.
         """
         schema = IndexSchema(config)
-        index = Index(name, schema, self.chain_dir, search_handler)
-        self._indexes[name] = index
-        return index
+        self._backend.register_index(name, schema, search_handler)
+        self._indexes[name] = schema
+        return schema
 
     def _get_index(self, name: str) -> Index:
-        idx = self._indexes.get(name)
-        if not idx:
-            raise KeyError(
-                f"Indice '{name}' no registrado. Disponibles: {list(self._indexes.keys())}"
-            )
-        return idx
+        """Acceso al Index interno del backend (usado por handlers de trace/ref)."""
+        return self._backend._get_index(name)  # noqa: SLF001
 
     # ── Queries ──
 
@@ -662,29 +607,52 @@ class CognitiveGraph:
     # ── CRUD ──
 
     def store(self, index: str, doc_id: str, data: dict) -> dict:
-        return self._get_index(index).store(doc_id, data)
+        return self._backend.store(index, doc_id, data)
 
     def store_many(self, index: str, docs: dict[str, dict]) -> dict:
         """Indexa muchos nodos en batch (una sola escritura)."""
-        return self._get_index(index).store_many(docs)
+        return self._backend.store_many(index, docs)
+
+    def replace_blob(
+        self, index: str, nodes: dict[str, dict], edges: list[dict], metadata: dict
+    ) -> dict:
+        """Reemplaza TODO el índice en un solo ciclo atómico (F2)."""
+        return self._backend.replace_blob(index, nodes, edges, metadata)
+
+    def set_metadata(self, index: str, metadata: dict) -> dict:
+        """Persiste metadata de dominio junto a docs/edges (D5)."""
+        return self._backend.set_metadata(index, metadata)
+
+    def sync_edges(self, index: str, edges: list[dict]) -> dict:
+        """Reemplaza TODOS los edges del indice (sync completo)."""
+        return self._backend.sync_edges(index, edges)
+
+    def get_docs(self, index: str) -> dict[str, dict]:
+        return self._backend.get_docs(index)
+
+    def get_all_edges(self, index: str) -> list[dict]:
+        return self._backend.get_all_edges(index)
+
+    def get_metadata(self, index: str) -> dict:
+        return self._backend.get_metadata(index)
 
     def get(self, index: str, doc_id: str) -> dict | None:
-        return self._get_index(index).get(doc_id)
+        return self._backend.get(index, doc_id)
 
     def keys(self, index: str) -> list[str]:
         """Devuelve TODOS los IDs de un indice (sin limites de search)."""
-        return self._get_index(index).keys()
+        return self._backend.keys(index)
 
     def max_key(self, index: str, prefix: str = "") -> tuple[str, int] | None:
         """Devuelve (id, numero) del ID con mayor numero para un prefijo."""
-        return self._get_index(index).max_key(prefix)
+        return self._backend.max_key(index, prefix)
 
     def delete(self, index: str, doc_id: str) -> dict:
-        return self._get_index(index).delete(doc_id)
+        return self._backend.delete(index, doc_id)
 
     def delete_many(self, index: str, doc_ids: set[str]) -> dict:
         """Elimina varios nodos en batch (1 lock + 1 save)."""
-        return self._get_index(index).delete_many(doc_ids)
+        return self._backend.delete_many(index, doc_ids)
 
     def upsert(self, index: str, key: str, data: dict) -> dict:
         """Upsert por key (primitiva reusable de infraestructura).
@@ -709,70 +677,34 @@ class CognitiveGraph:
     # ── Edges ──
 
     def add_edge(self, from_id: str, to_id: str, **attrs) -> dict:
-        """Agrega un edge entre dos nodos.
+        """Agrega un edge entre dos nodos (delega al backend, cross-index)."""
+        return self._backend.add_edge(from_id, to_id, **attrs)
 
-        Busca en todos los indices cual contiene el nodo origen y
-        guarda el edge ahi. Si no lo encuentra, lo guarda en delta.
+    def remove_edge(self, from_id: str, to_id: str) -> dict:
+        return self._backend.remove_edge(from_id, to_id)
 
-        Args:
-            from_id: ID del nodo origen (ej: "sprintX:TASK-042")
-            to_id: ID del nodo destino (ej: "src/auth_middleware.py")
-            **attrs: atributos del edge (type="impacts_file", etc.)
-        """
-        # Encontrar indice que contiene el nodo origen
-        source_idx_name = self._find_node_index(from_id)
-        if not source_idx_name:
-            source_idx_name = "delta"  # fallback
-
-        idx = self._indexes.get(source_idx_name)
-        if idx is None:
-            return {"ok": False, "error": f"Index '{source_idx_name}' not found",
-                    "from": from_id, "to": to_id}
-
-        result = idx.add_edge(from_id, to_id, **attrs)
-        return {
-            "ok": True,
-            "from": from_id,
-            "to": to_id,
-            "attrs": attrs,
-            "index": source_idx_name,
-            "result": result,
-        }
-
-    def _find_node_index(self, node_id: str) -> str | None:
-        """Busca en que indice esta almacenado un nodo por su ID."""
-        for name, idx in self._indexes.items():
-            try:
-                if not idx._loaded:
-                    idx._load()
-                if node_id in idx._docs:
-                    return name
-            except Exception:
-                continue
-        return None
+    def get_edges(self, node_id: str, direction: str = "both") -> list:
+        return self._backend.get_edges(node_id, direction)
 
     def get_related(self, node_id: str, depth: int = 1) -> dict:
-        """Obtiene el subgrafo de contexto alrededor de un nodo.
+        """Obtiene el subgrafo de contexto alrededor de un nodo (cross-index)."""
+        return self._backend.get_related(node_id, depth)
 
-        Busca en todos los indices hasta encontrar el nodo.
-        """
-        source_idx_name = self._find_node_index(node_id)
-        if source_idx_name:
-            return self._indexes[source_idx_name].get_related(node_id, depth)
-
-        # Si no se encuentra, buscar en todos los grafos
-        for name, idx in self._indexes.items():
-            if node_id in idx._graph:
-                return idx.get_related(node_id, depth)
-        return {"center": node_id, "nodes": [], "edges": [], "total": 0}
+    def find_node_index(self, node_id: str) -> str | None:
+        """Resuelve qué índice contiene un nodo (lookup cross-index)."""
+        return self._backend.find_node_index(node_id)
 
     # ── Schema / Metrics ──
 
+    def schema_info(self, index: str) -> dict:
+        return self._backend.schema_info(index)
+
     def schema(self, index: str) -> dict:
-        return self._get_index(index).schema_info()
+        """Alias público de schema_info (compat)."""
+        return self._backend.schema_info(index)
 
     def metrics(self, index: str) -> dict:
-        return self._get_index(index).metrics()
+        return self._backend.metrics(index)
 
     def list_indexes(self) -> list[str]:
-        return list(self._indexes.keys())
+        return self._backend.list_indexes()

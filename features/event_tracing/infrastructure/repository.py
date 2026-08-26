@@ -25,6 +25,8 @@ from returns.result import safe
 
 from features.event_tracing.application.ports.trace_repository import TraceRepository
 from features.event_tracing.domain.models import TraceEvent
+from libs.cognitive_graph.cognitive_registry import memory_data_dir
+from shared.core.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)
 
@@ -161,17 +163,20 @@ def _resolve_project_root_core(chain_dir: str) -> str:
 # ── Cores @safe (IO) ────────────────────────────────────────────
 
 @safe
-def _search_cognitive_graph_core(chain_dir: str) -> list[TraceEvent]:
+def _search_cognitive_graph_core(chain_dir: str, graph_factory=None) -> list[TraceEvent]:
     """Core puro: carga eventos via CognitiveGraph (puede lanzar).
 
     Reutiliza TraceEvent.from_dict (DRY, ADR-018): el mapeo de campos vive
     en un solo lugar. La raiz CG es project_root (consistente con el task
     trace_push del engine) con fallback a chain_dir.
     """
-    from core.engine.bootstrap import get_module_service
-
-    graph_factory = get_module_service("cognitive_graph")
-    cg = graph_factory(_cg_root(chain_dir))
+    if graph_factory is None:
+        raise ValueError(
+            "_search_cognitive_graph_core requiere graph_factory inyectado. "
+            "Pásalo desde el composition root."
+        )
+    # ADR-WALKER-061 (F6): conexión desde CONFIG (env).
+    cg = graph_factory(load_memory_connection(memory_data_dir(_cg_root(chain_dir))))
     result = cg.search("trace", {})
     events: list[TraceEvent] = []
     for h in result.get("hits", {}).get("hits", []):
@@ -182,12 +187,16 @@ def _search_cognitive_graph_core(chain_dir: str) -> list[TraceEvent]:
 
 
 @safe
-def _push_event_core(chain_dir: str, data: dict) -> dict:
+def _push_event_core(chain_dir: str, data: dict, graph_factory=None) -> dict:
     """Core puro de push_event (puede lanzar).
 
     Respuesta: {"ok": bool, "data": {"event_id", "event_type"}}.
     """
-    from core.engine.bootstrap import get_module_service
+    if graph_factory is None:
+        raise ValueError(
+            "_push_event_core requiere graph_factory inyectado. "
+            "Pásalo desde el composition root."
+        )
 
     ts = datetime.now(timezone.utc).isoformat()
     event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
@@ -209,7 +218,8 @@ def _push_event_core(chain_dir: str, data: dict) -> dict:
         "duration_ms": data.get("duration_ms", 0),
         "metadata": data.get("metadata", {}),
     }
-    cg = get_module_service("cognitive_graph")(_cg_root(chain_dir))
+    # ADR-WALKER-061 (F6): conexión desde CONFIG (env).
+    cg = graph_factory(load_memory_connection(memory_data_dir(_cg_root(chain_dir))))
     cg.store("trace", event_id, event)
     return {
         "ok": True,

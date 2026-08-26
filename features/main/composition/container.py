@@ -115,7 +115,7 @@ class AppContainer:
         global _CONTAINER
         _CONTAINER = None
         try:
-            from core.engine.bootstrap import reset_module_registry
+            from shared.core.engine.bootstrap import reset_module_registry
 
             reset_module_registry()
         except Exception:
@@ -157,48 +157,29 @@ class AppContainer:
         from features.main.composition.registry import _build_tracer_core
 
         tracer = _build_tracer_core()
-        from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-        from core.engine.infrastructure.side_effects import SideEffectEngine
-        from core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
+        from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+        from shared.core.engine.infrastructure.side_effects import SideEffectEngine
+        from shared.core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
 
         registry = InMemoryTaskRegistry(tracer=tracer)
         se_engine = SideEffectEngine(tracer=tracer)
 
-        from shared.core.path_resolver import get_engine_workflow_path
-        from features.project import ProjectService
-
-        workflow_path = str(get_engine_workflow_path())
-        if chain_dir:
-            try:
-                # Replicar la lógica de resolución del WorkflowRepository anterior:
-                # 1. Buscar en parent/workflow.v3/workflow.json (relativo al chain_dir)
-                parent = os.path.dirname(os.path.dirname(chain_dir))
-                wf_dir = 'workflow.v3'
-                modular = os.path.join(parent, wf_dir, 'workflow.json')
-                if os.path.exists(modular):
-                    workflow_path = modular
-                else:
-                    # 2. Buscar en project_root/workflow.v3/workflow.json
-                    paths = ProjectService.resolve_paths(chain_dir)
-                    project_wf = os.path.join(
-                        str(paths.project_root), wf_dir, 'workflow.json'
-                    )
-                    if os.path.exists(project_wf):
-                        workflow_path = project_wf
-            except Exception:
-                pass
+        from shared.core.engine.infrastructure.config import get_workflow_manifest_path
+        # ADR-WALKER-061: manifiesto ÚNICO desde config central. Sin búsquedas
+        # legacy workflow.v3/ ni fallbacks por proyecto (cero deuda).
+        workflow_path = get_workflow_manifest_path()
         workflow_repo = WorkflowRepository(workflow_path=workflow_path)
 
         # 1a. ContextProviderRegistry completo: base del engine (task, state,
         # diff, test_results) + providers de negocio de features (business,
         # ckg, cpg, delta, project, reflection, trace). ADR-045: el
         # composition root es el ÚNICO que arma este registry.
-        from core.engine.bootstrap import build_context_registry
+        from shared.core.engine.bootstrap import build_context_registry
 
         context_registry = build_context_registry()
 
         # 3. ModuleRegistry unificado (composition root final, ADR-045)
-        from core.engine.infrastructure.module_registry import InMemoryModuleRegistry
+        from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
         from features.main.composition.registry import _build_workflow_facade
 
         module_registry = InMemoryModuleRegistry()
@@ -210,7 +191,7 @@ class AppContainer:
 
         # 4. OrchestrationService sin action_catalog todavía (se inyecta después
         # de register_all para romper el ciclo orch → facade → register_all).
-        from core.engine.application.orchestrator import OrchestrationService
+        from shared.core.engine.application.orchestrator import OrchestrationService
 
         orch = OrchestrationService(
             workflow_repo=workflow_repo,
@@ -237,7 +218,7 @@ class AppContainer:
         # 7. ActionCatalog: el puerto único de workflow actions (SPEC-014
         # Fase 1). Se construye DESPUÉS de register_all para tener todos
         # los handlers registrados.
-        from core.engine.domain.workflow_action import (
+        from shared.core.engine.domain.workflow_action import (
             ActionCatalog,
             KIND_SIDE_EFFECT,
             KIND_SUB_STATE_ACTION,
@@ -266,6 +247,8 @@ class AppContainer:
         se_engine._action_catalog = action_catalog
 
         # 4. DI por clave lógica: las instancias ya construidas en build().
+        from features.project import ProjectService
+
         services: dict[str, Any] = {
             "module_registry": module_registry,
             "task_registry": registry,

@@ -70,24 +70,24 @@ class TestAgentSession:
         _setup_project(tmp_path)
         session = _initialize_session()
 
-        tools = ["status", "list", "kg_search"]
+        tools = ["status", "list", "recall_knowledge"]
         for tool in tools:
             args = {"project_id": "walker"} if tool == "status" else {}
-            if tool == "kg_search":
+            if tool == "recall_knowledge":
                 args = {"query": "test"}
             resp = _mcp_call(tool, args, session_id=session.session_id.value)
             assert resp.get("result", {}).get("isError") is not True
             data = _parse_mcp_result(resp)
-            # Endurecido (fix de asserts débiles): kg_search debe devolver ok=True
+            # Endurecido (fix de asserts débiles): recall_knowledge debe devolver ok=True
             # con result estructurado — no un fallback (projects_list) ni vacío.
-            if tool == "kg_search":
+            if tool == "recall_knowledge":
                 d = data.get("data", {})
                 assert d.get("type") != "projects_list", (
-                    f"kg_search cayó al fallback: {d.get('type')}"
+                    f"recall_knowledge cayó al fallback: {d.get('type')}"
                 )
-                assert d.get("ok") is True, f"kg_search no ok: {d}"
+                assert d.get("ok") is True, f"recall_knowledge no ok: {d}"
                 assert isinstance(d.get("result", {}), dict), (
-                    f"kg_search result no estructurado: {d}"
+                    f"recall_knowledge result no estructurado: {d}"
                 )
 
     def test_agent_context_preservation_across_tools(self, tmp_path):
@@ -125,7 +125,7 @@ class TestAgentSession:
         }, session_id=session.session_id.value)
         assert resp1.get("result", {}).get("isError") is not True
 
-        resp2 = _mcp_call("kg_search", {
+        resp2 = _mcp_call("recall_knowledge", {
             "query": "Agent side effects test",
             "index": "delta",
         }, session_id=session.session_id.value)

@@ -15,11 +15,11 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from core.engine.infrastructure.module_registry import InMemoryModuleRegistry
-from core.engine.infrastructure.repositories import ScriptRunner, WorkflowRepository
-from core.engine.infrastructure.side_effects import SideEffectEngine
-from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-from core.engine.application.orchestrator import OrchestrationService
+from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
+from shared.core.engine.infrastructure.repositories import ScriptRunner, WorkflowRepository
+from shared.core.engine.infrastructure.side_effects import SideEffectEngine
+from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+from shared.core.engine.application.orchestrator import OrchestrationService
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +48,9 @@ def register_all(
 
     # 3a. Módulo MCP del engine: features/main lo registra EXPLÍCITAMENTE
     # (ADR-045 — el discovery automático solo escanea features/, no core/).
-    from core.engine.mcp import register_module as _register_engine_mcp
+    from features.main.cli_interface.engine_mcp import register_module as _register_engine_mcp
 
-    _register_engine_mcp(module_registry)
+    _register_engine_mcp(module_registry, workflow=workflow_facade)
 
     # 3b. Tasks y side effects del workflow — concepto de MAIN, viven
     # SOLO en features/main/task_execution (ADR-047 Fase 3). El discovery
@@ -77,9 +77,10 @@ def register_all(
 def _build_tracer_core() -> Any:
     """Tracer best-effort (no bloquea el composition root)."""
     try:
-        from core.engine.infrastructure.trace_log import TraceLogger
-
-        return TraceLogger()
+        from shared.core.engine.infrastructure.trace_log import TraceLogger
+        from shared.core import path_resolver as _pr
+        from features.main.bootstrap import _build_graph
+        return TraceLogger(path_resolver=_pr, cognitive_graph_factory=_build_graph_from_path)
     except Exception as exc:
         logger.debug("main: tracer no disponible (%s)", exc)
         return None
@@ -239,6 +240,11 @@ def _register_libs_services(registry: Any) -> None:
         lazy=True,
     )
     registry.register_service(
+        "code_analysis",
+        _build_code_analysis,
+        lazy=True,
+    )
+    registry.register_service(
         "trace_service",
         _build_trace_service,
         lazy=True,
@@ -306,23 +312,61 @@ def _build_path_resolver() -> Any:
     return _Proxy()
 
 
-def _build_graph(project_root: str = "") -> Any:
-    """Factory del orquestador CognitiveGraph (escritura + búsqueda)."""
-    from shared.core.cognitive_graph import CognitiveGraph
-    from libs.cognitive_graph.cognitive_registry import register_cognitive_indexes
+def _build_graph(conn: "MemoryConnection | str") -> Any:
+    """Factory del orquestador CognitiveGraph (escritura + búsqueda).
 
-    graph = CognitiveGraph(project_root or ".")
+    ADR-WALKER-061 (F4): firma canónica Callable[[MemoryConnection], Any].
+    El backend (FileBackend) y el CognitiveGraph se construyen a partir de la
+    conexión resuelta (config), no de un path crudo. Un DbBackend futuro se
+    enchufa por config sin tocar este factory.
+
+    Por backward-compat (callers del engine que pasan un path str) también
+    acepta un str, que se resuelve a MemoryConnection vía memory_data_dir.
+    """
+    from shared.core.cognitive_graph import CognitiveGraph
+    from shared.core.cognitive_graph.connection import MemoryConnection
+    from shared.core.cognitive_graph.file_backend import FileBackend
+    from libs.cognitive_graph.cognitive_registry import (
+        register_cognitive_indexes,
+        memory_data_dir,
+    )
+
+    if isinstance(conn, str):
+        conn = MemoryConnection(uri="file://" + memory_data_dir(conn))
+    # ADR-WALKER-061 (F6): el adapter se resuelve por config (conn.backend),
+    # no hardcodeado. FileBackend hoy; DbBackend mañana vía env.
+    from shared.core.cognitive_graph.backends import resolve_storage_backend
+    backend = resolve_storage_backend(conn)
+    graph = CognitiveGraph(backend=backend, conn=conn)
     register_cognitive_indexes(graph)
     return graph
 
 
-def _build_searcher(project_root: str = "") -> Any:
+def _build_graph_from_path(chain_dir: str = "") -> Any:
+    """Wrapper path->MemoryConnection para TraceLogger (shared/core/engine).
+
+    TraceLogger invoca el factory con un path (no conoce MemoryConnection);
+    este wrapper resuelve el data_dir y construye la conexión desde CONFIG
+    (env). Vive en features/main (no en shared/core/engine) para no acoplar
+    el engine a features (ADR-WALKER-045/058).
+    """
+    from libs.cognitive_graph.cognitive_registry import memory_data_dir
+    from shared.core.cognitive_graph.config import load_memory_connection
+
+    conn = load_memory_connection(memory_data_dir(chain_dir))
+    return _build_graph(conn)
+
+
+def _build_searcher(chain_dir: str = "") -> Any:
     """Factory del lector CQRS sobre CognitiveGraph (capa de lectura)."""
     from shared.core.cognitive_graph import CognitiveGraph
     from shared.core.cognitive_searcher import CognitiveGraphSearcher
-    from libs.cognitive_graph.cognitive_registry import register_cognitive_indexes
+    from libs.cognitive_graph.cognitive_registry import (
+        register_cognitive_indexes,
+        memory_data_dir,
+    )
 
-    graph = CognitiveGraph(project_root or ".")
+    graph = CognitiveGraph(memory_data_dir(chain_dir))
     register_cognitive_indexes(graph)
     return CognitiveGraphSearcher(graph)
 
@@ -370,6 +414,21 @@ def _build_ckg_factory() -> Any:
     from features.cognitive_knowledge import ckg_service
 
     return ckg_service
+
+
+def _build_code_analysis(chain_dir: str = "") -> Any:
+    """Factory del Application Service de code_analysis (DI, clave "code_analysis").
+
+    Nest-like (ADR-052/053): el service es inyectado por clave a los
+    consumidores (adapter/tasks) — la única orquestación de la lógica del
+    feature. `chain_dir` se resuelve al arranque/uso igual que los demás
+    providers (patrón cognitive_graph).
+    """
+    from features.code_analysis.application.services.code_analysis_service import (
+        CodeAnalysisService,
+    )
+
+    return CodeAnalysisService(chain_dir)
 
 
 def _build_trace_service() -> Any:
@@ -510,10 +569,7 @@ def _build_searcher_for_chain_dir(chain_dir: str) -> Any:
         paths = ProjectService.resolve_paths(chain_dir)
         if not paths.project_root:
             return None
-        from core.engine.bootstrap import get_module_service
-
-        searcher_factory = get_module_service("cognitive_searcher")
-        return searcher_factory(str(paths.project_root))
+        return _build_searcher(str(paths.project_root))
     except Exception:
         return None
 

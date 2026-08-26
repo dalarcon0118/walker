@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 # ── Validation patterns ──
@@ -146,7 +146,6 @@ class ProjectPaths:
         project_json_path: project.json (manifest).
         workflow_json_path: workflow.json.
         repo_path: Source code repo root.
-        code_paths: Source subdirectories.
         cognitive_dir: .cognitive/ dir for active project.
         walker_root: Walker installation root.
     """
@@ -163,7 +162,6 @@ class ProjectPaths:
     project_json_path: str = ""
     workflow_json_path: str = ""
     repo_path: str = ""
-    code_paths: tuple[str, ...] = field(default_factory=tuple)
     cognitive_dir: str = ""
     walker_root: str = ""
 
@@ -185,7 +183,6 @@ class ProjectManifest:
     language: str = ""
     framework: str = ""
     repo_path: str = ""
-    code_paths: list[str] = field(default_factory=list)
     description: str = ""
 
     @staticmethod
@@ -197,7 +194,6 @@ class ProjectManifest:
         language = identity.get("language", data.get("project", data).get("language", ""))
         framework = identity.get("framework", data.get("project", data).get("framework", ""))
         repo_path = data.get("project", data).get("repo_path", "") or ""
-        code_paths = data.get("project", data).get("code_paths", []) or []
         description = data.get("project", data).get("description", "") or ""
 
         if not name:
@@ -208,6 +204,5 @@ class ProjectManifest:
             language=language,
             framework=framework,
             repo_path=repo_path,
-            code_paths=code_paths,
             description=description,
         ), errors

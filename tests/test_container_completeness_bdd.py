@@ -79,8 +79,8 @@ class TestContainerCompleteness:
         """
         import logging
 
-        from core.engine.context import ContextProviderRegistry
-        from core.engine.context.providers import DiffProvider
+        from shared.core.engine.context import ContextProviderRegistry
+        from shared.core.engine.context.providers import DiffProvider
 
         registry = ContextProviderRegistry()
         provider = DiffProvider()
@@ -96,12 +96,12 @@ class TestContainerCompleteness:
         assert registry.get("diff") is provider
 
     def test_di_exposes_container_services(self):
-        """El facade neutro de core/engine resuelve desde el container."""
-        from core.engine.bootstrap import get_module_service
+        """El composition root expone workflow y task_registry via module_registry."""
         from features.main.container import AppContainer
 
-        AppContainer.build()
-        assert callable(get_module_service("workflow").submit)
-        assert callable(get_module_service("workflow").status)
-        task_registry = get_module_service("task_registry")
-        assert task_registry is AppContainer.build().task_registry
+        app = AppContainer.build()
+        registry = app.module_registry
+        assert callable(registry.get_service("workflow").submit)
+        assert callable(registry.get_service("workflow").status)
+        task_registry = registry.get_service("task_registry")
+        assert task_registry is app.task_registry

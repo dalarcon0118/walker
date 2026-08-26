@@ -24,7 +24,7 @@ def f5_ctx() -> dict:
 
 
 def _catalog_tools():
-    from core.engine.application.tool_catalog import list_tools
+    from shared.core.engine.application.tool_catalog import list_tools
 
     return list_tools() or []
 
@@ -117,7 +117,7 @@ def _catalog_loaded(f5_ctx: dict):
 
 @when("se pide ayuda de kg_task_context")
 def _help_kg_task_context(f5_ctx: dict):
-    from core.engine.application.tool_catalog import build_tool_help
+    from shared.core.engine.application.tool_catalog import build_tool_help
 
     f5_ctx["help_doc"] = build_tool_help("kg_task_context") if f5_ctx["tools"] else None
 
@@ -148,7 +148,7 @@ def _sprint_task_spec_node(f5_ctx: dict):
 
 @when("se valida una salida con task_id y status")
 def _validate_llm_output_ok(f5_ctx: dict):
-    from core.engine.workflow.contracts import validate_llm_task_output
+    from data.workflow.contracts import validate_llm_task_output
 
     f5_ctx["out"] = validate_llm_task_output(
         "SPRINT", "TASK_SPEC", {"task_id": "feat-1", "status": "specified"}
@@ -176,7 +176,7 @@ def _sprint_task_spec_node_2(f5_ctx: dict):
 
 @when("se valida una salida sin task_id")
 def _validate_llm_output_fail(f5_ctx: dict):
-    from core.engine.workflow.contracts import (
+    from data.workflow.contracts import (
         ContractOutputError,
         validate_llm_task_output,
     )
@@ -200,7 +200,7 @@ def _virtual_node_no_dto(f5_ctx: dict):
 
 @when("se valida una salida arbitraria")
 def _validate_arbitrary(f5_ctx: dict):
-    from core.engine.workflow.contracts import validate_llm_task_output
+    from data.workflow.contracts import validate_llm_task_output
 
     f5_ctx["out"] = validate_llm_task_output("VIRTUAL", "CUSTOM", {"a": 1})
 
@@ -215,7 +215,7 @@ def _assert_fail_open(f5_ctx: dict):
 
 @given("el registro de CONTEXT_SCHEMAS")
 def _context_schemas(f5_ctx: dict):
-    from core.engine.context.contracts import CONTEXT_SCHEMAS
+    from shared.core.engine.context.contracts import CONTEXT_SCHEMAS
 
     f5_ctx["context_schemas"] = CONTEXT_SCHEMAS
 
@@ -246,7 +246,7 @@ def _assert_properties_dict(f5_ctx: dict):
 
 @given("el registro WORKFLOW_OUTPUTS")
 def _workflow_outputs(f5_ctx: dict):
-    from core.engine.workflow.contracts import WORKFLOW_OUTPUTS
+    from data.workflow.contracts import WORKFLOW_OUTPUTS
 
     f5_ctx["workflow_outputs"] = WORKFLOW_OUTPUTS
 
@@ -273,7 +273,7 @@ def _assert_refine_diagnose(f5_ctx: dict):
 
 @given("el tool kg_diagnose en el catálogo")
 def _kg_diagnose_tool(f5_ctx: dict):
-    from core.engine.application.tool_catalog import get_tool
+    from shared.core.engine.application.tool_catalog import get_tool
 
     f5_ctx["tool"] = get_tool("kg_diagnose")
 
@@ -300,7 +300,7 @@ def _assert_props_diagnosis_ok(f5_ctx: dict):
 
 @given("las tools status, submit y transition")
 def _workflow_tools(f5_ctx: dict):
-    from core.engine.application.tool_catalog import get_tool
+    from shared.core.engine.application.tool_catalog import get_tool
 
     f5_ctx["tools"] = {
         name: get_tool(name) for name in ("status", "submit", "transition")

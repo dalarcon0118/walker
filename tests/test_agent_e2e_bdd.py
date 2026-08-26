@@ -6,7 +6,7 @@ Nivel 1 de testing (según SPEC-003):
 - test_mcp_tool_submit_full_workflow (via engine directo)
 - test_mcp_tool_transition_between_nodes (via engine directo)
 - test_mcp_tool_capture_task_creates_spec
-- test_mcp_tool_kg_search_returns_delta
+- test_mcp_tool_recall_knowledge_returns_delta
 - test_mcp_tool_save_to_ckg_persists_decision
 - test_mcp_tool_ckg_analyze_returns_nodes
 - test_mcp_tool_cpg_analyze_builds_graph
@@ -23,10 +23,10 @@ from pathlib import Path
 
 import pytest
 
-from core.engine.application.orchestrator import OrchestrationService
-from core.engine.domain.entities import WorkflowState
+from shared.core.engine.application.orchestrator import OrchestrationService
+from shared.core.engine.domain.entities import WorkflowState
 from shared.common.shared_domain.models import ExecutionContext
-from core.engine.infrastructure.repositories import (
+from shared.core.engine.infrastructure.repositories import (
     WorkflowStateRepository,
 )
 from features.delta_tracking import spring_service
@@ -68,8 +68,8 @@ def _setup_project(tmp_path: Path) -> tuple[str, str]:
     # Sprint dir en el layout real (.cognitive/projects/walker/data/spring/)
     real_sprint_dir = Path(project_root) / "data" / "spring" / "sprint-e2e"
     real_sprint_dir.mkdir(parents=True, exist_ok=True)
-    from core.engine.domain.entities import WorkflowState
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.domain.entities import WorkflowState
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 
     wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
     wf.context["chain_dir"] = str(real_sprint_dir)
@@ -459,7 +459,7 @@ def _get_orchestration_service(chain_dir: str) -> OrchestrationService:
     sustituían TODO el registry — enmascarando el bug de composición en
     producción (el flujo CLI/MCP avanzaba sin ejecutar tasks reales)."""
     from features.main.container import AppContainer
-    from core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
+    from shared.core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
     from shared.core.path_resolver import get_engine_workflow_path
     from features.project import ProjectService
 
@@ -513,7 +513,7 @@ class TestAgentE2E:
         while _E2E_REGISTRY_CTX:
             ctx = _E2E_REGISTRY_CTX.pop()
             ctx.__exit__(None, None, None)
-        from core.engine.bootstrap import reset_module_registry
+        from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
 
@@ -616,19 +616,19 @@ class TestAgentE2E:
         assert state.current_node == "ACTIVE_NODE"
         assert state.current_sub_state == "START"
 
-    def test_mcp_tool_kg_search_returns_delta(self, tmp_path):
+    def test_mcp_tool_recall_knowledge_returns_delta(self, tmp_path):
         """Endurecido (fix de asserts débiles): antes solo validaba status 200.
 
-        kg_search debe devolver ok=True con un result de búsqueda estructurado
+        recall_knowledge debe devolver ok=True con un result de búsqueda estructurado
         (hits.total numérico). Un fallback (projects_list) o un result vacío
-        sin estructura ya no pasa. NOTA: hoy el route de kg_search descarta el
+        sin estructura ya no pasa. NOTA: hoy el route de recall_knowledge descarta el
         index (flags_builder solo pasa query) → consulta el índice default."""
         project_root, chain_dir = _setup_project(tmp_path)
         _setup_workflow(chain_dir)
         _setup_delta(chain_dir)
         _setup_workflow_state(chain_dir)
 
-        resp = _mcp_call("kg_search", {
+        resp = _mcp_call("recall_knowledge", {
             "_project_id": "walker",
             "query": "E2E MCP spec",
             "index": "delta",
@@ -638,14 +638,14 @@ class TestAgentE2E:
         assert data.get("status_code") == 200
         d = data.get("data", {})
         assert d.get("type") != "projects_list", (
-            f"kg_search cayó al fallback projects_list: {d.get('type')}"
+            f"recall_knowledge cayó al fallback projects_list: {d.get('type')}"
         )
-        assert d.get("ok") is True, f"kg_search no ok: {d}"
+        assert d.get("ok") is True, f"recall_knowledge no ok: {d}"
         result = d.get("result", {})
-        assert isinstance(result, dict), f"kg_search result no estructurado: {result}"
+        assert isinstance(result, dict), f"recall_knowledge result no estructurado: {result}"
         hits = result.get("hits", {})
         assert isinstance(hits.get("total"), int), (
-            f"kg_search sin hits.total numérico: {result}"
+            f"recall_knowledge sin hits.total numérico: {result}"
         )
 
     def test_mcp_tool_save_to_ckg_persists_decision(self, tmp_path):

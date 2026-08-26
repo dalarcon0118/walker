@@ -65,7 +65,7 @@ def _make_blocked_state(
 
 @given("un sprint bloqueado esperando una consulta al knowledge graph")
 def _blocked_waiting_kg(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -99,7 +99,7 @@ def _blocked_waiting_kg(bpmn_ctx: dict):
 
 @given("un sprint bloqueado en una sub-tarea")
 def _blocked_subtask(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -133,7 +133,7 @@ def _blocked_subtask(bpmn_ctx: dict):
 
 @given("un sprint bloqueado esperando una señal externa")
 def _blocked_waiting_signal(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -167,7 +167,7 @@ def _blocked_waiting_signal(bpmn_ctx: dict):
 
 @given("un sprint bloqueado que no se puede resolver automáticamente")
 def _blocked_needs_escalation(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -241,7 +241,7 @@ def _blocked_needs_escalation(bpmn_ctx: dict):
 
 @given("un sprint con cambios aplicados que requiere rollback")
 def _blocked_needs_compensation(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -277,7 +277,7 @@ def _blocked_needs_compensation(bpmn_ctx: dict):
 
 @given("un sprint esperando un evento que tarda demasiado")
 def _blocked_waiting_timeout(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -313,7 +313,7 @@ def _blocked_waiting_timeout(bpmn_ctx: dict):
 
 @given("un sprint esperando una señal de aprobación")
 def _blocked_waiting_approval(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -357,7 +357,7 @@ def _blocked_waiting_approval(bpmn_ctx: dict):
 
 @given("múltiples nodos suscritos a una señal de actualización")
 def _multiple_nodes_subscribed(bpmn_ctx: dict):
-    from core.engine.domain.services.signal_bus import SignalBus
+    from shared.core.engine.domain.services.signal_bus import SignalBus
 
     bus = SignalBus()
     bus.subscribe("NODE_A", "sig1")
@@ -370,7 +370,7 @@ def _multiple_nodes_subscribed(bpmn_ctx: dict):
 
 @given("un nodo suscrito a señales globales")
 def _wildcard_node_subscribed(bpmn_ctx: dict):
-    from core.engine.domain.services.signal_bus import SignalBus
+    from shared.core.engine.domain.services.signal_bus import SignalBus
 
     bus = SignalBus()
     bus.subscribe("*", "global_signal")
@@ -381,13 +381,13 @@ def _wildcard_node_subscribed(bpmn_ctx: dict):
 
 @given("un sprint con múltiples efectos secundarios aplicados")
 def _sprint_with_side_effects(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
         WorkflowState,
     )
-    from core.engine.domain.values import SideEffectDef
+    from shared.core.engine.domain.values import SideEffectDef
 
     node_dict = _load_node_dict()
     d = dict(_load_work_substate(node_dict))
@@ -427,7 +427,7 @@ def _sprint_with_side_effects(bpmn_ctx: dict):
 
 @given('un sprint en estado "waiting for signal"')
 def _sprint_waiting_for_signal(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -471,7 +471,7 @@ def _sprint_waiting_for_signal(bpmn_ctx: dict):
 
 @given("un sprint en espera con timeout configurado")
 def _sprint_waiting_with_timeout(bpmn_ctx: dict):
-    from core.engine.domain.entities import (
+    from shared.core.engine.domain.entities import (
         SubState,
         WorkflowNode,
         WorkflowGraph,
@@ -511,7 +511,7 @@ def _sprint_waiting_with_timeout(bpmn_ctx: dict):
 @when('se aplica la estrategia de resolución "saltar"')
 @when('se aplica la estrategia de resolución "skip"')
 def _apply_skip(bpmn_ctx: dict):
-    from core.engine.domain.services.block_resolver import BlockResolver
+    from shared.core.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
         bpmn_ctx["state"],
@@ -524,7 +524,7 @@ def _apply_skip(bpmn_ctx: dict):
 
 @when('se aplica la estrategia de resolución "forzar"')
 def _apply_force(bpmn_ctx: dict):
-    from core.engine.domain.services.block_resolver import BlockResolver
+    from shared.core.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
         bpmn_ctx["state"],
@@ -537,7 +537,7 @@ def _apply_force(bpmn_ctx: dict):
 
 @when('se aplica la estrategia de resolución "esperar"')
 def _apply_wait(bpmn_ctx: dict):
-    from core.engine.domain.services.block_resolver import BlockResolver
+    from shared.core.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
         bpmn_ctx["state"],
@@ -550,7 +550,7 @@ def _apply_wait(bpmn_ctx: dict):
 
 @when('se aplica la estrategia de resolución "escalar"')
 def _apply_escalate(bpmn_ctx: dict):
-    from core.engine.domain.services.block_resolver import BlockResolver
+    from shared.core.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
         bpmn_ctx["state"],
@@ -563,7 +563,7 @@ def _apply_escalate(bpmn_ctx: dict):
 
 @when('se aplica la estrategia de resolución "compensar"')
 def _apply_compensate(bpmn_ctx: dict):
-    from core.engine.domain.services.block_resolver import BlockResolver
+    from shared.core.engine.domain.services.block_resolver import BlockResolver
 
     result = BlockResolver.resolve(
         bpmn_ctx["state"],
@@ -577,7 +577,7 @@ def _apply_compensate(bpmn_ctx: dict):
 @when("el timeout se cumple")
 def _timeout_elapsed(bpmn_ctx: dict):
     import time
-    from core.engine.engine import check_blocked_state
+    from shared.core.engine.engine import check_blocked_state
 
     time.sleep(0.15)
     result = check_blocked_state(bpmn_ctx["state"], bpmn_ctx["graph"], strategy="skip")
@@ -586,7 +586,7 @@ def _timeout_elapsed(bpmn_ctx: dict):
 
 @when('llega la señal "aprobación_recibida"')
 def _approval_signal_arrives(bpmn_ctx: dict):
-    from core.engine.engine import check_blocked_state
+    from shared.core.engine.engine import check_blocked_state
 
     result = check_blocked_state(
         bpmn_ctx["state"], bpmn_ctx["graph"], strategy="auto_advance"
@@ -610,7 +610,7 @@ def _emit_global_signal(bpmn_ctx: dict):
 
 @when("se ejecuta la compensación")
 def _execute_compensation(bpmn_ctx: dict):
-    from core.engine.domain.services.compensation_engine import CompensationEngine
+    from shared.core.engine.domain.services.compensation_engine import CompensationEngine
 
     result = CompensationEngine.execute(bpmn_ctx["state"], bpmn_ctx["graph"], "WORK")
     bpmn_ctx["result"] = result
@@ -618,7 +618,7 @@ def _execute_compensation(bpmn_ctx: dict):
 
 @when("se recibe la señal esperada")
 def _expected_signal_received(bpmn_ctx: dict):
-    from core.engine.engine import check_blocked_state
+    from shared.core.engine.engine import check_blocked_state
 
     result = check_blocked_state(
         bpmn_ctx["state"], bpmn_ctx["graph"], strategy="auto_advance"
@@ -629,7 +629,7 @@ def _expected_signal_received(bpmn_ctx: dict):
 @when("el tiempo de espera se agota")
 def _wait_time_exhausted(bpmn_ctx: dict):
     import time
-    from core.engine.engine import check_blocked_state
+    from shared.core.engine.engine import check_blocked_state
 
     time.sleep(0.15)
     result = check_blocked_state(bpmn_ctx["state"], bpmn_ctx["graph"], strategy="skip")

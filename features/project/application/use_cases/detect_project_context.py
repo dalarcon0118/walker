@@ -1,6 +1,7 @@
 """use_cases/detect_project_context.py — DetectProjectContextUseCase.
 
-Detecta el contexto del proyecto: lenguajes, frameworks, git, code paths.
+Detecta el contexto del proyecto: lenguajes, frameworks, git.
+(code_paths fue eliminado — ADR-WALKER-054 D1: el scope es repo_path.)
 """
 from __future__ import annotations
 
@@ -9,14 +10,13 @@ import os
 
 
 class DetectProjectContextUseCase:
-    """Detect project context: languages, frameworks, git, code paths."""
+    """Detect project context: languages, frameworks, git."""
 
     @staticmethod
     def execute(project_path: str) -> dict:
         has_git = os.path.isdir(os.path.join(project_path, ".git"))
         languages = set()
         framework = "unknown"
-        code_paths = []
 
         for root, dirs, files in os.walk(project_path):
             dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
@@ -43,13 +43,6 @@ class DetectProjectContextUseCase:
                     framework = "rust/cargo"
                 elif f == "go.mod":
                     framework = "go"
-            if root == project_path:
-                code_paths = [
-                    d
-                    for d in dirs
-                    if d not in (".git", "__pycache__", "node_modules", "venv")
-                ]
-                break
 
         return {
             "detected": True,
@@ -58,5 +51,4 @@ class DetectProjectContextUseCase:
             "has_code": len(languages) > 0,
             "languages": list(languages),
             "framework": framework,
-            "code_paths": code_paths,
         }

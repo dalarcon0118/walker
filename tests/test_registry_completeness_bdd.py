@@ -59,14 +59,12 @@ class TestRegistryCompleteness:
         assert "create_adr" in handlers, "create_adr no registrado"
 
     def test_di_exposes_task_registry_service(self):
-        """capa_rout.md D1: get_module_service('task_registry') devuelve el
+        """capa_rout.md D1: module_registry.get_service('task_registry') devuelve el
         registry poblado — sin esto, _build_workflow_services no puede
         inyectar tasks en producción."""
         from features.main.container import AppContainer
 
         app = AppContainer.build()
-        from core.engine.bootstrap import get_module_service
-
-        task_registry = get_module_service("task_registry")
+        task_registry = app.module_registry.get_service("task_registry")
         missing = EXPECTED_WORKFLOW_TASKS - set(task_registry.list_tasks())
         assert not missing, f"DI task_registry incompleto: {sorted(missing)}"

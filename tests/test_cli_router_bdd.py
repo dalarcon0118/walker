@@ -28,7 +28,7 @@ def _restore_global_registry(cli_ctx):
     if reg_ctx is not None:
         reg_ctx.__exit__(None, None, None)
         cli_ctx["_reg_ctx"] = None
-        from core.engine.bootstrap import reset_module_registry
+        from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
         from features.main.cli_interface import mcp_adapter
@@ -100,9 +100,9 @@ def _main_walker_status(cli_ctx: dict):
     cli_ctx["err"] = err
 
 
-@given('que ejecuto main con ["task", "kg_search", "--query", "ckg"]')
+@given('que ejecuto main con ["task", "recall_knowledge", "--query", "ckg"]')
 def _main_task(cli_ctx: dict):
-    rc, out, err = _run_main(["task", "kg_search", "--query", "ckg"])
+    rc, out, err = _run_main(["task", "recall_knowledge", "--query", "ckg"])
     cli_ctx["rc"] = rc
     cli_ctx["out"] = out
     cli_ctx["err"] = err
@@ -116,9 +116,9 @@ def _main_json_positional(cli_ctx: dict):
     cli_ctx["err"] = err
 
 
-@given('que ejecuto main con ["kg_search?index=ckg"]')
+@given('que ejecuto main con ["recall_knowledge?index=ckg"]')
 def _main_query_params(cli_ctx: dict):
-    rc, out, err = _run_main(["kg_search?index=ckg"])
+    rc, out, err = _run_main(["recall_knowledge?index=ckg"])
     cli_ctx["rc"] = rc
     cli_ctx["out"] = out
     cli_ctx["err"] = err

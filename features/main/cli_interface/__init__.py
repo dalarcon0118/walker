@@ -11,8 +11,8 @@ REST routing:
   walker GET status                     → GET  /status
   walker POST submit '{"field":"x"}'    → POST /submit  (body JSON)
   walker react-native-frontend/status   → GET  /:projectId/status
-  walker task kg_schema                 → GET  /task/:taskName
-  walker kg_search?index=ckg            → GET  /kg_search (query params)
+  walker task memory_schema           → GET  /task/:taskName
+  walker recall_knowledge?index=ckg   → GET  /task/recall_knowledge (query params)
   walker POST react-native-frontend/submit
 
 Si no se especifica verbo, se infiere por la ruta (matcheo por path).
@@ -342,7 +342,7 @@ def main(args: list[str] | None = None) -> int:
     raw_path = args[0]
     flag_args = args[1:]
 
-    # Query params estilo URL: walker kg_search?index=ckg
+    # Query params estilo URL: walker recall_knowledge?index=ckg
     raw_path, query_flags = _parse_query_string(raw_path)
 
     path = raw_path.strip("/")

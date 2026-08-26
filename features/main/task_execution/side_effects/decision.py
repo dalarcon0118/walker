@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from core.engine.domain.side_effect_contract import as_side_effect, SCOPE_KNOWLEDGE
+from shared.core.engine.domain.side_effect_contract import as_side_effect, SCOPE_KNOWLEDGE
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def _resolve_ref(chain_dir: str, ref: str) -> Any:
     sub_state_key = parts[1]
     field = ".".join(parts[3:])
     try:
-        from core.engine.infrastructure.repositories import WorkflowStateRepository
+        from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 
         state = WorkflowStateRepository().load(chain_dir)
         prefixed = ""

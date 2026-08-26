@@ -1,40 +1,85 @@
-"""infrastructure/cognitive_cpg_repo.py — Implementa CpgRepository via CognitiveGraph.
+"""infrastructure/cognitive_cpg_repo.py — Implementa CpgRepository via StorageBackend.
 
-Capa de infraestructura. Delega en el indice 'cpg' de CognitiveGraph
-para busquedas estructuradas. load/save usan CpgFileRepository como
-storage fisico (archivo cpg.json.gz).
+ADR-WALKER-061 (F5): UN SOLO BACKEND. Antes este repo mezclaba dos caminos
+de persistencia (CpgFileRepository para load/save + CognitiveGraph para
+search), derivando la raíz del grafo pelando un filename
+(`cpg_path.replace("cpg.json.gz", "")`). Ahora habla exclusivamente con el
+puerto StorageBackend (get_docs/get_all_edges/get_metadata/replace_blob/
+search), igual que los repos de Delta/CKG/Trace.
+
+El formato en disco NO cambia: sigue siendo <data_dir>/cpg.json.gz en el
+formato índice (docs + edges + metadata), escrito atómicamente por
+FileBackend/Index.
+
+Inyección: si el composition root provee graph_factory se usa (permite un
+DbBackend futuro por config); si no, se construye deterministicamente un
+FileBackend desde data_dir (que YA es la raíz de memorias resuelta) — sin
+service locator ni imports de features/main.
 """
 
 from __future__ import annotations
 
+import os
+from typing import Any
 
 from features.code_analysis.application.ports.cpg_repository import CpgRepository
-from features.code_analysis.infrastructure.repository import CpgFileRepository
+from shared.core.cognitive_graph.config import load_memory_connection
 
 
 class CognitiveCpgRepository(CpgRepository):
-    """Implementacion sobre CognitiveGraph (indice 'cpg') + CpgFileRepository."""
+    """Implementación sobre el índice 'cpg' del puerto StorageBackend."""
 
-    def __init__(self, data_dir: str, project_id: str):
-        self._file_repo = CpgFileRepository(data_dir)
+    INDEX = "cpg"
+
+    def __init__(self, data_dir: str, project_id: str, graph_factory: Any = None):
         self._project_id = project_id
-        self._cg = None
+        # data_dir YA es la raíz de memorias resuelta (no re-resolver).
+        conn = load_memory_connection(os.path.abspath(data_dir))
+        if graph_factory is not None:
+            # Canónico (ADR-059/061): el composition root inyecta el factory
+            # (Callable[[MemoryConnection], CognitiveGraph]).
+            self._cg = graph_factory(conn)
+        else:
+            # Fallback determinista: misma composición que el composition root,
+            # sin service locator (el puerto sigue siendo el único camino IO).
+            self._cg = _default_graph(conn)
 
-    def _get_cg(self):
-        if self._cg is None:
-            from core.engine.bootstrap import get_module_service
-
-            graph_factory = get_module_service("cognitive_graph")
-            self._cg = graph_factory(
-                self._file_repo.cpg_path.replace("cpg.json.gz", "")
-            )
-        return self._cg
+    # ── Lectura (shape legacy preservado: nodes/edges/metadata/stats) ──
 
     def load(self, project_id: str = "") -> dict:
-        return self._file_repo.load(project_id or self._project_id)
+        pid = project_id or self._project_id
+        nodes = self._cg.get_docs(self.INDEX)
+        edges = self._cg.get_all_edges(self.INDEX)
+        metadata = self._cg.get_metadata(self.INDEX)
+        data = dict(metadata)
+        data["nodes"] = nodes
+        data["edges"] = edges
+        data.setdefault("version", "2.0")
+        data.setdefault("project_id", pid)
+        data["stats"] = {
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+            "files_scanned": metadata.get("stats", {}).get("files_scanned", 0),
+        }
+        return data
 
     def save(self, data: dict) -> None:
-        self._file_repo.save(data)
+        """FULL REPLACE en un ciclo atómico (mismo contrato que antes).
+
+        F3 (ADR-WALKER-055): los derivados (business_layer/quality_report/
+        bug_proposals/dfg/analysis_results) NO se persisten en el blob.
+        """
+        from features.code_analysis.infrastructure.repository import CPG_DERIVED_KEYS
+
+        nodes = data.get("nodes", {}) or {}
+        edges = data.get("edges", []) or []
+        metadata = {
+            k: v for k, v in data.items()
+            if k not in ("nodes", "edges") and k not in CPG_DERIVED_KEYS
+        }
+        self._cg.replace_blob(self.INDEX, dict(nodes), list(edges), metadata)
+
+    # ── Búsqueda estructurada (por el port) ──
 
     def search_nodes(
         self,
@@ -42,17 +87,15 @@ class CognitiveCpgRepository(CpgRepository):
         max_results: int = 50,
         offset: int = 0,
     ) -> dict:
-        cg = self._get_cg()
         query = dict(filters)
         if "size" not in query:
             query["size"] = max_results
         if offset:
             query["_from"] = offset
-        return cg.search("cpg", query)
+        return self._cg.search(self.INDEX, query)
 
     def get_node(self, node_id: str) -> dict | None:
-        cg = self._get_cg()
-        result = cg.search("cpg", {"_id": node_id, "size": 1})
+        result = self._cg.search(self.INDEX, {"_id": node_id, "size": 1})
         hits = result.get("hits", {}).get("hits", [])
         return hits[0].get("_source") if hits else None
 
@@ -66,3 +109,19 @@ class CognitiveCpgRepository(CpgRepository):
                 set(n.get("path", "") for n in nodes.values() if isinstance(n, dict))
             ),
         }
+
+
+def _default_graph(conn: Any) -> Any:
+    """Construye el CognitiveGraph por el port (misma composición del root).
+
+    Determinista: backend resuelto por config + registro de índices de
+    dominio. Es la MISMA secuencia que _build_graph — sin locator.
+    """
+    from libs.cognitive_graph.cognitive_registry import register_cognitive_indexes
+    from shared.core.cognitive_graph.backends import resolve_storage_backend
+    from shared.core.cognitive_graph import CognitiveGraph
+
+    backend = resolve_storage_backend(conn)
+    graph = CognitiveGraph(backend=backend, conn=conn)
+    register_cognitive_indexes(graph)
+    return graph

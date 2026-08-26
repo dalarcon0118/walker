@@ -299,7 +299,7 @@ def _project_root_of(path: str) -> str:
     """Heuristica para resolver la raiz del proyecto desde un path absoluto.
 
     El .walkerignore se define en la raiz del proyecto; los paths absolutos
-    de scan_files pueden venir de code_paths (relativos al repo) o absolutos.
+    de scan_files pueden venir del repo (relativos) o absolutos.
     Para filtrar con IgnoreRules usamos rutas relativas desde la raiz.
     """
     # Si el path ya es relativo (viene de resolve_code_paths), usarlo tal cual

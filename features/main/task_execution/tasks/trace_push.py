@@ -14,6 +14,8 @@ from returns.pipeline import is_successful
 from returns.result import safe
 from shared.common.shared_domain import ExecutionContext, TaskResult
 from features.project import ProjectService
+from libs.cognitive_graph.cognitive_registry import memory_data_dir
+from shared.core.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +39,27 @@ def _safe_parse(raw: Any, label: str) -> Any:
     return {"raw": raw}
 
 
-def trace_push(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+def trace_push(ctx: ExecutionContext, data: dict[str, Any], graph_factory=None) -> TaskResult:
     chain_dir = ctx.chain_dir or ""
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
 
-    from core.engine.bootstrap import get_module_service
-
     paths = ProjectService.resolve_paths(chain_dir)
-    graph_factory = get_module_service("cognitive_graph")
-    cg = graph_factory(paths.project_root)
+    _factory = graph_factory
+    if _factory is None:
+        # Fallback: resolver desde composition root (features/main).
+        # trace_push vive en task_execution y no puede importar features/ en
+        # shared/core, pero como task de features/ sí puede resolver AppContainer.
+        from features.main.container import AppContainer
+        app = AppContainer.build()
+        if app:
+            _factory = app.module_registry.get_service("cognitive_graph")
+    if _factory is None:
+        raise ValueError(
+            "trace_push requiere graph_factory inyectado. "
+            "Pásalo desde el composition root."
+        )
+    cg = _factory(load_memory_connection(memory_data_dir(paths.project_root)))
     ts = datetime.now(timezone.utc).isoformat()
 
     event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
@@ -63,6 +76,7 @@ def trace_push(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
     event = {
         "event_type": event_type, "source": source,
+        "tool": data.get("tool", ""),  # ADR-WALKER-055: persistir tool top-level (el hook la envía; antes se descartaba → trace no consultable por herramienta)
         "agent_id": os.environ.get("WALKER_AGENT_ID", ""),
         "session_id": os.environ.get("WALKER_SESSION_ID", ctx.session_id),
         "sprint_id": data.get("sprint_id", ""),

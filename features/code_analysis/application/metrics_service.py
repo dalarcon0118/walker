@@ -62,7 +62,7 @@ def _normalize_scope(scope: str, repo_path: str) -> str:
     return scope.replace(os.sep, "/")
 
 
-def _count_loc(repo_path: str, scope_rel: str, code_paths: list[str]) -> tuple[int, int]:
+def _count_loc(repo_path: str, scope_rel: str, file_paths: list[str]) -> tuple[int, int]:
     """(files, loc) a partir de los PROPIOS file-nodes del CPG.
 
     El indexador ya decidió qué es código (_LANG_MAP, 24 lenguajes): no se
@@ -70,10 +70,10 @@ def _count_loc(repo_path: str, scope_rel: str, code_paths: list[str]) -> tuple[i
     file-nodes en el alcance; usa las extensiones del SSOT _LANG_MAP.
     """
     base = os.path.join(repo_path, scope_rel) if scope_rel else repo_path
-    if code_paths:
+    if file_paths:
         n_files = 0
         loc = 0
-        for rel in code_paths[:MAX_LOC_FILES]:
+        for rel in file_paths[:MAX_LOC_FILES]:
             fp = os.path.join(repo_path, rel)
             try:
                 with open(fp, "rb") as fh:
@@ -134,10 +134,10 @@ def compute_cpg_metrics(
         if ntype in FUNCTION_TYPES:
             per_func_file[npath] = per_func_file.get(npath, 0) + 1
 
-    scoped_code_paths = [
+    scoped_files = [
         p for p in file_node_paths if not scope_rel or p.startswith(scope_rel)
     ]
-    fs_files, loc = _count_loc(repo_path, scope_rel, scoped_code_paths)
+    fs_files, loc = _count_loc(repo_path, scope_rel, scoped_files)
 
     total_functions = sum(c for t, c in by_type.items() if t in FUNCTION_TYPES)
     files_in_cpg = by_type.get("file", 0)

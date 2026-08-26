@@ -36,6 +36,9 @@ class PrepareProjectUseCase:
     def execute(project_path: str, args_flags: dict) -> dict:
         from features.project import ProjectDetector
         from features.project import FileWatcher
+        from features.code_analysis.infrastructure.repository import (
+            make_cpg_fingerprint_reader,
+        )
         from shared.core.path_resolver import get_walker_root as _get_walker_root
 
         pid = os.path.basename(os.path.abspath(project_path))
@@ -78,15 +81,6 @@ class PrepareProjectUseCase:
             setup_warnings.append(
                 f"framework not detected. Set with: walker {pid}/task/update_project"
             )
-        if not detections["code_paths"]:
-            setup_warnings.append(
-                f"code_paths not detected. Set with: walker {pid}/task/update_project"
-            )
-        else:
-            setup_warnings.append(
-                f"detected code paths: {detections['code_paths']}. "
-                f"Verify with: walker {pid}/task/update_project"
-            )
 
         # 3. Create .cognitive directory structure
         cognitive_dir = os.path.join(project_path, ".cognitive")
@@ -101,7 +95,6 @@ class PrepareProjectUseCase:
             final_language,
             final_framework,
             project_path,
-            detections["code_paths"],
         )
 
         # 5. Register in global registry
@@ -135,11 +128,11 @@ class PrepareProjectUseCase:
         # data_dir canónico = <repo>/.cognitive/projects/<pid>/data (fuera del
         # árbol escaneado). Si el baseline queda en <repo>/data, el status
         # (que lee el change_detected canónico) lo pierde y reporta todo el
-        # repo como cambiado.
+        # repo como cambiado. Scope = repo_path completo (ADR-WALKER-054 D1).
         watcher = FileWatcher(
             project_path,
-            code_paths=detections["code_paths"] or None,
             data_dir=projects_data_dir,
+            cpg_fingerprint_reader=make_cpg_fingerprint_reader(projects_data_dir),
         )
         watcher.scan()
         _reset_watcher_baseline(watcher)
@@ -179,7 +172,7 @@ class CheckHealthUseCase:
         from features.cognitive_knowledge.application.services.ckg_service import (
             CkgApplicationService,
         )
-        from core.engine.application.services.status_service import (
+        from shared.core.engine.application.services.status_service import (
             WorkflowStatusService,
         )
 
@@ -310,7 +303,6 @@ def _write_project_json(
     language: str,
     framework: str,
     repo_path: str,
-    code_paths: list[str],
 ) -> None:
     project_json = {
         "project": {
@@ -321,7 +313,7 @@ def _write_project_json(
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
             "identity": {"name": name, "language": language, "framework": framework},
-            "location": {"repo_path": repo_path, "code_paths": code_paths},
+            "location": {"repo_path": repo_path},
             "design": {"patterns": [], "layer_rules": {}, "forbidden_dependencies": []},
             "architecture": {"module_organization": ""},
             "coding": {
@@ -459,7 +451,6 @@ def _check_project_json(
         "language": identity.get("language", ""),
         "framework": identity.get("framework", ""),
         "repo_path": location.get("repo_path", repo_path),
-        "code_paths": location.get("code_paths", []),
     }
     schema_errors = ProjectSchemaValidator.validate(pd)
     if schema_errors:
@@ -476,16 +467,21 @@ def _scan_watcher_core(project_id: str, repo_path: str) -> dict:
     """Core puro: escanea cambios con FileWatcher (puede lanzar).
 
     Usa el data_dir canónico (.cognitive/projects/<pid>/data, fuera del árbol
-    escaneado) para evitar la auto-invalidación del watcher en cada scan, y
-    acota el scope a code_paths reales (sin copia-cog/sessions/etc).
+    escaneado) para evitar la auto-invalidación del watcher en cada scan.
+    Scope = repo_path completo (ADR-WALKER-054 D1, sin code_paths).
     """
     from features.project import FileWatcher
-    from shared.core.path_resolver import get_data_dir, get_code_paths
+    from shared.core.path_resolver import get_data_dir
+    from features.code_analysis.infrastructure.repository import (
+        make_cpg_fingerprint_reader,
+    )
 
     return FileWatcher(
         repo_path,
-        code_paths=get_code_paths(project_id) or None,
         data_dir=str(get_data_dir(project_id)),
+        cpg_fingerprint_reader=make_cpg_fingerprint_reader(
+            str(get_data_dir(project_id))
+        ),
     ).scan()
 
 

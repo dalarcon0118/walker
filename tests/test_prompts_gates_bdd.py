@@ -73,8 +73,8 @@ def _orchestration_service(prompts_gates_ctx: dict):
 
 @given("un WorkflowState con Q&A del ANALYZE")
 def _state_with_qa(prompts_gates_ctx: dict, tmp_path):
-    from core.engine.domain.models import SubStateData
-    from core.engine.infrastructure.repositories import WorkflowState
+    from shared.core.engine.domain.models import SubStateData
+    from shared.core.engine.infrastructure.repositories import WorkflowState
 
     chain_dir, _ = _setup_project(str(tmp_path))
     state = WorkflowState(
@@ -231,7 +231,7 @@ def _resolve_prompt(prompts_gates_ctx: dict):
 
 @when("guardo y cargo el estado")
 def _save_load_state(prompts_gates_ctx: dict):
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     state = prompts_gates_ctx["state"]
@@ -243,7 +243,7 @@ def _save_load_state(prompts_gates_ctx: dict):
 
 @when("consulto last_fields")
 def _query_last_fields(prompts_gates_ctx: dict):
-    from core.engine.context.query_manager import QueryManager
+    from shared.core.engine.context.query_manager import QueryManager
 
     qm = QueryManager.__new__(QueryManager)
     qm._chain_dir = prompts_gates_ctx["chain_dir"]
@@ -343,7 +343,7 @@ def _what_happened(prompts_gates_ctx: dict):
 
 @when("construyo el contexto del prompt")
 def _build_context(prompts_gates_ctx: dict):
-    from core.engine.application.prompt_context_builder import PromptContextBuilder
+    from shared.core.engine.application.prompt_context_builder import PromptContextBuilder
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir, "TASK-001")
@@ -376,7 +376,7 @@ def _spring_with_deps(prompts_gates_ctx: dict, tmp_path):
 
 @when("construyo el contexto del sprint")
 def _build_sprint_context(prompts_gates_ctx: dict):
-    from core.engine.application.prompt_context_builder import PromptContextBuilder
+    from shared.core.engine.application.prompt_context_builder import PromptContextBuilder
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir)

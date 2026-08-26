@@ -9,7 +9,7 @@ Fuentes de config (desde config/config.json):
   - projects_dir       → override de .cognitive/projects/
   - sessions_dir       → override de .cognitive/sessions/
   - data_dir           → nombre del subdirectorio data (default: "data")
-  - workflow_dir       → nombre del subdirectorio workflow (default: "workflow.v3")
+  - workflow.manifest  → manifiesto canónico del flujo (config central, ADR-061)
 
 Jerarquía de resolución (convención SSOT de layout):
 
@@ -106,7 +106,7 @@ def _get_cfg(key: str, default: Any = None) -> Any:
 
     # Para keys no-path, delegar en config.get() (no causan recursion)
     if key not in ("projects_dir", "sessions_dir", "scripts_dir"):
-        from core.engine.infrastructure.config import get as cfg_get
+        from shared.core.engine.infrastructure.config import get as cfg_get
 
         return cfg_get(key, default)
 
@@ -319,16 +319,16 @@ def get_state_path(project_id: str) -> Path:
     return get_project_dir(project_id) / "state"
 
 
-def get_workflow_dir(project_id: str) -> Path:
-    """Directorio workflow de un proyecto: <project_dir>/<workflow_dir>/"""
-    return get_project_dir(project_id) / _get_cfg("workflow_dir", "workflow.v3")
-
+# ELIMINADO (ADR-WALKER-061, cero legacy): get_workflow_dir() apuntaba a
+# <project_dir>/workflow.v3/ — búsqueda legacy por proyecto. El manifiesto
+# del flujo es UNO global y canónico: config.get_workflow_manifest_path()
+# (key 'workflow.manifest' → data/workflow/workflow.json del motor).
 
 def get_engine_workflow_dir() -> Path:
     """Directorio workflow canónico del motor (SSOT) — CÓDIGO, no data.
 
     El workflow es maquinaria interna del motor walker, NO config de un
-    proyecto: vive versionado en features/engine/workflow/ del repo.
+    proyecto: vive versionado en data/workflow/ del repo.
     (.cognitive/projects/<pid>/data/ es solo data de cada proyecto.)
     NO hay fallback: si no existe, los llamadores deben ERROR.
 
@@ -340,10 +340,10 @@ def get_engine_workflow_dir() -> Path:
     # Sube hasta encontrar el dir que contiene features/ + shared/ (raíz del repo)
     while current != current.parent:
         if (current / "core").is_dir() and (current / "shared").is_dir():
-            return current / "core" / "engine" / "workflow"
+            return current / "data" / "workflow"
         current = current.parent
     # Fallback: relativo a este archivo (cubre layouts no estándar)
-    return current.parents[0] / ".." / "core" / "engine" / "workflow"
+    return current.parents[0] / ".." / "data" / "workflow"
 
 
 def get_engine_workflow_path() -> Path:
@@ -414,22 +414,14 @@ def get_repo_path(project_id: str) -> str:
     return loc.get("repo_path", "")
 
 
-def get_code_paths(project_id: str) -> list[str]:
-    """Obtiene code_paths desde project.json."""
-    manifest = read_project_manifest(project_id)
-    loc = manifest.get("project", manifest).get("location", {})
-    return loc.get("code_paths", [])
-
-
 def resolve_source_code_dirs(project_id: str) -> list[Path]:
-    """Paths absolutos al código fuente desde project.json."""
+    """Paths absolutos al código fuente desde project.json.
+
+    ADR-WALKER-054 D1: sin code_paths — el scope es el repo completo.
+    """
     repo = get_repo_path(project_id)
-    paths = get_code_paths(project_id)
     if repo and os.path.isdir(repo):
-        base = Path(repo).resolve()
-        if paths:
-            return [(base / p).resolve() for p in paths]
-        return [base]
+        return [Path(repo).resolve()]
     return [get_project_dir(project_id)]
 
 

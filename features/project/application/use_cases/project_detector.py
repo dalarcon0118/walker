@@ -86,30 +86,12 @@ class ProjectDetector:
 
     @staticmethod
     def detect_code_paths(project_path: str) -> list[str]:
-        """Detect source code directories (top-level dirs with code files)."""
-        code_dirs: list[str] = []
-        for entry in sorted(os.listdir(project_path)):
-            entry_path = os.path.join(project_path, entry)
-            if (
-                entry.startswith(".")
-                or entry in IGNORE_DIRS
-                or not os.path.isdir(entry_path)
-            ):
-                continue
-            has_code = False
-            for root, dirs, files in os.walk(entry_path):
-                dirs[:] = [
-                    d for d in dirs if not d.startswith(".") and d not in IGNORE_DIRS
-                ]
-                for f in files:
-                    if f.endswith(CODE_EXTENSIONS):
-                        has_code = True
-                        break
-                if has_code:
-                    break
-            if has_code:
-                code_dirs.append(entry)
-        return code_dirs
+        """[DEPRECADO — ADR-WALKER-054 D1] El scope es repo_path completo.
+
+        Se conserva por compatibilidad de firma; el concepto fue eliminado
+        del manifest. Devuelve la lista vacía.
+        """
+        return []
 
     @classmethod
     def detect_all(cls, project_path: str) -> dict[str, Any]:
@@ -117,5 +99,5 @@ class ProjectDetector:
         return {
             "language": cls.detect_language(project_path),
             "framework": cls.detect_framework(project_path),
-            "code_paths": cls.detect_code_paths(project_path),
+            "code_paths": [],
         }

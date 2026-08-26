@@ -102,7 +102,6 @@ class ProjectService:
                         language=identity.get("language", ""),
                         framework=identity.get("framework", ""),
                         repo_path=loc.get("repo_path", ""),
-                        code_paths=list(loc.get("code_paths", []) or []),
                     )
                 except (json.JSONDecodeError, OSError):
                     pass
@@ -166,7 +165,6 @@ class ProjectService:
                     language=identity.get("language", ""),
                     framework=identity.get("framework", ""),
                     repo_path=loc.get("repo_path", ""),
-                    code_paths=list(loc.get("code_paths", []) or []),
                 )
             except (json.JSONDecodeError, OSError):
                 pass
@@ -226,7 +224,6 @@ class ProjectService:
             resolve_project_id,
             get_data_dir,
             get_delta_dir,
-            get_workflow_dir,
             get_cpg_path,
             get_ckg_path,
             get_trace_dir,
@@ -255,7 +252,14 @@ class ProjectService:
             except Exception:
                 pass
         delta_dir = str(get_delta_dir(pid_str))
-        workflow_dir = str(get_workflow_dir(pid_str))
+        # ADR-WALKER-061: manifiesto del flujo = UNO global canónico desde
+        # config central. Sin workflow.v3 por proyecto (cero legacy).
+        from shared.core.engine.infrastructure.config import (
+            get_workflow_manifest_path,
+            get_workflow_manifest_dir,
+        )
+
+        workflow_dir = get_workflow_manifest_dir()
         trace_dir = str(get_trace_dir(pid_str))
         cpg_path = str(get_cpg_path(pid_str))
         ckg_path = str(get_ckg_path(pid_str))
@@ -263,14 +267,13 @@ class ProjectService:
         # project.json path: data/project.json (canonical)
         project_json = os.path.join(data_dir, "project.json")
 
-        # workflow.json path: workflow_dir (canonical)
-        workflow_json = os.path.join(workflow_dir, "workflow.json")
+        # workflow.json path: manifiesto canónico global (config central)
+        workflow_json = get_workflow_manifest_path()
 
         # Repo info — leer del project_json ya resuelto (SSOT local).
         # NO depender del registro global por id: falla para proyectos
         # descentralizados (repo_path real ≠ dir cognitivo).
         repo_path = ""
-        code_paths: tuple[str, ...] = ()
         if project_json and os.path.exists(project_json):
             try:
                 with open(project_json) as _f:
@@ -278,7 +281,6 @@ class ProjectService:
                 _proj = _manifest.get("project", _manifest)
                 _loc = _proj.get("location", {})
                 repo_path = _loc.get("repo_path", "")
-                code_paths = tuple(_loc.get("code_paths", []) or [])
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -307,7 +309,6 @@ class ProjectService:
             project_json_path=project_json,
             workflow_json_path=workflow_json,
             repo_path=repo_path,
-            code_paths=code_paths,
             cognitive_dir=cognitive_dir,
             walker_root=walker_root,
         )
@@ -352,11 +353,13 @@ class ProjectService:
             proyecto; el plural es el registro global del walker.
         """
         try:
-            from shared.core.path_resolver import get_walker_root
-
-            registry_path = os.path.join(
-                str(get_walker_root()), "data", "projects.json"
+            from shared.core.engine.infrastructure.config import (
+                get_projects_registry_path,
             )
+
+            # ADR-WALKER-061: path del registro global desde config central
+            # (key 'registry.projects_file'). Sin hardcode ni fallbacks.
+            registry_path = get_projects_registry_path()
         except Exception:
             registry_path = os.path.join(
                 os.path.dirname(
@@ -433,9 +436,9 @@ class ProjectService:
                     # NOTE: SpringService import moved inside function to break cycle
                     # features.project -> features.delta_tracking (detected by Tarjan gate).
                     # Resolved dynamically at runtime via module service locator.
-                    from core.engine.bootstrap import resolve_service
+                    from features.delta_tracking import SpringService
 
-                    spring_factory = resolve_service("spring_factory")
+                    spring_factory = SpringService.from_chain_dir
                     if spring_factory:
                         from shared.core.path_resolver import get_project_dir
 
@@ -521,9 +524,11 @@ class ProjectService:
         Returns:
             Dict with project_id, repo_path, name if found, else None.
         """
-        from shared.core.path_resolver import get_walker_root
+        from shared.core.engine.infrastructure.config import (
+            get_projects_registry_path,
+        )
 
-        registry_path = get_walker_root() / "data" / "projects.json"
+        registry_path = __import__("pathlib").Path(get_projects_registry_path())
         registry: dict = {"projects": {}}
         if registry_path.exists():
             try:
@@ -705,18 +710,22 @@ class ProjectService:
         proj_dir = str(get_project_dir(project_id))
         data_dir = str(get_data_dir(project_id))
 
+        # ADR-WALKER-061: workflow_dir del contexto = dir del manifiesto
+        # canónico global (config central). Sin workflow.v3 por proyecto.
+        from shared.core.engine.infrastructure.config import get_workflow_manifest_dir
+
         paths = ProjectPaths(
             chain_dir="",
             project_root=proj_dir,
             project_id=project_id,
             data_dir=data_dir,
             delta_dir=str(get_data_dir(project_id) / "spring"),
-            workflow_dir=str(get_project_dir(project_id) / "workflow.v3"),
+            workflow_dir=get_workflow_manifest_dir(),
             traces_dir=os.path.join(data_dir, "traces"),
             cpg_path=os.path.join(data_dir, "cpg.json.gz"),
             ckg_path=os.path.join(data_dir, "ckg.json.gz"),
             project_json_path=os.path.join(data_dir, "project.json"),
-            workflow_json_path=os.path.join(proj_dir, "workflow.v3", "workflow.json"),
+            workflow_json_path=get_workflow_manifest_path(),
             repo_path=os.path.abspath(repo_path) if repo_path else "",
             cognitive_dir="",
             walker_root="",
@@ -729,7 +738,6 @@ class ProjectService:
                 language=language,
                 framework=framework,
                 repo_path=paths.repo_path,
-                code_paths=list(paths.code_paths),
             ),
             paths=paths,
         )

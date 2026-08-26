@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 from shared.common.shared_domain import ExecutionContext
-from core.engine.domain.side_effect_contract import as_side_effect, SCOPE_DECISION
+from shared.core.engine.domain.side_effect_contract import as_side_effect, SCOPE_DECISION
 
 logger = logging.getLogger(__name__)
 

@@ -61,17 +61,22 @@ def test_trace_push_es_invocable_por_el_motor_interno_y_bloqueado_desde_mcp():
     (que descarta el resultado del dispatch) perdía los eventos CPG→trace de
     SPEC-002 G-W1 en silencio.
     """
-    from core.engine.application.task_dispatcher import execute_public_task
+    from shared.core.engine.application.task_dispatcher import execute_public_task
+    from features.main.container import AppContainer
+
+    registry = AppContainer.build().module_registry.get_service("task_registry")
 
     # Entrada externa (MCP/CLI): bloqueada.
     blocked = execute_public_task(
-        "trace_push", "x", "", {"_payload": {}}, session_id="mcp", channel="mcp"
+        "trace_push", "x", "", {"_payload": {}}, session_id="mcp", channel="mcp",
+        registry=registry,
     )
     assert blocked.get("blocked") is True
 
     # Motor interno (channel='system'): NO bloqueada.
     out = execute_public_task(
-        "trace_push", "x", "", {"_payload": {}}, session_id="", channel="system"
+        "trace_push", "x", "", {"_payload": {}}, session_id="", channel="system",
+        registry=registry,
     )
     assert out.get("blocked") is not True
 
@@ -88,7 +93,6 @@ def test_evento_cpg_publicado_llega_al_indice_trace(tmp_path):
     from features.code_analysis.infrastructure.adapters.trace_event_publisher import (
         create_trace_publisher,
     )
-    from core.engine.bootstrap import get_module_service
     from features.project import ProjectService
 
     chain_dir = make_chain_dir(tmp_path, project_id="walker")
@@ -103,7 +107,8 @@ def test_evento_cpg_publicado_llega_al_indice_trace(tmp_path):
     bus.publish(CpgEvent())
 
     paths = ProjectService.resolve_paths(chain_dir)
-    cg = get_module_service("cognitive_graph")(paths.project_root)
+    from features.main.container import AppContainer
+    cg = AppContainer.build().module_registry.get_service("cognitive_graph")(paths.project_root)
     result = cg.search("trace", {"event_type": "CpgEvent"})
     hits = result.get("hits", {})
     if isinstance(hits, dict):

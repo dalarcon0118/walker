@@ -6,7 +6,7 @@ Valida el protocolo completo (JSON-RPC 2.0, dispatch, canal en Trace):
 
   - El flujo de workflow (submit plan_sprint) traza task_execute con
     channel="workflow" (lo ejecuta el motor).
-  - Las tools públicas del agente (kg_search) trazan task_execute con
+  - Las tools públicas del agente (recall_knowledge) trazan task_execute con
     channel="mcp" (dispatch_public_task).
 
 Determinista: no depende de un LLM; es el puente entre Capa 1 (unit) y un
@@ -21,8 +21,8 @@ from pathlib import Path
 import pytest
 
 from features.delta_tracking import SpringService
-from core.engine.domain.entities import WorkflowState
-from core.engine.infrastructure.repositories import WorkflowStateRepository
+from shared.core.engine.domain.entities import WorkflowState
+from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
 from tests.conftest import register_project_in_global_registry
 
 SPRINT_GOAL = "Implementar modulo de autenticacion completo"
@@ -37,7 +37,7 @@ def _smoke_project(tmp_path):
         yield _setup_project(tmp)
     finally:
         reg_ctx.__exit__(None, None, None)
-        from core.engine.bootstrap import reset_module_registry
+        from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
         from features.main.cli_interface import mcp_adapter
@@ -240,8 +240,8 @@ class TestSmokeAgentHarness:
 
         # 1. Flujo de workflow (submit) — traza channel=workflow
         agent.step()
-        # 2. Tool pública del agente (kg_search) — traza channel=mcp
-        _mcp_call("kg_search", {"_project_id": "walker", "query": "Login screen", "index": "ckg"})
+        # 2. Tool pública del agente (recall_knowledge) — traza channel=mcp
+        _mcp_call("recall_knowledge", {"_project_id": "walker", "query": "Login screen", "index": "ckg"})
 
         from features.event_tracing import search
 
@@ -255,9 +255,9 @@ class TestSmokeAgentHarness:
         assert "workflow" in channels, (
             f"submit no trazó channel=workflow: {sorted(channels)}"
         )
-        # kg_search vía MCP traza channel=mcp (dispatch_public_task)
+        # recall_knowledge vía MCP traza channel=mcp (dispatch_public_task)
         assert "mcp" in channels, (
-            f"kg_search vía MCP no trazó channel=mcp: {sorted(channels)}"
+            f"recall_knowledge vía MCP no trazó channel=mcp: {sorted(channels)}"
         )
 
     def test_harness_recorre_implement(self, tmp_path, _smoke_project):

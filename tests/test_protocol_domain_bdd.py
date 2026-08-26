@@ -50,7 +50,7 @@ def _tool_name_validator(protocol_ctx: dict):
 
 @when("creo un ToolName con un nombre válido")
 def _create_valid_tool_name(protocol_ctx: dict):
-    protocol_ctx["tool_name_result"] = _create_tool_name("kg_search")
+    protocol_ctx["tool_name_result"] = _create_tool_name("recall_knowledge")
 
 
 @when("creo un ToolName con un nombre inválido")
@@ -75,10 +75,10 @@ def _tool_name_rejected(protocol_ctx: dict):
     assert name is None and errors
 
 
-@then("su valor es kg_search")
+@then("su valor es recall_knowledge")
 def _tool_name_value(protocol_ctx: dict):
     name, _ = protocol_ctx["tool_name_result"]
-    assert name.value == "kg_search"
+    assert name.value == "recall_knowledge"
 
 
 @then("el error indica Invalid tool name")

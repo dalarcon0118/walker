@@ -15,7 +15,7 @@ import pkgutil
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
 
 logger = logging.getLogger(__name__)
 

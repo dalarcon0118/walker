@@ -94,8 +94,8 @@ def _sprint_active(wf_ctx: dict):
     svc.create_spring("sprint-test", goal="Sprint test", status="active", project_id="walker", session_id="s1")
     chain_dir = os.path.join(wf_ctx["project_root"], "data", "spring", "sprint-test")
     os.makedirs(chain_dir, exist_ok=True)
-    from core.engine.infrastructure.repositories import WorkflowStateRepository
-    from core.engine.domain.entities import WorkflowState
+    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
+    from shared.core.engine.domain.entities import WorkflowState
     wf = WorkflowState(current_node="SPRINT", current_sub_state="ACTIVE")
     wf.context["chain_dir"] = chain_dir
     wf.context["project_id"] = "walker"

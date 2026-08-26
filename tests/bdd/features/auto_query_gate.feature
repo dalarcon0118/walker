@@ -26,15 +26,15 @@ Característica: Gate de auto-consulta de convenciones CKG en IMPLEMENT.WORK
     Cuando se inspecciona el sub-estado WORK del nodo IMPLEMENT
     Cuando se inspecciona el focus de WORK
     Entonces el focus contiene GATE DE AUTO-CONSULTA
-    Y el focus contiene kg_multi
+    Y el focus contiene search_memories
     Y el focus contiene ANTES de tocar cualquier archivo
 
   @auto-query-gate
   Escenario: El prompt implement/work ordena consultar CKG antes de codificar
     Cuando se carga el template implement/work
     Entonces el prompt contiene GATE DE AUTO-CONSULTA DE CONVENCIONES CKG
-    Y el prompt contiene walker <project>/kg_schema
-    Y el prompt contiene kg_multi
+    Y el prompt contiene walker <project>/memory_schema
+    Y el prompt contiene search_memories
     Y el prompt contiene "ckg" y "type" y "convention" y "scope"
     Y el gate aparece antes de CALIDAD DEL CODIGO
 
@@ -65,7 +65,7 @@ Característica: Gate de auto-consulta de convenciones CKG en IMPLEMENT.WORK
     Cuando se carga el template design/design-gather
     Entonces el prompt contiene GATE DE AUTO-CONSULTA
     Y el prompt describe << ckg >>, << cpg >> y << delta >>
-    Y el prompt contiene kg_schema y kg_multi
+    Y el prompt contiene memory_schema y search_memories
 
   @auto-query-gate
   Escenario: ContextComposer inyecta capas en DESIGN_GATHER end-to-end

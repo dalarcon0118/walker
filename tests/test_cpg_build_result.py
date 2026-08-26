@@ -58,7 +58,7 @@ def _bdd_nodo_invalido(br_ctx: dict):
 def _bdd_sync(br_ctx: dict, br_builder):
     from features.code_analysis.application.build_service import _sync_core
 
-    br_ctx["result"] = _sync_core(br_ctx["builder"].data_dir, br_ctx["data"])
+    br_ctx["result"] = _sync_core(br_ctx["builder"]._cg, br_ctx["data"])
 
 
 @then("el resultado es un Success de returns")
@@ -71,8 +71,10 @@ def _bdd_success(br_ctx: dict):
 @then("quedan 2 nodos disponibles en el índice cpg")
 def _bdd_nodos_indexados(br_ctx: dict):
     from shared.core.cognitive_graph import CognitiveGraph
+    from libs.cognitive_graph.cognitive_registry import register_cognitive_indexes
 
     cg = CognitiveGraph(br_ctx["builder"].data_dir, auto_register=True)
+    register_cognitive_indexes(cg)
     keys = set(cg.keys("cpg"))
     assert {"n1", "n2"} <= keys, keys
 
@@ -81,7 +83,7 @@ def _bdd_nodos_indexados(br_ctx: dict):
 def _bdd_sync_invalido(br_ctx: dict, br_builder):
     from features.code_analysis.application.build_service import _sync_core
 
-    br_ctx["result"] = _sync_core(br_ctx["builder"].data_dir, br_ctx["data"])
+    br_ctx["result"] = _sync_core(br_ctx["builder"]._cg, br_ctx["data"])
 
 
 @then("el resultado es un Failure de returns")

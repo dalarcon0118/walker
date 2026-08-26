@@ -1,16 +1,16 @@
 """
 features/dependency_checker.py — CLI tool verification & auto-install.
 
-Walker3 needs external CLI tools (ast-grep, qlty) for multi-language code
+Walker3 needs external CLI tools (ast-grep) for multi-language code
 analysis. This module checks them at runtime and auto-installs if missing
-(controlled by WALKER_AUTO_INSTALL).
+(controlled by WALKER_AUTO_INSTALL). qlty fue eliminado (ADR-WALKER-054):
+las métricas son CPG-nativas, no requieren binario externo.
 
 Usage:
-    from features.dependency_checker import ensure_tools, ensure_ast_grep, ensure_qlty
+    from features.dependency_checker import ensure_tools, ensure_ast_grep
 
     ensure_tools(["ast-grep"])      # Check & install if missing
-    ensure_qlty()                    # Shorthand
-    ensure_ast_grep()                # Shorthand
+    ensure_ast_grep()               # Shorthand
 """
 
 from __future__ import annotations
@@ -82,14 +82,9 @@ def ensure_ast_grep() -> bool:
     return not ensure_tools(["ast-grep"])
 
 
-def ensure_qlty() -> bool:
-    """Check/install qlty. Returns True if available."""
-    return not ensure_tools(["qlty"])
-
-
 def ensure_all() -> list[str]:
     """Check/install ALL known tools."""
-    return ensure_tools(["ast-grep", "qlty"])
+    return ensure_tools(["ast-grep"])
 
 
 def check_and_report(verbose: bool = False) -> int:
@@ -100,7 +95,6 @@ def check_and_report(verbose: bool = False) -> int:
     """
     tools = {
         "ast-grep": "Multi-language code analysis (CPG outline, CALLS, security)",
-        "qlty": "Code metrics, smells, linting (cyclo, LOC, quality gates)",
     }
 
     missing = 0
@@ -186,51 +180,10 @@ def _install_ast_grep() -> bool:
     return False
 
 
-def _install_qlty() -> bool:
-    """Install qlty. Returns True on success."""
-    print("  → Installing qlty...", file=sys.stderr)
-
-    # Official installer (live progress)
-    try:
-        print("    Running: curl -fsSL https://get.qlty.sh | sh", file=sys.stderr)
-        r = subprocess.run(
-            ["sh", "-c", "curl -fsSL https://get.qlty.sh | sh"],
-            timeout=120,
-        )
-        reset_cache()
-
-        # qlty installs to ~/.qlty/bin/qlty
-        qlty_path = os.path.expanduser("~/.qlty/bin/qlty")
-        if os.path.isfile(qlty_path):
-            _cache["qlty"] = True
-            print(f"  ✅ qlty installed at {qlty_path}", file=sys.stderr)
-            if not shutil.which("qlty"):
-                print("  💡 Add ~/.qlty/bin to your PATH:", file=sys.stderr)
-                print('     export PATH="$HOME/.qlty/bin:$PATH"', file=sys.stderr)
-            return True
-
-        if r.returncode == 0 and is_available("qlty"):
-            print("  ✅ qlty installed", file=sys.stderr)
-            return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        pass
-
-    # Verify anyway
-    qlty_path = os.path.expanduser("~/.qlty/bin/qlty")
-    if os.path.isfile(qlty_path):
-        _cache["qlty"] = True
-        print(f"  ✅ qlty installed at {qlty_path}", file=sys.stderr)
-        return True
-
-    print("  ❌ Failed to install qlty automatically.", file=sys.stderr)
-    return False
-
-
 def _install_tool(tool: str) -> bool:
     """Install a specific tool."""
     installers = {
         "ast-grep": _install_ast_grep,
-        "qlty": _install_qlty,
     }
     installer = installers.get(tool)
     if installer:
@@ -245,11 +198,6 @@ def _print_manual_instructions(tools: list[str]) -> None:
             "  brew install ast-grep\n"
             "  npm install -g @ast-grep/cli\n"
             "  https://ast-grep.github.io/"
-        ),
-        "qlty": (
-            "  curl -fsSL https://get.qlty.sh | sh\n"
-            '  export PATH="$HOME/.qlty/bin:$PATH"\n'
-            "  https://qlty.sh/"
         ),
     }
     print("\n  📋 Manual installation:", file=sys.stderr)

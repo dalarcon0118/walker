@@ -1,9 +1,9 @@
 """shared/memories/query_service.py — MemoryQueryService.
 
 SRP: Fachada unificada para consultar las 4 memorias del walker.
-    - kg_search: fulltext + estructurado en cualquier indice
-    - kg_multi: query federada multi-indice
-    - kg_schema: schema de cada indice
+    - search: fulltext + estructurado en cualquier indice
+    - search_many: query federada multi-indice
+    - schema: schema de cada indice
     - status/presenter: stats de memorias
 
 DEPENDENCIAS: CognitiveGraph (infra compartida) para search.
@@ -27,6 +27,11 @@ class MemoryQueryService:
 
     def __init__(self, project_root: str = ""):
         self._cg = CognitiveGraph(str(project_root), auto_register=True)
+        # ADR-WALKER-054 D2/D3: shared/core NO registra cpg; los schemas de
+        # dominio (incl. cpg) se registran via el composition root.
+        from libs.cognitive_graph.cognitive_registry import register_cognitive_indexes
+
+        register_cognitive_indexes(self._cg)
 
     # ── Búsqueda (sin lógica de negocio → directo a infra) ──
 
@@ -42,7 +47,7 @@ class MemoryQueryService:
         return self._cg.search(index, query)
 
     def multi_search(self, layers: dict[str, dict]) -> dict:
-        """Query federada multi-indice (kg_multi)."""
+        """Query federada multi-indice (search_many)."""
         return self._cg.search_many(layers)
 
     # ── Schema ──
