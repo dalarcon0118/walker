@@ -33,10 +33,9 @@ def _load_static_template() -> str:
 
 def _build_tools_section() -> str:
     from shared.core.engine.application.tool_catalog import list_tools
-    from app.container import AppContainer
+    from shared.libs.module_system.registry import module_registry
 
-    app = AppContainer.build()
-    registry = app.module_registry if app else None
+    registry = module_registry
     tools = list_tools(registry=registry)
     if not tools:
         return "No tools available."
@@ -93,9 +92,9 @@ def _build_capture_task_section(wf_map: dict) -> str:
 
 
 def _build_analysis_section() -> str:
-    from app.container import AppContainer
-    app = AppContainer.build()
-    registry = app.module_registry if app else None
+    from shared.libs.module_system.registry import module_registry
+
+    registry = module_registry
     tools = list_tools(registry=registry)
     if not tools:
         return ""

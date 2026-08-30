@@ -58,10 +58,12 @@ def collect_project_info(chain_dir: str) -> dict:
 
 
 def collect_available_tasks(chain_dir: str, node_id: str | None = None) -> list[dict]:
-    from app.container import AppContainer
+    # M-06 (Fase 5): resolver el task_registry del CONTENEDOR DI global
+    # (module_registry, by id+contrato) — sin importar AppContainer (C7).
+    from shared.libs.module_system.registry import module_registry
 
-    app = AppContainer.build()
-    tasks = app.task_registry.list_tasks_with_meta()
+    registry = module_registry.get_service("task_registry")
+    tasks = registry.list_tasks_with_meta()
     result = []
     for t in tasks:
         result.append(
