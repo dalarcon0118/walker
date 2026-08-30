@@ -143,10 +143,27 @@
 
 ### Fase 2 — Split forFeature: schemas a las features dueñas + `app/memories/` (aplicación)
 
+**Hallazgo (SSOT violado):** hoy hay **DOS fuentes de schemas que se registran simultáneamente en producción**:
+- `app/memory_schemas.py::register_default_memory_indexes` (ckg/delta/trace/ref + trace handler + COMPACT_FIELDS/SEVERITY_ORDER) — vía `register_defaults` del CognitiveGraph.
+- `app/cognitive_registry.py::register_cognitive_indexes` (ckg/cpg/delta/trace con configs propias) — llamado DESPUÉS por `registry.py:445/475`, `kg_context`, `build_service`.
+
+→ ckg/delta/trace se definen 2 veces con configs distintas ("cuál gana" indefinido); CPG solo en cognitive_registry; refs solo en memory_schemas.
+
+**Solución (domain-first / SSOT — UNA fuente por memoria → feature dueña):**
+
+| Memoria | Dueño (feature) | Piezas |
+|---|---|---|
+| **CKG** | `features/cognitive_knowledge/` | schema ckg (unificado de ambas fuentes) + `SEVERITY_ORDER` + proyección |
+| **Delta** | `features/delta_tracking/` | schema delta (unificado) + proyección |
+| **Trace** | `features/event_tracing/` | schema trace (unificado) + search handler + descentralizado + proyección |
+| **CPG + refs** | `features/code_analysis/` | schema cpg (con fix FTS) + `cpg.ref.*` + proyección |
+| **Composición + facade** | `app/memories/` (aplicación del host) | `register_all_memory_indexes(graph)` (agrega las 4) + `MemoryQueryService` |
+
 - [ ] M-03 Cada feature registra SOLO SU schema en el storage genérico (forFeature, R6): CPG→`code_analysis`, CKG→`cognitive_knowledge`, Delta→`delta_tracking`, Trace→`event_tracing` — anti-patrón: God-Module de memorias.
-- [ ] M-04 `MemoryQueryService` + `COMPACT_FIELDS`/`SEVERITY_ORDER` → `app/memories/` (módulo de aplicación del host con manifest) sin importar features internos — anti-patrón: Big Ball of Mud.
+- [ ] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → `app/memories/register_all_memory_indexes(graph)` (composición host, una sola función de registro) — anti-patrón: Big Ball of Mud / SSOT duplicado.
 - [ ] M-05 `MemoryQueryService` inyectado por constructor (sin service locator) — anti-patrón: God Class.
-- [ ] M-06 `context_format.py` → presentadores por feature (cada feature formatea SU memoria) — anti-patrón: Duplicate Code.
+- [ ] M-06 `COMPACT_FIELDS`/`SEVERITY_ORDER` split por feature (cada una su proyección/ranking); el host las mergea para el constructor del grafo — anti-patrón: Duplicate Code.
+- [ ] M-02 Reconciliar las configs de ckg/delta/trace de las 2 fuentes (memory_schemas vs cognitive_registry) en la feature dueña — anti-patrón: Shotgun Surgery.
 
 ### Fase 3 — Adapters + orquestación consolidada
 
