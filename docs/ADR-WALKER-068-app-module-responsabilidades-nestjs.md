@@ -105,6 +105,18 @@
 - R4 — Los cross-feature orchestrators (G10) viven SOLO en la capa de aplicación (`app/orchestration`); si un servicio cruza 2+ features, va ahí, no a una feature.
 - R5 — El `main`/bootstrap construye el container UNA vez (ADR-046); los módulos declaran, no ensamblan.
 - R6 — Un feature registra SOLO SU índice en el storage genérico (forFeature): `code_analysis`→CPG, `cognitive_knowledge`→CKG, `delta_tracking`→Delta, `event_tracing`→Trace.
+- R7 — **NO hay lista central de paths de módulos**: cada `*/module.py` se auto-registra al importar (`register_manifest(MODULE)`, espejo del bootstrap del engine); el AppModule importa por referencia (NestJS `@Module({imports})`). ✅ implementado (commit `98e3548`).
+
+### 2.6 Resolución del registro centralizado (NestJS/Angular)
+
+**Problema:** `app/composition/registry.py` tenía `module_paths = ["features.code_analysis.module", ...]` — una **lista central de strings** que enumeraba todos los módulos (discovery centralizado), violando la modularidad que `shared` ya respeta (el engine auto-registra sus puertos al importar).
+
+**Cómo lo resuelven NestJS y Angular:** los módulos SE DECLARAN a sí mismos (decoradores/`NgModule`) y el `AppModule` los importa **POR REFERENCIA** (`@Module({imports: [UsersModule, OrdersModule]})` — objetos tipados, no strings). El framework lee el metadata; no hay discovery por strings.
+
+**Resolución implementada (`98e3548`):**
+- `shared/libs/module_system/global_registry.py` — registro global de manifests (espejo de `ports_registry`).
+- Cada `*/module.py` se auto-registra al final: `register_manifest(MODULE)` (al ser importado — como el bootstrap del engine).
+- `_register_module_manifests` importa los módulos **por referencia** (imports estáticos) y aplica los manifests auto-registrados al ModuleRegistry (valida aciclicidad). **Sin lista central de strings.**
 
 ### 2.5 Estado actual vs estado deseado
 
