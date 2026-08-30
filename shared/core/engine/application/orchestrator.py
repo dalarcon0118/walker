@@ -44,21 +44,8 @@ from .use_cases import (
     TransitionUseCase,
     ValidateCurrentStateUseCase,
 )
-
-
-class _ComposerContext:
-    """ExecutionContext liviano para el ContextComposer.
-
-    Existe para evitar acoplar el composer al ExecutionContext real,
-    que tiene muchas más dependencias. Fase 1: mínimo necesario.
-    """
-
-    def __init__(
-        self, chain_dir: str = "", task_id: str = "", baggage: dict | None = None
-    ):
-        self.chain_dir = chain_dir
-        self.task_id = task_id
-        self.baggage = baggage or {}
+from .prompt_service import PromptService
+from .event_dispatch_service import EventDispatchService
 
 
 class OrchestrationService:
@@ -180,6 +167,17 @@ class OrchestrationService:
         self._transition_uc: TransitionUseCase | None = None
         self._validate_uc: ValidateCurrentStateUseCase | None = None
 
+        # Servicios SRP (ADR-WALKER-067 F3/C): el facade delega en ellos.
+        self._prompt_service = PromptService()
+        self._event_dispatch = EventDispatchService(
+            workflow_store=workflow_store,
+            actions=actions,
+            transition_uc_provider=lambda: self.transition_uc,
+            event_dispatcher=event_dispatcher,
+            event_log=event_log,
+            tracer=self._tracer,
+        )
+
     # ── Prompt collection ─────────────────────────────────────────────
     # Los prompts y su contexto son INCUMBENCIA DEL HOST (ADR-WALKER-067): el
     # motor NO conoce IPromptCollector. El host recolecta/resuelve prompts
@@ -238,118 +236,29 @@ class OrchestrationService:
         execution_ctx: Any | None = None,
         extra_data: dict | None = None,
     ) -> str:
-        """Resuelve prompt_id usando PromptManager (módulo centralizado).
-
-        Si context_config está presente, usa compose() (provider-based).
-        Si no, usa resolve() (template-based).
-
-        Args:
-            extra_data: datos adicionales inyectados sobre collect_all() (prioridad alta)
-        """
-        try:
-            # El contexto de prompts es INCUMBENCIA DEL HOST (ADR-WALKER-067):
-            # el engine no recolecta datos de negocio para prompts. El host los
-            # provee externamente (vía extra_data/context del caller).
-            pm = {}
-            ctx = {"task_id": task_id, "node_id": prompt_id.split("/")[-1]}
-            if execution_ctx:
-                ctx.update(getattr(execution_ctx, "baggage", {}) or {})
-
-            if context_config:
-                # FIX (prompt rendering): inyectar extra_data (sprint_ctx con
-                # Q&A, task info, etc.) en el baggage del composer para que los
-                # placeholders {q1}, {a1}, {task_title}... se resuelvan con
-                # datos reales. Antes el extra_data solo se usaba en resolve()
-                # (sin context.sources), no en compose().
-                baggage = dict(getattr(execution_ctx, "baggage", {}) or {})
-                if extra_data:
-                    baggage.update(extra_data)
-                composer_ctx = _ComposerContext(
-                    chain_dir=chain_dir,
-                    task_id=task_id or "",
-                    baggage=baggage,
-                )
-                return pm.compose(
-                    node_config=context_config,
-                    prompt_template=prompt_id,
-                    ctx=composer_ctx,
-                    chain_dir=chain_dir,
-                    extra_data=extra_data,
-                )
-
-            return pm.resolve(prompt_id, context=ctx, extra_data=extra_data)
-        except Exception as e:
-            return f"[error resolving prompt '{prompt_id}': {e}]"
+        """Resuelve prompt_id (SRP: delega en PromptService)."""
+        return self._prompt_service.resolve_prompt(
+            prompt_id,
+            chain_dir,
+            task_id=task_id,
+            context_config=context_config,
+            execution_ctx=execution_ctx,
+            extra_data=extra_data,
+        )
 
     def _resolve_status_prompt(self, sub_state, ctx) -> str:
-        """Resuelve el prompt para status: usa prompt_id si existe, si no on_entry_message.
-
-        Inyecta sprint context como extra_data para que templates {variables}
-        se resuelvan con datos reales del STATE layer.
-        Si el sub-estado declara context.sources, usa compose() para incluir
-        las capas de contexto (cpg, business, ckg, etc.) en el prompt.
-        """
-        if sub_state.prompt_id:
-            # El contexto de placeholders (Q&A, task info, delta) es del HOST;
-            # el engine no lo builda (PromptContextBuilder sale del motor).
-            sprint_ctx = {}
-            context_config = sub_state.context if sub_state.context else None
-            resolved = self.resolve_prompt(
-                sub_state.prompt_id,
-                ctx.chain_dir,
-                ctx.task_id,
-                context_config=context_config,
-                execution_ctx=ctx,
-                extra_data=sprint_ctx,
-            )
-            if resolved and not resolved.startswith("[error"):
-                return resolved
-        return sub_state.on_entry_message or ""
+        """Resuelve el prompt de status (SRP: delega en PromptService)."""
+        return self._prompt_service.resolve_status_prompt(sub_state, ctx)
 
     # ── Node Briefing ─────────────────────────────────────────────
 
     @staticmethod
+    @staticmethod
     def _build_node_briefing(
         node: WorkflowNode | None, sub_state: SubState | None
     ) -> str:
-        """Construye el briefing del nodo actual para el LLM.
-
-        Es metadata del flujo de ejecución — no es un provider de datos.
-        Se inyecta como sección fija en el mensaje antes del contexto.
-        """
-        lines = ["=== NODE BRIEFING ==="]
-        if node:
-            label = node.label or node.node_id
-            lines.append(f"Node: {node.node_id} ({label})")
-            if node.description:
-                lines.append(f"Purpose: {node.description}")
-        if sub_state:
-            ss_label = sub_state.label or sub_state.key
-            lines.append(f"Current step: {sub_state.key} — {ss_label}")
-            if sub_state.on_success:
-                lines.append(f'→ On success: proceed to "{sub_state.on_success}"')
-            if sub_state.on_failure:
-                lines.append(f'→ On failure: revert to "{sub_state.on_failure}"')
-            if sub_state.side_effects:
-                se_list = [se.type for se in sub_state.side_effects]
-                lines.append(f"Side effects: {', '.join(se_list)}")
-            else:
-                lines.append("Side effects: (none)")
-            # ── GATE: required_tools (auto-consulta obligatoria) ────────
-            if sub_state.required_tools:
-                lines.append("")
-                lines.append(
-                    "REQUIRED TOOLS — must invoke BEFORE submitting this step:"
-                )
-                for t in sub_state.required_tools:
-                    tool_id = t.get("id", "?")
-                    hint = t.get("command_hint", "")
-                    lines.append(f"  • {tool_id}: {hint}")
-                lines.append(
-                    "  (The engine will BLOCK the submit if no kg_query for "
-                    "these layers is found in the trace for this task.)"
-                )
-        return "\n".join(lines)
+        """Construye el briefing del nodo (SRP: delega en PromptService)."""
+        return PromptService.build_node_briefing(node, sub_state)
 
     # ── Core API ────────────────────────────────────────────────────────
 
@@ -703,71 +612,8 @@ class OrchestrationService:
         ctx: ExecutionContext,
         result: dict,
     ) -> int:
-        """Escanea side-effects en el resultado de submit() y dispara eventos on:{}.
-
-        Por cada side-effect type=emit_event, busca el evento en
-        workflow.json 'on' y ejecuta su handler (run o transition).
-
-        ADEMÁS: consume el CONTRATO ESTÁNDAR de side-effects. Si un side-effect
-        reporta quality_passed=False (signals.recommend='refactorizar_primero'),
-        dispara el evento estándar 'quality_gate_failed' que el workflow puede
-        declarar en on:{} para desviar a REFINE automáticamente.
-
-        Returns:
-            Numero de eventos despachados.
-        """
-        side_effects = result.get("side_effects", [])
-        if not side_effects:
-            return 0
-
-        count = 0
-        for se in side_effects:
-            se_type = se.get("type")
-            se_result = se.get("result", {}) or {}
-            signals = (
-                se_result.get("signals", {}) if isinstance(se_result, dict) else {}
-            )
-
-            # 1. Eventos explícitos (emit_event). El nombre del evento puede
-            #    estar en signals (envelope estándar) o en result.event (legacy).
-            if se_type == "emit_event":
-                if isinstance(se_result, dict):
-                    event_name = (
-                        signals.get("event")
-                        or se_result.get("event")
-                        or (se_result.get("metadata", {}) or {}).get("event", "")
-                    )
-                else:
-                    event_name = (
-                        se_result.get("event", "")
-                        if isinstance(se_result, dict)
-                        else ""
-                    )
-                if event_name:
-                    dispatch_result = self._dispatch_event(ctx, event_name, result)
-                    if dispatch_result:
-                        count += 1
-                continue
-
-            # 2. Contrato estándar: quality gate falló → evento estándar
-            if isinstance(se_result, dict) and se_result.get("scope") == "code_index":
-                if signals.get("quality_passed") is False:
-                    summary = se_result.get("summary", "quality gates fallaron")
-                    dispatch_result = self._dispatch_event(
-                        ctx,
-                        "quality_gate_failed",
-                        result,
-                    )
-                    if dispatch_result:
-                        count += 1
-                    # Adjuntar la info de calidad al resultado para el agente
-                    result.setdefault("quality", {})["last_scan"] = {
-                        "summary": summary,
-                        "failed_gates": signals.get("failed_gate_names", []),
-                        "recommend": signals.get("recommend", ""),
-                        "degraded": se_result.get("status") == "degraded",
-                    }
-        return count
+        """Despacha eventos on:{} de side-effects (SRP: delega en EventDispatchService)."""
+        return self._event_dispatch.dispatch_events_from_side_effects(ctx, result)
 
     def _dispatch_event(
         self,
@@ -775,87 +621,8 @@ class OrchestrationService:
         event_name: str,
         result: dict | None = None,
     ) -> dict | None:
-        """Busca y ejecuta el handler de un evento on:{}.
-
-        Los eventos se definen en workflow.json on:{} con dos tipos:
-          - {"run": "action_name"}: Ejecuta accion via TaskRegistry
-          - {"transition": "gate_name"}: Aplica transicion
-
-        Args:
-            ctx: ExecutionContext actual.
-            event_name: Nombre del evento (ej: "task_approved").
-            result: Resultado previo para metadata.
-
-        Returns:
-            Resultado del handler o None si no hay handler.
-        """
-        workflow = self._workflow_store.load_graph()
-        handler = workflow.find_event_handler(event_name)
-        if not handler:
-            return None
-
-        # Metadata del evento (incluye nodo actual real)
-        state = self._workflow_store.load_state(ctx.chain_dir)
-        metadata = {
-            "event": event_name,
-            "task_id": ctx.task_id,
-            "node": f"{state.current_node}.{state.current_sub_state}",
-            "timestamp": ctx.started_at,
-            "session_id": ctx.session_id,
-        }
-
-        # ── Handler type: run (via TaskRegistry) ────────────────────
-        if "run" in handler:
-            action = handler["run"]
-            try:
-                exec_ctx = ExecutionContext.create(
-                    session_id=ctx.session_id,
-                    chain_dir=ctx.chain_dir,
-                    task_id=ctx.task_id,
-                    trace_id=ctx.trace_id,
-                )
-                task_result = self._actions.execute_action(action, exec_ctx, metadata)
-                return {
-                    "event": event_name,
-                    "handler_type": "run",
-                    "action": action,
-                    "ok": task_result.ok,
-                    "result": str(task_result.data)[:500] if task_result.data else None,
-                }
-            except Exception as e:
-                return {
-                    "event": event_name,
-                    "handler_type": "run",
-                    "action": action,
-                    "ok": False,
-                    "error": str(e),
-                }
-
-        # ── Handler type: transition (via TransitionUseCase) ────────
-        elif "transition" in handler:
-            gate = handler["transition"]
-            try:
-                transition_result = self.transition_uc.execute(
-                    ctx,
-                    gate_name=gate,
-                )
-                return {
-                    "event": event_name,
-                    "handler_type": "transition",
-                    "gate": gate,
-                    "ok": True,
-                    "target": transition_result.get("to_node", ""),
-                }
-            except Exception as e:
-                return {
-                    "event": event_name,
-                    "handler_type": "transition",
-                    "gate": gate,
-                    "ok": False,
-                    "error": str(e),
-                }
-
-        return None
+        """Ejecuta el handler de un evento on:{} (SRP: delega en EventDispatchService)."""
+        return self._event_dispatch.dispatch_event(ctx, event_name, result)
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

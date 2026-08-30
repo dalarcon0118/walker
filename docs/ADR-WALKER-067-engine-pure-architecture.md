@@ -154,7 +154,7 @@ deudas que lo harían frágil en producción. La tabla contrasta cada dimensión
 |-----------|--------|--------------------|
 | A Capas/dependencias | ✅ hecho | F1 (done) |
 | B Superficie motor | 🟢 ok | F3 (alineación) |
-| C Orquestación SRP | 🔴 | F3 |
+| C Orquestación SRP | 🟡 | F3 (orchestrator 875→643: PromptService + EventDispatchService) |
 | D Casos de uso SRP | 🟡 | F3 (use_cases.py → paquete SRP) |
 | E Puertos tipados | 🟡 | F2 (firmas tipadas) |
 | F Inmutabilidad estado | 🔴 | F2 |
