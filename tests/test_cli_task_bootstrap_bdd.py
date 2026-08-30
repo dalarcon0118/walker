@@ -19,8 +19,8 @@ handle_task lo reconstruye por sí mismo (y no crashea con get_task_info).
 """
 from __future__ import annotations
 
-from features.main.cli_interface.infrastructure.contracts import Request
-from features.main.cli_interface.application import handlers as cli_handlers
+from protocols.cli.cli_interface.infrastructure.contracts import Request
+from protocols.cli.cli_interface.application import handlers as cli_handlers
 
 
 def test_handle_task_self_bootstraps_composition_root(monkeypatch, mcp_project):
@@ -33,7 +33,7 @@ def test_handle_task_self_bootstraps_composition_root(monkeypatch, mcp_project):
     # Aisla la resolución de chain_dir (IO/git) — no es lo que testeamos aquí.
     monkeypatch.setattr(cli_handlers, "_ensure_chain_dir", lambda *a, **k: "")
 
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     calls: list[int] = []
     orig_build = AppContainer.build

@@ -23,11 +23,11 @@ Uso:
 from __future__ import annotations
 
 from .composer import ContextComposer
-from .models import ContextPiece, ComposedContext, ContextBudget
+from shared.common.context.models import ContextPiece, ComposedContext, ContextBudget
 from .registry import ContextProviderRegistry, ContextProvider
 from .query_manager import QueryManager
 from .providers import DiffProvider, TestResultsProvider
-from .format import (
+from shared.common.context.format import (
     fmt_tokens,
     format_ckg_results,
     format_cpg_results,

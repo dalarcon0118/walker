@@ -19,7 +19,7 @@ import sys
 
 import pytest
 
-from features.main.cli_interface.infrastructure import reloader
+from protocols.cli.cli_interface.infrastructure import reloader
 from shared.core.engine.bootstrap import reset_module_registry
 
 
@@ -89,8 +89,8 @@ def test_no_consume_cambio_durante_defer(_isolated_reload_state, monkeypatch):
 
 def test_reset_server_cache_recompone_composition_eager():
     """Tras invalidar, _reset_server_cache deja el composition root utilizable YA."""
-    from features.main.container import AppContainer
-    from features.main.cli_interface.mcp_adapter import _reset_server_cache
+    from app.container import AppContainer
+    from protocols.mcp.mcp_adapter import _reset_server_cache
 
     reset_module_registry()
     AppContainer.reset()
@@ -105,7 +105,7 @@ def test_sin_debug_print_en_camino_a():
     """Contrato de higiene: el dispatch no contamina stderr con DEBUG."""
     import inspect
 
-    from features.main.cli_interface import mcp_adapter
+    from protocols.mcp import mcp_adapter
 
     source = inspect.getsource(mcp_adapter)
     assert "DEBUG _call_tool" not in source

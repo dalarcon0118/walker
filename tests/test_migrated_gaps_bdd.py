@@ -22,6 +22,7 @@ import json
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
+from app.memory_schemas import register_default_memory_indexes
 
 scenarios("bdd/features/migrated_gaps.feature")
 
@@ -335,7 +336,7 @@ def _wsjf_first(mg_ctx: dict):
 
 @given("un proyecto con chain y backlog")
 def _project_with_chain(mg_ctx: dict, tmp_path):
-    from shared.core.cognitive_graph import CognitiveGraph
+    from shared.libs.cognitive_graph import CognitiveGraph
 
     proj = str(tmp_path / "proj")
     data_dir = f"{proj}/data"
@@ -344,7 +345,7 @@ def _project_with_chain(mg_ctx: dict, tmp_path):
     os.makedirs(data_dir, exist_ok=True)
     with open(f"{data_dir}/project.json", "w") as f:
         json.dump({"project_id": "projX", "name": "Test"}, f)
-    CognitiveGraph(proj, auto_register=True)
+    CognitiveGraph(proj, register_defaults=register_default_memory_indexes)
     mg_ctx["chain"] = f"{data_dir}/spring/chain-proj"
     mg_ctx["backlog_dir"] = _make_backlog(str(tmp_path))
     mg_ctx["tmp"] = str(tmp_path)
@@ -463,7 +464,7 @@ def _symbol_absent(mg_ctx: dict):
 
 @when("verifico la existencia de símbolos")
 def _verify_symbols(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
+    from tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["res_ok"], mg_ctx["info_ok"] = verify_predicate(
         {"type": "symbol_exists", "symbol": "hello_world", "file": "src/foo.py"},
@@ -496,7 +497,7 @@ def _symbol_zombie(mg_ctx: dict):
 
 @when("verifico que el símbolo no exista")
 def _verify_not_exists(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
+    from tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["res_zombie"], _ = verify_predicate(
         {"type": "symbol_not_exists", "symbol": mg_ctx["zombie"], "file": "src/foo.py"},
@@ -531,7 +532,7 @@ def _file_missing(mg_ctx: dict):
 
 @when("verifico la existencia de archivos")
 def _verify_files(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
+    from tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["file_ok"], _ = verify_predicate(
         {"type": "file_exists", "path": "src/foo.py"}, mg_ctx["proj"]
@@ -558,7 +559,7 @@ def _proj_tmp(mg_ctx: dict, tmp_path):
 
 @when('ejecuto un comando que contiene "42"')
 def _cmd_output(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
+    from tasks.infrastructure.verify_engine import verify_predicate
 
     pred = {
         "type": "command_output",
@@ -575,7 +576,7 @@ def _cmd_passed(mg_ctx: dict):
 
 @then('si busco "NOPE" falla')
 def _cmd_nope_fails(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
+    from tasks.infrastructure.verify_engine import verify_predicate
 
     ok2, _ = verify_predicate(
         {
@@ -590,7 +591,7 @@ def _cmd_nope_fails(mg_ctx: dict):
 
 @when("ejecuto una verificación manual")
 def _manual_verify(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import verify_predicate
+    from tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["manual_ok"], mg_ctx["manual_info"] = verify_predicate(
         {"type": "manual", "description": "revisar UX a mano"}, mg_ctx["proj"]
@@ -604,7 +605,7 @@ def _manual_passed(mg_ctx: dict):
 
 @when("ejecuto la misma verificación dos veces")
 def _cache_twice(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import (
+    from tasks.infrastructure.verify_engine import (
         invalidate_verify_cache,
         verify_predicate,
     )
@@ -632,7 +633,7 @@ def _three_predicates(mg_ctx: dict, tmp_path):
 
 @when("ejecuto el batch")
 def _batch_run(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import (
+    from tasks.infrastructure.verify_engine import (
         invalidate_verify_cache,
         verify_predicates_batch,
     )
@@ -711,7 +712,7 @@ def _shell_sentence(mg_ctx: dict):
 
 @when("parseo ambos predicates")
 def _parse_both(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import (
+    from tasks.infrastructure.verify_engine import (
         _is_string_a_shell_command,
         _parse_predicate,
     )
@@ -746,7 +747,7 @@ def _test_missing(mg_ctx: dict):
 
 @when("ejecuto run_verification tipo test")
 def _run_test_verification(mg_ctx: dict):
-    from features.main.task_execution.infrastructure.verify_engine import run_verification
+    from tasks.infrastructure.verify_engine import run_verification
 
     mg_ctx["test_ok"] = run_verification(
         {"predicate": "test_demo", "type": "test"}, mg_ctx["proj"]
@@ -1365,7 +1366,7 @@ def _decision_signal(mg_ctx: dict):
 
 @given("una función emit_event")
 def _fn_emit(mg_ctx: dict):
-    from features.main.task_execution.side_effects.events import emit_event
+    from tasks.side_effects.events import emit_event
 
     mg_ctx["fn"] = emit_event
 
@@ -1393,7 +1394,7 @@ def _env_status_ok(mg_ctx: dict):
 
 @given("un side effect emit_event")
 def _se_emit(mg_ctx: dict):
-    from features.main.task_execution.side_effects.events import emit_event
+    from tasks.side_effects.events import emit_event
 
     mg_ctx["result"] = {
         "side_effects": [
@@ -1609,7 +1610,7 @@ def _impl_input_bad(mg_ctx: dict):
 
 @given("CaptureTaskInput vacío")
 def _capture_empty(mg_ctx: dict):
-    from features.main.task_execution.tasks.capture import CaptureTaskInput
+    from tasks.actions.capture import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict({})
 
@@ -1621,7 +1622,7 @@ def _capture_fails(mg_ctx: dict):
 
 @given("CaptureTaskInput con objective y files")
 def _capture_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.capture import CaptureTaskInput
+    from tasks.actions.capture import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict(
         {"objective": "implementar X", "files": ["a.py"]}
@@ -1630,35 +1631,35 @@ def _capture_ok(mg_ctx: dict):
 
 @given("ResearchInput vacío")
 def _research_empty(mg_ctx: dict):
-    from features.main.task_execution.tasks.research import ResearchInput
+    from tasks.actions.research import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({})
 
 
 @given("ResearchInput con topic")
 def _research_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.research import ResearchInput
+    from tasks.actions.research import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({"topic": "vector dbs"})
 
 
 @given("KgExtractInput con scope functions")
 def _kg_extract_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.extract_knowledge import KgExtractInput
+    from tasks.actions.extract_knowledge import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "functions"})
 
 
 @given("KgExtractInput con scope bogus")
 def _kg_extract_bad(mg_ctx: dict):
-    from features.main.task_execution.tasks.extract_knowledge import KgExtractInput
+    from tasks.actions.extract_knowledge import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "bogus"})
 
 
 @given("ProjectInitInput vacío")
 def _project_init_empty(mg_ctx: dict):
-    from features.main.task_execution.tasks.initialize_project import ProjectInitInput
+    from tasks.actions.initialize_project import ProjectInitInput
 
     mg_ctx["vo"] = ProjectInitInput.from_dict({})
 
@@ -1670,7 +1671,7 @@ def _project_init_fails(mg_ctx: dict):
 
 @given("ProjectInitInput con project_id y language")
 def _project_init_ok(mg_ctx: dict):
-    from features.main.task_execution.tasks.initialize_project import ProjectInitInput
+    from tasks.actions.initialize_project import ProjectInitInput
 
     vo = ProjectInitInput.from_dict({"project_id": "p1", "language": "go"})
     assert vo.ok and vo.data.language == "go"
@@ -1823,7 +1824,7 @@ def _walker_dir(mg_ctx: dict):
 
 @when("busco _walker_root")
 def _find_root(mg_ctx: dict):
-    from features.main.cli_interface.application.mcp_config_service import _walker_root
+    from protocols.cli.cli_interface.application.mcp_config_service import _walker_root
 
     mg_ctx["walker_root"] = _walker_root()
 
@@ -1839,7 +1840,7 @@ def _root_has_mcp(mg_ctx: dict):
 
 @when("genero mcp_servers_block")
 def _mcp_block(mg_ctx: dict):
-    from features.main.cli_interface.application.mcp_config_service import (
+    from protocols.cli.cli_interface.application.mcp_config_service import (
         mcp_servers_block,
     )
 
@@ -1851,17 +1852,17 @@ def _walker_python3(mg_ctx: dict):
     assert mg_ctx["mcp"]["mcpServers"]["walker"]["command"] == "python3"
 
 
-@then('args son ["-m", "features.cli_interface.mcp"]')
+@then('args son ["-m", "protocols.cli.cli_interface.mcp"]')
 def _walker_args(mg_ctx: dict):
     assert mg_ctx["mcp"]["mcpServers"]["walker"]["args"] == [
         "-m",
-        "features.cli_interface.mcp",
+        "protocols.cli.cli_interface.mcp",
     ]
 
 
 @then("PYTHONPATH incluye el root del walker")
 def _walker_pythonpath(mg_ctx: dict):
-    from features.main.cli_interface.application.mcp_config_service import _walker_root
+    from protocols.cli.cli_interface.application.mcp_config_service import _walker_root
 
     root = _walker_root()
     assert root in mg_ctx["mcp"]["mcpServers"]["walker"]["env"]["PYTHONPATH"]
@@ -1869,7 +1870,7 @@ def _walker_pythonpath(mg_ctx: dict):
 
 @when("genero la configuración MCP")
 def _gen_mcp(mg_ctx: dict):
-    from features.main.cli_interface.application.mcp_config_service import generate
+    from protocols.cli.cli_interface.application.mcp_config_service import generate
 
     mg_ctx["mcp"] = generate()
 
@@ -1885,7 +1886,7 @@ def _cmd_mcp_raw(mg_ctx: dict):
     import contextlib
     import io
 
-    from features.main.cli_interface.application.mcp_config_service import cmd_mcp_config
+    from protocols.cli.cli_interface.application.mcp_config_service import cmd_mcp_config
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -1907,7 +1908,7 @@ def _raw_json(mg_ctx: dict):
 
 @when("llamo _walker_root y mcp_servers_block")
 def _service_both(mg_ctx: dict):
-    from features.main.cli_interface.application.mcp_config_service import (
+    from protocols.cli.cli_interface.application.mcp_config_service import (
         _walker_root,
         mcp_servers_block,
     )
@@ -1929,7 +1930,7 @@ def _root_exists(mg_ctx: dict):
 def _walker_cfg_expected(mg_ctx: dict):
     server = mg_ctx["mcp"]["mcpServers"]["walker"]
     assert server["command"] == "python3"
-    assert server["args"] == ["-m", "features.cli_interface.mcp"]
+    assert server["args"] == ["-m", "protocols.cli.cli_interface.mcp"]
     assert mg_ctx["walker_root"] in server["env"]["PYTHONPATH"]
 
 
@@ -1940,14 +1941,14 @@ def _json_serializable(mg_ctx: dict):
 
 @given("una Request vacía")
 def _request_empty(mg_ctx: dict):
-    from features.main.cli_interface.infrastructure.contracts import Request
+    from protocols.cli.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["req"] = Request(params={})
 
 
 @when("invoco handle_mcp_config")
 def _handle_mcp_config(mg_ctx: dict):
-    from features.main.cli_interface.application.handlers import handle_mcp_config
+    from protocols.cli.cli_interface.application.handlers import handle_mcp_config
 
     mg_ctx["resp"] = handle_mcp_config(mg_ctx["req"])
 
@@ -1969,8 +1970,8 @@ def _resp_walker_cmd(mg_ctx: dict):
 
 @when("invoco con raw=true")
 def _handle_mcp_raw(mg_ctx: dict):
-    from features.main.cli_interface.application.handlers import handle_mcp_config
-    from features.main.cli_interface.infrastructure.contracts import Request
+    from protocols.cli.cli_interface.application.handlers import handle_mcp_config
+    from protocols.cli.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["resp"] = handle_mcp_config(Request(params={"raw": "true"}))
 
@@ -1983,7 +1984,7 @@ def _resp_raw_only(mg_ctx: dict):
 
 @when("invoco handle_help")
 def _handle_help(mg_ctx: dict):
-    from features.main.cli_interface.application.handlers import handle_help
+    from protocols.cli.cli_interface.application.handlers import handle_help
 
     mg_ctx["resp"] = handle_help(mg_ctx["req"])
 
@@ -2009,7 +2010,7 @@ def _help_no_format(mg_ctx: dict):
 
 @given("el router de CLI")
 def _router(mg_ctx: dict):
-    import features.main.cli_interface as ci
+    import protocols.cli.cli_interface as ci
 
     mg_ctx["router"] = ci._ROUTER
 
@@ -2049,7 +2050,7 @@ def _sprint_id_route(mg_ctx: dict):
 
 @when("creo Request con params de ruta")
 def _req_params(mg_ctx: dict):
-    from features.main.cli_interface.infrastructure.contracts import Request
+    from protocols.cli.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["req"] = Request(params=mg_ctx["resolved"][1], flags={})
 
@@ -2061,7 +2062,7 @@ def _req_sprint_id(mg_ctx: dict):
 
 @when("creo Request con flags sprint_id")
 def _req_flags(mg_ctx: dict):
-    from features.main.cli_interface.infrastructure.contracts import Request
+    from protocols.cli.cli_interface.infrastructure.contracts import Request
 
     mg_ctx["req"] = Request(params={}, flags={"sprint_id": "session-20260804"})
 

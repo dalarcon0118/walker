@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 from features.code_analysis.domain.graph import Graph
 from features.code_analysis.domain.metrics import ReviewResult, ProjectMetrics, QualityGate
-from features.code_analysis.infrastructure.repository import CpgFileRepository
+from features.code_analysis.infrastructure.cognitive_cpg_repo import CognitiveCpgRepository
 
 
 class ReviewUseCase:
@@ -39,30 +39,31 @@ class ReviewUseCase:
         self._scan_paths = scan_paths
         self._data_dir = data_dir
         self._graph: Graph | None = None
-        self._repo: CpgFileRepository | None = None
+        self._repo: CognitiveCpgRepository | None = None
 
     @property
-    def repo(self) -> CpgFileRepository:
+    def repo(self) -> CognitiveCpgRepository:
         if self._repo is None:
             if self._data_dir:
-                self._repo = CpgFileRepository(self._data_dir)
+                self._repo = CognitiveCpgRepository(self._data_dir, self._project_id)
             else:
-                from shared.core.path_resolver import resolve_project_root, get_data_dir
+                from app.path_resolver import resolve_project_root, get_data_dir
 
                 project_root = resolve_project_root(self.chain_dir)
                 project_id = os.path.basename(project_root) if project_root else ""
                 data_dir = str(get_data_dir(project_id)) if project_id else ""
-                self._repo = CpgFileRepository(
-                    data_dir or os.path.join(project_root, "data")
-                    if project_root
-                    else ""
+                self._project_id = self._project_id or project_id
+                self._repo = CognitiveCpgRepository(
+                    data_dir
+                    or (os.path.join(project_root, "data") if project_root else ""),
+                    self._project_id,
                 )
         return self._repo
 
     @property
     def graph(self) -> Graph:
         if self._graph is None:
-            self._graph = self.repo.load_graph(self._project_id)
+            self._graph = Graph.from_dict(self.repo.load(self._project_id))
         return self._graph
 
     def _resolve_repo_and_data_dir(self) -> tuple[str, str]:
@@ -72,7 +73,7 @@ class ReviewUseCase:
         repo_root: raíz real del código; data_dir: dir canónico de memorias.
         """
         data_dir = self._data_dir or self.repo.data_dir
-        from shared.core.context_resolver import resolve_memory_context
+        from app.context_resolver import resolve_memory_context
 
         ctx = resolve_memory_context(data_dir)
         return ctx.repo_root or ctx.data_dir, ctx.data_dir or data_dir
@@ -352,7 +353,7 @@ class ReviewUseCase:
                 type(e).__name__, e,
             )
         # Fallback legacy
-        from shared.core.path_resolver import resolve_project_root, resolve_source_code_dirs
+        from app.path_resolver import resolve_project_root, resolve_source_code_dirs
 
         proj_dir = resolve_project_root(self.chain_dir)
         project_id = os.path.basename(proj_dir) if proj_dir else ""

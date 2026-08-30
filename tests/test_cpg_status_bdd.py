@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from orchestration.check_health_service import CheckHealthService
+from app.orchestration.check_health_service import CheckHealthService
 
 
 def test_status_incluye_cpg_status_desde_watcher(tmp_path):

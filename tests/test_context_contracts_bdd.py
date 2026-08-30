@@ -156,7 +156,7 @@ class _SchemaProvider:
         return "Layer: package — test provider."
 
     def collect(self, config, ctx, query_client=None):
-        from shared.core.engine.context.models import ContextPiece
+        from shared.core.engine.context import ContextPiece
         return ContextPiece(
             provider="package",
             name="package layer",
@@ -217,7 +217,7 @@ class _StubProvider:
         return "Layer: diff."
 
     def collect(self, config, ctx, query_client=None):
-        from shared.core.engine.context.models import ContextPiece
+        from shared.core.engine.context import ContextPiece
         return ContextPiece(
             provider="diff",
             name="diff layer",

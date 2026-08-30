@@ -16,6 +16,7 @@ from unittest.mock import Mock
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
+from shared.core.engine.infrastructure.workflow_store import WorkflowStoreAdapter
 
 scenarios("bdd/features/required_tools_gate.feature")
 
@@ -49,7 +50,7 @@ def _substate(node: dict, key: str) -> dict:
 
 def _work_substate_obj():
     from shared.core.engine.infrastructure.repositories import WorkflowRepository
-    from shared.core.path_resolver import get_engine_workflow_path
+    from app.path_resolver import get_engine_workflow_path
 
     repo = WorkflowRepository(workflow_path=str(get_engine_workflow_path()))
     graph = repo.load()
@@ -147,8 +148,7 @@ def _make_submit_orchestrator(tracer_events: list[dict]):
     from shared.core.engine.application.submit_orchestrator import SubmitOrchestrator
 
     orch = SubmitOrchestrator(
-        state_repo=state_repo,
-        workflow_repo=workflow_repo,
+        workflow_store=WorkflowStoreAdapter(workflow_repo=workflow_repo, state_repo=state_repo),
         submit_uc=submit_uc,
         handle_error=Mock(),
         tracer=StubTracer(tracer_events),

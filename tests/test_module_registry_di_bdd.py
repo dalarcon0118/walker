@@ -24,14 +24,14 @@ def module_registry_di_ctx() -> dict:
 
 @given("un ModuleRegistry vacío")
 def _empty_registry(module_registry_di_ctx: dict):
-    from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
+    from shared.libs.module_system.registry import InMemoryModuleRegistry
 
     module_registry_di_ctx["registry"] = InMemoryModuleRegistry()
 
 
 @given("un ModuleRegistry con factory lazy para \"searcher\"")
 def _registry_with_lazy(module_registry_di_ctx: dict):
-    from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
+    from shared.libs.module_system.registry import InMemoryModuleRegistry
 
     calls = {"n": 0}
 
@@ -47,7 +47,7 @@ def _registry_with_lazy(module_registry_di_ctx: dict):
 
 @given("el composition root bootstrap")
 def _bootstrap_ready(module_registry_di_ctx: dict):
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     app = AppContainer.build()
     module_registry_di_ctx["registry"] = app.module_registry
@@ -55,7 +55,7 @@ def _bootstrap_ready(module_registry_di_ctx: dict):
 
 @given("un registry con \"cognitive_searcher\" lazy")
 def _registry_with_cognitive_searcher(module_registry_di_ctx: dict):
-    from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
+    from shared.libs.module_system.registry import InMemoryModuleRegistry
 
     registry = InMemoryModuleRegistry()
     registry.register_service(
@@ -90,7 +90,7 @@ def _resolve_missing(module_registry_di_ctx: dict):
 
 @when("inicializo el registry con bootstrap_modules")
 def _bootstrap_modules(module_registry_di_ctx: dict):
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     app = AppContainer.build()
     module_registry_di_ctx["registry"] = app.module_registry

@@ -22,8 +22,8 @@ def f4_ctx() -> dict:
 
 
 def _registry_with_tool(example=None):
-    from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
-    from shared.core.engine.interface.contracts import ModuleDefinition, ToolDefinition
+    from shared.libs.module_system.registry import InMemoryModuleRegistry
+    from shared.libs.module_system.contracts import ModuleDefinition, ToolDefinition
 
     meta = {}
     if example is not None:
@@ -127,7 +127,7 @@ def _help_doc_with_all_fields(f4_ctx: dict):
 
 @when("se renderiza el texto de ayuda")
 def _render_help_text(f4_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _render_help_text
+    from protocols.mcp.mcp_adapter import _render_help_text
 
     f4_ctx["text"] = _render_help_text(f4_ctx["doc"])
 
@@ -170,14 +170,14 @@ def _assert_contains_schema_props(f4_ctx: dict):
 
 @given("un servidor MCP construido")
 def _built_server(f4_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _build_server
+    from protocols.mcp.mcp_adapter import _build_server
 
     f4_ctx["server"] = _build_server()
 
 
 @given("un servidor MCP con tools registradas")
 def _built_server_with_tools(f4_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _build_server
+    from protocols.mcp.mcp_adapter import _build_server
 
     f4_ctx["server"] = _build_server()
 
@@ -238,7 +238,7 @@ def _assert_error_not_found(f4_ctx: dict):
 
 @given("una REST route con flags_builder")
 def _rest_route_with_flags_builder(f4_ctx: dict):
-    from shared.core.engine.interface.contracts import RestRoute
+    from shared.libs.module_system.contracts import RestRoute
 
     f4_ctx["route"] = RestRoute(
         path="{project_id}/submit",
@@ -261,7 +261,7 @@ def _assert_flags_declared(f4_ctx: dict):
 
 @given("una REST route sin flags_builder")
 def _rest_route_without_flags_builder(f4_ctx: dict):
-    from shared.core.engine.interface.contracts import RestRoute
+    from shared.libs.module_system.contracts import RestRoute
 
     f4_ctx["route"] = RestRoute(path="{project_id}/status", method="GET")
 

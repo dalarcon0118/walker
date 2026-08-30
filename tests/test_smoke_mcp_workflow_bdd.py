@@ -47,7 +47,7 @@ def _smoke_project(tmp_path):
         # El McpServer es otro singleton que cachea los handlers de los
         # módulos; se invalida junto al ModuleRegistry para que el próximo
         # test reconstruya el dispatch con el registro global restaurado.
-        from features.main.cli_interface import mcp_adapter
+        from protocols.mcp import mcp_adapter
 
         mcp_adapter._SERVER = None
 
@@ -94,7 +94,7 @@ def _setup_project(tmp_path: str) -> str:
 
 def _mcp_call(name: str, arguments: dict) -> dict:
     """Invoca una tool MCP vía _handle_request (JSON-RPC 2.0 real)."""
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",

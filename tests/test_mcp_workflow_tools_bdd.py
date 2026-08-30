@@ -32,7 +32,7 @@ def _mcp_project(mcp_wf_ctx: dict):
 
 @when("invoco la tool MCP capture_task con objective Trabajo informal y files test.py")
 def _call_capture(mcp_wf_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
     msg = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -44,7 +44,7 @@ def _call_capture(mcp_wf_ctx: dict):
 
 @when("invoco la tool MCP submit vacía")
 def _call_submit_empty(mcp_wf_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
     msg = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -56,7 +56,7 @@ def _call_submit_empty(mcp_wf_ctx: dict):
 
 @when("invoco la tool MCP transition con gate no_existe")
 def _call_transition_invalid(mcp_wf_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
     msg = {
         "jsonrpc": "2.0",
         "id": 1,

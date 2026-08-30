@@ -131,10 +131,10 @@ def test_task_build_code_index_usa_update_por_defecto():
     completo y deriva la rutina a ella (sin sync inline)."""
     import inspect as _inspect
 
-    from features.main.task_execution.tasks.initialize_project import (
+    from tasks.actions.initialize_project import (
         build_code_index,
     )
-    from features.main.task_execution.tasks.update_incremental_code import (
+    from tasks.actions.update_incremental_code import (
         update_incremental_code,
     )
 
@@ -152,7 +152,7 @@ def test_metadata_descubrible_el_parametro_force_se_ensena():
       y su resultado enseña la vía de escape al rebuild completo (next_step).
     Un parámetro/ruta que el agente no puede descubrir es un parámetro muerto."""
     from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-    from features.main.task_execution.tasks.update_incremental_code import register
+    from tasks.actions.update_incremental_code import register
 
     registry = InMemoryTaskRegistry()
     register(registry)
@@ -169,7 +169,7 @@ def test_metadata_descubrible_el_parametro_force_se_ensena():
     )
 
     # La vía de escape al full rebuild se enseña EN EL RESULTADO (runtime):
-    from features.main.task_execution.tasks.inspect_codebase import _dispatch_action
+    from tasks.actions.inspect_codebase import _dispatch_action
 
     import inspect as _inspect
 

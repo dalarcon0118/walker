@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import os
 
-from features.main.cli_interface.application import mcp_config_service as mcp_cfg
-from features.main.cli_interface import mcp_adapter as mcp_adapter
+from protocols.cli.cli_interface.application import mcp_config_service as mcp_cfg
+from protocols.mcp import mcp_adapter as mcp_adapter
 
 
 class TestMcpNoPinnedCwd:
@@ -29,7 +29,7 @@ class TestMcpNoPinnedCwd:
         assert "cwd" not in server, f"cwd fijado rompe multi-proyecto: {server.get('cwd')}"
         # Sigue siendo portable y válido.
         assert server["command"] == "python3"
-        assert server["args"] == ["-m", "features.cli_interface.mcp"]
+        assert server["args"] == ["-m", "protocols.cli.cli_interface.mcp"]
 
     def test_env_propagates_walker_project_id(self, monkeypatch):
         monkeypatch.setenv("WALKER_PROJECT_ID", "otro-proyecto")

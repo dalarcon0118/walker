@@ -116,12 +116,3 @@ class ProjectId:
 
     def __str__(self) -> str:
         return self.value
-
-
-@dataclass(frozen=True)
-class SprintId:
-    """Value Object — sprint/chain identifier. Pure data, no IO."""
-    value: str
-
-    def __str__(self) -> str:
-        return self.value

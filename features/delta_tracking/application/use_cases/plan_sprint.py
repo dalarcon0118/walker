@@ -119,7 +119,7 @@ class PlanSprintUseCase:
 
         if record:
             record.chain_dir = sprint_dir
-            from shared.core.engine.domain.session import SessionStore
+            from shared.core.engine.infrastructure.session_store import SessionStore
 
             SessionStore.save(record)
             SessionStore.set_active(record.session_id)

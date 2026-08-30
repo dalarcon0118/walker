@@ -8,16 +8,18 @@ from __future__ import annotations
 
 import pytest
 
-from shared.core.cognitive_graph.connection import MemoryConnection
-from shared.core.cognitive_graph.ports import StorageBackend
+from shared.libs.cognitive_graph.connection import MemoryConnection
+from shared.libs.cognitive_graph.ports import StorageBackend
 
 
 # ── MemoryConnection ────────────────────────────────────────────────────────
 
-def test_memory_connection_defaults_are_file():
+def test_memory_connection_defaults_are_sqlite():
+    # ADR-063 (corte directo): el default es sqlite (v2 SSOT); 'file' ya no
+    # es un valor de backend runtime (solo export/migración/tests).
     conn = MemoryConnection()
-    assert conn.backend == "file"
-    assert conn.uri == "file://./data"
+    assert conn.backend == "sqlite"
+    assert conn.uri == "sqlite://./data"
     assert conn.database == "walker"
     assert conn.collection_prefix == ""
 
@@ -89,7 +91,7 @@ class _InMemoryBackend:
 
 def test_storage_backend_protocol_satisfied_by_adapter():
     # El adapter real (FileBackend) implementa el puerto completo.
-    from shared.core.cognitive_graph.file_backend import FileBackend
+    from shared.libs.cognitive_graph.file_backend import FileBackend
 
     conn = MemoryConnection(uri="file:///tmp")
     backend = FileBackend(conn)

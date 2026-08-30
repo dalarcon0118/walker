@@ -1,7 +1,7 @@
 """use_cases/check_cpg_health.py — CheckCpgHealthUseCase.
 
 Check CPG health: node count and status.
-SSOT: solo code_analysis lee archivos CPG (via CpgFileRepository, adaptador
+SSOT: solo code_analysis accede al CPG via CognitiveCpgRepository (puerto,
 del índice — ADR-WALKER-055 F1: sin parseo crudo en la capa de aplicación).
 """
 from __future__ import annotations
@@ -31,9 +31,11 @@ class CheckCpgHealthUseCase:
         Returns:
             dict with keys: status (str), node_count (int)
         """
-        from features.code_analysis.infrastructure.repository import CpgFileRepository
+        from features.code_analysis.infrastructure.cognitive_cpg_repo import (
+            CognitiveCpgRepository,
+        )
 
-        repo = CpgFileRepository(projects_data_dir)
+        repo = CognitiveCpgRepository(projects_data_dir, "")
         if not repo.exists():
             return {"status": "not scanned", "node_count": 0}
 

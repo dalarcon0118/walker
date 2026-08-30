@@ -81,7 +81,7 @@ def _load_spring(analyze_ctx: dict):
     import sys
     sys.path.insert(0, ".")
     from shared.core.engine.infrastructure.repositories import WorkflowRepository
-    from shared.core.path_resolver import get_engine_workflow_path
+    from app.path_resolver import get_engine_workflow_path
     analyze_ctx["wf"] = WorkflowRepository(workflow_path=str(get_engine_workflow_path())).load()
 
 

@@ -15,8 +15,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.core.engine.domain.ports import IProjectContext, IConflictResolver, ISprintService, IPromptCollector
+from shared.core.engine.domain.ports import (
+    IWorkflowIO,
+    IWorkflowStore,
+)
 
+from ..domain.workflow_action import ActionCatalog
 from ..domain.models import (
     ExecutionContext,
     SubState,
@@ -26,17 +30,8 @@ from ..domain.errors import (
     ErrorType,
     ErrorStrategy,
 )
-from ..infrastructure.repositories import (
-    WorkflowRepository,
-    WorkflowStateRepository,
-    ScriptRunner,
-)
-from shared.core.path_resolver import get_engine_workflow_path
-from ..infrastructure.side_effects import SideEffectEngine
-from ..infrastructure.task_registry import InMemoryTaskRegistry
-from ..infrastructure.domain_task_registry import DomainTaskRegistry
+from ..infrastructure.workflow_store import WorkflowStoreAdapter
 from ..infrastructure.trace_log import TraceLogger
-from ..domain.registry import TaskRegistry
 from ..domain.ports import ITracer
 from ..domain.services.signal_bus import SignalBus
 from ..context import (
@@ -75,74 +70,62 @@ class OrchestrationService:
         transition(ctx, gate): Transiciona entre nodos con contracts
         status(ctx):        Snapshot del estado actual
 
-    Composition root OBLIGATORIO (capa_rout.md D1): el constructor exige
-    task_registry y side_effect_engine — nunca se crea con registries vacíos.
-    Uso desde CLI (resolviendo el composition root real):
-        from shared.core.engine.bootstrap import bootstrap
-        registry, se_engine = bootstrap()
-        svc = OrchestrationService(
-            task_registry=registry,
-            side_effect_engine=se_engine,
+    Composition root OBLIGATORIO (capa_rout.md D1): el HOST instancia el motor
+    pasándole TODAS sus dependencias (patrón servidor / constructor injection).
+    El motor no importa el contenedor DI ni construye concreto alguno; recibe un
+    ``EngineBundle`` (VO) con todo lo que necesita. El host construye el VO y se
+    lo inyecta a ``workflow_api``:
+        from shared import Engine, EngineBundle          # shared exporta motor + VO
+        from shared.libs.module_system.registry import module_registry
+        bundle = EngineBundle(
+            workflow_store=WorkflowStoreAdapter(
+                workflow_repo=module_registry.get_service("workflow_repo"),
+                state_repo=module_registry.get_service("state_repo"),
+            ),
+            actions=ActionCatalog(
+                task_registry=module_registry.get_service("task_registry"),
+                side_effect_engine=module_registry.get_service("side_effect_engine"),
+            ),
+            workflow_io=module_registry.resolve_port(IWorkflowIO),
         )
-        result = svc.step(exec_ctx)  # auto → ejecuta, manual → espera submit
-        result = svc.submit(exec_ctx, {"decision": "approve"})
-        result = svc.transition(exec_ctx, "task_complete")
-        snapshot = svc.status(exec_ctx)
+        engine = Engine(**bundle.to_orchestrator_kwargs())   # o pasar kwargs explícitos
+        result = engine.step(exec_ctx)     # auto → ejecuta, manual → espera submit
+        result = engine.submit(exec_ctx, {"decision": "approve"})
+        result = engine.transition(exec_ctx, "task_complete")
+        snapshot = engine.status(exec_ctx)
     """
 
     def __init__(
         self,
-        workflow_repo: WorkflowRepository | None = None,
-        state_repo: WorkflowStateRepository | None = None,
-        script_runner: ScriptRunner | None = None,
-        task_registry: TaskRegistry | None = None,
+        workflow_store: IWorkflowStore,
+        actions: ActionCatalog,
+        workflow_io: IWorkflowIO,
         contract_validator: type[ContractValidator] | None = None,
-        side_effect_engine: SideEffectEngine | None = None,
-        action_catalog: Any = None,
         event_dispatcher: Any = None,
         event_log: Any = None,
         tracer: ITracer | None = None,
         signal_bus: SignalBus | None = None,
         context_registry: ContextProviderRegistry | None = None,
-        project_context: Any = None,
-        conflict_resolver: Any = None,
-        sprint_service: Any = None,
-        prompt_collector: Any = None,
     ):
-        self._workflow_repo = workflow_repo or WorkflowRepository(
-            workflow_path=str(get_engine_workflow_path())
-        )
-        self._state_repo = state_repo or WorkflowStateRepository()
-        self._script_runner = script_runner or ScriptRunner()
+        # Patrón servidor (constructor injection): el motor NO sabe quién lo usa ni
+        # de dónde vienen sus dependencias. PUERTOS UNIFICADOS (ADR-WALKER-067
+        # §7.2): `workflow_store` (grafo+estado) y `actions` (ActionCatalog:
+        # tasks + side-effects). El engine NO recibe repos/registries concretos;
+        # los use cases / sub-orquestadores consumen los puertos.
+        self._workflow_store = workflow_store
+        self._actions = actions
+        self._workflow_io = workflow_io
         self._tracer = tracer or TraceLogger()
-        self._project_context = project_context
-        self._conflict_resolver = conflict_resolver
-        self._sprint_service = sprint_service
-        self._prompt_collector = prompt_collector
-        self._action_catalog = action_catalog
 
-        # Composition root obligatorio (capa_rout.md D1, Gap 1): task_registry
-        # y side_effect_engine son REQUERIDOS — no hay defaults que fabriquen
-        # registries vacíos. El engine solo se construye con registries
-        # poblados por bootstrap() (o un registry mínimo EXPLÍCITO en tests).
-        # ANTES: task_registry or DomainTaskRegistry() creaba un registry vacío
-        # silencioso (bug C2: el flujo CLI/MCP avanzaba sin ejecutar actions).
-        # Si faltan, falla el constructor (fail-fast) — no hay composición
-        # parcial del engine.
-        if task_registry is None:
+        # Composition root obligatorio (capa_rout.md D1): `actions` es
+        # REQUERIDO — no hay defaults que fabriquen un catálogo vacío. Si falta,
+        # falla el constructor (fail-fast) — no hay composición parcial.
+        if actions is None:
             raise ValueError(
-                "OrchestrationService requiere task_registry (composition root "
-                "obligatorio). Usa bootstrap() o get_module_service('task_registry')."
+                "OrchestrationService requiere actions (ActionCatalog, composition "
+                "root obligatorio). El host debe inyectarlo vía EngineBundle.actions."
             )
-        if side_effect_engine is None:
-            raise ValueError(
-                "OrchestrationService requiere side_effect_engine (composition "
-                "root obligatorio). Usa bootstrap() o "
-                "get_module_service('side_effect_engine')."
-            )
-        self._task_registry = task_registry
         self._contract_validator = contract_validator or ContractValidator
-        self._side_effect_engine = side_effect_engine
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
         self._signal_bus = signal_bus or SignalBus()
@@ -170,35 +153,44 @@ class OrchestrationService:
         # Prompt Manager: centraliza todo lo relacionado a prompts
         self._prompt_manager: Any | None = None
 
+        # VO con TODAS las dependencias del motor (patrón servidor). El host lo
+        # inyectó vía los parámetros del constructor; el motor lo conserva para
+        # construir WorkflowAPI sin acoplarse a locator/registry externos.
+        from .bundle import EngineBundle
+
+        self._bundle = EngineBundle(
+            workflow_store=workflow_store,
+            actions=actions,
+            workflow_io=workflow_io,
+            context_registry=context_registry,
+            contract_validator=contract_validator,
+            event_dispatcher=event_dispatcher,
+            event_log=event_log,
+            tracer=tracer,
+        )
+
         # Use cases internos (lazy init)
         self._submit_uc: SubmitDataUseCase | None = None
         self._transition_uc: TransitionUseCase | None = None
         self._validate_uc: ValidateCurrentStateUseCase | None = None
 
-    # ── Prompt collection (via puerto IPromptCollector) ─────────────────
-
-    def _collect_prompt(self, chain_dir: str, context: dict) -> dict:
-        """Recolecta prompts via puerto IPromptCollector."""
-        if self._prompt_collector is None:
-            return {}
-        try:
-            return self._prompt_collector.collect(chain_dir, context)
-        except Exception:
-            return {}
+    # ── Prompt collection ─────────────────────────────────────────────
+    # Los prompts y su contexto son INCUMBENCIA DEL HOST (ADR-WALKER-067): el
+    # motor NO conoce IPromptCollector. El host recolecta/resuelve prompts
+    # externamente y le pasa al engine lo que necesita para ejecutar.
 
     @property
     def submit_uc(self) -> SubmitDataUseCase:
         if self._submit_uc is None:
             self._submit_uc = SubmitDataUseCase(
-                workflow_repo=self._workflow_repo,
-                state_repo=self._state_repo,
-                script_runner=self._script_runner,
-                task_registry=self._task_registry,
+                workflow_store=self._workflow_store,
+                actions=self._actions,
+                workflow_io=self._workflow_io,
                 contract_validator=self._contract_validator,
-                side_effect_engine=self._side_effect_engine,
-                action_catalog=self._action_catalog,
                 event_dispatcher=self._event_dispatcher,
                 event_log=self._event_log,
+                tracer=self._tracer,
+                bundle=self._bundle,
             )
         return self._submit_uc
 
@@ -206,13 +198,11 @@ class OrchestrationService:
     def transition_uc(self) -> TransitionUseCase:
         if self._transition_uc is None:
             self._transition_uc = TransitionUseCase(
-                workflow_repo=self._workflow_repo,
-                state_repo=self._state_repo,
-                script_runner=self._script_runner,
+                workflow_store=self._workflow_store,
+                workflow_io=self._workflow_io,
                 event_dispatcher=self._event_dispatcher,
                 event_log=self._event_log,
-                project_context=self._project_context,
-                conflict_resolver=self._conflict_resolver,
+                bundle=self._bundle,
             )
         return self._transition_uc
 
@@ -220,8 +210,7 @@ class OrchestrationService:
     def validate_uc(self) -> ValidateCurrentStateUseCase:
         if self._validate_uc is None:
             self._validate_uc = ValidateCurrentStateUseCase(
-                workflow_repo=self._workflow_repo,
-                state_repo=self._state_repo,
+                workflow_store=self._workflow_store,
             )
         return self._validate_uc
 
@@ -252,7 +241,10 @@ class OrchestrationService:
             extra_data: datos adicionales inyectados sobre collect_all() (prioridad alta)
         """
         try:
-            pm = self._collect_prompt(chain_dir, context)
+            # El contexto de prompts es INCUMBENCIA DEL HOST (ADR-WALKER-067):
+            # el engine no recolecta datos de negocio para prompts. El host los
+            # provee externamente (vía extra_data/context del caller).
+            pm = {}
             ctx = {"task_id": task_id, "node_id": prompt_id.split("/")[-1]}
             if execution_ctx:
                 ctx.update(getattr(execution_ctx, "baggage", {}) or {})
@@ -292,7 +284,9 @@ class OrchestrationService:
         las capas de contexto (cpg, business, ckg, etc.) en el prompt.
         """
         if sub_state.prompt_id:
-            sprint_ctx = self._build_prompt_context(ctx.chain_dir, ctx.task_id)
+            # El contexto de placeholders (Q&A, task info, delta) es del HOST;
+            # el engine no lo builda (PromptContextBuilder sale del motor).
+            sprint_ctx = {}
             context_config = sub_state.context if sub_state.context else None
             resolved = self.resolve_prompt(
                 sub_state.prompt_id,
@@ -351,19 +345,6 @@ class OrchestrationService:
                 )
         return "\n".join(lines)
 
-    def _build_prompt_context(
-        self,
-        chain_dir: str,
-        task_id: str = "",
-    ) -> dict:
-        """Construye contexto de placeholders desde el delta y sesión.
-
-        SRP: delega en PromptContextBuilder (componente de contexto).
-        """
-        from .prompt_context_builder import PromptContextBuilder
-
-        return PromptContextBuilder().build(chain_dir, task_id)
-
     # ── Core API ────────────────────────────────────────────────────────
 
     def step(
@@ -386,13 +367,11 @@ class OrchestrationService:
         from .step_orchestrator import StepOrchestrator
 
         orch = StepOrchestrator(
-            workflow_repo=self._workflow_repo,
-            state_repo=self._state_repo,
+            workflow_store=self._workflow_store,
             tracer=self._tracer,
             submit_uc=self.submit_uc,
             handle_error=self._handle_error,
             build_node_briefing=self._build_node_briefing,
-            build_prompt_context=self._build_prompt_context,
             resolve_prompt=self.resolve_prompt,
             transition=self.transition,
             signal_bus=self._signal_bus,
@@ -420,8 +399,7 @@ class OrchestrationService:
         from .submit_orchestrator import SubmitOrchestrator
 
         orch = SubmitOrchestrator(
-            state_repo=self._state_repo,
-            workflow_repo=self._workflow_repo,
+            workflow_store=self._workflow_store,
             submit_uc=self.submit_uc,
             handle_error=self._handle_error,
             tracer=self._tracer,
@@ -440,8 +418,7 @@ class OrchestrationService:
         from .use_cases import AdvanceSubStateUseCase
 
         uc = AdvanceSubStateUseCase(
-            workflow_repo=self._workflow_repo,
-            state_repo=self._state_repo,
+            workflow_store=self._workflow_store,
         )
         return uc.execute(ctx)
 
@@ -468,13 +445,12 @@ class OrchestrationService:
         from .transition_orchestrator import TransitionOrchestrator
 
         orch = TransitionOrchestrator(
-            state_repo=self._state_repo,
+            workflow_store=self._workflow_store,
             transition_uc=self.transition_uc,
             tracer=self._tracer,
             read_edge_transform=self._read_edge_transform,
             execute_edge_transform=self._execute_edge_transform,
             dispatch_event=self._dispatch_event,
-            workflow_repo=self._workflow_repo,
         )
         return orch.transition(
             ctx, gate, reason=reason, skip_preconditions=skip_preconditions
@@ -492,8 +468,8 @@ class OrchestrationService:
             from returns.result import Success
             from ..domain.services.block_resolver import BlockResolver
 
-            state = self._state_repo.load(ctx.chain_dir)
-            workflow = self._workflow_repo.load(ctx.chain_dir)
+            state = self._workflow_store.load_state(ctx.chain_dir)
+            workflow = self._workflow_store.load_graph()
             if isinstance(workflow, dict):
                 from ..domain.models import WorkflowGraph
                 workflow = WorkflowGraph.from_dict(workflow)
@@ -506,7 +482,7 @@ class OrchestrationService:
             )
             if isinstance(result, Success):
                 new_state = result.unwrap()
-                self._state_repo.save(ctx.chain_dir, new_state)
+                self._workflow_store.save_state(new_state, ctx.chain_dir)
                 return {
                     "blocked": True,
                     "resolved": True,
@@ -529,8 +505,7 @@ class OrchestrationService:
         from .status_orchestrator import StatusOrchestrator
 
         orch = StatusOrchestrator(
-            workflow_repo=self._workflow_repo,
-            state_repo=self._state_repo,
+            workflow_store=self._workflow_store,
             resolve_status_prompt=self._resolve_status_prompt,
             validate_uc=self.validate_uc,
         )
@@ -547,9 +522,8 @@ class OrchestrationService:
             self.__error_handler = ErrorHandler(
                 submit_uc=self.submit_uc,
                 transition_uc=self.transition_uc,
-                side_effect_engine=self._side_effect_engine,
-                workflow_repo=self._workflow_repo,
-                state_repo=self._state_repo,
+                actions=self._actions,
+                workflow_store=self._workflow_store,
                 tracer=self._tracer,
             )
         return self.__error_handler
@@ -594,8 +568,8 @@ class OrchestrationService:
         Returns:
             Dict con transform config o None si no hay transform.
         """
-        workflow = self._workflow_repo.load(ctx.chain_dir)
-        state = self._state_repo.load(ctx.chain_dir)
+        workflow = self._workflow_store.load_graph()
+        state = self._workflow_store.load_state(ctx.chain_dir)
         node = workflow.get_node(state.current_node)
         if not node:
             return None
@@ -632,7 +606,7 @@ class OrchestrationService:
         if not action:
             return None
 
-        state = self._state_repo.load(ctx.chain_dir)
+        state = self._workflow_store.load_state(ctx.chain_dir)
 
         # ── Preparar datos de input desde sub_state_data ──────────
         input_data = {}
@@ -663,7 +637,7 @@ class OrchestrationService:
                 task_id=ctx.task_id,
                 trace_id=ctx.trace_id,
             )
-            task_result = self._task_registry.execute(action, exec_ctx, input_data)
+            task_result = self._actions.execute_action(action, exec_ctx, input_data)
 
             if not task_result.ok:
                 return {
@@ -678,7 +652,7 @@ class OrchestrationService:
             if output and task_result.data:
                 output_field = output.split(".")[-1]
                 state = state.with_context(output_field, str(task_result.data)[:2000])
-                self._state_repo.save(ctx.chain_dir, state)
+                self._workflow_store.save_state(state, ctx.chain_dir)
 
             return {
                 "action": action,
@@ -787,13 +761,13 @@ class OrchestrationService:
         Returns:
             Resultado del handler o None si no hay handler.
         """
-        workflow = self._workflow_repo.load(ctx.chain_dir)
+        workflow = self._workflow_store.load_graph()
         handler = workflow.find_event_handler(event_name)
         if not handler:
             return None
 
         # Metadata del evento (incluye nodo actual real)
-        state = self._state_repo.load(ctx.chain_dir)
+        state = self._workflow_store.load_state(ctx.chain_dir)
         metadata = {
             "event": event_name,
             "task_id": ctx.task_id,
@@ -812,7 +786,7 @@ class OrchestrationService:
                     task_id=ctx.task_id,
                     trace_id=ctx.trace_id,
                 )
-                task_result = self._task_registry.execute(action, exec_ctx, metadata)
+                task_result = self._actions.execute_action(action, exec_ctx, metadata)
                 return {
                     "event": event_name,
                     "handler_type": "run",

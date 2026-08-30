@@ -103,7 +103,7 @@ class CognitiveProjectRepository(ProjectRepository):
 
     def list_all(self) -> tuple[list[Project], list[str]]:
         """List all registered projects. Returns (projects, errors)."""
-        from shared.core.path_resolver import get_projects_dir
+        from app.path_resolver import get_projects_dir
 
         projects_dir = get_projects_dir()
         if not projects_dir.is_dir():
@@ -139,7 +139,7 @@ class CognitiveProjectRepository(ProjectRepository):
 
 def _resolve_manifest_path(project_id: str) -> str | None:
     """Find project.json for a given project_id. No IO to application layer."""
-    from shared.core.path_resolver import get_project_dir
+    from app.path_resolver import get_project_dir
 
     proj_dir = get_project_dir(project_id)
     if not proj_dir.is_dir():

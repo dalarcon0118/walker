@@ -10,10 +10,18 @@ from shared.core.engine.domain.entities import WorkflowGraph
 
 
 def find_workflow(chain_dir: str, workflow_repo: 'WorkflowRepository | None' = None) -> dict:
-    """Carga workflow como dict. ERROR si no hay chain_dir o no existe workflow."""
+    """Carga workflow como dict. ERROR si no hay chain_dir o no existe workflow.
+
+    El ``workflow_repo`` debe inyectarse (EngineBundle); el engine no construye
+    repos concretos ni resuelve paths por sí solo.
+    """
     if not chain_dir:
         raise ValueError("chain_dir vacío — no se puede resolver el workflow")
-    repo = workflow_repo or WorkflowRepository()
+    if workflow_repo is None:
+        raise ValueError(
+            "find_workflow requiere workflow_repo inyectado (EngineBundle.workflow_repo)"
+        )
+    repo = workflow_repo
     graph = load_workflow(repo)
     return _graph_to_dict(graph)
 

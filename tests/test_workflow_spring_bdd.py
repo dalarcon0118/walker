@@ -164,8 +164,8 @@ def _list_specs(wf_ctx: dict):
 
 @when('invoco submit con intent test y evidence ok', target_fixture="wf_ctx")
 def _submit(wf_ctx: dict):
-    from features.main.cli_interface.application.handlers import handle_submit
-    from features.main.cli_interface.infrastructure.contracts import Request
+    from protocols.cli.cli_interface.application.handlers import handle_submit
+    from protocols.cli.cli_interface.infrastructure.contracts import Request
     chain_dir = wf_ctx.get("chain_dir", "")
     req = Request(params={"projectId": "walker"}, flags={"task": "submit", "_payload": {"intent": "test", "evidence": "ok"}})
     req.params["chain_dir"] = chain_dir
@@ -176,8 +176,8 @@ def _submit(wf_ctx: dict):
 
 @when('invoco transition con gate start_task', target_fixture="wf_ctx")
 def _transition(wf_ctx: dict):
-    from features.main.cli_interface.application.handlers import handle_transition
-    from features.main.cli_interface.infrastructure.contracts import Request
+    from protocols.cli.cli_interface.application.handlers import handle_transition
+    from protocols.cli.cli_interface.infrastructure.contracts import Request
     chain_dir = wf_ctx.get("chain_dir", "")
     req = Request(params={"projectId": "walker"}, flags={"task": "transition", "_payload": {"gate": "start_task"}, "force": True, "reason": "test"})
     req.params["chain_dir"] = chain_dir

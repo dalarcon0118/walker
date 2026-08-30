@@ -1,7 +1,7 @@
 """engine/domain — Dominio del workflow engine.
 
 Arquitectura:
-    enums.py    → ExecutionType, NodeType, GateType, DomainEventType
+    enums.py    → ExecutionType, DomainEventType
     values.py   → RetryPolicy, SideEffectDef, SelectOption, SubStateKey, SubStateData
     entities.py → SubState, WorkflowNode, WorkflowGraph, WorkflowState, NodeExecution, DomainEvent
     services.py → RequiredFieldResolver, otros servicios de dominio
@@ -12,8 +12,6 @@ from __future__ import annotations
 from shared.core.engine.domain.enums import (
     ExecutionType,
     SubStateMode,
-    NodeType,
-    GateType,
     DomainEventType,
 )
 from shared.core.engine.domain.values import (
@@ -35,8 +33,6 @@ from shared.core.engine.domain.entities import (
 __all__ = [
     "ExecutionType",
     "SubStateMode",
-    "NodeType",
-    "GateType",
     "DomainEventType",
     "RetryPolicy",
     "SideEffectDef",

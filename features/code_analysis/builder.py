@@ -103,8 +103,10 @@ class CPGBuilder:
         return self._inner.dfg_scan_status()
 
     def stats(self) -> dict:
-        from features.code_analysis.infrastructure.repository import CpgFileRepository
-        repo = CpgFileRepository(str(self.project_dir / "data"))
+        from features.code_analysis.infrastructure.cognitive_cpg_repo import (
+            CognitiveCpgRepository,
+        )
+        repo = CognitiveCpgRepository(str(self.project_dir / "data"), self.project_id)
         data = repo.load(self.project_id)
         return {
             "total_nodes": len(data.get("nodes", {})),

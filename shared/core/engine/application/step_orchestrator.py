@@ -25,24 +25,20 @@ class StepOrchestrator:
 
     def __init__(
         self,
-        workflow_repo: Any,
-        state_repo: Any,
+        workflow_store: Any,
         tracer: Any,
         submit_uc: Any,
         handle_error: Any,
         build_node_briefing: Any,
-        build_prompt_context: Any,
         resolve_prompt: Any,
         transition: Any,
         signal_bus: Any = None,
     ):
-        self._workflow_repo = workflow_repo
-        self._state_repo = state_repo
+        self._workflow_store = workflow_store
         self._tracer = tracer
         self._submit_uc = submit_uc
         self._handle_error = handle_error
         self._build_node_briefing = build_node_briefing
-        self._build_prompt_context = build_prompt_context
         self._resolve_prompt = resolve_prompt
         self._transition = transition
         self._signal_bus = signal_bus
@@ -81,7 +77,7 @@ class StepOrchestrator:
                 )
                 if is_successful(result):
                     new_state = result.value_or(state)
-                    self._state_repo.save(new_state, state.context.get("chain_dir", ""))
+                    self._workflow_store.save_state(new_state, state.context.get("chain_dir", ""))
                     self._tracer.trace(
                         ctx.chain_dir,
                         "signal_resolved",
@@ -162,7 +158,7 @@ class StepOrchestrator:
             )
             if is_successful(result):
                 new_state = result.value_or(state)
-                self._state_repo.save(new_state, state.context.get("chain_dir", ""))
+                self._workflow_store.save_state(new_state, state.context.get("chain_dir", ""))
                 self._tracer.trace(
                     ctx.chain_dir,
                     "timeout_resolved",
@@ -204,10 +200,11 @@ class StepOrchestrator:
 
     def step(self, ctx: Any) -> dict:
         """Evalúa el ExecutionType del sub-estado actual y decide la acción."""
-        from ..domain.session import SessionStore
+        from ..domain.ports_registry import resolve_port
+        from ..domain.ports import ISessionStore
 
-        workflow = self._workflow_repo.load(ctx.chain_dir)
-        state = self._state_repo.load(ctx.chain_dir)
+        workflow = self._workflow_store.load_graph()
+        state = self._workflow_store.load_state(ctx.chain_dir)
 
         # P0: Check timeout for wait states
         timeout_result = self._check_timeout(state, workflow)
@@ -239,7 +236,8 @@ class StepOrchestrator:
 
         # ── Resolver contexto via ContextResolver ──────────────────
         try:
-            session = SessionStore.load(ctx.session_id) if ctx.session_id else None
+            _store = resolve_port(ISessionStore)
+            session = _store.load(ctx.session_id) if ctx.session_id and _store else None
             resolver = ContextResolver()
             resolved_ctx = resolver.resolve_for_sub_state(
                 state, node, sub_state, session
@@ -333,7 +331,7 @@ class StepOrchestrator:
                 msg = f"{node_briefing}\n\n---\n\n{msg}"
             return msg, False
 
-        sprint_ctx = self._build_prompt_context(ctx.chain_dir, ctx.task_id)
+        sprint_ctx = {}  # contexto de placeholders: incumbencia del host
         context_config = getattr(sub_state, "context", None)
         resolved = self._resolve_prompt(
             sub_state.prompt_id,
@@ -387,8 +385,8 @@ class StepOrchestrator:
         # Verificar auto-transition: si el sub-estado no necesita más
         # datos y hay exactamente una gate disponible, transicionar.
         needs_input = bool(sub_state.required_fields)
-        state_after = self._state_repo.load(ctx.chain_dir)
-        wf_after = self._workflow_repo.load(ctx.chain_dir)
+        state_after = self._workflow_store.load_state(ctx.chain_dir)
+        wf_after = self._workflow_store.load_graph()
         gates = wf_after.edges_by_source.get(state_after.current_node, [])
         can_auto = not needs_input and len(gates) == 1
 

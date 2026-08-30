@@ -388,7 +388,7 @@ class TestWorkflowE2EReal:
         solo parchea las actions del flujo de test que no tienen handler real
         (gather_design, user_gate, implement, qa_run, ...).
         """
-        from features.main.container import AppContainer
+        from app.container import AppContainer
 
         project_root, chain_dir = _setup_project(tmp_path)
 
@@ -399,12 +399,28 @@ class TestWorkflowE2EReal:
         parent = os.path.dirname(os.path.dirname(chain_dir))
         workflow_repo = WorkflowRepository(workflow_path=os.path.join(parent, "workflow.v3", "workflow.json"))
         state_repo = WorkflowStateRepository()
+        from shared.core.engine.infrastructure.workflow_store import WorkflowStoreAdapter
+        from shared.core.engine.domain.workflow_action import ActionCatalog
+
+        actions = ActionCatalog()
+        for meta in registry.list_tasks_with_meta(scope=None):
+            actions.register(
+                name=meta["name"], kind="sub_state_action",
+                scope=meta.get("scope", "public"),
+                handler=registry.get_task(meta["name"]), metadata=meta,
+            )
+        for name, handler in se._handlers.items():
+            actions.register(
+                name=name, kind="side_effect", scope="internal",
+                handler=handler, metadata={"source": "side_effect_engine"},
+            )
         svc = OrchestrationService(
-            workflow_repo=workflow_repo,
-            state_repo=state_repo,
-            script_runner=ScriptRunner(),
-            task_registry=registry,
-            side_effect_engine=se,
+            workflow_store=WorkflowStoreAdapter(
+                workflow_repo=workflow_repo,
+                state_repo=state_repo,
+            ),
+            actions=actions,
+            workflow_io=ScriptRunner(),
         )
 
         # Estado inicial

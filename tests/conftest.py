@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from shared.core.engine.domain.session import SessionStore
+from shared.core.engine.infrastructure.session_store import SessionStore
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +51,7 @@ def _sandbox_global_registry(tmp_path, monkeypatch):
     Backup + restore por test: cada test parte del estado nativo del registro,
     sin importar qué mutaron los tests anteriores.
     """
-    from shared.core.path_resolver import get_walker_root
+    from app.path_resolver import get_walker_root
 
     reg_path = get_walker_root() / "data" / "projects.json"
     snapshot = None
@@ -69,7 +69,7 @@ def _sandbox_global_registry(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _sandbox_composition_singleton():
     """Resetea el singleton de AppContainer entre tests."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     AppContainer.reset()
     yield
@@ -87,7 +87,7 @@ def _populate_service_locator(_sandbox_composition_singleton):
     side_effect_engine + workflow) y set_service_locator() los expone al
     facade neutro de core/engine. Así la suite no depende del orden de tests.
     """
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     AppContainer.build()
     yield
@@ -122,7 +122,7 @@ def mcp_project(tmp_path):
 
 def call_mcp_tool(project_root: str, tool_name: str, arguments: dict) -> dict:
     """Helper reutilizable: invoca una tool MCP via JSON-RPC y devuelve el payload."""
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",
@@ -239,9 +239,9 @@ def register_mock_tasks(registry) -> None:
 def register_side_effects(engine) -> None:
     """Registra los side effects reales del flujo E2E (SSOT de main,
     SPEC-014 Fase 4: nombres canónicos sin alias legacy)."""
-    from features.main.task_execution.side_effects.decision import create_adr
-    from features.main.task_execution.side_effects.planning import advance_sprint_task
-    from features.main.task_execution.side_effects.spec_transforms import transform_spec
+    from tasks.side_effects.decision import create_adr
+    from tasks.side_effects.planning import advance_sprint_task
+    from tasks.side_effects.spec_transforms import transform_spec
 
     engine.register("transform_spec", transform_spec)
     engine.register("create_adr", create_adr)
@@ -265,24 +265,38 @@ def make_orchestration_service(real: bool = True, **overrides):
     Los overrides permiten inyectar repos fakes (tests de bajo nivel).
     """
     from shared.core.engine.application.orchestrator import OrchestrationService
+    from shared.core.engine.infrastructure.workflow_store import WorkflowStoreAdapter
+    from shared.core.engine.domain.workflow_action import ActionCatalog
 
     kwargs = dict(overrides)
-    if "task_registry" not in kwargs or "side_effect_engine" not in kwargs:
-        if real:
-            from features.main.container import AppContainer
+    actions = kwargs.pop("actions", None)
+    registry = kwargs.pop("task_registry", None)
+    se = kwargs.pop("side_effect_engine", None)
+    if real and (actions is None or registry is None or se is None):
+        from app.container import AppContainer
 
-            app = AppContainer.build()
-            registry = app.task_registry
-            se = app.side_effect_engine
-        else:
+        app = AppContainer.build()
+        actions = actions or app.resolve("action_catalog")
+        registry = registry or app.task_registry
+        se = se or app.side_effect_engine
+    if actions is None:
+        if registry is None or se is None:
             from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
             from shared.core.engine.infrastructure.side_effects import SideEffectEngine
 
-            registry = InMemoryTaskRegistry()
-            se = SideEffectEngine()
-        kwargs.setdefault("task_registry", registry)
-        kwargs.setdefault("side_effect_engine", se)
-    return OrchestrationService(**kwargs)
+            registry = registry or InMemoryTaskRegistry()
+            se = se or SideEffectEngine()
+        actions = ActionCatalog()
+    # Repos + IO son requeridos por el motor (patrón servidor): el helper los
+    # resuelve del contenedor DI (defaults host-agnósticos de shared) salvo override.
+    from shared.libs.module_system.registry import module_registry
+    from shared.core.engine.domain.ports import IWorkflowIO
+
+    wf_repo = kwargs.pop("workflow_repo", module_registry.get_service("workflow_repo"))
+    st_repo = kwargs.pop("state_repo", module_registry.get_service("state_repo"))
+    workflow_store = WorkflowStoreAdapter(workflow_repo=wf_repo, state_repo=st_repo)
+    kwargs.setdefault("workflow_io", module_registry.resolve_port(IWorkflowIO))
+    return OrchestrationService(workflow_store=workflow_store, actions=actions, **kwargs)
 
 
 def make_project_with_active_sprint(tmp_path, project_id: str = "walker", sprint_id: str = "sprint-cli"):
@@ -348,7 +362,7 @@ def register_project_in_global_registry(tmp_path: str, project_id: str = "walker
             ...  # el registro queda modificado dentro del bloque
         # fuera del bloque: restaurado
     """
-    from shared.core.path_resolver import get_walker_root
+    from app.path_resolver import get_walker_root
 
     reg_path = get_walker_root() / "data" / "projects.json"
     original = reg_path.read_bytes() if reg_path.is_file() else None

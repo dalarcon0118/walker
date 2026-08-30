@@ -13,8 +13,20 @@ from returns.pipeline import is_successful
 
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
 from features.cognitive_knowledge.entities import KnowledgeFact
-from libs.cognitive_graph.cognitive_registry import memory_data_dir
-from shared.core.cognitive_graph.config import load_memory_connection
+from app.cognitive_registry import memory_data_dir
+from shared.libs.cognitive_graph.config import load_memory_connection
+
+
+def _resolve_graph_factory() -> "Any | None":
+    """Fallback DI (ADR-045/058): resuelve graph_factory desde el service locator neutro.
+
+    Igual que CognitiveDeltaRepository: el composition root inyecta su
+    resolutor vía set_service_locator(); el repo resuelve 'cognitive_graph'
+    sin importar features/main. Fail-open: None si no está disponible.
+    """
+    from shared.core.engine.bootstrap import resolve_locator
+
+    return resolve_locator("cognitive_graph")
 
 # Campos canónicos de un nodo; el resto se normaliza a metadata.
 _FACT_FIELDS = {
@@ -34,9 +46,12 @@ class CognitiveCkgRepository(CkgRepository):
 
     def __init__(self, project_root: str, graph_factory=None):
         if graph_factory is None:
+            # ADR-045: fallback al composition root (service locator neutro).
+            graph_factory = _resolve_graph_factory()
+        if graph_factory is None:
             raise ValueError(
                 "CognitiveCkgRepository requiere graph_factory inyectado. "
-                "Pásalo desde el composition root (features.main.bootstrap)."
+                "Pásalo desde el composition root (app.bootstrap)."
             )
         # ADR-WALKER-061 (F6): la conexión se lee de CONFIG (env).
         self._cg = graph_factory(load_memory_connection(memory_data_dir(str(project_root))))
@@ -171,7 +186,9 @@ class CognitiveCkgRepository(CkgRepository):
         ]
 
     def delete_by_metadata(self, key: str, value: str) -> dict:
-        result = self._cg.search("ckg", {key: value})
+        # ADR-WALKER-063: size explícito alto — search({}) sin filtros o con
+        # filtro no indexado trunca a 50 hits y el borrado quedaría parcial.
+        result = self._cg.search("ckg", {key: value, "size": 100000})
         ids = {h["_id"] for h in result["hits"]["hits"]}
         if ids:
             return self._cg.delete_many("ckg", ids)

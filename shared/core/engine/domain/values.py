@@ -94,10 +94,55 @@ class SubStateData:
         return SubStateData(fields=new_fields, completed_at=self.completed_at)
 
 
+@dataclass(frozen=True)
+class TimeoutConfig:
+    """Config de timeout de un sub-estado (boundary timer, BPMN).
+
+    Compone los campos planos de SubState en un VO (refactor de dominio,
+    ADR-WALKER-067): la declaración persiste plana en el grafo; este VO se
+    DERIVA para que los servicios consuman un objeto componible.
+    """
+
+    timeout_ms: int = 0
+    """Max time to wait before auto-resolving (0 = no timeout)."""
+    interrupting: bool = True
+    """True: el timeout interrumpe el sub-estado (boundary event).
+    False: dispara como side-effect sin interrumpir."""
+    on_timeout: str = ""
+    """Estrategia al expirar: skip | force | escalate | compensate."""
+
+    @property
+    def enabled(self) -> bool:
+        return self.timeout_ms > 0
+
+
+@dataclass(frozen=True)
+class SignalEvents:
+    """Eventos de señal de un sub-estado (signal events, Temporal/BPMN).
+
+    Compone wait_for/emits/waits_for/on_signal (planos en SubState) en un VO.
+    """
+
+    wait_for: list[str] = field(default_factory=list)
+    """Eventos que pueden reanudar este wait state (event-based gateway)."""
+    emits: list[str] = field(default_factory=list)
+    """Señales emitidas al completar el sub-estado."""
+    waits_for: list[str] = field(default_factory=list)
+    """Señales que reanudan este wait state antes del timeout."""
+    on_signal: str = ""
+    """Acción al llegar la señal: auto_advance | skip | force | escalate."""
+
+    @property
+    def has_events(self) -> bool:
+        return bool(self.wait_for or self.waits_for or self.emits)
+
+
 __all__ = [
     "RetryPolicy",
     "SideEffectDef",
     "SelectOption",
     "SubStateKey",
     "SubStateData",
+    "TimeoutConfig",
+    "SignalEvents",
 ]

@@ -19,7 +19,7 @@ if _SCRIPT_DIR not in sys.path:
 if _WALKER_ROOT not in sys.path:
     sys.path.insert(0, _WALKER_ROOT)
 
-from features.cli_interface import main
+from protocols.cli.cli_interface import main
 
 if __name__ == "__main__":
     sys.exit(main())

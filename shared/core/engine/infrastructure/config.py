@@ -17,16 +17,25 @@ import json
 import os
 from typing import Any
 
+from shared.core.engine.domain.ports import IConfig
+
 ENV_PREFIX = "WALKER_"
 
 
 def _resolve_walker_root() -> str:
-    """Resuelve la raíz del proyecto walker.
-    
-    Delega en path_resolver.get_walker_root() (import lazy para evitar circular).
+    """Resuelve la raíz del proyecto walker (autocontenido, sin path_resolver).
+
+    Sube desde el CWD hasta encontrar un directorio con `.cognitive`. El
+    layout exacto del host lo provee el adapter IConfig del host
+    (app/config.py); aquí solo el fallback host-agnóstico.
     """
-    from shared.core.path_resolver import get_walker_root
-    return str(get_walker_root())
+    from pathlib import Path
+
+    cwd = Path.cwd()
+    for p in [cwd, *cwd.parents]:
+        if (p / ".cognitive").is_dir():
+            return str(p)
+    return str(cwd)
 
 
 CONFIG_FILE = os.path.join(_resolve_walker_root(), "config", "config.json")
@@ -61,9 +70,12 @@ _DEFAULTS: dict[str, Any] = {
         ".env", "dist", "build", ".next", ".cognitive",
     ],
     # -- Memory storage (ADR-WALKER-061: la conexión es configuración) --
-    # memory.uri NO tiene default: el backend 'file' lo construye desde la
-    # raíz de memorias resuelta; un backend remoto sin uri es error (fail-fast).
-    "memory.backend": "file",
+    # ADR-WALKER-063 (corte directo): sqlite (v2) es el ÚNICO backend runtime;
+    # 'file' (legacy .json.gz) NO es un valor válido — fail-fast en
+    # cognitive_graph.config (solo export/migración/tests). memory.uri NO
+    # tiene default: el backend 'sqlite' lo construye desde la raíz de
+    # memorias resuelta; un backend remoto sin uri es error (fail-fast).
+    "memory.backend": "sqlite",
     "memory.db": "walker",
     "memory.prefix": "",
 }
@@ -135,30 +147,35 @@ def get(key: str, default: Any = None) -> Any:
     # 4. Valores dinamicos — delegan en path_resolver (única fuente de verdad)
     if key == "workflow.manifest":
         # Manifiesto canónico del flujo del sprint (SSOT del motor).
-        # Sin config explícita → get_engine_workflow_path() (data/workflow/workflow.json).
+        # Sin config explícita → <walker_root>/data/workflow/workflow.json.
         cfg_val = _deep_get(file_config, key)
         if cfg_val:
             return cfg_val
-        from shared.core.path_resolver import get_engine_workflow_path
-        return str(get_engine_workflow_path())
+        return str(
+            __import__("pathlib").Path(_resolve_walker_root())
+            / "data" / "workflow" / "workflow.json"
+        )
 
     if key == "projects_dir":
         cfg_val = file_config.get("projects_dir")
         if cfg_val:
             return cfg_val
-        from shared.core.path_resolver import get_projects_dir
-        return str(get_projects_dir())
+        return str(
+            __import__("pathlib").Path(_resolve_walker_root())
+            / ".cognitive" / "projects"
+        )
 
     if key == "sessions_dir":
         cfg_val = file_config.get("sessions_dir")
         if cfg_val:
             return cfg_val
-        from shared.core.path_resolver import get_sessions_dir
-        return str(get_sessions_dir())
+        return str(
+            __import__("pathlib").Path(_resolve_walker_root())
+            / ".cognitive" / "sessions"
+        )
 
     if key == "scripts_dir":
-        from shared.core.path_resolver import get_walker_root
-        scripts = str(get_walker_root() / "scripts")
+        scripts = str(__import__("pathlib").Path(_resolve_walker_root()) / "scripts")
         if os.path.isdir(os.path.join(scripts, "_walker")):
             return scripts
         env_scripts = os.environ.get("WALKER_SCRIPTS_DIR")
@@ -176,12 +193,10 @@ def get_projects_registry_path() -> str:
     SSOT: key 'registry.projects_file' (env WALKER_REGISTRY_PROJECTS_FILE o
     config/config.json). Relativo → se resuelve contra walker_root.
     """
-    from shared.core.path_resolver import get_walker_root
-
     val = str(get("registry.projects_file", "data/projects.json"))
     p = __import__("pathlib").Path(val)
     if not p.is_absolute():
-        p = __import__("pathlib").Path(str(get_walker_root())) / p
+        p = __import__("pathlib").Path(_resolve_walker_root()) / p
     return str(p)
 
 
@@ -190,16 +205,17 @@ def get_workflow_manifest_path() -> str:
 
     SSOT: key 'workflow.manifest' (env WALKER_WORKFLOW_MANIFEST o
     config/config.json). Sin config explícita → el canónico del motor
-    (get_engine_workflow_path()). ÚNICA fuente; sin búsquedas legacy.
+    (<walker_root>/data/workflow/workflow.json). ÚNICA fuente.
     """
     val = str(get("workflow.manifest", ""))
     if not val:
-        from shared.core.path_resolver import get_engine_workflow_path
-        return str(get_engine_workflow_path())
+        return str(
+            __import__("pathlib").Path(_resolve_walker_root())
+            / "data" / "workflow" / "workflow.json"
+        )
     p = __import__("pathlib").Path(val)
     if not p.is_absolute():
-        from shared.core.path_resolver import get_walker_root
-        p = __import__("pathlib").Path(str(get_walker_root())) / p
+        p = __import__("pathlib").Path(_resolve_walker_root()) / p
     return str(p)
 
 
@@ -228,15 +244,14 @@ def set_config(key: str, value: Any) -> dict:
 
 def get_all() -> dict:
     """Retorna toda la config actual (resuelta)."""
-    from shared.core.path_resolver import (
-        get_walker_root, get_cognitive_dir, get_projects_dir,
-        get_sessions_dir,
-    )
+    from pathlib import Path
+
+    root = Path(_resolve_walker_root())
     return {
-        "walker_root": str(get_walker_root()),
-        "cognitive_dir": str(get_cognitive_dir()),
-        "projects_dir": str(get_projects_dir()),
-        "sessions_dir": str(get_sessions_dir()),
+        "walker_root": str(root),
+        "cognitive_dir": str(root / ".cognitive"),
+        "projects_dir": str(root / ".cognitive" / "projects"),
+        "sessions_dir": str(root / ".cognitive" / "sessions"),
         "config_file": CONFIG_FILE,
         "scripts_dir": get("scripts_dir"),
         "data_dir": get("data_dir"),
@@ -269,13 +284,18 @@ def reset() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Re-export desde path_resolver (backward compat)
-# Las funciones de resolucion de paths viven en _walker/path_resolver.py
+# ConfigAdapter — puerto IConfig del dominio
 # ═══════════════════════════════════════════════════════════════════
 
-from shared.core.path_resolver import (
-    resolve_project_root as _resolve_project_root,  # noqa: F401 — usado por 42+ importers
-    resolve_real_project_dir as _resolve_real_project_dir,  # noqa: F401
-    resolve_data_path as resolve_data_path,  # noqa: F401
-    resolve_trace_path as resolve_trace_path,  # noqa: F401
-)
+
+class ConfigAdapter(IConfig):
+    """Adapter del puerto IConfig del dominio sobre la config del engine.
+
+    Inyectado en domain.ports_registry por el composition root para que
+    domain/session.py resuelva 'sessions_dir' sin importar infrastructure.
+    """
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Resuelve una clave de config (dot-notation) delegando en get()."""
+        return get(key, default)
+

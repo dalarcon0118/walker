@@ -1,6 +1,6 @@
 """Verificación: recalling_knowledge ignora index=delta → busca en ckg."""
 def test_agent_call_ignores_index():
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
     import json
     resp = _handle_request({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",

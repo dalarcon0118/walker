@@ -23,19 +23,19 @@ def protocol_ctx() -> dict:
 
 
 def _create_tool_name(name: str):
-    from features.main.cli_interface.domain.values import ToolName
+    from protocols.cli.cli_interface.domain.values import ToolName
 
     return ToolName.create(name)
 
 
 def _protocol_version(version: str):
-    from features.main.cli_interface.domain.values import ProtocolVersion
+    from protocols.cli.cli_interface.domain.values import ProtocolVersion
 
     return ProtocolVersion.create(version)
 
 
 def _uri_pattern(uri: str):
-    from features.main.cli_interface.domain.values import UriPattern
+    from protocols.cli.cli_interface.domain.values import UriPattern
 
     return UriPattern.create(uri)
 
@@ -172,8 +172,8 @@ def _session_factory(protocol_ctx: dict):
 
 @when("creo una McpSession")
 def _create_session(protocol_ctx: dict):
-    from features.main.cli_interface.domain.entities import McpSession
-    from features.main.cli_interface.domain.values import SessionState
+    from protocols.cli.cli_interface.domain.entities import McpSession
+    from protocols.cli.cli_interface.domain.values import SessionState
 
     protocol_ctx["session"], _ = McpSession.create()
     protocol_ctx["SessionState"] = SessionState
@@ -181,21 +181,21 @@ def _create_session(protocol_ctx: dict):
 
 @then("la sesión está en estado UNINITIALIZED")
 def _session_uninitialized(protocol_ctx: dict):
-    from features.main.cli_interface.domain.values import SessionState
+    from protocols.cli.cli_interface.domain.values import SessionState
 
     assert protocol_ctx["session"].state == SessionState.UNINITIALIZED
 
 
 @then("la sesión está en estado NEGOTIATED")
 def _session_negotiated(protocol_ctx: dict):
-    from features.main.cli_interface.domain.values import SessionState
+    from protocols.cli.cli_interface.domain.values import SessionState
 
     assert protocol_ctx["session"].state == SessionState.NEGOTIATED
 
 
 @given("una McpSession sin inicializar")
 def _uninit_session(protocol_ctx: dict):
-    from features.main.cli_interface.domain.entities import McpSession
+    from protocols.cli.cli_interface.domain.entities import McpSession
 
     protocol_ctx["session"], _ = McpSession.create()
 
@@ -230,7 +230,7 @@ def _tool_factory(protocol_ctx: dict):
 
 @when("creo una Tool sin handler")
 def _create_tool_no_handler(protocol_ctx: dict):
-    from features.main.cli_interface.domain.entities import Tool
+    from protocols.cli.cli_interface.domain.entities import Tool
 
     protocol_ctx["tool_result"] = Tool.create("status", "desc", handler=None)
 
@@ -243,7 +243,7 @@ def _tool_rejected(protocol_ctx: dict):
 
 @given("una Tool con handler")
 def _tool_with_handler(protocol_ctx: dict):
-    from features.main.cli_interface.domain.entities import Tool
+    from protocols.cli.cli_interface.domain.entities import Tool
 
     protocol_ctx["tool"], _ = Tool.create("status", "desc", handler=lambda a: {})
 
@@ -268,14 +268,14 @@ def _def_has_schema(protocol_ctx: dict):
 
 @given("un ToolRegistry vacío")
 def _empty_registry(protocol_ctx: dict):
-    from features.main.cli_interface.domain.services import ToolRegistry
+    from protocols.cli.cli_interface.domain.services import ToolRegistry
 
     protocol_ctx["registry"] = ToolRegistry()
 
 
 @given("un ToolRegistry con status registrada")
 def _registry_with_status(protocol_ctx: dict):
-    from features.main.cli_interface.domain.services import ToolRegistry
+    from protocols.cli.cli_interface.domain.services import ToolRegistry
 
     reg = ToolRegistry()
     reg.register("status", "desc", handler=lambda a: {})
@@ -284,7 +284,7 @@ def _registry_with_status(protocol_ctx: dict):
 
 @given("un ToolRegistry con ping registrada")
 def _registry_with_ping(protocol_ctx: dict):
-    from features.main.cli_interface.domain.services import ToolRegistry
+    from protocols.cli.cli_interface.domain.services import ToolRegistry
 
     reg = ToolRegistry()
     reg.register("ping", "Ping", handler=lambda a: {"pong": True})

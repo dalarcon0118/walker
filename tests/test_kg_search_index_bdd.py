@@ -47,13 +47,13 @@ def _kg_project(tmp_path):
         from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
-        from features.main.cli_interface import mcp_adapter
+        from protocols.mcp import mcp_adapter
 
         mcp_adapter._SERVER = None
 
 
 def _mcp_call(name: str, arguments: dict) -> dict:
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
            "params": {"name": name, "arguments": arguments}}

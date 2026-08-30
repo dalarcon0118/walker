@@ -123,21 +123,26 @@ def _analyze_off_sprint_paths(graph: Any) -> dict:
     }
 
 
-def compose_workflow_map(chain_dir: str = "") -> dict:
+def compose_workflow_map(chain_dir: str = "", workflow_repo: 'WorkflowRepository | None' = None) -> dict:
     """Compone el mapa completo del workflow desde el grafo.
 
     Args:
         chain_dir: directorio del sprint para cargar el workflow del
             proyecto. Vacío → carga la plantilla canónica del motor.
+        workflow_repo: repositorio del workflow inyectado (EngineBundle). El
+            engine no construye repos concretos ni resuelve paths por sí solo.
 
     Returns:
         dict serializable con:
           initial_state, nodes[], edges[], analysis{cycles, terminals,
           off_sprint}
     """
-    from ..infrastructure.repositories import WorkflowRepository
+    if workflow_repo is None:
+        raise ValueError(
+            "compose_workflow_map requiere workflow_repo inyectado (EngineBundle.workflow_repo)"
+        )
 
-    repo = WorkflowRepository()
+    repo = workflow_repo
     graph = repo.load()
 
     nodes = [_node_to_dict(n) for n in graph.nodes.values()]

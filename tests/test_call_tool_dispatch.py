@@ -14,7 +14,7 @@ from __future__ import annotations
 
 def test_call_tool_camino_a_route_list():
     """Tool con route_def (list) llega a handle_list_projects por la metadata del route."""
-    from features.main.cli_interface.mcp_adapter import _call_tool
+    from protocols.mcp.mcp_adapter import _call_tool
 
     result = _call_tool("list", {})
     assert isinstance(result, dict)
@@ -29,7 +29,7 @@ def test_call_tool_camino_b_fallback_task():
     Hermético: project_id explícito "fake" (sin resolución desde CWD — evita
     que _ensure_chain_dir/_sync_watcher toquen proyectos reales).
     """
-    from features.main.cli_interface.mcp_adapter import _call_tool
+    from protocols.mcp.mcp_adapter import _call_tool
 
     # "project_id" (no _project_id) es la clave que _resolve_project_id lee;
     # la task no existe → el fallback devuelve el error estándar del registry.

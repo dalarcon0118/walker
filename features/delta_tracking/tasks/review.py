@@ -3,7 +3,7 @@
 La task vive en features/main/task_execution/tasks/review.py; este módulo
 re-exporta los símbolos legacy desde el task layer de main.
 """
-from features.main.task_execution.tasks.code_review import (
+from tasks.actions.code_review import (
     ReviewInput,
     register,
     review_code,

@@ -24,8 +24,8 @@ def catalog_ctx() -> dict:
 
 
 def _registry_with_tool(output_schema: dict | None = None):
-    from shared.core.engine.infrastructure.module_registry import InMemoryModuleRegistry
-    from shared.core.engine.interface.contracts import ModuleDefinition, ToolDefinition
+    from shared.libs.module_system.registry import InMemoryModuleRegistry
+    from shared.libs.module_system.contracts import ModuleDefinition, ToolDefinition
 
     registry = InMemoryModuleRegistry()
     registry.register_module(

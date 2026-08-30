@@ -33,7 +33,7 @@ def _load_static_template() -> str:
 
 def _build_tools_section() -> str:
     from shared.core.engine.application.tool_catalog import list_tools
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     app = AppContainer.build()
     registry = app.module_registry if app else None
@@ -93,7 +93,7 @@ def _build_capture_task_section(wf_map: dict) -> str:
 
 
 def _build_analysis_section() -> str:
-    from features.main.container import AppContainer
+    from app.container import AppContainer
     app = AppContainer.build()
     registry = app.module_registry if app else None
     tools = list_tools(registry=registry)
@@ -119,7 +119,9 @@ def build_mcp_protocol() -> str:
 
     # Componer el mapa una sola vez y reutilizarlo en las secciones vivas.
     try:
-        wf_map = compose_workflow_map()
+        from shared.core.engine.infrastructure.repositories import WorkflowRepository
+
+        wf_map = compose_workflow_map(workflow_repo=WorkflowRepository())
     except Exception:
         return static
 

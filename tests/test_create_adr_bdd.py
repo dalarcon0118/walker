@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from features.main.task_execution.side_effects.decision import create_adr
+from tasks.side_effects.decision import create_adr
 from tests.conftest import make_chain_dir
 
 

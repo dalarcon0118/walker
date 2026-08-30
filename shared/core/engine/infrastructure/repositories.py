@@ -50,15 +50,15 @@ class WorkflowRepository:
             self._workflow_path = workflow_path
         else:
             import warnings
-            from shared.core.path_resolver import get_engine_workflow_path
+            from shared.core.engine.infrastructure.config import get_workflow_manifest_path
             warnings.warn(
                 "WorkflowRepository() sin workflow_path: usando fallback a "
-                "get_engine_workflow_path(). El caller debe resolver el path "
+                "get_workflow_manifest_path(). El caller debe resolver el path "
                 "(main/composition root).",
                 DeprecationWarning,
                 stacklevel=2,
             )
-            self._workflow_path = str(get_engine_workflow_path())
+            self._workflow_path = str(get_workflow_manifest_path())
 
     def load(self, chain_dir: str | None = None) -> WorkflowGraph:
         """Carga el workflow desde el path configurado en el constructor.
@@ -237,8 +237,6 @@ class WorkflowRepository:
                             "required_fields", ss_raw.get("required", [])
                         ),
                         auto_complete_script=ss_raw.get("auto_complete", ""),
-                        on_failure_loop=bool(ss_raw.get("on_failure_loop", False)),
-                        order=i,
                         prompt=ss_raw.get("prompt", ""),
                         options=options,
                         on_entry_message=ss_raw.get("on_entry_message", ""),
@@ -354,8 +352,8 @@ class WorkflowStateRepository:
 
         @safe
         def _reconcile() -> tuple[WorkflowState, list[str]]:
-            from shared.core.path_resolver import get_engine_workflow_path
-            wf_repo = WorkflowRepository(workflow_path=str(get_engine_workflow_path()))
+            from shared.core.engine.infrastructure.config import get_workflow_manifest_path
+            wf_repo = WorkflowRepository(workflow_path=str(get_workflow_manifest_path()))
             graph = wf_repo.load()
             return state.reconcile_index(graph)
 
@@ -426,3 +424,16 @@ class ScriptRunner:
             return {"exit_code": -1, "stdout": "", "stderr": "TIMEOUT"}
         except Exception as e:
             return {"exit_code": -1, "stdout": "", "stderr": str(e)}
+
+    def run_script(
+        self,
+        script: str,
+        chain_dir: str | None = None,
+        task_id: str | None = None,
+    ) -> dict:
+        """Implementación del puerto IWorkflowIO.run_script (DIP, Fase 2).
+
+        Delega en ``run`` para reutilizar el reemplazo de placeholders y el
+        manejo de timeouts. Contrato de retorno: {"exit_code", "stdout", "stderr"}.
+        """
+        return self.run(script, chain_dir=chain_dir, task_id=task_id)

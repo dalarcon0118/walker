@@ -20,7 +20,7 @@ def mcp_ctx() -> dict:
 
 @given("que invoco _handle_request con initialize", target_fixture="mcp_ctx")
 def _initialize(mcp_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",
@@ -34,7 +34,7 @@ def _initialize(mcp_ctx: dict):
 
 @given("que invoco _handle_request con tools/list", target_fixture="mcp_ctx")
 def _tools_list(mcp_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
     mcp_ctx["resp"] = _handle_request(msg)
@@ -43,7 +43,7 @@ def _tools_list(mcp_ctx: dict):
 
 @given("que invoco _handle_request con tools/call status", target_fixture="mcp_ctx")
 def _tools_call_status(mcp_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",
@@ -57,7 +57,7 @@ def _tools_call_status(mcp_ctx: dict):
 
 @given("que invoco _handle_request con tools/call no_existe", target_fixture="mcp_ctx")
 def _tools_call_missing(mcp_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",
@@ -71,7 +71,7 @@ def _tools_call_missing(mcp_ctx: dict):
 
 @given("que invoco _handle_request con ping", target_fixture="mcp_ctx")
 def _ping(mcp_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
     mcp_ctx["resp"] = _handle_request(msg)
@@ -80,7 +80,7 @@ def _ping(mcp_ctx: dict):
 
 @given("que invoco _handle_request con no_soportado", target_fixture="mcp_ctx")
 def _unsupported(mcp_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {"jsonrpc": "2.0", "id": 1, "method": "no_soportado"}
     mcp_ctx["resp"] = _handle_request(msg)

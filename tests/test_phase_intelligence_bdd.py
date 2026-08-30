@@ -57,7 +57,7 @@ def _bootstrap_tasks_ready(phase_intelligence_ctx: dict):
 
 @when("registro las tasks de fase")
 def _register_phase_tasks(phase_intelligence_ctx: dict):
-    import features.main.task_execution.tasks.phase_intelligence as phase_tasks
+    import tasks.actions.phase_intelligence as phase_tasks
 
     registry = phase_intelligence_ctx["registry"]
     phase_tasks.register(registry)
@@ -65,7 +65,7 @@ def _register_phase_tasks(phase_intelligence_ctx: dict):
 
 @when("ejecuto kg_task_context")
 def _run_kg_task_context(phase_intelligence_ctx: dict):
-    import features.main.task_execution.tasks.phase_intelligence as phase_tasks
+    import tasks.actions.phase_intelligence as phase_tasks
 
     ctx = phase_intelligence_ctx["ctx"]
     phase_intelligence_ctx["result"] = phase_tasks.kg_task_context(
@@ -75,7 +75,7 @@ def _run_kg_task_context(phase_intelligence_ctx: dict):
 
 @when("registro las tasks públicas")
 def _bootstrap_public_tasks(phase_intelligence_ctx: dict):
-    from features.main.task_execution.tasks import register_task_execution_tasks
+    from tasks.actions import register_task_execution_tasks
 
     registry = phase_intelligence_ctx["registry"]
     register_task_execution_tasks(registry)
@@ -107,7 +107,7 @@ def _each_has_schemas(phase_intelligence_ctx: dict):
 
 @then("kg_task_context output_schema es TaskFileIntelligenceDTO.to_schema()")
 def _kg_task_context_schema(phase_intelligence_ctx: dict):
-    from orchestration.contracts import TaskFileIntelligenceDTO
+    from app.orchestration.contracts import TaskFileIntelligenceDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_task_context"]["metadata"]
     assert meta["output_schema"] == TaskFileIntelligenceDTO.to_schema()
@@ -115,7 +115,7 @@ def _kg_task_context_schema(phase_intelligence_ctx: dict):
 
 @then("kg_diagnose output_schema es FailureDiagnosisDTO.to_schema()")
 def _kg_diagnose_schema(phase_intelligence_ctx: dict):
-    from orchestration.contracts import FailureDiagnosisDTO
+    from app.orchestration.contracts import FailureDiagnosisDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_diagnose"]["metadata"]
     assert meta["output_schema"] == FailureDiagnosisDTO.to_schema()
@@ -123,7 +123,7 @@ def _kg_diagnose_schema(phase_intelligence_ctx: dict):
 
 @then("kg_qa_evidence output_schema es QaCoverageDTO.to_schema()")
 def _kg_qa_schema(phase_intelligence_ctx: dict):
-    from orchestration.contracts import QaCoverageDTO
+    from app.orchestration.contracts import QaCoverageDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_qa_evidence"]["metadata"]
     assert meta["output_schema"] == QaCoverageDTO.to_schema()
@@ -131,7 +131,7 @@ def _kg_qa_schema(phase_intelligence_ctx: dict):
 
 @then("kg_sprint_evidence output_schema es SprintEvidenceDTO.to_schema()")
 def _kg_sprint_schema(phase_intelligence_ctx: dict):
-    from orchestration.contracts import SprintEvidenceDTO
+    from app.orchestration.contracts import SprintEvidenceDTO
 
     meta = phase_intelligence_ctx["registry"].registered["kg_sprint_evidence"][
         "metadata"

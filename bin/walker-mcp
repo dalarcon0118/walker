@@ -14,7 +14,7 @@ if _SCRIPT_DIR not in sys.path:
 if _WALKER_ROOT not in sys.path:
     sys.path.insert(0, _WALKER_ROOT)
 
-from features.main.cli_interface.mcp_adapter import serve_stdio
+from protocols.mcp.mcp_adapter import serve_stdio
 
 if __name__ == "__main__":
     sys.exit(serve_stdio())

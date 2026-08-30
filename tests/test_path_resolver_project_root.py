@@ -1,5 +1,5 @@
 """
-Tests de regresión para resolve_project_root (shared.core.path_resolver).
+Tests de regresión para resolve_project_root (app.path_resolver).
 
 Cubre el layout cognitivo nuevo:
   <repo>/.cognitive/projects/<pid>/data/project.json
@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from shared.core.path_resolver import resolve_project_root
+from app.path_resolver import resolve_project_root
 
 
 def _write_project_json(cog_project_dir: str, repo_root: str, pid: str) -> None:

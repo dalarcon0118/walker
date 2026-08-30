@@ -14,11 +14,12 @@ from pathlib import Path
 
 from shared.common.shared_domain.models import ExecutionContext, TaskResult
 from features.delta_tracking import spring_service
-from features.main.task_execution.tasks.inspect_codebase import inspect_codebase
-from features.main.task_execution.tasks.knowledge_query import knowledge_query
-from features.main.task_execution.tasks.trace_push import trace_push
-from features.main.task_execution.tasks.extract_knowledge import extract_knowledge
+from tasks.actions.inspect_codebase import inspect_codebase
+from tasks.actions.knowledge_query import knowledge_query
+from tasks.actions.trace_push import trace_push
+from tasks.actions.extract_knowledge import extract_knowledge
 from tests.conftest import make_chain_dir, make_walker_project
+from app.memory_schemas import register_default_memory_indexes
 
 
 # ── Helpers de setup ────────────────────────────────────────────────────
@@ -99,10 +100,10 @@ class TestRagPipeline:
         # trace del mismo root que trace_push usó (audit 2026-08-11: el mock
         # de get_module_service hacía este test ciego a que cg.store no corra).
         from features.project import ProjectService
-        from shared.core.cognitive_graph import CognitiveGraph
+        from shared.libs.cognitive_graph import CognitiveGraph
 
         paths = ProjectService.resolve_paths(chain_dir)
-        cg = CognitiveGraph(paths.project_root, auto_register=True)
+        cg = CognitiveGraph(paths.project_root, register_defaults=register_default_memory_indexes)
         trace_keys = set(cg.keys("trace"))
         assert event_id in trace_keys, (
             f"evento {event_id} no persistido en el TraceGraph: {sorted(trace_keys)}"

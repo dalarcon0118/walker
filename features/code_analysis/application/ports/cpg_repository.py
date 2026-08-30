@@ -11,7 +11,12 @@ from abc import ABC, abstractmethod
 
 
 class CpgRepository(ABC):
-    """Contrato de persistencia y acceso al CPG."""
+    """Contrato de persistencia y acceso al CPG.
+
+    ADR-WALKER-063 (CA-9): única implementación = CognitiveCpgRepository
+    (puerto StorageBackend; sqlite v2 SSOT). CpgFileRepository (lector
+    directo .json.gz) fue eliminado.
+    """
 
     @abstractmethod
     def load(self, project_id: str) -> dict:

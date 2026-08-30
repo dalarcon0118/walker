@@ -97,7 +97,7 @@ class _Event:
 
 
 def _make_service(cpg=None, ckg=None, delta=None, trace=None):
-    from orchestration.intelligence_service import (
+    from app.orchestration.intelligence_service import (
         TaskIntelligenceService,
     )
 

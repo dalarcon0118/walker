@@ -4,10 +4,13 @@ bootstrap.py — Composition root + factories del engine.
 DI migration (ADR-WALKER-058/059):
     get_module_service(), resolve_service(), get_module_registry() fueron
     ELIMINADOS. Todos los callers ahora reciben dependencias por constructor
-    injection desde el composition root (features/main/bootstrap.py).
+    injection desde el composition root (app/bootstrap.py).
 
     set_service_locator() y reset_module_registry() permanecen para que
     el composition root inyecte el resolutor de servicios.
+    resolve_locator() es el PUNTO UNICO de lectura del locator (DRY):
+    repos y glue de infraestructura resuelven servicios por clave logica
+    sin duplicar el patron ni exportar _SERVICE_LOCATOR.
 
 Nota: este módulo NO escanea features/ ni libs/. Eso es responsabilidad
 exclusiva de features/main (composition root final, ADR-045).
@@ -42,6 +45,25 @@ def reset_module_registry() -> None:
     compose_app(). features/main.reset_composition() también la llama.
     """
     _SERVICE_LOCATOR["fn"] = None
+
+
+def resolve_locator(name: str) -> Any:
+    """Fallback DI por contrato (ADR-045/058): resuelve un servicio del
+    composition root via el service locator neutro.
+
+    Punto UNICO de lectura de _SERVICE_LOCATOR (DRY): repos cognitivos y
+    glue de infraestructura resuelven 'cognitive_graph'/'cognitive_searcher'
+    sin duplicar el patron ni importar features/ (frontera core/engine).
+    Fail-open: None si el locator no esta inyectado, el servicio no existe
+    o su resolucion lanza — nunca propaga (convention-001).
+    """
+    fn = _SERVICE_LOCATOR.get("fn")
+    if not callable(fn):
+        return None
+    try:
+        return fn(name)
+    except Exception:
+        return None
 
 
 # ── Package discovery (interno) ──────────────────────────────────────────────
@@ -120,65 +142,57 @@ def _build_tracer_core() -> Any:
     return TraceLogger()
 
 
-# ── Bootstrap factory (DEPRECATED — usar composition root) ────────────────────
+# ── Bootstrap factory ELIMINADO (ADR-045) ─────────────────────────────────────
+# El composition root (app.bootstrap.compose_app → register_all) construye y
+# registra los registries poblados. Para resolverlos usa el service locator
+# neutro: resolve_locator("task_registry") / resolve_locator("side_effect_engine").
+# No existe más factory que fabrique registries vacíos (fail-fast en
+# OrchestrationService si no se inyectan vía composition root).
 
 
-def bootstrap(registry: Any = None, se_engine: Any = None, separated: bool = False) -> Any:
-    """Bootstrap neutro: construye TaskRegistry y SideEffectEngine genéricos.
+# ── Domain port registration (DIP: domain → up inversion) ──────────────────────
+# El dominio (domain/) define PUERTOS y los resuelve via domain.ports_registry;
+# este composition root (nivel application del engine) registra los ADAPTADORES
+# concretos (infrastructure/application). Así domain/ NO importa nunca
+# infrastructure/ ni application/ (regla domain-first / clean architecture).
+#
+# Se ejecuta al importar este módulo (engine/__init__ lo importa), de modo que
+# cualquier import del engine —incluidos tests que usan el dominio directamente—
+# tenga los puertos disponibles. El composition root final (app/composition)
+# puede re-registrar ISideEffectEngine con el SideEffectEngine totalmente cableado
+# (register_port reemplaza el default).
 
-    .. deprecated::
-        Usar features.main.bootstrap.compose_app() en su lugar.
-        Esta función crea registries VACÍOS (sin tasks de dominio).
 
-    Este módulo NO escanea features/ ni libs/ (ADR-045). El TaskRegistry y
-    el SideEffectEngine se construyen VACÍOS (sin tasks de dominio): las
-    tasks/side effects de la app los registra features/main.compose_app()
-    (composition root final) o el caller los inyecta explícitamente.
+def register_engine_domain_ports() -> None:
+    """Registra los adaptadores concretos de los puertos del dominio.
 
-    Args:
-        registry: Instancia de TaskRegistry. Si None, crea una default (vacía).
-        se_engine: Instancia de SideEffectEngine. Si None, crea una default.
-        separated: Si True, devuelve (domain_registry, system_registry, se_engine).
-
-    Returns:
-        Si separated=False: Tuple de (registry, se_engine).
-        Si separated=True: Tuple de (domain_registry, system_registry, se_engine).
+    Puertos invertidos (ADR-WALKER-067, fase 1):
+      - IStateStore      <- WorkflowStateRepository (infra)  [antes: domain/state.py]
+      - IConfig          <- ConfigAdapter (infra)            [antes: domain/session.py]
+      - IContextValidator<- ContextResolver (app)           [antes: domain/entities.py]
+      - ISideEffectEngine<- SideEffectEngine (infra)        [antes: compensation_engine.py]
+      - ISessionStore    <- SessionStore (infra)            [antes: domain/session.py]
     """
-    tracer: Any = None
-    if registry is None:
-        from .infrastructure.task_registry import InMemoryTaskRegistry
+    from .domain.ports_registry import register_port
+    from .domain.ports import (
+        IStateStore,
+        IConfig,
+        IContextValidator,
+        ISideEffectEngine,
+        ISessionStore,
+    )
+    from .infrastructure.repositories import WorkflowStateRepository
+    from .infrastructure.config import ConfigAdapter
+    from .infrastructure.side_effects import SideEffectEngine
+    from .infrastructure.session_store import SessionStore
+    from .application.context_resolver import ContextResolver
 
-        tracer_outcome = _build_tracer_core()
-        if is_successful(tracer_outcome):
-            tracer = tracer_outcome.value_or(None)
-        else:
-            error = tracer_outcome.failure()
-            logger.warning(
-                "bootstrap: tracer no disponible (%s: %s); registry sin tracer",
-                type(error).__name__, error,
-            )
-        registry = InMemoryTaskRegistry(tracer=tracer)
+    register_port(IStateStore, WorkflowStateRepository())
+    register_port(IConfig, ConfigAdapter())
+    register_port(IContextValidator, ContextResolver())
+    register_port(ISideEffectEngine, SideEffectEngine())
+    register_port(ISessionStore, SessionStore)
 
-    if se_engine is None:
-        from .infrastructure.side_effects import SideEffectEngine
 
-        se_engine = SideEffectEngine(tracer=tracer)
-
-    if separated:
-        from .infrastructure.domain_task_registry import DomainTaskRegistry
-        from .infrastructure.system_task_registry import SystemTaskRegistry
-
-        domain_registry = DomainTaskRegistry(tracer=tracer)
-        system_registry = SystemTaskRegistry(tracer=tracer)
-
-        for name, fn in registry._tasks.items():
-            meta = registry._metadata.get(name, {})
-            scope = meta.get("scope", "public")
-            if scope in ("internal", "domain"):
-                domain_registry.register(name, fn, meta)
-            else:
-                system_registry.register(name, fn, meta)
-
-        return domain_registry, system_registry, se_engine
-
-    return registry, se_engine
+# Safety net: disponible en cualquier import del engine (tests, CLI, MCP).
+register_engine_domain_ports()

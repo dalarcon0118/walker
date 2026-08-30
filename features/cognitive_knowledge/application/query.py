@@ -10,7 +10,6 @@ Uso:
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 
@@ -40,14 +39,16 @@ class CkgQueryService:
         from features.project import ProjectService
         paths = ProjectService.resolve_paths(self.chain_dir)
         project_dir = paths.project_root
-        # Buscar ckg.json.gz (canónico) o ckg.json (legacy)
-        ckg_candidates = [
-            paths.ckg_path,
-            os.path.join(project_dir, "data", "ckg.json"),
-            os.path.join(project_dir, "ckg.json"),
-        ]
-        ckg_path = next((p for p in ckg_candidates if os.path.exists(p)), None) or ""
-        cache_key = os.path.abspath(ckg_path) if ckg_path else ""
+        # CA-9 (ADR-063): lectura SOLO por el puerto (backend por config);
+        # ninguna apertura directa del .json.gz ni del .json legacy. El cache
+        # se keyea por directorio de datos (más estable que por path de archivo).
+        from features.cognitive_knowledge.infrastructure.ckg_reader import (
+            ckg_data_dir,
+        )
+
+        ckg_path = getattr(paths, "ckg_path", "") or ""
+        data_dir = ckg_data_dir(str(project_dir or ""), ckg_path) if project_dir else ""
+        cache_key = os.path.abspath(data_dir) if data_dir else ""
 
         if cache_key and cache_key in self._cache:
             cached = self._cache[cache_key]
@@ -58,26 +59,13 @@ class CkgQueryService:
             self._by_scope = cached["by_scope"]
             return
 
-        data = {"nodes": [], "edges": []}
-        if os.path.exists(ckg_path):
-            try:
-                if ckg_path.endswith(".gz"):
-                    import gzip as _gz
-                    with _gz.open(ckg_path, "rt") as f:
-                        raw = json.load(f)
-                else:
-                    with open(ckg_path) as f:
-                        raw = json.load(f)
-                # Soporta formato {index, docs} y {nodes, edges}
-                if "docs" in raw and isinstance(raw["docs"], list):
-                    raw = {"nodes": raw["docs"], "edges": []}
-                nodes = raw.get("nodes", [])
-                if isinstance(nodes, dict):
-                    nodes = list(nodes.values())
-                raw["nodes"] = nodes
-                data = raw
-            except (json.JSONDecodeError, OSError, _gz.BadGzipFile):
-                pass
+        from features.cognitive_knowledge.infrastructure.ckg_reader import (
+            read_ckg_via_port,
+        )
+
+        # Índice vacío/ausente → {nodes: [], edges: []} (shape explícito); un
+        # backend corrupto propaga ruidoso (IV-6), nunca vacío ambiguo.
+        data = read_ckg_via_port(data_dir) if data_dir else {"nodes": [], "edges": []}
 
         self._data = data
         self._nodes = data.get("nodes", [])

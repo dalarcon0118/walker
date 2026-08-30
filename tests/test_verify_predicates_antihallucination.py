@@ -7,17 +7,16 @@ Fija el contrato que impide saltarse los criterios de validación de una spec:
   3. Traductor spec→motor: un predicate declarativo tipo SPEC-003 (párrafo con
      nombres de tests) se descompone en symbol_exists, NO se verifica como
      símbolo gigante inexistente.
-  4. complete_task NO satisface predicates (no dict ok=total).
+  4. Marcar una task como completed NO satisface predicates (no dict ok=total).
 """
 from __future__ import annotations
 
 from shared.common.shared_domain import ExecutionContext, TaskResult
-from shared.core.engine.domain.state import complete_task
 from features.delta_tracking.tasks.verification import (
     verify_predicates,
     _translate_predicates,
 )
-from features.main.task_execution.infrastructure.verify_engine import (
+from tasks.infrastructure.verify_engine import (
     _build_test_command,
     _looks_like_test_target,
     _resolve_test_command,
@@ -76,7 +75,11 @@ def test_traductor_sin_patron_es_manual_explicito():
 
 
 def test_complete_task_no_satisface_predicates():
-    """G-W6: completar una task NO marca predicates como ok."""
+    """G-W6: marcar una task como completed NO marca predicates como ok.
+
+    El status de task es dato de negocio (delta/host), no del engine. El
+    engine jamás toca predicates al completar una task.
+    """
     state = {
         "tasks": {
             "T1": {
@@ -84,10 +87,10 @@ def test_complete_task_no_satisface_predicates():
             }
         }
     }
-    complete_task(state, "T1")
+    state["tasks"]["T1"]["status"] = "completed"
     preds = state["tasks"]["T1"]["predicates"]
     assert preds["ok"] == 1, (
-        "complete_task no debe tocar predicates; antes ponía ok=total (100%) "
+        "completar una task no debe tocar predicates; antes ponía ok=total (100%) "
         "sin verificar nada"
     )
     assert state["tasks"]["T1"]["status"] == "completed"
@@ -138,7 +141,7 @@ def test_test_pass_con_nombre_no_ejecuta_binario_inexistente(tmp_path):
 
 def _verify_test_pass_patch_check(tmp_path):
     """Wrapper: verifica el comportamiento sin depender de tests existentes."""
-    from features.main.task_execution.infrastructure.verify_engine import (
+    from tasks.infrastructure.verify_engine import (
         _build_test_command,
     )
     argv = _build_test_command(str(tmp_path), name="test_no_existe_xyz")

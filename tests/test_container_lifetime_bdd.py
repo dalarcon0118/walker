@@ -19,14 +19,14 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_container():
     yield
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     AppContainer.reset()
 
 
 def test_build_es_singleton_estable():
     """Todos los consumidores comparten el MISMO AppContainer/module_registry."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     c1 = AppContainer.build()
     c2 = AppContainer.build()
@@ -38,7 +38,7 @@ def test_build_es_singleton_estable():
 
 def test_resolve_devuelve_instancias_registradas():
     """resolve() lee las instancias ya construidas en build()."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     container = AppContainer.build()
     assert container.resolve("module_registry") is container.module_registry
@@ -53,7 +53,7 @@ def test_resolve_devuelve_instancias_registradas():
 
 def test_resolve_keyerror_si_no_existe():
     """resolve() con clave desconocida lanza KeyError (contrato literal)."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     container = AppContainer.build()
     with pytest.raises(KeyError):
@@ -62,7 +62,7 @@ def test_resolve_keyerror_si_no_existe():
 
 def test_child_es_efimero():
     """child() es el único objeto efímero por request; no construye nada."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     container = AppContainer.build()
     scope = container.child(chain_dir="/tmp/chain", task_id="T1")
@@ -77,7 +77,7 @@ def test_child_es_efimero():
 
 def test_build_diferido_conserva_container_en_fallo(monkeypatch):
     """Si el build diferido falla, se conserva el container actual (nunca degrade)."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     c1 = AppContainer.build()
 
@@ -87,7 +87,7 @@ def test_build_diferido_conserva_container_en_fallo(monkeypatch):
     # ADR-047 Fase 3: el registro de tasks es declarativo (features/main/
     # task_execution.tasks), ya no hay _discover_and_register_tasks en container.
     monkeypatch.setattr(
-        "features.main.task_execution.tasks.register_task_execution_tasks", _boom
+        "tasks.actions.register_task_execution_tasks", _boom
     )
     with pytest.raises(RuntimeError):
         AppContainer.build(force=True)
@@ -97,7 +97,7 @@ def test_build_diferido_conserva_container_en_fallo(monkeypatch):
 
 def test_build_diferido_reemplaza_container_en_exito(monkeypatch):
     """Si el build diferido es exitoso, el container nuevo reemplaza al viejo."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     c1 = AppContainer.build()
     # Forzamos un build nuevo exitoso (mismo grafo, instancias nuevas).
@@ -108,16 +108,9 @@ def test_build_diferido_reemplaza_container_en_exito(monkeypatch):
 
 def test_reset_composition_invalida_container():
     """reset_composition() fuerza rebuild (patrón hot reload) + resetea el app."""
-    import warnings
-
-    from features.main.container import AppContainer
-    from features.main.current_app import get_current_app, set_current_app
+    from app.container import AppContainer
 
     c1 = AppContainer.build()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        app1 = get_current_app()
-        set_current_app(app1)
     AppContainer.reset()
     c2 = AppContainer.build()
     assert c2 is not c1

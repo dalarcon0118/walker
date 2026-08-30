@@ -10,14 +10,8 @@ PRINCIPIO: NO tiene compatibilidad legacy (no emergency_workflow,
 Refactorizado: las responsabilidades se delegaron en:
     - application/workflow_loader.py   → carga y conversión de workflow
     - application/state_manager.py     → gestión de WorkflowState
-    - application/sub_state_executor.py → ejecución de sub-estados
-    - interface/presenters.py          → presentación (show_*)
 """
 from __future__ import annotations
-
-from typing import Any
-
-from shared.core.engine.domain.ports import IWorkflowIO
 
 from .domain.models import WorkflowState, WorkflowGraph
 from .infrastructure.repositories import WorkflowRepository, WorkflowStateRepository
@@ -65,137 +59,9 @@ def save_state(state: WorkflowState, chain_dir: str) -> None:
 # ═════════════════════════════════════════════════════════════════════════
 
 
-def advance_sub_state(state: WorkflowState | dict, graph: WorkflowGraph | dict) -> bool:
-    """Avanza al siguiente sub-estado. Pura: modifica state in-memory.
-
-    Acepta tanto WorkflowState/WorkflowGraph como dict/legacy-workflow-dict.
-    """
-    # Si es dict legacy, operar directamente sobre el dict (sin conversión)
-    if isinstance(graph, dict):
-        node_id = (
-            state.get("current_node", "SPRINT")
-            if isinstance(state, dict)
-            else state.current_node
-        )
-        node = graph.get("nodes", {}).get(node_id, {})
-        sub_states = node.get("sub_states", [])
-        current_idx = (
-            state.get("sub_state_index", 0)
-            if isinstance(state, dict)
-            else state.sub_state_index
-        )
-        next_idx = current_idx + 1
-        if next_idx < len(sub_states):
-            next_ss = sub_states[next_idx]
-            if isinstance(state, dict):
-                state["sub_state_index"] = next_idx
-                state["current_sub_state"] = next_ss["key"]
-                state["history"].append(f"{node_id}.{next_ss['key']}")
-            else:
-                # WorkflowState es inmutable — no podemos mutarlo directamente
-                # Esta rama no debería ejecutarse (callers usan dict),
-                # pero si ocurre, lanzamos error claro
-                raise TypeError(
-                    "advance_sub_state con WorkflowState requiere AdvanceService. "
-                    "Usa: new_state = AdvanceService.advance(state, graph)"
-                )
-            return True
-        return False
-
-    # Con WorkflowGraph, usar AdvanceService (inmutable)
-    if isinstance(state, dict):
-        state = WorkflowState.from_dict(state)
-    from shared.core.engine.domain.services import AdvanceService
-
-    new_state = AdvanceService.advance(state, graph)
-    # La funcion retorna bool por compatibilidad, pero el nuevo estado
-    # se asigna al caller via reemplazo del dict original
-    if new_state is not None:
-        # Actualizar el dict in-place para compatibilidad con callers que pasan dict
-        if isinstance(state, dict) and not isinstance(state, WorkflowState):
-            state.clear()
-            state.update(new_state.to_dict())
-        return True
-    return False
-
-
-def is_node_complete(
-    state: WorkflowState | dict, graph: WorkflowGraph, node_id: str | None = None
-) -> bool:
-    """Verifica si el nodo está completo."""
-    if isinstance(state, dict):
-        state = WorkflowState.from_dict(state)
-    from shared.core.engine.domain.services import ValidationService
-
-    return ValidationService.is_node_complete(state, graph)
-
-
-def check_transition_preconditions(
-    state: WorkflowState | dict, graph: WorkflowGraph, gate_name: str
-) -> list[str]:
-    """Valida precondiciones para transición. Retorna lista de errores."""
-    if isinstance(state, dict):
-        state = WorkflowState.from_dict(state)
-    from shared.core.engine.domain.services import ValidationService
-
-    return ValidationService.check_transition_preconditions(state, graph, gate_name)
-
-
-def validate_gate(
-    workflow: dict,
-    node_id: str,
-    gate: str,
-    chain_dir: str | None = None,
-    task_id: str | None = None,
-    io: IWorkflowIO | None = None,
-) -> dict:
-    """Valida gate ejecutando su script de validación (run_script).
-
-    Ahora recibe un puerto IWorkflowIO para abstraer la ejecución de scripts.
-    """
-    if io is None:
-        from shared.core.engine.legacy.utils import run_script, _get_sub_state
-
-        class _DefaultIO(IWorkflowIO):
-            def run_script(self, script: str, chain_dir: str | None = None, task_id: str | None = None) -> dict[str, Any]:
-                return run_script(script, chain_dir, task_id)
-
-            def eprint(self, *args: Any, **kwargs: Any) -> None:
-                from shared.core.engine.legacy.utils import eprint
-                eprint(*args, **kwargs)
-
-            def get_sub_state(self, workflow: dict, node_id: str, sub_key: str) -> dict | None:
-                return _get_sub_state(workflow, node_id, sub_key)
-
-        io = _DefaultIO()
-
-    node = workflow.get("nodes", {}).get(node_id, {})
-    gv = node.get("gate_validation", {})
-    gate_config = gv.get(gate)
-    if not gate_config:
-        return {"ok": True, "message": ""}
-
-    script = gate_config["script"]
-    valid_exit = gate_config.get("valid_exit", [0])
-    error_template = gate_config.get("error_message", "Gate validation failed: $stderr")
-
-    result = io.run_script(script, chain_dir, task_id)
-    if result["exit_code"] in valid_exit:
-        return {"ok": True, "message": result["stdout"]}
-
-    from string import Template
-
-    msg = Template(error_template).safe_substitute(
-        stderr=result["stderr"],
-        stdout=result["stdout"],
-        exit_code=str(result["exit_code"]),
-    )
-    return {"ok": False, "message": msg}
-
-
 def check_blocked_state(
-    state: WorkflowState | dict,
-    graph: WorkflowGraph | dict,
+    state: WorkflowState,
+    graph: WorkflowGraph,
     strategy: str = "wait",
     payload: dict | None = None,
 ) -> dict:
@@ -225,11 +91,6 @@ def check_blocked_state(
     from returns.result import Success
 
     from .domain.services.block_resolver import BlockResolver
-
-    if isinstance(state, dict):
-        state = WorkflowState.from_dict(state)
-    if isinstance(graph, dict):
-        graph = WorkflowGraph.from_dict(graph)
 
     if not BlockResolver.is_blocked(state):
         return {"blocked": False, "resolved": False, "state": state.to_dict()}

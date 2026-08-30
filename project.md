@@ -26,6 +26,7 @@ Estos principios son **inmutables** a menos que se apruebe un ADR explícito que
 | INV-012 | Las funciones públicas deben ser puras o casi-puras | Sin efectos secundarios ocultos; todo IO se declara en la firma (port/repository/side_effect) |
 | INV-013 | Use Cases son implementación interna del feature; Application Services son la fachada pública (ADR-WALKER-048) | Nadie fuera del feature importa Use Cases directos; el composition root registra solo Application Services y Domain Services; tasks y side-effects consumen fachadas |
 | INV-014 | features/main NO es un feature: es composition root + cross-feature orchestrator (ADR-WALKER-050) | main no tiene Use Cases propios, pero sí Application Services cross-feature (orquestación multi-feature); los tasks son thin adapters sin lógica de negocio |
+| INV-015 | El paquete distribuible es **`shared`**; sus componentes internos (`core.engine`, `libs.*`, `common.*`) son autónomos y no saben quién los consume; `shared` se AUTOREGISTRA por id en el contenedor DI único del proceso al importarse, para ser consumido por DI (id+contrato, ADR-062 / ADR-WALKER-067) | `engine` (`shared.core.engine`) y sus hermanos son módulos internos: NO re-exportan clases concretas de componentes hermanos (p.ej. `engine/__init__` NO re-exporta `shared.libs.module_system`; los consumidores resuelven `shared.engine` por id en el `ModuleRegistry`), NO importan `features/*` ni el host, NO asumen el root del repo. `shared` se autoregistra en `module_registry` (el `ModuleRegistry` único del proceso, en `shared.libs.module_system.registry`; `shared_registry` es alias de legibilidad) al importarse: registra el módulo "shared.engine" (por id, con contratos en `metadata`) + adaptadores por defecto host-agnósticos (por contrato, `register_port`). El composition root (app) NO registra `shared`: usa ese mismo singleton y solo añade los providers del host, declarados en `app/module.py` como módulo NestJS (factories lazy por id+contrato, ADR-WALKER-067 §2.4 — sin glue manual ni monkeypatch). **El engine NO consume conceptos de negocio** (IProjectContext, IConflictResolver, ISprintService, IPromptCollector): su contrato de entrada es `EngineBundle` (solo mecánica: repos, IO, tasks, side-effects, events, tracer; ADR-WALKER-067 §2.3). Las reglas de negocio (trabajo sin capturar, springs informales, placeholders de prompts, conflictos de specs) las aplica el HOST externamente, antes/después de submit/transition, jamás dentro del engine. Así "llevarse shared" funciona: basta `import shared`. Consumidores resuelven: `module_registry.get_module("shared.engine")` / `resolve_port(contrato)` / `get_service("shared.engine")`. Regla de oro: "un componente interno no sabe quién lo usa; `shared` sí, porque es quien se autoregistra en el contenedor DI". |
 
 ---
 
@@ -55,7 +56,7 @@ Todo feature adopta la estructura `application/use_cases/ + application/services
 Reglas de consumo:
 - Use Cases NUNCA se importan desde fuera del feature (INV-013) y NUNCA se registran en el composition root.
 - Tasks y side-effects de `features/main/task_execution/` consumen Application Services (0 imports de `use_cases`).
-- El composition root (`features/main/composition/`) registra solo Application Services, Domain Services e infrastructure.
+- El composition root (`app/composition/`) registra solo Application Services, Domain Services e infrastructure.
 
 ---
 
@@ -81,6 +82,34 @@ Toda spec/ADR nueva debe incluir una sección `failure_scenarios`:
   "Si _SERVER se cachea y el workflow cambia, tests ven estado viejo → mitigación: reloader + tests con tmp_path"
 ]
 ```
+
+### Métricas de calidad por fase (checklists de fase)
+
+Cada **fase** de una spec/ADR incorpora **dentro de su checklist** las métricas
+aplicables a las áreas que toca (mínimo **3 métricas** por fase). Las métricas
+son pares **patrón-obligatorio / anti-patrón-bloqueante**: un anti-patrón
+detectado en la implementación de la fase impide declarar el checklist en verde.
+
+| ID | Área | Prácticas a vigilar (métricas) | Patrón de referencia | Anti-patrones (bloqueo) |
+|----|------|-------------------------------|----------------------|--------------------------|
+| M-01 | Integridad de escritura | Transaccionalidad todo-o-nada (commit atómico), eventos **post-commit** (nunca dentro de la transacción), logging de auditoría | Validación temprana; sin efectos ocultos | Transaction Script (secuencia sin transacción), Hidden Dependency |
+| M-02 | Variabilidad de estrategias | SSOT de estrategias (una fuente por decisión), precedencia clara, caché con invalidación explícita | Strategy pattern, Context Builder | Magic Numbers, Shotgun Surgery, Duplicate Code |
+| M-03 | Modelo de dominio | Una responsabilidad por entidad, idempotencia de operaciones, audit trail | Dataclasses, update de campos específicos, bulk updates | Anemic Domain Model, Data Clumps, Boolean Trap |
+| M-04 | Eventos / acoplamiento | Eventos como contrato, desacoplamiento, resiliencia | TEA pattern (Transaction→Event→Audit, SPEC-009/ADR-033), idempotencia por diseño | Distributed Big Ball of Mud, Eventual Consistency sin safeguards |
+| M-05 | Concurrencia / validación | Transacción explícita, lock pesimista, auditoría | Separación vista/servicio, validación en capas | Anemic Domain Model, God Class, Magic Numbers |
+| M-06 | Extensibilidad / configuración | Factory pattern, polimorfismo, configuración externa | Open/Closed, SRP, Composition over Inheritance | Not Invented Here, Accidental Complexity |
+
+Mecánica de integración en cada fase:
+
+1. Al redactar una fase, identificar las áreas que toca (escritura, eventos,
+   concurrencia, dominio, estrategias, configuración).
+2. Añadir al checklist de la fase un ítem por área seleccionada, con criterio
+   medible PARA ESA FASE:
+   `- [ ] M-0X <criterio de la fase> — anti-patrón a evitar: <...>`
+3. Regla de bloqueo: mínimo 3 métricas por fase; un anti-patrón de un área
+   seleccionada detectado en la revisión del código = checklist NO verde hasta
+   corregir. Las métricas no aplicables se declaran como tal (no se omiten en
+   silencio).
 
 ### Presupuesto de contexto
 

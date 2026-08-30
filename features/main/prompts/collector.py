@@ -19,7 +19,7 @@ def _build_cg(chain_dir: str, searcher_factory=None) -> Any:
     if searcher_factory is not None:
         return searcher_factory(paths.project_root)
     # Fallback: importar desde composition root (sin cycle risk)
-    from features.main.bootstrap import _build_searcher
+    from app.composition.registry import _build_searcher
     return _build_searcher(paths.project_root)
 
 
@@ -53,7 +53,7 @@ def collect_project_info(chain_dir: str) -> dict:
 
 
 def collect_available_tasks(chain_dir: str, node_id: str | None = None) -> list[dict]:
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     app = AppContainer.build()
     tasks = app.task_registry.list_tasks_with_meta()

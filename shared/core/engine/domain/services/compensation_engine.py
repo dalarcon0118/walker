@@ -19,35 +19,31 @@ def _canonical_cg_root(params: dict) -> str:
     """Resuelve la raiz cognitiva CANONICA para la compensacion de CKG.
 
     Prioridad:
-    1. params["chain_dir"] si existe -> resolve_project_root() (manifest
-       .cognitive/projects/<pid>/data/project.json).
+    1. params["chain_dir"] si existe -> proyecto con data/project.json (manifest).
     2. Resolucion desde CWD (mismo criterio que handlers._open_cognitive_graph).
-    3. Fallback: walker_root/.cognitive.
+    3. Fallback: sube desde CWD buscando .cognitive.
 
-    Evita usar "" o "." crudo: con chain_dir vacio el storage relativo
-    (data/ckg.json.gz) resolveria contra el CWD, escribiendo las memorias
-    en <repo>/data en vez de .cognitive/projects/<pid>/data.
+    Autocontenido (sin path_resolver/locator): el dominio no resuelve el layout
+    del host; usa solo convenciones stdlib (walk up por manifest/.cognitive).
     """
-    try:
-        from shared.core.path_resolver import get_cognitive_dir, resolve_project_root
+    from pathlib import Path
 
-        chain_dir = params.get("chain_dir") or ""
-        if chain_dir:
-            try:
-                resolved = resolve_project_root(chain_dir)
-                if resolved:
-                    return resolved
-            except Exception:
-                pass
-        try:
-            resolved = resolve_project_root(".")
-            if resolved:
-                return resolved
-        except Exception:
-            pass
-        return str(get_cognitive_dir())
-    except Exception:
-        return "."
+    def _walk_manifest(start: str) -> Path | None:
+        p = Path(start or ".")
+        for cand in [p, *p.parents]:
+            if (cand / "data" / "project.json").is_file():
+                return cand
+        return None
+
+    chain_dir = params.get("chain_dir") or ""
+    resolved = _walk_manifest(chain_dir) or _walk_manifest(".")
+    if resolved:
+        return str(resolved)
+    cwd = Path.cwd()
+    for cand in [cwd, *cwd.parents]:
+        if (cand / ".cognitive").is_dir():
+            return str(cand / ".cognitive")
+    return "."
 
 
 class CompensationEngine:
@@ -129,13 +125,21 @@ class CompensationEngine:
             return
         params = effect.params or {}
         handler_name = effect.compensation
-        from shared.core.engine.infrastructure.side_effects import SideEffectEngine, _run_compensation_handler_core
-        from returns.result import Success, Failure
+        from ..ports_registry import resolve_port
+        from ..ports import ISideEffectEngine
         from returns.pipeline import is_successful
 
-        se = SideEffectEngine({}, {}, {})
-        handler = se._handlers.get(handler_name)
-        if handler is None:
+        se = resolve_port(ISideEffectEngine)
+        if se is None:
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning(
+                "ISideEffectEngine no registrado: compensacion '%s' omitida para %s",
+                handler_name,
+                effect.type,
+            )
+            return
+        outcome = se.run_compensation_handler(handler_name, None)
+        if outcome is None:
             logger = __import__("logging").getLogger(__name__)
             logger.warning(
                 "Compensation handler '%s' not found for %s",
@@ -143,7 +147,6 @@ class CompensationEngine:
                 effect.type,
             )
             return
-        outcome = _run_compensation_handler_core(handler, None)
         if not is_successful(outcome):
             logger = __import__("logging").getLogger(__name__)
             logger.error(

@@ -533,9 +533,14 @@ class CkgApplicationService:
 
     @staticmethod
     def init_ckg(project_root: str) -> dict:
-        """Inicializa el archivo CKG vacío en project_root."""
-        import gzip
-        import json
+        """Inicializa el CKG en project_root (vía el puerto — CA-9 ADR-063).
+
+        Construye el grafo con su repo (mapeo de índice) y garantiza el
+        directorio de datos. Ya NO escribe el blob `.json.gz` a mano: el
+        "CKG vacío" es el estado del índice (sin docs) y los lectores lo
+        consumen por el puerto (backend por config), igual con file que con
+        sqlite.
+        """
         import os
 
         from features.cognitive_knowledge import ckg_service
@@ -543,9 +548,6 @@ class CkgApplicationService:
         ckg_service(project_root)
         ckg_path = os.path.join(project_root, "data", "ckg.json.gz")
         os.makedirs(os.path.dirname(ckg_path), exist_ok=True)
-        empty_ckg = {"index": "ckg", "docs": [], "edges": [], "token_index": {}}
-        with open(ckg_path, "wb") as f:
-            f.write(gzip.compress(json.dumps(empty_ckg).encode()))
         return {"initialized": True, "ckg_path": ckg_path}
 
     # ── Analysis adapter ──────────────────────────────────────────────
@@ -603,7 +605,10 @@ class CkgApplicationService:
         if not project_root:
             return []
         ckg = ckg_service(project_root)
-        return ckg.query({}) or []
+        # ADR-WALKER-063: query_all debe devolver TODOS los nodos. Index.search
+        # sin filtros trunca a max_results=50 (metacampo default); con size
+        # explícito se recorren todos (dedupe de migración, agent_context, etc).
+        return ckg.query({"size": 100000}) or []
 
     @staticmethod
     def delete_nodes(chain_dir: str, nodes: list[dict]) -> dict:

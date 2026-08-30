@@ -126,22 +126,11 @@ class ContextResolver:
         if not chain_dir:
             return None
         try:
-
-            spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
-            if not spring_svc:
-                return None
-            spring_id = spring_svc.get_spring_id(chain_dir)
-            spring_svc.ensure_spring_imported(chain_dir, spring_id)
-            spring = spring_svc.get_spring(spring_id)
-            if not spring:
-                return None
-            if key == "sprint_id":
-                return spring.get("_id", spring_id) or spring_id
-            if key == "task_id":
-                cur = spring_svc.get_current_spec(spring_id)
-                return cur.get("spec_id", "") if cur else ""
-            if key == "project_id":
-                return spring.get("project_id", "") or None
+            # El delta/spring es INCUMBENCIA DEL HOST (ADR-WALKER-067): el
+            # engine NO consulta spring. Lee las keys del contexto del estado
+            # (que el host provee); si no están, retorna None.
+            if key in ("sprint_id", "task_id", "project_id"):
+                return state.context.get(key) or None
         except Exception:
             pass
         return None

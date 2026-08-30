@@ -2,7 +2,9 @@
 
 Implementa el puerto ITracer del dominio.
 Cada evento se persiste en el índice "trace" de CognitiveGraph.
-El storage es data/trace.json.gz (mismo que CPG y CKG).
+El storage es config-driven: FileBackend (.json.gz) o SqliteBackend (v2,
+ADR-WALKER-063). Desde la limpieza F1 NO hay batching: cada trace()
+= 1 append + COMMIT inmediato (IV-2).
 """
 
 from __future__ import annotations
@@ -23,7 +25,32 @@ class TraceLogger(ITracer):
         self._trace_dir = trace_dir
         self._path_resolver = path_resolver
         self._cg_factory = cognitive_graph_factory
-        self._buffer: list = []
+        # ADR-WALKER-063 (F1): SIN batching. Cada trace() = 1 append + COMMIT
+        # (sqlite: 1 INSERT + COMMIT; file: store_many por evento durante la
+        # convivencia pre-cutover). Sin buffer, sin umbral, sin atexit, sin
+        # flush() — la evidencia reciente SIEMPRE está committed (IV-2).
+        # Cache por project_root: el cognitive_graph_factory reconstruye y
+        # re-registra TODOS los indices (costoso). En un server MCP que traza
+        # ToolRegistered por cada tool en cada list/call, reconstruir el grafo
+        # por evento vuelve al tracer inutilizable. Cachear por proj_dir evita
+        # eso sin sacrificar durabilidad (cada append commitea a disco).
+        self._cg_cache: dict = {}
+
+    def _resolve_cg(self, proj_dir: str):
+        """Resuelve (y cachea por project_root) el CognitiveGraph del tracer.
+
+        El factory reconstruye y re-registra todos los indices por llamada
+        (costoso). Cachear por proj_dir mantiene la durabilidad (cada append
+        commitea a disco) pero elimina la reconstruccion por evento.
+        """
+        cached = self._cg_cache.get(proj_dir)
+        if cached is not None:
+            return cached
+        if self._cg_factory is None:
+            raise ValueError("TraceLogger: cognitive_graph_factory no inyectado (composition root required)")
+        cg = self._cg_factory(proj_dir)
+        self._cg_cache[proj_dir] = cg
+        return cg
 
     def trace(
         self,
@@ -62,21 +89,24 @@ class TraceLogger(ITracer):
                     event_type,
                 )
                 return
-            cg_fn = self._cg_factory
-            if cg_fn is None:
-                raise ValueError("TraceLogger: cognitive_graph_factory no inyectado (composition root required)")
-            cg = cg_fn(proj_dir)
             event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-            cg.store(
+            # ADR-WALKER-063 (F1): cada evento = 1 append + COMMIT inmediato
+            # (IV-2, sin batching). El lote O(N) sobre .json.gz queda obsoleto
+            # tras el cutover a sqlite; durante la convivencia con FileBackend
+            # el append equivale a store_many por evento (correcto, más
+            # costoso — se resuelve con el cutover §7.7).
+            cg = self._resolve_cg(proj_dir)
+            cg.append(
                 "trace",
-                event_id,
                 {
-                    "tool": data.get("tool", "") if data else "",
-                    "task_id": task_id or "",
-                    "session_id": session_id or "",
-                    "event_type": event_type,
-                    "timestamp": entry["timestamp"],
-                    "data": data or {},
+                    event_id: {
+                        "tool": data.get("tool", "") if data else "",
+                        "task_id": task_id or "",
+                        "session_id": session_id or "",
+                        "event_type": event_type,
+                        "timestamp": entry["timestamp"],
+                        "data": data or {},
+                    }
                 },
             )
         except Exception as e:
@@ -173,10 +203,10 @@ class TraceLogger(ITracer):
                 raise ValueError("TraceLogger: path_resolver no inyectado (composition root required)")
             proj_dir = pr.resolve_project_root(chain_dir)
             if proj_dir:
-                cg_fn = self._cg_factory
-                if cg_fn is None:
-                    raise ValueError("TraceLogger: cognitive_graph_factory no inyectado (composition root required)")
-                cg = cg_fn(proj_dir)
+                # ADR-WALKER-063 (F1): NO hay flush previo — cada evento se
+                # commitea al escribirse (append por evento), la evidencia
+                # reciente siempre está visible para el gate has_kg_query.
+                cg = self._resolve_cg(proj_dir)
                 query = {"_index": "trace"}
                 if max_events:
                     query["max_results"] = max_events
@@ -248,9 +278,6 @@ class TraceLogger(ITracer):
             if ev_sess in ("", "cli"):
                 return True
         return False
-
-    def flush(self) -> None:
-        self._buffer.clear()
 
     def _get_trace_path(self, chain_dir: str) -> str:
         if self._trace_dir:

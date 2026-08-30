@@ -14,6 +14,8 @@ from shared.core.engine.domain.values import (
     SideEffectDef,
     SelectOption,
     SubStateData,
+    TimeoutConfig,
+    SignalEvents,
 )
 
 
@@ -60,6 +62,14 @@ class SubState:
     timeout_ms: int = 0
     """Max time to wait before auto-resolving (0 = no timeout)."""
 
+    # ── SSOT de transiciones (ADR-WALKER-067, revisión de dominio) ─────
+    # El routing del workflow tiene UN solo SSOT por responsabilidad:
+    #   - INTER-nodo:  `Gate` (edges del WorkflowGraph) — único mecanismo.
+    #   - INTRA-nodo:  `on_success`/`on_failure` (keys de sub-estado del
+    #     MISMO nodo, validados por WorkflowGraph.validate_invariants).
+    #   - `on_timeout`/`on_signal` NO son targets: son ESTRATEGIAS
+    #     (skip | force | escalate | compensate / auto_advance | ...).
+
     # ── Wait state / blocking context (P0) ───────────────────────────────
     interrupting: bool = True
     """If True, timeout interrupts the sub-state (boundary event).
@@ -83,8 +93,6 @@ class SubState:
     # ── Legacy (kept for backward compat) ─────────────────────────────────
     required_fields: list[str] = field(default_factory=list)
     auto_complete_script: str = ""
-    on_failure_loop: bool = False
-    order: int = 0
 
     # ── Context provides/needs (STATE_MANAGEMENT_3_LAYERS) ────────────
     provides: list[str] = field(default_factory=list)
@@ -148,6 +156,27 @@ class SubState:
             and len(self.required_fields) > 0
         )
 
+    # ── VOs derivados (composición; la declaración persiste plana) ────
+
+    @property
+    def timeout_config(self) -> TimeoutConfig:
+        """Config de timeout como VO componible (boundary timer)."""
+        return TimeoutConfig(
+            timeout_ms=self.timeout_ms,
+            interrupting=self.interrupting,
+            on_timeout=self.on_timeout,
+        )
+
+    @property
+    def signal_events(self) -> SignalEvents:
+        """Eventos de señal como VO componible (signal events)."""
+        return SignalEvents(
+            wait_for=self.wait_for,
+            emits=self.emits,
+            waits_for=self.waits_for,
+            on_signal=self.on_signal,
+        )
+
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> SubState:
         execution = data.get("execution", "manual")
@@ -191,8 +220,6 @@ class SubState:
             on_signal=str(data.get("on_signal", "")),
             required_fields=list(data.get("required_fields", data.get("required", []))),
             auto_complete_script=str(data.get("auto_complete", "")),
-            on_failure_loop=bool(data.get("on_failure_loop", False)),
-            order=int(data.get("order", 0)),
             prompt=str(data.get("prompt", "")),
             options=options,
             on_entry_message=str(data.get("on_entry_message", "")),
@@ -209,9 +236,11 @@ class SubState:
 
 @dataclass(frozen=True)
 class Gate:
-    """Puerta de transicion entre nodos o sub-estados.
+    """Puerta de transicion ENTRE nodos (inter-nodo).
 
-    Una gate es el unico mecanismo para cambiar de estado en el workflow.
+    Una gate es el unico mecanismo para cambiar de NODO en el workflow
+    (SSOT de transiciones inter-nodo; ADR-WALKER-067, revisión de dominio).
+    El routing intra-nodo vive en `SubState.on_success`/`on_failure`.
 
     Attributes:
         contract: Condiciones pre/post que se validan al cruzar la gate.
@@ -357,11 +386,31 @@ class WorkflowGraph:
 
         # Invariante 5: Validar flujo de provides/needs (P2 Process Data Store)
         try:
-            from shared.core.engine.application.context_resolver import ContextResolver
-            ctx_errors = ContextResolver().validate_graph(self)
-            errors.extend(ctx_errors)
+            from .ports_registry import resolve_port
+            from .ports import IContextValidator
+
+            ctx_validator = resolve_port(IContextValidator)
+            if ctx_validator is not None:
+                ctx_errors = ctx_validator.validate_graph(self)
+                errors.extend(ctx_errors)
         except Exception:
             pass
+
+        # Invariante 6: routing intra-nodo (SSOT de transiciones). Los targets
+        # de on_success/on_failure deben ser sub-estados del MISMO nodo. Las
+        # gates (inter-nodo) se validan en el invariante 1.
+        for node_id, node in self.nodes.items():
+            sub_keys = {ss.key for ss in node.sub_states}
+            for ss in node.sub_states:
+                for target_field, target in (
+                    ("on_success", ss.on_success),
+                    ("on_failure", ss.on_failure),
+                ):
+                    if target and target not in sub_keys:
+                        errors.append(
+                            f"Nodo '{node_id}' sub-estado '{ss.key}': {target_field} "
+                            f"apunta a sub-estado '{target}' inexistente en el mismo nodo"
+                        )
 
         return errors
 
@@ -706,6 +755,17 @@ class WorkflowState:
             "history": list(self.history),
             "context": dict(self.context),
             "updated_at": self.updated_at or _now(),
+            # P0 (blocking) / P1 (signals) / P2 (process_data) / conflicts:
+            # se persisten para que el round-trip no pierda estado (GAP-3).
+            "blocked_at": self.blocked_at,
+            "block_reason": self.block_reason,
+            "block_since": self.block_since,
+            "pending_events": list(self.pending_events),
+            "block_timeout_ms": self.block_timeout_ms,
+            "pending_signals": list(self.pending_signals),
+            "signal_history": [dict(s) for s in self.signal_history],
+            "process_data": dict(self.process_data),
+            "conflicts": [dict(c) for c in self.conflicts],
         }
 
     @classmethod
@@ -741,6 +801,16 @@ class WorkflowState:
             history=list(data.get("history", [])),
             context=dict(data.get("context", {})),
             updated_at=data.get("updated_at", ""),
+            # P0/P1/P2/conflicts: defaults compat con archivos viejos.
+            blocked_at=data.get("blocked_at", ""),
+            block_reason=data.get("block_reason", ""),
+            block_since=data.get("block_since", ""),
+            pending_events=list(data.get("pending_events", [])),
+            block_timeout_ms=int(data.get("block_timeout_ms", 0) or 0),
+            pending_signals=list(data.get("pending_signals", [])),
+            signal_history=[dict(s) for s in data.get("signal_history", [])],
+            process_data=dict(data.get("process_data", {})),
+            conflicts=[dict(c) for c in data.get("conflicts", [])],
         )
 
 
@@ -813,8 +883,6 @@ def _now() -> str:
 __all__ = [
     "ExecutionType",
     "SubStateMode",
-    "NodeType",
-    "GateType",
     "RetryPolicy",
     "SideEffectDef",
     "SelectOption",
@@ -826,5 +894,4 @@ __all__ = [
     "WorkflowState",
     "NodeExecution",
     "DomainEvent",
-    "DomainEventType",
 ]

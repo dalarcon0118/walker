@@ -147,6 +147,21 @@ class SideEffectEngine:
         """
         self._handlers[effect_type] = handler
 
+    def run_compensation_handler(self, handler_name: str, ctx: Any) -> Any:
+        """Adapter del puerto ISideEffectEngine para compensacion BPMN.
+
+        Ejecuta un compensation handler por nombre y retorna un Result
+        (Success(handler) / Failure). Si el handler no esta registrado,
+        retorna None (el dominio lo trata como 'not found' y loggea).
+
+        No usa self._task_registry/_tracer (los compensation handlers son
+        funciones puras del dominio, sin dependencias de infra en runtime).
+        """
+        handler = self._handlers.get(handler_name)
+        if handler is None:
+            return None
+        return _run_compensation_handler_core(handler, ctx)
+
     def execute(
         self,
         ctx: ExecutionContext,
@@ -523,8 +538,8 @@ class SideEffectEngine:
         """Ejecuta un unico side-effect con resultado real.
 
         Dispatch (SPEC-014 Fase 1):
-          - handler modular registrado (features/main/task_execution/side_effects/)
-            → se ejecuta y normaliza al envelope estándar.
+          - handler modular registrado en `tasks/side_effects/` y resuelto vía
+            ActionCatalog (puerto único) → se ejecuta y normaliza al envelope estándar.
           - name SIN handler → warning + None (fail-loud). Los stubs legacy
             (emit_event, persist_snapshot, run_script, update_cpg, save_ckg,
             update_delta_graph, save_to_ckg) fueron ELIMINADOS: duplicaban

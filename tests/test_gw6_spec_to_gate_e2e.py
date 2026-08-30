@@ -34,6 +34,7 @@ from shared.core.engine.application.use_cases import SubmitDataUseCase
 from shared.core.engine.domain.models import ExecutionContext
 from features.delta_tracking.tasks.verification import register as register_verify_tasks
 from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
+from app.memory_schemas import register_default_memory_indexes
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -44,7 +45,7 @@ from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
 @pytest.fixture
 def env(tmp_path):
     """Proyecto real con código verificable, delta (CognitiveGraph) y chain."""
-    from shared.core.cognitive_graph import CognitiveGraph
+    from shared.libs.cognitive_graph import CognitiveGraph
 
     proj = tmp_path / "proj"
     data_dir = proj / "data"
@@ -64,7 +65,7 @@ def env(tmp_path):
         "        return 'hi'\n"
     )
 
-    CognitiveGraph(str(proj), auto_register=True)
+    CognitiveGraph(str(proj), register_defaults=register_default_memory_indexes)
     chain_dir = str(data_dir / "spring" / "chain-gw6")
 
     # svc real (mismo factory que usa _inject_spec_predicates)
@@ -117,9 +118,9 @@ def _run_gate(env, *, task_id: str = "SPEC-001", fields: dict | None = None) -> 
     """
     fields = fields or {}
     uc = SubmitDataUseCase(
-        workflow_repo=object(),  # type: ignore[arg-type]
-        state_repo=object(),  # type: ignore[arg-type]
-        script_runner=object(),  # type: ignore[arg-type]
+        workflow_store=object(),  # type: ignore[arg-type]
+        actions=object(),  # type: ignore[arg-type]
+        workflow_io=object(),  # type: ignore[arg-type]
     )
     injected = uc._inject_spec_predicates(env["chain_dir"], task_id, fields)
     # El motor resuelve el root del proyecto: en producción el workflow

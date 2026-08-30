@@ -46,17 +46,18 @@ class ErrorHandler:
         self,
         submit_uc: Any,
         transition_uc: Any,
-        side_effect_engine: Any,
-        workflow_repo: Any = None,
-        state_repo: Any = None,
+        actions: Any = None,
+        workflow_store: Any = None,
         tracer: Any = None,
     ):
         self._submit_uc = submit_uc
         self._transition_uc = transition_uc
-        self._side_effect_engine = side_effect_engine
-        self._workflow_repo = workflow_repo
-        self._state_repo = state_repo
+        self._actions = actions
+        self._workflow_store = workflow_store
         self._tracer = tracer
+        from .side_effect_saga import SideEffectSaga
+
+        self._saga = SideEffectSaga(actions=actions, tracer=tracer)
 
     def classify(self, error: Exception) -> ErrorType:
         """Clasifica un error segun su tipo."""
@@ -230,7 +231,7 @@ class ErrorHandler:
     ) -> dict:
         """COMPENSATE: compensar side-effects."""
         if sub_state and sub_state.side_effects:
-            self._side_effect_engine.compensate(ctx, [], 0)
+            self._saga.compensate(ctx, [], 0)
         return {
             "ok": False,
             "action": "error",
@@ -247,8 +248,8 @@ class ErrorHandler:
 
         @safe
         def _do_escalate() -> dict:
-            workflow = self._workflow_repo.load() if self._workflow_repo else None
-            state = self._state_repo.load(ctx.chain_dir) if self._state_repo else None
+            workflow = self._workflow_store.load_graph() if self._workflow_store else None
+            state = self._workflow_store.load_state(ctx.chain_dir) if self._workflow_store else None
             
             if not state or not workflow:
                 raise RuntimeError("Cannot escalate: workflow or state missing")
@@ -265,8 +266,8 @@ class ErrorHandler:
             
             new_state = resolve_result.value_or(state)
             
-            if self._state_repo:
-                self._state_repo.save(ctx.chain_dir, new_state)
+            if self._workflow_store:
+                self._workflow_store.save_state(new_state, ctx.chain_dir)
             
             target_node = new_state.current_node
             target_sub = new_state.current_sub_state
@@ -322,24 +323,18 @@ class ErrorHandler:
                 "message": str(error),
             }
 
-        @safe
-        def _do_jump() -> dict:
-            from ..domain.services import AdvanceService
-            from ..infrastructure.repositories import (
-                WorkflowRepository,
-                WorkflowStateRepository,
-            )
+            @safe
+            def _do_jump() -> dict:
+                from ..domain.services import AdvanceService
 
-            wf_repo = self._workflow_repo or WorkflowRepository()
-            st_repo = self._state_repo or WorkflowStateRepository()
-            graph = wf_repo.load()
-            state = st_repo.load(ctx.chain_dir)
+                graph = self._workflow_store.load_graph()
+                state = self._workflow_store.load_state(ctx.chain_dir)
 
             jumped = AdvanceService.jump_to_sub_state(
                 state, graph, sub_state.on_failure
             )
             if jumped is not None:
-                st_repo.save(ctx.chain_dir, jumped)
+                self._workflow_store.save_state(jumped, ctx.chain_dir)
                 return {
                     "ok": False,
                     "action": "on_failure",

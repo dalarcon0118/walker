@@ -100,8 +100,7 @@
       "core/engine/engine.py",
       "core/engine/mcp.py",
       "core/engine/loader.py",
-      "core/engine/legacy/utils.py",
-      "core/engine/resolve.py",
+
       "docs/ADR-WALKER-051-gaps-refactor-responsabilidades.md",
       "project.md"
     ],
@@ -215,9 +214,7 @@
           "core/engine/context/composer.py",
           "core/engine/engine.py",
           "core/engine/mcp.py",
-          "core/engine/loader.py",
-          "core/engine/legacy/utils.py",
-          "core/engine/resolve.py"
+          "core/engine/loader.py"
         ],
         "verification": "grep -rn 'from features.' core/engine/ → 0; AppContainer.build() + tool_catalog smoke OK",
         "done": true,

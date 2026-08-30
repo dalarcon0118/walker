@@ -218,7 +218,7 @@ def _setup_temp_project(gate_ctx: dict, tmp_path):
 @when("se compone el contexto para WORK con ContextComposer")
 def _compose_work_context(gate_ctx: dict):
     from shared.core.engine.context.composer import ContextComposer
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     registry = AppContainer.build().workflow._context_registry
     composer = ContextComposer(registry)
@@ -321,7 +321,7 @@ def _assert_gather_template_gate(gate_ctx: dict):
 @when("se compone el contexto para DESIGN_GATHER con ContextComposer")
 def _compose_design_gather_context(gate_ctx: dict):
     from shared.core.engine.context.composer import ContextComposer
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     registry = AppContainer.build().workflow._context_registry
     composer = ContextComposer(registry)

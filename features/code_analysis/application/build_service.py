@@ -86,7 +86,7 @@ def _write_projection(data_dir: str, name: str, payload: dict) -> None:
 
     Delega en ProjectionStore (shared) — un solo writer de proyecciones.
     """
-    from shared.core.projection_store import ProjectionStore
+    from shared.libs.projection_store import ProjectionStore
 
     ProjectionStore(data_dir).write(name, payload)
 
@@ -293,12 +293,13 @@ class BuildGraphUseCase:
         if graph is not None:
             self._cg = graph
         else:
-            from libs.cognitive_graph.cognitive_registry import (
+            from app.cognitive_registry import (
                 register_cognitive_indexes,
             )
-            from shared.core.cognitive_graph import CognitiveGraph
+            from shared.libs.cognitive_graph import CognitiveGraph
+            from app.memory_schemas import register_default_memory_indexes
 
-            cg = CognitiveGraph(data_dir, auto_register=True)
+            cg = CognitiveGraph(data_dir, register_defaults=register_default_memory_indexes)
             register_cognitive_indexes(cg)
             self._cg = cg
         # SSOT de exclusion: .walkerignore del proyecto (si existe)

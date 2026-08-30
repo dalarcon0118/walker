@@ -1,6 +1,6 @@
 """Diagnóstico 8: ver el total exacto post-fix."""
 def test_mcp_recalling_total():
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
     import json
     for idx in ("cpg", "ckg", "delta", "trace"):
         resp = _handle_request({

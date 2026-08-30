@@ -35,7 +35,7 @@ def _mcp_tools() -> list[dict]:
     # Usar el McpServer interno real: es lo que el DISPATCH usa (tools/call)
     # y lo que el CLI (MCPClient) consume. Asi el test detecta drift real
     # entre lo que el agente ve y lo que se puede invocar.
-    from features.main.cli_interface.mcp_adapter import _get_server
+    from protocols.mcp.mcp_adapter import _get_server
 
     return _get_server().list_tools() or []
 

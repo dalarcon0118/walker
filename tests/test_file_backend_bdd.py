@@ -1,9 +1,12 @@
-"""Tests — FileBackend (ADR-WALKER-061, F2).
+"""Tests — FileBackend como utilidad de EXPORT/seed (§6.6, ADR-WALKER-063).
 
-F2 extrae la E/S de Index a FileBackend. Estos tests validan que FileBackend
-implementa StorageBackend y que el archivo .json.gz resultante es IDÉNTICO
-(en formato) al de Index: mismo blob {docs, edges, metadata, token_index,
-_type_index, _field_index, schema_hash}.
+ADR-WALKER-061 (F2) extrajo la E/S de Index a FileBackend. Desde el corte
+directo (ADR-063) FileBackend NO es runtime (sqlite v2 es SSOT): se usa
+solo como utilidad de export/migración/tests. Estos tests validan que:
+  - el blob .json.gz resultante es IDÉNTICO en formato al histórico de
+    Index: {docs, edges, metadata, token_index, _type_index, _field_index,
+    schema_hash} (formato de EXPORT que consume migrate_cli.py);
+  - la facade sin conn resuelve a sqlite (nunca a FileBackend).
 """
 from __future__ import annotations
 
@@ -13,10 +16,10 @@ import tempfile
 
 import pytest
 
-from shared.core.cognitive_graph.connection import MemoryConnection
-from shared.core.cognitive_graph.file_backend import FileBackend
-from shared.core.cognitive_graph.file_io import read_blob
-from shared.core.cognitive_graph.ports import StorageBackend
+from shared.libs.cognitive_graph.connection import MemoryConnection
+from shared.libs.cognitive_graph.file_backend import FileBackend
+from shared.libs.cognitive_graph.file_io import read_blob
+from shared.libs.cognitive_graph.ports import StorageBackend
 
 
 def _make_backend(tmp_dir: str) -> FileBackend:
@@ -103,8 +106,10 @@ def test_cognitive_graph_accepts_backend_and_conn():
 
     El schema del índice NO lleva 'storage'; el filename se deriva del
     nombre ({name}.json.gz) y el directorio de MemoryConnection.uri.
+    FileBackend se inyecta EXPLÍCITAMENTE aquí como utilidad de export/tests
+    (§6.6 ADR-063): el runtime nunca lo selecciona solo (default = sqlite).
     """
-    from shared.core.cognitive_graph import CognitiveGraph
+    from shared.libs.cognitive_graph import CognitiveGraph
 
     with tempfile.TemporaryDirectory() as d:
         conn = MemoryConnection(uri=f"file://{d}")
@@ -128,7 +133,7 @@ def test_cognitive_graph_accepts_backend_and_conn():
 
 def test_index_schema_has_no_storage_key_when_absent():
     """IndexSchema sin 'storage' => storage_path None (deriva de nombre)."""
-    from shared.core.cognitive_graph.index import IndexSchema
+    from shared.libs.cognitive_graph.index import IndexSchema
 
     schema = IndexSchema({"fields": {"type": "type"}})
     assert schema.storage_path is None
@@ -138,22 +143,26 @@ def test_cognitive_graph_is_storage_backend_and_delegates():
     """ADR-WALKER-061 corregido: CognitiveGraph ES un StorageBackend y delega.
 
     La abstracción debe funcionar: CognitiveGraph implementa el puerto y
-    delega al backend concreto (FileBackend). Un DbBackend futuro se
-    enchufa por config sin tocar CognitiveGraph ni los repos.
+    delega al backend concreto. ADR-063 (corte directo): sin backend
+    inyectado se resuelve desde la config → SqliteBackend (nunca
+    FileBackend); el almacenamiento es v2 (cognitive.sqlite3), sin blobs.
     """
-    from shared.core.cognitive_graph import CognitiveGraph
-    from shared.core.cognitive_graph.ports import StorageBackend
+    from shared.libs.cognitive_graph import CognitiveGraph
+    from shared.libs.cognitive_graph.ports import StorageBackend
+    from shared.libs.cognitive_graph.sqlite_backend import SqliteBackend
 
     with tempfile.TemporaryDirectory() as d:
-        # Backward-compat: sin backend inyectado, se construye FileBackend.
+        # Sin conn/backend inyectados → config default sqlite (ADR-063).
         cg = CognitiveGraph(d)
         assert isinstance(cg, StorageBackend)
-        assert isinstance(cg._backend, StorageBackend)
+        assert isinstance(cg._backend, SqliteBackend)
         # Operaciones end-to-end via delegacion al backend.
         cg.store("ckg", "decision-001", {"type": "decision", "statement": "x"})
         assert cg.get("ckg", "decision-001")["_source"]["statement"] == "x"
         assert cg.search("ckg", {"type": "decision"})["hits"]["total"] == 1
-        assert os.path.exists(os.path.join(d, "ckg.json.gz"))
+        # Almacenamiento v2: BD sqlite en el dir; NINGÚN blob .json.gz creado.
+        assert os.path.exists(os.path.join(d, "cognitive.sqlite3"))
+        assert not os.path.exists(os.path.join(d, "ckg.json.gz"))
 
 
 def test_graph_factory_accepts_memory_connection():
@@ -163,8 +172,8 @@ def test_graph_factory_accepts_memory_connection():
     conn=conn). El backend es el dueño real del storage. Un path str sigue
     siendo aceptado por backward-compat (callers del engine).
     """
-    from features.main.container import AppContainer
-    from shared.core.cognitive_graph.connection import MemoryConnection
+    from app.container import AppContainer
+    from shared.libs.cognitive_graph.connection import MemoryConnection
 
     with tempfile.TemporaryDirectory() as d:
         app = AppContainer.build(force=True)

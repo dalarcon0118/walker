@@ -30,8 +30,7 @@ class SubmitOrchestrator:
 
     def __init__(
         self,
-        state_repo: Any,
-        workflow_repo: Any,
+        workflow_store: Any,
         submit_uc: Any,
         handle_error: Any,
         tracer: ITracer,
@@ -39,8 +38,7 @@ class SubmitOrchestrator:
         dispatch_events_from_side_effects: Any,
         signal_bus: Any = None,
     ):
-        self._state_repo = state_repo
-        self._workflow_repo = workflow_repo
+        self._workflow_store = workflow_store
         self._submit_uc = submit_uc
         self._handle_error = handle_error
         self._tracer = tracer
@@ -75,8 +73,7 @@ class SubmitOrchestrator:
         # Intentar resolver con BlockResolver si el sub-estado está bloqueado
         try:
             from shared.core.engine.domain.services.block_resolver import BlockResolver
-            from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
-            state = WorkflowStateRepository().load(ctx.chain_dir)
+            state = self._workflow_store.load_state(ctx.chain_dir)
             if BlockResolver.is_blocked(state):
                 # Check if this event can unblock
                 if BlockResolver.can_unblock(state, "kg_query"):
@@ -86,7 +83,7 @@ class SubmitOrchestrator:
                     })
                     if is_successful(result):
                         new_state = result.value_or(state)
-                        self._state_repo.save(new_state, ctx.chain_dir)
+                        self._workflow_store.save_state(new_state, ctx.chain_dir)
                         self._tracer.trace(
                             ctx.chain_dir,
                             "force_resolved",
@@ -128,10 +125,10 @@ class SubmitOrchestrator:
         _start_ts = time.time()
 
         # ── Capturar sub-estado ORIGEN antes de ejecutar ──────────────
-        _before_state = self._state_repo.load(ctx.chain_dir)
+        _before_state = self._workflow_store.load_state(ctx.chain_dir)
         _orig_node = _before_state.current_node
         _orig_sub = _before_state.current_sub_state
-        _orig_workflow = self._workflow_repo.load(ctx.chain_dir)
+        _orig_workflow = self._workflow_store.load_graph()
         _orig_node_def = _orig_workflow.get_node(_orig_node)
         _orig_sub_def = (
             _orig_node_def.find_sub_state(_orig_sub) if _orig_node_def else None
@@ -153,14 +150,11 @@ class SubmitOrchestrator:
                 )
                 return gate_check
 
-        # ── GATE: trabajo sin capturar ───────────────────────────────
-        _SPRINT_EXIT_SUBSTATES = {"REVIEW", "CLOSE_CONFIRM"}
-        if _orig_node == "SPRINT" and _orig_sub in _SPRINT_EXIT_SUBSTATES:
-            blocked = self._check_uncaptured_work_gate(
-                ctx, _orig_node, _orig_sub, _orig_exec_type
-            )
-            if blocked:
-                return blocked
+        # ── GATES de negocio (p.ej. "trabajo sin capturar" al salir de
+        # SPRINT) son INCUMBENCIA DEL HOST (ADR-WALKER-067): el engine solo
+        # ejecuta la mecánica del workflow y NO conoce esas reglas. El host
+        # valida externamente (antes/después de llamar a submit/transition) y
+        # decide si bloquear. No hay lógica de gates de negocio en el engine.
 
         # ── Ejecutar submit con @safe ────────────────────────────────
         @safe
@@ -210,7 +204,7 @@ class SubmitOrchestrator:
 
         # ── Cargar state para tracing ────────────────────────────────
         duration_ms = int((time.time() - _start_ts) * 1000)
-        state = self._state_repo.load(ctx.chain_dir)
+        state = self._workflow_store.load_state(ctx.chain_dir)
 
         # ── Teoría de grafos: XOR-split ──────────────────────────────
         state = self._resolve_xor_auto_transition(
@@ -229,7 +223,7 @@ class SubmitOrchestrator:
             side_effects=result.get("side_effects", []),
             duration_ms=duration_ms,
         )
-        self._state_repo.save(ctx.chain_dir, state)
+        self._workflow_store.save_state(state, ctx.chain_dir)
 
         # ── Trazar submit ────────────────────────────────────────────
         self._trace_submit(ctx, state, fields)
@@ -271,45 +265,6 @@ class SubmitOrchestrator:
 
         _do_trace()  # Best-effort, no falla el submit por tracing
 
-    def _check_uncaptured_work_gate(
-        self, ctx: ExecutionContext, _orig_node: str, _orig_sub: str, exec_type: str
-    ) -> dict | None:
-        """Bloquea el cierre del sprint si hay cambios sin capturar."""
-        from .uncaptured_work import detect_uncaptured_work
-
-        uw = detect_uncaptured_work(ctx.chain_dir)
-        if not uw.should_block:
-            return None
-
-        @safe
-        def _do_trace():
-            self._tracer.trace(
-                ctx.chain_dir,
-                "GATE_BLOCKED",
-                data={
-                    "reason": "uncaptured_work",
-                    "sub_state": _orig_sub,
-                    "uncaptured_files": uw.uncaptured_files,
-                    "spring_id": uw.spring_id,
-                },
-                task_id=ctx.task_id,
-                session_id=ctx.session_id,
-            )
-
-        _do_trace()  # Best-effort
-
-        return {
-            "ok": False,
-            "action": "gate_blocked",
-            "blocked": True,
-            "error_type": "uncaptured_work_gate",
-            "strategy": "block",
-            "message": uw.gate_message(),
-            "execution_type": exec_type,
-            "sub_state": _orig_sub,
-            "uncaptured_files": uw.uncaptured_files,
-        }
-
     def _handle_submit_error(
         self,
         ctx: ExecutionContext,
@@ -324,7 +279,7 @@ class SubmitOrchestrator:
         """Maneja error de submit: estrategia + persistencia + tracing."""
         duration_ms = int((time.time() - _start_ts) * 1000)
         result = self._handle_error(ctx, e, None, fields=fields)
-        state = self._state_repo.load(ctx.chain_dir)
+        state = self._workflow_store.load_state(ctx.chain_dir)
         state = state.with_context("last_error", result.get("error_type", "unknown"))
         state = state.with_context(
             "last_error_strategy", result.get("strategy", "none")
@@ -340,7 +295,7 @@ class SubmitOrchestrator:
             error_type=result.get("error_type", "unknown"),
             duration_ms=duration_ms,
         )
-        self._state_repo.save(ctx.chain_dir, state)
+        self._workflow_store.save_state(state, ctx.chain_dir)
         self._tracer.trace_error(
             ctx.chain_dir,
             result.get("error_type", "unknown"),
@@ -394,7 +349,7 @@ class SubmitOrchestrator:
                     session_id=ctx.session_id,
                 )
 
-            state = self._state_repo.load(ctx.chain_dir)
+            state = self._workflow_store.load_state(ctx.chain_dir)
         else:
             result["xor_error"] = str(trans_result.failure())
 
@@ -462,7 +417,7 @@ class SubmitOrchestrator:
         if not self._signal_bus:
             return
         try:
-            workflow = self._workflow_repo.load(ctx.chain_dir)
+            workflow = self._workflow_store.load_graph()
             node = workflow.get_node(node_id)
             if not node:
                 return

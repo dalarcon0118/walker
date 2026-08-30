@@ -67,7 +67,7 @@ def _resolve_chain_dir(
             return active
         # get_delta_dir ahora resuelve automaticamente desde el registry
         # (via get_project_dir -> _project_dir_from_registry)
-        from shared.core.path_resolver import get_delta_dir
+        from app.path_resolver import get_delta_dir
 
         delta_dir = str(get_delta_dir(pid))
         os.makedirs(delta_dir, exist_ok=True)
@@ -93,7 +93,7 @@ def _resolve_chain_dir(
 
 
 def _get_active_record(ctx):
-    from shared.core.engine.domain.session import SessionStore
+    from shared.core.engine.infrastructure.session_store import SessionStore
 
     try:
         return SessionStore.get_active()
@@ -105,7 +105,7 @@ def _resolve_project_root(project_id: str) -> str:
     """Resuelve el directorio cognitivo del proyecto (.cognitive/projects/<id>)."""
     if not project_id:
         return ""
-    from shared.core.path_resolver import get_project_dir
+    from app.path_resolver import get_project_dir
 
     try:
         return str(get_project_dir(project_id))

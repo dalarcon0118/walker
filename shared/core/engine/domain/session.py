@@ -1,12 +1,15 @@
 """
-domain/session.py — Modelo de sesión y SessionStore.
+domain/session.py — Modelo de sesión (dato puro).
 
 El session_id es la raíz de todo el sistema. Sin session_id
 no hay ExecutionContext, sin ExecutionContext no hay operaciones.
+
+SessionRecord es PURA (sin IO). La persistencia vive en
+`infrastructure/session_store.py` (adapter del puerto ISessionStore):
+el dominio no hace file-IO (ADR-WALKER-067, revisión de dominio).
 """
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -16,7 +19,7 @@ from typing import Any
 
 @dataclass
 class SessionRecord:
-    """Registro de sesión persistente.
+    """Registro de sesión persistente (dato puro, sin IO).
 
     SSOT: .cognitive/sessions/{session_id}.json (resuelto via config)
     Contiene todo lo necesario para reconstruir un ExecutionContext.
@@ -65,20 +68,18 @@ class SessionRecord:
     @property
     def session_dir(self) -> str:
         """Directorio de sesion, usado como chain_dir virtual durante bootstrap.
-        
-        Cuando no hay proyecto activo (START node), el engine usa este directorio
-        como chain_dir temporal para persistir el estado del motor
-        (.workflow-state.json).
-        """
-        from ..infrastructure.config import get as cfg
-        base = cfg("sessions_dir")
-        return os.path.join(base, self.session_id)
 
-    def ensure_session_dir(self) -> str:
-        """Crea el directorio de sesion si no existe. Retorna la ruta."""
-        d = self.session_dir
-        os.makedirs(d, exist_ok=True)
-        return d
+        Derivación de ruta (pura): compone la ruta desde IConfig. La creación
+        del directorio (IO) la hace el adapter ISessionStore.ensure_session_dir.
+        """
+        from .ports_registry import resolve_port
+        from .ports import IConfig
+
+        cfg = resolve_port(IConfig)
+        if cfg is None:
+            raise RuntimeError("IConfig no registrado en domain.ports_registry")
+        base = cfg.get("sessions_dir")
+        return os.path.join(base, self.session_id)
 
     @classmethod
     def create(cls, project_id: str = "", chain_dir: str = "") -> SessionRecord:
@@ -88,181 +89,3 @@ class SessionRecord:
             project_id=project_id,
             chain_dir=chain_dir,
         )
-
-
-class SessionStore:
-    """Persistencia de sesiones en <sessions_dir>/.
-
-    Cada sesión es un archivo JSON: <sessions_dir>/{session_id}.json
-    La sesión activa es PER-AGENTE: <sessions_dir>/agents/<agent_id>/active_session
-    Si no hay agente, usa <sessions_dir>/active_session (legacy compat)
-
-    sessions_dir se resuelve via config (config/config.json del proyecto).
-    """
-
-    SESSIONS_DIR = None  # Se resuelve via config
-    ACTIVE_FILE = None   # Se resuelve via config
-
-    @classmethod
-    def _agent_id(cls) -> str:
-        """Retorna el agent_id del entorno, o vacio."""
-        return os.environ.get("WALKER_AGENT_ID", "")
-
-    @classmethod
-    def _sessions_dir(cls) -> str:
-        if cls.SESSIONS_DIR is None:
-            from ..infrastructure.config import get
-            cls.SESSIONS_DIR = get("sessions_dir")
-        return cls.SESSIONS_DIR
-
-    @classmethod
-    def _active_file(cls) -> str:
-        if cls.ACTIVE_FILE is None:
-            sessions = cls._sessions_dir()
-            agent = cls._agent_id()
-            if agent:
-                cls.ACTIVE_FILE = os.path.join(sessions, "agents", agent, "active_session")
-            else:
-                cls.ACTIVE_FILE = os.path.join(sessions, "active_session")
-        return cls.ACTIVE_FILE
-
-    @classmethod
-    def _ensure_dir(cls) -> None:
-        sdir = cls._sessions_dir()
-        os.makedirs(sdir, exist_ok=True)
-        af = cls._active_file()
-        os.makedirs(os.path.dirname(af), exist_ok=True)
-
-    @classmethod
-    def _path(cls, session_id: str) -> str:
-        return os.path.join(cls._sessions_dir(), f"{session_id}.json")
-
-    @classmethod
-    def save(cls, record: SessionRecord) -> None:
-        """Persiste una sesión."""
-        cls._ensure_dir()
-        record.updated_at = datetime.now(timezone.utc).isoformat()
-        with open(cls._path(record.session_id), "w") as f:
-            json.dump(record.to_dict(), f, indent=2)
-
-    @classmethod
-    def load(cls, session_id: str) -> SessionRecord | None:
-        """Carga una sesión por ID."""
-        path = cls._path(session_id)
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    return SessionRecord.from_dict(json.load(f))
-            except Exception:
-                return None
-        return None
-
-    @classmethod
-    def get_active(cls) -> SessionRecord | None:
-        """Retorna la sesión activa (última usada)."""
-        af = cls._active_file()
-        if os.path.exists(af):
-            try:
-                with open(af) as f:
-                    session_id = f.read().strip()
-                    return cls.load(session_id)
-            except Exception:
-                return None
-        return None
-
-    @classmethod
-    def set_active(cls, session_id: str) -> None:
-        """Marca una sesión como activa."""
-        cls._ensure_dir()
-        with open(cls._active_file(), "w") as f:
-            f.write(session_id)
-
-    @classmethod
-    def delete(cls, session_id: str) -> None:
-        """Elimina una sesión."""
-        path = cls._path(session_id)
-        if os.path.exists(path):
-            os.remove(path)
-
-    @classmethod
-    def list_sessions(cls) -> list[SessionRecord]:
-        """Lista todas las sesiones disponibles."""
-        cls._ensure_dir()
-        sessions = []
-        sdir = cls._sessions_dir()
-        if os.path.isdir(sdir):
-            for fname in os.listdir(sdir):
-                if fname.endswith(".json"):
-                    sess = cls.load(fname[:-5])
-                    if sess:
-                        sessions.append(sess)
-        return sorted(sessions, key=lambda s: s.updated_at, reverse=True)
-
-    @classmethod
-    def find_by_chain_dir(cls, chain_dir: str) -> SessionRecord | None:
-        """Retorna la sesión más reciente para un chain_dir (o None).
-
-        Evita la acumulación de sesiones duplicadas: el API de workflow
-        reutiliza la sesión de un chain_dir en vez de crear una nueva en
-        cada llamada cuando esta no está stale.
-        """
-        for record in cls.list_sessions():
-            if record.chain_dir == chain_dir:
-                return record
-        return None
-
-    # Última corrida de GC (timestamp epoch). Throttle horario para no
-    # escanear el directorio en cada llamada CLI/MCP.
-    _LAST_GC: float = 0.0
-    GC_THROTTLE_SECONDS: float = 3600.0
-    # Guarda de seguridad: el GC nunca actúa sobre directorios con menos
-    # sesiones que este umbral. Evita borrado destructivo en dirs sanos
-    # (p.ej. el productivo con una docena de sesiones) cuando el acceso
-    # es solo metadata incidental (corridas de tests, etc.).
-    GC_STALE_MIN_SESSIONS: int = 50
-
-    @classmethod
-    def gc_stale(cls, max_hours: int = 168, min_sessions: int = 0) -> int:
-        """Borra sesiones stale que no son la activa (GC periódico).
-
-        Complementa el reuso por chain_dir: cuando una sesión del mismo
-        chain_dir supera is_stale (2h) se crea una nueva, y la anterior
-        quedaría huérfana. Este GC elimina esas huérfanas para evitar
-        que <sessions_dir> vuelva a acumular archivos con el tiempo.
-
-        Seguridad (evita pérdida accidental de datos reales):
-        - Protege SIEMPRE la sesión activa (agents/<id>/active_session).
-        - min_sessions (default 0): con el valor por defecto de
-          GC_STALE_MIN_SESSIONS se usa un umbral alto (50) para que el GC
-          jamás actúe sobre un directorio sano. La invocación automática
-          desde ensure_session usa este default.
-        - max_hours default alto (168h = 7 días): las sesiones con menos
-          de una semana de inactividad se conservan aunque no sean la
-          activa.
-        - Throttle horario (GC_THROTTLE_SECONDS): una sola corrida por hora.
-
-        Returns:
-            Cantidad de sesiones eliminadas.
-        """
-        import time as _time
-
-        now = _time.time()
-        if now - cls._LAST_GC < cls.GC_THROTTLE_SECONDS:
-            return 0
-        cls._LAST_GC = now
-
-        sessions = cls.list_sessions()
-        limit = min_sessions or cls.GC_STALE_MIN_SESSIONS
-        if len(sessions) < limit:
-            return 0
-
-        active = cls.get_active()
-        active_id = active.session_id if active else ""
-        removed = 0
-        for record in sessions:
-            if record.session_id == active_id:
-                continue
-            if record.is_stale(max_hours=max_hours):
-                cls.delete(record.session_id)
-                removed += 1
-        return removed

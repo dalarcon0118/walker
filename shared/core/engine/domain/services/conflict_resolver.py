@@ -29,12 +29,11 @@ class WorkflowConflictResolver:
     - edit: actualiza spec en delta_tracking (delegado)
     - merge: integra specs sin perder información (delegado)
 
-    El conflict resolver se inyecta por puerto IConflictResolver.
-    Si no se provee, las estrategias edit/merge no están disponibles.
+    NOTA (ADR-WALKER-067): las estrategias edit/merge operan sobre specs del
+    delta, que es INCUMBENCIA DEL HOST. El engine NO conoce IConflictResolver;
+    solo implementa la mecánica de resolución (skip/force/escalate/compensate
+    vía BlockResolver). El host aplica las estrategias de specs externamente.
     """
-
-    def __init__(self, conflict_resolver: Any = None):
-        self._conflict_resolver = conflict_resolver
 
     def resolve(
         self,
@@ -55,83 +54,7 @@ class WorkflowConflictResolver:
             Success(new_state) si la resolución fue exitosa
             Failure(reason) si no se pudo resolver
         """
-        if strategy in ("edit", "merge"):
-            return self._resolve_spec_strategy(
-                state, strategy, payload, graph=graph
-            )
         return BlockResolver.resolve(state, strategy, payload, graph=graph)
-
-    def _resolve_spec_strategy(
-        self,
-        state: WorkflowState,
-        strategy: str,
-        payload: dict[str, Any],
-    ) -> Result[WorkflowState, str]:
-        """Delega en delta_tracking para estrategias de specs."""
-        try:
-            ConflictResolver = self._conflict_resolver
-            if DeltaConflictResolver is None:
-                return Failure("conflict resolver de delta no disponible (sin composition root)")
-
-            # DeltaConflictResolver opera sobre dicts, no entidades
-            state_dict = state.to_dict() if hasattr(state, "to_dict") else state
-            new_state_dict, _ = ConflictResolver.resolve(
-                conflict=None,
-                strategy=strategy,
-                payload=payload,
-                workflow_state=state_dict,
-                specs=[],
-            )
-            if isinstance(new_state_dict, dict):
-                return WorkflowConflictResolver._dict_to_state_result(
-                    new_state_dict, state
-                )
-            return WorkflowConflictResolver._dict_to_state_result(new_state_dict, state)
-        except Exception as e:
-            return Failure(f"spec_strategy_failed: {type(e).__name__}: {e}")
-
-    @staticmethod
-    def _dict_to_state_result(
-        data: dict, fallback: WorkflowState
-    ) -> Result[WorkflowState, str]:
-        """Convierte dict a WorkflowState, preservando campos nuevos."""
-        try:
-            from shared.core.engine.domain.entities import WorkflowState as WS
-
-            return Success(
-                WS(
-                    current_node=data.get("current_node", fallback.current_node),
-                    current_sub_state=data.get(
-                        "current_sub_state", fallback.current_sub_state
-                    ),
-                    sub_state_index=data.get(
-                        "sub_state_index", fallback.sub_state_index
-                    ),
-                    sub_state_data={
-                        k: v for k, v in data.get("sub_state_data", {}).items()
-                    },
-                    history=data.get("history", fallback.history),
-                    context=data.get("context", fallback.context),
-                    version=data.get("version", fallback.version),
-                    updated_at=data.get("updated_at", fallback.updated_at),
-                    node_executions=fallback.node_executions,
-                    conflicts=data.get("conflicts", fallback.conflicts),
-                    blocked_at=data.get("blocked_at", fallback.blocked_at),
-                    block_reason=data.get("blocked_at", fallback.block_reason),
-                    block_since=data.get("block_since", fallback.block_since),
-                    pending_events=data.get("pending_events", fallback.pending_events),
-                    block_timeout_ms=data.get(
-                        "block_timeout_ms", fallback.block_timeout_ms
-                    ),
-                    pending_signals=data.get(
-                        "pending_signals", fallback.pending_signals
-                    ),
-                    signal_history=data.get("signal_history", fallback.signal_history),
-                    process_data=data.get("process_data", fallback.process_data),
-                )
-            )
-        except Exception as e:
-            return Failure(f"state_conversion_failed: {type(e).__name__}: {e}")
 
 
 from returns.result import Success, Failure

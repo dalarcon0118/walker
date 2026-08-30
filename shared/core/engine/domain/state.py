@@ -8,9 +8,11 @@ the helper functions that operate on it and bridge with legacy dict state.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 
 from .models import WorkflowState
+from .ports_registry import resolve_port
+from .ports import IStateStore
+from returns.result import Failure, Result, Success
 
 
 # ── JSON helpers ────────────────────────────────────────────────────────────
@@ -28,69 +30,39 @@ def _load_json(path: str) -> dict | None:
 # ── WorkflowState repository bridge ───────────────────────────────────────────
 
 
-def load_state_from_repo(chain_dir: str) -> WorkflowState:
-    """Load WorkflowState using the infrastructure repository.
+def load_state_from_repo(chain_dir: str) -> Result[WorkflowState, str]:
+    """Load WorkflowState via the IStateStore port.
 
-    Returns a default WorkflowState if the file doesn't exist.
+    Devuelve un WorkflowState por defecto si el archivo no existe (comportamiento
+    del adapter WorkflowStateRepository). Si el puerto no esta registrado, retorna
+    Failure (fail-fast explicito en vez de import infra directo).
+
+    Returns:
+        Result[WorkflowState, str]: Success(state) o Failure(motivo).
     """
-    from ..infrastructure.repositories import WorkflowStateRepository
-
-    repo = WorkflowStateRepository()
-    return repo.load(chain_dir)
-
-
-def save_state_to_repo(chain_dir: str, state: WorkflowState) -> None:
-    """Persist WorkflowState using the infrastructure repository."""
-    from ..infrastructure.repositories import WorkflowStateRepository
-
-    repo = WorkflowStateRepository()
-    repo.save(chain_dir, state)
+    store = resolve_port(IStateStore)
+    if store is None:
+        return Failure("state_store_not_registered")
+    try:
+        return Success(store.load(chain_dir))
+    except Exception:
+        return Failure("no_state")
 
 
-# ── Task status helpers (operate on dict state for backward compat) ─────────
+def save_state_to_repo(chain_dir: str, state: WorkflowState) -> Result[None, str]:
+    """Persist WorkflowState via the IStateStore port.
 
-
-def get_task_status(state: dict, task_id: str) -> str:
-    """Get task status from consolidated state dict."""
-    return state.get("tasks", {}).get(task_id, {}).get("status", "unknown")
-
-
-def set_task_status(state: dict, task_id: str, status: str) -> None:
-    """Update task status in consolidated state dict.
-
-    SSOT: progress.current.task_states is the source of truth.
-    Top-level tasks dict is updated as mirror for legacy compatibility.
+    Returns:
+        Result[None, str]: Success(None) o Failure(motivo).
     """
-    progress = state.setdefault("progress", {})
-    current = progress.setdefault("current", {})
-    task_states = current.setdefault("task_states", {})
-    task_states[task_id] = status
-
-    # Mirror: top-level tasks (legacy compat)
-    if task_id not in state.get("tasks", {}):
-        state.setdefault("tasks", {})[task_id] = {}
-    state["tasks"][task_id]["status"] = status
-
-    # Audit trail entry
-    state.setdefault("audit", {}).setdefault("trail", []).append(
-        {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "event": f"{task_id} marked as '{status}' via state.py",
-        }
-    )
-
-
-def complete_task(state: dict, task_id: str) -> None:
-    """Mark a task as completed.
-
-    ANTI-ALUCINACIÓN (G-W6): completar una task NO satisface sus predicates.
-    Antes este helper hacía ``predicates["ok"] = total`` (100% ok sin
-    verificar nada) — un bypass total de VERIFY.PREDICATE_CHECK. La
-    verificación real ocurre en verify_predicates (motor con ast-grep /
-    subprocess). Si un caller quiere satisfacer predicates, debe correr el
-    gate, nunca marcarlos a mano.
-    """
-    set_task_status(state, task_id, "completed")
+    store = resolve_port(IStateStore)
+    if store is None:
+        return Failure("state_store_not_registered")
+    try:
+        store.save(chain_dir, state)
+        return Success(None)
+    except Exception:
+        return Failure("save_failed")
 
 
 # ── WorkflowState ↔ dict conversion helpers ───────────────────────────────────

@@ -82,7 +82,7 @@ def _nodes_dir(prompts_ssot_ctx: dict):
 
 @given("el path resolver")
 def _path_resolver(prompts_ssot_ctx: dict):
-    from shared.core.path_resolver import get_engine_workflow_dir, get_engine_workflow_path
+    from app.path_resolver import get_engine_workflow_dir, get_engine_workflow_path
 
     prompts_ssot_ctx["wf_dir"] = str(get_engine_workflow_dir())
     prompts_ssot_ctx["wf_path"] = str(get_engine_workflow_path())
@@ -100,35 +100,35 @@ def _pm_tmp(prompts_ssot_ctx: dict, tmp_path):
 
 @when("comparo con _PROTOCOL_TEXT del mcp_adapter")
 def _compare_mcp(prompts_ssot_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _PROTOCOL_TEXT
+    from protocols.mcp.mcp_adapter import _PROTOCOL_TEXT
 
     prompts_ssot_ctx["equal"] = _PROTOCOL_TEXT == prompts_ssot_ctx["mcp_text"]
 
 
 @when("construyo el protocolo MCP dinámico")
 def _build_mcp_dynamic(prompts_ssot_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _PROTOCOL_TEXT
+    from protocols.mcp.mcp_adapter import _PROTOCOL_TEXT
 
     prompts_ssot_ctx["mcp_dynamic"] = _PROTOCOL_TEXT
 
 
 @when("invoco _build_help")
 def _build_help(prompts_ssot_ctx: dict):
-    from features.main.cli_interface.application.handlers import _build_help
+    from protocols.cli.cli_interface.application.handlers import _build_help
 
     prompts_ssot_ctx["help_data"] = _build_help()
 
 
 @when("cargo el protocolo MCP")
 def _load_mcp(prompts_ssot_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _load_protocol_text
+    from protocols.mcp.mcp_adapter import _load_protocol_text
 
     prompts_ssot_ctx["mcp_fallback"] = _load_protocol_text()
 
 
 @when("cargo el protocolo REST")
 def _load_rest(prompts_ssot_ctx: dict):
-    from features.main.cli_interface.application.handlers import _load_protocol_rest
+    from protocols.cli.cli_interface.application.handlers import _load_protocol_rest
 
     prompts_ssot_ctx["rest_fallback"] = _load_protocol_rest()
 
@@ -266,14 +266,14 @@ def _protocol_matches(prompts_ssot_ctx: dict):
 
 @then("devuelve _PROTOCOL_FALLBACK")
 def _mcp_fallback(prompts_ssot_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _PROTOCOL_FALLBACK
+    from protocols.mcp.mcp_adapter import _PROTOCOL_FALLBACK
 
     assert prompts_ssot_ctx["mcp_fallback"] == _PROTOCOL_FALLBACK
 
 
 @then("devuelve _PROTOCOL_REST_FALLBACK")
 def _rest_fallback(prompts_ssot_ctx: dict):
-    from features.main.cli_interface.application.handlers import _PROTOCOL_REST_FALLBACK
+    from protocols.cli.cli_interface.application.handlers import _PROTOCOL_REST_FALLBACK
 
     assert prompts_ssot_ctx["rest_fallback"] == _PROTOCOL_REST_FALLBACK
 

@@ -62,7 +62,7 @@ def test_trace_push_es_invocable_por_el_motor_interno_y_bloqueado_desde_mcp():
     SPEC-002 G-W1 en silencio.
     """
     from shared.core.engine.application.task_dispatcher import execute_public_task
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     registry = AppContainer.build().module_registry.get_service("task_registry")
 
@@ -107,7 +107,7 @@ def test_evento_cpg_publicado_llega_al_indice_trace(tmp_path):
     bus.publish(CpgEvent())
 
     paths = ProjectService.resolve_paths(chain_dir)
-    from features.main.container import AppContainer
+    from app.container import AppContainer
     cg = AppContainer.build().module_registry.get_service("cognitive_graph")(paths.project_root)
     result = cg.search("trace", {"event_type": "CpgEvent"})
     hits = result.get("hits", {})

@@ -17,10 +17,24 @@ from features.delta_tracking.domain.values import (
     TYPE_SPEC,
     spec_doc_id,
 )
-from libs.cognitive_graph.cognitive_registry import memory_data_dir
-from shared.core.cognitive_graph.config import load_memory_connection
+from app.cognitive_registry import memory_data_dir
+from shared.libs.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_graph_factory() -> Any | None:
+    """Fallback DI (ADR-045/058): resuelve graph_factory desde el service locator neutro.
+
+    El composition root (features/main) inyecta su resolutor vía
+    set_service_locator() (composition/lifecycle.py). Así el repo resuelve
+    'cognitive_graph' sin importar features/main (frontera core/engine).
+    Fail-open: si el locator no está poblado devuelve None y se mantiene el
+    error de inyección requerida con mensaje claro (convention-001).
+    """
+    from shared.core.engine.bootstrap import resolve_locator
+
+    return resolve_locator("cognitive_graph")
 
 
 class CognitiveDeltaRepository(DeltaRepository):
@@ -34,9 +48,12 @@ class CognitiveDeltaRepository(DeltaRepository):
 
     def __init__(self, project_root: str, graph_factory: Callable[[Any], Any] | None = None):
         if graph_factory is None:
+            # ADR-045: fallback al composition root (service locator neutro).
+            graph_factory = _resolve_graph_factory()
+        if graph_factory is None:
             raise ValueError(
                 "CognitiveDeltaRepository requiere graph_factory inyectado. "
-                "Pásalo desde el composition root (features.main.bootstrap)."
+                "Pásalo desde el composition root (app.bootstrap)."
             )
         # ADR-WALKER-061 (F6): la conexión se lee de CONFIG (env), no de un
         # path crudo. El repo resuelve su raíz y el config aporta backend/db.

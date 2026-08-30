@@ -12,7 +12,7 @@ estos Use Cases directos (INV-013).
 """
 from __future__ import annotations
 
-from .check_ckg_health import CheckCkgHealthUseCase, _read_ckg_file
+from .check_ckg_health import CheckCkgHealthUseCase
 from .gather_ckg_context import GatherCkgContextUseCase
 from .save_to_ckg import SaveToCkgUseCase
 from .collect_knowledge import CollectKnowledgeUseCase
@@ -28,5 +28,4 @@ __all__ = [
     "GetCkgNodesForTaskUseCase",
     "IndexRepoUseCase",
     "ResearchTopicUseCase",
-    "_read_ckg_file",
 ]

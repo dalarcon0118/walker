@@ -158,16 +158,10 @@ class QueryManager:
         # Sprint status: delta (fuente unica del spring).
         sprint_status = ""
         sprint_goal = ""
+        # El delta/spring es INCUMBENCIA DEL HOST (ADR-WALKER-067): el engine
+        # NO consulta spring. El host provee sprint_status/goal en el contexto.
         try:
-
-            spring_svc = self._sprint_service.from_chain_dir(self._chain_dir) if self._sprint_service else None
-            if spring_svc:
-                spring_id = spring_svc.get_spring_id(self._chain_dir)
-                spring_svc.ensure_spring_imported(self._chain_dir, spring_id)
-                spring = spring_svc.get_spring(spring_id)
-                if spring:
-                    sprint_status = spring.get("status", "")
-                    sprint_goal = spring.get("goal", "")
+            pass
         except Exception:
             pass
         return {

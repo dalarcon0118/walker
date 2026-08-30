@@ -1,0 +1,10 @@
+{
+  "dead_branches": [],
+  "missing_returns": [],
+  "infinite_loops": [],
+  "cfg_cache": {
+    "cached_files": 455,
+    "hits": 455
+  },
+  "cfg_cache_hits": 455
+}

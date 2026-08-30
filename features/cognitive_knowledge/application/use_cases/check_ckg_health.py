@@ -1,13 +1,12 @@
 """use_cases/check_ckg_health.py — CheckCkgHealthUseCase.
 
 Check CKG health: node count and status.
-SSOT: solo cognitive_knowledge lee archivos CKG.
+SSOT: solo cognitive_knowledge consulta el CKG, SIEMPRE por el puerto
+(CA-9, ADR-WALKER-063): ninguna lectura directa de `.json.gz`.
+Un backend corrupto propaga como `Failure` (IV-6); un índice vacío es
+estado válido ("empty"), no un fallo.
 """
 from __future__ import annotations
-
-import gzip
-import json
-import os
 
 from returns.result import Result, safe
 
@@ -28,33 +27,14 @@ class CheckCkgHealthUseCase:
 
         @safe
         def _read_ckg() -> dict:
-            # Try .json.gz first (canonical), then .json (legacy)
-            ckg_path = os.path.join(projects_data_dir, "ckg.json.gz")
-            data = _read_ckg_file(ckg_path)
-            if data is not None:
-                total = len(data.get("nodes", data.get("docs", [])))
-                return {"status": f"{total} nodes", "node_count": total}
+            # CA-9 (ADR-063): lectura por el puerto (backend por config).
+            # Con sqlite el conteo viene de la BD; con file, del .json.gz.
+            from features.cognitive_knowledge.infrastructure.ckg_reader import (
+                read_ckg_via_port,
+            )
 
-            ckg_old = os.path.join(projects_data_dir, "ckg.json")
-            old_data = _read_ckg_file(ckg_old)
-            if old_data is not None:
-                total = len(old_data.get("nodes", old_data.get("docs", [])))
-                return {"status": f"{total} nodes", "node_count": total}
-
-            return {"status": "empty", "node_count": 0}
+            data = read_ckg_via_port(projects_data_dir)
+            total = len(data.get("nodes", []))
+            return {"status": f"{total} nodes", "node_count": total}
 
         return _read_ckg()
-
-
-def _read_ckg_file(path: str) -> dict | None:
-    """Read a CKG file (.json or .json.gz). Returns None on error/missing."""
-    if not os.path.exists(path):
-        return None
-    try:
-        if path.endswith(".gz"):
-            with gzip.open(path) as f:
-                return json.load(f)
-        with open(path) as f:
-            return json.load(f)
-    except Exception:
-        return None

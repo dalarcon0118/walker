@@ -20,9 +20,9 @@ import re
 import subprocess
 from typing import Any
 
-from .models import ContextPiece
+from shared.common.context.models import ContextPiece
 from .registry import ContextProvider
-from .format import fmt_tokens
+from shared.common.context.format import fmt_tokens
 
 
 class DiffProvider(ContextProvider):

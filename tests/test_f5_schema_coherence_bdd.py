@@ -339,7 +339,7 @@ def _assert_data_shape(f5_ctx: dict):
 
 @given("un servidor MCP")
 def _mcp_server(f5_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _build_server
+    from protocols.mcp.mcp_adapter import _build_server
 
     f5_ctx["server"] = _build_server()
 
@@ -375,7 +375,7 @@ def _assert_data_dict(f5_ctx: dict):
 
 @when("se hace tools/call a status")
 def _tools_call_status(f5_ctx: dict):
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     f5_ctx["resp"] = _handle_request(
         {

@@ -14,7 +14,7 @@ import logging
 import re as _re
 from typing import Any
 
-from .models import ContextPiece, ComposedContext, ContextBudget
+from shared.common.context.models import ContextPiece, ComposedContext, ContextBudget
 from .registry import ContextProviderRegistry
 from .query_manager import QueryManager
 from .window import ContextWindowManager
@@ -321,10 +321,10 @@ class ContextComposer:
         chain_dir = getattr(ctx, "chain_dir", None) or ctx_dict.get("chain_dir", "")
         if chain_dir:
             try:
-
-                collect_all = self._prompt_collector if hasattr(self, "_prompt_collector") else None
-                if collect_all:
-                    ctx_dict.update(collect_all(chain_dir=chain_dir, context=ctx_dict))
+                # La recolección de contexto (collect_all/prompts) es INCUMBENCIA
+                # DEL HOST (ADR-WALKER-067): el engine no la recolecta. El host
+                # provee el contexto ya resuelto.
+                pass
             except Exception:
                 pass
 

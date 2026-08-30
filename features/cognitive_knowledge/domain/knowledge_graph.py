@@ -458,29 +458,3 @@ class KnowledgeGraph:
                 if e.from_id in g._nodes and e.to_id in g._nodes:
                     g._edges.append(e)
         return g
-
-    def save(self, path: str) -> None:
-        import gzip
-        import json
-        import os
-
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        payload = json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
-        if path.endswith(".gz"):
-            open(path, "wb").write(gzip.compress(payload.encode()))
-        else:
-            open(path, "w").write(payload)
-
-    @classmethod
-    def load(cls, path: str) -> KnowledgeGraph:
-        import gzip
-        import json
-        import os
-
-        if not os.path.exists(path):
-            return cls()
-        if path.endswith(".gz"):
-            raw = gzip.decompress(open(path, "rb").read()).decode()
-        else:
-            raw = open(path).read()
-        return cls.from_dict(json.loads(raw))

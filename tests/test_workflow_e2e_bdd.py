@@ -26,7 +26,7 @@ from shared.core.engine.infrastructure.repositories import WorkflowStateReposito
 from features.delta_tracking import spring_service
 from features.delta_tracking.application.evolutionary_document_model import EvolutionaryDocumentModel
 from features.delta_tracking.domain.entities import Spec
-from features.main.task_execution.side_effects.decision import create_adr
+from tasks.side_effects.decision import create_adr
 from tests.conftest import make_chain_dir, make_walker_project
 
 

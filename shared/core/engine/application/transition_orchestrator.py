@@ -21,21 +21,19 @@ class TransitionOrchestrator:
 
     def __init__(
         self,
-        state_repo: Any,
+        workflow_store: Any,
         transition_uc: Any,
         tracer: ITracer,
         read_edge_transform: Any,
         execute_edge_transform: Any,
         dispatch_event: Any,
-        workflow_repo: Any = None,
     ):
-        self._state_repo = state_repo
+        self._workflow_store = workflow_store
         self._transition_uc = transition_uc
         self._tracer = tracer
         self._read_edge_transform = read_edge_transform
         self._execute_edge_transform = execute_edge_transform
         self._dispatch_event = dispatch_event
-        self._workflow_repo = workflow_repo
 
     def transition(
         self,
@@ -52,13 +50,13 @@ class TransitionOrchestrator:
         _start_ts = time.time()
 
         # Capturar nodo origen antes de la transicion
-        state_before = self._state_repo.load(ctx.chain_dir)
+        state_before = self._workflow_store.load_state(ctx.chain_dir)
         from_node = f"{state_before.current_node}.{state_before.current_sub_state}"
         from_sub_state = state_before.current_sub_state
 
         # ── P1: Resolver bloqueos antes de transicionar ─────────────
-        if self._workflow_repo and gate == "escalate":
-            workflow = self._workflow_repo.load(ctx.chain_dir)
+        if self._workflow_store and gate == "escalate":
+            workflow = self._workflow_store.load_graph()
             from shared.core.engine.domain.services.block_resolver import BlockResolver
             resolve_result = BlockResolver.resolve(
                 state_before,
@@ -69,7 +67,7 @@ class TransitionOrchestrator:
             from returns.pipeline import is_successful
             if is_successful(resolve_result):
                 new_state = resolve_result.value_or(state_before)
-                self._state_repo.save(ctx.chain_dir, new_state)
+                self._workflow_store.save_state(new_state, ctx.chain_dir)
                 self._tracer.trace(
                     ctx.chain_dir,
                     "escalate_resolved",
@@ -107,7 +105,7 @@ class TransitionOrchestrator:
 
         # ── Registrar NodeExecution para la gate (ELM/Saga Log) ──────
         duration_ms = int((time.time() - _start_ts) * 1000)
-        state = self._state_repo.load(ctx.chain_dir)
+        state = self._workflow_store.load_state(ctx.chain_dir)
         state = state.record_node_execution(
             node=state_before.current_node,
             sub_state=from_sub_state,
@@ -122,7 +120,7 @@ class TransitionOrchestrator:
             },
             duration_ms=duration_ms,
         )
-        self._state_repo.save(ctx.chain_dir, state)
+        self._workflow_store.save_state(state, ctx.chain_dir)
 
         # ── Trazar transicion ────────────────────────────────────────
         to_node = result.get("to_node", "") or result.get("to", "")

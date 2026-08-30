@@ -8,11 +8,10 @@ PRINCIPIO: shared/ NO importa de features/. Solo Python stdlib.
 """
 from __future__ import annotations
 
-from .models import ExecutionContext, TaskResult, ProjectId, SprintId
+from .models import ExecutionContext, TaskResult, ProjectId
 
 __all__ = [
     "ExecutionContext",
     "TaskResult",
     "ProjectId",
-    "SprintId",
 ]

@@ -16,7 +16,7 @@ from returns.result import safe
 
 from features.code_analysis.domain.graph import Graph
 from features.code_analysis.domain.query import Query
-from features.code_analysis.infrastructure.repository import CpgFileRepository
+from features.code_analysis.infrastructure.cognitive_cpg_repo import CognitiveCpgRepository
 from features.code_analysis.infrastructure.filters import find_nodes
 
 logger = logging.getLogger(__name__)
@@ -32,20 +32,20 @@ class QueryGraphUseCase:
         self._project_id = project_id
         self._data_dir = data_dir
         self._graph: Graph | None = None
-        self._repo: CpgFileRepository | None = None
+        self._repo: CognitiveCpgRepository | None = None
 
     @property
-    def repo(self) -> CpgFileRepository:
+    def repo(self) -> CognitiveCpgRepository:
         if self._repo is None:
             if self._data_dir:
                 data = self._data_dir
             else:
-                from shared.core.path_resolver import resolve_project_root
+                from app.path_resolver import resolve_project_root
                 project_root = resolve_project_root(self.chain_dir)
                 data = os.path.join(project_root, "data") if project_root else ""
                 if not data or not os.path.isdir(data):
                     data = os.path.join(os.path.dirname(self.chain_dir), "data")
-            self._repo = CpgFileRepository(data)
+            self._repo = CognitiveCpgRepository(data, self._project_id)
         return self._repo
 
     @property
@@ -332,13 +332,13 @@ class QueryGraphUseCase:
 # ── Cores puros (@safe) ─────────────────────────────────────────
 
 @safe
-def _load_graph_core(repo: CpgFileRepository, project_id: str) -> Graph:
+def _load_graph_core(repo: CognitiveCpgRepository, project_id: str) -> Graph:
     """Core puro de carga del grafo CPG (puede lanzar)."""
-    return repo.load_graph(project_id)
+    return Graph.from_dict(repo.load(project_id))
 
 
 @safe
-def _business_layer_core(repo: CpgFileRepository, project_id: str) -> dict:
+def _business_layer_core(repo: CognitiveCpgRepository, project_id: str) -> dict:
     """Core puro de la capa de negocio (puede lanzar)."""
     data = repo.load(project_id)
     layer = data.get("business_layer", {})

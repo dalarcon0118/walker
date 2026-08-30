@@ -25,7 +25,8 @@ def compact_ctx() -> dict:
 
 def _make_project(tmpdir: str) -> str:
     project_root = os.path.join(tmpdir, "proj")
-    os.makedirs(os.path.join(project_root, "data"), exist_ok=True)
+    data_dir = os.path.join(project_root, "data")
+    os.makedirs(data_dir, exist_ok=True)
 
     ckg_docs = [
         {
@@ -108,6 +109,24 @@ def _make_project(tmpdir: str) -> str:
     with gzip.open(os.path.join(project_root, "data", "trace.json.gz"), "wt") as f:
         json.dump(trace_payload, f, ensure_ascii=False)
 
+    # ADR-WALKER-063 (corte directo): el runtime lee SOLO v2 (sqlite SSOT).
+    # Los blobs v1 de arriba simulan el estado histórico; se migran a la BD
+    # del runtime (<project_root>/cognitive.sqlite3, la misma que abre
+    # CognitiveGraph(project_root)) con el camino transaccional CA-6/FS-6.
+    from shared.libs.cognitive_graph.connection import MemoryConnection
+    from shared.libs.cognitive_graph.migrations import import_json_gz_to_sqlite
+    from shared.libs.cognitive_graph.sqlite_backend import SqliteBackend
+
+    backend = SqliteBackend(
+        MemoryConnection(uri=f"sqlite://{project_root}", database="walker")
+    )
+    for name in ("ckg", "delta", "trace"):
+        import_json_gz_to_sqlite(
+            backend,
+            os.path.join(data_dir, f"{name}.json.gz"),
+            index_name=name,
+        )
+
     return project_root
 
 
@@ -118,7 +137,7 @@ def _setup_project(compact_ctx: dict, tmp_path):
 
 
 def _get_cg(compact_ctx: dict):
-    from shared.core.cognitive_graph import CognitiveGraph
+    from shared.libs.cognitive_graph import CognitiveGraph
 
     return CognitiveGraph(compact_ctx["project_root"])
 
@@ -255,7 +274,7 @@ def _assert_rationale_present(compact_ctx: dict):
 
 @when("se aplica _with_compact_defaults a una query base")
 def _apply_compact_defaults(compact_ctx: dict):
-    from features.main.task_execution.tasks.knowledge_adapter import _with_compact_defaults
+    from tasks.actions.knowledge_adapter import _with_compact_defaults
 
     base = {"ckg": {"type": "convention"}}
     compact_ctx["out"] = _with_compact_defaults(base)
@@ -279,7 +298,7 @@ def _assert_default_compact(compact_ctx: dict):
 @then("no pisa valores explicitos del caller")
 def _assert_no_override_explicit(compact_ctx: dict):
     custom = {"ckg": {}, "_top_k": 5}
-    from features.main.task_execution.tasks.knowledge_adapter import _with_compact_defaults
+    from tasks.actions.knowledge_adapter import _with_compact_defaults
 
     out2 = _with_compact_defaults(custom)
     assert out2["_top_k"] == 5, (
@@ -289,7 +308,7 @@ def _assert_no_override_explicit(compact_ctx: dict):
 
 @then("no muta el diccionario original")
 def _assert_no_mutation(compact_ctx: dict):
-    from features.main.task_execution.tasks.knowledge_adapter import _with_compact_defaults
+    from tasks.actions.knowledge_adapter import _with_compact_defaults
 
     base = {"ckg": {"type": "convention"}}
     _with_compact_defaults(base)

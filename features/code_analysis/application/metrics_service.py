@@ -17,9 +17,9 @@ from returns.result import Result, Success, Failure
 logger = logging.getLogger(__name__)
 
 from features.code_analysis.domain.metrics import ProjectMetrics, FileMetrics
-from features.code_analysis.infrastructure.repository import CpgFileRepository
+from features.code_analysis.infrastructure.cognitive_cpg_repo import CognitiveCpgRepository
 
-from features.code_analysis.domain.graph import CLASS_TYPES, FUNCTION_TYPES
+from features.code_analysis.domain.graph import CLASS_TYPES, FUNCTION_TYPES, Graph
 from features.code_analysis.infrastructure.ast_grep_adapter import _LANG_MAP
 
 MAX_LOC_FILES = 8000  # guard-rail de coste (no es una suposición de lenguaje)
@@ -114,7 +114,7 @@ def compute_cpg_metrics(
     scope_rel = _normalize_scope(scope, repo_path)
 
     try:
-        graph = CpgFileRepository(data_dir).load_graph()
+        graph = Graph.from_dict(CognitiveCpgRepository(data_dir, "").load())
     except Exception as exc:
         return Failure(f"no se pudo cargar el CPG ({exc}); ejecutá build_code_index")
 

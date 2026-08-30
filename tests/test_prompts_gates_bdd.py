@@ -343,7 +343,7 @@ def _what_happened(prompts_gates_ctx: dict):
 
 @when("construyo el contexto del prompt")
 def _build_context(prompts_gates_ctx: dict):
-    from shared.core.engine.application.prompt_context_builder import PromptContextBuilder
+    from features.main.prompts.prompt_context_builder import PromptContextBuilder
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir, "TASK-001")
@@ -376,7 +376,7 @@ def _spring_with_deps(prompts_gates_ctx: dict, tmp_path):
 
 @when("construyo el contexto del sprint")
 def _build_sprint_context(prompts_gates_ctx: dict):
-    from shared.core.engine.application.prompt_context_builder import PromptContextBuilder
+    from features.main.prompts.prompt_context_builder import PromptContextBuilder
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir)

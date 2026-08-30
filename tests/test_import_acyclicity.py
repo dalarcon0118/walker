@@ -72,18 +72,19 @@ def _sccs(graph: dict[str, set[str]]) -> list[list[str]]:
 
 
 def _features_graph() -> dict[str, set[str]]:
-    """Grafo estático features.*→features.* de los módulos cargados.
+    """Grafo estático features.*+app.*→features.*+app.* de los módulos cargados.
 
     REUSA reloader._module_deps (SSOT de aristas: resuelve relativos,
     excluye bloques TYPE_CHECKING) para que este contrato y el plan de
     recarga no puedan divergir.
     """
-    from features.main.composition.import_graph import module_deps
+    from app.composition.import_graph import module_deps
 
     loaded = {
         n: getattr(m, "__file__", "")
         for n, m in sys.modules.items()
-        if n.startswith("features.") and getattr(m, "__file__", None)
+        if (n.startswith("features.") or n.startswith("app."))
+        and getattr(m, "__file__", None)
     }
     graph: dict[str, set[str]] = {}
     for name, path in loaded.items():
@@ -93,19 +94,20 @@ def _features_graph() -> dict[str, set[str]]:
 
 
 COMPOSITION_CORE = {
+    "app",
+    "app.app",
+    "app.container",
+    "app.composition.container",
+    "app.composition.lifecycle",
+    "app.composition.registry",
     "features.main",
-    "features.main.app",
-    "features.main.container",
-    "features.main.front_controller",
-    "features.main.composition.container",
-    "features.main.composition.lifecycle",
-    "features.main.composition.registry",
-    "features.main.cli_interface.application.handlers",
+    "protocols.rest.front_controller",
+    "protocols.cli.cli_interface.application.handlers",
 }
 
 
 def test_composition_core_sin_ciclos():
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     AppContainer.build()  # cargar el grafo completo como en runtime
 
@@ -126,7 +128,7 @@ def test_api_publica_perezosa_en_import_aislado():
     code = (
         "import sys; sys.path.insert(0, '.')\n"
         "import features.main as fm\n"
-        "assert 'features.main.container' not in sys.modules, 'hub eager regresó'\n"
+        "assert 'app.container' not in sys.modules, 'hub eager regresó'\n"
         "from features.main import AppContainer, WalkerApp, FrontController\n"
         "assert callable(AppContainer.build)\n"
         "print('lazy-ok')\n"
@@ -145,10 +147,37 @@ def test_handlers_sin_dependencia_del_hub():
     """handlers no importa `from features.main import X` (hub)."""
     import inspect
 
-    from features.main.cli_interface.application import handlers
+    from protocols.cli.cli_interface.application import handlers
 
     source = inspect.getsource(handlers)
     assert "from features.main import" not in source, (
         "handlers volvió a depender del paquete hub; usa el módulo de "
-        "definición (features.main.app / features.main.container)."
+        "definición (app.app / app.container)."
     )
+
+
+def test_shared_libs_sin_imports_hacia_arriba():
+    """shared/libs/ es la capa más baja junto al motor: NO importa
+    features.*, app.* ni shared.core.engine.infrastructure.* (ADR-WALKER-065 D8/FS-3).
+
+    REUSA module_deps (SSOT de aristas) para no divergir del plan de recarga.
+    Hoy expone deuda: shared/libs/prompts importa features/app/engine.infrastructure.
+    """
+    from app.composition.import_graph import module_deps
+
+    from app.container import AppContainer
+
+    AppContainer.build()  # poblar sys.modules con el grafo completo
+
+    loaded = {
+        n: getattr(m, "__file__", "")
+        for n, m in sys.modules.items()
+        if n.startswith("shared.libs.") and getattr(m, "__file__", None)
+    }
+    forbidden = ("features.", "app.", "shared.core.engine.infrastructure")
+    for name, path in loaded.items():
+        for dep in module_deps(name, path.replace(".pyc", ".py")):
+            assert not dep.startswith(forbidden), (
+                f"{name} importa hacia arriba: {dep} "
+                "(viola ADR-WALKER-065 D8: shared/libs no importa features/app/engine.infrastructure)"
+            )

@@ -25,8 +25,8 @@ from returns.result import safe
 
 from features.event_tracing.application.ports.trace_repository import TraceRepository
 from features.event_tracing.domain.models import TraceEvent
-from libs.cognitive_graph.cognitive_registry import memory_data_dir
-from shared.core.cognitive_graph.config import load_memory_connection
+from app.cognitive_registry import memory_data_dir
+from shared.libs.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,7 @@ def _resolve_project_root(chain_dir: str) -> str:
 @safe
 def _resolve_project_root_core(chain_dir: str) -> str:
     """Core puro de _resolve_project_root (puede lanzar)."""
-    from shared.core.path_resolver import resolve_project_root
+    from app.path_resolver import resolve_project_root
 
     resolved = resolve_project_root(chain_dir)
     return resolved or chain_dir

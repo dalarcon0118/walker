@@ -23,7 +23,7 @@ def ssot_ctx() -> dict:
 
 @given("el task registry bootstrapeado")
 def _bootstrap_registry(ssot_ctx: dict):
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     app = AppContainer.build()
     ssot_ctx["registry"] = app.task_registry
@@ -31,7 +31,7 @@ def _bootstrap_registry(ssot_ctx: dict):
 
 @given("el handler de help construido")
 def _help_built(ssot_ctx: dict):
-    from features.main.cli_interface.application.handlers import _build_help
+    from protocols.cli.cli_interface.application.handlers import _build_help
     ssot_ctx["help_data"] = _build_help()
 
 

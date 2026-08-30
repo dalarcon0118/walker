@@ -435,7 +435,7 @@ def _setup_workflow_state(chain_dir: str) -> None:
 
 
 def _mcp_call(name: str, arguments: dict) -> dict:
-    from features.main.cli_interface.mcp_adapter import _handle_request
+    from protocols.mcp.mcp_adapter import _handle_request
 
     msg = {
         "jsonrpc": "2.0",
@@ -458,9 +458,9 @@ def _get_orchestration_service(chain_dir: str) -> OrchestrationService:
     instanciaba OrchestrationService() (DomainTaskRegistry vacío) y los mocks
     sustituían TODO el registry — enmascarando el bug de composición en
     producción (el flujo CLI/MCP avanzaba sin ejecutar tasks reales)."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
     from shared.core.engine.infrastructure.repositories import WorkflowRepository, WorkflowStateRepository, ScriptRunner
-    from shared.core.path_resolver import get_engine_workflow_path
+    from app.path_resolver import get_engine_workflow_path
     from features.project import ProjectService
 
     app = AppContainer.build()
@@ -487,12 +487,28 @@ def _get_orchestration_service(chain_dir: str) -> OrchestrationService:
         except Exception:
             pass
 
+    from shared.core.engine.infrastructure.workflow_store import WorkflowStoreAdapter
+    from shared.core.engine.domain.workflow_action import ActionCatalog
+
+    actions = ActionCatalog()
+    for meta in registry.list_tasks_with_meta(scope=None):
+        actions.register(
+            name=meta["name"], kind="sub_state_action",
+            scope=meta.get("scope", "public"),
+            handler=registry.get_task(meta["name"]), metadata=meta,
+        )
+    for name, handler in se._handlers.items():
+        actions.register(
+            name=name, kind="side_effect", scope="internal",
+            handler=handler, metadata={"source": "side_effect_engine"},
+        )
     return OrchestrationService(
-        workflow_repo=WorkflowRepository(workflow_path=workflow_path),
-        state_repo=WorkflowStateRepository(),
-        script_runner=ScriptRunner(),
-        task_registry=registry,
-        side_effect_engine=se,
+        workflow_store=WorkflowStoreAdapter(
+            workflow_repo=WorkflowRepository(workflow_path=workflow_path),
+            state_repo=WorkflowStateRepository(),
+        ),
+        actions=actions,
+        workflow_io=ScriptRunner(),
     )
 
 

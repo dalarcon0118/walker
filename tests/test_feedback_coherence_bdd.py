@@ -52,7 +52,8 @@ def _handle_error(fb_ctx: dict):
     handler = ErrorHandler(
         submit_uc=None,
         transition_uc=None,
-        side_effect_engine=None,
+        actions=None,
+        workflow_store=None,
     )
     fb_ctx["result"] = handler.handle(
         ctx=_make_fake_ctx(),
@@ -186,7 +187,7 @@ def _exec_context_with_invalid_specs(fb_ctx: dict):
 
 @when("se ejecuta validate_plan")
 def _execute_validate_plan(fb_ctx: dict):
-    from features.main.task_execution.side_effects.validate import validate_plan
+    from tasks.side_effects.validate import validate_plan
 
     with fb_ctx["patcher"]:
         fb_ctx["result"] = validate_plan(fb_ctx["ctx"], {})

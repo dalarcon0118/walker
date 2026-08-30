@@ -22,6 +22,22 @@ Reglas:
 
 ---
 
+## Métricas de calidad por fase (obligatorio)
+
+Cada **fase** de una spec/ADR incorpora **dentro de su checklist** las métricas
+aplicables (tabla M-01..M-06 en `project.md` → "Métricas de calidad por fase").
+
+Reglas:
+1. Mínimo **3 métricas** por fase, seleccionadas por las áreas que toca la fase
+   (escritura, estrategias, dominio, eventos, concurrencia, configuración).
+2. Cada ítem usa el formato del checklist de la fase:
+   `- [ ] M-0X <criterio medible para esta fase> — anti-patrón a evitar: <...>`
+3. Un anti-patrón de un área seleccionada detectado en la implementación = el
+   checklist de la fase NO se declara verde hasta corregir.
+4. Las métricas no aplicables se declaran como tal; no se omiten en silencio.
+
+---
+
 ## Checklist de segundo orden (obligatorio)
 
 Antes de mergear cualquier cambio, responder:
@@ -48,6 +64,17 @@ Resumen:
 - TaskRegistry separado en DomainTaskRegistry y SystemTaskRegistry.
 - Toda operación retorna `Result[T, E]` de `returns`.
 - Las funciones públicas deben ser puras o casi-puras.
+
+---
+
+## Estrategia domain-first (OBLIGATORIA)
+
+Walker se diseña **domain-first**: el modelo de dominio es SSOT y viene primero; la infraestructura (MCP, CLI, DB) es el último en aparecer. Fases 0–5 y su mapeo a capas reales en [`docs/domain-first.md`](docs/domain-first.md) — obligatoria para toda contribución.
+
+Regla mínima:
+- Las dependencias apuntan hacia el dominio (`shared/core/engine/domain`).
+- `shared/core/engine/` **nunca** importa `features/`.
+- Los adaptadores (fase 5) consumen puertos, no reconstruyen el dominio; se cablean en el composition root (ADR-045) y se resuelven por **id+contrato** (ADR-062).
 
 ---
 

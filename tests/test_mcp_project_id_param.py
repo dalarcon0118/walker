@@ -20,10 +20,10 @@ import pytest
 
 @pytest.fixture(scope="module")
 def catalog():
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     AppContainer.build()
-    from features.main.cli_interface.mcp_adapter import _get_tool_catalog
+    from protocols.mcp.mcp_adapter import _get_tool_catalog
 
     return _get_tool_catalog()
 
@@ -46,7 +46,7 @@ def test_project_id_nunca_es_required(catalog):
 
 def test_camino_a_honra_project_id():
     """status({project_id: rnf}) debe reportar rnf, NO el cwd del server."""
-    from features.main.cli_interface.mcp_adapter import _call_tool
+    from protocols.mcp.mcp_adapter import _call_tool
 
     out = _call_tool("status", {"project_id": "react-native-frontend"})
     data = out.get("data") or {}
@@ -56,7 +56,7 @@ def test_camino_a_honra_project_id():
 
 
 def test_camino_b_honra_project_id_regresion():
-    from features.main.cli_interface.mcp_adapter import _call_tool
+    from protocols.mcp.mcp_adapter import _call_tool
 
     out = _call_tool(
         "read_code",

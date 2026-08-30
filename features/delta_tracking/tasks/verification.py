@@ -3,7 +3,7 @@
 La task vive en features/main/task_execution/tasks/verification.py; este
 módulo re-exporta los símbolos legacy desde el task layer de main.
 """
-from features.main.task_execution.tasks.verify import (
+from tasks.actions.verify import (
     VerifyInput,
     _translate_predicates,
     register,

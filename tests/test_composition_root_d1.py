@@ -21,14 +21,14 @@ import pytest
 def _reset_app_container():
     """Aisla el singleton de features/main entre tests."""
     yield
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     AppContainer.reset()
 
 
 def test_compose_app_es_singleton_estable():
     """Todos los consumidores comparten el MISMO AppComposition."""
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     a1 = AppContainer.build()
     a2 = AppContainer.build()
@@ -39,7 +39,7 @@ def test_compose_app_es_singleton_estable():
 
 def test_reset_composition_invalida_el_singleton():
     """AppContainer.reset() fuerza rebuild (patrón hot reload)."""
-    from features.main.container import AppContainer, reset_composition
+    from app.container import AppContainer, reset_composition
 
     a1 = AppContainer.build()
     AppContainer.reset()
@@ -51,7 +51,7 @@ def test_reset_composition_invalida_el_singleton():
 def test_catalog_consume_task_registry_del_composition_root():
     """El registry canónico del catálogo = system_registry del composition root."""
     from shared.core.engine.application.tool_catalog import _canonical_system_registry
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     app = AppContainer.build()
     task_registry = app.module_registry.get_service("task_registry")
@@ -71,7 +71,7 @@ def test_workflow_service_expone_las_cuatro_operaciones():
     (capa_rout.md D1). status/prepare delegan en los orquestadores
     cross-feature de features/main/cli_interface.application.project_use_cases.
     """
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     app = AppContainer.build()
     workflow = app.module_registry.get_service("workflow")

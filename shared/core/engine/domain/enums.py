@@ -30,25 +30,6 @@ class ExecutionType(str, Enum):
 SubStateMode = ExecutionType
 
 
-class NodeType(str, Enum):
-    """Tipo de nodo en el grafo de workflow."""
-
-    START = "start"
-    SPRINT = "sprint"
-    ANALYZE = "analyze"
-    IMPLEMENT = "implement"
-    VERIFY = "verify"
-    REFINE = "refine"
-    SPRINT_PLANNING = "sprint_planning"
-
-
-class GateType(str, Enum):
-    """Tipo de gate: inter-nodo (transicion) o intra-nodo (sub-state)."""
-
-    INTER_NODE = "inter_node"
-    INTRA_NODE = "intra_node"
-
-
 class DomainEventType(str, Enum):
     """Catalogo de eventos de dominio. SSOT."""
 
@@ -64,7 +45,5 @@ class DomainEventType(str, Enum):
 __all__ = [
     "ExecutionType",
     "SubStateMode",
-    "NodeType",
-    "GateType",
     "DomainEventType",
 ]

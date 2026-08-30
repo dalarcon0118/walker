@@ -78,7 +78,7 @@ def apply_state_transition(
     else:
         sprint_state = state
 
-    repo = workflow_repo or WorkflowRepository()
+    repo = workflow_repo
     graph = load_workflow(repo)
     from shared.core.engine.domain.services import TransitionService
 

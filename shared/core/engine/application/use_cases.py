@@ -26,7 +26,6 @@ from ..domain.models import (
     TaskResult,
 )
 from ..domain.enums import DomainEventType
-from ..domain.registry import TaskRegistry
 from ..domain.services import (
     ValidationService,
     AdvanceService,
@@ -41,12 +40,10 @@ from ..domain.errors import (
     AutoAdvanceError,
     SideEffectFailedError,
 )
-from ..infrastructure.repositories import (
-    WorkflowRepository,
-    WorkflowStateRepository,
-    ScriptRunner,
-)
-from ..infrastructure.side_effects import SideEffectEngine
+from ..domain.workflow_action import ActionCatalog
+from shared.core.engine.domain.ports import IWorkflowIO, IWorkflowStore
+from .bundle import EngineBundle
+from .side_effect_saga import SideEffectSaga
 from shared.core.engine.domain.contract_validator import ContractValidator, Contract
 
 logger = logging.getLogger(__name__)
@@ -88,15 +85,13 @@ class ValidateCurrentStateUseCase:
 
     def __init__(
         self,
-        workflow_repo: WorkflowRepository,
-        state_repo: WorkflowStateRepository,
+        workflow_store: IWorkflowStore,
     ):
-        self._workflow_repo = workflow_repo
-        self._state_repo = state_repo
+        self._workflow_store = workflow_store
 
     def execute(self, chain_dir: str) -> dict:
-        workflow = self._workflow_repo.load(chain_dir)
-        state = self._state_repo.load(chain_dir)
+        workflow = self._workflow_store.load_graph()
+        state = self._workflow_store.load_state(chain_dir)
         return self._validate(workflow, state)
 
     def _validate(self, workflow: WorkflowGraph, state: WorkflowState) -> dict:
@@ -152,26 +147,25 @@ class SubmitDataUseCase:
 
     def __init__(
         self,
-        workflow_repo: WorkflowRepository,
-        state_repo: WorkflowStateRepository,
-        script_runner: ScriptRunner,
-        task_registry: TaskRegistry | None = None,
+        workflow_store: IWorkflowStore,
+        actions: ActionCatalog,
+        workflow_io: IWorkflowIO,
         contract_validator: type[ContractValidator] | None = None,
-        side_effect_engine: SideEffectEngine | None = None,
-        action_catalog: Any = None,
         event_dispatcher: Any = None,
         event_log: Any = None,
         tracer: Any = None,
+        bundle: EngineBundle | None = None,
     ):
-        self._workflow_repo = workflow_repo
-        self._state_repo = state_repo
-        self._script_runner = script_runner
-        self._task_registry = task_registry
+        # Puertos UNIFICADOS (ADR-WALKER-067 §7.2): workflow_store (grafo+estado)
+        # y actions (ActionCatalog: tasks + side-effects). El Saga de side-effects
+        # lo orquesta ESTE use case vía actions (SideEffectSaga), sin ejecutor
+        # infra separado en el constructor.
+        self._workflow_store = workflow_store
+        self._actions = actions
+        self._workflow_io = workflow_io
+        self._bundle = bundle
         self._contract_validator = contract_validator or ContractValidator
-        self._side_effect_engine = side_effect_engine or SideEffectEngine(
-            tracer=tracer,
-        )
-        self._action_catalog = action_catalog
+        self._saga = SideEffectSaga(actions=actions, tracer=tracer)
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
         self.events: list[DomainEvent] = []
@@ -189,8 +183,8 @@ class SubmitDataUseCase:
         )
 
         # ── 1. Load ────────────────────────────────────────────
-        workflow = self._workflow_repo.load(chain_dir)
-        state = self._state_repo.load(chain_dir)
+        workflow = self._workflow_store.load_graph()
+        state = self._workflow_store.load_state(chain_dir)
         node = workflow.get_node(state.current_node)
         if not node:
             raise ValidationError(
@@ -233,14 +227,7 @@ class SubmitDataUseCase:
             node_key=f"{node.node_id}.{state.current_sub_state}",
         )
 
-        # ── 8. Auto-execute legacy script si mode=auto ──────────
-        auto_early = self._run_auto_script(
-            sub_state, state, workflow, chain_dir, task_id, result
-        )
-        if auto_early:
-            return auto_early
-
-        # ── 9. Auto-advance ─────────────────────────────────────
+        # ── 8. Auto-advance ─────────────────────────────────────
         # WF-7 fix: _auto_advance retorna TAMBIEN el estado resultante (que
         # pudo avanzar a on_success). Sin esto, _build_step_result recibe el
         # estado previo al avance y su save final REVIERTE la transicion.
@@ -355,7 +342,7 @@ class SubmitDataUseCase:
         if task_id:
             state = state.with_context("task_id", task_id)
         state = state.with_context("chain_dir", chain_dir)
-        self._state_repo.save(chain_dir, state)
+        self._workflow_store.save_state(state, chain_dir)
         self.events.append(
             DomainEvent(
                 DomainEventType.DATA_SUBMITTED,
@@ -379,9 +366,9 @@ class SubmitDataUseCase:
         task_result = None
         if not sub_state.action:
             return task_result
-        if not self._task_registry:
+        if not self._actions:
             # FAIL-LOUD (capa_rout.md D1): si el sub-estado declara una action
-            # pero el use case no recibió TaskRegistry, es un error de
+            # pero el use case no recibió ActionCatalog, es un error de
             # composición, no un caso legítimo. ANTES esto era un short-circuit
             # silencioso (return task_result) que hacía que el flujo CLI/MCP
             # avanzara SIN ejecutar las actions reales (plan_sprint, spec_task,
@@ -411,8 +398,8 @@ class SubmitDataUseCase:
         # como no-op (all_passed=True falso).
         if sub_state.action == "verify_predicates":
             fields = self._inject_spec_predicates(chain_dir, task_id, fields)
-        if self._action_catalog is not None:
-            raw = self._action_catalog.execute_action(sub_state.action, exec_ctx, fields)
+        if self._actions is not None:
+            raw = self._actions.execute_action(sub_state.action, exec_ctx, fields)
             if raw is None:
                 raise AutoAdvanceError(
                     state.current_node, sub_state.key, 1,
@@ -428,11 +415,11 @@ class SubmitDataUseCase:
             else:
                 task_result = TaskResult.success(raw)
         else:
-            task_result = self._task_registry.execute(sub_state.action, exec_ctx, fields)
+            task_result = self._actions.execute_action(sub_state.action, exec_ctx, fields)
         # 5a. Recargar state despues de la tarea (las tareas pueden modificar
         # el estado). EXCEPCION (SPEC-013): si hubo forwarding NO recargar.
         if not _did_forward:
-            state = self._state_repo.load(chain_dir)
+            state = self._workflow_store.load_state(chain_dir)
 
         task_data_structured = ""
         if task_result.data:
@@ -451,7 +438,7 @@ class SubmitDataUseCase:
                 "task_data": task_data_structured,
             },
         )
-        self._state_repo.save(chain_dir, state)
+        self._workflow_store.save_state(state, chain_dir)
         if not task_result.ok:
             error_msg = str(task_result.error) if task_result.error else "Unknown error"
             raise AutoAdvanceError(state.current_node, sub_state.key, 1, error_msg)
@@ -478,34 +465,11 @@ class SubmitDataUseCase:
         """
         if "predicates" in fields or "predicate" in fields:
             return fields
-        try:
-
-            svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
-            if svc is None:
-                return fields
-            spring_id = svc.get_spring_id(chain_dir)
-            spec = svc.get_current_spec(spring_id) if spring_id else None
-            if not spec:
-                return fields
-            preds = spec.get("validation", {}).get("predicates", []) or spec.get(
-                "predicates", []
-            )
-            if not preds and task_id:
-                # Fallback: buscar la spec por task_id explícito
-                try:
-                    spec_by_task = svc.get_spec(spring_id, task_id)
-                    if spec_by_task:
-                        preds = spec_by_task.get("validation", {}).get(
-                            "predicates", []
-                        ) or spec_by_task.get("predicates", [])
-                except Exception:
-                    preds = []
-            enriched = dict(fields)
-            if preds:
-                enriched["predicates"] = preds
-            return enriched
-        except Exception:
-            return fields
+        # El DeltaGraph/spring es INCUMBENCIA DEL HOST (ADR-WALKER-067): el
+        # engine no consulta predicates de la spec. El host los inyecta en
+        # `fields` antes de submit si la regla lo exige; si no vienen,
+        # verify_predicates falla con error explícito (fallback documentado).
+        return fields
 
     def _validate_output(
         self,
@@ -578,8 +542,8 @@ class SubmitDataUseCase:
         result: dict,
         node_key: str = "",
     ) -> tuple[WorkflowState, dict]:
-        """Paso 7: SideEffectEngine.execute() + recarga de estado."""
-        if not (sub_state.side_effects and self._side_effect_engine):
+        """Paso 7: SideEffectSaga (vía ActionCatalog) + recarga de estado."""
+        if not (sub_state.side_effects and self._saga):
             return state, result
         exec_ctx = ctx or ExecutionContext.create(
             session_id=chain_dir.split("/")[-1],
@@ -588,7 +552,7 @@ class SubmitDataUseCase:
         )
         if node_key:
             exec_ctx.baggage["node_key"] = node_key
-        side_results = self._side_effect_engine.execute(
+        side_results = self._saga.run(
             exec_ctx, sub_state.side_effects
         )
         # SPEC-014 F2 — política de fallo unificada (cierra la asimetría):
@@ -607,85 +571,14 @@ class SubmitDataUseCase:
                 + ", ".join(r["type"] for r in failed_mandatory),
             )
         # 7a. Recargar state despues de side-effects (modifican estado)
-        state = self._state_repo.load(chain_dir)
+        state = self._workflow_store.load_state(chain_dir)
         state = state.record_submit(
             state.current_sub_state,
             {"side_effects": side_results},
         )
-        self._state_repo.save(chain_dir, state)
+        self._workflow_store.save_state(state, chain_dir)
         result["side_effects"] = side_results
         return state, result
-
-    def _run_auto_script(
-        self,
-        sub_state: Any,
-        state: WorkflowState,
-        workflow: WorkflowGraph,
-        chain_dir: str,
-        task_id: str | None,
-        result: dict,
-    ) -> dict | None:
-        """Paso 8: auto-execute de script legacy (backward compat)."""
-        if not (sub_state.is_auto() and sub_state.auto_complete_script):
-            return None
-        auto_result = self._script_runner.run(
-            sub_state.auto_complete_script, chain_dir, task_id
-        )
-        state = state.record_submit(
-            state.current_sub_state,
-            {
-                "auto_script": sub_state.auto_complete_script,
-                "exit_code": auto_result["exit_code"],
-                "stdout": (auto_result.get("stdout", "") or "")[:2000],
-                "stderr": (auto_result.get("stderr", "") or "")[:1000],
-            },
-        )
-        self._state_repo.save(chain_dir, state)
-        if auto_result["exit_code"] != 0:
-            if sub_state.on_failure_loop:
-                looped = AdvanceService.loop_back(state, workflow, sub_state.key)
-                if looped:
-                    state = looped
-                    self._state_repo.save(chain_dir, state)
-                self.events.append(
-                    DomainEvent(
-                        DomainEventType.FAILURE_LOOPED,
-                        data={
-                            "sub_state": sub_state.key,
-                            "exit_code": auto_result["exit_code"],
-                        },
-                    )
-                )
-                _flush_events(
-                    self.events,
-                    self._event_log,
-                    self._event_dispatcher,
-                    chain_dir,
-                    task_id,
-                )
-                result["looped_back"] = True
-                result["auto_result"] = auto_result
-                return result
-            else:
-                raise AutoAdvanceError(
-                    state.current_node,
-                    sub_state.key,
-                    auto_result["exit_code"],
-                    auto_result.get("stderr", ""),
-                )
-        self.events.append(
-            DomainEvent(
-                DomainEventType.AUTO_ADVANCED,
-                data={
-                    "sub_state": sub_state.key,
-                    "script": sub_state.auto_complete_script,
-                    "exit_code": auto_result["exit_code"],
-                },
-            )
-        )
-        result["auto_executed"] = True
-        result["auto_result"] = auto_result
-        return None
 
     def _auto_advance(
         self,
@@ -742,7 +635,7 @@ class SubmitDataUseCase:
                     else []
                 )
                 if next_required and not fields:
-                    self._state_repo.save(chain_dir, state)
+                    self._workflow_store.save_state(state, chain_dir)
                     result["advanced_to"] = state.current_sub_state
                     result["node_complete"] = False
                     result["waiting_for_input"] = True
@@ -758,7 +651,7 @@ class SubmitDataUseCase:
             from .context_resolver import ContextResolver
 
             state = ContextResolver().promote_provides(advanced, node, sub_state)
-            self._state_repo.save(chain_dir, state)
+            self._workflow_store.save_state(state, chain_dir)
             self.events.append(
                 DomainEvent(
                     DomainEventType.STATE_TRANSITIONED,
@@ -810,7 +703,7 @@ class SubmitDataUseCase:
                 "prompt_placeholders": step_result.to_prompt_dict(),
             },
         )
-        self._state_repo.save(chain_dir, state)
+        self._workflow_store.save_state(state, chain_dir)
         return state, result
 
     def _resolve_xor_selection(
@@ -875,7 +768,7 @@ class SubmitDataUseCase:
         try:
             advanced = AdvanceService.advance(state, workflow)
             if advanced:
-                self._state_repo.save(chain_dir, advanced)
+                self._workflow_store.save_state(advanced, chain_dir)
                 result["advanced_to"] = advanced.current_sub_state
                 result["_on_success_advance"] = True
                 self.events.append(
@@ -912,21 +805,17 @@ class TransitionUseCase:
 
     def __init__(
         self,
-        workflow_repo: WorkflowRepository,
-        state_repo: WorkflowStateRepository,
-        script_runner: ScriptRunner,
+        workflow_store: IWorkflowStore,
+        workflow_io: IWorkflowIO,
         event_dispatcher: Any = None,
         event_log: Any = None,
-        project_context: Any = None,
-        conflict_resolver: Any = None,
+        bundle: EngineBundle | None = None,
     ):
-        self._workflow_repo = workflow_repo
-        self._state_repo = state_repo
-        self._script_runner = script_runner
+        self._workflow_store = workflow_store
+        self._workflow_io = workflow_io
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
-        self._project_context = project_context
-        self._conflict_resolver = conflict_resolver
+        self._bundle = bundle
         self.events: list[DomainEvent] = []
 
     def execute(
@@ -947,8 +836,8 @@ class TransitionUseCase:
             chain_dir = ctx.chain_dir
             task_id = task_id or ctx.task_id
         # ── 1. Load ────────────────────────────────────────────
-        workflow = self._workflow_repo.load(chain_dir)
-        state = self._state_repo.load(chain_dir)
+        workflow = self._workflow_store.load_graph()
+        state = self._workflow_store.load_state(chain_dir)
 
         # ── 2. Find gate ────────────────────────────────────────
         gate = self._find_gate(
@@ -973,7 +862,7 @@ class TransitionUseCase:
         if gate.contract:
             from ..domain.contracts import ContractEvaluator
 
-            pre_errors = ContractEvaluator.evaluate_pre(state, gate.contract, project_context=self._project_context, ckg_service=self._ckg_service)
+            pre_errors = ContractEvaluator.evaluate_pre(state, gate.contract)
             if pre_errors:
                 raise TransitionBlockedError(
                     f"Gate '{gate_name}' contract.pre bloqueado", pre_errors
@@ -981,7 +870,7 @@ class TransitionUseCase:
 
         # ── 4. Execute gate validation script ───────────────────
         if gate.gate_validation_script:
-            vresult = self._script_runner.run(
+            vresult = self._workflow_io.run_script(
                 gate.gate_validation_script, chain_dir, task_id
             )
             if vresult["exit_code"] not in gate.gate_valid_exit_codes:
@@ -1023,13 +912,15 @@ class TransitionUseCase:
         # ── 6c. Sincronizar SessionRecord con contexto promovido ──
         if state.context.get("project_id"):
             try:
-                from ..domain.session import SessionStore
+                from ..domain.ports_registry import resolve_port
+                from ..domain.ports import ISessionStore
 
-                record = SessionStore.get_active()
+                store = resolve_port(ISessionStore)
+                record = store.get_active() if store else None
                 if record:
                     record.project_id = state.context["project_id"]
                     record.chain_dir = chain_dir
-                    SessionStore.save(record)
+                    store.save(record)
             except Exception:
                 pass
 
@@ -1039,13 +930,13 @@ class TransitionUseCase:
         if gate.contract:
             from ..domain.contracts import ContractEvaluator
 
-            post_errors = ContractEvaluator.evaluate_post(state, gate.contract, project_context=self._project_context, ckg_service=self._ckg_service)
+            post_errors = ContractEvaluator.evaluate_post(state, gate.contract)
             if post_errors:
                 raise TransitionBlockedError(
                     f"Gate '{gate_name}' contract.post bloqueado", post_errors
                 )
 
-        self._state_repo.save(chain_dir, state)
+        self._workflow_store.save_state(state, chain_dir)
         self.events.append(
             DomainEvent(
                 DomainEventType.STATE_TRANSITIONED,
@@ -1111,18 +1002,16 @@ class AdvanceSubStateUseCase:
 
     def __init__(
         self,
-        workflow_repo: WorkflowRepository,
-        state_repo: WorkflowStateRepository,
+        workflow_store: IWorkflowStore,
     ):
-        self._workflow_repo = workflow_repo
-        self._state_repo = state_repo
+        self._workflow_store = workflow_store
 
     def execute(self, chain_dir: str | ExecutionContext) -> dict:
         if isinstance(chain_dir, ExecutionContext):
             chain_dir = chain_dir.chain_dir
 
-        workflow = self._workflow_repo.load(chain_dir)
-        state = self._state_repo.load(chain_dir)
+        workflow = self._workflow_store.load_graph()
+        state = self._workflow_store.load_state(chain_dir)
         node = workflow.get_node(state.current_node)
         if not node:
             return {"ok": False, "error": f"Nodo '{state.current_node}' no encontrado"}
@@ -1144,7 +1033,7 @@ class AdvanceSubStateUseCase:
         if not advanced:
             return {"ok": False, "error": "No hay mas sub-estados para avanzar"}
 
-        self._state_repo.save(chain_dir, state)
+        self._workflow_store.save_state(state, chain_dir)
         return {
             "ok": True,
             "from": sub_state.key,
@@ -1159,8 +1048,8 @@ class ReplayUseCase:
     SRP: Unica responsabilidad = replay de eventos.
     """
 
-    def __init__(self, state_repo: WorkflowStateRepository):
-        self._state_repo = state_repo
+    def __init__(self, workflow_store: IWorkflowStore):
+        self._workflow_store = workflow_store
 
     def execute(self, chain_dir: str, event_log: list[dict]) -> WorkflowState:
         """Reconstruye estado aplicando eventos secuencialmente."""
@@ -1206,7 +1095,7 @@ class CheckSprintStatusUseCase:
         from .workflow_api import WorkflowAPI
 
         try:
-            api = WorkflowAPI(chain_dir=chain_dir, project_id=project_id)
+            api = WorkflowAPI(bundle=self._bundle, chain_dir=chain_dir, project_id=project_id)
             api.ensure_session()
             sprint_status = api.status()
             gates = sprint_status.get("available_gates", [])
@@ -1221,7 +1110,9 @@ class CheckSprintStatusUseCase:
                 "required_fields": sprint_status.get("required_fields", []),
                 "execution_type": sprint_status.get("execution_type", ""),
                 "graph_progress": sprint_status.get("graph_progress", {}),
-                "informal": _is_informal_sprint(chain_dir, project_id),
+                # "informal" (spring informal del delta) es INCUMBENCIA DEL HOST
+                # (ADR-WALKER-067): el engine no conoce ese concepto. El host lo
+                # computa y lo agrega al status si lo necesita.
                 "sprint_id": _sprint_id_of(chain_dir),
             }
         except Exception as e:
@@ -1264,31 +1155,6 @@ def _sprint_id_of(chain_dir: str) -> str:
     import os
 
     return os.path.basename(os.path.normpath(chain_dir or ""))
-
-
-def _is_informal_sprint(chain_dir: str, project_id: str) -> bool:
-    """Detecta si el sprint del chain_dir es informal (session log).
-
-    Un sprint informal (session-YYYYMMDD) se crea por capture_task con el
-    flag informal=true en el nodo spring del delta. Consulta el delta para
-    distinguirlo del sprint formal del workflow.
-    """
-    import os
-
-    if not chain_dir or not project_id:
-        return False
-    try:
-        from shared.core.path_resolver import get_project_dir
-
-        project_root = str(get_project_dir(project_id))
-        if not os.path.isdir(project_root):
-            return False
-        spring_id = _sprint_id_of(chain_dir)
-        spring_svc = self._sprint_service.from_chain_dir(project_root) if self._sprint_service else None
-        spring = spring_svc.get_spring(spring_id)
-        return bool(spring and spring.get("informal"))
-    except Exception:
-        return False
 
 
 # Mapa de decisiones ESPECIFICAS por sub-estado (override de la convencion).
@@ -1396,18 +1262,14 @@ def _resolve_decision_gate(
         if sub_key == "TASK_REVIEW" and decision == "approve":
             total = 0
             current = 0
+            # El conteo de specs (all_done en TASK_REVIEW) depende del
+            # DeltaGraph, que es INCUMBENCIA DEL HOST (ADR-WALKER-067): el
+            # engine NO consulta spring. El host provee total/current en
+            # state.context.spring; si no están, se conserva next_task.
             try:
-                chain_dir = state.context.get("chain_dir", "")
-                if chain_dir:
-
-                    spring_svc = self._sprint_service.from_chain_dir(chain_dir) if self._sprint_service else None
-                    if spring_svc:
-                        spring_id = spring_svc.get_spring_id(chain_dir)
-                        spring_svc.ensure_spring_imported(chain_dir, spring_id)
-                        specs = spring_svc.get_specs(spring_id)
-                        total = len(specs)
-                        ctx_state = spring_svc.get_spring_context(spring_id)
-                        current = int(ctx_state.get("current_spec_index", 0))
+                ctx_state = state.context.get("spring", {}) or {}
+                total = int(ctx_state.get("total_specs", 0) or 0)
+                current = int(ctx_state.get("current_spec_index", 0) or 0)
             except Exception:
                 pass
             if total > 0 and current >= total - 1:

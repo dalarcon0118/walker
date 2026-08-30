@@ -18,29 +18,38 @@ import os
 from typing import Any
 
 from ..domain.models import ExecutionContext
-from ..domain.session import SessionRecord, SessionStore
-from ..domain.ports import ITracer
-from ..infrastructure.repositories import WorkflowStateRepository, WorkflowRepository
-from ..bootstrap import bootstrap
+from ..domain.session import SessionRecord
+from ..domain.ports import ITracer, ISessionStore
+from ..domain.ports_registry import resolve_port
+from .bundle import EngineBundle
 from .orchestrator import OrchestrationService
 
 
 class WorkflowAPI:
-    """API Surface del workflow con manejo de sesión."""
+    """API Surface del workflow con manejo de sesión.
+
+    El motor es anémico: NO acopla a ningún service locator, contenedor DI ni
+    arquitectura externa. Recibe TODAS sus dependencias de ejecución en un VO
+    (EngineBundle) que construye el host (main/app) y se lo inyecta. El motor
+    solo consume el VO; no resuelve nada por sí solo.
+    """
 
     def __init__(
         self,
+        bundle: EngineBundle,
         session_id: str | None = None,
         chain_dir: str | None = None,
         project_id: str | None = None,
         session_store: Any = None,
         tracer: ITracer | None = None,
+        orch: OrchestrationService | None = None,
     ):
-        self._session_store = session_store or SessionStore
+        self._bundle = bundle
+        self._session_store = session_store or resolve_port(ISessionStore)
         self._session_id = session_id
         self._chain_dir = chain_dir
         self._project_id = project_id
-        self._orch: OrchestrationService | None = None
+        self._orch: OrchestrationService | None = orch
         self._tracer = tracer
         self.status_message: str = ""
         self.suggestion: str = ""
@@ -169,7 +178,7 @@ class WorkflowAPI:
 
         record = SessionRecord.create()
         record.chain_dir = (
-            record.ensure_session_dir()
+            self._session_store.ensure_session_dir(record)
         )  # ← chain_dir virtual en el record
         self._session_id = record.session_id
         self._chain_dir = record.chain_dir
@@ -177,11 +186,11 @@ class WorkflowAPI:
 
         # Inicializar el estado del workflow desde workflow.initial_state
         try:
-            from shared.core.path_resolver import get_engine_workflow_path
-            wf_repo = WorkflowRepository(workflow_path=str(get_engine_workflow_path()))
-            st_repo = WorkflowStateRepository()
-            workflow = wf_repo.load()
-            state = st_repo.load(self._chain_dir)
+            # Los repos vienen del VO inyectado por el host (EngineBundle); el
+            # motor no resuelve paths ni construye concreto alguno.
+            wf_store = self._bundle.workflow_store
+            workflow = wf_store.load_graph()
+            state = wf_store.load_state(self._chain_dir)
 
             if workflow.initial_state and not state.current_node:
                 state.current_node = workflow.initial_state
@@ -220,15 +229,9 @@ class WorkflowAPI:
 
     def _get_orch(self) -> OrchestrationService:
         if self._orch is None:
-            registry, se = bootstrap()
-            wf_repo = WorkflowRepository()
-            st_repo = WorkflowStateRepository()
-            self._orch = OrchestrationService(
-                workflow_repo=wf_repo,
-                state_repo=st_repo,
-                task_registry=registry,
-                side_effect_engine=se,
-            )
+            # El motor no resuelve nada: construye el OrchestrationService DIRECTAMENTE
+            # desde el VO que le inyectó el host. Cero acoplamiento a locator/registry.
+            self._orch = OrchestrationService(**self._bundle.to_orchestrator_kwargs())
         return self._orch
 
     def _build_context(self) -> ExecutionContext:
@@ -242,16 +245,11 @@ class WorkflowAPI:
         session_id = self.ensure_session()
         task_id = ""
         if self._chain_dir:
-            # Fuente unica: el delta. task_id = spec actual del spring.
+            # El task_id actual (spec del spring) es INCUMBENCIA DEL HOST
+            # (ADR-WALKER-067): el engine NO consulta spring. El host provee el
+            # task_id vía el contexto; si no, queda vacío.
             try:
-
-                spring_svc = self._sprint_service.from_chain_dir(self._chain_dir) if self._sprint_service else None
-                if spring_svc:
-                    spring_id = spring_svc.get_spring_id(self._chain_dir)
-                    spring_svc.ensure_spring_imported(self._chain_dir, spring_id)
-                    cur = spring_svc.get_current_spec(spring_id)
-                    if cur:
-                        task_id = cur.get("spec_id", "")
+                pass
             except Exception:
                 pass
         return ExecutionContext(
@@ -306,10 +304,8 @@ class WorkflowAPI:
         """Retorna la estructura completa del workflow: todos los nodos,
         sub-estados, descripciones, campos requeridos, y transiciones
         disponibles. El agente usa esto para navegar el workflow."""
-        from ..infrastructure.repositories import WorkflowRepository
-
-        wf_repo = WorkflowRepository()
-        workflow = wf_repo.load(self._chain_dir or "")
+        wf_store = self._bundle.workflow_store
+        workflow = wf_store.load_graph()
         nodes = {}
         for nid, node in workflow.nodes.items():
             sub_states = []

@@ -22,7 +22,7 @@ import sys
 
 import pytest
 
-from features.main.cli_interface.infrastructure import reloader
+from protocols.cli.cli_interface.infrastructure import reloader
 
 PREFIX = "features_dyn."
 

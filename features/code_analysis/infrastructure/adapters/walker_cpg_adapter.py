@@ -21,7 +21,7 @@ from typing import Any
 from features.code_analysis.application.ports.cpg_repository import CpgRepository
 from features.code_analysis.domain.events import AnalysisCompleted, EventBus
 from features.code_analysis.domain.services.analysis_service import IBusinessAnalyzer
-from features.main.task_execution.ports.cpg_analysis_port import ICpgAnalysisPort
+from shared.core.engine.domain.ports import ICpgAnalysisPort
 
 
 class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):

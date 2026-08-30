@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from features.main.container import AppContainer
+from app.container import AppContainer
 
 
 EXPECTED_PROVIDERS = {

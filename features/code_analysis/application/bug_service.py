@@ -16,7 +16,7 @@ from returns.result import safe
 
 from features.code_analysis.domain.graph import Graph, Node
 from features.code_analysis.domain.query import Query, Filter
-from features.code_analysis.infrastructure.repository import CpgFileRepository
+from features.code_analysis.application.ports.cpg_repository import CpgRepository
 from features.code_analysis.infrastructure.filters import match_file_filter
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class ScanBugsUseCase:
         "all": None,
     }
 
-    def __init__(self, chain_dir: str, repo: CpgFileRepository, graph: Graph):
+    def __init__(self, chain_dir: str, repo: CpgRepository, graph: Graph):
         self.chain_dir = chain_dir
         self._repo = repo
         self._graph = graph
@@ -86,7 +86,7 @@ class ScanBugsUseCase:
 
         R4 (ADR-WALKER-055): delega en el ProjectionStore compartido.
         """
-        from shared.core.projection_store import ProjectionStore
+        from shared.libs.projection_store import ProjectionStore
 
         return ProjectionStore(self._repo.data_dir).read(name)
 
@@ -342,7 +342,7 @@ class ScanBugsUseCase:
 # ── Cores puros (@safe) ─────────────────────────────────────────
 
 @safe
-def _load_repo_data_core(repo: CpgFileRepository) -> dict:
+def _load_repo_data_core(repo: CpgRepository) -> dict:
     """Core puro de carga de datos CPG (puede lanzar)."""
     return repo.load() or {}
 
@@ -351,7 +351,7 @@ def _load_repo_data_core(repo: CpgFileRepository) -> dict:
 def _scan_cfg_on_demand_core(chain_dir: str) -> dict:
     """Core puro de _scan_cfg_on_demand (puede lanzar)."""
     from features.code_analysis.application.build_service import BuildGraphUseCase
-    from shared.core.path_resolver import resolve_project_root
+    from app.path_resolver import resolve_project_root
 
     project_dir = resolve_project_root(chain_dir)
     if project_dir and os.path.isdir(project_dir):
@@ -369,7 +369,7 @@ def _scan_cfg_on_demand_core(chain_dir: str) -> dict:
 def _scan_dfg_on_demand_core(chain_dir: str) -> dict:
     """Core puro de _scan_dfg_on_demand (puede lanzar)."""
     from features.code_analysis.application.build_service import BuildGraphUseCase
-    from shared.core.path_resolver import resolve_project_root
+    from app.path_resolver import resolve_project_root
 
     project_dir = resolve_project_root(chain_dir)
     if project_dir and os.path.isdir(project_dir):

@@ -325,7 +325,7 @@ Feature: Migrated gaps
     Given el directorio del proyecto
     When genero mcp_servers_block
     Then el servidor walker usa comando python3
-    And args son ["-m", "features.cli_interface.mcp"]
+    And args son ["-m", "protocols.cli.cli_interface.mcp"]
     And PYTHONPATH incluye el root del walker
 
   Scenario: generate usa formato único estándar (agnóstico del agente)
@@ -333,7 +333,7 @@ Feature: Migrated gaps
     When genero la configuración MCP
     Then el bloque incluye mcpServers con walker
     And el servidor walker usa comando python3
-    And args son ["-m", "features.cli_interface.mcp"]
+    And args son ["-m", "protocols.cli.cli_interface.mcp"]
 
   Scenario: cmd_mcp_config con --raw devuelve JSON válido
     Given el directorio del proyecto

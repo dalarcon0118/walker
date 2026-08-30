@@ -31,7 +31,7 @@ def _restore_global_registry(cli_ctx):
         from shared.core.engine.bootstrap import reset_module_registry
 
         reset_module_registry()
-        from features.main.cli_interface import mcp_adapter
+        from protocols.mcp import mcp_adapter
 
         mcp_adapter._SERVER = None
 
@@ -44,7 +44,7 @@ def _run_main(args: list[str]) -> tuple[int, str, str]:
         patch.object(sys, "stderr", captured_err),
         patch.object(sys, "argv", ["walker"] + args),
     ):
-        from features.main.cli_interface import main
+        from protocols.cli.cli_interface import main
 
         rc = main(args)
     return rc, captured_out.getvalue(), captured_err.getvalue()

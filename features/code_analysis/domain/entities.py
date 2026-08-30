@@ -4,7 +4,7 @@ Entidades del dominio de code_analysis: nodos y edges del Code Property Graph.
 """
 from __future__ import annotations
 
-from shared.core.cognitive_graph.odm import Entity, fields
+from shared.libs.cognitive_graph.odm import Entity, fields
 
 
 class CodeNode(Entity):

@@ -24,14 +24,14 @@ def mcp_server_registry_ctx() -> dict:
 
 @given("un McpServer vacío")
 def _empty_server(mcp_server_registry_ctx: dict):
-    from shared.core.mcp_server import McpServer
+    from protocols.mcp.mcp_server import McpServer
 
     mcp_server_registry_ctx["server"] = McpServer()
 
 
 @given("un ToolRegistry con herramientas \"status\" y \"submit\"")
 def _registry_with_tools(mcp_server_registry_ctx: dict):
-    from features.main.cli_interface.domain.services import ToolRegistry
+    from protocols.cli.cli_interface.domain.services import ToolRegistry
 
     registry = ToolRegistry()
     registry.register("status", "Status desc", handler=lambda a: {"ok": True})
@@ -41,7 +41,7 @@ def _registry_with_tools(mcp_server_registry_ctx: dict):
 
 @given("un ToolRegistry con la herramienta \"ping\" y un input_schema explícito")
 def _registry_with_ping(mcp_server_registry_ctx: dict):
-    from features.main.cli_interface.domain.services import ToolRegistry
+    from protocols.cli.cli_interface.domain.services import ToolRegistry
 
     registry = ToolRegistry()
     registry.register(

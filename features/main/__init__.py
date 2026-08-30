@@ -1,7 +1,8 @@
-"""features/main — Composition root final de Walker.
+"""features/main — Feature orquestador de Walker (delivery layer).
 
-Este módulo es el ÚNICO que conoce todos los módulos de la aplicación
-y arma el grafo completo de dependencias:
+Este módulo conoce los features de dominio y los servicios DELIVERY
+(cli_interface, mcp_adapter, task_execution, prompts, front_controller,
+front_controller, api) que consumen el composition root:
 
 - shared/core/engine: infraestructura de workflow
 - delta_tracking: modelo de desarrollo
@@ -10,15 +11,16 @@ y arma el grafo completo de dependencias:
 - event_tracing: trazabilidad
 - project: gestión de proyectos
 
-Entry points (CLI, MCP, WorkflowAPI) consumen esta composición.
+El composition root REAL vive en app/ (app.container, app.app, app.bootstrap,
+app.composition) — features/main ya no es el hub de composición.
 
 FIX ciclo de imports (hot-reload topo): este paquete era el hub que cerraba
 el ciclo main → container → registry → handlers → main. Los re-exports son
 ahora PEREZOSOS (PEP 562 __getattr__): la API pública
 (`from features.main import AppContainer, WalkerApp, FrontController`)
 se mantiene intacta, pero importar `features.main` ya NO arrastra el grafo
-de composición en cascada. La definición real vive en features.main.container
-/ app / front_controller — ese es el SSOT.
+de composición en cascada. La definición real vive en app.container
+/ app.app / protocols.rest.front_controller — ese es el SSOT.
 """
 
 from typing import Any
@@ -26,9 +28,9 @@ from typing import Any
 # Mapa nombre-público → módulo de definición (SSOT). Sin imports eager:
 # cada atributo se resuelve solo cuando alguien lo pide.
 _EXPORTS: dict[str, str] = {
-    "AppContainer": "features.main.container",
-    "WalkerApp": "features.main.app",
-    "FrontController": "features.main.front_controller",
+    "AppContainer": "app.container",
+    "WalkerApp": "app.app",
+    "FrontController": "protocols.rest.front_controller",
 }
 
 __all__ = list(_EXPORTS)

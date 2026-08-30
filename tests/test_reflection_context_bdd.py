@@ -164,7 +164,7 @@ def _build_reflection(reflection_ctx: dict):
 
 @when("consulto los providers disponibles")
 def _available_providers(reflection_ctx: dict):
-    from features.main.container import AppContainer
+    from app.container import AppContainer
 
     registry = AppContainer.build().workflow._context_registry
     reflection_ctx["available"] = registry.available()
@@ -193,7 +193,7 @@ def _collect_reflection(reflection_ctx: dict):
 
 @when("el PromptContextBuilder construye el contexto")
 def _build_prompt_context(reflection_ctx: dict):
-    from shared.core.engine.application.prompt_context_builder import PromptContextBuilder
+    from features.main.prompts.prompt_context_builder import PromptContextBuilder
 
     task_id = reflection_ctx.get("task_id", "TASK-004")
     reflection_ctx["builder_ctx"] = PromptContextBuilder().build(

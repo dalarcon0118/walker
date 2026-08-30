@@ -19,7 +19,7 @@ Uso:
 """
 
 from __future__ import annotations
-from shared.core.cognitive_graph.odm import Entity, fields
+from shared.libs.cognitive_graph.odm import Entity, fields
 
 
 class KnowledgeFact(Entity):

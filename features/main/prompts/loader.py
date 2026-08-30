@@ -209,6 +209,6 @@ def _resolve_project_dir_core(chain_dir: str) -> str:
 @safe
 def _engine_wf_dir_core() -> str:
     """Core puro: dir de prompts del engine workflow (puede lanzar)."""
-    from shared.core.path_resolver import get_engine_workflow_dir
+    from app.path_resolver import get_engine_workflow_dir
 
     return str(get_engine_workflow_dir() / "prompts")

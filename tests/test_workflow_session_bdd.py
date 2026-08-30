@@ -14,8 +14,14 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-from shared.core.engine.domain.session import SessionRecord, SessionStore
+from shared.core.engine.domain.session import SessionRecord
+from shared.core.engine.infrastructure.session_store import SessionStore
+from shared.core.engine.infrastructure.workflow_store import WorkflowStoreAdapter
 from shared.core.engine.application.workflow_api import WorkflowAPI
+from shared.core.engine.application.bundle import EngineBundle
+from shared.core.engine.domain.workflow_action import ActionCatalog
+from shared.core.engine.domain.ports import IWorkflowIO
+from shared.libs.module_system.registry import module_registry
 
 scenarios("bdd/features/workflow_session.feature")
 
@@ -26,6 +32,19 @@ def wf_ctx() -> dict:
 
 
 # ── Helpers ───────────────────────────────────────────────────────
+
+
+def _make_bundle():
+    """VO con las dependencias del motor (el host las inyecta; el test las
+    provee vía el registry autopoblado de ``shared``)."""
+    return EngineBundle(
+        workflow_store=WorkflowStoreAdapter(
+            workflow_repo=module_registry.get_service("workflow_repo"),
+            state_repo=module_registry.get_service("state_repo"),
+        ),
+        actions=ActionCatalog(),
+        workflow_io=module_registry.resolve_port(IWorkflowIO),
+    )
 
 
 def _install_sessions_dir(tmp_path) -> None:
@@ -71,7 +90,7 @@ def _active_recent(wf_ctx: dict):
 @given("un WorkflowAPI con chain_dir explícito")
 def _api_with_chain(wf_ctx: dict):
     wf_ctx["chain_dir"] = "/proj/data/spring/sprint-001"
-    wf_ctx["api"] = WorkflowAPI(chain_dir=wf_ctx["chain_dir"], project_id="test-proj")
+    wf_ctx["api"] = WorkflowAPI(bundle=_make_bundle(), chain_dir=wf_ctx["chain_dir"], project_id="test-proj")
 
 
 # ── When ──────────────────────────────────────────────────────────
@@ -86,14 +105,14 @@ def _ensure(wf_ctx: dict):
 
 @when("un nuevo WorkflowAPI con el mismo chain_dir asegura sesión")
 def _ensure_same_chain(wf_ctx: dict):
-    api = WorkflowAPI(chain_dir=wf_ctx["chain_dir"], project_id="test-proj")
+    api = WorkflowAPI(bundle=_make_bundle(), chain_dir=wf_ctx["chain_dir"], project_id="test-proj")
     wf_ctx["session_id_2"] = api.ensure_session()
     wf_ctx["api"] = api
 
 
 @when("un nuevo WorkflowAPI con otro chain_dir asegura sesión")
 def _ensure_other_chain(wf_ctx: dict):
-    api = WorkflowAPI(chain_dir="/proj/data/spring/sprint-002", project_id="test-proj")
+    api = WorkflowAPI(bundle=_make_bundle(), chain_dir="/proj/data/spring/sprint-002", project_id="test-proj")
     wf_ctx["session_id_2"] = api.ensure_session()
     wf_ctx["api"] = api
 

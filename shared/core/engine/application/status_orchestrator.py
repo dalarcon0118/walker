@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..domain.models import SubState
-from ..infrastructure.repositories import WorkflowRepository, WorkflowStateRepository
+from ..domain.ports import IWorkflowStore
 from ..domain.services import ValidationService, RequiredFieldResolver
 
 
@@ -21,13 +21,11 @@ class StatusOrchestrator:
 
     def __init__(
         self,
-        workflow_repo: WorkflowRepository,
-        state_repo: WorkflowStateRepository,
+        workflow_store: IWorkflowStore,
         resolve_status_prompt: Any,
         validate_uc: Any,
     ):
-        self._workflow_repo = workflow_repo
-        self._state_repo = state_repo
+        self._workflow_store = workflow_store
         self._resolve_status_prompt = resolve_status_prompt
         self._validate_uc = validate_uc
 
@@ -40,8 +38,8 @@ class StatusOrchestrator:
             available_gates, validation, task_id, session_id,
             node_executions.
         """
-        workflow = self._workflow_repo.load(ctx.chain_dir)
-        state = self._state_repo.load(ctx.chain_dir)
+        workflow = self._workflow_store.load_graph()
+        state = self._workflow_store.load_state(ctx.chain_dir)
         node = workflow.get_node(state.current_node)
         sub_state: SubState | None = None
         if node:

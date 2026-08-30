@@ -3,7 +3,7 @@
   "mcp": {
     "walker": {
       "type": "local",
-      "command": ["python3", "-m", "features.main.cli_interface.mcp"],
+      "command": ["python3", "-m", "protocols.cli.cli_interface.mcp"],
       "cwd": "/Users/davidmartinez/develop/Active-projects/walker",
       "enabled": true,
       "environment": {},

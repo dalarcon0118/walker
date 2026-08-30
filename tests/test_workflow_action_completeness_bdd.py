@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from features.main.container import AppContainer
+from app.container import AppContainer
 
 
 @pytest.fixture(scope="module")

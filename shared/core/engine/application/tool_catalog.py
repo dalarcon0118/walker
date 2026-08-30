@@ -56,6 +56,29 @@ def _canonical_system_registry(task_registry: Any = None) -> Any:
     return cached["system_registry"]
 
 
+def _resolve_task_registry(registry: Any) -> Any | None:
+    """Resuelve el task_registry canónico desde el ModuleRegistry inyectado (DI).
+
+    ADR-045 / capa_rout.md D1: el task_registry se registra como servicio DI en
+    el composition root (features/main), accesible vía
+    `module_registry.get_service("task_registry")`. El mismo `registry` que ya
+    se inyecta en list_tools() es el ModuleRegistry, así que lo resolvemos de ahí
+    en lugar de importar features/main (respeta la frontera core/engine).
+
+    Fail-open (convention-001): si no está disponible, devuelve None y
+    _canonical_system_registry lo señala con warning en lugar de catálogo mudo.
+    """
+    if registry is None:
+        return None
+    get_service = getattr(registry, "get_service", None)
+    if callable(get_service):
+        try:
+            return get_service("task_registry")
+        except Exception:
+            return None
+    return None
+
+
 def _valid_input_schema(schema: dict | None) -> dict:
     """Normaliza un inputSchema a un JSON Schema object válido.
 
@@ -122,8 +145,11 @@ def _list_tools_core(registry: Any) -> list[dict]:
         })
 
     # 2) Tasks públicas del registro (kg_*, analyze, phase tools, ...)
-    #    Registry canónico cacheado por mtime (SPEC-005 #8).
-    public = _canonical_system_registry().discover(scope="public") or {"tasks": []}
+    #    Registry canónico cacheado por mtime (SPEC-005 #8). El task_registry
+    #    canónico se resuelve desde el ModuleRegistry inyectado (DI), no se
+    #    importa features/main (frontera core/engine).
+    task_registry = _resolve_task_registry(registry)
+    public = _canonical_system_registry(task_registry=task_registry).discover(scope="public") or {"tasks": []}
     for t in public.get("tasks", []):
         name = t.get("name", "")
         if not name or name in seen:

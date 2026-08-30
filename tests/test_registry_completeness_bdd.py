@@ -41,7 +41,7 @@ class TestRegistryCompleteness:
     """bootstrap() debe producir el registry poblado (composition root D1)."""
 
     def test_bootstrap_tasks_contains_workflow_actions(self):
-        from features.main.container import AppContainer
+        from app.container import AppContainer
 
         app = AppContainer.build()
         registry = app.task_registry
@@ -50,7 +50,7 @@ class TestRegistryCompleteness:
         assert not missing, f"AppContainer.build() no registró: {sorted(missing)}"
 
     def test_bootstrap_se_engine_has_side_effects(self):
-        from features.main.container import AppContainer
+        from app.container import AppContainer
 
         app = AppContainer.build()
         se_engine = app.side_effect_engine
@@ -62,7 +62,7 @@ class TestRegistryCompleteness:
         """capa_rout.md D1: module_registry.get_service('task_registry') devuelve el
         registry poblado — sin esto, _build_workflow_services no puede
         inyectar tasks en producción."""
-        from features.main.container import AppContainer
+        from app.container import AppContainer
 
         app = AppContainer.build()
         task_registry = app.module_registry.get_service("task_registry")

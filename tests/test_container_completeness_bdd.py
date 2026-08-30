@@ -46,7 +46,7 @@ class TestContainerCompleteness:
     """AppContainer.build() debe producir el grafo completo (composition root D1)."""
 
     def test_container_services_completeness(self):
-        from features.main.container import AppContainer
+        from app.container import AppContainer
 
         container = AppContainer.build()
         available = set(container.module_registry.list_services())
@@ -58,7 +58,7 @@ class TestContainerCompleteness:
 
     def test_container_providers_completeness(self):
         """El registry de contexto del container incluye TODOS los providers."""
-        from features.main.container import AppContainer
+        from app.container import AppContainer
 
         container = AppContainer.build()
         registry = container.workflow._context_registry
@@ -97,7 +97,7 @@ class TestContainerCompleteness:
 
     def test_di_exposes_container_services(self):
         """El composition root expone workflow y task_registry via module_registry."""
-        from features.main.container import AppContainer
+        from app.container import AppContainer
 
         app = AppContainer.build()
         registry = app.module_registry

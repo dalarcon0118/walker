@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from .models import ContextPiece, ContextBudget
+from shared.common.context.models import ContextPiece, ContextBudget
 
 logger = logging.getLogger(__name__)
 
