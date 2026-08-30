@@ -181,12 +181,14 @@ def register_engine_domain_ports() -> None:
         ISideEffectEngine,
         ISessionStore,
         IEngineMetrics,
+        IWorkflowStore,
     )
     from .infrastructure.repositories import WorkflowStateRepository
     from .infrastructure.config import ConfigAdapter
     from .infrastructure.side_effects import SideEffectEngine
     from .infrastructure.session_store import SessionStore
     from .infrastructure.engine_metrics import EngineMetrics
+    from .infrastructure.workflow_store import WorkflowStoreAdapter
     from .application.context_resolver import ContextResolver
 
     register_port(IStateStore, WorkflowStateRepository())
@@ -195,6 +197,11 @@ def register_engine_domain_ports() -> None:
     register_port(ISideEffectEngine, SideEffectEngine())
     register_port(ISessionStore, SessionStore)
     register_port(IEngineMetrics, EngineMetrics())
+    # IWorkflowStore (auto-registro del motor): default host-agnóstico. El
+    # composition root final (app/composition register_all) lo RE-registra con
+    # el store cableado (register_port reemplaza el default — mismo patrón
+    # que ISideEffectEngine).
+    register_port(IWorkflowStore, WorkflowStoreAdapter())
 
 
 # Safety net: disponible en cualquier import del engine (tests, CLI, MCP).

@@ -129,7 +129,10 @@ class TraceLogger(ITracer):
             # el append equivale a store_many por evento (correcto, más
             # costoso — se resuelve con el cutover §7.7).
             cg = self._resolve_cg(proj_dir)
-            cg.append(
+            # API del storage genérico (ADR-WALKER-067 §7.5): store_many(
+            # index, {doc_id: doc}) — el método `append` ya no existe en
+            # CognitiveGraph (regresión del split de libs corregida).
+            cg.store_many(
                 "trace",
                 {
                     event_id: {

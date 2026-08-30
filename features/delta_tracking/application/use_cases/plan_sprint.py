@@ -102,27 +102,32 @@ class PlanSprintUseCase:
         # Sincronizar .workflow-state.json (canonico del engine) con el
         # estado inicial del sprint (PLANNING). El motor no lee
         # sprint-state.json: el estado de negocio vive en el delta.
+        # El host escribe el estado del workflow VÍA el puerto IWorkflowStore
+        # (composition root), no construyendo repos concretos.
         try:
-            from shared.core.engine.infrastructure.repositories import (
-                WorkflowStateRepository,
-            )
-
+            from shared.core.engine.domain.ports_registry import resolve_port
+            from shared.core.engine.domain.ports import IWorkflowStore
             from shared.core.engine.domain.entities import WorkflowState
 
-            wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
-            wf.context["chain_dir"] = sprint_dir
-            wf.context["project_id"] = project_id
-            wf.context["session_id"] = ctx.session_id or ""
-            WorkflowStateRepository().save(sprint_dir, wf)
+            store = resolve_port(IWorkflowStore)
+            if store is not None:
+                wf = WorkflowState(current_node="SPRINT", current_sub_state="PLANNING")
+                wf.context["chain_dir"] = sprint_dir
+                wf.context["project_id"] = project_id
+                wf.context["session_id"] = ctx.session_id or ""
+                store.save_state(wf, sprint_dir)
         except Exception:
             pass
 
         if record:
             record.chain_dir = sprint_dir
-            from shared.core.engine.infrastructure.session_store import SessionStore
+            from shared.core.engine.domain.ports_registry import resolve_port as _rp
+            from shared.core.engine.domain.ports import ISessionStore
 
-            SessionStore.save(record)
-            SessionStore.set_active(record.session_id)
+            session_store = _rp(ISessionStore)
+            if session_store is not None:
+                session_store.save(record)
+                session_store.set_active(record.session_id)
 
         # Keep 'tasks' in response for backward compat with workflow prompts
         return {

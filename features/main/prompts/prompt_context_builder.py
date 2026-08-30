@@ -263,12 +263,13 @@ def _fill_current_task_context(
     # ── Q&A del ANALYZE/DESIGN desde sub_state_data (workflow) ──
     ssd = {}
     try:
-        from shared.core.engine.infrastructure.repositories import (
-            WorkflowStateRepository,
-        )
+        from shared.core.engine.domain.ports_registry import resolve_port
+        from shared.core.engine.domain.ports import IWorkflowStore
 
-        wf = WorkflowStateRepository().load(chain_dir)
-        ssd = wf.sub_state_data or {}
+        store = resolve_port(IWorkflowStore)
+        if store is not None:
+            wf = store.load_state(chain_dir)
+            ssd = wf.sub_state_data or {}
     except Exception:
         pass
     an_entry = (

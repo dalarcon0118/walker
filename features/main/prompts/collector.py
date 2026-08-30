@@ -156,10 +156,17 @@ def collect_all(
 
 @safe
 def _load_workflow_state_core(chain_dir: str) -> Any | None:
-    """Core puro: estado del workflow (.workflow-state.json, puede lanzar)."""
-    from shared.core.engine.infrastructure.repositories import WorkflowStateRepository
+    """Core puro: estado del workflow (.workflow-state.json, puede lanzar).
 
-    return WorkflowStateRepository().load(chain_dir)
+    Consume el puerto IWorkflowStore (composition root), no el repo concreto.
+    """
+    from shared.core.engine.domain.ports_registry import resolve_port
+    from shared.core.engine.domain.ports import IWorkflowStore
+
+    store = resolve_port(IWorkflowStore)
+    if store is None:
+        return None
+    return store.load_state(chain_dir)
 
 
 @safe

@@ -81,6 +81,16 @@ def register_all(
     from shared.core.engine.domain.ports import IWorkflowIO
     from shared.core.engine.infrastructure.side_effect_outbox import InMemorySideEffectOutbox
 
+    # Re-registro del puerto IWorkflowStore (auto-registro del engine tenía un
+    # default host-agnóstico; el composition root lo RE-registra con el store
+    # cableado — register_port reemplaza el default, mismo patrón que
+    # ISideEffectEngine). Así el host (features/app) consume el estado del
+    # workflow VÍA el puerto, no construyendo repos concretos.
+    from shared.core.engine.domain.ports import IWorkflowStore
+    from shared.core.engine.domain.ports_registry import register_port
+
+    register_port(IWorkflowStore, module_registry.get_service("workflow_store"))
+
     # Outbox (ADR-WALKER-067 F4/H): el host inyecta la implementacion. Default
     # InMemory (semantica de outbox activa); hosts con durabilidad pueden pasar
     # SqliteSideEffectOutbox(path).
@@ -114,6 +124,12 @@ def _register_module_manifests(registry: Any) -> None:
         "features.main.prompts.module",
         "features.cognitive_knowledge.module",
         "features.event_tracing.module",
+        # ADR-WALKER-068 Fase 1: módulos objetivo declarados (sin código aún).
+        # Los providers se pueblan en las fases 2-4 (moves desde app/).
+        "features.memories.module",
+        "features.orchestration.module",
+        "features.common.module",
+        "features.cli_interface.module",
         "tasks.module",
         "protocols.mcp.module",
         "protocols.cli.cli_interface.module",
