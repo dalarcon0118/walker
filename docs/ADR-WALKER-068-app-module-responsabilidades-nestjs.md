@@ -179,12 +179,12 @@
 - `app/context_resolver.py` NO es el adapter `IContextValidator` (ese es `shared/core/engine/application/context_resolver.py`, del engine). El de `app/` es una **primitiva de paths** (R1: `resolve_memory_context`/`resolve_data_dir`) → pertenece al core (Fase 4 PathModule), NO a protocols.
 - `workflow_facade` es un **servicio de APLICACIÓN del host** (usa el engine + gates) — en NestJS los controllers (protocols) inyectan el service; el service vive en la capa de aplicación. NO se mueve a protocols (mezclaría capas).
 
-**Fase 3 corregida (parcialmente HECHA, commit `ec8564e`):**
+**Fase 3 corregida (HECHA, commits `98eed05` + `42a27b0`):**
 - [x] M-01 Gates host-side atómicos en la facade (todo-o-nada antes de submit) — anti-patrón: efectos ocultos.
 - [x] M-05 OrchestrationModule (capa aplicación) sin reconstruir dominio del engine (consume puertos; spec_transform vía IWorkflowStore) — anti-patrón: God Class.
 - [x] M-02 `app/api/` consolidado como WorkflowApiModule del host (`app/api/module.py` auto-registrado + export `workflow_facade` por contrato; protocols consume por DI).
-- [ ] M-06 Cada orchestrator exportado por id+contrato (ADR-062) — anti-patrón: Not Invented Here.
-- [ ] M-03 `app/context_resolver.py` → core (PathModule, Fase 4) como primitiva R1 — anti-patrón: Data Clumps.
+- [x] M-06 Cada orchestrator exportado por id+contrato (ADR-062): los 14 registrados en registry.py + test de completitud (`test_orchestration_registry_bdd`) — anti-patrón: Not Invented Here.
+- [ ] M-03 `app/context_resolver.py` → core (PathModule, Fase 4) como primitiva R1 — ✅ HECHO en Fase 4.
 
 ### Fase 4 — AppModule delgado + PathResolver por contrato  ✅ HECHA (commit `5095f22`)
 
