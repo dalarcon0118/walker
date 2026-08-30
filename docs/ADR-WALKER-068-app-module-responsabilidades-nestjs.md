@@ -194,6 +194,16 @@
 - [x] M-01 Composición idempotente (`register_port` reemplaza; manifests por dict overwrite; `reset_*` para hot reload/tests) — anti-patrón: Transaction Script.
 - [x] M-03 `app/context_resolver.py` → `app/path_resolver.py` (primitiva R1 en el SSOT) — anti-patrón: Data Clumps.
 
+### Fase 5 — Refinamiento del bounded context `features/workflow` (puertos + manifest honesto)
+
+**Contexto:** `features/workflow` absorbió `features/main` (commit `0c1b437`). El análisis de diseño (§9) detectó acoplamientos directos + manifest con imports falsos (D1-D6).
+
+- [ ] M-03 Manifest honesto: `imports=["shared", "features_project", "features_delta"]` (declarar las deps REALES, no solo "shared") — anti-patrón: Hidden Dependency.
+- [ ] M-04 Workflow consume PUERTOS (`IProjectContext` existente + `ISprintService`) inyectados por el composition root — NO imports directos de Services — anti-patrón: Big Ball of Mud.
+- [ ] M-06 Eliminar imports al COMPOSITION ROOT desde el feature: `app.container`/`app.composition.registry._build_searcher` (collector:22,56) → providers inyectados por DI — anti-patrón: Accidental Complexity / ciclo root↔feature.
+- [ ] M-05 `IPromptCollector` adapter: wire real (instanciar en el root con el collector) o eliminar si el engine anémico no lo usa — anti-patrón: Dead Code / Hidden Dependency.
+- [ ] M-02 Decidir la ubicación de `tasks/` (raíz vs `features/tasks/` como bounded context) — anti-patrón: Shotgun Surgery.
+
 ---
 
 ## 4. `failure_scenarios`
@@ -409,3 +419,66 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 | G9 | **Sin test de completitud de índices** | hoy no se valida el conjunto `{ckg, cpg, delta, trace, ref}` — por eso el doble registro pasó desapercibido (patrón de completitud de AGENTS.md) |
 
 **Nota:** B3 es del STORAGE ENGINE genérico (`shared/libs/cognitive_graph`) — regresión del split de libs; se corrige con la Fase 2 (o antes, es independiente). B1/B2 se resuelven con el forFeature + eliminación de `register_cognitive_indexes` (una sola fuente por memoria).
+---
+
+## 9. Fase 5 — Documentación de diseño del bounded context `features/workflow`
+
+### 9.1 Análisis (estado actual tras el move `0c1b437`)
+
+`features/workflow` absorbió `features/main` (prompts + gate uncaptured_work). Declara su manifest (`name="workflow"`, auto-registro, adapter `IPromptCollector`) PERO su diseño tiene acoplamientos directos:
+
+**Manifest declarado vs realidad:**
+```python
+MODULE = ModuleManifest(
+    name="workflow",
+    imports=["shared"],   # ← FALSO: deps reales = features_project + features_delta + app
+    adapters=[(IPromptCollector, PromptCollectorAdapter)],
+    exports=["prompt_collector"],
+)
+```
+
+**Deps reales (NO inyectadas — imports directos):**
+| Dep | Dónde | Tipo |
+|---|---|---|
+| `features.project.ProjectService` | collector.py:11 (**EAGER**), uncaptured_work:171, prompt_context_builder:83,102 | directo |
+| `features.delta_tracking.spring_service` | collector.py:180 | directo |
+| `app.path_resolver` | uncaptured_work:158 | directo |
+| `app.composition.registry._build_searcher` | collector.py:22 | **internal del registry** |
+| `app.container.AppContainer` | collector.py:56 | **el composition root** |
+
+**`tasks/`:** módulo independiente (`name="tasks"`, register hook) con dominio propio, pero vive en la RAÍZ (`tasks/`), no en `features/` — inconsistencia estructural con el ADR-068.
+
+### 9.2 Bugs y problemas de diseño (D1-D6)
+
+| ID | Problema | Invariante violada |
+|---|---|---|
+| D1 | Manifest con imports FALSOS: el grafo declarado no refleja la realidad → aciclicidad ciega | INV-W068-01 |
+| D2 | Acoplamiento directo sin puertos; `IProjectContext` (features/project/module.py:15) existe pero NO se usa | INV-W068-04 |
+| D3 | Feature importando el composition root (`app.container`, `_build_searcher` internal) → ciclo root↔feature | INV-W068-03, R3 |
+| D4 | `IPromptCollector` adapter sin wiring (nadie lo instancia) — declaración muerta | R1 |
+| D5 | `tasks/` en la raíz (módulo con dominio fuera de features/) | estructura ADR-068 |
+| D6 | Import EAGER de `features.project` (collector.py:11) → acoplamiento en import-time | R2 |
+
+### 9.3 Invariantes y reglas del diseño (las que el módulo DEBE cumplir)
+
+- **INV-W068-01**: manifest con `imports` EXPLÍCITOS → `features_project`, `features_delta`, `app`.
+- **INV-W068-04**: bounded contexts NO se importan entre sí → workflow→project/delta por PUERTOS (`IProjectContext` + `ISprintService`).
+- **INV-W068-03 + R3**: X→`app/composition` prohibido → eliminar `app.container`/`_build_searcher` del feature.
+- **R2**: solo `exports` de otros módulos (nunca internals).
+- **DI NestJS**: los módulos RECIBEN providers por constructor/puertos (composition root), no importan concretes.
+
+### 9.4 Diseño objetivo (Fase 5)
+
+1. **Manifest honesto**: `imports=["shared", "features_project", "features_delta"]`.
+2. **Puertos**: workflow consume `IProjectContext` + `ISprintService` (nuevo port en delta_tracking), inyectados por el composition root.
+3. **Sin imports al root**: collector recibe searcher/container por DI (factories inyectadas).
+4. **IPromptCollector adapter**: wire real (instanciar en root con el collector) o eliminar.
+5. **tasks/**: decidir `features/tasks/` (bounded context) vs módulo de aplicación (como `app/`).
+
+### 9.5 Criterios de aceptación (verificables)
+
+1. `grep -r "from features.project\|from features.delta_tracking\|from app.container\|from app.composition" features/workflow` → 0 (o solo vía puertos inyectados).
+2. Manifest: `imports` contiene las deps reales (grep del manifest).
+3. `IProjectContext`/`ISprintService` consumidos por workflow (inyectados por constructor).
+4. Boot MCP + composition tests verdes.
+5. `tasks/` con decisión documentada (ubicación).
