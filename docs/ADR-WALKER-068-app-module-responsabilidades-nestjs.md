@@ -142,7 +142,7 @@
 - ⚠️ **CORRECCIÓN (Clean Design):** esas piezas NO son bounded contexts → los 4 manifiestos se **eliminan** (se revierte su registro en `_register_module_manifests`). El fix de `trace_log` (bug real) SE MANTIENE.
 - [x] Bonus: fix del tracing real (`trace_log` usaba `cg.append()` inexistente → `cg.store_many()`; todo el trace de producción se perdía silenciosamente).
 
-### Fase 2 — Split forFeature: schemas a las features dueñas + `app/memories/` (aplicación)
+### Fase 2 — Split forFeature: schemas a las features dueñas + `app/memories/` (aplicación)  ✅ HECHA (commit `3c08bfc`)
 
 **Hallazgo (SSOT violado):** hoy hay **DOS fuentes de schemas que se registran simultáneamente en producción**:
 - `app/memory_schemas.py::register_default_memory_indexes` (ckg/delta/trace/ref + trace handler + COMPACT_FIELDS/SEVERITY_ORDER) — vía `register_defaults` del CognitiveGraph.
@@ -160,15 +160,15 @@
 | **CPG + refs** | `features/code_analysis/` | schema cpg (con fix FTS) + `cpg.ref.*` + proyección |
 | **Composición + facade** | `app/memories/` (aplicación del host) | `apply_memory_indexes(graph)` (aplica lo auto-registrado) + `MemoryQueryService` — NO dueña de schemas (INV-W068-08) |
 
-- [ ] M-03 Cada feature registra SOLO SU schema en el storage genérico (forFeature, R6): CPG→`code_analysis`, CKG→`cognitive_knowledge`, Delta→`delta_tracking`, Trace→`event_tracing` — anti-patrón: God-Module de memorias.
-- [ ] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → auto-registro por feature (`register_memory_index` con dedupe, G2) + `apply_memory_indexes(graph)` — anti-patrón: Big Ball of Mud / SSOT duplicado.
-- [ ] M-05 `MemoryQueryService` + `build_cognitive_graph`/`build_searcher` canónicas en `app/memories/` (G7: elimina la construcción replicada en kg_context/build_service/repos) — anti-patrón: God Class.
-- [ ] M-06 `COMPACT_FIELDS`/`SEVERITY_ORDER` split por feature (cada una su proyección/ranking, G4/G5); el host mergea para el constructor del grafo — anti-patrón: Duplicate Code.
-- [ ] M-02 Reconciliar las configs de ckg/delta/trace de las 2 fuentes en la feature dueña (P2: decisión por índice) — anti-patrón: Shotgun Surgery.
-- [ ] B3 Fix `self.self.compact_fields` → `self.compact_fields` (storage engine) — anti-patrón: bug de runtime silencioso.
-- [ ] B4 `memory_data_dir` → `app/path_resolver` (SSOT de rutas) — anti-patrón: Duplicate Code.
-- [ ] B5/B6/B7: cache del ref, `except: pass` → log (K), dead code — anti-patrón: efectos ocultos.
-- [ ] G9 Test de completitud: `{ckg, cpg, delta, trace, ref}` registrados desde sus features + `reset_memory_indexes()` (P5).
+- [x] M-03 Cada feature registra SOLO SU schema en el storage genérico (forFeature, R6): CPG→`code_analysis`, CKG→`cognitive_knowledge`, Delta→`delta_tracking`, Trace→`event_tracing` — anti-patrón: God-Module de memorias.
+- [x] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → auto-registro por feature (`register_memory_index` con dedupe, G2) + `apply_memory_indexes(graph)` — anti-patrón: Big Ball of Mud / SSOT duplicado.
+- [x] M-05 `MemoryQueryService` + `build_cognitive_graph`/`build_searcher` canónicas en `app/memories/` (G7: elimina la construcción replicada en kg_context/build_service/repos) — anti-patrón: God Class.
+- [x] M-06 `COMPACT_FIELDS`/`SEVERITY_ORDER` split por feature (cada una su proyección/ranking, G4/G5); el host mergea para el constructor del grafo — anti-patrón: Duplicate Code.
+- [x] M-02 Reconciliar las configs de ckg/delta/trace de las 2 fuentes en la feature dueña (P2: trace→memory_schemas, cpg→cognitive_registry/FTS, ckg/delta→merge) — anti-patrón: Shotgun Surgery.
+- [x] B3 Fix `self.self.compact_fields` → `self.compact_fields` (storage engine) — anti-patrón: bug de runtime silencioso.
+- [x] B4 `memory_data_dir` → `app/path_resolver` (SSOT de rutas) — anti-patrón: Duplicate Code.
+- [x] B5/B6/B7: cache del ref, `except: pass` → log (K), dead code — anti-patrón: efectos ocultos.
+- [x] G9 Test de completitud: `{ckg, cpg, delta, trace}` registrados desde sus features + dedupe/idempotencia (5 passed) — anti-patrón: omisión silenciosa.
 
 ### Fase 3 — Adapters + orquestación consolidada
 
