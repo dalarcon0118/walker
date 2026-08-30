@@ -51,6 +51,7 @@
 | Módulo | Capa | Responsabilidad (UNA) | Ubicación |
 |---|---|---|---|
 | **Bounded contexts** | Domain | cada contexto con dominio/aplicación/infra propios | `features/*` (existentes) |
+| **`features/workflow`** | Domain | bounded context del WORKFLOW del walker (envuelve el engine anémico): gates host-side (uncaptured_work) + prompts (IPromptCollector). Absorbe `features/main` | `features/workflow/` (commit `0c1b437`) |
 | **AppModule** | Composición | construir el engine (main/register_all), container, grafo | `app/module.py` + `app/composition/` |
 | **AppApplication (memorias)** | Aplicación del host | `MemoryQueryService` + proyección (`COMPACT_FIELDS`/`SEVERITY_ORDER`) | `app/memories/` (módulo con manifest) |
 | **AppApplication (orquestación)** | Aplicación del host | use cases cross-context (G10) | `app/orchestration/` (ya tiene manifest) |
