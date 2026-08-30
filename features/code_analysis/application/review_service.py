@@ -73,7 +73,7 @@ class ReviewUseCase:
         repo_root: raíz real del código; data_dir: dir canónico de memorias.
         """
         data_dir = self._data_dir or self.repo.data_dir
-        from app.context_resolver import resolve_memory_context
+        from app.path_resolver import resolve_memory_context
 
         ctx = resolve_memory_context(data_dir)
         return ctx.repo_root or ctx.data_dir, ctx.data_dir or data_dir

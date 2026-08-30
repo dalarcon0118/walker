@@ -17,7 +17,7 @@ def _resolve_repo(chain_dir_or_repo: str | CpgRepository) -> CpgRepository:
     if isinstance(chain_dir_or_repo, CpgRepository):
         return chain_dir_or_repo
     from features.code_analysis.infrastructure.cognitive_cpg_repo import CognitiveCpgRepository
-    from app.context_resolver import resolve_memory_context
+    from app.path_resolver import resolve_memory_context
 
     ctx = resolve_memory_context(chain_dir_or_repo)
     return CognitiveCpgRepository(ctx.data_dir, ctx.project_id)
