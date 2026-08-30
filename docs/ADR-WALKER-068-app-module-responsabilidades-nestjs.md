@@ -96,6 +96,7 @@
 | INV-W068-05 | **AppApplication (memorias) y AppApplication (orquestación) no se importan mutuamente** (memorias→storage; orquestación→features+memorias) | Ciclo entre servicios de aplicación |
 | INV-W068-06 | **PathResolver es el SSOT de rutas**: 0 construcciones de `.cognitive/` fuera de `app/path_resolver.py` | Paths divergentes; engine contra root distinto |
 | INV-W068-07 | Los **moves de archivos no cambian contratos**: los importadores externos (CLI/MCP/features) se actualizan mecánicamente, sin cambio de firma | Regresión silenciosa por re-import |
+| INV-W068-08 | **Las features se AUTO-REGISTRAN su schema de memoria** (`register_memory_index` en su `module.py`); `app/` NO es dueña de ningún schema — solo pasa `register_defaults` al constructor del grafo (composición) | app conduciendo el registro; schemas fuera del dominio |
 
 **Reglas** (convenciones de proceso para mantener las invariantes):
 
@@ -160,7 +161,7 @@
 | **Composición + facade** | `app/memories/` (aplicación del host) | `register_all_memory_indexes(graph)` (agrega las 4) + `MemoryQueryService` |
 
 - [ ] M-03 Cada feature registra SOLO SU schema en el storage genérico (forFeature, R6): CPG→`code_analysis`, CKG→`cognitive_knowledge`, Delta→`delta_tracking`, Trace→`event_tracing` — anti-patrón: God-Module de memorias.
-- [ ] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → `app/memories/register_all_memory_indexes(graph)` (composición host, una sola función de registro) — anti-patrón: Big Ball of Mud / SSOT duplicado.
+- [ ] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → auto-registro por feature (`register_memory_index` en cada `module.py` de feature) + `apply_memory_indexes(graph)` (espejo de `_register_module_manifests`) — anti-patrón: Big Ball of Mud / SSOT duplicado.
 - [ ] M-05 `MemoryQueryService` inyectado por constructor (sin service locator) — anti-patrón: God Class.
 - [ ] M-06 `COMPACT_FIELDS`/`SEVERITY_ORDER` split por feature (cada una su proyección/ranking); el host las mergea para el constructor del grafo — anti-patrón: Duplicate Code.
 - [ ] M-02 Reconciliar las configs de ckg/delta/trace de las 2 fuentes (memory_schemas vs cognitive_registry) en la feature dueña — anti-patrón: Shotgun Surgery.
@@ -290,6 +291,20 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 - `MemoryQueryService` — facade de query (constructor-injected, sin service locator).
 - `compact_fields`/`severity_order` para el constructor del grafo: merged por el host desde las proyecciones de las 4 features.
 
+**CORRECCIÓN (auto-registro, espejo de los manifests):** `app/` NO es dueño ni conductor del registro de memorias. Las features **se auto-registran** (mismo patrón que §2.6):
+
+| | Manifests (implementado) | Schemas de memoria (Fase 2) |
+|---|---|---|
+| Definición | `module.py` declara `MODULE` | `features/*/schema.py` define `register_<memoria>_index(graph)` |
+| Auto-registro | `register_manifest(MODULE)` al final del `module.py` | `register_memory_index(register_<memoria>_index)` en el `module.py` de la feature |
+| Aplicación | `registry.register_manifest(m)` por cada auto-registrado | el grafo aplica lo auto-registrado vía `apply_memory_indexes(graph)` |
+| `app/` | importa módulos por referencia (NestJS AppModule) | SOLO pasa `register_defaults=apply_memory_indexes` al constructor del grafo (wiring) |
+
+- `features/*/schema.py` — schema + `register_<memoria>_index(graph)` (dominio de la feature).
+- `register_memory_index(...)` — collector global (espejo de `global_registry` de manifests); cada feature lo invoca en su `module.py`.
+- `apply_memory_indexes(graph)` — función fina que aplica lo auto-registrado (espejo de `_register_module_manifests`). El contenido lo ponen las features.
+- `app/` — solo composición: `CognitiveGraph(register_defaults=apply_memory_indexes)`. **No es dueña de ningún schema** (INV-W068-08).
+
 ### 8.3 Impacto — antes vs después
 
 | Aspecto | Antes | Después |
@@ -311,8 +326,8 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 
 ### 8.4 Criterios de aceptación (verificables)
 
-1. **forFeature (R6):** `CognitiveGraph(register_defaults=register_all_memory_indexes)` registra el conjunto completo `{ckg, cpg, delta, trace, ref}` y cada schema proviene de SU feature. *Test:* test de completitud que valida los 5 índices registrados y su origen.
-2. **SSOT:** `grep -r "register_default_memory_indexes\|register_cognitive_indexes"` → 0 resultados (funciones eliminadas); cada config de índice existe en UNA sola feature.
+1. **forFeature (R6):** `CognitiveGraph(register_defaults=apply_memory_indexes)` registra el conjunto completo `{ckg, cpg, delta, trace, ref}` y cada schema proviene de SU feature. *Test:* test de completitud que valida los 5 índices registrados y su origen.
+2. **SSOT + auto-registro:** `grep -r "register_default_memory_indexes\|register_cognitive_indexes"` → 0 resultados (funciones eliminadas); `grep -r "register_memory_index" features/*/module.py` → 1 por feature (cada una registra SOLO la suya); cada config de índice existe en UNA sola feature.
 3. **Sin regresión de comportamiento:** los search de trace (handler + descentralizado) y los CPG de referencia (`cpg.ref.*`) funcionan igual tras el move (mismas firmas). *Test:* `test_cpg_*`, `test_rag_pipeline_bdd`, `test_migrated_gaps_bdd` verdes.
 4. **Boot:** MCP self-test registra las 31 tools y el container construye (composición acíclica).
 5. **Proyección:** `compact_fields`/`severity_order` del grafo contienen las 4 proyecciones merged por el host (nada se pierde del `COMPACT_FIELDS` actual).
