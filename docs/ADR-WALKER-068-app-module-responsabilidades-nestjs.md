@@ -54,9 +54,10 @@
 | **AppModule** | Composición | construir el engine (main/register_all), container, grafo | `app/module.py` + `app/composition/` |
 | **AppApplication (memorias)** | Aplicación del host | `MemoryQueryService` + proyección (`COMPACT_FIELDS`/`SEVERITY_ORDER`) | `app/memories/` (módulo con manifest) |
 | **AppApplication (orquestación)** | Aplicación del host | use cases cross-context (G10) | `app/orchestration/` (ya tiene manifest) |
-| **AppCore (paths)** | Infra del host | SSOT de rutas | `app/path_resolver.py` (módulo de 1 archivo + export) |
+| **AppApplication (workflow API)** | Aplicación del host | facade submit/transition/status/prepare + gates | `app/api/` (WorkflowApiModule) |
+| **AppCore (paths)** | Infra del host | SSOT de rutas (+ primitiva R1) | `app/path_resolver.py` + `app/context_resolver.py` (Fase 4) |
 | **Presenters** | Interface adapters | formatear resultados por memoria | por feature (formatea SU memoria) |
-| **Adapters** | Interface adapters | facade + context_resolver | `protocols/cli/cli_interface/` |
+| **Adapters** | Interface adapters | CLI/MCP/REST consumen la facade por DI | `protocols/cli/cli_interface/` |
 | **Bootstrap/main** | Entry | `main.ts` análogo | `app/app.py`, `bootstrap.py`, `container.py` |
 
 ### 2.2 Reglas de boundaries
