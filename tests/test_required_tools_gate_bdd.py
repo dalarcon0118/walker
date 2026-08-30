@@ -243,8 +243,7 @@ def _orch_exploding_tracer(gate_ctx: dict):
     from shared.core.engine.application.submit_orchestrator import SubmitOrchestrator
 
     orch = SubmitOrchestrator(
-        state_repo=Mock(),
-        workflow_repo=Mock(),
+        workflow_store=Mock(),
         submit_uc=Mock(),
         handle_error=Mock(),
         tracer=ExplodingTracer(),
