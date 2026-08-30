@@ -586,6 +586,10 @@ class WorkflowState:
     history: list[str] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
     version: str = "5.0"
+    revision: int = 0
+    """Token de optimistic concurrency (CAS): se incrementa en cada save.
+    `save` falla (StateConflictError) si la revisión no coincide con la
+    persistida — detecta lost updates (ADR-WALKER-067 F6/G)."""
     updated_at: str = ""
     node_executions: list[NodeExecution] = field(default_factory=list)
     conflicts: list[dict] = field(default_factory=list)
@@ -747,6 +751,7 @@ class WorkflowState:
             ssd[k] = {"fields": dict(v.fields), "completed_at": v.completed_at}
         return {
             "version": self.version,
+            "revision": self.revision,
             "current_node": self.current_node,
             "current_sub_state": self.current_sub_state,
             "sub_state_index": self.sub_state_index,
@@ -793,6 +798,7 @@ class WorkflowState:
                 )
         return cls(
             version=data.get("version", "5.0"),
+            revision=int(data.get("revision", 0) or 0),
             current_node=data.get("current_node", ""),
             current_sub_state=data.get("current_sub_state", ""),
             sub_state_index=data.get("sub_state_index", 0),

@@ -49,8 +49,14 @@ class SideEffectSaga:
         self,
         ctx: Any,
         effects: list[SideEffectDef] | None = None,
+        outbox: Any = None,
     ) -> list[dict]:
-        """Ejecuta side-effects en orden con Saga pattern.
+        """Ejecuta side-effects en orden con Saga pattern + Outbox atómico.
+
+        Args:
+            outbox: SideEffectOutbox opcional. Si se provee, cada efecto se
+            enqueue antes de ejecutar y se marca completed/failed/compensated
+            (ADR-WALKER-067 F4/H).
 
         Returns:
             Lista de resultados con: type, ok, optional, result, compensated,
@@ -64,6 +70,9 @@ class SideEffectSaga:
 
         for i, effect in enumerate(effects):
             started = time.time()
+
+            if outbox is not None:
+                outbox_entry = outbox.enqueue(effect, effect.idempotency_key)
 
             if effect.idempotency_key:
                 cached = self._get_tracked(ctx, effect.idempotency_key)
@@ -82,6 +91,8 @@ class SideEffectSaga:
                         "idempotent": True,
                         "compensation": effect.compensation,
                     })
+                    if outbox is not None:
+                        outbox.mark_completed(outbox_entry, cached)
                     executed_count += 1
                     continue
 
@@ -111,8 +122,14 @@ class SideEffectSaga:
                 if effect.idempotency_key and result is not None:
                     self._track_result(ctx, effect.idempotency_key, result)
 
+                if outbox is not None and result is not None:
+                    outbox.mark_completed(outbox_entry, result)
+
                 if failed:
-                    entry["compensation_result"] = self.compensate(ctx, results, i)
+                    if outbox is not None:
+                        self._compensate_outbox(ctx, results, i, outbox)
+                    else:
+                        entry["compensation_result"] = self.compensate(ctx, results, i)
                     for prev in results[:i]:
                         if prev.get("ok"):
                             prev["compensated"] = True
@@ -132,9 +149,14 @@ class SideEffectSaga:
                     "idempotent": False,
                 }
                 results.append(entry)
+                if outbox is not None:
+                    outbox.mark_failed(outbox_entry, str(e))
 
                 if not effect.optional:
-                    entry["compensation_result"] = self.compensate(ctx, results, i)
+                    if outbox is not None:
+                        self._compensate_outbox(ctx, results, i, outbox)
+                    else:
+                        entry["compensation_result"] = self.compensate(ctx, results, i)
                     for prev in results[:i]:
                         if prev.get("ok"):
                             prev["compensated"] = True
@@ -146,6 +168,22 @@ class SideEffectSaga:
                 break
 
         return results
+
+    def _compensate_outbox(
+        self, ctx: Any, results: list[dict], failed_index: int, outbox: Any,
+    ) -> None:
+        """Compensa los efectos exitosos previos y marca el outbox."""
+        comps = self.compensate(ctx, results, failed_index)
+        for prev in results[:failed_index]:
+            if not prev.get("ok"):
+                continue
+            for outbox_entry in outbox.all():
+                if (
+                    outbox_entry.effect_type == prev.get("type")
+                    and outbox_entry.status == "completed"
+                ):
+                    outbox.mark_compensated(outbox_entry, comps)
+                    break
 
     def _execute_single(self, ctx: Any, effect: SideEffectDef) -> dict | str | None:
         """Ejecuta un único side-effect resolviendo el handler vía ActionCatalog."""

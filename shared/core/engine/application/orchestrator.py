@@ -115,7 +115,13 @@ class OrchestrationService:
         self._workflow_store = workflow_store
         self._actions = actions
         self._workflow_io = workflow_io
-        self._tracer = tracer or TraceLogger()
+        from ..infrastructure.trace_log import NoopTracer
+
+        self._tracer = tracer or NoopTracer()
+        from ..domain.ports_registry import resolve_port
+        from ..domain.ports import IEngineMetrics
+
+        self._metrics = resolve_port(IEngineMetrics)
 
         # Composition root obligatorio (capa_rout.md D1): `actions` es
         # REQUERIDO — no hay defaults que fabriquen un catálogo vacío. Si falta,
@@ -407,7 +413,13 @@ class OrchestrationService:
             dispatch_events_from_side_effects=self._dispatch_events_from_side_effects,
             signal_bus=self._signal_bus,
         )
-        return orch.submit(ctx, fields=fields)
+        import time as _time
+
+        _start = _time.time()
+        result = orch.submit(ctx, fields=fields)
+        if self._metrics is not None:
+            self._metrics.record_submit((_time.time() - _start) * 1000)
+        return result
 
     def advance_sub_state(self, ctx: ExecutionContext) -> dict:
         """Avanza al siguiente sub-estado dentro del mismo nodo.
@@ -452,9 +464,15 @@ class OrchestrationService:
             execute_edge_transform=self._execute_edge_transform,
             dispatch_event=self._dispatch_event,
         )
-        return orch.transition(
+        import time as _time
+
+        _start = _time.time()
+        result = orch.transition(
             ctx, gate, reason=reason, skip_preconditions=skip_preconditions
         )
+        if self._metrics is not None:
+            self._metrics.record_transition((_time.time() - _start) * 1000)
+        return result
 
     def _ensure_not_blocked(
         self, ctx: ExecutionContext, strategy: str = "wait", payload: dict | None = None
@@ -493,6 +511,16 @@ class OrchestrationService:
             return {"blocked": True, "resolved": False}
         except Exception as e:
             return {"blocked": True, "resolved": False, "message": str(e)}
+
+    def health_metrics(self) -> dict:
+        """Snapshot de observabilidad del motor (p99 submit/transition, state).
+
+        ADR-WALKER-067 F5/J: expone las métricas del puerto IEngineMetrics
+        (default in-memory; el host puede reemplazarlo con su telemetría).
+        """
+        if self._metrics is None:
+            return {}
+        return self._metrics.snapshot()
 
     def status(
         self,

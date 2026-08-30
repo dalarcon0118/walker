@@ -177,3 +177,17 @@ class SideEffectFailedError(WorkflowEngineError):
             message or f"Side effect obligatorio '{effect_type}' falló",
             {"effect_type": effect_type},
         )
+
+
+class StateConflictError(WorkflowEngineError):
+    """Lost update detectado por optimistic concurrency (CAS).
+
+    ADR-WALKER-067 F6/G: `WorkflowStateRepository.save` falla si la `revision`
+    del estado entrante no coincide con la persistida — otro escritor avanzó.
+    """
+    def __init__(self, chain_dir: str, expected: int, stored: int):
+        super().__init__(
+            f"Concurrency conflict en '{chain_dir}': revision esperada "
+            f"{expected}, persistida {stored} (lost update)",
+            {"chain_dir": chain_dir, "expected_revision": expected, "stored_revision": stored},
+        )

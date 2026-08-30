@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from dataclasses import replace
 
 # config import moved to composition root
 from ..application.context_resolver import ContextResolver
+from ..domain.errors import StateConflictError
 from ..domain.entities import (
     WorkflowGraph,
     WorkflowNode,
@@ -368,11 +370,26 @@ class WorkflowStateRepository:
         return state
 
     def save(self, chain_dir: str, state: WorkflowState) -> None:
-        """Persiste WorkflowState a .workflow-state.json (solo campos engine)."""
+        """Persiste WorkflowState a .workflow-state.json (solo campos engine).
+
+        UNIT-OF-WORK (ADR-WALKER-067 F6/G): optimistic concurrency vía
+        `state.revision` (CAS). Si la revisión del estado entrante no coincide
+        con la persistida, hay un lost update → StateConflictError.
+        """
         path = os.path.join(chain_dir, self.STATE_FILE)
+        stored_revision = 0
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    stored_revision = int((json.load(f).get("revision") or 0))
+            except Exception:
+                stored_revision = 0
+        if state.revision != stored_revision:
+            raise StateConflictError(chain_dir, state.revision, stored_revision)
+        new_state = replace(state, revision=stored_revision + 1)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            json.dump(state.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(new_state.to_dict(), f, indent=2, ensure_ascii=False)
 
 
 # ── Script Runner ──────────────────────────────────────────────────────────

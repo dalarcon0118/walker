@@ -71,12 +71,18 @@ class WorkflowAPI:
     # ── Bootstrap / Sesión ────────────────────────────────────────
 
     def _trace_session_start(self, record: Any) -> None:
-        """Registra un evento session_start en el TraceGraph."""
+        """Registra un evento session_start en el TraceGraph.
+
+        Tracing PLUGGABLE (ADR-WALKER-067 F5/I): el motor usa el ITracer
+        inyectado (o el default por puerto); NO construye un logger concreto.
+        """
         try:
             if self._tracer is None:
-                from ..infrastructure.trace_log import TraceLogger
+                from ..domain.ports_registry import resolve_port
+                from ..domain.ports import ITracer as _ITracer
+                from ..infrastructure.trace_log import NoopTracer
 
-                self._tracer = TraceLogger()
+                self._tracer = resolve_port(_ITracer) or NoopTracer()
             chain_dir = record.chain_dir or ""
             if not chain_dir:
                 return

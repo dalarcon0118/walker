@@ -8,7 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from shared.core.engine.domain.entities import WorkflowGraph, WorkflowState
+from shared.core.engine.domain.entities import WorkflowGraph, WorkflowState, WorkflowNode
 
 
 class IWorkflowIO(ABC):
@@ -31,8 +31,10 @@ class IWorkflowIO(ABC):
         ...
 
     @abstractmethod
-    def get_sub_state(self, workflow: dict, node_id: str, sub_key: str) -> dict | None:
-        """Obtiene un sub-estado del workflow dict."""
+    def get_sub_state(
+        self, workflow: WorkflowGraph, node_id: str, sub_key: str
+    ) -> Any | None:
+        """Obtiene un sub-estado del grafo del workflow (tipado)."""
         ...
 
 
@@ -144,15 +146,19 @@ class IPresenter(ABC):
         ...
 
     @abstractmethod
-    def show_node_header(self, current: str, node: dict, sub_state: dict | None = None) -> None:
+    def show_node_header(
+        self, current: str, node: WorkflowNode, sub_state: Any | None = None
+    ) -> None:
         ...
 
     @abstractmethod
-    def show_transitions(self, workflow: dict, node_id: str, chain_dir: str | None = None) -> None:
+    def show_transitions(
+        self, workflow: WorkflowGraph, node_id: str, chain_dir: str | None = None
+    ) -> None:
         ...
 
     @abstractmethod
-    def show_flow_progress(self, state: dict) -> None:
+    def show_flow_progress(self, state: WorkflowState) -> None:
         ...
 
 
@@ -168,6 +174,15 @@ class ITracer(ABC):
         task_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
+        ...
+
+    @abstractmethod
+    def trace_event(self, event: Any) -> None:
+        """Registra un evento TIPADO (WorkflowEvent, ADR-WALKER-067 F5/I).
+
+        Contrato tipado de trazabilidad; `trace()` queda como transporte de
+        compat mientras se migran los emit-sites.
+        """
         ...
 
     @abstractmethod
@@ -374,6 +389,35 @@ class IWorkflowStore(ABC):
         ...
 
 
+class IEngineMetrics(ABC):
+    """Puerto de observabilidad del motor (health).
+
+    ADR-WALKER-067 F5/J: el engine expone métricas de salud vía puerto
+    (p99 de submit/transition, tamaño de state, contadores). El host puede
+    reemplazar el default in-memory por uno que alimente su telemetría.
+    """
+
+    @abstractmethod
+    def record_submit(self, duration_ms: float) -> None:
+        """Registra la duración de un submit."""
+        ...
+
+    @abstractmethod
+    def record_transition(self, duration_ms: float) -> None:
+        """Registra la duración de una transition."""
+        ...
+
+    @abstractmethod
+    def record_state_size(self, fields: int) -> None:
+        """Registra el tamaño del estado (número de campos de sub_state_data)."""
+        ...
+
+    @abstractmethod
+    def snapshot(self) -> dict:
+        """Snapshot de health: p99, counts, últimas duraciones."""
+        ...
+
+
 class ICpgAnalysisPort(ABC):
     """Contrato de análisis y operaciones CPG para tasks públicas (DIP).
 
@@ -439,4 +483,5 @@ __all__ = [
     "IContextValidator",
     "ISideEffectEngine",
     "IWorkflowStore",
+    "IEngineMetrics",
 ]

@@ -139,13 +139,13 @@ deudas que lo harían frágil en producción. La tabla contrasta cada dimensión
 | B | **Superficie del motor (`engine.py`)** | Fachada fina (206 ln): `load_workflow`/`load_state`/`save_state`/`check_blocked_state` + 2 privadas. `check_blocked_state` es la única pública con callers. | Facade = solo `submit/transition/signal/status` + constructores de entidades. | 🟢 buen estado; alinear nombres en F3. |
 | C | **Orquestación (god-class)** | `application/orchestrator.py` = **875 ln**, mezcla submit/transition/signal/blocked/conflict. | `SubmitService`/`TransitionService`/`SignalService` SRP (<250 ln c/u). | 🔴 F3. |
 | D | **Casos de uso (god-class)** | `application/use_cases.py` = **1347 ln**, múltiples responsabilidades. | `SubmitUseCase`/`TransitionUseCase`/`CheckBlockedStateUseCase`/`ResolveConflictUseCase` SRP. | 🔴 F3. |
-| E | **Puertos / tipado** | Fugas de `dict` en puertos del ENGINE: `IWorkflowIO.get_sub_state(workflow: dict, …)`, `IPresenter.show_node_header(node: dict)`, `IPresenter.show_flow_progress(state: dict)` (`ports.py:34,151,155`). `ISprintService`/`IConflictResolver` ya NO son consumidos por el engine (host valida fuera, §2.3). | Puertos aceptan `WorkflowGraph`/`WorkflowState` (tipos ricos); `dict` solo en DTOs de borde (MCP/CLI). | 🔴 F2. |
+| E | **Puertos / tipado** | **TIPADOS (F2/E)**: `IWorkflowIO.get_sub_state(workflow: WorkflowGraph)`, `IPresenter.show_node_header(node: WorkflowNode)`, `show_transitions(workflow: WorkflowGraph)`, `show_flow_progress(state: WorkflowState)` — sin callers reales; firmas corregidas. | Puertos aceptan tipos ricos; `dict` solo en DTOs de borde. | 🟡 F2 (hecho). |
 | F | **Estado: mutabilidad** | `workflow_api.py:187-192` reasigna `state.current_node`/`state.current_sub_state` **in-place** antes de guardar. | `submit/transition` retornan **nueva** `WorkflowState` (inmutabilidad); el caller decide persistir. | 🔴 F2. |
-| G | **Estado: versionado / unit-of-work** | `WorkflowState.version` existe pero `save_state_to_repo` NO lo usa; sin optimistic concurrency. | `save` falla por `version` desactualizado → reload+merge por sub-estado (único escritor por `chain_dir`). | 🔴 F6. |
-| H | **Side-effects / Saga / Outbox** | `SideEffectEngine` existe pero `side_effect_outbox.py` y `compensation_engine.py` son **TEST-ONLY**, no cableados al submit de producción. | Submit ejecuta effects con Saga + outbox atómico (todo-o-nada) y compensa en orden inverso. | 🔴 F4. |
-| I | **Eventos / trazabilidad** | `ITracer.trace(event_type: str, data: dict\|None, …)` — evento stringly-typed + payload `dict` abierto. | Evento como **dataclass de contrato** tipado; `data` validado por el tipo. | 🔴 F5. |
-| J | **Observabilidad / health** | Sin métricas de health del motor expuestas vía puerto. | p99 de `submit`/`transition`, tamaño de `state`, conteo de compensaciones vía puerto de health. | 🔴 F5. |
-| K | **Errores silenciosos** | `grep -rnE "except[^:]*:\s*pass"` → **2** en `shared/core/engine`. | 0 `except: pass`; `logger.warning`+métrica + propagación `Result`. | 🔴 F6. |
+| G | **Estado: versionado / unit-of-work** | **CAS implementado (F6/G)**: `WorkflowState.revision` + `save` con optimistic concurrency (`StateConflictError` en lost update). | `save` falla por revision desactualizada; único escritor por `chain_dir`. | 🟡 F6 (hecho; reload+merge pendiente). |
+| H | **Side-effects / Saga / Outbox** | **Saga + Outbox en `SideEffectSaga` (F4/H)**: `run(ctx, effects, outbox=None)` enqueue/mark_completed/failed/compensated. | Saga con outbox atómico y compensación en orden inverso. | 🟡 F4 (hecho; cableado del outbox al submit pendiente). |
+| I | **Eventos / trazabilidad** | **Contrato tipado + tracing PLUGGABLE (F5/I)**: `WorkflowEvent` dataclass + `ITracer.trace_event(event)`; el motor usa el tracer INYECTADO (NoopTracer default); sin TraceLogger() en el motor. | Evento tipado; `trace()` queda de compat. | 🟡 F5 (contrato hecho; migración de emit-sites pendiente). |
+| J | **Observabilidad / health** | **`IEngineMetrics` + `EngineMetrics` (F5/J)**: p99 de submit/transition, state size; `engine.health_metrics()`. | p99 vía puerto; host puede reemplazar el default. | 🟢 F5 (hecho). |
+| K | **Errores silenciosos** | 0 `except: pass` reales en `shared/core/engine` (solo docstring). | 0 silenciosos. | 🟢 F6 (hecho). |
 | L | **Transporte MCP (intocable)** | JSON-RPC 2.0 `_handle_request` estable, 31 tools. | No tocar (invariante de transporte). | 🟢 intacto. |
 
 ### Scorecard de producción
@@ -156,13 +156,13 @@ deudas que lo harían frágil en producción. La tabla contrasta cada dimensión
 | B Superficie motor | 🟢 ok | F3 (alineación) |
 | C Orquestación SRP | 🔴 | F3 |
 | D Casos de uso SRP | 🔴 | F3 |
-| E Puertos tipados | 🔴 | F2 |
+| E Puertos tipados | 🟡 | F2 (firmas tipadas) |
 | F Inmutabilidad estado | 🔴 | F2 |
-| G Versionado/unit-of-work | 🔴 | F6 |
-| H Saga/Outbox cableado | 🔴 | F4 |
-| I Eventos tipados | 🔴 | F5 |
-| J Observabilidad | 🔴 | F5 |
-| K Errores silenciosos | 🔴 | F6 |
+| G Versionado/unit-of-work | 🟡 | F6 (CAS) |
+| H Saga/Outbox cableado | 🟡 | F4 (saga+outbox) |
+| I Eventos tipados | 🟡 | F5 (contrato+pluggable) |
+| J Observabilidad | 🟢 | F5 (IEngineMetrics) |
+| K Errores silenciosos | 🟢 | F6 (0 reales) |
 | L Transporte MCP | 🟢 | — |
 
 ### Riesgo de producción si se envía "as-is" (sin F2–F6)

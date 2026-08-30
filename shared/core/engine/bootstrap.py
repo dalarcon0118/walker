@@ -180,11 +180,13 @@ def register_engine_domain_ports() -> None:
         IContextValidator,
         ISideEffectEngine,
         ISessionStore,
+        IEngineMetrics,
     )
     from .infrastructure.repositories import WorkflowStateRepository
     from .infrastructure.config import ConfigAdapter
     from .infrastructure.side_effects import SideEffectEngine
     from .infrastructure.session_store import SessionStore
+    from .infrastructure.engine_metrics import EngineMetrics
     from .application.context_resolver import ContextResolver
 
     register_port(IStateStore, WorkflowStateRepository())
@@ -192,6 +194,7 @@ def register_engine_domain_ports() -> None:
     register_port(IContextValidator, ContextResolver())
     register_port(ISideEffectEngine, SideEffectEngine())
     register_port(ISessionStore, SessionStore)
+    register_port(IEngineMetrics, EngineMetrics())
 
 
 # Safety net: disponible en cualquier import del engine (tests, CLI, MCP).

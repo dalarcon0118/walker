@@ -18,6 +18,39 @@ from shared.core.engine.domain.ports import ITracer
 logger = logging.getLogger(__name__)
 
 
+class NoopTracer(ITracer):
+    """Tracer NO-OP (default host-agnóstico).
+
+    ADR-WALKER-067 F5/I (tracing pluggable): el motor NO construye un logger
+    concreto; usa el ITracer INYECTADO por el host. Si no se inyecta, este
+    no-op es el default (el motor no requiere tracing para ejecutarse).
+    """
+
+    def trace(self, chain_dir, event_type, data=None, task_id=None, session_id=None) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def trace_event(self, event: Any) -> None:
+        return None
+
+    def trace_auto(self, chain_dir, sub_state, stdout, stderr, exit_code, task_id=None) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def trace_submit(self, chain_dir, sub_state, decision, evidence, task_id=None) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def trace_transition(self, chain_dir, gate, from_node, to_node, task_id=None) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def trace_error(self, chain_dir, error_type, message, task_id=None) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def has_kg_query(self, chain_dir, task_id="", session_id="", layers=None) -> bool:  # type: ignore[no-untyped-def]
+        return False
+
+    def replay(self, chain_dir, max_events=None) -> list:  # type: ignore[no-untyped-def]
+        return []
+
+
 class TraceLogger(ITracer):
     """Logger de auditoria. Escribe eventos en CognitiveGraph (índice trace)."""
 
@@ -117,6 +150,22 @@ class TraceLogger(ITracer):
                 event_type,
                 e,
             )
+
+    def trace_event(self, event: Any) -> None:
+        """Registra un evento TIPADO (WorkflowEvent) en el TraceGraph.
+
+        ADR-WALKER-067 F5/I + tracing pluggable: el motor emite eventos tipados
+        via el puerto ITracer; este default delega en trace() (transporte de
+        compat). El HOST puede inyectar su propia implementación.
+        """
+        payload = event.payload if isinstance(event, object) and hasattr(event, "payload") else {}
+        self.trace(
+            event.chain_dir if hasattr(event, "chain_dir") else "",
+            event.event_type,
+            data=dict(payload or {}),
+            task_id=getattr(event, "task_id", None) or None,
+            session_id=getattr(event, "session_id", None) or None,
+        )
 
     def trace_auto(
         self,
