@@ -99,7 +99,7 @@ class CpgService:
 
     def get_analysis_adapter(self, chain_dir: str) -> Any:
         """Construye el adapter de análisis CPG (ICpgAnalysisPort)."""
-        from features.code_analysis.builder import cpg_analysis_adapter
+        from features.code_analysis.domain.builder import cpg_analysis_adapter
 
         return cpg_analysis_adapter(chain_dir)
 

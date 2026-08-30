@@ -1,10 +1,10 @@
-"""features/main/prompts/prompt_context_builder.py — PromptContextBuilder.
+"""features/workflow/application/prompts/prompt_context_builder.py — PromptContextBuilder.
 
 INCUMBENCIA DEL HOST: construir el contexto de placeholders para los prompts
 del workflow (desde el delta/spring) es un concern del negocio, NO del engine
 (ADR-WALKER-067). El engine solo renderiza prompts con la mecánica de su
 PromptManager; el contexto lo provee el host (via IPromptCollector o este
-builder). Vive en features/main, no en shared.core.engine.
+builder). Vive en features/workflow, no en shared.core.engine.
 """
 from __future__ import annotations
 

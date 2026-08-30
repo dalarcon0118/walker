@@ -113,7 +113,7 @@ def _assert_focus_antes(gate_ctx: dict):
 
 @when("se carga el template implement/work")
 def _load_work_template(gate_ctx: dict):
-    from features.main.prompts.loader import TemplateLoader
+    from features.workflow.application.prompts.loader import TemplateLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
         gate_ctx["template"] = TemplateLoader(tmpdir).load("implement/work")
@@ -156,7 +156,7 @@ def _assert_gate_before_quality(gate_ctx: dict):
 
 @when("se renderiza con datos de paso")
 def _render_template(gate_ctx: dict):
-    from features.main.prompts.renderer import TemplateRenderer
+    from features.workflow.application.prompts.renderer import TemplateRenderer
 
     tmpl = gate_ctx["template"]
     data = {
@@ -231,7 +231,7 @@ def _compose_work_context(gate_ctx: dict):
         baggage={"sprint_goal": "Migrar modulo"},
     )
     with tempfile.TemporaryDirectory() as tmpdir:
-        from features.main.prompts.loader import TemplateLoader
+        from features.workflow.application.prompts.loader import TemplateLoader
 
         template = TemplateLoader(tmpdir).load("implement/work")
     gate_ctx["result"] = composer.compose(node_config, template, ctx)
@@ -282,7 +282,7 @@ def _assert_design_gather_providers(gate_ctx: dict):
 
 @when("se carga el template design/design-gather")
 def _load_gather_template(gate_ctx: dict):
-    from features.main.prompts.loader import TemplateLoader
+    from features.workflow.application.prompts.loader import TemplateLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
         gate_ctx["gather_template"] = TemplateLoader(tmpdir).load(
@@ -332,7 +332,7 @@ def _compose_design_gather_context(gate_ctx: dict):
         baggage={"sprint_goal": "Diseñar feature"},
     )
     with tempfile.TemporaryDirectory() as tmpdir:
-        from features.main.prompts.loader import TemplateLoader
+        from features.workflow.application.prompts.loader import TemplateLoader
 
         template = TemplateLoader(tmpdir).load("design/design-gather")
     gate_ctx["design_result"] = composer.compose(

@@ -1194,7 +1194,7 @@ def _last_empty(mg_ctx: dict):
 def _load_template(prompt_id: str) -> dict:
     import tempfile
 
-    from features.main.prompts.loader import TemplateLoader
+    from features.workflow.application.prompts.loader import TemplateLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
         text = TemplateLoader(tmpdir).load(prompt_id)
@@ -1251,7 +1251,7 @@ def _quality_fail_data(mg_ctx: dict):
 
 @when("renderizo cada template con datos")
 def _render_with_data(mg_ctx: dict):
-    from features.main.prompts.renderer import TemplateRenderer
+    from features.workflow.application.prompts.renderer import TemplateRenderer
 
     r = TemplateRenderer()
     mg_ctx["rendered"] = {
@@ -1272,7 +1272,7 @@ def _render_contains(mg_ctx: dict):
 
 @when("renderizo sin datos")
 def _render_empty(mg_ctx: dict):
-    from features.main.prompts.renderer import TemplateRenderer
+    from features.workflow.application.prompts.renderer import TemplateRenderer
 
     r = TemplateRenderer()
     mg_ctx["rendered_empty"] = {

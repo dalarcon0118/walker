@@ -26,7 +26,7 @@ PHASE_TOOL_NAMES = {
 
 
 def _load_static_template() -> str:
-    from features.main.prompts.loader import load_static
+    from features.workflow.application.prompts.static_loader import load_static
 
     return load_static("protocol/mcp")
 

@@ -124,7 +124,7 @@ def _register_module_manifests(registry: Any) -> None:
     import features.code_analysis.module  # noqa: F401
     import features.project.module  # noqa: F401
     import features.delta_tracking.module  # noqa: F401
-    import features.main.prompts.module  # noqa: F401
+    import features.workflow.module  # noqa: F401
     import features.cognitive_knowledge.module  # noqa: F401
     import features.event_tracing.module  # noqa: F401
     import tasks.module  # noqa: F401
@@ -190,9 +190,8 @@ def _build_tracer_core() -> Any:
 def _feature_subpackages() -> list[tuple[str, str]]:
     """Devuelve [(pkg_name, abs_dir)] de los features registrables.
 
-    Cubre DOS niveles (task_execution/prompts viven bajo features/main):
-      - features/*                       (delta_tracking, code_analysis, ...)
-      - features/main/*                  (task_execution, prompts — subcomponentes)
+    Un nivel: features/* (delta_tracking, code_analysis, workflow, ...).
+    (features/main fue absorbido por features/workflow — ADR-068.)
     """
     found: list[tuple[str, str]] = []
     features_pkg = importlib.import_module("features")
@@ -202,16 +201,6 @@ def _feature_subpackages() -> list[tuple[str, str]]:
         if not is_pkg or mod_name.startswith("_"):
             continue
         found.append((f"features.{mod_name}", os.path.join(features_dir, mod_name)))
-
-    # Subcomponentes de features/main (task_execution, prompts, ...)
-    main_pkg_path = os.path.join(features_dir, "main")
-    if os.path.isdir(main_pkg_path):
-        for _, sub_name, is_pkg in pkgutil.iter_modules([main_pkg_path]):
-            if not is_pkg or sub_name.startswith("_"):
-                continue
-            found.append(
-                (f"features.main.{sub_name}", os.path.join(main_pkg_path, sub_name))
-            )
     return found
 
 
@@ -592,14 +581,14 @@ def _build_trace_reflection() -> Any:
 
 def _build_gate_briefing() -> Any:
     """Factory del briefing de gates (DI, clave "gate_briefing")."""
-    from features.main.prompts.gate_briefing import what_happened_from_state
+    from features.workflow.application.prompts.gate_briefing import what_happened_from_state
 
     return what_happened_from_state
 
 
 def _build_prompt_collector() -> Any:
     """Factory del collector de prompts (DI, clave "prompt_collector")."""
-    from features.main.prompts.collector import collect_all
+    from features.workflow.application.prompts.collector import collect_all
 
     return collect_all
 
@@ -766,7 +755,7 @@ def _build_delta_conflict_resolver() -> Any:
 
 def _build_prompt_manager(chain_dir: str = "") -> Any:
     """Factory del module service de prompts (DI, clave "prompt_manager")."""
-    from features.main.prompts import PromptManager
+    from features.workflow import PromptManager
 
     return PromptManager(chain_dir=chain_dir or os.getcwd(), project_dir=None)
 

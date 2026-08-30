@@ -28,11 +28,11 @@ from __future__ import annotations
 from typing import Any
 
 _EXPORTS: dict[str, str] = {
-    "CPGBuilder": "features.code_analysis.builder",
-    "CpgQueryService": "features.code_analysis.builder",
-    "cpg_service": "features.code_analysis.builder",
-    "cpg_repository": "features.code_analysis.builder",
-    "cpg_analysis_adapter": "features.code_analysis.builder",
+    "CPGBuilder": "features.code_analysis.domain.builder",
+    "CpgQueryService": "features.code_analysis.domain.builder",
+    "cpg_service": "features.code_analysis.domain.builder",
+    "cpg_repository": "features.code_analysis.domain.builder",
+    "cpg_analysis_adapter": "features.code_analysis.domain.builder",
     "CpgService": "features.code_analysis.application.services.cpg_service",
     "CodeAnalysisService": "features.code_analysis.application.services.code_analysis_service",
     "CheckCpgHealthUseCase": "features.code_analysis.application.use_cases",

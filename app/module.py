@@ -144,7 +144,7 @@ MODULE = ModuleManifest(
     imports=[
         "shared",
         "tasks",
-        "features.main.prompts",
+        "features.workflow",
         "features.project",
         "features.delta_tracking",
         "features.code_analysis",

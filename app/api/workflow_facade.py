@@ -51,7 +51,7 @@ class WorkflowFacade:
                 or getattr(state, "current_sub_state", "") not in closing
             ):
                 return None
-            from features.main.workflow.uncaptured_work import (
+            from features.workflow.application.uncaptured_work import (
                 UncapturedStatus,
                 detect_uncaptured_work,
             )

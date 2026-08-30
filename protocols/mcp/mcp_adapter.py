@@ -357,7 +357,7 @@ def _load_protocol_text() -> str:
 @safe
 def _protocol_text_core() -> str:
     """Core puro: construye el protocolo MCP dinámicamente (puede lanzar)."""
-    from features.main.prompts.loader import build_mcp_protocol
+    from features.workflow.application.prompts.loader import build_mcp_protocol
 
     return build_mcp_protocol()
 

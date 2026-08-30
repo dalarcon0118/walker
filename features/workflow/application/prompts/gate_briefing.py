@@ -177,6 +177,6 @@ def _read_gate_template_core(path: str) -> str:
 @safe
 def _render_gate_core(template: str, data: dict) -> str:
     """Core puro: renderiza el briefing (puede lanzar)."""
-    from features.main.prompts.renderer import TemplateRenderer
+    from features.workflow.application.prompts.renderer import TemplateRenderer
 
     return TemplateRenderer().render(template, data)

@@ -193,7 +193,7 @@ def _collect_reflection(reflection_ctx: dict):
 
 @when("el PromptContextBuilder construye el contexto")
 def _build_prompt_context(reflection_ctx: dict):
-    from features.main.prompts.prompt_context_builder import PromptContextBuilder
+    from features.workflow.application.prompts.prompt_context_builder import PromptContextBuilder
 
     task_id = reflection_ctx.get("task_id", "TASK-004")
     reflection_ctx["builder_ctx"] = PromptContextBuilder().build(

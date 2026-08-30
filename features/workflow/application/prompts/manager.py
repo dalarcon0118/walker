@@ -13,7 +13,7 @@ from returns.result import safe
 from .loader import TemplateLoader
 from .renderer import TemplateRenderer
 from .collector import collect_all
-from features.main.prompts.application.ports.prompt_manager import IPromptManager
+from features.workflow.application.prompts.application.ports.prompt_manager import IPromptManager
 from shared.core.engine.infrastructure.config import get as cfg
 
 logger = logging.getLogger(__name__)

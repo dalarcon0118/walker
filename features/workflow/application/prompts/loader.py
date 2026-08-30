@@ -19,44 +19,24 @@ class TemplateNotFound(Exception):
 
 
 def canonical_templates_dir() -> str:
-    """ROOT ÚNICO de templates: features/prompts/templates/ (organizado por subpaths).
+    """ROOT ÚNICO de templates (SSOT en static_loader — rompe ciclo loader↔protocol_builder)."""
+    from .static_loader import canonical_templates_dir as _d
 
-    SSOT de todos los prompts servidos por features/prompts:
-      - nodes/<node>/<prompt>.prompt.json  → prompts del workflow del motor
-      - protocol/*.md                      → protocolos (MCP / REST)
-      - gates/*.md                         → gate briefings
-    No depende de proyecto ni de chain_dir.
-    """
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+    return _d()
 
 
 def canonical_nodes_dir() -> str:
-    """Subpath de prompts de nodo del motor: features/prompts/templates/nodes/."""
-    return os.path.join(canonical_templates_dir(), "nodes")
+    """Subpath de prompts de nodo del motor (SSOT en static_loader)."""
+    from .static_loader import canonical_nodes_dir as _d
+
+    return _d()
 
 
 def load_static(template_id: str) -> str:
-    """Carga un template SOLO desde el root canónico (features/prompts/templates).
+    """Carga un template estático (SSOT en static_loader — rompe ciclo)."""
+    from .static_loader import load_static as _l
 
-    Para prompts globales del servidor (protocolos, briefing) que no dependen
-    de un proyecto/chain_dir. Fallback de última instancia: loader completo.
-    """
-    root = canonical_templates_dir()
-    candidates = (
-        os.path.join(root, template_id),
-        os.path.join(root, f"{template_id}.md"),
-        os.path.join(root, f"{template_id}.txt"),
-    )
-    for path in candidates:
-        if os.path.exists(path):
-            result = _read_text_core(path)
-            if is_successful(result):
-                return result.value_or("")
-            logger.debug(
-                "template %s ilegible (%s); probando siguiente fuente",
-                path, result.failure(),
-            )
-    raise TemplateNotFound(f"Template '{template_id}' no encontrado en {root}")
+    return _l(template_id)
 
 
 def build_mcp_protocol() -> str:

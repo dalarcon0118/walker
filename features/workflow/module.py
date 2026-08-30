@@ -1,7 +1,9 @@
-"""features/main/prompts/module.py — Manifiesto del subsistema `prompts` (ADR-066 D4).
+"""features/workflow/module.py — Manifiesto del bounded context `workflow` (ADR-068).
 
-Adaptador del puerto `IPromptCollector` del engine. Vive junto al collector de
-`features/main/prompts` (que lo implementa), no en `app/engine_ports.py`.
+El bounded context del WORKFLOW del walker: los prompts (builders + loader +
+collector) y las gates host-side (uncaptured_work) que envuelven el engine
+anémico (shared/core/engine). Adaptador del puerto `IPromptCollector` del
+engine delegando al collector de este feature.
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ from shared.libs.module_system.contracts import ModuleManifest
 
 
 class PromptCollectorAdapter(IPromptCollector):
-    """Implementa IPromptCollector delegando al collector de features/main."""
+    """Implementa IPromptCollector delegando al collector de features/workflow."""
 
     def __init__(self, prompt_collector: Any):
         self._collector = prompt_collector
@@ -22,7 +24,7 @@ class PromptCollectorAdapter(IPromptCollector):
 
 
 MODULE = ModuleManifest(
-    name="prompts",
+    name="workflow",
     imports=["shared"],
     adapters=[(IPromptCollector, PromptCollectorAdapter)],
     exports=["prompt_collector"],

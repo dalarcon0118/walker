@@ -100,7 +100,7 @@ COMPOSITION_CORE = {
     "app.composition.container",
     "app.composition.lifecycle",
     "app.composition.registry",
-    "features.main",
+    "features.workflow",
     "protocols.rest.front_controller",
     "protocols.cli.cli_interface.application.handlers",
 }
@@ -122,15 +122,18 @@ def test_composition_core_sin_ciclos():
 
 
 def test_api_publica_perezosa_en_import_aislado():
-    """`import features.main` SOLO primero no debe romper ni arrastrar nada."""
+    """`import features.workflow` SOLO primero no debe romper ni arrastrar nada.
+
+    (features/main —el hub eager— fue absorbido por features/workflow, ADR-068;
+    el hub de composición vive en app/, no en features/.)
+    """
     import subprocess
 
     code = (
         "import sys; sys.path.insert(0, '.')\n"
-        "import features.main as fm\n"
+        "import features.workflow as wf\n"
         "assert 'app.container' not in sys.modules, 'hub eager regresó'\n"
-        "from features.main import AppContainer, WalkerApp, FrontController\n"
-        "assert callable(AppContainer.build)\n"
+        "assert callable(wf.PromptManager)\n"
         "print('lazy-ok')\n"
     )
     out = subprocess.run(

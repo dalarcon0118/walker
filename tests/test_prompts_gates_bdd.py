@@ -106,7 +106,7 @@ def _verification_shell_detail(prompts_gates_ctx: dict):
 
 @given("un what_happened sintetizado")
 def _what_happened_synth(prompts_gates_ctx: dict):
-    from features.main.prompts.gate_briefing import what_happened_from_state
+    from features.workflow.application.prompts.gate_briefing import what_happened_from_state
 
     prompts_gates_ctx["what_happened"] = what_happened_from_state(
         {"q1": "Q?", "a1": "A1", "q2": "Q2?", "a2": "A2", "q3": "Q3?", "a3": "A3"}
@@ -174,7 +174,7 @@ def _health_llm_gate(prompts_gates_ctx: dict):
 
 @when("compongo el prompt con datos extra")
 def _compose_prompt(prompts_gates_ctx: dict):
-    from features.main.prompts.manager import PromptManager
+    from features.workflow.application.prompts.manager import PromptManager
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     project_root = prompts_gates_ctx["project_root"]
@@ -253,7 +253,7 @@ def _query_last_fields(prompts_gates_ctx: dict):
 
 @when("genero el reporte de evidencia")
 def _build_evidence(prompts_gates_ctx: dict):
-    from features.main.prompts.evidence import build_evidence_report, format_detail_block
+    from features.workflow.application.prompts.evidence import build_evidence_report, format_detail_block
 
     detail = prompts_gates_ctx.get(
         "detail",
@@ -298,7 +298,7 @@ def _build_evidence(prompts_gates_ctx: dict):
 
 @when("renderizo el gate briefing")
 def _render_briefing(prompts_gates_ctx: dict):
-    from features.main.prompts.gate_briefing import render_gate_briefing
+    from features.workflow.application.prompts.gate_briefing import render_gate_briefing
 
     wh = prompts_gates_ctx.get("what_happened") or {}
     gates = prompts_gates_ctx.get("gates") or []
@@ -336,14 +336,14 @@ def _state_empty(prompts_gates_ctx: dict):
 
 @when("what_happened sintetiza el estado")
 def _what_happened(prompts_gates_ctx: dict):
-    from features.main.prompts.gate_briefing import what_happened_from_state
+    from features.workflow.application.prompts.gate_briefing import what_happened_from_state
 
     prompts_gates_ctx["result"] = what_happened_from_state(prompts_gates_ctx["state"])
 
 
 @when("construyo el contexto del prompt")
 def _build_context(prompts_gates_ctx: dict):
-    from features.main.prompts.prompt_context_builder import PromptContextBuilder
+    from features.workflow.application.prompts.prompt_context_builder import PromptContextBuilder
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir, "TASK-001")
@@ -376,7 +376,7 @@ def _spring_with_deps(prompts_gates_ctx: dict, tmp_path):
 
 @when("construyo el contexto del sprint")
 def _build_sprint_context(prompts_gates_ctx: dict):
-    from features.main.prompts.prompt_context_builder import PromptContextBuilder
+    from features.workflow.application.prompts.prompt_context_builder import PromptContextBuilder
 
     chain_dir = prompts_gates_ctx["chain_dir"]
     prompts_gates_ctx["ctx"] = PromptContextBuilder().build(chain_dir)

@@ -1,4 +1,4 @@
-"""features/main/workflow/uncaptured_work.py — Detector de trabajo sin capturar.
+"""features/workflow/application/uncaptured_work.py — Detector de trabajo sin capturar.
 
 INCUMBENCIA DEL HOST (ADR-WALKER-067): detectar trabajo sin capturar (escaneo
 de data/, delta y trace) es un concern de negocio del host, NO del engine. El

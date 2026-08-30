@@ -6,7 +6,7 @@ Responsabilidades:
   - Renderizar templates con datos
 
 Uso:
-    from features.main.prompts import PromptManager
+    from features.workflow.application.prompts.manager import PromptManager
     pm = PromptManager(chain_dir)
     prompt = pm.resolve("activity", {"node_id": "ANALYZE"})
 """

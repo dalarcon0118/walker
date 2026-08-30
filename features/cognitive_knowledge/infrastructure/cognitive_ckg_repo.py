@@ -12,7 +12,7 @@ from returns.pipeline import is_successful
 
 
 from features.cognitive_knowledge.application.ports.ckg_repository import CkgRepository
-from features.cognitive_knowledge.entities import KnowledgeFact
+from features.cognitive_knowledge.domain.entities import KnowledgeFact
 from app.path_resolver import memory_data_dir
 from shared.libs.cognitive_graph.config import load_memory_connection
 

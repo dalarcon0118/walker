@@ -18,7 +18,7 @@ scenarios("bdd/features/prompts_ssot.feature")
 
 
 def _template_path(*parts: str) -> str:
-    from features.main.prompts.loader import canonical_templates_dir
+    from features.workflow.application.prompts.loader import canonical_templates_dir
 
     return os.path.join(canonical_templates_dir(), *parts)
 
@@ -38,7 +38,7 @@ def prompts_ssot_ctx() -> dict:
 
 @given("el directorio de templates canónico")
 def _canonical_dir(prompts_ssot_ctx: dict):
-    from features.main.prompts.loader import canonical_templates_dir
+    from features.workflow.application.prompts.loader import canonical_templates_dir
 
     prompts_ssot_ctx["template_dir"] = canonical_templates_dir()
     # Los escenarios 1 y 2 verifican el contenido de templates conocidos sin
@@ -60,7 +60,7 @@ def _rest_template(prompts_ssot_ctx: dict):
 
 @given("el loader patcheado para lanzar TemplateNotFound")
 def _loader_patched(prompts_ssot_ctx: dict, monkeypatch):
-    from features.main.prompts import loader as loader_mod
+    from features.workflow.application.prompts import loader as loader_mod
 
     def _boom(template_id: str):
         raise loader_mod.TemplateNotFound(template_id)
@@ -70,7 +70,7 @@ def _loader_patched(prompts_ssot_ctx: dict, monkeypatch):
 
 @given("un TemplateLoader con chain temporal")
 def _loader_tmp(prompts_ssot_ctx: dict, tmp_path):
-    from features.main.prompts.loader import TemplateLoader
+    from features.workflow.application.prompts.loader import TemplateLoader
 
     prompts_ssot_ctx["loader"] = TemplateLoader(os.path.join(str(tmp_path), "chain"))
 
@@ -90,7 +90,7 @@ def _path_resolver(prompts_ssot_ctx: dict):
 
 @given("un PromptManager con chain temporal")
 def _pm_tmp(prompts_ssot_ctx: dict, tmp_path):
-    from features.main.prompts.manager import PromptManager
+    from features.workflow.application.prompts.manager import PromptManager
 
     prompts_ssot_ctx["pm"] = PromptManager(os.path.join(str(tmp_path), "chain"))
 
@@ -107,9 +107,9 @@ def _compare_mcp(prompts_ssot_ctx: dict):
 
 @when("construyo el protocolo MCP dinámico")
 def _build_mcp_dynamic(prompts_ssot_ctx: dict):
-    from protocols.mcp.mcp_adapter import _PROTOCOL_TEXT
+    from protocols.mcp.mcp_adapter import _get_protocol_text
 
-    prompts_ssot_ctx["mcp_dynamic"] = _PROTOCOL_TEXT
+    prompts_ssot_ctx["mcp_dynamic"] = _get_protocol_text()
 
 
 @when("invoco _build_help")

@@ -969,7 +969,7 @@ def _load_protocol_rest() -> str:
 @safe
 def _load_protocol_rest_core() -> str:
     """Core puro de _load_protocol_rest (puede lanzar)."""
-    from features.main.prompts.loader import load_static
+    from features.workflow.application.prompts.loader import load_static
 
     return load_static("protocol/rest")
 
