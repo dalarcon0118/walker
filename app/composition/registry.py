@@ -109,42 +109,33 @@ def register_all(
 
 
 def _register_module_manifests(registry: Any) -> None:
-    """Registra los ModuleManifest declarativos de las 5 capas (ADR-066 F5).
+    """Registra los ModuleManifest (AUTO-REGISTRO por import, ADR-WALKER-068).
 
-    Cada ``*/module.py`` declara su ``MODULE``; el registry aplica adapters/
-    providers y valida aciclicidad. Los puertos del engine se resuelven luego
-    con ``resolve_port()`` — ya no hay instanciación manual de adaptadores.
+    Cada ``*/module.py`` se auto-registra (``register_manifest(MODULE)``) al ser
+    importado — igual que ``shared/core/engine/bootstrap.py`` auto-registra los
+    puertos del engine. El composition root los importa POR REFERENCIA (AppModule
+    imports, NestJS ``@Module({imports: [...]})``) — sin lista central de strings
+    de paths (anti-patrón eliminado). El registry aplica adapters/providers y
+    valida aciclicidad.
     """
-    import importlib
+    from shared.libs.module_system.global_registry import registered_manifests
 
-    module_paths = [
-        "features.code_analysis.module",
-        "features.project.module",
-        "features.delta_tracking.module",
-        "features.main.prompts.module",
-        "features.cognitive_knowledge.module",
-        "features.event_tracing.module",
-        # ADR-WALKER-068 Fase 1: módulos objetivo declarados (sin código aún).
-        # Los providers se pueblan en las fases 2-4 (moves desde app/).
-        "features.memories.module",
-        "features.orchestration.module",
-        "features.common.module",
-        "features.cli_interface.module",
-        "tasks.module",
-        "protocols.mcp.module",
-        "protocols.cli.cli_interface.module",
-        "protocols.rest.module",
-        "app.orchestration.module",
-        "app.module",
-    ]
-    for path in module_paths:
-        try:
-            mod = importlib.import_module(path)
-            manifest = getattr(mod, "MODULE", None)
-            if manifest is not None:
-                registry.register_manifest(manifest)
-        except Exception as exc:  # pragma: no cover - defensivo
-            logger.warning("main: no se pudo registrar manifest %s (%s)", path, exc)
+    # ── AppModule imports (by reference): el import dispara el auto-registro ──
+    import features.code_analysis.module  # noqa: F401
+    import features.project.module  # noqa: F401
+    import features.delta_tracking.module  # noqa: F401
+    import features.main.prompts.module  # noqa: F401
+    import features.cognitive_knowledge.module  # noqa: F401
+    import features.event_tracing.module  # noqa: F401
+    import tasks.module  # noqa: F401
+    import protocols.mcp.module  # noqa: F401
+    import protocols.cli.cli_interface.module  # noqa: F401
+    import protocols.rest.module  # noqa: F401
+    import app.orchestration.module  # noqa: F401
+    import app.module  # noqa: F401
+
+    for manifest in registered_manifests():
+        registry.register_manifest(manifest)
 
 
 def _discover_and_register_tasks(registry: InMemoryTaskRegistry) -> None:

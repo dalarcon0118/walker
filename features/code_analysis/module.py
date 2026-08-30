@@ -16,3 +16,9 @@ MODULE = ModuleManifest(
     adapters=[(ICpgAnalysisPort, WalkerCpgAnalysisAdapter)],
     exports=["cpg_analysis_service"],
 )
+
+# Auto-registro por import (ADR-WALKER-068): el composition root importa este
+# modulo; al importarlo se registra su manifest. Sin lista central de paths.
+from shared.libs.module_system.global_registry import register_manifest as _register_manifest
+
+_register_manifest(MODULE)
