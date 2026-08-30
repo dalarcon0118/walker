@@ -396,6 +396,57 @@ def _register_libs_services(registry: Any) -> None:
         _build_adr_orchestrator_service,
         lazy=True,
     )
+    # M-06 (ADR-068 Fase 3): los 14 orchestrators exportados por id+contrato.
+    registry.register_service(
+        "advance_sprint_task_service",
+        _build_advance_sprint_task_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "code_index_orchestrator_service",
+        _build_code_index_orchestrator_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "decision_capture_service",
+        _build_decision_capture_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "decision_detector_service",
+        _build_decision_detector_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "knowledge_persist_service",
+        _build_knowledge_persist_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "knowledge_status_service",
+        _build_knowledge_status_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "spec_transform_service",
+        _build_spec_transform_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "sprint_status_service",
+        _build_sprint_status_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "sprint_tracking_service",
+        _build_sprint_tracking_service,
+        lazy=True,
+    )
+    registry.register_service(
+        "validate_plan_service",
+        _build_validate_plan_service,
+        lazy=True,
+    )
 
 
 def _build_path_resolver() -> Any:
@@ -626,6 +677,76 @@ def _build_adr_orchestrator_service() -> Any:
     from app.orchestration.adr_orchestrator_service import AdrOrchestratorService
 
     return AdrOrchestratorService
+
+
+def _build_advance_sprint_task_service() -> Any:
+    """Factory del orquestador advance_sprint_task (DI, clave "advance_sprint_task_service")."""
+    from app.orchestration.advance_sprint_task_service import AdvanceSprintTaskService
+
+    return AdvanceSprintTaskService
+
+
+def _build_code_index_orchestrator_service() -> Any:
+    """Factory del orquestador code_index (DI, clave "code_index_orchestrator_service")."""
+    from app.orchestration.code_index_orchestrator_service import CodeIndexOrchestratorService
+
+    return CodeIndexOrchestratorService
+
+
+def _build_decision_capture_service() -> Any:
+    """Factory del orquestador capture_decision (DI, clave "decision_capture_service")."""
+    from app.orchestration.decision_capture_service import DecisionCaptureService
+
+    return DecisionCaptureService
+
+
+def _build_decision_detector_service() -> Any:
+    """Factory del orquestador detect_decisions (DI, clave "decision_detector_service")."""
+    from app.orchestration.decision_detector_service import DecisionDetectorService
+
+    return DecisionDetectorService
+
+
+def _build_knowledge_persist_service() -> Any:
+    """Factory del orquestador documenting_knowledge (DI, clave "knowledge_persist_service")."""
+    from app.orchestration.knowledge_persist_service import KnowledgePersistService
+
+    return KnowledgePersistService
+
+
+def _build_knowledge_status_service() -> Any:
+    """Factory del orquestador update_knowledge_status (DI, clave "knowledge_status_service")."""
+    from app.orchestration.knowledge_status_service import KnowledgeStatusService
+
+    return KnowledgeStatusService
+
+
+def _build_spec_transform_service() -> Any:
+    """Factory del orquestador transform_spec (DI, clave "spec_transform_service")."""
+    from app.orchestration.spec_transform_service import SpecTransformService
+
+    return SpecTransformService
+
+
+def _build_sprint_status_service() -> Any:
+    """Factory del orquestador sprint_status (DI, clave "sprint_status_service")."""
+    from app.orchestration.sprint_status_service import SprintStatusService
+
+    return SprintStatusService
+
+
+def _build_sprint_tracking_service() -> Any:
+    """Factory del orquestador index_sprint_tasks (DI, clave "sprint_tracking_service")."""
+    from app.orchestration.sprint_tracking_service import SprintTrackingService
+
+    return SprintTrackingService
+
+
+def _build_validate_plan_service() -> Any:
+    """Factory del orquestador validate_plan (DI, clave "validate_plan_service")."""
+    from app.orchestration.validate_plan_service import ValidatePlanService
+
+    return ValidatePlanService
 
 
 def _build_delta_conflict_resolver() -> Any:
