@@ -309,6 +309,30 @@ def get_data_dir(project_id: str) -> Path:
     return get_project_dir(project_id) / _get_cfg("data_dir", "data")
 
 
+def memory_data_dir(chain_dir: str) -> str:
+    """Raíz canónica de memorias (data/) para un chain_dir (ADR-WALKER-054 D4).
+
+    SSOT de rutas (INV-W068-06/B4): Única fuente de verdad:
+    .cognitive/projects/<pid>/data (resuelto por ProjectService.resolve_paths).
+    Si chain_dir ya es la raíz data, se usa tal cual; si es el dir del proyecto
+    u otro, se deriva. Fallback defensivo (tests/proyectos sin manifest).
+    """
+    if not chain_dir:
+        return ""
+    try:
+        from features.project import ProjectService
+
+        paths = ProjectService.resolve_paths(chain_dir)
+        if paths.data_dir:
+            return str(paths.data_dir)
+    except Exception:
+        pass
+    if os.path.isfile(os.path.join(chain_dir, "project.json")):
+        return chain_dir
+    data_dir = os.path.join(chain_dir, "data")
+    return data_dir if os.path.isdir(data_dir) else chain_dir
+
+
 def get_data_path(project_id: str, filename: str) -> Path:
     """Archivo en data/: <project_dir>/data/<filename>"""
     return get_data_dir(project_id) / filename

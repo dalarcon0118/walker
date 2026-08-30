@@ -15,7 +15,7 @@ import os
 import pytest
 from pytest_bdd import given, scenarios, then, when
 from returns.pipeline import is_successful
-from app.memory_schemas import register_default_memory_indexes
+from app.memories.registration import apply_memory_indexes
 
 scenarios("bdd/features/cpg_build_result.feature")
 
@@ -72,10 +72,9 @@ def _bdd_success(br_ctx: dict):
 @then("quedan 2 nodos disponibles en el índice cpg")
 def _bdd_nodos_indexados(br_ctx: dict):
     from shared.libs.cognitive_graph import CognitiveGraph
-    from app.cognitive_registry import register_cognitive_indexes
+    from app.memories.registration import apply_memory_indexes
 
-    cg = CognitiveGraph(br_ctx["builder"].data_dir, register_defaults=register_default_memory_indexes)
-    register_cognitive_indexes(cg)
+    cg = CognitiveGraph(br_ctx["builder"].data_dir, register_defaults=apply_memory_indexes)
     keys = set(cg.keys("cpg"))
     assert {"n1", "n2"} <= keys, keys
 

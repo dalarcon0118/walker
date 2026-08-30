@@ -113,8 +113,8 @@ def _register_service_locator() -> None:
     def _resolve(name: str):
         if name == "cognitive_graph":
             from shared.libs.cognitive_graph import CognitiveGraph
-            from app.memory_schemas import register_default_memory_indexes
-            return lambda conn: CognitiveGraph(conn=conn, register_defaults=register_default_memory_indexes)
+            from app.memories.registration import apply_memory_indexes
+            return lambda conn: CognitiveGraph(conn=conn, register_defaults=apply_memory_indexes)
         return None
 
     set_service_locator(_resolve)

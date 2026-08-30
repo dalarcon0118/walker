@@ -274,9 +274,11 @@ def _read_registry_core(registry_path) -> dict:
 def _memory_stats_core(cog_data_dir: str) -> dict:
     """Core puro: stats de memoria + indices (puede lanzar)."""
     from app.memories import MemoryQueryService
-    from app.cognitive_registry import register_cognitive_indexes
+    from app.memories.registration import apply_memory_indexes
 
-    mqs = MemoryQueryService(cog_data_dir, register_indexes=register_cognitive_indexes)
+    # ADR-068 Fase 2: índices auto-registrados por las features (forFeature);
+    # apply_memory_indexes es idempotente (dedupe en collector).
+    mqs = MemoryQueryService(cog_data_dir, register_indexes=apply_memory_indexes)
     return {
         "status": mqs.status(),
         "indexes": mqs.list_indexes(),

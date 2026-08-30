@@ -18,7 +18,7 @@ from returns.pipeline import is_successful
 from returns.result import safe
 
 from features.delta_tracking.domain.entities import Spec
-from app.memory_schemas import register_default_memory_indexes
+from app.memories.registration import apply_memory_indexes
 from features.delta_tracking.domain.values import (
     EDGE_CONTAINS,
     EDGE_IMPACTS,
@@ -48,7 +48,7 @@ def index_sprint(chain_dir: str, cg) -> int:
     # Asegurar que el indice delta existe con schema fulltext (ODM bind
     # eliminado: el schema lo registra CognitiveGraph.register_defaults).
     if "delta" not in cg.list_indexes():
-        register_default_memory_indexes(cg)
+        apply_memory_indexes(cg)
 
     tasks = _load_spring_tasks(chain_dir)
     if not tasks:
@@ -154,7 +154,7 @@ def index_all(project_dir: str, cg) -> int:
         Numero total de tareas indexadas
     """
     if "delta" not in cg.list_indexes():
-        register_default_memory_indexes(cg)
+        apply_memory_indexes(cg)
 
     total = 0
     # Buscar en estructura directa (project/spring/) y en data/ (project/data/spring/)

@@ -1,9 +1,9 @@
-"""app/memories.py — MemoryQueryService (fachada de las memorias del walker).
+"""app/memories/query.py — MemoryQueryService (fachada de las memorias del walker).
 
 NEGOCIO DEL WALKER (no una librería genérica, ADR-WALKER-067 §7.2): consulta
-las 4 memorias (CPG, CKG, Delta, Trace) con sus schemas. Vive en el host
-(app), no en shared/libs. El storage genérico es `shared/libs/cognitive_graph`;
-la semántica de las memorias se inyecta desde `app/memory_schemas.py`.
+las 4 memorias (CPG, CKG, Delta, Trace). Capa de aplicación del host
+(ADR-068): el storage genérico es `shared/libs/cognitive_graph`; la semántica
+se auto-registra desde las features (forFeature) vía `apply_memory_indexes`.
 """
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from typing import Any, Callable
 
 from shared.libs.cognitive_graph import CognitiveGraph
 
-from app.memory_schemas import register_default_memory_indexes
+from app.memories.registration import apply_memory_indexes, build_cognitive_graph
 
 
 class MemoryQueryService:
     """Fachada unificada de consulta a las memorias del walker.
 
     Uso:
-        svc = MemoryQueryService(project_root, register_indexes=register_cognitive_indexes)
+        svc = MemoryQueryService(project_root)
         svc.search("ckg", {"text": "auth"})
         svc.schema("cpg")
         svc.status()  # stats de las 4 memorias
@@ -28,14 +28,14 @@ class MemoryQueryService:
     def __init__(
         self,
         project_root: str = "",
+        graph: CognitiveGraph | None = None,
         register_indexes: Callable[[Any], None] | None = None,
     ):
-        self._cg = CognitiveGraph(
-            str(project_root), register_defaults=register_default_memory_indexes
-        )
-        # ADR-WALKER-054 D2/D3: el indice cpg lo registra el composition root
-        # (register_cognitive_indexes) — inyectado aquí. shared NO importa app.
+        # Construcción canónica (G7): los índices se auto-registran desde las
+        # features (apply_memory_indexes). Sin doble registro (B1/B2).
+        self._cg = graph or build_cognitive_graph(str(project_root))
         if register_indexes is not None:
+            # Override explícito (tests/alternativas) — aplica sobre el grafo.
             register_indexes(self._cg)
 
     def search(self, index: str, query: dict) -> dict:

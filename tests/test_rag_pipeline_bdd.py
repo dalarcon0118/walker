@@ -19,7 +19,7 @@ from tasks.actions.knowledge_query import knowledge_query
 from tasks.actions.trace_push import trace_push
 from tasks.actions.extract_knowledge import extract_knowledge
 from tests.conftest import make_chain_dir, make_walker_project
-from app.memory_schemas import register_default_memory_indexes
+from app.memories.registration import apply_memory_indexes
 
 
 # ── Helpers de setup ────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ class TestRagPipeline:
         from shared.libs.cognitive_graph import CognitiveGraph
 
         paths = ProjectService.resolve_paths(chain_dir)
-        cg = CognitiveGraph(paths.project_root, register_defaults=register_default_memory_indexes)
+        cg = CognitiveGraph(paths.project_root, register_defaults=apply_memory_indexes)
         trace_keys = set(cg.keys("trace"))
         assert event_id in trace_keys, (
             f"evento {event_id} no persistido en el TraceGraph: {sorted(trace_keys)}"

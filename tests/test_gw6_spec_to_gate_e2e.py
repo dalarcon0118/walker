@@ -34,7 +34,7 @@ from shared.core.engine.application.use_cases import SubmitDataUseCase
 from shared.core.engine.domain.models import ExecutionContext
 from features.delta_tracking.tasks.verification import register as register_verify_tasks
 from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-from app.memory_schemas import register_default_memory_indexes
+from app.memories.registration import apply_memory_indexes
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -65,7 +65,7 @@ def env(tmp_path):
         "        return 'hi'\n"
     )
 
-    CognitiveGraph(str(proj), register_defaults=register_default_memory_indexes)
+    CognitiveGraph(str(proj), register_defaults=apply_memory_indexes)
     chain_dir = str(data_dir / "spring" / "chain-gw6")
 
     # svc real (mismo factory que usa _inject_spec_predicates)

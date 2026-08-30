@@ -427,23 +427,18 @@ def _build_graph(conn: "MemoryConnection | str") -> Any:
     from shared.libs.cognitive_graph import CognitiveGraph
     from shared.libs.cognitive_graph.connection import MemoryConnection
     from shared.libs.cognitive_graph.file_backend import FileBackend
-    from app.cognitive_registry import (
-        register_cognitive_indexes,
-        memory_data_dir,
-    )
+    from app.path_resolver import memory_data_dir
 
     if isinstance(conn, str):
         conn = MemoryConnection(uri="file://" + memory_data_dir(conn))
     # ADR-WALKER-061 (F6): el adapter se resuelve por config (conn.backend),
     # no hardcodeado. FileBackend hoy; DbBackend mañana vía env.
     from shared.libs.cognitive_graph.backends import resolve_storage_backend
-    from app.memory_schemas import register_default_memory_indexes
+    from app.memories.registration import build_cognitive_graph
     backend = resolve_storage_backend(conn)
-    graph = CognitiveGraph(
-        backend=backend, conn=conn, register_defaults=register_default_memory_indexes
-    )
-    register_cognitive_indexes(graph)
-    return graph
+    # ADR-068 Fase 2 (G7): construcción CANÓNICA — los índices se auto-registran
+    # desde las features (forFeature); sin doble registro (B1/B2).
+    return build_cognitive_graph(chain_dir="", conn=conn, backend=backend)
 
 
 def _build_graph_from_path(chain_dir: str = "") -> Any:
@@ -454,7 +449,7 @@ def _build_graph_from_path(chain_dir: str = "") -> Any:
     (env). Vive en features/main (no en shared/core/engine) para no acoplar
     el engine a features (ADR-WALKER-045/058).
     """
-    from app.cognitive_registry import memory_data_dir
+    from app.path_resolver import memory_data_dir
     from shared.libs.cognitive_graph.config import load_memory_connection
 
     conn = load_memory_connection(memory_data_dir(chain_dir))
@@ -463,17 +458,10 @@ def _build_graph_from_path(chain_dir: str = "") -> Any:
 
 def _build_searcher(chain_dir: str = "") -> Any:
     """Factory del lector CQRS sobre CognitiveGraph (capa de lectura)."""
-    from shared.libs.cognitive_graph import CognitiveGraph
-    from shared.libs.cognitive_graph.searcher import CognitiveGraphSearcher
-    from app.cognitive_registry import (
-        register_cognitive_indexes,
-        memory_data_dir,
-    )
-    from app.memory_schemas import register_default_memory_indexes
+    from app.memories.registration import build_searcher
 
-    graph = CognitiveGraph(memory_data_dir(chain_dir), register_defaults=register_default_memory_indexes)
-    register_cognitive_indexes(graph)
-    return CognitiveGraphSearcher(graph)
+    # ADR-068 Fase 2 (G7): construcción canónica con índices auto-registrados.
+    return build_searcher(chain_dir)
 
 
 def _build_project_service() -> Any:

@@ -14,7 +14,7 @@ from returns.pipeline import is_successful
 from returns.result import safe
 from shared.common.shared_domain import ExecutionContext, TaskResult
 from features.project import ProjectService
-from app.cognitive_registry import memory_data_dir
+from app.path_resolver import memory_data_dir
 from shared.libs.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)

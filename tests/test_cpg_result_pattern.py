@@ -25,7 +25,7 @@ from features.code_analysis.application.build_service import (
     BuildGraphUseCase,
     _sync_core,
 )
-from app.memory_schemas import register_default_memory_indexes
+from app.memories.registration import apply_memory_indexes
 
 scenarios("bdd/features/cpg_result_pattern.feature")
 
@@ -94,10 +94,9 @@ def _bdd_es_success(ctx: dict):
 @then("los 2 nodos quedan disponibles en el índice cpg")
 def _bdd_nodos_indexados(ctx: dict, builder: BuildGraphUseCase):
     from shared.libs.cognitive_graph import CognitiveGraph
-    from app.cognitive_registry import register_cognitive_indexes
+    from app.memories.registration import apply_memory_indexes
 
-    cg = CognitiveGraph(builder.data_dir, register_defaults=register_default_memory_indexes)
-    register_cognitive_indexes(cg)
+    cg = CognitiveGraph(builder.data_dir, register_defaults=apply_memory_indexes)
     keys = set(cg.keys("cpg"))
     assert {"n1", "n2"} <= keys, keys
 

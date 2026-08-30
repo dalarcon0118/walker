@@ -22,7 +22,7 @@ import json
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
-from app.memory_schemas import register_default_memory_indexes
+from app.memories.registration import apply_memory_indexes
 
 scenarios("bdd/features/migrated_gaps.feature")
 
@@ -345,7 +345,7 @@ def _project_with_chain(mg_ctx: dict, tmp_path):
     os.makedirs(data_dir, exist_ok=True)
     with open(f"{data_dir}/project.json", "w") as f:
         json.dump({"project_id": "projX", "name": "Test"}, f)
-    CognitiveGraph(proj, register_defaults=register_default_memory_indexes)
+    CognitiveGraph(proj, register_defaults=apply_memory_indexes)
     mg_ctx["chain"] = f"{data_dir}/spring/chain-proj"
     mg_ctx["backlog_dir"] = _make_backlog(str(tmp_path))
     mg_ctx["tmp"] = str(tmp_path)

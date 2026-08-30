@@ -33,3 +33,34 @@ def registered_manifests() -> list:
 def reset_manifests() -> None:
     """Limpia el registro (hot reload / tests)."""
     _MANIFESTS.clear()
+
+
+# ── Registro de índices de memoria (ADR-WALKER-068 Fase 2, forFeature) ─────
+# Mecanismo genérico de auto-registro para los schemas de memoria del walker:
+# cada feature dueña registra SU register_<memoria>_index(graph) al importar su
+# schema.py. El contenido es walker; el MECANISMO (lista de callables con
+# dedupe) es infraestructura genérica.
+
+from typing import Callable
+
+_INDEX_REGISTRARS: list[Callable] = []
+
+
+def register_memory_index(registrar: Callable) -> None:
+    """Auto-registro de un schema de memoria (una feature, un índice).
+
+    Dedupe por identidad de función (G2): si el schema.py se importa 2 veces
+    (hot reload / tests), el registrar no se duplica.
+    """
+    if registrar not in _INDEX_REGISTRARS:
+        _INDEX_REGISTRARS.append(registrar)
+
+
+def memory_index_registrars() -> list:
+    """Registrars de índices auto-registrados por las features."""
+    return list(_INDEX_REGISTRARS)
+
+
+def reset_memory_indexes() -> None:
+    """Limpia el registro de índices (hot reload / tests)."""
+    _INDEX_REGISTRARS.clear()

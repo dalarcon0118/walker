@@ -17,7 +17,7 @@ from features.delta_tracking.domain.values import (
     TYPE_SPEC,
     spec_doc_id,
 )
-from app.cognitive_registry import memory_data_dir
+from app.path_resolver import memory_data_dir
 from shared.libs.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)

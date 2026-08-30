@@ -22,3 +22,7 @@ MODULE = ModuleManifest(
 from shared.libs.module_system.global_registry import register_manifest as _register_manifest
 
 _register_manifest(MODULE)
+
+# ADR-068 Fase 2: importar el schema de la feature dispara el auto-registro
+# del indice de memoria (register_memory_index).
+from features.code_analysis import schema as _schema  # noqa: F401

@@ -73,20 +73,13 @@ def _build_searcher_local(project_root: str) -> Any:
     """Fallback CLI-mode (sin service locator): construye el searcher.
 
     Réplica del composition root (registry._build_searcher) sin acoplar el
-    task layer a features.main: CognitiveGraph(memory_data_dir) +
-    register_cognitive_indexes → CognitiveGraphSearcher.
+    task layer a features.main: build_searcher (canónico, ADR-068 Fase 2 G7).
     """
-    from app.cognitive_registry import (
-        register_cognitive_indexes,
-        memory_data_dir,
-    )
-    from shared.libs.cognitive_graph import CognitiveGraph
-    from shared.libs.cognitive_graph.searcher import CognitiveGraphSearcher
-    from app.memory_schemas import register_default_memory_indexes
+    from app.memories.registration import build_searcher
 
-    graph = CognitiveGraph(memory_data_dir(project_root), register_defaults=register_default_memory_indexes)
-    register_cognitive_indexes(graph)
-    return CognitiveGraphSearcher(graph)
+    # Construcción canónica: los índices se auto-registran desde las features
+    # (forFeature); sin doble registro (B1/B2).
+    return build_searcher(project_root)
 
 
 def _resolve_searcher_factory() -> Any:

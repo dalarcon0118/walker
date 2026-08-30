@@ -130,11 +130,11 @@ def _default_graph(conn: Any) -> Any:
     Determinista: backend resuelto por config + registro de índices de
     dominio. Es la MISMA secuencia que _build_graph — sin locator.
     """
-    from app.cognitive_registry import register_cognitive_indexes
+    from app.memories.registration import apply_memory_indexes, build_cognitive_graph
     from shared.libs.cognitive_graph.backends import resolve_storage_backend
-    from shared.libs.cognitive_graph import CognitiveGraph
 
     backend = resolve_storage_backend(conn)
-    graph = CognitiveGraph(backend=backend, conn=conn)
-    register_cognitive_indexes(graph)
+    # Construcción canónica (ADR-068 G7): índices auto-registrados por features.
+    graph = build_cognitive_graph(chain_dir="", conn=conn, backend=backend)
+    apply_memory_indexes(graph)  # idempotente (dedupe en collector) — cubre graphs sin register_defaults
     return graph

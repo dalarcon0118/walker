@@ -3,14 +3,15 @@
 SPLIT de la semántica del walker (ADR-WALKER-067 §7.2): este módulo es el
 storage genérico reutilizable (search, store, get, delete, schema, edges).
 La SEMÁNTICA de las memorias del walker (schemas ckg/delta/trace/ref, search
-handler del trace, proyección/ranking) vive en `app/memory_schemas.py` y se
-INYECTA vía `CognitiveGraph(register_defaults=register_default_memory_indexes)`.
+handler del trace, proyección/ranking) vive en las features dueñas (forFeature,
+ADR-068) y se INYECTA vía `CognitiveGraph(register_defaults=<callable>)`
+(p.ej. `app.memories.registration.apply_memory_indexes`).
 
 Almacenamiento: cada indice es un nx.DiGraph (nodos + edges) con un
 TokenIndex opcional para busqueda full-text sobre campos especificos.
 
 Uso (genérico):
-    cg = CognitiveGraph(chain_dir, register_defaults=register_default_memory_indexes)
+    cg = CognitiveGraph(chain_dir, register_defaults=apply_memory_indexes)
     cg.register_index("mi_indice", {...})
     cg.search("mi_indice", {"text": "x"})
     cg.store("mi_indice", "ID", {...})
@@ -209,7 +210,7 @@ class CognitiveGraph:
         Los campos de la whitelist se truncan a max_chars. El campo 'data'
         de trace se resume (index + query) para evitar traer payloads grandes.
         """
-        fields = self.self.compact_fields.get(index)
+        fields = self.compact_fields.get(index)
         if not fields:
             # Índice sin whitelist: truncar strings largos conservando todo
             return {

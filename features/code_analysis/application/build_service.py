@@ -293,15 +293,11 @@ class BuildGraphUseCase:
         if graph is not None:
             self._cg = graph
         else:
-            from app.cognitive_registry import (
-                register_cognitive_indexes,
-            )
-            from shared.libs.cognitive_graph import CognitiveGraph
-            from app.memory_schemas import register_default_memory_indexes
+            from app.memories.registration import build_cognitive_graph
 
-            cg = CognitiveGraph(data_dir, register_defaults=register_default_memory_indexes)
-            register_cognitive_indexes(cg)
-            self._cg = cg
+            # Construcción canónica (ADR-068 Fase 2 G7): índices auto-registrados
+            # desde las features; sin doble registro (B1/B2).
+            self._cg = build_cognitive_graph(data_dir)
         # SSOT de exclusion: .walkerignore del proyecto (si existe)
         self._ignore = self._load_ignore()
 
