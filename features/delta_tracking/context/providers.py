@@ -2,7 +2,8 @@
 from __future__ import annotations
 from typing import Any
 
-from shared.common.context import ContextPiece, ContextProvider, fmt_tokens, format_delta_results
+from app.context_format import format_delta_results
+from shared.common.context import ContextPiece, ContextProvider, fmt_tokens
 
 
 class DeltaProvider(ContextProvider):

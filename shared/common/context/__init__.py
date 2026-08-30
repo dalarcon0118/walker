@@ -12,11 +12,6 @@ from .models import ContextPiece, ContextBudget, ComposedContext
 from .contracts import ContextProvider
 from .format import (
     fmt_tokens,
-    format_ckg_results,
-    format_cpg_results,
-    format_trace_results,
-    format_state_result,
-    format_delta_results,
 )
 
 __all__ = [
@@ -25,9 +20,4 @@ __all__ = [
     "ComposedContext",
     "ContextProvider",
     "fmt_tokens",
-    "format_ckg_results",
-    "format_cpg_results",
-    "format_trace_results",
-    "format_state_result",
-    "format_delta_results",
 ]

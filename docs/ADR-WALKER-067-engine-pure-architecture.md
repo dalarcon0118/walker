@@ -540,8 +540,16 @@ dominio/features (INV-015).
   resuelve la raíz walker sin path_resolver; `repositories.py`/`compensation_engine.py`
   purgados; los 38 callers actualizados a `from app.path_resolver import …`.
 - ✅ **L3 hecho**: `shared/libs/context_resolver.py` MOVIDO a `app/context_resolver.py`.
-- 🟢 **L4 pendiente**: `shared/common/shared_domain/models.py` — `SprintId`/
-  `ExecutionContext` (vocabulario del workflow) en "shared_domain" genérico.
+- ✅ **L4 hecho**: `SprintId` ELIMINADO de `shared_domain` (vocabulario walker muerto,
+  cero usos); `ExecutionContext` queda (es la ENTRADA de la máquina BPMN — step/submit/
+  transition lo reciben; §2.1 Naturaleza).
+- ✅ **L6 hecho**: formatters de MEMORIAS (CKG/CPG/Delta/Trace) movidos de
+  `shared/common/context/format.py` a `app/context_format.py` (host); `common` queda con
+  solo `fmt_tokens` (genérico); `format_state_result` ELIMINADO (muerto + vocabulario
+  sprint); engine `context/__init__` ya no re-exporta formatters walker.
+- 🟢 **L5 parcial**: `ResultDict`/`ResultAny` ELIMINADOS (sin usos); quedan como deuda
+  menor aceptada: convención `{project_id}/` en `module_system/registry.py:78` y nombres
+  "proyección" en `projection_store.py` (clase genérica).
 - 🟢 **L5 pendiente**: `ResultDict` alias, convención REST `{project_id}/` en
   `module_system/registry.py`, nombres "proyección" en `projection_store.py`.
 

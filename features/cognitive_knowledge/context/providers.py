@@ -2,7 +2,8 @@
 from __future__ import annotations
 from typing import Any
 
-from shared.common.context import ContextPiece, ContextProvider, fmt_tokens, format_ckg_results
+from app.context_format import format_ckg_results
+from shared.common.context import ContextPiece, ContextProvider, fmt_tokens
 
 
 class CKGProvider(ContextProvider):

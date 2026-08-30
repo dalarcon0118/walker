@@ -35,10 +35,6 @@ from returns.pointfree import bind, map_
 T = TypeVar("T")
 E = TypeVar("E")
 
-# Walker usa dict como tipo de retorno estándar para responses
-ResultDict = Result[dict[str, Any], Exception]
-ResultAny = Result[Any, Exception]
-
 __all__ = [
     "Result",
     "Success",
@@ -49,6 +45,4 @@ __all__ = [
     "flow",
     "bind",
     "map_",
-    "ResultDict",
-    "ResultAny",
 ]
