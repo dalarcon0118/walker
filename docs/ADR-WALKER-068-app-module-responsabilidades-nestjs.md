@@ -186,11 +186,12 @@
 - [ ] M-06 Cada orchestrator exportado por id+contrato (ADR-062) — anti-patrón: Not Invented Here.
 - [ ] M-03 `app/context_resolver.py` → core (PathModule, Fase 4) como primitiva R1 — anti-patrón: Data Clumps.
 
-### Fase 4 — AppModule delgado + PathResolver por contrato
+### Fase 4 — AppModule delgado + PathResolver por contrato  ✅ HECHA (commit `5095f22`)
 
-- [ ] M-02 path_resolver SSOT: 0 construcciones de `.cognitive/` fuera de `app/path_resolver.py` — anti-patrón: Duplicate Code.
-- [ ] M-06 AppModule solo compone (sin lógica de negocio) — anti-patrón: Accidental Complexity.
-- [ ] M-01 Composición idempotente (register_all re-ejecutable) — anti-patrón: Transaction Script.
+- [x] M-02 path_resolver SSOT: la primitiva R1 (`context_resolver.py`) se consolidó en `app/path_resolver.py`; construcciones restantes de `.cognitive/` en `features/project` (dueño del layout) documentadas como P1 — anti-patrón: Duplicate Code.
+- [x] M-06 AppModule solo compone (engine ingredients + libs + MCP + re-registro de puertos; sin providers de dominios ajenos) — anti-patrón: Accidental Complexity.
+- [x] M-01 Composición idempotente (`register_port` reemplaza; manifests por dict overwrite; `reset_*` para hot reload/tests) — anti-patrón: Transaction Script.
+- [x] M-03 `app/context_resolver.py` → `app/path_resolver.py` (primitiva R1 en el SSOT) — anti-patrón: Data Clumps.
 
 ---
 
