@@ -475,6 +475,29 @@ MODULE = ModuleManifest(
 4. **IPromptCollector adapter**: wire real (instanciar en root con el collector) o eliminar.
 5. **tasks/**: decidir `features/tasks/` (bounded context) vs módulo de aplicación (como `app/`).
 
+### 9.6 Crítica arquitectónica (C1-C10)
+
+**Veredicto:** `features/workflow` es un contenedor de código host heredado (prompts + gate) sin dominio cohesivo real. Es DEFENDIBLE como "módulo de delivery del workflow" SOLO si: (a) se desarrolla el dominio real de las gates, (b) los prompts se tratan como INFRAESTRUCTURA INTERNA (no dominio), (c) las deps entran por puertos, (d) el manifest declara la verdad.
+
+| ID | Crítica | Detalle |
+|---|---|---|
+| C1 | **Bounded context sin dominio cohesivo** | 2052 ln: 96% prompts (presentación LLM) + 4% gate. Dos lenguajes pegados — "envuelve el workflow" es un cajón, no cohesión |
+| C2 | **Dominio ANÉMICO** | `domain/uncaptured.py` (72 ln) = enum + dataclass DTO. Sin entidades ni invariantes del workflow — es el Anemic Domain Model que el ADR-067 eliminó del engine (M-03 no se cumple) |
+| C3 | **Import EAGER de `features.project`** (collector.py:11) | el feature NO se importa aislado (arrastra project) — viola el empaquetado por feature |
+| C4 | **Collector god-service cross-feature** (200 ln, 8 funciones) | cruza delta+project+memorias — es un servicio de aplicación que orquesta; debe recibir repos por DI |
+| C5 | **Adapter `IPromptCollector` muerto** | el engine anémico NO lo consume (orchestrator:185); nadie lo instancia — boilerplate que sugiere un contrato inexistente |
+| C6 | **Manifest miente** (`imports=["shared"]`) | deps reales = project+delta+app.container+app.composition — grafo declarado = ficción |
+| C7 | **Feature importando el root + un PRIVADO** | `_build_searcher` (método privado del registry) + `AppContainer` — ciclo + acoplamiento al wiring |
+| C8 | **Anidamiento redundante** | `application/prompts/application/ports/` — 3 niveles de "application" |
+| C9 | **Sin `infrastructure/`** | la IO (carga de templates) mezclada en application/prompts/loader.py |
+| C10 | **¿Bounded context o delivery bag?** | prompts = infraestructura de presentación (NO dominio); gate = dominio. Pegarlos = cajón heredado |
+
+**Ajuste del diseño objetivo (incorpora la crítica):**
+- `features/workflow` = **dominio de GATES** (reglas de bloqueo del workflow) + **prompts como INFRAESTRUCTURA INTERNA** (no "dominio").
+- Estructura: `domain/` (gates con invariantes reales) · `application/` (servicios de gates) · `infrastructure/` (prompts: templates, loader, renderer — presentación LLM).
+- Deps (project/delta/memorias) por **puertos inyectados**; sin imports al root.
+- El adapter `IPromptCollector` se elimina si el engine no lo consume (evitar declaraciones muertas).
+
 ### 9.5 Criterios de aceptación (verificables)
 
 1. `grep -r "from features.project\|from features.delta_tracking\|from app.container\|from app.composition" features/workflow` → 0 (o solo vía puertos inyectados).
