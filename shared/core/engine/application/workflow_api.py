@@ -199,17 +199,22 @@ class WorkflowAPI:
             state = wf_store.load_state(self._chain_dir)
 
             if workflow.initial_state and not state.current_node:
-                state.current_node = workflow.initial_state
+                # INMUTABILIDAD (ADR-WALKER-067 F2/F): WorkflowState es
+                # inmutable; se construye con builders (dataclasses.replace)
+                # que preservan revision (CAS) y no mutan el estado previo.
                 node = workflow.get_node(workflow.initial_state)
-                if node and node.first_sub_state:
-                    state.current_sub_state = node.first_sub_state.key
-                else:
-                    state.current_sub_state = "INIT"
-                state.sub_state_index = 0
-                state.add_history(f"{state.current_node}.{state.current_sub_state}")
-                state.context["session_id"] = self._session_id
-                state.context["chain_dir"] = self._chain_dir
-                st_repo.save(self._chain_dir, state)
+                first_sub = (
+                    node.first_sub_state.key
+                    if node and node.first_sub_state
+                    else "INIT"
+                )
+                state = (
+                    state.with_node(workflow.initial_state, first_sub, index=0)
+                    .add_history(f"{workflow.initial_state}.{first_sub}")
+                    .with_context("session_id", self._session_id)
+                    .with_context("chain_dir", self._chain_dir)
+                )
+                wf_store.save_state(state, self._chain_dir)
                 self.status_message = (
                     f"Bootstrap: nodo '{workflow.initial_state}' inicializado"
                 )
