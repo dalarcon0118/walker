@@ -24,9 +24,9 @@ from pathlib import Path
 import pytest
 
 from shared.core.engine.application.orchestrator import OrchestrationService
-from shared.core.engine.application.use_cases import ScriptRunner
 from shared.core.engine.domain.entities import WorkflowState
 from shared.core.engine.infrastructure.repositories import (
+    ScriptRunner,
     WorkflowRepository,
     WorkflowStateRepository,
 )
