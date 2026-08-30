@@ -17,6 +17,7 @@ from typing import Any
 from returns.pipeline import is_successful
 
 from ..domain.models import ExecutionType
+from ..domain.events import WorkflowEvent
 from ..application.context_resolver import ContextResolver
 
 
@@ -78,17 +79,18 @@ class StepOrchestrator:
                 if is_successful(result):
                     new_state = result.value_or(state)
                     self._workflow_store.save_state(new_state, state.context.get("chain_dir", ""))
-                    self._tracer.trace(
-                        ctx.chain_dir,
-                        "signal_resolved",
-                        data={
-                            "signal": signal,
-                            "strategy": strategy,
-                            "sub_state": state.current_sub_state,
-                            "node": state.current_node,
-                        },
-                        task_id=ctx.task_id,
-                        session_id=ctx.session_id,
+                    self._tracer.trace_event(
+                        WorkflowEvent.of(
+                            "signal_resolved",
+                            payload={
+                                "signal": signal,
+                                "strategy": strategy,
+                                "sub_state": state.current_sub_state,
+                                "node": state.current_node,
+                            },
+                            task_id=ctx.task_id,
+                            session_id=ctx.session_id,
+                        )
                     )
                     return {
                         "action": "signal_received",
@@ -98,17 +100,18 @@ class StepOrchestrator:
                         "sub_state": state.current_sub_state,
                     }
                 else:
-                    self._tracer.trace(
-                        ctx.chain_dir,
-                        "signal_resolution_failed",
-                        data={
-                            "reason": result.failure(),
-                            "signal": signal,
-                            "sub_state": state.current_sub_state,
-                            "node": state.current_node,
-                        },
-                        task_id=ctx.task_id,
-                        session_id=ctx.session_id,
+                    self._tracer.trace_event(
+                        WorkflowEvent.of(
+                            "signal_resolution_failed",
+                            payload={
+                                "reason": result.failure(),
+                                "signal": signal,
+                                "sub_state": state.current_sub_state,
+                                "node": state.current_node,
+                            },
+                            task_id=ctx.task_id,
+                            session_id=ctx.session_id,
+                        )
                     )
                     return {
                         "action": "error",
@@ -159,18 +162,19 @@ class StepOrchestrator:
             if is_successful(result):
                 new_state = result.value_or(state)
                 self._workflow_store.save_state(new_state, state.context.get("chain_dir", ""))
-                self._tracer.trace(
-                    ctx.chain_dir,
-                    "timeout_resolved",
-                    data={
-                        "strategy": strategy,
-                        "elapsed_ms": elapsed_ms,
-                        "timeout_ms": state.block_timeout_ms,
-                        "sub_state": state.current_sub_state,
-                        "node": state.current_node,
-                    },
-                    task_id=ctx.task_id,
-                    session_id=ctx.session_id,
+                self._tracer.trace_event(
+                    WorkflowEvent.of(
+                        "timeout_resolved",
+                        payload={
+                            "strategy": strategy,
+                            "elapsed_ms": elapsed_ms,
+                            "timeout_ms": state.block_timeout_ms,
+                            "sub_state": state.current_sub_state,
+                            "node": state.current_node,
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
                 )
                 return {
                     "action": "timeout",
@@ -179,16 +183,17 @@ class StepOrchestrator:
                     "sub_state": state.current_sub_state,
                 }
             else:
-                self._tracer.trace(
-                    ctx.chain_dir,
-                    "timeout_resolution_failed",
-                    data={
-                        "reason": result.failure(),
-                        "sub_state": state.current_sub_state,
-                        "node": state.current_node,
-                    },
-                    task_id=ctx.task_id,
-                    session_id=ctx.session_id,
+                self._tracer.trace_event(
+                    WorkflowEvent.of(
+                        "timeout_resolution_failed",
+                        payload={
+                            "reason": result.failure(),
+                            "sub_state": state.current_sub_state,
+                            "node": state.current_node,
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
                 )
                 return {
                     "action": "error",
@@ -255,17 +260,18 @@ class StepOrchestrator:
         node_briefing = self._build_node_briefing(node, sub_state)
 
         # ── Trazar entrada a sub-estado ─────────────────────────────
-        self._tracer.trace(
-            ctx.chain_dir,
-            "NODE_ENTRY",
-            data={
-                "node": state.current_node,
-                "sub_state": state.current_sub_state,
-                "execution_type": execution.value,
-                "sub_state_index": state.sub_state_index,
-            },
-            task_id=ctx.task_id,
-            session_id=ctx.session_id,
+        self._tracer.trace_event(
+            WorkflowEvent.of(
+                "NODE_ENTRY",
+                payload={
+                    "node": state.current_node,
+                    "sub_state": state.current_sub_state,
+                    "execution_type": execution.value,
+                    "sub_state_index": state.sub_state_index,
+                },
+                task_id=ctx.task_id,
+                session_id=ctx.session_id,
+            )
         )
 
         # ── AUTO / BOOTSTRAP: ejecutar pipeline completo ────────────
@@ -392,11 +398,12 @@ class StepOrchestrator:
 
         if can_auto:
             gate_name = gates[0].name
-            self._tracer.trace(
-                ctx.chain_dir,
-                "AUTO_TRANSITION",
-                data={"gate": gate_name},
-                task_id=ctx.task_id,
+            self._tracer.trace_event(
+                WorkflowEvent.of(
+                    "AUTO_TRANSITION",
+                    payload={"gate": gate_name},
+                    task_id=ctx.task_id,
+                )
             )
             return self._transition(ctx, gate_name)
 

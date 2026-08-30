@@ -138,6 +138,44 @@ class IWorkflowLoader(ABC):
         ...
 
 
+class ISideEffectOutbox(ABC):
+    """Puerto de Outbox de side-effects (ADR-WALKER-067 F4/H).
+
+    Persiste la INTENCION de cada side-effect ANTES de ejecutarlo y su
+    resultado despues (completed/failed/compensated). Permite:
+      - Idempotencia: reintentar sin duplicar efectos ya completados.
+      - Durabilidad: si el proceso cae a mitad del saga, el outbox conserva
+        el punto de avance y permite compensar los efectos exitosos previos.
+    El engine consume el puerto; la implementacion (en memoria / sqlite /
+    remota) la provee el host (composition root).
+    """
+
+    @abstractmethod
+    def enqueue(self, effect: Any, idempotency_key: str | None) -> Any:
+        """Registra la intencion de ejecutar `effect`. Retorna la entrada."""
+        ...
+
+    @abstractmethod
+    def mark_completed(self, entry: Any, result: Any) -> None:
+        """Marca la entrada como completada con su resultado."""
+        ...
+
+    @abstractmethod
+    def mark_failed(self, entry: Any, error: str) -> None:
+        """Marca la entrada como fallida con el error."""
+        ...
+
+    @abstractmethod
+    def mark_compensated(self, entry: Any, compensation: Any) -> None:
+        """Marca la entrada como compensada (efectos previos revertidos)."""
+        ...
+
+    @abstractmethod
+    def all(self) -> list:
+        """Todas las entradas del outbox (para compensacion en cascada)."""
+        ...
+
+
 class IPresenter(ABC):
     """Puerto para presentación de estado del workflow."""
 

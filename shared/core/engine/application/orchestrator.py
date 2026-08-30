@@ -93,6 +93,7 @@ class OrchestrationService:
         tracer: ITracer | None = None,
         signal_bus: SignalBus | None = None,
         context_registry: ContextProviderRegistry | None = None,
+        outbox: Any = None,
     ):
         # Patrón servidor (constructor injection): el motor NO sabe quién lo usa ni
         # de dónde vienen sus dependencias. PUERTOS UNIFICADOS (ADR-WALKER-067
@@ -122,6 +123,7 @@ class OrchestrationService:
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
         self._signal_bus = signal_bus or SignalBus()
+        self._outbox = outbox
 
         # Context Composer (Fase 1: opt-in, backwards compat)
         # Registry armado EXTERNAMENTE por el composition root (features/main):
@@ -195,6 +197,7 @@ class OrchestrationService:
                 event_log=self._event_log,
                 tracer=self._tracer,
                 bundle=self._bundle,
+                outbox=self._outbox,
             )
         return self._submit_uc
 

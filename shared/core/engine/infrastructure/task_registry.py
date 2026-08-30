@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from ..domain.registry import TaskRegistry
 from ..domain.models import TaskResult, ExecutionContext
+from ..domain.events import WorkflowEvent
 from ..domain.ports import ITracer
 
 
@@ -74,19 +75,20 @@ class InMemoryTaskRegistry(TaskRegistry):
                 if isinstance(payload[k], str) and len(payload[k]) > 500:
                     payload[k] = payload[k][:500] + "..."
         try:
-            self._tracer.trace(
-                ctx.chain_dir,
-                "task_execute",
-                data={
-                    "task": name,
-                    "ok": result.ok,
-                    "error": result.error if not result.ok else "",
-                    "duration_ms": duration_ms,
-                    "channel": getattr(ctx, "channel", "workflow"),
-                    "data": payload,
-                },
-                task_id=getattr(ctx, "task_id", "") or name,
-                session_id=getattr(ctx, "session_id", ""),
+            self._tracer.trace_event(
+                WorkflowEvent.of(
+                    "task_execute",
+                    payload={
+                        "task": name,
+                        "ok": result.ok,
+                        "error": result.error if not result.ok else "",
+                        "duration_ms": duration_ms,
+                        "channel": getattr(ctx, "channel", "workflow"),
+                        "data": payload,
+                    },
+                    task_id=getattr(ctx, "task_id", "") or name,
+                    session_id=getattr(ctx, "session_id", ""),
+                )
             )
         except Exception:
             pass

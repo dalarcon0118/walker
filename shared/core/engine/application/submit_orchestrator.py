@@ -23,6 +23,7 @@ from returns.pipeline import is_successful
 
 from shared.common.shared_domain import ExecutionContext
 from ..domain.ports import ITracer
+from ..domain.events import WorkflowEvent
 
 
 class SubmitOrchestrator:
@@ -84,16 +85,17 @@ class SubmitOrchestrator:
                     if is_successful(result):
                         new_state = result.value_or(state)
                         self._workflow_store.save_state(new_state, ctx.chain_dir)
-                        self._tracer.trace(
-                            ctx.chain_dir,
-                            "force_resolved",
-                            data={
-                                "sub_state": state.current_sub_state,
-                                "node": state.current_node,
-                                "reason": "kg_query evidence found",
-                            },
-                            task_id=ctx.task_id,
-                            session_id=ctx.session_id,
+                        self._tracer.trace_event(
+                            WorkflowEvent.of(
+                                "force_resolved",
+                                payload={
+                                    "sub_state": state.current_sub_state,
+                                    "node": state.current_node,
+                                    "reason": "kg_query evidence found",
+                                },
+                                task_id=ctx.task_id,
+                                session_id=ctx.session_id,
+                            )
                         )
                         return {"ok": True, "layers_checked": sorted(layers), "forced": True, "conflict_resolved": True}
         except Exception:
@@ -234,12 +236,13 @@ class SubmitOrchestrator:
         # ── Disparar eventos on:{} ───────────────────────────────────
         event_count = self._dispatch_events_from_side_effects(ctx, result)
         if event_count > 0:
-            self._tracer.trace(
-                ctx.chain_dir,
-                "EVENT_DISPATCH",
-                data={"events_dispatched": event_count},
-                task_id=ctx.task_id,
-                session_id=ctx.session_id,
+            self._tracer.trace_event(
+                WorkflowEvent.of(
+                    "EVENT_DISPATCH",
+                    payload={"events_dispatched": event_count},
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
             )
 
         return result
@@ -251,16 +254,17 @@ class SubmitOrchestrator:
 
         @safe
         def _do_trace():
-            self._tracer.trace(
-                ctx.chain_dir,
-                "GATE_BLOCKED",
-                data={
-                    "reason": "required_tools",
-                    "sub_state": _orig_sub,
-                    "required": [t.get("id", "") for t in sub_def.required_tools],
-                },
-                task_id=ctx.task_id,
-                session_id=ctx.session_id,
+            self._tracer.trace_event(
+                WorkflowEvent.of(
+                    "GATE_BLOCKED",
+                    payload={
+                        "reason": "required_tools",
+                        "sub_state": _orig_sub,
+                        "required": [t.get("id", "") for t in sub_def.required_tools],
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
             )
 
         _do_trace()  # Best-effort, no falla el submit por tracing
@@ -331,22 +335,23 @@ class SubmitOrchestrator:
             result["xor_done"] = True
 
             if trans.get("to_node") == "REFINE":
-                self._tracer.trace(
-                    ctx.chain_dir,
-                    "REFINE_ENTRY",
-                    data={
-                        "from_node": _orig_node,
-                        "from_sub_state": _orig_sub,
-                        "gate": result.get("_gate", ""),
-                        "decision": fields.get("decision", ""),
-                        "intent": fields.get("intent", ""),
-                        "target": trans.get("to_sub_state", ""),
-                        "reason": (
-                            "nodeworkflow incompleto o decision de reject/refine"
-                        ),
-                    },
-                    task_id=ctx.task_id,
-                    session_id=ctx.session_id,
+                self._tracer.trace_event(
+                    WorkflowEvent.of(
+                        "REFINE_ENTRY",
+                        payload={
+                            "from_node": _orig_node,
+                            "from_sub_state": _orig_sub,
+                            "gate": result.get("_gate", ""),
+                            "decision": fields.get("decision", ""),
+                            "intent": fields.get("intent", ""),
+                            "target": trans.get("to_sub_state", ""),
+                            "reason": (
+                                "nodeworkflow incompleto o decision de reject/refine"
+                            ),
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
                 )
 
             state = self._workflow_store.load_state(ctx.chain_dir)
@@ -381,33 +386,35 @@ class SubmitOrchestrator:
         advanced_to = result.get("advanced_to", "")
         if not advanced_to:
             return
-        self._tracer.trace(
-            ctx.chain_dir,
-            "AUTO_ADVANCE",
-            data={
-                "from": _orig_sub,
-                "to": advanced_to,
-                "from_node": _orig_node,
-                "to_node": state.current_node,
-            },
-            task_id=ctx.task_id,
-            session_id=ctx.session_id,
+        self._tracer.trace_event(
+            WorkflowEvent.of(
+                "AUTO_ADVANCE",
+                payload={
+                    "from": _orig_sub,
+                    "to": advanced_to,
+                    "from_node": _orig_node,
+                    "to_node": state.current_node,
+                },
+                task_id=ctx.task_id,
+                session_id=ctx.session_id,
+            )
         )
 
     def _trace_side_effects(self, ctx: ExecutionContext, result: dict) -> None:
         """Traza cada side-effect ejecutado."""
         side_effects = result.get("side_effects", [])
         for se in side_effects:
-            self._tracer.trace(
-                ctx.chain_dir,
-                "SIDE_EFFECT",
-                data={
-                    "type": se.get("type", "?"),
-                    "ok": se.get("ok", False),
-                    "result": se.get("result", {}),
-                },
-                task_id=ctx.task_id,
-                session_id=ctx.session_id,
+            self._tracer.trace_event(
+                WorkflowEvent.of(
+                    "SIDE_EFFECT",
+                    payload={
+                        "type": se.get("type", "?"),
+                        "ok": se.get("ok", False),
+                        "result": se.get("result", {}),
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
             )
 
     def _emit_completion_signals(
@@ -431,16 +438,17 @@ class SubmitOrchestrator:
                     source_sub_state=sub_state_key,
                     data={"chain_dir": ctx.chain_dir},
                 )
-                self._tracer.trace(
-                    ctx.chain_dir,
-                    "SIGNAL_EMIT",
-                    data={
-                        "signal": signal_name,
-                        "source": f"{node_id}.{sub_state_key}",
-                        "notified": notified,
-                    },
-                    task_id=ctx.task_id,
-                    session_id=ctx.session_id,
+                self._tracer.trace_event(
+                    WorkflowEvent.of(
+                        "SIGNAL_EMIT",
+                        payload={
+                            "signal": signal_name,
+                            "source": f"{node_id}.{sub_state_key}",
+                            "notified": notified,
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
                 )
         except Exception:
             pass

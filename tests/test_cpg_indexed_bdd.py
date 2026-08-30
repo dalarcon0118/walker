@@ -50,6 +50,19 @@ class FakeTracer:
             }
         )
 
+    def trace_event(self, event) -> None:
+        self.events.append(
+            {
+                "chain_dir": "",
+                "event_type": event.event_type,
+                "source": "walker",
+                "tool": (event.payload or {}).get("tool", ""),
+                "data": event.payload or {},
+                "task_id": event.task_id or "",
+                "session_id": event.session_id or "",
+            }
+        )
+
 
 @pytest.fixture
 def se_ctx() -> dict:

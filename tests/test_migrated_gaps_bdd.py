@@ -902,6 +902,9 @@ class _FakeTracer:
     def trace(self, *a, **k):
         pass
 
+    def trace_event(self, *a, **k):
+        pass
+
 
 class _FakeCtx:
     chain_dir = "/tmp/chain"

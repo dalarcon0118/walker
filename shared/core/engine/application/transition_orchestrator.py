@@ -14,6 +14,7 @@ import time
 from typing import Any
 
 from ..domain.ports import ITracer
+from ..domain.events import WorkflowEvent
 
 
 class TransitionOrchestrator:
@@ -68,18 +69,19 @@ class TransitionOrchestrator:
             if is_successful(resolve_result):
                 new_state = resolve_result.value_or(state_before)
                 self._workflow_store.save_state(new_state, ctx.chain_dir)
-                self._tracer.trace(
-                    ctx.chain_dir,
-                    "escalate_resolved",
-                    data={
-                        "from_node": state_before.current_node,
-                        "from_sub_state": state_before.current_sub_state,
-                        "to_node": new_state.current_node,
-                        "to_sub_state": new_state.current_sub_state,
-                        "reason": reason or "transition escalate",
-                    },
-                    task_id=getattr(ctx, "task_id", None),
-                    session_id=getattr(ctx, "session_id", None),
+                self._tracer.trace_event(
+                    WorkflowEvent.of(
+                        "escalate_resolved",
+                        payload={
+                            "from_node": state_before.current_node,
+                            "from_sub_state": state_before.current_sub_state,
+                            "to_node": new_state.current_node,
+                            "to_sub_state": new_state.current_sub_state,
+                            "reason": reason or "transition escalate",
+                        },
+                        task_id=getattr(ctx, "task_id", None),
+                        session_id=getattr(ctx, "session_id", None),
+                    )
                 )
                 return {
                     "ok": True,
@@ -135,18 +137,19 @@ class TransitionOrchestrator:
         # ── Trazar cambio de estado del workflow (sprint/proyecto) ──
         to_sub_state = result.get("to_sub_state", "")
         try:
-            self._tracer.trace(
-                ctx.chain_dir,
-                "workflow_state",
-                data={
-                    "from": from_node,
-                    "to": f"{to_node}.{to_sub_state}" if to_sub_state else to_node,
-                    "gate": gate,
-                    "project_id": getattr(ctx, "project_id", ""),
-                    "sprint_id": os.path.basename(ctx.chain_dir) if ctx.chain_dir else "",
-                },
-                task_id=ctx.task_id,
-                session_id=ctx.session_id,
+            self._tracer.trace_event(
+                WorkflowEvent.of(
+                    "workflow_state",
+                    payload={
+                        "from": from_node,
+                        "to": f"{to_node}.{to_sub_state}" if to_sub_state else to_node,
+                        "gate": gate,
+                        "project_id": getattr(ctx, "project_id", ""),
+                        "sprint_id": os.path.basename(ctx.chain_dir) if ctx.chain_dir else "",
+                    },
+                    task_id=ctx.task_id,
+                    session_id=ctx.session_id,
+                )
             )
         except Exception:
             pass

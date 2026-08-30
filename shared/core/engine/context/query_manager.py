@@ -65,24 +65,31 @@ class QueryManager:
         qué consultas ejecutó el agente/workflow para obtener contexto.
         """
         try:
-            from shared.core.engine.infrastructure.trace_log import TraceLogger
+            # Tracer PLUGGABLE (ADR-WALKER-067 F5/I): el engine NO construye
+            # TraceLogger concreto; resuelve el puerto ITracer. NoopTracer si
+            # no hay binding — nunca falla la consulta por tracing.
+            from ..domain.ports_registry import resolve_port
+            from ..domain.ports import ITracer
+            from ..domain.events import WorkflowEvent
 
+            tracer = resolve_port(ITracer)
             safe = {}
             for k, v in (filters or {}).items():
                 if isinstance(v, str) and len(v) > 200:
                     safe[k] = v[:200] + "..."
                 else:
                     safe[k] = v
-            TraceLogger().trace(
-                self._chain_dir,
-                "kg_query",
-                data={
-                    "index": layer,
-                    "query": safe,
-                    "project_id": "",
-                },
-                task_id=self._task_id,
-                session_id=self._session_id or "composer",
+            tracer.trace_event(
+                WorkflowEvent.of(
+                    "kg_query",
+                    payload={
+                        "index": layer,
+                        "query": safe,
+                        "project_id": "",
+                    },
+                    task_id=self._task_id,
+                    session_id=self._session_id or "composer",
+                )
             )
         except Exception:
             pass

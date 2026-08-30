@@ -149,6 +149,10 @@ def _make_orchestrator(chain_dir: str):
             self.traces = getattr(self, "traces", [])
             self.traces.append(("trace", a, kw))
 
+        def trace_event(self, *a, **kw):
+            self.traces = getattr(self, "traces", [])
+            self.traces.append(("trace_event", a, kw))
+
         def trace_submit(self, *a, **kw):
             self.traces = getattr(self, "traces", [])
             self.traces.append(("trace_submit", a, kw))

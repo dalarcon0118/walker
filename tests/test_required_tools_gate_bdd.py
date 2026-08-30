@@ -108,6 +108,9 @@ class StubTracer:
     def trace(self, *a, **kw):
         pass
 
+    def trace_event(self, *a, **kw):
+        pass
+
     def trace_submit(self, *a, **kw):
         pass
 
@@ -232,6 +235,9 @@ def _orch_exploding_tracer(gate_ctx: dict):
             raise RuntimeError("trace corrupto")
 
         def trace(self, *a, **kw):
+            pass
+
+        def trace_event(self, *a, **kw):
             pass
 
         def trace_submit(self, *a, **kw):

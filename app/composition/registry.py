@@ -79,13 +79,18 @@ def register_all(
     # No es un provider del módulo: `main` crea la instancia y la registra por id.
     from shared.core.engine.application.orchestrator import OrchestrationService
     from shared.core.engine.domain.ports import IWorkflowIO
+    from shared.core.engine.infrastructure.side_effect_outbox import InMemorySideEffectOutbox
 
+    # Outbox (ADR-WALKER-067 F4/H): el host inyecta la implementacion. Default
+    # InMemory (semantica de outbox activa); hosts con durabilidad pueden pasar
+    # SqliteSideEffectOutbox(path).
     engine = OrchestrationService(
         workflow_store=module_registry.get_service("workflow_store"),
         actions=module_registry.get_service("action_catalog"),
         workflow_io=module_registry.resolve_port(IWorkflowIO),
         tracer=module_registry.get_service("tracer"),
         context_registry=module_registry.get_service("context_registry"),
+        outbox=InMemorySideEffectOutbox(),
     )
     module_registry.register_service("engine", engine)
     workflow_facade = _build_workflow_facade(engine)

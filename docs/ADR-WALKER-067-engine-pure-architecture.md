@@ -159,8 +159,8 @@ deudas que lo harían frágil en producción. La tabla contrasta cada dimensión
 | E Puertos tipados | 🟡 | F2 (firmas tipadas) |
 | F Inmutabilidad estado | 🔴 | F2 |
 | G Versionado/unit-of-work | 🟡 | F6 (CAS) |
-| H Saga/Outbox cableado | 🟡 | F4 (saga+outbox) |
-| I Eventos tipados | 🟡 | F5 (contrato+pluggable) |
+| H Saga/Outbox cableado | 🟢 | F4 (port ISideEffectOutbox + SideEffectOutbox sqlite SPEC-009 + InMemory; cableado al submit) |
+| I Eventos tipados | 🟢 | F5 (emit-sites → trace_event; tracer pluggable; query_manager sin TraceLogger) |
 | J Observabilidad | 🟢 | F5 (IEngineMetrics) |
 | K Errores silenciosos | 🟢 | F6 (0 reales) |
 | L Transporte MCP | 🟢 | — |

@@ -24,6 +24,7 @@ from ..domain.errors import (
     classify_error,
     WorkflowEngineError,
 )
+from ..domain.events import WorkflowEvent
 
 
 # ── Puente de nombres: excepciones del engine ↔ claves de la plantilla ──
@@ -287,16 +288,15 @@ class ErrorHandler:
         else:
             e2 = result.failure()
             if self._tracer:
-                self._tracer.trace(
-                    ctx.chain_dir,
-                    "escalate_failed",
-                    data={
-                        "error_type": error_type.value,
-                        "reason": str(error),
-                        "failure": str(e2),
-                    },
-                    task_id=ctx.task_id,
-                    session_id=ctx.session_id,
+                self._tracer.trace_event(
+                    WorkflowEvent.of(
+                        "escalate_failed",
+                        payload={
+                            "failure": str(e2),
+                        },
+                        task_id=ctx.task_id,
+                        session_id=ctx.session_id,
+                    )
                 )
             return {
                 "ok": False,

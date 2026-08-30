@@ -113,6 +113,9 @@ def _bdd_dispatch(qg_ctx: dict):
         def trace(self, *a, **k):
             pass
 
+        def trace_event(self, *a, **k):
+            pass
+
     class FakeCtx:
         chain_dir = "/tmp/chain"
         task_id = "T1"
@@ -179,6 +182,9 @@ def _bdd_no_dispara():
 
     class FakeTracer:
         def trace(self, *a, **k):
+            pass
+
+        def trace_event(self, *a, **k):
             pass
 
     class FakeCtx:

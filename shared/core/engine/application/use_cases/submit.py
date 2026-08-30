@@ -81,6 +81,7 @@ class SubmitDataUseCase:
         event_log: Any = None,
         tracer: Any = None,
         bundle: EngineBundle | None = None,
+        outbox: Any = None,
     ):
         # Puertos UNIFICADOS (ADR-WALKER-067 §7.2): workflow_store (grafo+estado)
         # y actions (ActionCatalog: tasks + side-effects). El Saga de side-effects
@@ -95,6 +96,10 @@ class SubmitDataUseCase:
         self._event_dispatcher = event_dispatcher
         self._event_log = event_log
         self.events: list[DomainEvent] = []
+        # Outbox (ADR-WALKER-067 F4/H): inyectado por el host. Si es None, el
+        # saga ejecuta sin outbox (backward compat). Con outbox, cada efecto se
+        # enqueue antes de ejecutar y se marca completed/failed/compensated.
+        self._outbox = outbox
 
     def execute(
         self,
@@ -479,7 +484,7 @@ class SubmitDataUseCase:
         if node_key:
             exec_ctx.baggage["node_key"] = node_key
         side_results = self._saga.run(
-            exec_ctx, sub_state.side_effects
+            exec_ctx, sub_state.side_effects, outbox=self._outbox
         )
         # SPEC-014 F2 — política de fallo unificada (cierra la asimetría):
         # un side effect OBLIGATORIO (optional=False) que falla se ELEVA como

@@ -19,6 +19,7 @@ from typing import Any
 
 from ..domain.models import ExecutionContext
 from ..domain.session import SessionRecord
+from ..domain.events import WorkflowEvent
 from ..domain.ports import ITracer, ISessionStore
 from ..domain.ports_registry import resolve_port
 from .bundle import EngineBundle
@@ -86,15 +87,16 @@ class WorkflowAPI:
             chain_dir = record.chain_dir or ""
             if not chain_dir:
                 return
-            self._tracer.trace(
-                chain_dir,
-                "session_start",
-                data={
-                    "session_id": record.session_id,
-                    "project_id": record.project_id or self._project_id or "",
-                    "mode": "new",
-                },
-                session_id=record.session_id,
+            self._tracer.trace_event(
+                WorkflowEvent.of(
+                    "session_start",
+                    payload={
+                        "session_id": record.session_id,
+                        "project_id": record.project_id or self._project_id or "",
+                        "mode": "new",
+                    },
+                    session_id=record.session_id,
+                )
             )
         except Exception:
             pass  # best-effort
