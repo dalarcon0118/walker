@@ -81,7 +81,7 @@ def _cpg_ok(fingerprint: bool, quality: bool = True) -> dict:
     from shared.core.engine.domain.side_effect_contract import ok
 
     return ok(
-        type="index_code",
+        type="update_cpg",
         scope="code_index",
         summary="CPG indexado",
         signals={
@@ -119,14 +119,14 @@ def _engine_without_tracer(se_ctx: dict):
 @given("registro update_cpg con fingerprint verify true y quality ok")
 def _register_cpg_ok(se_ctx: dict):
     se_ctx["engine"].register(
-        "index_code", lambda ctx, params: _cpg_ok(fingerprint=True)
+        "update_cpg", lambda ctx, params: _cpg_ok(fingerprint=True)
     )
 
 
 @given("registro update_cpg con fingerprint verify false y quality ok")
 def _register_cpg_no_fp(se_ctx: dict):
     se_ctx["engine"].register(
-        "index_code", lambda ctx, params: _cpg_ok(fingerprint=False)
+        "update_cpg", lambda ctx, params: _cpg_ok(fingerprint=False)
     )
 
 
@@ -135,7 +135,7 @@ def _register_cpg_boom(se_ctx: dict):
     def boom(ctx, params):
         raise RuntimeError("build failed")
 
-    se_ctx["engine"].register("index_code", boom)
+    se_ctx["engine"].register("update_cpg", boom)
 
 
 # ── When ─────────────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ def _register_cpg_boom(se_ctx: dict):
 
 @when("ejecuto update_cpg con un ExecutionContext con chain_dir")
 def _execute_cpg(se_ctx: dict):
-    se_ctx["engine"].execute(_make_ctx(), [SideEffectDef(type="index_code")])
+    se_ctx["engine"].execute(_make_ctx(), [SideEffectDef(type="update_cpg")])
 
 
 # ── Then ─────────────────────────────────────────────────────────────────────

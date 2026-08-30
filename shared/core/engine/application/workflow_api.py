@@ -96,6 +96,7 @@ class WorkflowAPI:
                         "mode": "new",
                     },
                     session_id=record.session_id,
+                    chain_dir=chain_dir,
                 )
             )
         except Exception:

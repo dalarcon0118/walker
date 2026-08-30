@@ -390,6 +390,9 @@ class WorkflowStateRepository:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             json.dump(new_state.to_dict(), f, indent=2, ensure_ascii=False)
+        # CAS: retorna el estado persistido (nueva revisión) para que el
+        # pipeline encadene saves sin conflicto (ADR-068 F6/G).
+        return new_state
 
 
 # ── Script Runner ──────────────────────────────────────────────────────────

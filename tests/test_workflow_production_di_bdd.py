@@ -61,7 +61,7 @@ class TestProductionDICamino:
         _setup_state(chain_dir)
 
         svc = AppContainer.build().module_registry.get_service("workflow")
-        result = svc.submit(chain_dir, fields={"goal": "g", "tasks": []})
+        result = svc.submit(chain_dir, fields={"goal": "Implement user authentication module", "tasks": [{"objective": "Create login screen", "type": "feature"}]})
 
         assert "error" not in result, result.get("error")
         # El fix del DI: la task REAL se ejecutó (no fallback silencioso)
@@ -86,7 +86,7 @@ class TestProductionDICamino:
         _setup_state(chain_dir)
 
         svc = AppContainer.build().module_registry.get_service("workflow")
-        result = svc.submit(chain_dir, fields={"goal": "g", "tasks": []})
+        result = svc.submit(chain_dir, fields={"goal": "Implement user authentication module", "tasks": [{"objective": "Create login screen", "type": "feature"}]})
         assert result.get("task_executed") is True
 
         # plan_sprint → PLAN_APPROVAL (PO decide approve/revise)
@@ -107,11 +107,22 @@ class TestProductionDICamino:
             fields={
                 "task_id": "T-1",
                 "objective": "obj",
+                "type": "feature",
                 "domain": "test",
                 "spec_type": "feature",
                 "spec_index": 0,
                 "status": "specified",
-                "acceptance_criteria": ["a"],
+                "result_state": "implemented",
+                "task_description": "Implementar login",
+                "predicates": ["function login existe"],
+                "files": ["src/login.py"],
+                "preconditions": ["auth module definido"],
+                "quality_gates": ["lint"],
+                "acceptance_criteria": ["login funciona"],
+                "evidence": "Login flow especificado",
+                "impacted_artifacts": {"files": ["src/login.py"]},
+                "task_context": {"layer": "application"},
+                "risks": [],
             },
         )
         assert "error" not in result2, result2.get("error")

@@ -5,7 +5,12 @@ El searcher se resuelve por clave en el ModuleRegistry ("cognitive_searcher")
 en vez de importar la implementación concreta de shared/ (inversión de control).
 """
 
+from __future__ import annotations
+
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_LAYERS = {"cpg", "ckg", "delta", "trace", "state"}
 
@@ -91,8 +96,9 @@ class QueryManager:
                     session_id=self._session_id or "composer",
                 )
             )
-        except Exception:
-            pass
+        except Exception as e:
+            # K: la pérdida del kg_query no se silencia (ADR-067 F6/K).
+            logger.error("kg_query: fallo al trazar consulta a %s: %s", layer, e)
 
     @staticmethod
     def _normalize(layer: str, result: dict) -> dict:
@@ -160,17 +166,14 @@ class QueryManager:
                     if fields:
                         last_fields = fields
                         break
-        except Exception:
-            pass
+        except Exception as e:
+            # K: best-effort visible — la lectura de last_step no se silencia.
+            logger.error("query_manager: fallo al leer last_step_result: %s", e)
         # Sprint status: delta (fuente unica del spring).
         sprint_status = ""
         sprint_goal = ""
         # El delta/spring es INCUMBENCIA DEL HOST (ADR-WALKER-067): el engine
         # NO consulta spring. El host provee sprint_status/goal en el contexto.
-        try:
-            pass
-        except Exception:
-            pass
         return {
             "ok": True,
             "layer": "state",

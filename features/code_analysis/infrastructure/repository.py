@@ -18,10 +18,9 @@ CPG_VERSION = "2.0"
 
 # Derivados que NO viven en el SSOT gráfico (ADR-WALKER-055 F3): son
 # proyecciones (archivos *.json) o recomputables on-the-fly.
-CPG_DERIVED_KEYS = frozenset({
-    "business_layer", "quality_report", "bug_proposals",
-    "dfg", "analysis_results",
-})
+# Re-export desde el módulo hoja (cpg_constants) — rompe el ciclo
+# repository ↔ cognitive_cpg_repo (ADR-068).
+from .cpg_constants import CPG_DERIVED_KEYS
 
 
 def _now() -> str:

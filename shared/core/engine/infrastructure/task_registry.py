@@ -88,6 +88,7 @@ class InMemoryTaskRegistry(TaskRegistry):
                     },
                     task_id=getattr(ctx, "task_id", "") or name,
                     session_id=getattr(ctx, "session_id", ""),
+                    chain_dir=getattr(ctx, "chain_dir", ""),
                 )
             )
         except Exception:

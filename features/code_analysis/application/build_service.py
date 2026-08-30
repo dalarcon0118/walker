@@ -113,7 +113,7 @@ def _sync_core(cg: Any, data: dict) -> dict:
     """
     nodes = data.get("nodes", {}) or {}
     edges = data.get("edges", []) or []
-    from features.code_analysis.infrastructure.repository import CPG_DERIVED_KEYS
+    from features.code_analysis.infrastructure.cpg_constants import CPG_DERIVED_KEYS
 
     metadata = {
         k: v

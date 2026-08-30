@@ -22,6 +22,7 @@ class WorkflowEvent:
     timestamp: str = ""
     task_id: str = ""
     session_id: str = ""
+    chain_dir: str = ""
 
     @classmethod
     def of(
@@ -31,6 +32,7 @@ class WorkflowEvent:
         timestamp: str = "",
         task_id: str = "",
         session_id: str = "",
+        chain_dir: str = "",
     ) -> "WorkflowEvent":
         """Factory: normaliza el tipo (enum o str) y el timestamp."""
         from datetime import datetime, timezone
@@ -41,6 +43,7 @@ class WorkflowEvent:
             timestamp=timestamp or datetime.now(timezone.utc).isoformat(),
             task_id=task_id,
             session_id=session_id,
+            chain_dir=chain_dir,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,4 +53,5 @@ class WorkflowEvent:
             "timestamp": self.timestamp,
             "task_id": self.task_id,
             "session_id": self.session_id,
+            "chain_dir": self.chain_dir,
         }

@@ -82,7 +82,7 @@ class CognitiveCpgRepository(CpgRepository):
         F3 (ADR-WALKER-055): los derivados (business_layer/quality_report/
         bug_proposals/dfg/analysis_results) NO se persisten en el blob.
         """
-        from features.code_analysis.infrastructure.repository import CPG_DERIVED_KEYS
+        from features.code_analysis.infrastructure.cpg_constants import CPG_DERIVED_KEYS
 
         nodes = data.get("nodes", {}) or {}
         edges = data.get("edges", []) or []

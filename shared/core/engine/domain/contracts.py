@@ -154,7 +154,19 @@ class ContractEvaluator:
             return f"expresion '{expression}' invalida. Formato: ckg_has_decision('approve')"
         decision = m.group(1)
 
-        # Resolver project_root desde chain_dir (contexto del estado)
+        # ADR-WALKER-067 (motor anémico): la decisión se valida en el STATE
+        # (SSOT del engine — el submit la registró en sub_state_data), NO
+        # consultando el CKG (incumbencia del host). La consulta a CKG
+        # requería project_svc/ckg_factory inyectados que nunca se pasan en
+        # el path estático → el approve del PO quedaba SIEMPRE bloqueado.
+        for entry in (state.sub_state_data or {}).values():
+            fields = getattr(entry, "fields", None)
+            if isinstance(fields, dict):
+                if fields.get("decision") == decision:
+                    return None
+                if str(fields.get("decision", "")).lower() == decision.lower():
+                    return None
+        # Fallback legacy: verificación en CKG (si hay composition root).
         chain_dir = state.context.get("chain_dir", "")
         if not chain_dir:
             return f"no chain_dir para verificar decision '{decision}' en CKG"

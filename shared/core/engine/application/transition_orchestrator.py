@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import os
 import time
+import logging
 from typing import Any
 
 from ..domain.ports import ITracer
 from ..domain.events import WorkflowEvent
+
+logger = logging.getLogger(__name__)
 
 
 class TransitionOrchestrator:
@@ -81,6 +84,7 @@ class TransitionOrchestrator:
                         },
                         task_id=getattr(ctx, "task_id", None),
                         session_id=getattr(ctx, "session_id", None),
+                        chain_dir=getattr(ctx, "chain_dir", ""),
                     )
                 )
                 return {
@@ -149,10 +153,12 @@ class TransitionOrchestrator:
                     },
                     task_id=ctx.task_id,
                     session_id=ctx.session_id,
+                    chain_dir=ctx.chain_dir,
                 )
             )
-        except Exception:
-            pass
+        except Exception as e:
+            # K: la pérdida del evento de traza NO se silencia (ADR-067 F6/K).
+            logger.error("workflow_state: fallo al trazar transición %s (%s)", gate, e)
 
         # ── Ejecutar edge transform si existe (DESPUES de transition) ─
         if transform_config:

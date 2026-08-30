@@ -320,13 +320,10 @@ class ContextComposer:
         # Fallback: datos de collect_all desde el chain_dir
         chain_dir = getattr(ctx, "chain_dir", None) or ctx_dict.get("chain_dir", "")
         if chain_dir:
-            try:
-                # La recolección de contexto (collect_all/prompts) es INCUMBENCIA
-                # DEL HOST (ADR-WALKER-067): el engine no la recolecta. El host
-                # provee el contexto ya resuelto.
-                pass
-            except Exception:
-                pass
+            # La recolección de contexto (collect_all/prompts) es INCUMBENCIA
+            # DEL HOST (ADR-WALKER-067): el engine no la recolecta. El host
+            # provee el contexto ya resuelto.
+            pass
 
         def _replace_var(m: _re.Match) -> str:
             var_name = m.group(1)

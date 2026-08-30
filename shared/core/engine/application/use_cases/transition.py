@@ -165,13 +165,13 @@ class TransitionUseCase:
 
         # ── 6b. Promover provides del nodo origen al global state ──
         if source_node and source_node.provides:
-            from .context_resolver import ContextResolver
+            from ..context_resolver import ContextResolver
 
             state = ContextResolver().promote_provides(state, source_node)
 
         # ── 6b. Aplicar context_updates de la edge ────────────────
         if gate.context_updates:
-            from .context_resolver import ContextResolver
+            from ..context_resolver import ContextResolver
 
             cr = ContextResolver()
             state = cr.apply_context_updates(state, gate.context_updates)

@@ -35,5 +35,6 @@ class WorkflowStoreAdapter(IWorkflowStore):
     def load_state(self, chain_dir: str) -> Any:
         return self._state_repo.load(chain_dir)
 
-    def save_state(self, state: Any, chain_dir: str) -> None:
-        self._state_repo.save(chain_dir, state)
+    def save_state(self, state: Any, chain_dir: str) -> Any:
+        # Retorna el estado persistido (nueva revisión CAS) para encadenar.
+        return self._state_repo.save(chain_dir, state)

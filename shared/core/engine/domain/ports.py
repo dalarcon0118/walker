@@ -134,7 +134,7 @@ class IWorkflowLoader(ABC):
         ...
 
     @abstractmethod
-    def save_state(self, state: WorkflowState, chain_dir: str) -> None:
+    def save_state(self, state: WorkflowState, chain_dir: str) -> WorkflowState:
         ...
 
 
@@ -422,7 +422,7 @@ class IWorkflowStore(ABC):
         ...
 
     @abstractmethod
-    def save_state(self, state: WorkflowState, chain_dir: str) -> None:
+    def save_state(self, state: WorkflowState, chain_dir: str) -> WorkflowState:
         """Persiste el estado del workflow."""
         ...
 

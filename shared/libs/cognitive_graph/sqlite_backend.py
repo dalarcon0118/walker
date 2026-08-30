@@ -303,6 +303,12 @@ class SqliteBackend:
     def __init__(self, conn: MemoryConnection):
         self._conn = conn
         self._db_path = self._resolve_db_path(conn)
+        # Robustez: el backend garantiza su ubicación (el dir padre puede no
+        # existir aún — tests/proyectos nuevos). Antes fallaba con
+        # "unable to open database file".
+        parent = os.path.dirname(self._db_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self._db = sqlite3.connect(self._db_path, timeout=10)
         self._db.row_factory = sqlite3.Row
         self._integrity_guard()  # antes de cualquier PRAGMA/lectura (FS-5)

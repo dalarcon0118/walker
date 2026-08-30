@@ -296,6 +296,7 @@ class ErrorHandler:
                         },
                         task_id=ctx.task_id,
                         session_id=ctx.session_id,
+                        chain_dir=ctx.chain_dir,
                     )
                 )
             return {

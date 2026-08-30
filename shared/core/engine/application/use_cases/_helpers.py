@@ -60,68 +60,7 @@ def _sprint_id_of(chain_dir: str) -> str:
 # Las gates de aprobacion de cada nodo tienen nombres propios (design_approved,
 # analysis_approved, task_complete) que NO se derivan por la convencion
 # <prefix>_approved — por eso se declaran explicitamente aqui.
-_DECISION_GATE_OVERRIDES: dict[str, dict[str, str]] = {
-    # TASK_REVIEW: approve -> next_task (o all_done si es la ultima), refine -> refine_task
-    "TASK_REVIEW": {
-        "approve": "next_task",
-        "refine": "refine_task",
-        "all_done": "all_done",
-    },
-    # DESIGN_REVIEW: approve -> design_approved (gate propia del nodo DESIGN)
-    "DESIGN_REVIEW": {
-        "approve": "design_approved",
-        "reject": "design_needs_refine",
-        "refine": "design_needs_refine",
-    },
-    # ANALYZE.REVIEW: approve -> analysis_approved (KNOWLEDGE_REVIEW fue
-    # fusionado en REVIEW — SPEC-005)
-    "REVIEW": {
-        "approve": "analysis_approved",
-        "reject": "needs_refine",
-        "refine": "needs_refine",
-    },
-    # IMPLEMENT gates: user gates de implementacion
-    "USER_GATE": {
-        "approve": "implementation_done",
-        "reject": "needs_refine",
-        "cancel": "cancel",
-    },
-    "CODE_REVIEW_RESULT": {
-        "approve": "implementation_done",
-        "reject": "needs_refine",
-        "refine": "needs_refine",
-    },
-    "REPORT_GATE": {
-        "approve": "implementation_done",
-        "reject": "needs_refine",
-        "refine": "needs_refine",
-    },
-    # VERIFY gates: QA y PO_ACCEPT -> task_complete
-    "QA": {
-        "approve": "task_complete",
-        "reject": "needs_refine",
-        "refine": "needs_refine",
-    },
-    "PO_ACCEPT": {
-        "approve": "task_complete",
-        "reject": "needs_refine",
-        "refine": "needs_refine",
-    },
-    # CLOSE_CONFIRM: close_sprint
-    "CLOSE_CONFIRM": {
-        "approve": "close_sprint",
-        "reject": "back_to_active",
-    },
-    # CONFIRM_GATE (REFINE): approve -> dejar que ROUTE (auto) resuelva el
-    # target del diagnostico dinamicamente (NO mapear a una gate fija);
-    # modify -> volver a DIAGNOSE, cancel -> volver a sprint.
-    "CONFIRM_GATE": {
-        "approve": "",
-        "modify": "reroute_design",
-        "cancel": "reroute_sprint",
-    },
-}
-
+# (El dict completo vive una sola vez, antes de _resolve_decision_gate.)
 
 
 def _resolve_decision_gate(
@@ -187,6 +126,14 @@ def _resolve_decision_gate(
 
 
 _DECISION_GATE_OVERRIDES: dict[str, dict[str, str]] = {
+    # PLAN_APPROVAL: approve -> plan_approval_approved (edge TASK_SPEC),
+    # revise -> plan_approval_revised (edge PLANNING). Los nombres de EDGE
+    # siguen la convención snake_case (plan_approval_approved); plan_approved
+    # es el EVENTO on: (update_sprint_progress), NO la gate de transición.
+    "PLAN_APPROVAL": {
+        "approve": "plan_approval_approved",
+        "revise": "plan_approval_revised",
+    },
     # TASK_REVIEW: approve -> next_task (o all_done si es la ultima), refine -> refine_task
     "TASK_REVIEW": {
         "approve": "next_task",

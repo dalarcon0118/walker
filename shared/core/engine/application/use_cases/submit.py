@@ -273,7 +273,7 @@ class SubmitDataUseCase:
         if task_id:
             state = state.with_context("task_id", task_id)
         state = state.with_context("chain_dir", chain_dir)
-        self._workflow_store.save_state(state, chain_dir)
+        state = self._workflow_store.save_state(state, chain_dir)
         self.events.append(
             DomainEvent(
                 DomainEventType.DATA_SUBMITTED,
@@ -369,7 +369,7 @@ class SubmitDataUseCase:
                 "task_data": task_data_structured,
             },
         )
-        self._workflow_store.save_state(state, chain_dir)
+        state = self._workflow_store.save_state(state, chain_dir)
         if not task_result.ok:
             error_msg = str(task_result.error) if task_result.error else "Unknown error"
             raise AutoAdvanceError(state.current_node, sub_state.key, 1, error_msg)
@@ -507,7 +507,7 @@ class SubmitDataUseCase:
             state.current_sub_state,
             {"side_effects": side_results},
         )
-        self._workflow_store.save_state(state, chain_dir)
+        state = self._workflow_store.save_state(state, chain_dir)
         result["side_effects"] = side_results
         return state, result
 
@@ -566,7 +566,7 @@ class SubmitDataUseCase:
                     else []
                 )
                 if next_required and not fields:
-                    self._workflow_store.save_state(state, chain_dir)
+                    state = self._workflow_store.save_state(state, chain_dir)
                     result["advanced_to"] = state.current_sub_state
                     result["node_complete"] = False
                     result["waiting_for_input"] = True
@@ -579,10 +579,10 @@ class SubmitDataUseCase:
 
         if advanced:
             # Promover provides del sub-estado completado al contexto global
-            from .context_resolver import ContextResolver
+            from ..context_resolver import ContextResolver
 
             state = ContextResolver().promote_provides(advanced, node, sub_state)
-            self._workflow_store.save_state(state, chain_dir)
+            state = self._workflow_store.save_state(state, chain_dir)
             self.events.append(
                 DomainEvent(
                     DomainEventType.STATE_TRANSITIONED,
@@ -634,7 +634,7 @@ class SubmitDataUseCase:
                 "prompt_placeholders": step_result.to_prompt_dict(),
             },
         )
-        self._workflow_store.save_state(state, chain_dir)
+        state = self._workflow_store.save_state(state, chain_dir)
         return state, result
 
     def _resolve_xor_selection(

@@ -90,6 +90,7 @@ class StepOrchestrator:
                             },
                             task_id=ctx.task_id,
                             session_id=ctx.session_id,
+                            chain_dir=ctx.chain_dir,
                         )
                     )
                     return {
@@ -111,6 +112,7 @@ class StepOrchestrator:
                             },
                             task_id=ctx.task_id,
                             session_id=ctx.session_id,
+                            chain_dir=ctx.chain_dir,
                         )
                     )
                     return {
@@ -174,6 +176,7 @@ class StepOrchestrator:
                         },
                         task_id=ctx.task_id,
                         session_id=ctx.session_id,
+                        chain_dir=ctx.chain_dir,
                     )
                 )
                 return {
@@ -193,6 +196,7 @@ class StepOrchestrator:
                         },
                         task_id=ctx.task_id,
                         session_id=ctx.session_id,
+                        chain_dir=ctx.chain_dir,
                     )
                 )
                 return {
@@ -271,6 +275,7 @@ class StepOrchestrator:
                 },
                 task_id=ctx.task_id,
                 session_id=ctx.session_id,
+                chain_dir=ctx.chain_dir,
             )
         )
 
@@ -303,6 +308,7 @@ class StepOrchestrator:
                 stderr=str(task_data.get("stderr", "")),
                 exit_code=result.get("exit_code", 0),
                 task_id=ctx.task_id,
+                chain_dir=ctx.chain_dir,
             )
             return {
                 "action": "execute",
@@ -324,6 +330,7 @@ class StepOrchestrator:
                 type(e).__name__,
                 str(e),
                 task_id=ctx.task_id,
+                chain_dir=ctx.chain_dir,
             )
             return error_result
 
@@ -343,6 +350,7 @@ class StepOrchestrator:
             sub_state.prompt_id,
             ctx.chain_dir,
             task_id=ctx.task_id,
+            chain_dir=ctx.chain_dir,
             context_config=context_config,
             execution_ctx=ctx,
             extra_data=sprint_ctx,
@@ -403,6 +411,7 @@ class StepOrchestrator:
                     "AUTO_TRANSITION",
                     payload={"gate": gate_name},
                     task_id=ctx.task_id,
+                    chain_dir=ctx.chain_dir,
                 )
             )
             return self._transition(ctx, gate_name)

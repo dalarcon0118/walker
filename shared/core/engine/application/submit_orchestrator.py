@@ -95,11 +95,18 @@ class SubmitOrchestrator:
                                 },
                                 task_id=ctx.task_id,
                                 session_id=ctx.session_id,
+                                chain_dir=ctx.chain_dir,
                             )
                         )
                         return {"ok": True, "layers_checked": sorted(layers), "forced": True, "conflict_resolved": True}
-        except Exception:
-            pass
+        except Exception as e:
+            # Best-effort visible: si el force-resolve falla, la gate bloquea
+            # abajo (fail-closed) — el fallo NO se silencia (ADR-067 F6/K).
+            import logging
+
+            logging.getLogger(__name__).error(
+                "required_tools: force-resolve falló (%s) — la gate bloquea", e
+            )
 
         hints = "; ".join(
             f"{t.get('id', '?')}: {t.get('command_hint', '')}" for t in required
@@ -181,15 +188,19 @@ class SubmitOrchestrator:
 
         result = submit_result.value_or({})
 
-        # ── Superficie fallos de side-effects al agente ──────────────
+        # ── Superficie fallos de side-effects MANDATORIOS al agente ───────────
+        # SPEC-014: los optional=True fallan con warning y NO fallan el submit;
+        # solo los mandatorios (optional=False) elevan el error.
         _failed_ses = [
             se
             for se in result.get("side_effects", [])
-            if isinstance(se, dict) and se.get("ok") is False
+            if isinstance(se, dict)
+            and se.get("ok") is False
+            and not se.get("optional")
         ]
         if _failed_ses:
             summaries = [
-                se.get("summary", se.get("error", "unknown failure"))
+                se.get("summary", se.get("error", se.get("result", "unknown failure")))
                 for se in _failed_ses
                 if isinstance(se, dict)
             ]
@@ -242,6 +253,7 @@ class SubmitOrchestrator:
                     payload={"events_dispatched": event_count},
                     task_id=ctx.task_id,
                     session_id=ctx.session_id,
+                    chain_dir=ctx.chain_dir,
                 )
             )
 
@@ -264,6 +276,7 @@ class SubmitOrchestrator:
                     },
                     task_id=ctx.task_id,
                     session_id=ctx.session_id,
+                    chain_dir=ctx.chain_dir,
                 )
             )
 
@@ -351,6 +364,7 @@ class SubmitOrchestrator:
                         },
                         task_id=ctx.task_id,
                         session_id=ctx.session_id,
+                        chain_dir=ctx.chain_dir,
                     )
                 )
 
@@ -397,6 +411,7 @@ class SubmitOrchestrator:
                 },
                 task_id=ctx.task_id,
                 session_id=ctx.session_id,
+                chain_dir=ctx.chain_dir,
             )
         )
 
@@ -414,6 +429,7 @@ class SubmitOrchestrator:
                     },
                     task_id=ctx.task_id,
                     session_id=ctx.session_id,
+                    chain_dir=ctx.chain_dir,
                 )
             )
 
@@ -448,6 +464,7 @@ class SubmitOrchestrator:
                         },
                         task_id=ctx.task_id,
                         session_id=ctx.session_id,
+                        chain_dir=ctx.chain_dir,
                     )
                 )
         except Exception:
