@@ -35,26 +35,25 @@
 | Módulo | Responsabilidad (UNA) | Contiene | Auto-registro | Empaquetable |
 |---|---|---|---|---|
 | **AppModule** (`app/` raíz + `composition/`) | Componer: construir el engine (main/register_all), ciclo de vida, container, grafo de imports | `module.py`, `composition/` | registra services de libs + módulos MCP + re-registra puertos | ✅ |
-| **WorkflowApiModule** (`app/api/`) | API surface del workflow para adaptadores (CLI/MCP): submit/transition/status/prepare + gates host-side | `workflow_facade.py` | providers exportados (facade) | ✅ |
-| **OrchestrationModule** (`app/orchestration/`) | Casos de uso cross-feature (G10 ADR-051): orquestan ENTRE features | los 14 `*_service.py` + `contracts.py` + `module.py` | ya declarado (`app_orchestration`) | ✅ |
-| **MemoryModule** (`app/memory/`) | Semántica de las memorias del walker (negocio): schemas inyectados al storage genérico, MemoryQueryService, formatters | `memory_schemas.py`, `memories.py`, `context_format.py` (+ `context_resolver.py`?) | ModuleManifest + exporta query service | ✅ |
-| **PathModule** (`app/path_resolver.py` + config) | Única traducción identificadores→rutas (SSOT) | `path_resolver.py` + acceso a config | exporta resolver | ✅ |
-| **Bootstrap/main** (NO módulo) | Entry point: `main.ts` análogo — arranca el container, dispara register_all | `app.py`, `bootstrap.py`, `container.py`, `cognitive_registry.py` | — (entry) | — |
+| **WorkflowApiModule** (`features/cli_interface/`) | API surface del workflow para adaptadores (CLI/MCP) + context_resolver (adapter IContextValidator) | `workflow_facade.py`, `context_resolver.py` | providers exportados (facade) | ✅ |
+| **OrchestrationModule** (`features/orchestration/`) | Casos de uso cross-feature (G10 ADR-051): orquestan ENTRE features | los 14 `*_service.py` + `contracts.py` + `module.py` | ModuleManifest (`app_orchestration` → `features.orchestration`) | ✅ |
+| **PathModule** (`features/common/`) | Única traducción identificadores→rutas (SSOT, Core/SharedModule NestJS) | `path_resolver.py` + acceso a config | exporta resolver | ✅ |
+| **Bootstrap/main** (NO módulo) | Entry point: `main.ts` análogo — arranca el container, dispara register_all | `app/app.py`, `app/bootstrap.py`, `app/container.py`, `app/cognitive_registry.py` | — (entry) | — |
 
 ### 2.2 Reglas de boundaries
 
-1. **AppModule importa** WorkflowApiModule + OrchestrationModule + MemoryModule + PathModule + features (para construir el engine). Los demás NO importan AppModule.
-2. **WorkflowApiModule** depende solo del engine (OrchestrationService vía puertos) + PathModule (chain_dir).
-3. **OrchestrationModule** depende de features + PathModule + MemoryModule (cruza repos de memorias). NO importa AppModule ni WorkflowApiModule.
-4. **MemoryModule** depende solo de `shared/libs/cognitive_graph` (storage genérico) + PathModule. NO importa features.
-5. **PathModule** depende solo de config. Nada lo importa a él para rutas (es el SSOT).
+1. **AppModule (`app/`) importa** todos los módulos de features + el engine (para construir el engine). Los demás NO importan AppModule.
+2. **WorkflowApiModule** (features/cli_interface) depende solo del engine (OrchestrationService vía puertos) + PathModule (chain_dir).
+3. **OrchestrationModule** (features/orchestration) depende de features + PathModule + MemoryModule (cruza repos de memorias). NO importa AppModule ni WorkflowApiModule.
+4. **MemoryModule** (features/memories) depende solo de `shared/libs/cognitive_graph` (storage genérico) + PathModule. NO importa features.
+5. **PathModule** (features/common) depende solo de config. Nada lo importa a él para rutas (es el SSOT).
 6. Cada módulo se auto-registra vía `ModuleManifest` (ADR-066): `imports`, `providers`, `adapters`, `exports` explícitos. El registro NO se centraliza en `app/module.py`.
 
 ### 2.3 Movimientos concretos
 
-- `memory_schemas.py`, `memories.py`, `context_format.py` → `app/memory/` (MemoryModule).
-- `context_resolver.py` → decisión pendiente: ¿MemoryModule (si es contexto de memorias) o WorkflowApiModule (si es contexto de prompts)?
-- `api/` → módulo propio con su ModuleManifest.
+- `memory_schemas.py`, `memories.py`, `context_format.py` → `features/memories/` (MemoryModule).
+- `context_resolver.py` → `features/cli_interface/` (adapter del puerto IContextValidator — contexto de prompts, no semántica de memorias).
+- `app/api/` → `features/cli_interface/` (la facade es la API surface que consumen los adaptadores CLI/MCP).
 - `orchestration/` → ya tiene `module.py`; se consolida como módulo de primera clase.
 - `path_resolver.py` → PathModule (puede quedarse en raíz de app/ como módulo de 1 archivo).
 - `app/module.py` → solo AppModule: ya no registra providers de dominios ajenos; cada módulo registra los suyos.
@@ -87,12 +86,12 @@
 |---|---|---|
 | **Estructura** | `app/` plano: 6 responsabilidades mezcladas | `app/` = AppModule + módulos (`api/`, `orchestration/`, `memory/`, `path_resolver`) |
 | **Registro** | `app/module.py` registra providers de todo el host | Cada módulo se auto-registra (ModuleManifest); AppModule solo libs+MCP+puertos |
-| **Semántica de memorias** | `memory_schemas.py`/`memories.py`/`context_format.py` en raíz de app | `app/memory/` (MemoryModule) con exports propios |
-| **Facade** | `api/workflow_facade.py` suelto en `app/api/` sin manifiesto | WorkflowApiModule declarado, exporta la facade |
-| **Orquestación** | 14 services en `app/orchestration/` (declarados como `app_orchestration`) | OrchestrationModule de primera clase con `contracts.py` + manifiesto consolidado |
+| **Semántica de memorias** | `memory_schemas.py`/`memories.py`/`context_format.py` en raíz de app | `features/memories/` (MemoryModule) con exports propios |
+| **Facade** | `api/workflow_facade.py` suelto en `app/api/` sin manifiesto | `features/cli_interface/` (WorkflowApiModule) exporta la facade |
+| **Orquestación** | 14 services en `app/orchestration/` (declarados como `app_orchestration`) | `features/orchestration/` (OrchestrationModule) con `contracts.py` + manifiesto consolidado |
 | **Paths** | `path_resolver.py` utilidad en raíz | PathModule (export por contrato, SSOT verificado) |
 | **Composición** | `composition/registry.py` (697 ln) mezcla registro + construcción del engine | `register_all` DELGADO: solo compone; cada módulo registra lo suyo |
-| **Acoplamiento** | app/memory (negocio) convive con app/composition (infra) | Boundaries unidireccionales (INV-W068-03..06) verificados en CI |
+| **Acoplamiento** | negocio de memorias convive con composición (infra) en `app/` | Boundaries unidireccionales (INV-W068-03..06) verificados en CI; `app/` = solo AppModule |
 
 ---
 
@@ -126,7 +125,7 @@
 
 ## 4. `failure_scenarios`
 
-1. **Si MemoryModule queda importando features** (p.ej. schemas que referencian task_intelligence), el paquete deja de ser empaquetable → todo consumidor de memorias arrastra features. *Causa:* boundaries no verificados en Fase 2. *Mitigación:* grep CI que prohíbe `features` en `app/memory/*`. *Detección:* `grep -r "from features" app/memory` falla en CI.
+1. **Si MemoryModule queda importando features** (p.ej. schemas que referencian task_intelligence), el paquete deja de ser empaquetable → todo consumidor de memorias arrastra features. *Causa:* boundaries no verificados en Fase 2. *Mitigación:* grep CI que prohíbe `features` en `features/memories/*`. *Detección:* `grep -r "from features" features/memories` falla en CI.
 2. **Si AppModule centraliza registros de otros módulos** (regresión a `app/module.py` con providers ajenos), el auto-registro muere y el grafo de imports se acopla. *Causa:* prisas por "que funcione" sin declarar el módulo dueño. *Mitigación:* cada módulo declara su ModuleManifest ANTES de registrar providers; test de completitud por módulo. *Detección:* test que valida que `app/module.py` solo registra services de libs + módulos MCP.
 3. **Si WorkflowApiModule y OrchestrationModule se importan mutuamente** (facade→orchestrator y orchestrator→facade), hay ciclo y el container no resuelve. *Causa:* boundaries de §2.2 ignorados. *Mitigación:* regla de imports unidireccional verificada en el grafo (ADT-065 divergencia #4). *Detección:* `import_graph` detecta ciclo y falla el boot.
 4. **Si PathModule deja de ser SSOT** (alguien construye rutas a mano), los paths divergen entre módulos y el engine resuelve contra un project_root distinto al del host. *Causa:* atajo sin pasar por el resolver. *Mitigación:* convención + revisión de PRs; PathModule exportado por contrato. *Detección:* grep de `\.cognitive/` hardcodeado fuera de `app/path_resolver.py`.
@@ -156,13 +155,17 @@ Escenarios de uso/aceptación que DEBEN cumplirse tras el refinamiento (además 
 
 ---
 
-## 6. Preguntas abiertas (para refinar)
+## 6. Decisiones (resueltas por el modelo NestJS: `features/` = `src/`)
 
-1. **¿MemoryModule vive dentro de `app/` (`app/memory/`) o en `features/cognitive_knowledge/`?** (La semántica de memorias es negocio del walker — ¿dominio o host?)
-2. **¿`context_resolver.py` va a MemoryModule o a WorkflowApiModule?** (¿contexto de memorias o contexto de prompts?)
-3. **¿OrchestrationModule queda en `app/` o se mueve a un paquete propio?** (Es la capa G10 — ¿podría ser `features/orchestration/`?)
-4. **¿PathModule necesita ser módulo o basta con un export de utilidad?** (Angular lo pondría en SharedModule; NestJS en CoreModule.)
-5. **¿Se mueve código en este ADR o solo se declaran los módulos?** (Fases 2-4 implican moves — ¿los hacemos ahora o los dejamos como plan?)
+Resueltas con el modelo mental NestJS (`src/order/` ↔ `features/order/`; `app/` = solo `app.module.ts` + `main.ts`):
+
+1. **Q1 — MemoryModule → `features/memories/`.** El `src/` de NestJS (módulos) es `features/`; la semántica de memorias es un módulo del host (cruza CPG+CKG+Delta+Trace) → vive a nivel de features. NO `app/` (composición) ni `cognitive_knowledge` (solo 1 de 4 memorias). *Refinamiento profundo (opcional): cada feature registra SU schema (patrón `forFeature`) y MemoryModule queda solo con el facade.*
+2. **Q2 — `context_resolver.py` → `features/cli_interface/` (WorkflowApiModule).** Implementa `IContextValidator` (puerto del engine) y resuelve contexto de PROMPTS, no semántica de memorias. Es un provider contra token (adapter) del módulo que cablea adapters del engine.
+3. **Q3 — OrchestrationModule → `features/orchestration/`.** Los use cases de aplicación cross-context viven en la capa de aplicación (a nivel src = features), NO dentro de un bounded context.
+4. **Q4 — PathModule → `features/common/` (Core/SharedModule).** Tiene dependencia de config + es SSOT → módulo formal global (equivalente `@Global()` en NestJS), no utilidad suelta.
+5. **Q5 — Declarar ahora (Fase 1: manifiestos), mover por fases (2-4) con tests verdes entre fases.**
+
+**Nota de arquitectura:** `app/` queda como SOLO AppModule + Bootstrap (composición + entry). Todo módulo de negocio (memories, orchestration, api, path) vive a nivel de `features/`.
 
 ---
 
@@ -173,14 +176,14 @@ Escenarios de uso/aceptación que DEBEN cumplirse tras el refinamiento (además 
 | `app/module.py` | `app/module.py` (AppModule) | AppModule | 🔧 solo registra libs+MCP+puertos; providers ajenos se mueven a sus módulos |
 | `app/composition/registry.py` (697 ln) | `app/composition/registry.py` | AppModule | 🔧 `register_all` delgado; delega registro por módulo |
 | `app/composition/container.py`, `lifecycle.py`, `import_graph.py`, `errors.py` | sin cambio | AppModule | — |
-| `app/api/workflow_facade.py` | `app/api/workflow_facade.py` + nuevo `app/api/module.py` | WorkflowApiModule | ➕ manifiesto propio (providers: facade) |
-| `app/orchestration/*_service.py` (14) | sin cambio de path | OrchestrationModule | 🔧 consolidar `module.py` (exports por id+contrato) |
-| `app/orchestration/contracts.py` (601 ln) | sin cambio | OrchestrationModule | — |
-| `app/memory_schemas.py` (335 ln) | `app/memory/memory_schemas.py` | MemoryModule | 📦 move |
-| `app/memories.py` (68 ln) | `app/memory/memories.py` | MemoryModule | 📦 move |
-| `app/context_format.py` (120 ln) | `app/memory/context_format.py` | MemoryModule | 📦 move |
-| `app/context_resolver.py` (78 ln) | `app/memory/` **o** `app/api/` (decisión Q2) | MemoryModule o WorkflowApiModule | 📦 move (pendiente) |
-| `app/path_resolver.py` (592 ln) | sin cambio (módulo de 1 archivo) | PathModule | ➕ manifiesto/export por contrato |
+| `app/api/workflow_facade.py` | `features/cli_interface/` (facade + `module.py` propio) | WorkflowApiModule | 📦 move + ➕ manifiesto |
+| `app/context_resolver.py` (78 ln) | `features/cli_interface/` (adapter IContextValidator) | WorkflowApiModule | 📦 move |
+| `app/orchestration/*_service.py` (14) | `features/orchestration/` | OrchestrationModule | 📦 move + consolidar `module.py` |
+| `app/orchestration/contracts.py` (601 ln) | `features/orchestration/` | OrchestrationModule | 📦 move |
+| `app/memory_schemas.py` (335 ln) | `features/memories/memory_schemas.py` | MemoryModule | 📦 move |
+| `app/memories.py` (68 ln) | `features/memories/memories.py` | MemoryModule | 📦 move |
+| `app/context_format.py` (120 ln) | `features/memories/context_format.py` | MemoryModule | 📦 move |
+| `app/path_resolver.py` (592 ln) | `features/common/path_resolver.py` | PathModule (Core/SharedModule) | 📦 move + ➕ export |
 | `app/app.py`, `bootstrap.py`, `container.py`, `cognitive_registry.py` | sin cambio | Bootstrap/main | — |
 
-**Importadores a actualizar mecánicamente** (si hay moves): `app/orchestration/*` (memory_schemas), `app/api/*`, `features/*` (memories, context_format, memory_schemas, context_resolver), `tasks/*`, `protocols/cli_interface/*`, `tests/*` — solo paths de import, sin cambios de firma (INV-W068-07).
+**Importadores a actualizar mecánicamente** (si hay moves): `features/*` (memory_schemas, memories, context_format, context_resolver, workflow_facade), `tasks/*`, `protocols/cli_interface/*`, `app/orchestration/*`, `tests/*` — solo paths de import, sin cambios de firma (INV-W068-07).
