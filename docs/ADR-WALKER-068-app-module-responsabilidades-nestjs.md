@@ -230,7 +230,7 @@ Escenarios de uso/aceptación que DEBEN cumplirse tras el refinamiento (además 
 Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/order/` ↔ `features/order/`):
 
 1. **Q1 — NO existe ni se crea un "feature memorias".** La semántica de memorias es un contrato de persistencia **distribuido**: cada feature dueña registra SU schema (forFeature, R6); el facade cross-cutting (`MemoryQueryService`) + proyección es **capa de aplicación del host** (`app/memories/`).
-2. **Q2 — `context_resolver.py` → `protocols/cli/cli_interface/`.** Es un interface adapter (implementa `IContextValidator`) — vive con los adapters CLI/MCP, no en app/ ni en un feature.
+2. **Q2 — `context_resolver.py` (app/) es primitiva R1 de rutas, NO adapter `IContextValidator`** (ese es del engine, `shared/core/engine/application/`). Se queda en app/ (core, Fase 4 PathModule). Y la `workflow_facade` es **aplicación del host** (no adapter) → `app/api/` = WorkflowApiModule.
 3. **Q3 — Orquestación → queda en `app/orchestration/`.** Es la capa de aplicación del host (use cases cross-context G10). NO se mueve a features (no es un bounded context).
 4. **Q4 — PathResolver → se queda en `app/`** (módulo de 1 archivo + export por contrato, equivalente `@Global()` de NestJS). NO features/common.
 5. **Q5 — Declarar ahora, mover por fases con tests verdes entre fases.** Fase 1 declaró los módulos; el análisis Clean Design la SUPERSEDE (se eliminan los 4 manifests de features/* y se ejecuta la Fase 2 forFeature).
