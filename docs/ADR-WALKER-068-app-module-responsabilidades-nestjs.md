@@ -97,11 +97,12 @@
 
 ## 3. Plan por fases (con métricas)
 
-### Fase 1 — Declarar los módulos (sin mover código)
+### Fase 1 — Declarar los módulos (sin mover código)  ✅ HECHA (commit `c878d48`)
 
-- [ ] M-03 Una responsabilidad por módulo declarada en ModuleManifest — anti-patrón: God-Module.
-- [ ] M-06 Extensibilidad: cada módulo con `exports` explícitos (Open/Closed) — anti-patrón: Accidental Complexity.
-- [ ] M-02 SSOT de la estructura: el grafo de imports refleja los 6 módulos (sin aristas nuevas) — anti-patrón: Shotgun Surgery.
+- [x] M-03 Una responsabilidad por módulo declarada en ModuleManifest — anti-patrón: God-Module. → `features/memories/`, `features/orchestration/`, `features/common/`, `features/cli_interface/` con `module.py` declarativo (imports/exports, providers vacíos).
+- [x] M-06 Extensibilidad: cada módulo con `exports` explícitos (Open/Closed) — anti-patrón: Accidental Complexity. → exports por contrato (`memory_query_service`, `orchestration_services`, `path_resolver`, `workflow_facade`).
+- [x] M-02 SSOT de la estructura: el grafo de imports refleja los 6 módulos (sin aristas nuevas) — anti-patrón: Shotgun Surgery. → registrados en `_register_module_manifests`; grafo acíclico (tests de composición 12 passed).
+- [x] Bonus: fix del tracing real (`trace_log` usaba `cg.append()` inexistente → `cg.store_many()`; todo el trace de producción se perdía silenciosamente).
 
 ### Fase 2 — MemoryModule (split de memorias)
 
