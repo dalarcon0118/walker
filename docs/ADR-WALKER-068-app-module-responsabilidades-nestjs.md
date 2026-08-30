@@ -161,10 +161,14 @@
 | **Composición + facade** | `app/memories/` (aplicación del host) | `apply_memory_indexes(graph)` (aplica lo auto-registrado) + `MemoryQueryService` — NO dueña de schemas (INV-W068-08) |
 
 - [ ] M-03 Cada feature registra SOLO SU schema en el storage genérico (forFeature, R6): CPG→`code_analysis`, CKG→`cognitive_knowledge`, Delta→`delta_tracking`, Trace→`event_tracing` — anti-patrón: God-Module de memorias.
-- [ ] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → auto-registro por feature (`register_memory_index` en cada `module.py` de feature) + `apply_memory_indexes(graph)` (espejo de `_register_module_manifests`) — anti-patrón: Big Ball of Mud / SSOT duplicado.
-- [ ] M-05 `MemoryQueryService` inyectado por constructor (sin service locator) — anti-patrón: God Class.
-- [ ] M-06 `COMPACT_FIELDS`/`SEVERITY_ORDER` split por feature (cada una su proyección/ranking); el host las mergea para el constructor del grafo — anti-patrón: Duplicate Code.
-- [ ] M-02 Reconciliar las configs de ckg/delta/trace de las 2 fuentes (memory_schemas vs cognitive_registry) en la feature dueña — anti-patrón: Shotgun Surgery.
+- [ ] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → auto-registro por feature (`register_memory_index` con dedupe, G2) + `apply_memory_indexes(graph)` — anti-patrón: Big Ball of Mud / SSOT duplicado.
+- [ ] M-05 `MemoryQueryService` + `build_cognitive_graph`/`build_searcher` canónicas en `app/memories/` (G7: elimina la construcción replicada en kg_context/build_service/repos) — anti-patrón: God Class.
+- [ ] M-06 `COMPACT_FIELDS`/`SEVERITY_ORDER` split por feature (cada una su proyección/ranking, G4/G5); el host mergea para el constructor del grafo — anti-patrón: Duplicate Code.
+- [ ] M-02 Reconciliar las configs de ckg/delta/trace de las 2 fuentes en la feature dueña (P2: decisión por índice) — anti-patrón: Shotgun Surgery.
+- [ ] B3 Fix `self.self.compact_fields` → `self.compact_fields` (storage engine) — anti-patrón: bug de runtime silencioso.
+- [ ] B4 `memory_data_dir` → `app/path_resolver` (SSOT de rutas) — anti-patrón: Duplicate Code.
+- [ ] B5/B6/B7: cache del ref, `except: pass` → log (K), dead code — anti-patrón: efectos ocultos.
+- [ ] G9 Test de completitud: `{ckg, cpg, delta, trace, ref}` registrados desde sus features + `reset_memory_indexes()` (P5).
 
 ### Fase 3 — Adapters + orquestación consolidada
 
@@ -270,13 +274,13 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 - `cpg.ref.*` (CPGs de referencia) solo en `memory_schemas`.
 - `COMPACT_FIELDS`/`SEVERITY_ORDER` centralizados en `app/`, cuando son semántica de cada memoria.
 
-### 8.2 Propuesta de solución (domain-first / SRP / SSOT)
+### 8.2 Propuesta de solución (domain-first / SRP / SSOT) — diseño COMPLETO
 
 **Principio SSOT:** cada memoria se define en UNA sola fuente → su feature dueña. El host SOLO compone.
 
 **Cada feature dueña expone:**
 - `register_<memoria>_index(graph)` — función pura que registra SU schema (reconciliando las 2 fuentes actuales).
-- `<MEMORIA>_COMPACT_FIELDS` — su proyección (lo que el LLM recibe).
+- `<MEMORIA>_COMPACT_FIELDS` — su proyección (consistente con su schema, G4).
 - `SEVERITY_ORDER` — solo CKG (ranking obligatoria/recomendada/informativa).
 
 | Archivo nuevo (feature) | Contiene |
@@ -286,19 +290,55 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 | `features/event_tracing/schema.py` | `register_trace_index(graph)` (schema + search handler + descentralizado) + `TRACE_COMPACT_FIELDS` |
 | `features/code_analysis/schema.py` | `register_cpg_indexes(graph)` (cpg + `cpg.ref.*`) + `CPG_COMPACT_FIELDS` |
 
-**Aplicación (auto-registro, espejo de los manifests — §2.6):** `app/` NO es dueño ni conductor del registro de memorias. Las features **se auto-registran**:
+**Auto-registro (espejo de los manifests — §2.6):**
 
 | | Manifests (implementado) | Schemas de memoria (Fase 2) |
 |---|---|---|
 | Definición | `module.py` declara `MODULE` | `features/*/schema.py` define `register_<memoria>_index(graph)` |
-| Auto-registro | `register_manifest(MODULE)` al final del `module.py` | `register_memory_index(register_<memoria>_index)` en el `module.py` de la feature |
-| Aplicación | `registry.register_manifest(m)` por cada auto-registrado | el grafo aplica lo auto-registrado vía `apply_memory_indexes(graph)` |
-| `app/` | importa módulos por referencia (NestJS AppModule) | SOLO pasa `register_defaults=apply_memory_indexes` al constructor del grafo (wiring) |
+| Auto-registro | `register_manifest(MODULE)` al final del `module.py` | `register_memory_index(register_<memoria>_index)` en `features/*/schema.py` (con dedupe, G2) |
+| Gatillo | el `module.py` se importa | el `module.py` de la feature importa SU `schema.py` |
+| Aplicación | `registry.register_manifest(m)` por cada auto-registrado | `apply_memory_indexes(graph)` drena el collector (register_defaults del grafo) |
 
-- `features/*/schema.py` — schema + `register_<memoria>_index(graph)` (dominio de la feature).
-- `register_memory_index(...)` — collector global (espejo de `global_registry` de manifests); cada feature lo invoca en su `module.py`.
-- `apply_memory_indexes(graph)` — función fina que aplica lo auto-registrado (espejo de `_register_module_manifests`). El contenido lo ponen las features.
-- `app/memories/` — `MemoryQueryService` (facade de query, constructor-injected) + el wiring del grafo (`CognitiveGraph(register_defaults=apply_memory_indexes)`) + merge de `compact_fields`/`severity_order` desde las proyecciones de las 4 features. **No es dueña de ningún schema** (INV-W068-08).
+**Mecanismo:** el collector `register_memory_index(fn)` vive en `shared/libs/module_system/global_registry.py` (infra genérica de auto-registro — features→shared permitido; el CONTENIDO es walker). Dedupe por función (G2) + `reset_memory_indexes()` (hot reload, P5).
+
+**Construcción canónica del grafo (G7):** `app/memories/` expone:
+- `apply_memory_indexes(graph)` — drena el collector (NO es dueña de schemas, INV-W068-08).
+- `build_cognitive_graph(chain_dir, backend)` / `build_searcher(chain_dir)` — UNA función canónica que construye el grafo con `register_defaults=apply_memory_indexes`. Reemplaza la construcción replicada (registry, kg_context, build_service, repos).
+- `MemoryQueryService` — facade de query (constructor-injected).
+
+**Consumidores:** los features/tasks que hoy construyen graphs directamente (kg_context, build_service, cognitive_*_repo) reciben la fábrica canónica INYECTADA (port `ICognitiveGraphFactory`) — elimina la replicación (G7), el doble registro (B1/B2) y los edges features→app de construcción.
+
+**Merge de proyecciones:** el host mergea `<MEMORIA>_COMPACT_FIELDS` → `compact_fields` del grafo; `SEVERITY_ORDER` se inyecta solo para ckg (G5).
+
+### 8.6 Resoluciones de bugs y gaps integradas en la Fase 2
+
+| ID | Resolución |
+|---|---|
+| B1 | ForFeature: event_tracing/schema.py registra trace CON su handler; `register_cognitive_indexes` se ELIMINA → no hay segundo registro que lo pise |
+| B2 | Reconciliación por memoria en la feature dueña (una fuente por índice); el orden deja de importar |
+| B3 | Fix `self.self.compact_fields` → `self.compact_fields` en `shared/libs/cognitive_graph/__init__.py:212` (bug del storage, independiente de Fase 2) |
+| B4 | `memory_data_dir` → usa `app/path_resolver` (una sola fuente de rutas, INV-W068-06) |
+| B5 | Cache del payload del ref en el search handler (gzip 1 vez) |
+| B6 | `_collect_project_native_trace`: `except: pass` → `logger.error` (K) |
+| B7 | Eliminar dead code (`_ = es_query.get("match_all")`) |
+| G1 | Una fuente por memoria + collector con dedupe → sin "último gana" |
+| G2 | `register_memory_index` dedupe por función (idempotente ante hot reload) |
+| G3 | `apply_memory_indexes` se invoca con el graph YA con `chain_dir` (constructor lo setea antes de `register_defaults`); refs leen `graph.chain_dir` |
+| G4 | `CPG_COMPACT_FIELDS` definido en `code_analysis/schema.py` JUNTO al schema cpg (consistente) |
+| G5 | `SEVERITY_ORDER` inyectado solo para el índice ckg |
+| G6 | Full scan del trace: documentado como perf gap (no bloqueante; mejora futura con índices) |
+| G7 | `build_cognitive_graph` canónica + port `ICognitiveGraphFactory` inyectado a los consumidores |
+| G8 | Tests actualizados a `apply_memory_indexes`/build canónica |
+| G9 | Test de completitud: conjunto `{ckg, cpg, delta, trace, ref}` + origen por feature |
+
+### 8.7 Pendientes detectados en el refinamiento completo
+
+- **P1 — Edges features→app preexistentes:** features/tasks importan `app.path_resolver` (+ hoy `app.cognitive_registry`) en ~15 lugares. La construcción canónica + port (G7) resuelve la construcción, pero `path_resolver` en `app/` sigue generando edges features→app. *Decisión:* resolver en Fase 4 (PathModule) o mover path_resolver a `shared/` (utilidad pura) — pendiente de decisión.
+- **P2 — Reconciliación por memoria (decisión por índice):** trace → versión de `memory_schemas` (tiene el handler); cpg → versión de `cognitive_registry` (tiene el fix FTS); ckg/delta → merge de ambas (comparar fields/search). Requiere revisar cada config lado a lado.
+- **P3 — Consumo de `SEVERITY_ORDER`:** verificar dónde lo usa el searcher (¿ranking de resultados ckg?) antes de inyectarlo solo para ckg.
+- **P4 — Productor de `cpg.ref.*`:** documentar quién crea los CPG de referencia (¿task/index_repo?) — el schema los registra pero el productor no está documentado.
+- **P5 — Hot reload/tests:** el collector necesita `reset_memory_indexes()` (como `reset_manifests`/`reset_ports`) para idempotencia entre tests.
+- **P6 — Dependencia del trace descentralizado:** `event_tracing/schema.py` (forFeature) depende de `app.path_resolver.get_project_dir` → edge features→app (mismo P1).
 
 ### 8.3 Impacto — antes vs después
 
