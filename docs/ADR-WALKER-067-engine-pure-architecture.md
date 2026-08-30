@@ -307,6 +307,38 @@ importarse); el host solo declara SU módulo; el contenedor no ensambla nada a m
 
 ---
 
+## 2.5 `shared` es un SharedModule (Angular/Nest) — dónde viven los use cases
+
+**Naturaleza.** `shared` es un **SharedModule** (análogo a Angular `SharedModule` /
+shared providers de Nest): capa **reutilizable, host-agnóstica, sin estado de negocio**.
+Sus componentes internos (`core/engine`, `libs/cognitive_graph`, `libs/module_system`,
+`common/*`) son **genéricos y no saben quién los usa** (INV-015).
+
+**¿Use cases / application services son necesarios para `shared`?** NO para `shared` como
+módulo, y NO para sus librerías puras. Se distinguen DOS tipos:
+
+1. **Use cases MECÁNICOS (contrato del subsistema):** SOLO los necesita un subsistema
+   autocontenido dentro de shared — el engine (`application/use_cases.py`: SubmitDataUseCase,
+   TransitionUseCase, …). Son operaciones de la MÁQUINA BPMN (submit/transition/status), no
+   negocio. Sin ellos el engine no es un engine, es solo un dominio. Las libs puras
+   (`cognitive_graph`, `module_system`, `common`) NO tienen use cases.
+2. **Use cases de NEGOCIO:** NUNCA viven en `shared` — viven en el HOST
+   (`features/` + `tasks/actions`, side-effects), que CONSUME los componentes de shared.
+
+**Regla:** la capa `application` (use cases) existe a nivel del SUBSISTEMA (engine), no en
+el dominio anémico ni en las libs. Un componente de `shared` NO agrega use cases de negocio;
+los mecánicos solo si es un subsistema autocontenido.
+
+**Checklist por cambio:**
+- [ ] Un componente de `shared` NO contiene use cases de NEGOCIO (viven en features/tasks).
+  — anti-patrón: negocio en shared.
+- [ ] Una lib pura (`libs/*`, `common/*`) NO tiene application services — solo ports e
+  implementaciones. — anti-patrón: lib con orquestación de negocio.
+- [ ] El engine (subsistema autocontenido) SÍ tiene su capa `application` con use cases
+  MECÁNICOS (su contrato). — si se quitaran, el engine no ejecutaría.
+
+---
+
 ## 3. Plan de purificación por fases
 
 ### Fase 1 — Invertir las 4 dependencias de dominio (DIP)  ✅ HECHA
