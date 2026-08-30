@@ -158,7 +158,7 @@
 | **Delta** | `features/delta_tracking/` | schema delta (unificado) + proyección |
 | **Trace** | `features/event_tracing/` | schema trace (unificado) + search handler + descentralizado + proyección |
 | **CPG + refs** | `features/code_analysis/` | schema cpg (con fix FTS) + `cpg.ref.*` + proyección |
-| **Composición + facade** | `app/memories/` (aplicación del host) | `register_all_memory_indexes(graph)` (agrega las 4) + `MemoryQueryService` |
+| **Composición + facade** | `app/memories/` (aplicación del host) | `apply_memory_indexes(graph)` (aplica lo auto-registrado) + `MemoryQueryService` — NO dueña de schemas (INV-W068-08) |
 
 - [ ] M-03 Cada feature registra SOLO SU schema en el storage genérico (forFeature, R6): CPG→`code_analysis`, CKG→`cognitive_knowledge`, Delta→`delta_tracking`, Trace→`event_tracing` — anti-patrón: God-Module de memorias.
 - [ ] M-04 **Eliminar `register_default_memory_indexes` y `register_cognitive_indexes`** → auto-registro por feature (`register_memory_index` en cada `module.py` de feature) + `apply_memory_indexes(graph)` (espejo de `_register_module_manifests`) — anti-patrón: Big Ball of Mud / SSOT duplicado.
@@ -286,12 +286,7 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 | `features/event_tracing/schema.py` | `register_trace_index(graph)` (schema + search handler + descentralizado) + `TRACE_COMPACT_FIELDS` |
 | `features/code_analysis/schema.py` | `register_cpg_indexes(graph)` (cpg + `cpg.ref.*`) + `CPG_COMPACT_FIELDS` |
 
-**El host compone (`app/memories/` — capa de aplicación):**
-- `register_all_memory_indexes(graph)` — agrega las 4 features (forFeature); reemplaza a `register_default_memory_indexes` + `register_cognitive_indexes`.
-- `MemoryQueryService` — facade de query (constructor-injected, sin service locator).
-- `compact_fields`/`severity_order` para el constructor del grafo: merged por el host desde las proyecciones de las 4 features.
-
-**CORRECCIÓN (auto-registro, espejo de los manifests):** `app/` NO es dueño ni conductor del registro de memorias. Las features **se auto-registran** (mismo patrón que §2.6):
+**Aplicación (auto-registro, espejo de los manifests — §2.6):** `app/` NO es dueño ni conductor del registro de memorias. Las features **se auto-registran**:
 
 | | Manifests (implementado) | Schemas de memoria (Fase 2) |
 |---|---|---|
@@ -303,7 +298,7 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 - `features/*/schema.py` — schema + `register_<memoria>_index(graph)` (dominio de la feature).
 - `register_memory_index(...)` — collector global (espejo de `global_registry` de manifests); cada feature lo invoca en su `module.py`.
 - `apply_memory_indexes(graph)` — función fina que aplica lo auto-registrado (espejo de `_register_module_manifests`). El contenido lo ponen las features.
-- `app/` — solo composición: `CognitiveGraph(register_defaults=apply_memory_indexes)`. **No es dueña de ningún schema** (INV-W068-08).
+- `app/memories/` — `MemoryQueryService` (facade de query, constructor-injected) + el wiring del grafo (`CognitiveGraph(register_defaults=apply_memory_indexes)`) + merge de `compact_fields`/`severity_order` desde las proyecciones de las 4 features. **No es dueña de ningún schema** (INV-W068-08).
 
 ### 8.3 Impacto — antes vs después
 
@@ -316,7 +311,7 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 | Refs (`cpg.ref.*`) | `app/memory_schemas.py` | `features/code_analysis/schema.py` |
 | Proyección | `COMPACT_FIELDS` central en app | por feature (`<MEMORIA>_COMPACT_FIELDS`) |
 | Ranking | `SEVERITY_ORDER` central | `features/cognitive_knowledge/schema.py` |
-| Registro | 2 funciones solapadas (winner indefinido) | 1: `app/memories/register_all_memory_indexes` |
+| Registro | 2 funciones solapadas (winner indefinido) | auto-registro por feature (`register_memory_index` en cada `module.py`) + `apply_memory_indexes` |
 | Facade de query | `app/memories.py` (raíz) | `app/memories/` (módulo aplicación) |
 | Consumidores | importan 2 fuentes distintas | importan las features dueñas o la agregación host |
 
