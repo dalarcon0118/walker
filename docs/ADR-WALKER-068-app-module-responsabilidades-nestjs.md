@@ -199,11 +199,12 @@
 
 **Contexto:** `features/workflow` absorbió `features/main` (commit `0c1b437`). El análisis de diseño (§9) detectó acoplamientos directos + manifest con imports falsos (D1-D6).
 
-- [ ] M-03 Manifest honesto: `imports=["shared", "features_project", "features_delta"]` (declarar las deps REALES, no solo "shared") — anti-patrón: Hidden Dependency.
+- [x] M-03 Manifest honesto: `imports=["shared", "project", "delta_tracking"]` (deps REALES) — anti-patrón: Hidden Dependency.
 - [ ] M-04 Workflow consume PUERTOS (`IProjectContext` existente + `ISprintService`) inyectados por el composition root — NO imports directos de Services — anti-patrón: Big Ball of Mud.
-- [ ] M-06 Eliminar imports al COMPOSITION ROOT desde el feature: `app.container`/`app.composition.registry._build_searcher` (collector:22,56) → providers inyectados por DI — anti-patrón: Accidental Complexity / ciclo root↔feature.
-- [ ] M-05 `IPromptCollector` adapter: wire real (instanciar en el root con el collector) o eliminar si el engine anémico no lo usa — anti-patrón: Dead Code / Hidden Dependency.
-- [ ] M-02 ~~Decidir la ubicación de `tasks/`~~ **RESUELTO (análisis §9.7)**: `tasks/` = **ServicesModule** (analogía NestJS CoreModule) — provee task services al engine (puerto `ActionCatalog`) + MCP; la raíz es correcta; NO es un bounded context — anti-patrón: Shotgun Surgery.
+- [ ] M-06 Eliminar imports al COMPOSITION ROOT desde el feature: `app.container` (collector.py:61, protocol_builder.py:36,96) → providers inyectados por DI. ✅ hecho: `_build_searcher` (privado) → `build_searcher` canónico — anti-patrón: Accidental Complexity.
+- [x] M-05 `IPromptCollector` adapter: ELIMINADO (el engine anémico no lo consume; registry cablea "prompt_collector" directo) — anti-patrón: Dead Code.
+- [x] M-02 ~~Decidir la ubicación de `tasks/`~~ **RESUELTO (análisis §9.7)**: `tasks/` = **ServicesModule** (analogía NestJS CoreModule) — provee task services al engine (puerto `ActionCatalog`) + MCP; la raíz es correcta; NO es un bounded context — anti-patrón: Shotgun Surgery.
+- [x] C3: imports EAGER de `features.project` → LAZY (el feature se importa aislado) — commit `e608be3`.
 
 ---
 
