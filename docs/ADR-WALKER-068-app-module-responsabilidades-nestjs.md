@@ -38,8 +38,8 @@
 | `context_format.py` (formatters) | **Presentadores** (interface adapters) | formatean resultados por memoria |
 | `orchestration/*` (14 G10) | **Capa de aplicación del HOST** | use cases cross-context (ADR-051) |
 | `path_resolver.py` | **Utilidad de aplicación/infra del HOST** | SSOT de rutas (CoreModule `@Global`) |
-| `workflow_facade.py` | **Interface adapter** | lo consumen los adapters CLI/MCP |
-| `context_resolver.py` | **Interface adapter** (implementa `IContextValidator`) | adapter de un puerto del engine |
+| `workflow_facade.py` | **Aplicación del host** | servicio de la API del workflow (lo consumen los adapters CLI/MCP por DI) |
+| `app/context_resolver.py` | **Core del host (primitiva R1)** | resuelve la raíz de memorias (project_id/repo_root/data_dir) — NO es el adapter IContextValidator |
 | `shared/libs/cognitive_graph` | **Gateway / framework** | storage genérico (empaquetable, host-agnostic) |
 
 ### 2.1 Conclusión del análisis: NO crear features artificiales
@@ -77,7 +77,8 @@
    - schema **Trace** + search handler + descentralizado → `features/event_tracing/`
 2. **`MemoryQueryService` + `COMPACT_FIELDS`/`SEVERITY_ORDER`** → `app/memories/` (módulo de aplicación del host, manifest propio).
 3. **`context_format.py`** → presentadores por feature (cada feature formatea SU memoria) o `app/presenters/` (decisión Q2b).
-4. **`workflow_facade.py` + `context_resolver.py`** → `protocols/cli/cli_interface/` (adapters).
+4. **`app/api/`** → WorkflowApiModule del host (aplicación): manifest propio + export `workflow_facade` por contrato; protocols la consume por DI. (Corrección: no es adapter.)
+5. **`app/context_resolver.py`** → core (primitiva R1; Fase 4 PathModule). (Corrección: no es adapter IContextValidator — ese es del engine.)
 5. **`orchestration/`** → se queda en `app/orchestration/` (capa de aplicación del host; ya declarado).
 6. **`path_resolver.py`** → se queda en `app/` (módulo de 1 archivo + export por contrato).
 7. **`app/module.py`** → solo AppModule: ya no registra providers de dominios ajenos; cada módulo registra los suyos.
@@ -126,7 +127,8 @@
 | **Estructura** | `app/` plano: 6 responsabilidades mezcladas | `app/` = AppModule + aplicación (memorias, orquestación) + core (paths) + bootstrap, cada pieza con boundaries |
 | **Registro** | `app/module.py` registra providers de todo el host | Cada módulo se auto-registra (ModuleManifest); AppModule solo libs+MCP+puertos |
 | **Semántica de memorias** | `memory_schemas.py` central en raíz de app (registra los 4 índices) | Schemas **por feature dueña** (forFeature); facade (`MemoryQueryService`) + proyección en `app/memories/` |
-| **Facade** | `api/workflow_facade.py` suelto en `app/api/` sin manifiesto | `protocols/cli/cli_interface/` (adapters CLI/MCP) |
+| **Facade** | `api/workflow_facade.py` suelto en `app/api/` sin manifiesto | `app/api/` = WorkflowApiModule del host (manifest + export por contrato) |
+| **Context resolver (R1)** | `app/context_resolver.py` (primitiva de rutas) | core (Fase 4 PathModule) |
 | **Orquestación** | 14 services en `app/orchestration/` (capa aplicación, declarado `app_orchestration`) | se queda en `app/orchestration/` — es la capa de aplicación del host (sin moves) |
 | **Paths** | `path_resolver.py` utilidad en raíz | export por contrato (CoreModule `@Global`), SSOT verificado |
 | **Composición** | `composition/registry.py` (697 ln) mezcla registro + construcción del engine | `register_all` DELGADO: solo compone; cada módulo registra lo suyo |
@@ -172,10 +174,16 @@
 
 ### Fase 3 — Adapters + orquestación consolidada
 
+**CORRECCIÓN (hallazgo):** la decisión previa (facade + context_resolver → protocols) estaba basada en premisas incorrectas:
+- `app/context_resolver.py` NO es el adapter `IContextValidator` (ese es `shared/core/engine/application/context_resolver.py`, del engine). El de `app/` es una **primitiva de paths** (R1: `resolve_memory_context`/`resolve_data_dir`) → pertenece al core (Fase 4 PathModule), NO a protocols.
+- `workflow_facade` es un **servicio de APLICACIÓN del host** (usa el engine + gates) — en NestJS los controllers (protocols) inyectan el service; el service vive en la capa de aplicación. NO se mueve a protocols (mezclaría capas).
+
+**Fase 3 corregida:**
 - [ ] M-01 Gates host-side atómicos en la facade (todo-o-nada antes de submit) — anti-patrón: efectos ocultos.
 - [ ] M-05 OrchestrationModule (capa aplicación) sin reconstruir dominio del engine (consume puertos) — anti-patrón: God Class.
 - [ ] M-06 Cada orchestrator exportado por id+contrato (ADR-062) — anti-patrón: Not Invented Here.
-- [ ] M-02 `workflow_facade.py` + `context_resolver.py` → `protocols/cli/cli_interface/` (adapters) — anti-patrón: Shotgun Surgery.
+- [ ] M-02 `app/api/` consolidado como WorkflowApiModule del host (manifest propio + export `workflow_facade` por contrato); protocols consume la facade por DI — anti-patrón: Shotgun Surgery.
+- [ ] M-03 `app/context_resolver.py` → core (PathModule, Fase 4) como primitiva R1 — anti-patrón: Data Clumps.
 
 ### Fase 4 — AppModule delgado + PathResolver por contrato
 
@@ -238,8 +246,8 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 | `app/memory_schemas.py` (335 ln) | **split**: schema CPG → `features/code_analysis/`; CKG → `features/cognitive_knowledge/`; Delta → `features/delta_tracking/`; Trace → `features/event_tracing/` | Bounded contexts (forFeature, R6) | 🔀 split por feature dueña |
 | `app/memories.py` (68 ln) | `app/memories/` (MemoryQueryService) | Capa de aplicación del host | 📦 move + ➕ manifest |
 | `app/context_format.py` (120 ln) | formatters por feature (cada feature formatea SU memoria) | Presenters (interface adapters) | 🔀 split |
-| `app/api/workflow_facade.py` | `protocols/cli/cli_interface/` | Adapters | 📦 move |
-| `app/context_resolver.py` (78 ln) | `protocols/cli/cli_interface/` | Adapters (IContextValidator) | 📦 move |
+| `app/api/workflow_facade.py` | `app/api/` (WorkflowApiModule del host — aplicación) | AppApplication | 🔧 consolidar manifest + export por contrato |
+| `app/context_resolver.py` (78 ln) | core (primitiva R1, Fase 4 PathModule) | AppCore | 🔧 queda en app/ hasta Fase 4 |
 | `app/orchestration/*` (14 + contracts) | **sin move** (capa de aplicación del host) | AppApplication | 🔧 consolidar manifest |
 | `app/path_resolver.py` (592 ln) | **sin move** (módulo de 1 archivo + export por contrato) | AppCore | ➕ export |
 | `app/module.py` | `app/module.py` (AppModule) | AppModule | 🔧 solo libs+MCP+puertos |
