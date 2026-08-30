@@ -328,3 +328,33 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 5. **Proyección:** `compact_fields`/`severity_order` del grafo contienen las 4 proyecciones merged por el host (nada se pierde del `COMPACT_FIELDS` actual).
 6. **Nuevos módulos de feature:** `schema.py` de cada feature con `register_*_index` puro (sin side effects en import) — verificado por import sin construcción.
 7. **Sin service locator:** `MemoryQueryService` recibe el grafo por constructor (grep: sin `resolve_port`/`get_service` dentro de `app/memories/`).
+
+### 8.5 Bugs y gaps de diseño detectados en la Fase 2 (auditoría)
+
+**Bugs (runtime, en producción HOY):**
+
+| ID | Bug | Evidencia | Gravedad |
+|---|---|---|---|
+| B1 | **Search handler del trace PERDIDO**: `register_cognitive_indexes` corre DESPUÉS de `register_default_memory_indexes` en registry `_build_graph`/`_build_searcher`, `kg_context`, `build_service`; el backend REEMPLAZA el `Index` (`self._indexes[name] = Index(..., search_handler=None)`) → el handler custom del trace (filtros + descentralizado) se pierde | `file_backend.py:50`, `sqlite_backend.py:408` | 🔴 crítica |
+| B2 | **Configs de ckg/delta sobrescritas**: el segundo registro pisa las configs de memory_schemas (fulltext delta, fields ckg) — "cuál gana" = orden de ejecución (indefinido) | doble registro en 3+ callers | 🔴 |
+| B3 | **`self.self.compact_fields` (typo)** en `shared/libs/cognitive_graph/__init__.py:212` → AttributeError en runtime; la proyección COMPACT_FIELDS NUNCA funcionó (cada búsqueda compactada peta o cae al fallback) | línea 212 (llamada en línea 177) | 🔴 (del split de libs) |
+| B4 | **`memory_data_dir` (cognitive_registry) duplica a `path_resolver`**: resuelve rutas vía `ProjectService.resolve_paths` fuera de `app/path_resolver` → SSOT de paths violado (INV-W068-06); importado por 6+ | `cognitive_registry.py:20` | 🟡 |
+| B5 | **`_make_ref_search` descomprime gzip por query**: lee todo el archivo en cada búsqueda de ref, sin cache | `memory_schemas.py:190` | 🟡 perf |
+| B6 | **`_collect_project_native_trace` con `except: pass` silencioso** (viola K): errores del trace descentralizado invisibles | `memory_schemas.py:127` | 🟡 |
+| B7 | **Dead code**: `_ = es_query.get("match_all")` (no-op) en `_prepare_trace_filters` | `memory_schemas.py:57-58` | 🟢 |
+
+**Gaps de diseño:**
+
+| ID | Gap | Detalle |
+|---|---|---|
+| G1 | **Orden de registro indefinido** | el "último gana" hace que el schema dependa del orden de llamada — el forFeature debe definir UNA fuente con dedupe/conflicto explícito |
+| G2 | **Collector `register_memory_index` sin idempotencia** | si un `module.py` se importa 2 veces (hot reload/tests), el registrar se duplica → aplicar el schema 2 veces; debe deduplicar (como `_MANIFESTS` por nombre) |
+| G3 | **`cpg-ref-*` dinámicos por proyecto** | se registran leyendo `data/` en construcción → dependen de que el grafo se construya CON `chain_dir` ANTES de `apply_memory_indexes`; orden a garantizar |
+| G4 | **`COMPACT_FIELDS["cpg"]` sin schema cpg en la misma fuente** | la proyección referencia un índice que memory_schemas no registra (solo cognitive_registry) — tras el split, cada feature expone proyección CONSISTENTE con su schema |
+| G5 | **`SEVERITY_ORDER` global pero solo aplica a CKG** | el grafo recibe severity_order globalmente; el split debe inyectarlo solo donde aplica |
+| G6 | **Trace handler hace FULL SCAN por query** | lee todos los eventos (perf gap conocido, no bloqueante) |
+| G7 | **Construcción de grafo replicada en 4+ puntos** | registry (2 factories), kg_context, build_service, cognitive_*_repo construyen CognitiveGraph con doble registro — el wiring debe ser UNA función canónica (DRY) |
+| G8 | **Tests construyen graphs con `register_default_memory_indexes`** | el move rompe test_cpg_*, test_rag_pipeline_bdd, test_migrated_gaps_bdd, test_gw6 — deben pasar a `apply_memory_indexes` |
+| G9 | **Sin test de completitud de índices** | hoy no se valida el conjunto `{ckg, cpg, delta, trace, ref}` — por eso el doble registro pasó desapercibido (patrón de completitud de AGENTS.md) |
+
+**Nota:** B3 es del STORAGE ENGINE genérico (`shared/libs/cognitive_graph`) — regresión del split de libs; se corrige con la Fase 2 (o antes, es independiente). B1/B2 se resuelven con el forFeature + eliminación de `register_cognitive_indexes` (una sola fuente por memoria).
