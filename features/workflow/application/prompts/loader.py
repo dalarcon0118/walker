@@ -9,7 +9,6 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from features.project import ProjectService
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +180,13 @@ def _read_source_core(path: str, fmt: str) -> dict | str:
 
 @safe
 def _resolve_project_dir_core(chain_dir: str) -> str:
-    """Core puro de TemplateLoader.__init__ (puede lanzar)."""
+    """Core puro de TemplateLoader.__init__ (puede lanzar).
+
+    Fase 5 (C3): import LAZY de features.project — el feature debe poder
+    importarse aislado.
+    """
+    from features.project import ProjectService
+
     paths = ProjectService.resolve_paths(chain_dir)
     return paths.project_root
 

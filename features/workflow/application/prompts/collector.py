@@ -8,19 +8,24 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from features.project import ProjectService
-
 logger = logging.getLogger(__name__)
 
 
 def _build_cg(chain_dir: str, searcher_factory=None) -> Any:
-    """Construye el searcher vía DI para el chain_dir."""
+    """Construye el searcher vía DI para el chain_dir.
+
+    Fase 5 (M-04/M-06): import LAZY de features.project (el feature debe
+    poder importarse aislado, C3) + searcher CANÓNICO de app.memories (no el
+    privado _build_searcher del registry, C7).
+    """
+    from features.project import ProjectService
+
     paths = ProjectService.resolve_paths(chain_dir)
     if searcher_factory is not None:
         return searcher_factory(paths.project_root)
-    # Fallback: importar desde composition root (sin cycle risk)
-    from app.composition.registry import _build_searcher
-    return _build_searcher(paths.project_root)
+    from app.memories.registration import build_searcher
+
+    return build_searcher(paths.project_root)
 
 
 def collect_activity(chain_dir: str, node_id: str | None = None) -> dict:
