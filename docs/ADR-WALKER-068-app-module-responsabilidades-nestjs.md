@@ -242,3 +242,79 @@ Resueltas con Clean Architecture (cada pieza → su capa) + modelo NestJS (`src/
 | `features/memories/`, `features/orchestration/`, `features/common/`, `features/cli_interface/` (Fase 1) | **ELIMINAR** (corrección Clean Design) | — | 🗑️ revert manifiestos |
 
 **Importadores a actualizar mecánicamente** (Fase 2): `app/memories.py` (memory_schemas), `features/delta_tracking/application/index_service.py`, `features/code_analysis/application/build_service.py`, `features/cognitive_knowledge/application/import_ckg_v1_cli.py`, `tasks/infrastructure/kg_context.py`, `protocols/cli/cli_interface/application/handlers.py`, `app/composition/registry.py`, `tests/*` — solo paths de import, sin cambios de firma (INV-W068-07).
+
+---
+
+## 8. Fase 2 — Documentación de diseño (análisis, propuesta, impacto, aceptación)
+
+### 8.1 Análisis (domain-first)
+
+**Las 4 memorias son el conocimiento base del walker**, cada una poseída por UN bounded context:
+
+| Memoria | Qué es | Feature dueña (dominio) |
+|---|---|---|
+| **CPG** | Code Property Graph (símbolos del código) | `features/code_analysis/` |
+| **CKG** | Knowledge Graph (decisiones/convenciones/patrones) | `features/cognitive_knowledge/` |
+| **Delta** | Spring + specs del proyecto | `features/delta_tracking/` |
+| **Trace** | Ejecución (workflow + agente + tools) | `features/event_tracing/` |
+
+**Hallazgo crítico (SSOT violado):** el schema de las memorias se define en **DOS fuentes que se registran simultáneamente en producción**:
+
+- `app/memory_schemas.py::register_default_memory_indexes(graph)` — registra ckg/delta/trace/ref + trace search handler + trace descentralizado + `COMPACT_FIELDS`/`SEVERITY_ORDER`. Se inyecta vía `CognitiveGraph(register_defaults=...)` (registry.py:442/474).
+- `app/cognitive_registry.py::register_cognitive_indexes(cg)` — registra ckg/cpg/delta/trace con **configs propias** (`ckg_index_config`/`cpg_index_config`/`delta_index_config`/`trace_index_config`). Se llama DESPUÉS en registry.py:445/475, `kg_context.py:88`, `build_service.py:303`, `cognitive_cpg_repo.py:133`.
+
+**Consecuencias:**
+- ckg/delta/trace se registran **2 veces con configs que difieren** → "cuál gana" es indefinido (depende del orden).
+- CPG solo se registra en `cognitive_registry` (memory_schemas NO tiene schema cpg).
+- `cpg.ref.*` (CPGs de referencia) solo en `memory_schemas`.
+- `COMPACT_FIELDS`/`SEVERITY_ORDER` centralizados en `app/`, cuando son semántica de cada memoria.
+
+### 8.2 Propuesta de solución (domain-first / SRP / SSOT)
+
+**Principio SSOT:** cada memoria se define en UNA sola fuente → su feature dueña. El host SOLO compone.
+
+**Cada feature dueña expone:**
+- `register_<memoria>_index(graph)` — función pura que registra SU schema (reconciliando las 2 fuentes actuales).
+- `<MEMORIA>_COMPACT_FIELDS` — su proyección (lo que el LLM recibe).
+- `SEVERITY_ORDER` — solo CKG (ranking obligatoria/recomendada/informativa).
+
+| Archivo nuevo (feature) | Contiene |
+|---|---|
+| `features/cognitive_knowledge/schema.py` | `register_ckg_index(graph)` + `CKG_COMPACT_FIELDS` + `SEVERITY_ORDER` |
+| `features/delta_tracking/schema.py` | `register_delta_index(graph)` + `DELTA_COMPACT_FIELDS` |
+| `features/event_tracing/schema.py` | `register_trace_index(graph)` (schema + search handler + descentralizado) + `TRACE_COMPACT_FIELDS` |
+| `features/code_analysis/schema.py` | `register_cpg_indexes(graph)` (cpg + `cpg.ref.*`) + `CPG_COMPACT_FIELDS` |
+
+**El host compone (`app/memories/` — capa de aplicación):**
+- `register_all_memory_indexes(graph)` — agrega las 4 features (forFeature); reemplaza a `register_default_memory_indexes` + `register_cognitive_indexes`.
+- `MemoryQueryService` — facade de query (constructor-injected, sin service locator).
+- `compact_fields`/`severity_order` para el constructor del grafo: merged por el host desde las proyecciones de las 4 features.
+
+### 8.3 Impacto — antes vs después
+
+| Aspecto | Antes | Después |
+|---|---|---|
+| Schema CKG | 2 fuentes (memory_schemas + cognitive_registry) | 1: `features/cognitive_knowledge/schema.py` |
+| Schema Delta | 2 fuentes | 1: `features/delta_tracking/schema.py` |
+| Schema Trace | 2 fuentes + handler en memory_schemas | 1: `features/event_tracing/schema.py` (schema+handler+descentralizado) |
+| Schema CPG | solo `app/cognitive_registry.py` | `features/code_analysis/schema.py` |
+| Refs (`cpg.ref.*`) | `app/memory_schemas.py` | `features/code_analysis/schema.py` |
+| Proyección | `COMPACT_FIELDS` central en app | por feature (`<MEMORIA>_COMPACT_FIELDS`) |
+| Ranking | `SEVERITY_ORDER` central | `features/cognitive_knowledge/schema.py` |
+| Registro | 2 funciones solapadas (winner indefinido) | 1: `app/memories/register_all_memory_indexes` |
+| Facade de query | `app/memories.py` (raíz) | `app/memories/` (módulo aplicación) |
+| Consumidores | importan 2 fuentes distintas | importan las features dueñas o la agregación host |
+
+**Archivos que se eliminan:** `app/memory_schemas.py` (split), `app/cognitive_registry.py::register_cognitive_indexes` + configs (movidas a features).
+
+**Consumidores a actualizar (solo paths/firma, INV-W068-07):** `app/composition/registry.py` (442-475), `app/memories.py`, `tasks/infrastructure/kg_context.py`, `tasks/actions/trace_push.py`, `features/code_analysis/application/build_service.py`, `features/code_analysis/infrastructure/cognitive_cpg_repo.py`, `features/cognitive_knowledge/infrastructure/cognitive_ckg_repo.py`, `features/cognitive_knowledge/application/import_ckg_v1_cli.py`, `features/delta_tracking/infrastructure/cognitive_delta_repo.py`, `features/delta_tracking/application/index_service.py`, `protocols/cli/cli_interface/application/handlers.py`, `tests/*`.
+
+### 8.4 Criterios de aceptación (verificables)
+
+1. **forFeature (R6):** `CognitiveGraph(register_defaults=register_all_memory_indexes)` registra el conjunto completo `{ckg, cpg, delta, trace, ref}` y cada schema proviene de SU feature. *Test:* test de completitud que valida los 5 índices registrados y su origen.
+2. **SSOT:** `grep -r "register_default_memory_indexes\|register_cognitive_indexes"` → 0 resultados (funciones eliminadas); cada config de índice existe en UNA sola feature.
+3. **Sin regresión de comportamiento:** los search de trace (handler + descentralizado) y los CPG de referencia (`cpg.ref.*`) funcionan igual tras el move (mismas firmas). *Test:* `test_cpg_*`, `test_rag_pipeline_bdd`, `test_migrated_gaps_bdd` verdes.
+4. **Boot:** MCP self-test registra las 31 tools y el container construye (composición acíclica).
+5. **Proyección:** `compact_fields`/`severity_order` del grafo contienen las 4 proyecciones merged por el host (nada se pierde del `COMPACT_FIELDS` actual).
+6. **Nuevos módulos de feature:** `schema.py` de cada feature con `register_*_index` puro (sin side effects en import) — verificado por import sin construcción.
+7. **Sin service locator:** `MemoryQueryService` recibe el grafo por constructor (grep: sin `resolve_port`/`get_service` dentro de `app/memories/`).
