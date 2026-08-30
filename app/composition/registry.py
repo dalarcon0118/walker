@@ -132,6 +132,7 @@ def _register_module_manifests(registry: Any) -> None:
     import protocols.cli.cli_interface.module  # noqa: F401
     import protocols.rest.module  # noqa: F401
     import app.orchestration.module  # noqa: F401
+    import app.api.module  # noqa: F401 (WorkflowApiModule, ADR-068 Fase 3)
     import app.module  # noqa: F401
 
     for manifest in registered_manifests():
