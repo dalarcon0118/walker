@@ -616,8 +616,14 @@ el SRP.** Cada propuesta indica explícitamente QUÉ NO hacer.
 **Análisis SRP:** actualizar tests a las firmas nuevas (engine unificado, cognitive_graph
 `register_defaults`, path_resolver en app) es housekeeping — no cambia abstracciones.
 - ✅ Actualizar imports/firmas de tests.
+- ✅ Arreglos de fallos preexistentes (commit `db14a82`): replay legacy, gate
+  uncaptured host-side, patches stale de feedback/gw6, steps de cpg_indexed.
 - ❌ NO reestructurar producción para acomodar tests.
-- **Estado:** pendiente de ejecución (postergado por el usuario).
+- **Estado:** en curso. Verde: required_tools 11/11, uncaptured_work 12/12,
+  feedback 10/10, gw6 7/7, outbox 6/6. Pendientes (diferidos por el usuario):
+  cpg_indexed (2: aserciones de evento cpg_indexed), migrated_gaps (envelope/
+  walker_root), agent_e2e/rag_pipeline/agent_session (MCP down), suite completa
+  (pollution de estado entre archivos).
 
 ### P3 — Commit de la rama
 
