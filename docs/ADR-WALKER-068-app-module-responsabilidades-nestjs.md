@@ -76,7 +76,7 @@
 
 - R1 — Todo módulo nuevo en `app/` nace con su `ModuleManifest` ANTES de registrar providers (test de completitud por módulo).
 - R2 — Un módulo solo importa los `exports` de otros módulos (nunca internos de otro paquete).
-- R3 — El grafo de imports se valida en CI: aristas prohibidas (app/memory→features, api↔orchestration, X→app/composition).
+- R3 — El grafo de imports se valida en CI: aristas prohibidas (`features/memories`→features, `features/cli_interface`↔`features/orchestration`, X→`app/composition`).
 - R4 — Los cross-feature orchestrators (G10) viven SOLO en OrchestrationModule; si un servicio cruza 2+ features, va ahí, no a una feature.
 - R5 — El `main`/bootstrap construye el container UNA vez (ADR-046); los módulos declaran, no ensamblan.
 
