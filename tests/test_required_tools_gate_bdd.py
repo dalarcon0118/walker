@@ -21,7 +21,7 @@ from shared.core.engine.infrastructure.workflow_store import WorkflowStoreAdapte
 scenarios("bdd/features/required_tools_gate.feature")
 
 NODE_PATH = os.path.join(
-    "core", "engine", "workflow", "nodes", "implement.node.json"
+    "data", "workflow", "nodes", "implement.node.json"
 )
 WALKER_CHAIN_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "data", "spring", "walker-sprint")

@@ -109,14 +109,30 @@ def _seed_spec(env, *, predicates, status: str = "specified") -> None:
 def _run_gate(env, *, task_id: str = "SPEC-001", fields: dict | None = None) -> dict:
     """Reproduce EXACTAMENTE el paso 5 de _execute_task (use_cases.py:388-390):
 
-        fields = self._inject_spec_predicates(chain_dir, task_id, fields)
+        fields = <host inyecta predicates desde el delta (SSOT)>
         task_result = self._task_registry.execute("verify_predicates", exec_ctx, fields)
 
-    - El use case real (SubmitDataUseCase) con repos inertes: la inyección
-      solo toca el delta, no los repos del workflow.
+    - El motor es ANÉMICO (ADR-WALKER-067 §2.3): no consulta el delta. El HOST
+      lee los predicates de la spec ACTUAL (SpringService, SSOT DeltaGraph) y
+      los inyecta en fields ANTES de llamar al gate (G-W6 anti-alucinación).
     - La tarea real registrada en producción (verification.register).
     """
-    fields = fields or {}
+    fields = dict(fields or {})
+    # ── Host-side injection (G-W6): predicates desde el delta ──
+    # Regla: si el input ya trae predicates → se respetan (sin sobrescribir);
+    # si no, se leen de la spec actual (campo raíz `predicates` o
+    # validation.predicates).
+    if "predicates" not in fields and "predicate" not in fields:
+        svc = env["svc"]
+        spring_id = svc.get_spring_id(env["chain_dir"])
+        spec = svc.get_current_spec(spring_id)
+        if spec:
+            predicates = spec.get("predicates") or (
+                (spec.get("validation") or {}).get("predicates") or []
+            )
+            if predicates:
+                fields["predicates"] = predicates
+
     uc = SubmitDataUseCase(
         workflow_store=object(),  # type: ignore[arg-type]
         actions=object(),  # type: ignore[arg-type]

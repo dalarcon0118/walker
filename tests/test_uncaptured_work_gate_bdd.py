@@ -471,13 +471,15 @@ def _workflow_sprint_active(tmp_path, ctx: dict):
 @when("se intenta avanzar el sprint")
 @when("se intenta avanzar el flujo")
 def _submit(ctx: dict):
+    from app.api.workflow_facade import WorkflowFacade
+
     orch = ctx["orchestrator"]
     chain_dir = ctx["chain_dir"]
-    state_repo = ctx["state_repo"]
-    sub_state = state_repo.load.return_value.current_sub_state
-    node = state_repo.load.return_value.current_node
-    result = orch.submit(_make_ctx(chain_dir, sub_state=sub_state, node=node))
-    ctx["result"] = result
+    # Gate host-side (ADR-WALKER-067 §2.3): el motor es anémico; el host
+    # valida trabajo sin capturar ANTES de llamar al engine. El test pasa por
+    # el WorkflowFacade (composition root) para ejercitar el gate real.
+    facade = WorkflowFacade(orch)
+    ctx["result"] = facade.submit(chain_dir, task_id="T1")
 
 
 @then("el sprint queda bloqueado")

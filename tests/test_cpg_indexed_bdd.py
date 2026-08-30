@@ -116,21 +116,21 @@ def _engine_without_tracer(se_ctx: dict):
     se_ctx["engine"] = SideEffectEngine(tracer=None)
 
 
-@given("registro index_code con fingerprint verify true y quality ok")
+@given("registro update_cpg con fingerprint verify true y quality ok")
 def _register_cpg_ok(se_ctx: dict):
     se_ctx["engine"].register(
         "index_code", lambda ctx, params: _cpg_ok(fingerprint=True)
     )
 
 
-@given("registro index_code con fingerprint verify false y quality ok")
+@given("registro update_cpg con fingerprint verify false y quality ok")
 def _register_cpg_no_fp(se_ctx: dict):
     se_ctx["engine"].register(
         "index_code", lambda ctx, params: _cpg_ok(fingerprint=False)
     )
 
 
-@given("registro index_code que lanza")
+@given("registro update_cpg que lanza")
 def _register_cpg_boom(se_ctx: dict):
     def boom(ctx, params):
         raise RuntimeError("build failed")
@@ -141,7 +141,7 @@ def _register_cpg_boom(se_ctx: dict):
 # ── When ─────────────────────────────────────────────────────────────────────
 
 
-@when("ejecuto index_code con un ExecutionContext con chain_dir")
+@when("ejecuto update_cpg con un ExecutionContext con chain_dir")
 def _execute_cpg(se_ctx: dict):
     se_ctx["engine"].execute(_make_ctx(), [SideEffectDef(type="index_code")])
 

@@ -262,9 +262,45 @@ class TraceLogger(ITracer):
                 else:
                     query["max_results"] = 100000
                 result = cg.search("trace", query)
-                return [h["_source"] for h in result["hits"]["hits"]]
+                hits = [h["_source"] for h in result["hits"]["hits"]]
+                if hits:
+                    return hits
         except Exception:
             pass
+        # LEGACY fallback (backward compat, ADR-WALKER-063 pre-cutover): si no
+        # hay path_resolver/factory o el search no devuelve hits, leer el
+        # trace.json.gz del formato anterior directamente del disco.
+        return self._replay_legacy(chain_dir, max_events)
+
+    def _replay_legacy(self, chain_dir: str, max_events: int | None = None) -> list[dict]:
+        """Lee trace.json.gz / trace.json del formato legacy ({index, docs, edges})."""
+        import gzip
+        import json as _json
+
+        candidates = [
+            os.path.join(chain_dir, "data", "trace.json.gz"),
+            os.path.join(chain_dir, "data", "trace.json"),
+            os.path.join(chain_dir, "trace.json.gz"),
+        ]
+        for path in candidates:
+            if not os.path.exists(path):
+                continue
+            try:
+                if path.endswith(".gz"):
+                    with gzip.open(path, "rt", encoding="utf-8") as f:
+                        payload = _json.load(f)
+                else:
+                    with open(path, "r", encoding="utf-8") as f:
+                        payload = _json.load(f)
+            except Exception:
+                continue
+            if isinstance(payload, list):
+                docs = payload
+            else:
+                docs = payload.get("docs", []) if isinstance(payload, dict) else []
+            if max_events:
+                docs = docs[:max_events]
+            return docs
         return []
 
     def has_kg_query(

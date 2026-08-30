@@ -180,7 +180,7 @@ def _exec_context_with_invalid_specs(fb_ctx: dict):
     ]
     fb_ctx["mock_svc"] = mock_svc
     fb_ctx["patcher"] = patch(
-        "features.delta_tracking.application.use_cases_sprint._spring_svc",
+        "features.delta_tracking.application.use_cases.validate_plan._spring_svc",
         return_value=mock_svc,
     )
 
@@ -235,7 +235,7 @@ def _exec_context_with_valid_specs(fb_ctx: dict):
     ]
     fb_ctx["mock_svc"] = mock_svc
     fb_ctx["patcher"] = patch(
-        "features.delta_tracking.application.use_cases_sprint._spring_svc",
+        "features.delta_tracking.application.use_cases.validate_plan._spring_svc",
         return_value=mock_svc,
     )
 
@@ -259,7 +259,7 @@ def _exec_context_spring_not_found(fb_ctx: dict):
         chain_dir="/tmp/fake",
     )
     fb_ctx["patcher"] = patch(
-        "features.delta_tracking.application.use_cases_sprint._spring_svc",
+        "features.delta_tracking.application.use_cases.validate_plan._spring_svc",
         side_effect=ValueError("spring not found"),
     )
 
