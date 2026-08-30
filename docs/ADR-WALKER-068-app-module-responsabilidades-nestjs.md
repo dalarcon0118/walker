@@ -52,6 +52,7 @@
 |---|---|---|---|
 | **Bounded contexts** | Domain | cada contexto con dominio/aplicación/infra propios | `features/*` (existentes) |
 | **`features/workflow`** | Domain | bounded context del WORKFLOW del walker (envuelve el engine anémico): gates host-side (uncaptured_work) + prompts (IPromptCollector). Absorbe `features/main` | `features/workflow/` (commit `0c1b437`) |
+| **`tasks/` — ServicesModule** | Servicios | **ServicesModule (analogía NestJS CoreModule)**: provee los TASK SERVICES (operaciones LLM: capture/code_review/implement...) + TaskRegistry, consumidos por el engine vía el puerto `ActionCatalog` y por MCP vía tool catalog. **NO es un bounded context** (`tasks/domain/` vacío; el propio manifest: "infraestructura de ejecución de tareas") | `tasks/` (raíz — correcto para un services module, como `src/core` en NestJS) |
 | **AppModule** | Composición | construir el engine (main/register_all), container, grafo | `app/module.py` + `app/composition/` |
 | **AppApplication (memorias)** | Aplicación del host | `MemoryQueryService` + proyección (`COMPACT_FIELDS`/`SEVERITY_ORDER`) | `app/memories/` (módulo con manifest) |
 | **AppApplication (orquestación)** | Aplicación del host | use cases cross-context (G10) | `app/orchestration/` (ya tiene manifest) |
@@ -202,7 +203,7 @@
 - [ ] M-04 Workflow consume PUERTOS (`IProjectContext` existente + `ISprintService`) inyectados por el composition root — NO imports directos de Services — anti-patrón: Big Ball of Mud.
 - [ ] M-06 Eliminar imports al COMPOSITION ROOT desde el feature: `app.container`/`app.composition.registry._build_searcher` (collector:22,56) → providers inyectados por DI — anti-patrón: Accidental Complexity / ciclo root↔feature.
 - [ ] M-05 `IPromptCollector` adapter: wire real (instanciar en el root con el collector) o eliminar si el engine anémico no lo usa — anti-patrón: Dead Code / Hidden Dependency.
-- [ ] M-02 Decidir la ubicación de `tasks/` (raíz vs `features/tasks/` como bounded context) — anti-patrón: Shotgun Surgery.
+- [ ] M-02 ~~Decidir la ubicación de `tasks/`~~ **RESUELTO (análisis §9.7)**: `tasks/` = **ServicesModule** (analogía NestJS CoreModule) — provee task services al engine (puerto `ActionCatalog`) + MCP; la raíz es correcta; NO es un bounded context — anti-patrón: Shotgun Surgery.
 
 ---
 
@@ -456,7 +457,7 @@ MODULE = ModuleManifest(
 | D2 | Acoplamiento directo sin puertos; `IProjectContext` (features/project/module.py:15) existe pero NO se usa | INV-W068-04 |
 | D3 | Feature importando el composition root (`app.container`, `_build_searcher` internal) → ciclo root↔feature | INV-W068-03, R3 |
 | D4 | `IPromptCollector` adapter sin wiring (nadie lo instancia) — declaración muerta | R1 |
-| D5 | `tasks/` en la raíz (módulo con dominio fuera de features/) | estructura ADR-068 |
+| D5 | ~~`tasks/` en la raíz (módulo con dominio fuera de features/)~~ **RESUELTO**: tasks = ServicesModule (CoreModule NestJS) — sin dominio (`tasks/domain/` vacío, manifest: "infraestructura de ejecución de tareas"); la raíz es correcta | estructura ADR-068 |
 | D6 | Import EAGER de `features.project` (collector.py:11) → acoplamiento en import-time | R2 |
 
 ### 9.3 Invariantes y reglas del diseño (las que el módulo DEBE cumplir)
@@ -505,3 +506,26 @@ MODULE = ModuleManifest(
 3. `IProjectContext`/`ISprintService` consumidos por workflow (inyectados por constructor).
 4. Boot MCP + composition tests verdes.
 5. `tasks/` con decisión documentada (ubicación).
+
+### 9.7 `tasks/` = ServicesModule (analogía NestJS CoreModule)
+
+**Pregunta:** ¿tasks debe ser un services module? → **SÍ** (y el propio manifest lo declara).
+
+**Evidencia:**
+- `tasks/module.py` docstring: "No implementa puertos del dominio: es INFRAESTRUCTURA DE EJECUCIÓN DE TAREAS".
+- `tasks/domain/` VACÍO (solo `__init__.py`) — sin dominio propio → NO es un bounded context.
+- El engine consume tasks vía el puerto `ActionCatalog` (DIP); `app/module.py` (AppModule) puebla el catálogo desde tasks.
+
+**Analogía NestJS:**
+| NestJS | Walker |
+|---|---|
+| `CoreModule`/`ServicesModule` (provee providers) | `tasks/` — provee los task services (operaciones LLM) + `TaskRegistry` |
+| Providers inyectados a controllers/features | Engine recibe tasks vía el puerto `ActionCatalog` (DIP) |
+| ServicesModule sin dominio (solo providers) | `tasks/domain/` vacío = confirma |
+| Exporta services por id+contrato | `exports=["register_all"]` + registro en el ActionCatalog |
+
+**Decisión (resuelve D5):** `tasks/` = **ServicesModule** (CoreModule-like). La RAÍZ es correcta (como `src/core` en NestJS) — NO necesita ser `features/tasks/`. La distinción final del ADR-068:
+- `features/*` = bounded contexts (con dominio).
+- `tasks/` = **ServicesModule** (servicios cross-feature, sin dominio).
+- `app/orchestration` = aplicación del host (orquestadores G10).
+- `app/` = AppModule + composición (el `main.ts`).
