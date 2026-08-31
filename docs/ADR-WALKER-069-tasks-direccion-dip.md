@@ -126,3 +126,37 @@ Ninguna de estas rompe un invariante; mejoran el desacoplamiento y la testabilid
 ## 7. Estado / aprobación
 
 **DRAFT v2.** Corrige la mezcla de conceptos de la v1: separa **wiring (eje A, NestJS)** de **DIP-engine (eje B, ADR-067)**, elimina INV-W068-10 y reduce las "restricciones" a la única que es real (engine anémico). Las decisiones T2-T4 quedan como mejoras opcionales de diseño, no como reglas. Pendiente de revisión del usuario para aprobar y refinar el diseño de T2-T4.
+
+---
+
+## 8. Referente: cómo construyen MCP servers los frameworks reales (2026)
+
+A petición del usuario ("investiga en internet qué frameworks se usan para construir MCPs"), se documenta el patrón real del ecosistema como **referente de diseño futuro** — NO como mandato de refactor inmediato (decisión: "solo documentar el estudio").
+
+### 8.1 Frameworks dominantes
+
+| Framework | Lang | Rol (2026) |
+|---|---|---|
+| **FastMCP** (PrefectHQ, ~27k★) | Python | Estándar de facto (~70% de servers). Decoradores `@mcp.tool()`, schema autogen, transporte dual stdio/HTTP, composición/mount, cliente de test. |
+| **Official Python SDK** | Python | Low-level (control total del protocolo) + FastMCP 1.0 incorporado |
+| **Official TypeScript SDK** (`McpServer`) | TS/Node | `registerTool` + Zod |
+| **FastAPI-MCP** | Python | Puente: FastAPI existente → MCP |
+| **Spring AI MCP** | Java | `@Service` + `@Tool` (Spring beans auto-registrados) |
+| **mcp-go / Rust / C# / Kotlin** | nativos | SDK por lenguaje, tracks v2 (2026-07-28) |
+
+### 8.2 El patrón de organización de tools/dominio que confirma Walker
+
+Los MCP servers reales **NO** importan "features" desde un "shared". Tres referencias representativas:
+
+1. **mcp-sqlite-server (Clean Architecture MCP)**: `main.py` (FastMCP + middleware) → `application/use_cases` → `domain/` (entities + interfaces/ports) → `infrastructure/` (adapters DB/MCP/RAG). **Tools thin; toda lógica en domain+application; adaptadores inyectados en main.py (composition root).** Igual al dominio-centro + adapters periféricos de Walker.
+
+2. **inggerman/mcps (workspace multi-servidor con `mcp_shared`)**: 16+ servidores comparten vía `mcp_shared` (config base, errors, logging) **instalado como paquete**. Cada `tools/*.py` es **lógica pura sin imports de MCP**. **`shared` = utilidades de base, NO importa tools de otros.** El `pyproject.toml` declara `mcp-shared` como dependencia real (sin `sys.path` hacks).
+
+3. **Studio Meyer (680 tools, multi-nivel por host/agent)**: separación por **nivel de acceso/responsabilidad**, un servidor por dominio, **Server Factory** (instancia fresca por sesión HTTP, sin estado compartido).
+
+### 8.3 Lectura para Walker (futuro)
+
+- El patrón dominante es **dominio-centro + shared/utilidades puras + composition root** — coherente con la decisión tomada en el hilo: *"shared = capa base; tasks por puertos"*.
+- `mcp_shared` valida la semántica de `shared/` como **utilidades de base puras** (config, logging, errors, rutas/PathResolver) que **no importan features**.
+- La lógica que usa features (los handlers de `shared/tasks`) en los MCP reales vivirá en la **capa de aplicación de cada servidor**, alimentada por puertos — el equivalente a nuestro **T2 (service-locator DI / puertos)**.
+- Queda registrado como guía; decidir su aplicación (T2-T4) en una sesión de refinamiento..
