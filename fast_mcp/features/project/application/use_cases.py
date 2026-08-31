@@ -1,33 +1,37 @@
-"""fast_mcp.use_cases — Los 3 casos de uso de la Fase 1, VIVIENDO en fast_mcp.
+"""application.use_cases — Los 3 use cases del workflow core (context PROJECT).
 
-PORT AUTÓNOMO (ADR-WALKER-071 §0 #4/#5): prepare / list / status viven aquí
-implementados con stdlib — fast_mcp NUNCA importa `mcp/` (ni app/, features/,
-shared/, protocols/). Los contratos de datos son los mismos que el legacy
-(registro global `data/projects.json`, manifiesto `project.json`, estado de
-sprint `.workflow-state.json`), para que el agente vea el mismo dominio.
+Port autónomo (ADR-WALKER-071 §0 #4/#5): prepare / list / status viven en
+fast_mcp con el MISMO contrato de datos que el legacy. Cada use case recibe su
+contexto cableado (`ProjectCtx`) por parámetro — la superficie nunca construye
+dependencias (regla de coherencia §3bis 3).
 
-Los checks profundos de CPG/CKG/memorias pertenecen a la Fase 2 (memorias);
-aquí solo el workflow core de bootstrap/lectura.
+Los checks de stale (files/CPG/CKG) llegan en Fase 2 junto con el port de
+memorias — reportados como pendientes, nunca simulados.
 """
 
 from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fast_mcp.core import (
+from fast_mcp.features.project.infrastructure.detection import (
     code_detected_walk,
     detect_project,
-    project_data_dir,
-    read_registry,
-    register_project,
-    registry_path,
-    resolve_project,
-    resolve_project_from_cwd,
-    walkerignore_template,
 )
+from fast_mcp.features.project.infrastructure.layout import ProjectLayout
+from fast_mcp.features.project.infrastructure.registry_store import RegistryStore
+from fast_mcp.shared_kernel import paths
+
+
+@dataclass(frozen=True)
+class ProjectCtx:
+    """Contexto cableado del context project (composition.py lo construye)."""
+
+    store: RegistryStore
+    layout: ProjectLayout
 
 
 def _now() -> str:
@@ -45,13 +49,10 @@ def _read_json(path: Path) -> dict:
 # ── Caso de uso 1: prepare ─────────────────────────────────────────
 
 
-def prepare_use_case(project_path: str = "", args: dict | None = None) -> dict:
-    """Inicializa un proyecto: .cognitive/ + project.json + registro global.
-
-    Port autónomo de app/orchestration/prepare_project_service (contrato de
-    datos idéntico; CPG/watcher/CKG quedan para Fase 2 — se reportan como
-    pendientes, no se simulan).
-    """
+def prepare_use_case(
+    ctx: ProjectCtx, project_path: str = "", args: dict | None = None
+) -> dict:
+    """Inicializa un proyecto: layout cognitivo + project.json + registro global."""
     args = dict(args or {})
     path = os.path.abspath(project_path or args.get("path") or os.getcwd())
     pid = os.path.basename(path)
@@ -83,7 +84,7 @@ def prepare_use_case(project_path: str = "", args: dict | None = None) -> dict:
     if not args.get("framework") and framework == "unknown":
         setup_warnings.append("framework not detected (Fase 2: update_project lo fija)")
 
-    # 2. Estructura .cognitive/projects/<pid>/data/.
+    # 2. Estructura del layout cognitivo del proyecto.
     data_dir = Path(path) / ".cognitive" / "projects" / pid / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -116,10 +117,10 @@ def prepare_use_case(project_path: str = "", args: dict | None = None) -> dict:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     # 4. Registro global (SSOT de rutas, R-05).
-    registered_in = register_project(pid, name, path)
+    registered_in = ctx.store.register(pid, name, path)
 
     # 5. .walkerignore template (best-effort).
-    template = walkerignore_template()
+    template = paths.walkerignore_template()
     dest = Path(path) / ".walkerignore"
     copied = False
     if template.exists() and not dest.exists():
@@ -154,10 +155,10 @@ def prepare_use_case(project_path: str = "", args: dict | None = None) -> dict:
 # ── Caso de uso 2: list ────────────────────────────────────────────
 
 
-def list_use_case(args: dict | None = None) -> dict:
-    """Lista los proyectos del registro global (data/projects.json)."""
+def list_use_case(ctx: ProjectCtx, args: dict | None = None) -> dict:
+    """Lista los proyectos del registro global."""
     projects = []
-    for pid, info in read_registry().get("projects", {}).items():
+    for pid, info in ctx.store.read().get("projects", {}).items():
         projects.append(
             {
                 "project_id": pid,
@@ -171,28 +172,23 @@ def list_use_case(args: dict | None = None) -> dict:
         "type": "projects_list",
         "status_code": 200,
         "message": f"{len(projects)} registered project(s)",
-        "data": {"projects": projects, "registry": str(registry_path())},
+        "data": {"projects": projects, "registry": str(paths.registry_path())},
     }
 
 
 # ── Caso de uso 3: status ──────────────────────────────────────────
 
 
-def status_use_case(args: dict | None = None) -> dict:
-    """Health + workflow status del proyecto (port autónomo del contrato).
-
-    - project: identidad desde project.json (name/language/framework/repo).
-    - sprint: estado del sprint activo leído de `.workflow-state.json`
-      (best-effort filesystem; el DeltaGraph completo llega en Fase 2).
-    """
+def status_use_case(ctx: ProjectCtx, args: dict | None = None) -> dict:
+    """Health + workflow status del proyecto (port autónomo del contrato)."""
     args = dict(args or {})
     pid = (
         args.get("_project_id")
         or args.get("project_id")
-        or resolve_project_from_cwd()
+        or ctx.store.resolve_from_cwd()
     )
     if not pid:
-        projects = list_use_case()
+        projects = list_use_case(ctx)
         return {
             "type": "projects_list",
             "status_code": 200,
@@ -201,9 +197,9 @@ def status_use_case(args: dict | None = None) -> dict:
             "prompt": "Register a project → walker prepare <path>",
         }
 
-    entry = resolve_project(pid)
+    entry = ctx.store.resolve(pid)
     repo_path = entry.get("repo_path", "")
-    data_dir = project_data_dir(pid, repo_path)
+    data_dir = ctx.layout.data_dir(pid, repo_path)
     manifest = _read_json(data_dir / "project.json").get("project", {})
     identity = manifest.get("identity", {})
 
@@ -228,8 +224,8 @@ def status_use_case(args: dict | None = None) -> dict:
             f"project.json: not found in {data_dir} — ¿proyecto preparado?"
         )
 
-    # Sprint activo (best-effort): busca .workflow-state.json bajo data/spring/.
-    sprint_state = _find_sprint_state(data_dir)
+    # Sprint activo (best-effort: el DeltaGraph completo llega en Fase 2/3).
+    sprint_state = ctx.layout.find_sprint_state(data_dir)
     if sprint_state:
         health["sprint"] = {
             "sprint_id": sprint_state.get("sprint_id", ""),
@@ -245,21 +241,3 @@ def status_use_case(args: dict | None = None) -> dict:
         f"walker {pid}/prepare" if not manifest else f"walker {pid}/status",
     ]
     return health
-
-
-def _find_sprint_state(data_dir: Path) -> dict:
-    """Busca .workflow-state.json del sprint activo (más reciente) en data/spring/."""
-    spring_root = data_dir / "spring"
-    if not spring_root.is_dir():
-        return {}
-    best: tuple[float, dict] = (0.0, {})
-    for sprint_dir in spring_root.iterdir():
-        if not sprint_dir.is_dir():
-            continue
-        state = _read_json(sprint_dir / ".workflow-state.json")
-        if not state:
-            continue
-        mtime = sprint_dir.stat().st_mtime
-        if mtime > best[0]:
-            best = (mtime, state)
-    return best[1]

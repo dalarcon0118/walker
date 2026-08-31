@@ -1,9 +1,10 @@
 """test_fast_mcp_migration_bdd.py — Capa de test de la migración a FastMCP.
 
 Fase 1: EXACTAMENTE las 3 tools del workflow core (prepare/list/status),
-VIVIENDO dentro de fast_mcp (stdlib only). Sin walker_ping ni tools extra.
+VIVIENDO dentro de fast_mcp bajo la arquitectura §3bis (features + kernel +
+composition). Sin walker_ping ni tools extra.
 
-AUTONOMÍA (ADR-WALKER-071 §0 #4/#5): fast_mcp NO importa NADA de `mcp/`
+AUTONOMÍA (ADR-WALKER-071 §0 #5): fast_mcp NO importa NADA de `mcp/`
 (ni app/, features/, shared/, protocols/) y NO pone mcp/ en sys.path.
 La migración PORTA el código a fast_mcp/, no lo llama.
 """
@@ -29,7 +30,7 @@ def fastmcp_server():
     return build_server()
 
 
-# ── Fase 1 — las 3 tools del workflow core (viven en fast_mcp) ─────
+# ── Superficie ──────────────────────────────────────────────────────
 
 
 def test_fast_mcp_paquete_importable():
@@ -77,12 +78,16 @@ def test_fast_mcp_no_importa_nada_de_mcp():
     aquí; el único tercero permitido es la lib oficial mcp.server.fastmcp
     (+ pydantic), nunca el monorepo mcp/.
     """
-    import fast_mcp.server
+    import fast_mcp.composition
     import fast_mcp.main
-    import fast_mcp.core
-    import fast_mcp.use_cases
     import fast_mcp.registration
+    import fast_mcp.server
+    import fast_mcp.shared_kernel.paths
     import fast_mcp.phases.phase1_prepare
+    import fast_mcp.features.project.application.use_cases
+    import fast_mcp.features.project.infrastructure.registry_store
+    import fast_mcp.features.project.infrastructure.layout
+    import fast_mcp.features.project.infrastructure.detection
 
     forbidden_prefixes = ("app", "features", "shared", "protocols", "config", "data")
     allowed = {
@@ -101,8 +106,13 @@ def test_fast_mcp_no_importa_nada_de_mcp():
 
     bad = set()
     for mod in (
-        fast_mcp.server, fast_mcp.main, fast_mcp.core, fast_mcp.use_cases,
-        fast_mcp.registration, fast_mcp.phases.phase1_prepare,
+        fast_mcp.server, fast_mcp.main, fast_mcp.composition,
+        fast_mcp.registration, fast_mcp.shared_kernel.paths,
+        fast_mcp.phases.phase1_prepare,
+        fast_mcp.features.project.application.use_cases,
+        fast_mcp.features.project.infrastructure.registry_store,
+        fast_mcp.features.project.infrastructure.layout,
+        fast_mcp.features.project.infrastructure.detection,
     ):
         tree = ast.parse(inspect.getsource(mod))
         for node in ast.walk(tree):
@@ -120,17 +130,34 @@ def test_fast_mcp_runtime_cero_modulos_de_mcp():
     import sys
 
     before = {m for m in sys.modules if m.split(".")[0] in ("app", "features", "shared", "protocols")}
-    from fast_mcp.server import build_server
-    from fast_mcp import use_cases
+    from fast_mcp import composition
+    from fast_mcp.features.project.application import use_cases
 
-    server = build_server()
-    assert server is not None
-    result = use_cases.list_use_case({})
+    ctx = composition.build().project
+    result = use_cases.list_use_case(ctx)
 
     after = {m for m in sys.modules if m.split(".")[0] in ("app", "features", "shared", "protocols")}
     nuevos = after - before
     assert not nuevos, f"fast_mcp cargó módulos de mcp/ en runtime: {sorted(nuevos)}"
     assert isinstance(result, dict)
+
+
+# ── Arquitectura §3bis (composition) ───────────────────────────────
+
+
+def test_composition_cablea_y_root_es_inyectable(tmp_path):
+    """composition.build(root=...) construye contexts con raíz propia (tests)."""
+    from fast_mcp import composition
+
+    fake_root = tmp_path / "walker-root"
+    (fake_root / "config").mkdir(parents=True)
+    (fake_root / "config" / "config.json").write_text("{}")
+
+    ctx = composition.build(root=fake_root).project
+    # RegistryStore resuelve contra la raíz inyectada.
+    assert str(ctx.store.read()) == "{}"
+    registered = ctx.store.register("demo", "demo", str(tmp_path / "demo"))
+    assert registered == fake_root / "data" / "projects.json"
 
 
 # ── Fase 1 — contratos de las 3 tools ──────────────────────────────
@@ -146,23 +173,23 @@ def test_fase1_input_schema_es_declarativo(fastmcp_server):
     }
 
 
-def test_fase1_prepare_crea_y_registra(tmp_path, monkeypatch):
-    """prepare crea .cognitive/ + project.json y registra en data/projects.json."""
+def test_fase1_prepare_crea_y_registra(tmp_path):
+    """prepare crea el layout cognitivo + project.json y registra en data/projects.json."""
     import json
 
-    from fast_mcp import use_cases, core
+    from fast_mcp import composition
+    from fast_mcp.features.project.application import use_cases
 
     repo = tmp_path / "demo-repo"
     repo.mkdir()
     (repo / "pyproject.toml").write_text("[project]\nname='demo'\n")
 
-    # Registro global aislado en tmp (no toca data/ real).
     fake_root = tmp_path / "walker-root"
     (fake_root / "config").mkdir(parents=True)
     (fake_root / "config" / "config.json").write_text("{}")
-    monkeypatch.setattr(core, "walker_root", lambda: fake_root)
+    ctx = composition.build(root=fake_root).project
 
-    result = use_cases.prepare_use_case(project_path=str(repo))
+    result = use_cases.prepare_use_case(ctx, project_path=str(repo))
 
     assert result["type"] == "prepare_result"
     assert result["project_id"] == "demo-repo"
@@ -171,23 +198,24 @@ def test_fase1_prepare_crea_y_registra(tmp_path, monkeypatch):
     assert reg["projects"]["demo-repo"]["repo_path"] == str(repo)
 
     # Idempotencia (mismo guard que legacy).
-    again = use_cases.prepare_use_case(project_path=str(repo))
+    again = use_cases.prepare_use_case(ctx, project_path=str(repo))
     assert again["type"] == "already_exists"
 
 
-def test_fase1_status_resuelve_proyecto(tmp_path, monkeypatch):
+def test_fase1_status_resuelve_proyecto(tmp_path):
     """status resuelve project.json del registro y reporta health."""
-    from fast_mcp import use_cases, core
+    from fast_mcp import composition
+    from fast_mcp.features.project.application import use_cases
 
     fake_root = tmp_path / "walker-root"
     (fake_root / "config").mkdir(parents=True)
     (fake_root / "config" / "config.json").write_text("{}")
-    monkeypatch.setattr(core, "walker_root", lambda: fake_root)
+    ctx = composition.build(root=fake_root).project
 
     repo = tmp_path / "demo-repo"
-    use_cases.prepare_use_case(project_path=str(repo), args={"language": "python"})
+    use_cases.prepare_use_case(ctx, project_path=str(repo), args={"language": "python"})
 
-    health = use_cases.status_use_case({"_project_id": "demo-repo"})
+    health = use_cases.status_use_case(ctx, {"_project_id": "demo-repo"})
     assert health["type"] == "project_health"
     assert health["checks"]["project_json"] == "ok"
     assert health["project"]["language"] == "python"
