@@ -182,13 +182,17 @@ def _read_source_core(path: str, fmt: str) -> dict | str:
 def _resolve_project_dir_core(chain_dir: str) -> str:
     """Core puro de TemplateLoader.__init__ (puede lanzar).
 
-    Fase 5 (C3): import LAZY de features.project — el feature debe poder
-    importarse aislado.
+    M-04 (Fase 5): resuelve paths vía el puerto IProjectContext (no importa
+    ProjectService concreto).
     """
-    from features.project import ProjectService
+    from shared.core.engine.domain.ports_registry import resolve_port
+    from shared.core.engine.domain.ports import IProjectContext
 
-    paths = ProjectService.resolve_paths(chain_dir)
-    return paths.project_root
+    port = resolve_port(IProjectContext)
+    if port is None:
+        return ""
+    paths = port.resolve_paths(chain_dir)
+    return getattr(paths, "project_root", "")
 
 
 @safe

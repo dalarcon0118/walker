@@ -107,17 +107,17 @@ def _load_delta(paths: Any) -> dict:
     return {}
 
 
-def _collect_covered_files(project, chain_dir: str) -> tuple[list[str], Any]:
+def _collect_covered_files(paths, chain_dir: str) -> tuple[list[str], Any]:
     """Archivos cubiertos por las specs del spring en curso.
 
-    ProjectService.from_chain_dir retorna un Project (sin metodos de spring);
-    las specs del spring viven en el delta del proyecto (data/delta.json.gz).
+    M-04 (Fase 5): recibe `paths` (ProjectPaths del puerto IProjectContext)
+    en vez de un Project concreto; las specs del spring viven en el delta
+    del proyecto (data/delta.json.gz).
     """
     covered: list[str] = []
     spring = None
-    if project is not None and getattr(project, "paths", None) is not None:
-        paths = project.paths
-        spring_id = project.active_sprint_id or paths.sprint_id or ""
+    if paths is not None:
+        spring_id = paths.sprint_id or ""
         delta = _load_delta(paths)
         if delta:
             spring = delta.get(spring_id) if spring_id else None
@@ -168,12 +168,12 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
         impacted = _collect_impacted_files(data_dir, project_root)
 
         # 2. Archivos cubiertos por specs del spring EN CURSO.
-        from features.project.application.services.project_service import (
-            ProjectService,
-        )
+        from shared.core.engine.domain.ports_registry import resolve_port
+        from shared.core.engine.domain.ports import IProjectContext
 
-        project = ProjectService.from_chain_dir(project_root)
-        covered, spring = _collect_covered_files(project, chain_dir)
+        port = resolve_port(IProjectContext)
+        paths = port.resolve_paths(project_root) if port is not None else None
+        covered, spring = _collect_covered_files(paths, chain_dir)
 
         # 3. Diferencia → trabajo sin capturar.
         uncaptured = [f for f in impacted if not _path_matches(f, covered)]
@@ -188,7 +188,7 @@ def detect_uncaptured_work(chain_dir: str) -> UncapturedWorkResult:
             uncaptured_files=uncaptured,
             spring_id=spring.get("spring_id", "")
             if spring
-            else (project.active_sprint_id or ""),
+            else (paths.sprint_id if paths else ""),
             has_spring=spring is not None,
         )
     except Exception as e:

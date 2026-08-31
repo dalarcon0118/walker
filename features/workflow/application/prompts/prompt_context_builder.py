@@ -78,13 +78,19 @@ class PromptContextBuilder:
 
 
 def _load_spring_data(chain_dir: str) -> tuple[dict | None, list[dict]]:
-    """Carga spring y tasks desde el delta (fuente unica, host)."""
-    try:
-        from features.project.application.services.project_service import (
-            ProjectService,
-        )
+    """Carga spring y tasks desde el delta (fuente unica, host).
 
-        spring_svc = ProjectService.from_chain_dir(chain_dir)
+    M-04 (Fase 5): consume el puerto ISprintService (inyectado por el
+    composition root) en vez de importar ProjectService concreto.
+    """
+    try:
+        from shared.core.engine.domain.ports_registry import resolve_port
+        from shared.core.engine.domain.ports import ISprintService
+
+        port = resolve_port(ISprintService)
+        if port is None:
+            return None, []
+        spring_svc = port.from_chain_dir(chain_dir)
         spring_id = os.path.basename(os.path.normpath(chain_dir))
         spring_svc.ensure_spring_imported(chain_dir, spring_id)
         spring_data = spring_svc.get_spring(spring_id)
@@ -99,11 +105,13 @@ def _load_current_task_index(chain_dir: str) -> int:
     """Lee el indice de la tarea actual desde el contexto del spring."""
     current_idx = 0
     try:
-        from features.project.application.services.project_service import (
-            ProjectService,
-        )
+        from shared.core.engine.domain.ports_registry import resolve_port
+        from shared.core.engine.domain.ports import ISprintService
 
-        spring_svc = ProjectService.from_chain_dir(chain_dir)
+        port = resolve_port(ISprintService)
+        if port is None:
+            return 0
+        spring_svc = port.from_chain_dir(chain_dir)
         spring_id = os.path.basename(os.path.normpath(chain_dir))
         spring_svc.ensure_spring_imported(chain_dir, spring_id)
         ctx_state = spring_svc.get_spring_context(spring_id)

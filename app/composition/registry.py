@@ -91,6 +91,24 @@ def register_all(
 
     register_port(IWorkflowStore, module_registry.get_service("workflow_store"))
 
+    # Puertos de contexto de proyecto/sprint (ADR-068 Fase 5 M-04): los
+    # features (p.ej. workflow/prompts) consumen IProjectContext/ISprintService
+    # vía resolve_port en vez de importar los Services concretos. Los adapters
+    # existen (features/project/module.py + features/delta_tracking/module.py);
+    # el composition root los INSTANCIA con los services cableados.
+    from features.project.module import ProjectContextAdapter
+    from features.delta_tracking.module import SprintServiceAdapter
+    from shared.core.engine.domain.ports import IProjectContext, ISprintService
+
+    register_port(
+        IProjectContext,
+        ProjectContextAdapter(module_registry.get_service("project_service")),
+    )
+    register_port(
+        ISprintService,
+        SprintServiceAdapter(module_registry.get_service("sprint_service")),
+    )
+
     # Outbox (ADR-WALKER-067 F4/H): el host inyecta la implementacion. Default
     # InMemory (semantica de outbox activa); hosts con durabilidad pueden pasar
     # SqliteSideEffectOutbox(path).

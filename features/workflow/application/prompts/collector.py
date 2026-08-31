@@ -14,13 +14,16 @@ logger = logging.getLogger(__name__)
 def _build_cg(chain_dir: str, searcher_factory=None) -> Any:
     """Construye el searcher vía DI para el chain_dir.
 
-    Fase 5 (M-04/M-06): import LAZY de features.project (el feature debe
-    poder importarse aislado, C3) + searcher CANÓNICO de app.memories (no el
-    privado _build_searcher del registry, C7).
+    Fase 5 (M-04): resuelve paths vía el puerto IProjectContext (no importa
+    ProjectService concreto) + searcher CANÓNICO de app.memories (C7).
     """
-    from features.project import ProjectService
+    from shared.core.engine.domain.ports_registry import resolve_port
+    from shared.core.engine.domain.ports import IProjectContext
 
-    paths = ProjectService.resolve_paths(chain_dir)
+    port = resolve_port(IProjectContext)
+    paths = port.resolve_paths(chain_dir) if port is not None else None
+    if paths is None:
+        return None
     if searcher_factory is not None:
         return searcher_factory(paths.project_root)
     from app.memories.registration import build_searcher
@@ -184,9 +187,13 @@ def _load_spring_state_core(chain_dir: str) -> tuple[str, str, str]:
     spring + spec actual. Devuelve ("", "", "") si el chain_dir no
     resuelve a un proyecto (caso esperable).
     """
-    from features.delta_tracking import spring_service
+    from shared.core.engine.domain.ports_registry import resolve_port
+    from shared.core.engine.domain.ports import ISprintService
 
-    spring_svc = spring_service(chain_dir=chain_dir)
+    port = resolve_port(ISprintService)
+    if port is None:
+        return ("", "", "")
+    spring_svc = port.from_chain_dir(chain_dir)
     if not spring_svc:
         return "", "", ""
     spring_id = spring_svc.get_spring_id(chain_dir)
