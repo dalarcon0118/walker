@@ -547,7 +547,7 @@ Resultado: `shared/common/shared_domain/` ELIMINADO (el cajón de sastre se cier
 
 **Frontera que NO se cruzó:** TaskResult/ExecutionContext NO fueron a `tasks/domain/` aunque "son de tasks" — el engine los declara en su puerto y los consume (saga); moverlos a tasks habría invertido la dependencia `shared/core/engine → tasks/`.
 
-### 9.7.2 Reubicación: `tasks/` → `shared/tasks/` (módulo compartido, commit `6e9afc3`)
+### 9.7.2 Reubicación: `tasks/` → `shared/tasks/` (módulo compartido, commit `d831c48`)
 
 **Pregunta/Corrección:** tasks es transversal (engine vía DI, `features/delta_tracking` vía shims, `protocols/cli` + MCP vía dispatch, `app/` composition). Tenerlo en la RAÍZ de `walker/` no parece estándar. ¿Mover a `shared/`?
 
