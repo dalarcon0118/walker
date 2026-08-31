@@ -12,7 +12,7 @@ import pytest
 
 from shared.core.engine.context.registry import ContextProviderRegistry
 from shared.core.engine.context.composer import ContextComposer
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 
 def _make_ctx(chain_dir: str = "/tmp/test-chain") -> ExecutionContext:

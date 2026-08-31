@@ -1,7 +1,7 @@
 """Refinement tasks: refine_diagnose, route_to_target, escalate_refine."""
 from __future__ import annotations
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 
 def refine_diagnose(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

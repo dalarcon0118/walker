@@ -5,7 +5,7 @@ specs, estados) vive en el DELTA (SpringService), fuente unica.
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 
 class ShowDashboardUseCase:

@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from features.project import ProjectService
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 
 @safe
 def _update_project_core(chain_dir: str, update_data: dict[str, dict]) -> dict:
     """Core puro: aplica el update vía ProjectService (puede lanzar)."""
+    from features.project import ProjectService
+
     return ProjectService.update_project(chain_dir, update_data)
 
 

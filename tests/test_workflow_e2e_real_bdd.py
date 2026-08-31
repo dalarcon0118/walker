@@ -365,7 +365,7 @@ def _setup_workflow_state(chain_dir: str) -> None:
 
 def _build_exec_ctx(chain_dir: str) -> "ExecutionContext":
     """Crea un ExecutionContext para el engine."""
-    from shared.common.shared_domain.models import ExecutionContext
+    from shared.core.engine.domain.execution import ExecutionContext
     return ExecutionContext.create(
         session_id="sess-e2e",
         chain_dir=chain_dir,

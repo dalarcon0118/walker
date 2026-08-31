@@ -82,7 +82,7 @@ class AppContainer:
 
         No construye nada: solo captura referencias ya existentes.
         """
-        from shared.common.shared_domain import ExecutionContext
+        from shared.core.engine.domain.execution import ExecutionContext
 
         ctx = ExecutionContext.create(
             session_id=str(chain_dir).split("/")[-1] if chain_dir else "",

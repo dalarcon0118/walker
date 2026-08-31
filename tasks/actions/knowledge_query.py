@@ -16,7 +16,7 @@ import logging
 from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 logger = logging.getLogger(__name__)
 

@@ -8,11 +8,17 @@ import logging
 from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from shared.core.engine.infrastructure.session_store import SessionStore
-from features.project import ProjectService
 
 logger = logging.getLogger(__name__)
+
+
+def _project_svc() -> Any:
+    """Lazy (C3): ProjectService sin edge import-time a features.project."""
+    from features.project import ProjectService
+
+    return ProjectService
 
 
 def resolve_project_sprint_handler(
@@ -23,7 +29,7 @@ def resolve_project_sprint_handler(
     if not project_id:
         return TaskResult.failure({"message": "project_id no especificado en SELECT"})
 
-    sprint_chain_dir = ProjectService.find_active_sprint(project_id)
+    sprint_chain_dir = _project_svc().find_active_sprint(project_id)
     if sprint_chain_dir and _has_sprint_state(sprint_chain_dir):
         _update_session(ctx, project_id, sprint_chain_dir)
         return TaskResult.success(

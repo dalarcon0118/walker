@@ -4,7 +4,7 @@ Mueve al siguiente índice de spec del spring.
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ._sprint_helpers import _get_current_spec_index
 
 

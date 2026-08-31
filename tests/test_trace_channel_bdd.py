@@ -18,7 +18,7 @@ import pytest
 from pytest_bdd import given, scenarios, then, when
 
 from shared.core.engine.infrastructure.task_registry import InMemoryTaskRegistry
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 scenarios("bdd/features/trace_channel.feature")
 

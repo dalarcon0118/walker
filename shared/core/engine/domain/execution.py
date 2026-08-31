@@ -1,8 +1,21 @@
 """
-shared/common/shared_domain/models.py — Pure domain value objects.
+domain/execution.py — Contrato de ejecución del workflow engine.
 
-PRINCIPIO: VOs are pure data. No IO, no path resolution, no infrastructure.
-           Factory methods that need IO belong in application services.
+ProjectId... VOs del motor (contrato del puerto `ActionCatalog`):
+
+  - `ExecutionContext` — contexto de ejecución de TODAS las operaciones del
+    workflow (session/trace/span/chain/task). Lo reciben: el engine
+    (declara y valida), los use cases de features (lo consumen) y las tasks
+    (lo implementan vía el puerto). Por eso vive AQUÍ (dueño: el engine),
+    NO en tasks/ domain — si viviera en tasks/, shared/core/engine
+    importaría tasks/ = inversión prohibida (ADR-067).
+  - `TaskResult` — resultado de la ejecución de una task. El engine lo
+    consume (saga de side-effects), las tasks lo producen. Contrato del
+    puerto `ActionCatalog` → vive con su puerto (engine/domain).
+
+PRINCIPIO (heredero del extinto shared/common/shared_domain): VOs puros.
+Sin IO, sin resolución de paths, sin infraestructura. Factories con IO
+viven en los application services.
 """
 from __future__ import annotations
 
@@ -16,7 +29,7 @@ T = TypeVar("T")
 
 @dataclass
 class TaskResult(Generic[T]):
-    """Result of a task execution. Used by ALL registered tasks."""
+    """Result of a task execution. Produced by tasks; consumed by the engine."""
     ok: bool
     data: T | None = None
     error: str | None = None
@@ -83,7 +96,7 @@ class TaskResult(Generic[T]):
 @dataclass
 class ExecutionContext:
     """Execution context for all workflow operations.
-    
+
     Pure data. No IO. Factory via create() for convenience.
     """
     session_id: str
@@ -107,12 +120,3 @@ class ExecutionContext:
             chain_dir=chain_dir,
             **kw,
         )
-
-
-@dataclass(frozen=True)
-class ProjectId:
-    """Value Object — project identifier. Pure data, no IO."""
-    value: str
-
-    def __str__(self) -> str:
-        return self.value

@@ -10,9 +10,6 @@ import logging
 from typing import Any
 
 from shared.common.context import ContextPiece
-from app.orchestration.intelligence_service import (
-    build_intelligence_service,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +41,10 @@ class TaskIntelligenceProvider:
         scope = config.get("scope", "") or ""
 
         try:
+            from app.orchestration.intelligence_service import (
+                build_intelligence_service,
+            )
+
             service = build_intelligence_service(chain_dir)
         except Exception as e:
             logger.warning(

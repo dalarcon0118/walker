@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ._sprint_helpers import (
     _resolve_chain_dir,
     _get_active_record,

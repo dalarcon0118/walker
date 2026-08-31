@@ -5,7 +5,7 @@ Called by spec_task workflow action.
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ...domain.services.spec_service import (
     SpecValidator,
     SpecBuilder,

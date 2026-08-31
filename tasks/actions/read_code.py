@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 
 def read_code(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

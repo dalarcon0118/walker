@@ -38,7 +38,7 @@ def _empty_phase_registry(phase_intelligence_ctx: dict):
 
 @given("un execution context con chain_dir inexistente")
 def _ctx_no_existe(phase_intelligence_ctx: dict):
-    from shared.common.shared_domain import ExecutionContext
+    from shared.core.engine.domain.execution import ExecutionContext
 
     phase_intelligence_ctx["ctx"] = ExecutionContext.create(
         session_id="s1", chain_dir="/no/existe"

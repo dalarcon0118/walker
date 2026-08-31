@@ -11,7 +11,7 @@ NATURALEZA (para que no quede duda): `engine` es una **máquina de estados BPMN
 genérica** — carga la config del workflow y la ejecuta. NO conoce conceptos de
 negocio del walker: `sprint`/`spring`, `spec`, `delta`, `cpg`/`ckg`/`trace`,
 `project`, sesiones del negocio. Esos viven en el HOST (features/app) o en el
-dominio del walker. `ExecutionContext` (shared.common.shared_domain) ES la
+dominio del walker. `ExecutionContext` (shared/core/engine/domain/execution.py) ES la
 entrada de la máquina (contexto de instancia BPMN: step/submit/transition lo
 reciben); el concepto "sprint" NO existe aquí (SprintId fue eliminado por ser
 vocabulario walker muerto — ADR-WALKER-067 §8/P1).

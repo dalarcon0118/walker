@@ -4,7 +4,7 @@ Valida todas las specs del delta (fuente unica).
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ...domain.services.spec_service import SpecValidator
 from ._sprint_helpers import _spring_svc
 

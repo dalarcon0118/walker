@@ -6,7 +6,7 @@ Enriquece la Spec con decision, architecture, implementation y quality_gates.
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ._sprint_helpers import _spring_svc, _get_current_spec_id
 
 

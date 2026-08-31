@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from features.project import ProjectService
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 
 def list_projects_handler(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """Scan .cognitive/projects/ and return list with sprint status."""
+    from features.project import ProjectService
+
     projects = ProjectService.list_available()
     return TaskResult.success({"projects": projects})
 

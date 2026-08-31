@@ -6,12 +6,9 @@ directos (INV-013).
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from shared.common.shared_domain.validated_vo import TaskInput
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
+from tasks.domain.validated_vo import TaskInput
 from shared.common.result_types import is_successful
-from features.cognitive_knowledge.application.services.ckg_service import (
-    CkgApplicationService,
-)
 
 
 @dataclass(frozen=True)
@@ -40,6 +37,10 @@ def research_topic(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     chain_dir = ctx.chain_dir or ""
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
+    from features.cognitive_knowledge.application.services.ckg_service import (
+        CkgApplicationService,
+    )
+
     result = CkgApplicationService.research_topic(chain_dir, topic, inp.query)
     if not is_successful(result):
         return TaskResult.failure(str(result.failure()))

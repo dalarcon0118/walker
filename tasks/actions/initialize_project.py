@@ -13,11 +13,18 @@ from typing import Any
 
 from returns.pipeline import is_successful
 from returns.result import safe
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from shared.common.shared_domain.validated_vo import TaskInput
-from features.project import ProjectService
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
+from tasks.domain.validated_vo import TaskInput
 
 logger = logging.getLogger(__name__)
+
+
+def _project_svc() -> Any:
+    """Lazy: resoluciona ProjectService sin edge import-time a features.project
+    (C3 — el módulo debe importarse aislado)."""
+    from features.project import ProjectService
+
+    return ProjectService
 
 
 @dataclass(frozen=True)
@@ -37,7 +44,7 @@ class ProjectInitInput(TaskInput):
 def _resolve_project_root(chain_dir: str = "", project_id: str = "") -> str:
     """Resuelve el project_root desde chain_dir o registry global (glue)."""
     if chain_dir:
-        paths = ProjectService.resolve_paths(chain_dir)
+        paths = _project_svc().resolve_paths(chain_dir)
         return str(paths.project_root)
     if project_id:
         from tasks.infrastructure.kg_context import (
@@ -51,7 +58,7 @@ def _resolve_project_root(chain_dir: str = "", project_id: str = "") -> str:
 
 def detect_project_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     project_path = data.get("path", ctx.chain_dir or os.getcwd())
-    result = safe(ProjectService.detect_context)(project_path)
+    result = safe(_project_svc().detect_context)(project_path)
     if is_successful(result):
         return TaskResult.success(data=result.value_or({}))
     error = result.failure()
@@ -68,7 +75,7 @@ def build_project_config(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRes
     if not input_result.ok:
         return TaskResult.failure(input_result.error or "project_id requerido")
     inp: ProjectInitInput = input_result.data
-    created = safe(ProjectService.create_project)(
+    created = safe(_project_svc().create_project)(
         project_id=inp.project_id,
         repo_path=inp.repo_path or ctx.chain_dir or os.getcwd(),
         name=inp.name or inp.project_id,
@@ -137,7 +144,7 @@ def build_code_index(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
         project_root = str(_PS.from_project_id(pid).manifest.repo_path or "")
     if not project_root and ctx.chain_dir:
-        paths = ProjectService.resolve_paths(ctx.chain_dir)
+        paths = _project_svc().resolve_paths(ctx.chain_dir)
         project_root = paths.repo_path or paths.project_root
     if not project_root:
         return TaskResult.success(

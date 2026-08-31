@@ -5,14 +5,15 @@ directos (INV-013).
 """
 from __future__ import annotations
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from shared.common.result_types import is_successful
-from features.cognitive_knowledge.application.services.ckg_service import (
-    CkgApplicationService,
-)
 
 
 def _ckg_context(chain_dir: str, task_id: str = "") -> list:
+    from features.cognitive_knowledge.application.services.ckg_service import (
+        CkgApplicationService,
+    )
+
     result = CkgApplicationService.gather_context(chain_dir, task_id=task_id)
     if not is_successful(result):
         return []

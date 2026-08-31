@@ -40,7 +40,7 @@ def execute_public_task(
     puerta para los eventos CPG→trace).
     """
     # resolve_service removed - using injected ports
-    from shared.common.shared_domain import ExecutionContext
+    from shared.core.engine.domain.execution import ExecutionContext
 
     if registry is None:
         raise ValueError("execute_public_task: registry no inyectado (composition root required)")

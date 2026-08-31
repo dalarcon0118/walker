@@ -4,7 +4,7 @@ Actualiza el status de una spec: draft → specified → in_progress → complet
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ._sprint_helpers import _spring_svc
 
 

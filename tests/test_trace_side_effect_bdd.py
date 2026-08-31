@@ -16,7 +16,7 @@ from pytest_bdd import given, scenarios, then, when
 
 from shared.core.engine.domain.models import SideEffectDef
 from shared.core.engine.infrastructure.side_effects import SideEffectEngine
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 scenarios("bdd/features/trace_side_effect.feature")
 

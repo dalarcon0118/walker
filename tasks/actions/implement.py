@@ -8,8 +8,8 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from shared.common.shared_domain.validated_vo import TaskInput
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
+from tasks.domain.validated_vo import TaskInput
 
 
 @safe

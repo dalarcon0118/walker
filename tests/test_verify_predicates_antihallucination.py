@@ -11,7 +11,7 @@ Fija el contrato que impide saltarse los criterios de validación de una spec:
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from features.delta_tracking.tasks.verification import (
     verify_predicates,
     _translate_predicates,

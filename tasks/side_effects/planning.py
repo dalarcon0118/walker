@@ -9,7 +9,7 @@ Thin adapter: delega en AdvanceSprintTaskService (app/orchestration/).
 from __future__ import annotations
 import logging
 from typing import Any
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from shared.core.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 
 logger = logging.getLogger(__name__)

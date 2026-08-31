@@ -661,7 +661,7 @@ def _two_predicates(mg_ctx: dict, tmp_path):
 @when("ejecuto verify_predicates como task")
 def _verify_as_task(mg_ctx: dict):
     from features.delta_tracking.tasks.verification import verify_predicates
-    from shared.common.shared_domain import ExecutionContext
+    from shared.core.engine.domain.execution import ExecutionContext
 
     ctx = ExecutionContext.create(session_id="s", chain_dir=mg_ctx["proj"])
     mg_ctx["vr"] = verify_predicates(
@@ -1005,7 +1005,7 @@ def _none_dispatched(mg_ctx: dict):
 
 @given("un TaskResult exitoso")
 def _tr_success(mg_ctx: dict):
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     mg_ctx["tr"] = TaskResult.success({"a": 1})
 
@@ -1027,7 +1027,7 @@ def _mapped_ok(mg_ctx: dict):
 
 @given("un TaskResult fallido")
 def _tr_failure(mg_ctx: dict):
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     mg_ctx["tr"] = TaskResult.failure("boom")
 
@@ -1039,14 +1039,14 @@ def _short_circuit(mg_ctx: dict):
 
 @given("un TaskResult exitoso con valor 2")
 def _tr_two(mg_ctx: dict):
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     mg_ctx["tr"] = TaskResult.success(2)
 
 
 @when("encadeno and_then con *3 y +1")
 def _and_then(mg_ctx: dict):
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     mg_ctx["chained"] = (
         mg_ctx["tr"]
@@ -1062,7 +1062,7 @@ def _seven(mg_ctx: dict):
 
 @given("un TaskResult exitoso con valor 1")
 def _tr_one(mg_ctx: dict):
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     mg_ctx["tr"] = TaskResult.success(1)
     mg_ctx["calls"] = []
@@ -1070,7 +1070,7 @@ def _tr_one(mg_ctx: dict):
 
 @when("encadeno un and_then que falla")
 def _and_then_fail(mg_ctx: dict):
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     mg_ctx["chained"] = (
         mg_ctx["tr"]
@@ -1086,7 +1086,7 @@ def _and_then_skipped(mg_ctx: dict):
 
 @when("aplico tap para observar")
 def _tap_tr(mg_ctx: dict):
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     seen = []
     mg_ctx["seen"] = seen
@@ -1111,7 +1111,7 @@ def _recover_value(mg_ctx: dict):
 @when("creo un StepResult con ese side effect")
 def _make_step_result(mg_ctx: dict):
     from shared.core.engine.domain.step_result import StepResult
-    from shared.common.shared_domain.models import TaskResult
+    from shared.core.engine.domain.execution import TaskResult
 
     se = mg_ctx["result"]["side_effects"][0]
     sr = StepResult.success(
@@ -1419,7 +1419,7 @@ def _emit_dispatched(mg_ctx: dict):
 def _vo_files_list(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from shared.common.shared_domain.validated_vo import TaskInput
+    from tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1447,7 +1447,7 @@ def _vo_ok(mg_ctx: dict):
 def _vo_files_str(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from shared.common.shared_domain.validated_vo import TaskInput
+    from tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1475,7 +1475,7 @@ def _vo_bad(mg_ctx: dict):
 def _vo_none(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from shared.common.shared_domain.validated_vo import TaskInput
+    from tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1498,7 +1498,7 @@ def _vo_ok_generic(mg_ctx: dict):
 def _demo_n_two(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from shared.common.shared_domain.validated_vo import TaskInput
+    from tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1521,7 +1521,7 @@ def _vo_twenty(mg_ctx: dict):
 def _demo_n_bad(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from shared.common.shared_domain.validated_vo import TaskInput
+    from tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):

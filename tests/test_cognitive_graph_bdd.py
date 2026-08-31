@@ -395,7 +395,7 @@ def _accumulate_knowledge(ctx: dict):
 @when("ejecuto la extracción estructurada del conocimiento")
 def _extract_knowledge(ctx: dict):
     from tasks.actions.extract_knowledge import kg_extract
-    from shared.common.shared_domain import ExecutionContext
+    from shared.core.engine.domain.execution import ExecutionContext
 
     ctx_obj = ExecutionContext.create(session_id="bdd-extract", chain_dir=ctx["project_dir"])
     ctx["extract_result"] = kg_extract(ctx_obj, {"scope": "all"})

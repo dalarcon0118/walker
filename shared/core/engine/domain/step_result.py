@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from shared.common.shared_domain.models import TaskResult
+from shared.core.engine.domain.execution import TaskResult
 
 
 @dataclass
@@ -137,7 +137,7 @@ class StepResult:
             TaskResult.failure(msj) si el checkpoint es corrupto/inválido
             (el workflow sabe que el checkpoint no es confiable).
         """
-        from shared.common.shared_domain.models import TaskResult as TR
+        from shared.core.engine.domain.execution import TaskResult as TR
 
         if not isinstance(raw, dict):
             return TR.failure("checkpoint no es un dict")

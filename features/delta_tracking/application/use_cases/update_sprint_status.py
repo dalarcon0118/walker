@@ -6,7 +6,7 @@ nodo spring via SpringService (fuente unica). No escribe sprint-state.json.
 """
 from __future__ import annotations
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 
 class UpdateSprintStatusUseCase:

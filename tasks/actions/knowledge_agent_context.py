@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 logger = logging.getLogger(__name__)
 

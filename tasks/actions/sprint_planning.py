@@ -19,12 +19,19 @@ import logging
 from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from features.delta_tracking.application.services.sprint_service import (
-    SprintApplicationService,
-)
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 logger = logging.getLogger(__name__)
+
+
+def _sprint_svc() -> Any:
+    """Lazy: resoluciona SprintApplicationService sin edge import-time a
+    features.delta_tracking (C3 — el módulo debe importarse aislado)."""
+    from features.delta_tracking.application.services.sprint_service import (
+        SprintApplicationService,
+    )
+
+    return SprintApplicationService
 
 
 def _sprint_task(service_method: str):
@@ -32,7 +39,7 @@ def _sprint_task(service_method: str):
 
     @safe
     def _core(ctx: ExecutionContext, data: dict[str, Any]) -> dict:
-        return getattr(SprintApplicationService, service_method)(ctx, data)
+        return getattr(_sprint_svc(), service_method)(ctx, data)
 
     def _run(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         result = _core(ctx, data)
@@ -58,7 +65,7 @@ def spec_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     (SpecValidator: 7 campos required + status 'specified'), la task retorna
     failure -> el auto-advance no ocurre y el sprint permanece en TASK_SPEC.
     """
-    result = safe(SprintApplicationService.specify_spec)(ctx, data)
+    result = safe(_sprint_svc().specify_spec)(ctx, data)
     if not is_successful(result):
         return TaskResult.failure(str(result.failure()))
     result_data = result.value_or({})
@@ -79,7 +86,7 @@ def save_task_spec(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 
 def show_dashboard(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    result = safe(SprintApplicationService.show_dashboard)(ctx, data)
+    result = safe(_sprint_svc().show_dashboard)(ctx, data)
     if is_successful(result):
         return TaskResult.success(data=result.value_or({}))
     error = result.failure()

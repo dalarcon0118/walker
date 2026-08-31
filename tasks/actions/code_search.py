@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from returns.pipeline import is_successful
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 
 
 def code_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

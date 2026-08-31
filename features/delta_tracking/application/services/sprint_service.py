@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 
 class SprintApplicationService:

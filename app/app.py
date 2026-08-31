@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.container import AppContainer
-from shared.common.shared_domain.models import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 
 class WalkerApp:

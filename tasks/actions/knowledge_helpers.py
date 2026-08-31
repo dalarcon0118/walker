@@ -8,10 +8,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from features.cognitive_knowledge.application.services.ckg_service import (
-    CkgApplicationService,
-)
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from tasks.infrastructure.kg_context import (
     _resolve_searcher,
     _resolve_project_root,
@@ -19,6 +16,15 @@ from tasks.infrastructure.kg_context import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _ckg() -> Any:
+    """Lazy (C3): resoluciona CkgApplicationService sin edge import-time."""
+    from features.cognitive_knowledge.application.services.ckg_service import (
+        CkgApplicationService,
+    )
+
+    return CkgApplicationService
 
 
 def memory_schema(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -37,13 +43,13 @@ def memory_schema(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if payload and isinstance(payload, dict):
         index = payload.get("index", "")
         if index:
-            result = CkgApplicationService.schema(cg, index)
+            result = _ckg().schema(cg, index)
             if result.get("type") == "error":
                 return TaskResult.failure(result["message"])
             return TaskResult.success(data=result)
     index = data.get("index", "")
     if index:
-        result = CkgApplicationService.schema(cg, index)
+        result = _ckg().schema(cg, index)
         if result.get("type") == "error":
             return TaskResult.failure(result["message"])
         return TaskResult.success(data=result)
@@ -78,7 +84,7 @@ def recall_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             payload["text"] = payload.pop("query")
         if "index" in payload and "_index" not in payload:
             payload["_index"] = payload.pop("index")
-    result = CkgApplicationService.search(cg, payload, project_id)
+    result = _ckg().search(cg, payload, project_id)
     if isinstance(result, dict) and result.get("type") == "error":
         return TaskResult.failure(result["message"])
     _trace_kg_query(ctx.chain_dir or "", payload.get("_index", "ckg"), payload, ctx)
@@ -99,7 +105,7 @@ def search_memories(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
     payload = data.get("_payload", None)
     if payload and isinstance(payload, dict):
-        result = CkgApplicationService.search_many(cg, payload)
+        result = _ckg().search_many(cg, payload)
         _trace_kg_query(ctx.chain_dir or "", "multi", payload, ctx)
         return TaskResult.success(data=result)
     queries_raw = data.get("queries", "")
@@ -111,7 +117,7 @@ def search_memories(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
     except json.JSONDecodeError:
         return TaskResult.failure(f"Invalid queries JSON: {queries_raw}")
-    result = CkgApplicationService.search_many(cg, queries)
+    result = _ckg().search_many(cg, queries)
     _trace_kg_query(ctx.chain_dir or "", "multi", queries, ctx)
     return TaskResult.success(data=result)
 
@@ -136,7 +142,7 @@ def documenting_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRe
             )
         from returns.pipeline import is_successful
 
-        result = CkgApplicationService.save_nodes(
+        result = _ckg().save_nodes(
             chain_dir,
             nodes,
             task_id=ctx.task_id or "",
@@ -165,7 +171,7 @@ def documenting_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRe
         )
 
     try:
-        res = CkgApplicationService.save_knowledge(
+        res = _ckg().save_knowledge(
             chain_dir,
             project_root,
             payload,

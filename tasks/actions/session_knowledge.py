@@ -5,11 +5,8 @@ directos (INV-013).
 """
 from __future__ import annotations
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from shared.common.result_types import is_successful
-from features.cognitive_knowledge.application.services.ckg_service import (
-    CkgApplicationService,
-)
 
 
 def session_init(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -20,6 +17,10 @@ def collect_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     chain_dir = ctx.chain_dir or ""
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
+    from features.cognitive_knowledge.application.services.ckg_service import (
+        CkgApplicationService,
+    )
+
     result = CkgApplicationService.collect_knowledge(chain_dir, data, task_id=ctx.task_id)
     if not is_successful(result):
         return TaskResult.failure(str(result.failure()))

@@ -8,8 +8,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from shared.common.shared_domain.validated_vo import TaskInput
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
+from tasks.domain.validated_vo import TaskInput
 
 from tasks.infrastructure.verify_engine import (
     invalidate_verify_cache,

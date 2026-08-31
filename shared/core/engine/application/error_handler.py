@@ -16,7 +16,7 @@ from typing import Any
 from returns.result import safe
 from returns.pipeline import is_successful
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ..domain.errors import (
     ErrorType,
     ErrorStrategy,

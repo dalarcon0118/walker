@@ -12,18 +12,28 @@ Tools: task_context (IMPLEMENT), diagnose_failure (REFINE), verify_evidence
 from __future__ import annotations
 import logging
 from typing import Any
-from shared.common.shared_domain import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from returns.pipeline import is_successful
 from returns.result import safe
 
-from app.orchestration.contracts import (
-    FailureDiagnosisDTO,
-    QaCoverageDTO,
-    SprintEvidenceDTO,
-    TaskFileIntelligenceDTO,
-)
-
 logger = logging.getLogger(__name__)
+
+
+def _dto(name: str) -> Any:
+    """Lazy (C3): DTOs de app/orchestration/contracts sin edge import-time a app/."""
+    from app.orchestration.contracts import (
+        FailureDiagnosisDTO,
+        QaCoverageDTO,
+        SprintEvidenceDTO,
+        TaskFileIntelligenceDTO,
+    )
+
+    return {
+        "failure": FailureDiagnosisDTO,
+        "qa": QaCoverageDTO,
+        "sprint": SprintEvidenceDTO,
+        "task": TaskFileIntelligenceDTO,
+    }[name]
 
 
 @safe
@@ -77,7 +87,7 @@ def task_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     )
     ok, payload, error = _split_result(result)
     if ok:
-        payload["phase"] = TaskFileIntelligenceDTO.PHASE
+        payload["phase"] = _dto("task").PHASE
     return _task_result(ok, payload, error, tool="task_context")
 
 
@@ -92,7 +102,7 @@ def diagnose_failure(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     result = svc.failure_diagnosis(task_id=body.get("task_id", ""), chain_dir=chain)
     ok, payload, error = _split_result(result)
     if ok and payload is not None:
-        payload["phase"] = FailureDiagnosisDTO.PHASE
+        payload["phase"] = _dto("failure").PHASE
     return _task_result(ok, payload, error, tool="diagnose_failure")
 
 
@@ -107,7 +117,7 @@ def verify_evidence(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     result = svc.qa_coverage(task_id=body.get("task_id", ""), chain_dir=chain)
     ok, payload, error = _split_result(result)
     if ok and payload is not None:
-        payload["phase"] = QaCoverageDTO.PHASE
+        payload["phase"] = _dto("qa").PHASE
     return _task_result(ok, payload, error, tool="verify_evidence")
 
 
@@ -122,7 +132,7 @@ def sprint_evidence(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     result = svc.sprint_evidence(goal=body.get("goal", ""), scope=body.get("scope", ""), chain_dir=chain)
     ok, payload, error = _split_result(result)
     if ok and payload is not None:
-        payload["phase"] = SprintEvidenceDTO.PHASE
+        payload["phase"] = _dto("sprint").PHASE
     return _task_result(ok, payload, error, tool="sprint_evidence")
 
 
@@ -138,7 +148,7 @@ def register(registry: Any) -> None:
             {"type": "object", "required": ["file"], "additionalProperties": False,
              "properties": {"file": {"type": "string", "description": "Ruta del archivo (join cpg×ckg×delta×trace por archivo)."},
                               "task_id": {"type": "string", "description": "Spec/TASK del sprint para enriquecer con la tarea."}}},
-            TaskFileIntelligenceDTO,
+            _dto("task"),
         ),
         (
             "diagnose_failure", diagnose_failure,
@@ -148,7 +158,7 @@ def register(registry: Any) -> None:
             ["refine", "diagnosis", "failure"],
             {"type": "object", "required": ["task_id"], "additionalProperties": False,
              "properties": {"task_id": {"type": "string", "description": "Spec/T del sprint a diagnosticar."}}},
-            FailureDiagnosisDTO,
+            _dto("failure"),
         ),
         (
             "verify_evidence", verify_evidence,
@@ -158,7 +168,7 @@ def register(registry: Any) -> None:
             ["verify", "evidence", "qa"],
             {"type": "object", "required": ["task_id"], "additionalProperties": False,
              "properties": {"task_id": {"type": "string", "description": "Spec/T del sprint a auditar."}}},
-            QaCoverageDTO,
+            _dto("qa"),
         ),
         (
             "sprint_evidence", sprint_evidence,
@@ -169,7 +179,7 @@ def register(registry: Any) -> None:
             {"type": "object", "required": [], "additionalProperties": False,
              "properties": {"goal": {"type": "string", "description": "Meta del sprint para buscar conocimiento/precedente."},
                               "scope": {"type": "string", "description": "Ámbito (proyecto/feature) para centrar la búsqueda."}}},
-            SprintEvidenceDTO,
+            _dto("sprint"),
         ),
     ]
     for name, fn, desc, usage, example, tags, input_schema, dto in _PHASE_TOOLS:

@@ -1,5 +1,5 @@
 """
-shared/common/shared_domain/validated_vo.py — Value Object validado (framework).
+tasks/domain/validated_vo.py — Value Object validado (framework de tasks).
 
 PROPÓSITO: que la lógica de negocio (tasks) reciba INPUTS LIMPIOS Y
 VALIDADOS, no dicts crudos. Un ValidatedVO:
@@ -22,14 +22,19 @@ Uso:
         task(r.data)      # input limpio y validado
     else:
         log(r.error)
-"""
 
+DOMINIO de tasks (ADR-068 §9.7): las tasks SÍ tienen dominio propio —
+TaskInput/ValidatedVO viven aquí, en tasks/domain/ (antes estaban en
+shared/common/shared_domain/, cajón de sastre). TaskResult/ExecutionContext
+son contrato del ENGINE (shared/core/engine/domain/execution.py) porque el
+engine los declara en su puerto ActionCatalog.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from .models import TaskResult
+from shared.core.engine.domain.execution import TaskResult
 
 
 @dataclass(frozen=True)

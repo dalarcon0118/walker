@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from shared.common.shared_domain.models import ExecutionContext, TaskResult
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from features.delta_tracking import spring_service
 from tasks.actions.inspect_codebase import inspect_codebase
 from tasks.actions.knowledge_query import knowledge_query

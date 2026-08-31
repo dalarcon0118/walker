@@ -89,7 +89,7 @@ class TestSmokeRegressions:
         from features.delta_tracking.application.use_cases_sprint import (
             PlanSprintUseCase,
         )
-        from shared.common.shared_domain import ExecutionContext
+        from shared.core.engine.domain.execution import ExecutionContext
 
         td = str(tmp_path)
         sprint_dir, cog_dir = _setup_project(td)
@@ -122,7 +122,7 @@ class TestSmokeRegressions:
         from features.delta_tracking.application.use_cases_sprint import (
             PlanSprintUseCase,
         )
-        from shared.common.shared_domain import ExecutionContext
+        from shared.core.engine.domain.execution import ExecutionContext
 
         td = str(tmp_path)
         sprint_dir, cog_dir = _setup_project(td)

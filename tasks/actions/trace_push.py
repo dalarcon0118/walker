@@ -12,12 +12,17 @@ from datetime import datetime, timezone
 from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
-from shared.common.shared_domain import ExecutionContext, TaskResult
-from features.project import ProjectService
-from app.path_resolver import memory_data_dir
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from shared.libs.cognitive_graph.config import load_memory_connection
 
 logger = logging.getLogger(__name__)
+
+
+def _project_paths(chain_dir: str) -> Any:
+    """Lazy (C3): ProjectService sin edge import-time a features.project."""
+    from features.project import ProjectService
+
+    return ProjectService.resolve_paths(chain_dir)
 
 
 @safe
@@ -44,7 +49,7 @@ def trace_push(ctx: ExecutionContext, data: dict[str, Any], graph_factory=None) 
     if not chain_dir:
         return TaskResult.failure("chain_dir not available")
 
-    paths = ProjectService.resolve_paths(chain_dir)
+    paths = _project_paths(chain_dir)
     _factory = graph_factory
     if _factory is None:
         # ADR-062: id+contrato via resolve_locator — la task no importa app/.
@@ -56,6 +61,8 @@ def trace_push(ctx: ExecutionContext, data: dict[str, Any], graph_factory=None) 
             "trace_push requiere graph_factory inyectado. "
             "Pásalo desde el composition root."
         )
+    from app.path_resolver import memory_data_dir
+
     cg = _factory(load_memory_connection(memory_data_dir(paths.project_root)))
     ts = datetime.now(timezone.utc).isoformat()
 

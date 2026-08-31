@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Any
 
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 
 logger = logging.getLogger(__name__)
 

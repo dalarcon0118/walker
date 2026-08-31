@@ -8,7 +8,7 @@ import logging
 from typing import Any
 from returns.result import safe
 from returns.pipeline import is_successful
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from shared.core.engine.domain.side_effect_contract import as_side_effect, SCOPE_DECISION
 
 logger = logging.getLogger(__name__)

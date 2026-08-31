@@ -19,7 +19,7 @@ from returns.result import safe
 
 from features.project import ProjectService
 from app.container import AppContainer
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from ..infrastructure.contracts import Request, Response, action
 
 

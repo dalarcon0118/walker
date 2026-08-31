@@ -35,11 +35,11 @@ from shared.core.engine.domain.entities import (
 # Se re-exportan aqui para compatibilidad hacia atras.
 from shared.core.engine.domain.services import RequiredFieldResolver  # noqa: F401
 
-# ── Re-exports desde shared.common.shared_domain ─────────────────────────────────────
-# SSOT: shared/common/shared_domain/models.py
+# ── Re-exports del contrato de ejecución ─────────────────────────────────
+# SSOT: shared/core/engine/domain/execution.py (TaskResult, ExecutionContext)
 # Se re-exportan aqui para compatibilidad hacia atras.
-# Las nuevas importaciones deben ir a shared.common.shared_domain.
-from shared.common.shared_domain.models import ExecutionContext, TaskResult  # noqa: F401
+# Las nuevas importaciones deben ir a shared/core/engine/domain/execution.
+from shared.core.engine.domain.execution import ExecutionContext, TaskResult  # noqa: F401
 
 __all__ = [
     "ExecutionType",

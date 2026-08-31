@@ -5,7 +5,7 @@ KnowledgeStatusService (app/orchestration/).
 """
 from __future__ import annotations
 from typing import Any
-from shared.common.shared_domain import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from shared.core.engine.domain.side_effect_contract import as_side_effect, SCOPE_TRACKING
 
 

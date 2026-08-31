@@ -25,7 +25,7 @@ import pytest
 
 from shared.core.engine.application.orchestrator import OrchestrationService
 from shared.core.engine.domain.entities import WorkflowState
-from shared.common.shared_domain.models import ExecutionContext
+from shared.core.engine.domain.execution import ExecutionContext
 from shared.core.engine.infrastructure.repositories import (
     WorkflowStateRepository,
 )
