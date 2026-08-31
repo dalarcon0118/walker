@@ -52,7 +52,7 @@
 |---|---|---|---|
 | **Bounded contexts** | Domain | cada contexto con dominio/aplicación/infra propios | `features/*` (existentes) |
 | **`features/workflow`** | Domain | bounded context del WORKFLOW del walker (envuelve el engine anémico): gates host-side (uncaptured_work) + prompts (IPromptCollector). Absorbe `features/main` | `features/workflow/` (commit `0c1b437`) |
-| **`tasks/` — ServicesModule** | Servicios | **ServicesModule (analogía NestJS CoreModule)**: provee los TASK SERVICES (operaciones LLM: capture/code_review/implement...) + TaskRegistry, consumidos por el engine vía el puerto `ActionCatalog` y por MCP vía tool catalog. **NO es un bounded context** (`tasks/domain/` vacío; el propio manifest: "infraestructura de ejecución de tareas") | `tasks/` (raíz — correcto para un services module, como `src/core` en NestJS) |
+| **`shared/tasks/` — ServicesModule** | Servicios | **ServicesModule (analogía NestJS CoreModule)**: provee los TASK SERVICES (operaciones LLM: capture/code_review/implement...) + TaskRegistry, consumidos por el engine vía el puerto `ActionCatalog` y por MCP vía tool catalog. **NO es un bounded context** (`shared/tasks/domain/` contiene ValidatedVO/TaskInput — el VO de input validado). Ubicación: `shared/tasks/` (módulo compartido dentro de `shared/`, no en la raíz ni en `features/`) — DIP: `shared/core/engine/` NUNCA importa `shared/tasks/` | `shared/tasks/` (shared layer — patrón estándar NestJS SharedModule para cross-cutting providers) |
 | **AppModule** | Composición | construir el engine (main/register_all), container, grafo | `app/module.py` + `app/composition/` |
 | **AppApplication (memorias)** | Aplicación del host | `MemoryQueryService` + proyección (`COMPACT_FIELDS`/`SEVERITY_ORDER`) | `app/memories/` (módulo con manifest) |
 | **AppApplication (orquestación)** | Aplicación del host | use cases cross-context (G10) | `app/orchestration/` (ya tiene manifest) |
@@ -525,9 +525,9 @@ MODULE = ModuleManifest(
 | ServicesModule sin dominio (solo providers) | `tasks/domain/` vacío = confirma |
 | Exporta services por id+contrato | `exports=["register_all"]` + registro en el ActionCatalog |
 
-**Decisión (resuelve D5):** `tasks/` = **ServicesModule** (CoreModule-like). La RAÍZ es correcta (como `src/core` en NestJS) — NO necesita ser `features/tasks/`. La distinción final del ADR-068:
+**Decisión (resuelve D5):** `shared/tasks/` = **ServicesModule** (CoreModule-like). Vive en `shared/` como módulo compartido (no en la raíz ni en `features/`). La distinción final del ADR-068:
 - `features/*` = bounded contexts (con dominio).
-- `tasks/` = **ServicesModule** (servicios cross-feature, sin dominio).
+- `shared/tasks/` = **ServicesModule** (servicios cross-feature, dominio propio).
 - `app/orchestration` = aplicación del host (orquestadores G10).
 - `app/` = AppModule + composición (el `main.ts`).
 
@@ -546,3 +546,25 @@ Distribución por DUEÑO REAL (matriz de dependencias, INV-W068-07: solo paths, 
 Resultado: `shared/common/shared_domain/` ELIMINADO (el cajón de sastre se cierra). `tasks/domain/` pasa de vacío a contener el framework de input validado; `domain/execution.py` es el contrato de ejecución del workflow engine (junto a `workflow_action.py`/`step_result.py`).
 
 **Frontera que NO se cruzó:** TaskResult/ExecutionContext NO fueron a `tasks/domain/` aunque "son de tasks" — el engine los declara en su puerto y los consume (saga); moverlos a tasks habría invertido la dependencia `shared/core/engine → tasks/`.
+
+### 9.7.2 Reubicación: `tasks/` → `shared/tasks/` (módulo compartido, commit `6e9afc3`)
+
+**Pregunta/Corrección:** tasks es transversal (engine vía DI, `features/delta_tracking` vía shims, `protocols/cli` + MCP vía dispatch, `app/` composition). Tenerlo en la RAÍZ de `walker/` no parece estándar. ¿Mover a `shared/`?
+
+**Decisión:** `tasks/` → **`shared/tasks/`**. tasks es un módulo COMPARTIDO por varios componentes (workflow, CLI, MCP), por lo que su dueño es `shared/` — NO `shared/core/` (no es un módulo core: no declara puertos ni es la máquina de estados).
+
+**Estructura de `shared/` tras el move:**
+```
+shared/
+├── core/engine/    ← DECLARA puertos (ActionCatalog, TaskResult, ExecutionContext) — inner ring
+├── tasks/          ← IMPLEMENTA puertos (handlers, side effects, context providers) — compartido
+├── libs/           ← bibliotecas (cognitive_graph, module_system, projection_store)
+├── common/         ← utilidades (result_types)
+└── ports/          ← contratos hacia fuera
+```
+
+**Nuevo invariante (INV-W068-09):** `shared/core/engine/` NUNCA importa `shared/tasks/`. La dirección de dependencia válida es `shared/tasks/ → shared/core/engine/domain/` (implementación → contrato del puerto), NUNCA la inversa. Si el engine necesitara un comportamiento de tasks, debe hacerlo vía DI (composition root, ADR-045/062), no por import.
+
+**Importadores actualizados mecánicamente (INV-W068-07, solo paths):** `app/composition/registry.py` (`import shared.tasks.module`), `app/module.py`, `protocols/cli/cli_interface/application/handlers.py`, `features/delta_tracking/tasks/*` (3 shims ADR-051 G2), `tests/*` (5), self-refs de `shared/tasks/`.
+
+**Validación:** compile global OK · boot MCP 31 tools · acyclicity + composition + uncaptured (20 passed).

@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.core.engine.domain.execution import TaskResult
-from tasks.infrastructure.workflow_schemas import (
+from shared.tasks.infrastructure.workflow_schemas import (
     HELP_OUTPUT_SCHEMA,
     LIST_OUTPUT_SCHEMA,
     PREPARE_OUTPUT_SCHEMA,

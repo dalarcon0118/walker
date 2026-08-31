@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 @safe
 def _detect_decisions_core(files: list) -> list:
     """Core puro: detecta decisiones desde archivos de arquitectura (puede lanzar)."""
-    from tasks.side_effects.decision_detector import (
+    from shared.tasks.side_effects.decision_detector import (
         detect_decision_from_changes,
     )
 

@@ -57,7 +57,7 @@ def _bootstrap_tasks_ready(phase_intelligence_ctx: dict):
 
 @when("registro las tasks de fase")
 def _register_phase_tasks(phase_intelligence_ctx: dict):
-    import tasks.actions.phase_intelligence as phase_tasks
+    import shared.tasks.actions.phase_intelligence as phase_tasks
 
     registry = phase_intelligence_ctx["registry"]
     phase_tasks.register(registry)
@@ -65,7 +65,7 @@ def _register_phase_tasks(phase_intelligence_ctx: dict):
 
 @when("ejecuto kg_task_context")
 def _run_kg_task_context(phase_intelligence_ctx: dict):
-    import tasks.actions.phase_intelligence as phase_tasks
+    import shared.tasks.actions.phase_intelligence as phase_tasks
 
     ctx = phase_intelligence_ctx["ctx"]
     phase_intelligence_ctx["result"] = phase_tasks.kg_task_context(
@@ -75,7 +75,7 @@ def _run_kg_task_context(phase_intelligence_ctx: dict):
 
 @when("registro las tasks públicas")
 def _bootstrap_public_tasks(phase_intelligence_ctx: dict):
-    from tasks.actions import register_task_execution_tasks
+    from shared.tasks.actions import register_task_execution_tasks
 
     registry = phase_intelligence_ctx["registry"]
     register_task_execution_tasks(registry)

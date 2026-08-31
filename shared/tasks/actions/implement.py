@@ -9,7 +9,7 @@ from returns.pipeline import is_successful
 from returns.result import safe
 
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.domain.validated_vo import TaskInput
+from shared.tasks.domain.validated_vo import TaskInput
 
 
 @safe

@@ -14,7 +14,7 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.domain.validated_vo import TaskInput
+from shared.tasks.domain.validated_vo import TaskInput
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class ReviewInput(TaskInput):
 @safe
 def _resolve_default_port(chain_dir: str) -> Any:
     """Core puro: resuelve el port de análisis CPG (puede lanzar)."""
-    from tasks.application.cpg_port_resolver import resolve_cpg_port
+    from shared.tasks.application.cpg_port_resolver import resolve_cpg_port
     return resolve_cpg_port(chain_dir)
 
 

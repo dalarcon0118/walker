@@ -57,7 +57,7 @@ def update_incremental_code(ctx: ExecutionContext, data: dict[str, Any]) -> Task
             data={"updated": False, "error": f"project '{project_id}' sin repo_path", "next_step": "Run 'walker prepare <path>' first"}
         )
 
-    from tasks.actions.inspect_codebase import inspect_codebase
+    from shared.tasks.actions.inspect_codebase import inspect_codebase
 
     payload: dict[str, Any] = {
         "scope": project_root,

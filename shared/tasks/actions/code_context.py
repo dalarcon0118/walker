@@ -27,7 +27,7 @@ def code_context(
     # ADR-WALKER-053 D3: la task CONSUME contexto resuelto, no lo arma.
     # repo path efectivo = payload explícito → _project_ctx inyectado por el
     # despachador → chain_dir ambiental (legacy sprint-dir).
-    from tasks.application.project_context import (
+    from shared.tasks.application.project_context import (
         resolve_repo_path,
     )
 
@@ -46,7 +46,7 @@ def code_context(
 
     service = code_context_service
     if service is None:
-        from tasks.application.code_context_resolver import (
+        from shared.tasks.application.code_context_resolver import (
             resolve_code_context_service,
         )
         service = resolve_code_context_service(repo_path or chain_dir)

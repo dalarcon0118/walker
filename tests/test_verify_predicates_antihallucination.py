@@ -16,7 +16,7 @@ from features.delta_tracking.tasks.verification import (
     verify_predicates,
     _translate_predicates,
 )
-from tasks.infrastructure.verify_engine import (
+from shared.tasks.infrastructure.verify_engine import (
     _build_test_command,
     _looks_like_test_target,
     _resolve_test_command,
@@ -141,7 +141,7 @@ def test_test_pass_con_nombre_no_ejecuta_binario_inexistente(tmp_path):
 
 def _verify_test_pass_patch_check(tmp_path):
     """Wrapper: verifica el comportamiento sin depender de tests existentes."""
-    from tasks.infrastructure.verify_engine import (
+    from shared.tasks.infrastructure.verify_engine import (
         _build_test_command,
     )
     argv = _build_test_command(str(tmp_path), name="test_no_existe_xyz")

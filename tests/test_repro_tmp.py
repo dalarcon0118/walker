@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 def test_repro_build_code_index(tmp_path):
-    from tasks.actions.initialize_project import build_code_index
+    from shared.tasks.actions.initialize_project import build_code_index
     from shared.core.engine.domain.execution import ExecutionContext
 
     ctx = ExecutionContext.create(session_id="repro", chain_dir="", channel="cli")

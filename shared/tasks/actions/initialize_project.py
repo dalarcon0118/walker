@@ -14,7 +14,7 @@ from typing import Any
 from returns.pipeline import is_successful
 from returns.result import safe
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.domain.validated_vo import TaskInput
+from shared.tasks.domain.validated_vo import TaskInput
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def _resolve_project_root(chain_dir: str = "", project_id: str = "") -> str:
         paths = _project_svc().resolve_paths(chain_dir)
         return str(paths.project_root)
     if project_id:
-        from tasks.infrastructure.kg_context import (
+        from shared.tasks.infrastructure.kg_context import (
             _resolve_ckg_project_root,
         )
 
@@ -124,7 +124,7 @@ def initialize_knowledge_base(ctx: ExecutionContext, data: dict[str, Any]) -> Ta
 
 
 def create_first_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    from tasks.actions.sprint_planning import plan_sprint
+    from shared.tasks.actions.sprint_planning import plan_sprint
 
     return plan_sprint(ctx, data)
 
@@ -155,7 +155,7 @@ def build_code_index(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             }
         )
 
-    from tasks.actions.inspect_codebase import inspect_codebase  # ADR-021: no duplicar CPGBuilder
+    from shared.tasks.actions.inspect_codebase import inspect_codebase  # ADR-021: no duplicar CPGBuilder
 
     payload: dict[str, Any] = {
         "scope": project_root,

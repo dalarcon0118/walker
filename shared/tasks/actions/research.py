@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.domain.validated_vo import TaskInput
+from shared.tasks.domain.validated_vo import TaskInput
 from shared.common.result_types import is_successful
 
 

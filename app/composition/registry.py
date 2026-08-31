@@ -145,7 +145,7 @@ def _register_module_manifests(registry: Any) -> None:
     import features.workflow.module  # noqa: F401
     import features.cognitive_knowledge.module  # noqa: F401
     import features.event_tracing.module  # noqa: F401
-    import tasks.module  # noqa: F401
+    import shared.tasks.module  # noqa: F401
     import protocols.mcp.module  # noqa: F401
     import protocols.cli.cli_interface.module  # noqa: F401
     import protocols.rest.module  # noqa: F401

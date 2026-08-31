@@ -34,7 +34,7 @@ def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         TaskIntelligenceService,
         build_intelligence_service,
     )
-    from tasks.infrastructure.kg_context import _trace_kg_query
+    from shared.tasks.infrastructure.kg_context import _trace_kg_query
 
     chain_dir = ctx.chain_dir or ""
     project_id = data.get("_project_id", "")

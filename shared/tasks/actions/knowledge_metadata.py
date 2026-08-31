@@ -5,7 +5,7 @@ kg.py sea un thin adapter (< 200 líneas).
 """
 from __future__ import annotations
 
-from tasks.actions.knowledge_helpers import (
+from shared.tasks.actions.knowledge_helpers import (
     kg_agent_context,
     search_memories,
     memory_schema,

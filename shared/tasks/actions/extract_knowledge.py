@@ -30,9 +30,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.domain.validated_vo import TaskInput
+from shared.tasks.domain.validated_vo import TaskInput
 
-from tasks.infrastructure.kg_context import (
+from shared.tasks.infrastructure.kg_context import (
     resolve_cpg_ckg_services,
 )
 

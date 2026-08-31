@@ -23,7 +23,7 @@ def code_search(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         TaskResult con `results`, `query` y `count`.
     """
     # ADR-WALKER-053 D3: consumir contexto resuelto (helper único)
-    from tasks.application.project_context import (
+    from shared.tasks.application.project_context import (
         resolve_repo_path,
     )
 

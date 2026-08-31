@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Any
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.infrastructure.kg_context import (
+from shared.tasks.infrastructure.kg_context import (
     _resolve_searcher,
     _resolve_project_root,
     _trace_kg_query,
@@ -124,7 +124,7 @@ def search_memories(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 def documenting_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # ADR-WALKER-053: resolver repo path con precedencia explícito > ambiental
-    from tasks.application.project_context import (
+    from shared.tasks.application.project_context import (
         resolve_repo_path,
     )
 
@@ -198,7 +198,7 @@ def documenting_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRe
 
 
 def kg_agent_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    from tasks.actions.knowledge_agent_context import kg_agent_context as _kg_agent_context
+    from shared.tasks.actions.knowledge_agent_context import kg_agent_context as _kg_agent_context
     return _kg_agent_context(ctx, data)
 
 

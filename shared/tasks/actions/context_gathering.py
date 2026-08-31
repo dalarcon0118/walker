@@ -21,7 +21,7 @@ def _ckg_context(chain_dir: str, task_id: str = "") -> list:
 
 
 def _cpg_port(chain_dir: str) -> Any:
-    from tasks.application.cpg_port_resolver import resolve_cpg_port
+    from shared.tasks.application.cpg_port_resolver import resolve_cpg_port
     return resolve_cpg_port(chain_dir)
 
 

@@ -26,7 +26,7 @@ from returns.pipeline import is_successful
 from returns.result import safe
 
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.domain.validated_vo import TaskInput
+from shared.tasks.domain.validated_vo import TaskInput
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
 
     # 1. Resolver proyecto (glue del task layer — infrastructure/project_context)
-    from tasks.infrastructure.project_context import (
+    from shared.tasks.infrastructure.project_context import (
         resolve_project_id_from_chain,
         resolve_project_root,
     )
@@ -138,7 +138,7 @@ def capture_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # 2. Decisiones a capturar (explícitas o detectadas) — la persistencia la
     #    hace SessionCaptureService. La resolución es glue del task layer
     #    (infrastructure/decision_resolution.py).
-    from tasks.infrastructure.decision_resolution import (
+    from shared.tasks.infrastructure.decision_resolution import (
         resolve_decision_list,
     )
 

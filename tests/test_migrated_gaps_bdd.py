@@ -464,7 +464,7 @@ def _symbol_absent(mg_ctx: dict):
 
 @when("verifico la existencia de símbolos")
 def _verify_symbols(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import verify_predicate
+    from shared.tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["res_ok"], mg_ctx["info_ok"] = verify_predicate(
         {"type": "symbol_exists", "symbol": "hello_world", "file": "src/foo.py"},
@@ -497,7 +497,7 @@ def _symbol_zombie(mg_ctx: dict):
 
 @when("verifico que el símbolo no exista")
 def _verify_not_exists(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import verify_predicate
+    from shared.tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["res_zombie"], _ = verify_predicate(
         {"type": "symbol_not_exists", "symbol": mg_ctx["zombie"], "file": "src/foo.py"},
@@ -532,7 +532,7 @@ def _file_missing(mg_ctx: dict):
 
 @when("verifico la existencia de archivos")
 def _verify_files(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import verify_predicate
+    from shared.tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["file_ok"], _ = verify_predicate(
         {"type": "file_exists", "path": "src/foo.py"}, mg_ctx["proj"]
@@ -559,7 +559,7 @@ def _proj_tmp(mg_ctx: dict, tmp_path):
 
 @when('ejecuto un comando que contiene "42"')
 def _cmd_output(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import verify_predicate
+    from shared.tasks.infrastructure.verify_engine import verify_predicate
 
     pred = {
         "type": "command_output",
@@ -576,7 +576,7 @@ def _cmd_passed(mg_ctx: dict):
 
 @then('si busco "NOPE" falla')
 def _cmd_nope_fails(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import verify_predicate
+    from shared.tasks.infrastructure.verify_engine import verify_predicate
 
     ok2, _ = verify_predicate(
         {
@@ -591,7 +591,7 @@ def _cmd_nope_fails(mg_ctx: dict):
 
 @when("ejecuto una verificación manual")
 def _manual_verify(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import verify_predicate
+    from shared.tasks.infrastructure.verify_engine import verify_predicate
 
     mg_ctx["manual_ok"], mg_ctx["manual_info"] = verify_predicate(
         {"type": "manual", "description": "revisar UX a mano"}, mg_ctx["proj"]
@@ -605,7 +605,7 @@ def _manual_passed(mg_ctx: dict):
 
 @when("ejecuto la misma verificación dos veces")
 def _cache_twice(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import (
+    from shared.tasks.infrastructure.verify_engine import (
         invalidate_verify_cache,
         verify_predicate,
     )
@@ -633,7 +633,7 @@ def _three_predicates(mg_ctx: dict, tmp_path):
 
 @when("ejecuto el batch")
 def _batch_run(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import (
+    from shared.tasks.infrastructure.verify_engine import (
         invalidate_verify_cache,
         verify_predicates_batch,
     )
@@ -712,7 +712,7 @@ def _shell_sentence(mg_ctx: dict):
 
 @when("parseo ambos predicates")
 def _parse_both(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import (
+    from shared.tasks.infrastructure.verify_engine import (
         _is_string_a_shell_command,
         _parse_predicate,
     )
@@ -747,7 +747,7 @@ def _test_missing(mg_ctx: dict):
 
 @when("ejecuto run_verification tipo test")
 def _run_test_verification(mg_ctx: dict):
-    from tasks.infrastructure.verify_engine import run_verification
+    from shared.tasks.infrastructure.verify_engine import run_verification
 
     mg_ctx["test_ok"] = run_verification(
         {"predicate": "test_demo", "type": "test"}, mg_ctx["proj"]
@@ -1369,7 +1369,7 @@ def _decision_signal(mg_ctx: dict):
 
 @given("una función emit_event")
 def _fn_emit(mg_ctx: dict):
-    from tasks.side_effects.events import emit_event
+    from shared.tasks.side_effects.events import emit_event
 
     mg_ctx["fn"] = emit_event
 
@@ -1397,7 +1397,7 @@ def _env_status_ok(mg_ctx: dict):
 
 @given("un side effect emit_event")
 def _se_emit(mg_ctx: dict):
-    from tasks.side_effects.events import emit_event
+    from shared.tasks.side_effects.events import emit_event
 
     mg_ctx["result"] = {
         "side_effects": [
@@ -1419,7 +1419,7 @@ def _emit_dispatched(mg_ctx: dict):
 def _vo_files_list(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from tasks.domain.validated_vo import TaskInput
+    from shared.tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1447,7 +1447,7 @@ def _vo_ok(mg_ctx: dict):
 def _vo_files_str(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from tasks.domain.validated_vo import TaskInput
+    from shared.tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1475,7 +1475,7 @@ def _vo_bad(mg_ctx: dict):
 def _vo_none(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from tasks.domain.validated_vo import TaskInput
+    from shared.tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1498,7 +1498,7 @@ def _vo_ok_generic(mg_ctx: dict):
 def _demo_n_two(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from tasks.domain.validated_vo import TaskInput
+    from shared.tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1521,7 +1521,7 @@ def _vo_twenty(mg_ctx: dict):
 def _demo_n_bad(mg_ctx: dict):
     from dataclasses import dataclass
 
-    from tasks.domain.validated_vo import TaskInput
+    from shared.tasks.domain.validated_vo import TaskInput
 
     @dataclass(frozen=True)
     class Demo(TaskInput):
@@ -1613,7 +1613,7 @@ def _impl_input_bad(mg_ctx: dict):
 
 @given("CaptureTaskInput vacío")
 def _capture_empty(mg_ctx: dict):
-    from tasks.actions.capture import CaptureTaskInput
+    from shared.tasks.actions.capture import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict({})
 
@@ -1625,7 +1625,7 @@ def _capture_fails(mg_ctx: dict):
 
 @given("CaptureTaskInput con objective y files")
 def _capture_ok(mg_ctx: dict):
-    from tasks.actions.capture import CaptureTaskInput
+    from shared.tasks.actions.capture import CaptureTaskInput
 
     mg_ctx["vo"] = CaptureTaskInput.from_dict(
         {"objective": "implementar X", "files": ["a.py"]}
@@ -1634,35 +1634,35 @@ def _capture_ok(mg_ctx: dict):
 
 @given("ResearchInput vacío")
 def _research_empty(mg_ctx: dict):
-    from tasks.actions.research import ResearchInput
+    from shared.tasks.actions.research import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({})
 
 
 @given("ResearchInput con topic")
 def _research_ok(mg_ctx: dict):
-    from tasks.actions.research import ResearchInput
+    from shared.tasks.actions.research import ResearchInput
 
     mg_ctx["vo"] = ResearchInput.from_dict({"topic": "vector dbs"})
 
 
 @given("KgExtractInput con scope functions")
 def _kg_extract_ok(mg_ctx: dict):
-    from tasks.actions.extract_knowledge import KgExtractInput
+    from shared.tasks.actions.extract_knowledge import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "functions"})
 
 
 @given("KgExtractInput con scope bogus")
 def _kg_extract_bad(mg_ctx: dict):
-    from tasks.actions.extract_knowledge import KgExtractInput
+    from shared.tasks.actions.extract_knowledge import KgExtractInput
 
     mg_ctx["vo"] = KgExtractInput.from_dict({"scope": "bogus"})
 
 
 @given("ProjectInitInput vacío")
 def _project_init_empty(mg_ctx: dict):
-    from tasks.actions.initialize_project import ProjectInitInput
+    from shared.tasks.actions.initialize_project import ProjectInitInput
 
     mg_ctx["vo"] = ProjectInitInput.from_dict({})
 
@@ -1674,7 +1674,7 @@ def _project_init_fails(mg_ctx: dict):
 
 @given("ProjectInitInput con project_id y language")
 def _project_init_ok(mg_ctx: dict):
-    from tasks.actions.initialize_project import ProjectInitInput
+    from shared.tasks.actions.initialize_project import ProjectInitInput
 
     vo = ProjectInitInput.from_dict({"project_id": "p1", "language": "go"})
     assert vo.ok and vo.data.language == "go"

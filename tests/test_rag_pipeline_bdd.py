@@ -14,10 +14,10 @@ from pathlib import Path
 
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
 from features.delta_tracking import spring_service
-from tasks.actions.inspect_codebase import inspect_codebase
-from tasks.actions.knowledge_query import knowledge_query
-from tasks.actions.trace_push import trace_push
-from tasks.actions.extract_knowledge import extract_knowledge
+from shared.tasks.actions.inspect_codebase import inspect_codebase
+from shared.tasks.actions.knowledge_query import knowledge_query
+from shared.tasks.actions.trace_push import trace_push
+from shared.tasks.actions.extract_knowledge import extract_knowledge
 from tests.conftest import make_chain_dir, make_walker_project
 from app.memories.registration import apply_memory_indexes
 

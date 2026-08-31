@@ -124,8 +124,8 @@ def _register_host(reg: Any) -> None:
 
     # Registro de tasks/side-effects del workflow (ADR-047 Fase 3): se hace
     # aquí (composición) contra los providers task_registry/side_effect_engine.
-    from tasks.actions import register_task_execution_tasks
-    from tasks.side_effects import register_task_execution_side_effects
+    from shared.tasks.actions import register_task_execution_tasks
+    from shared.tasks.side_effects import register_task_execution_side_effects
     from app.composition.registry import (
         _discover_and_register_side_effects,
         _discover_and_register_tasks,

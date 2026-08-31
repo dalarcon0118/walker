@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 @safe
 def _resolve_default_port(chain_dir: str) -> Any:
     """Core puro: resuelve el port de análisis CPG (puede lanzar)."""
-    from tasks.application.cpg_port_resolver import resolve_cpg_port
+    from shared.tasks.application.cpg_port_resolver import resolve_cpg_port
     return resolve_cpg_port(chain_dir)
 
 

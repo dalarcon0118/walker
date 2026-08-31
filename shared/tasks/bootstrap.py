@@ -2,7 +2,7 @@
 bootstrap.py — Registro de tareas de task_execution en el TaskRegistry.
 
 Uso desde la aplicación (walker):
-    from tasks.bootstrap import register_all
+    from shared.tasks.bootstrap import register_all
 
     register_all(registry)  # registra tareas de task_execution
 """

@@ -147,7 +147,7 @@ class TestSmokeRegressions:
     def test_update_sprint_status_side_effect_no_import_error(self, tmp_path, _smoke_project_registry):
         """El side effect update_sprint_status ejecuta sin ImportError."""
         from shared.core.engine.domain.models import ExecutionContext
-        from tasks.side_effects.status import update_sprint_status
+        from shared.tasks.side_effects.status import update_sprint_status
 
         td = str(tmp_path)
         sprint_dir, _ = _setup_project(td)

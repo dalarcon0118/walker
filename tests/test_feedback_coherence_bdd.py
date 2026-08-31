@@ -187,7 +187,7 @@ def _exec_context_with_invalid_specs(fb_ctx: dict):
 
 @when("se ejecuta validate_plan")
 def _execute_validate_plan(fb_ctx: dict):
-    from tasks.side_effects.validate import validate_plan
+    from shared.tasks.side_effects.validate import validate_plan
 
     with fb_ctx["patcher"]:
         fb_ctx["result"] = validate_plan(fb_ctx["ctx"], {})

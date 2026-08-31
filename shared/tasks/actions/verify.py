@@ -9,9 +9,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 from shared.core.engine.domain.execution import ExecutionContext, TaskResult
-from tasks.domain.validated_vo import TaskInput
+from shared.tasks.domain.validated_vo import TaskInput
 
-from tasks.infrastructure.verify_engine import (
+from shared.tasks.infrastructure.verify_engine import (
     invalidate_verify_cache,
     verify_predicates_batch,
 )
@@ -92,7 +92,7 @@ def _translate_predicates(predicates: list) -> list:
         text = p.strip()
         if not text:
             continue
-        from tasks.infrastructure.verify_engine import (
+        from shared.tasks.infrastructure.verify_engine import (
             _is_string_a_shell_command,
         )
 

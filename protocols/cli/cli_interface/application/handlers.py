@@ -774,7 +774,7 @@ def handle_task(req: Request) -> Response:
         # gana sobre req.project_id del route. Viaja como _project_ctx;
         # ctx.chain_dir conserva su semántica legacy (sprint dir). ──
         try:
-            from tasks.application.project_context import (
+            from shared.tasks.application.project_context import (
                 resolve_project_context,
             )
 

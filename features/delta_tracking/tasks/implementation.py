@@ -3,7 +3,7 @@
 La task vive en features/main/task_execution/tasks/implementation.py; este
 módulo re-exporta los símbolos legacy desde el task layer de main.
 """
-from tasks.actions.implement import (
+from shared.tasks.actions.implement import (
     ImplementInput,
     implement_task,
     register,
