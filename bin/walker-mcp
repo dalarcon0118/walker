@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""MCP server entry point for walker. No PYTHONPATH required.
+"""MCP server entry point for walker (FastMCP, AUTÓNOMO). No PYTHONPATH required.
+
+Entry-point standalone stdio: arranca el server FastMCP (`fast_mcp`) que VIVE
+fuera de `mcp/` y no importa nada de él (ADR-WALKER-071 §0 #5). Solo necesita
+la raíz de walker en sys.path (para `fast_mcp.*`).
 
 Usage:
     walker-mcp
@@ -9,12 +13,10 @@ import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 _WALKER_ROOT = os.path.dirname(_SCRIPT_DIR)  # bin/../ = walker root
-if _SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPT_DIR)
 if _WALKER_ROOT not in sys.path:
     sys.path.insert(0, _WALKER_ROOT)
 
-from protocols.mcp.mcp_adapter import serve_stdio
+from fast_mcp.main import run  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(serve_stdio())
+    sys.exit(run(transport="stdio"))
