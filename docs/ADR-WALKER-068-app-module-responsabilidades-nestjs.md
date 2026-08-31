@@ -530,3 +530,19 @@ MODULE = ModuleManifest(
 - `tasks/` = **ServicesModule** (servicios cross-feature, sin dominio).
 - `app/orchestration` = aplicación del host (orquestadores G10).
 - `app/` = AppModule + composición (el `main.ts`).
+
+### 9.7.1 Corrección: las tasks SÍ tienen dominio (commit `5a12f68`)
+
+**Pregunta:** ¿`tasks/domain/` vacío = "sin dominio"? → **NO**: el dominio EXISTÍA pero mal ubicado en el cajón de sastre `shared/common/shared_domain/` (extinto).
+
+Distribución por DUEÑO REAL (matriz de dependencias, INV-W068-07: solo paths, sin cambio de firma):
+
+| VO | Usado por | Home (dueño) |
+|---|---|---|
+| `ValidatedVO`, `TaskInput` | solo `tasks/actions/` (8) | **`tasks/domain/validated_vo.py`** — dominio propio de tasks |
+| `TaskResult`, `ExecutionContext` | ENGINE (12) + features + tasks | **`shared/core/engine/domain/execution.py`** — contrato del puerto `ActionCatalog`: si viviera en tasks/, `shared/core/engine` importaría tasks/ = inversión prohibida (ADR-067) |
+| `ProjectId` | features/project (7) | ya tenía dueño (`features/project/domain/values.py`); el de shared era código muerto (0 importadores) → eliminado |
+
+Resultado: `shared/common/shared_domain/` ELIMINADO (el cajón de sastre se cierra). `tasks/domain/` pasa de vacío a contener el framework de input validado; `domain/execution.py` es el contrato de ejecución del workflow engine (junto a `workflow_action.py`/`step_result.py`).
+
+**Frontera que NO se cruzó:** TaskResult/ExecutionContext NO fueron a `tasks/domain/` aunque "son de tasks" — el engine los declara en su puerto y los consume (saga); moverlos a tasks habría invertido la dependencia `shared/core/engine → tasks/`.
