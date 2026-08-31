@@ -77,6 +77,24 @@ def _sandbox_composition_singleton():
 
 
 @pytest.fixture(autouse=True)
+def _sandbox_tool_catalog_cache():
+    """Resetea el cache del registry canónico de tool_catalog entre tests.
+
+    `tool_catalog._TASK_CATALOG_CACHE` es un singleton de módulo que cachea el
+    `system_registry` (vista de tasks públicas). Al NO resetearse entre tests,
+    un test que cachea un system_registry vacío (registry de solo-módulos) o
+    poblado contamina a los siguientes (pollution de orden): el catálogo de
+    tools deja de reflejar el composition root de cada test. Mismo patrón de
+    sandbox que AppContainer/session_store.
+    """
+    from shared.core.engine.application import tool_catalog
+
+    tool_catalog._TASK_CATALOG_CACHE["system_registry"] = None
+    yield
+    tool_catalog._TASK_CATALOG_CACHE["system_registry"] = None
+
+
+@pytest.fixture(autouse=True)
 def _populate_service_locator(_sandbox_composition_singleton):
     """Puebla el service locator neutro de core/engine con el composition root.
 

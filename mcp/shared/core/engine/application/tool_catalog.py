@@ -44,7 +44,17 @@ def _canonical_system_registry(task_registry: Any = None) -> Any:
         )
 
         if task_registry is None:
-            raise ValueError("list_tools: task_registry no inyectado (composition root required)")
+            # Fail-open (convention-001): un registry inyectado sin el servicio
+            # `task_registry` (p. ej. registries de solo-módulos en tests) NO
+            # debe romper el catálogo de tools del ModuleRegistry. Se loggea el
+            # warning para diagnóstico y se construye un system_registry vacío.
+            logger.warning(
+                "tool_catalog: task_registry no inyectado; "
+                "el catálogo solo expondrá tools del ModuleRegistry"
+            )
+            system_registry = SystemTaskRegistry(tracer=None)
+            cached["system_registry"] = system_registry
+            return system_registry
         canonical = task_registry
         system_registry = SystemTaskRegistry(tracer=getattr(canonical, "_tracer", None))
         for name, fn in canonical._tasks.items():

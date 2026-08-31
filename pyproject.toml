@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["mcp", "."]
 markers = [
     "contrato: escenarios que validan el contrato result pattern del CPG",
     "ssot: escenarios de Single Source of Truth (registry vs MCP)",

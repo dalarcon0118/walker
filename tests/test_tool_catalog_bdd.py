@@ -69,7 +69,13 @@ def _registry_without_output_schema(catalog_ctx: dict):
 
 @given("el catálogo sin registry inyectado (bootstrap completo)")
 def _catalog_bootstrap(catalog_ctx: dict):
-    pass
+    # DI (ADR-058/059): ya no existe un default `get_module_registry()`. El
+    # catálogo completo del bootstrap se obtiene inyectando el module_registry
+    # del composition root (AppContainer.build) — el mismo path que usa el MCP.
+    from app.container import AppContainer
+
+    app = AppContainer.build()
+    catalog_ctx["registry"] = getattr(app, "module_registry", None)
 
 
 # ── When ──────────────────────────────────────────────────────────
@@ -135,10 +141,10 @@ def _matches_declared(catalog_ctx: dict):
 def _phase_tools_present(catalog_ctx: dict):
     names = [t["name"] for t in catalog_ctx["tools"]]
     for phase_tool in (
-        "kg_task_context",
-        "kg_diagnose",
-        "kg_qa_evidence",
-        "kg_sprint_evidence",
+        "task_context",
+        "diagnose_failure",
+        "verify_evidence",
+        "sprint_evidence",
     ):
         assert phase_tool in names, f"{phase_tool} no en catálogo: {names}"
 
@@ -146,18 +152,18 @@ def _phase_tools_present(catalog_ctx: dict):
 @then("kg_task_context proyecta outputSchema")
 def _kg_task_context_schema(catalog_ctx: dict):
     entry = next(
-        (t for t in catalog_ctx["tools"] if t["name"] == "kg_task_context"), None
+        (t for t in catalog_ctx["tools"] if t["name"] == "task_context"), None
     )
-    assert entry is not None, "kg_task_context no encontrada"
-    assert "outputSchema" in entry, "kg_task_context sin outputSchema"
+    assert entry is not None, "task_context no encontrada"
+    assert "outputSchema" in entry, "task_context sin outputSchema"
 
 
 @then("kg_diagnose proyecta outputSchema con propiedad diagnosis")
 def _kg_diagnose_schema(catalog_ctx: dict):
-    entry = next((t for t in catalog_ctx["tools"] if t["name"] == "kg_diagnose"), None)
-    assert entry is not None, "kg_diagnose no encontrada"
+    entry = next((t for t in catalog_ctx["tools"] if t["name"] == "diagnose_failure"), None)
+    assert entry is not None, "diagnose_failure no encontrada"
     assert "outputSchema" in entry and entry["outputSchema"], (
-        "kg_diagnose sin outputSchema"
+        "diagnose_failure sin outputSchema"
     )
     assert "diagnosis" in entry["outputSchema"].get("properties", {}), entry[
         "outputSchema"

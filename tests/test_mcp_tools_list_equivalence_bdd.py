@@ -26,7 +26,14 @@ def equivalence_ctx() -> dict:
 def _registry_tools() -> list[dict]:
     from shared.core.engine.application.tool_catalog import list_tools
 
-    return list_tools() or []
+    # DI (ADR-058/059): ya no existe un default `get_module_registry()`. Para
+    # comparar contra el MCP (que usa el composition root real) hay que
+    # inyectar el module_registry de AppContainer.build(), no llamar sin registry.
+    from app.container import AppContainer
+
+    app = AppContainer.build()
+    registry = getattr(app, "module_registry", None)
+    return list_tools(registry) or []
 
 
 def _mcp_tools() -> list[dict]:
@@ -134,22 +141,22 @@ def _rest_tools_output_schema_rich(equivalence_ctx: dict):
 @then("kg_task_context está presente")
 def _kg_task_context_present(equivalence_ctx: dict):
     names = {t.get("name", "") for t in equivalence_ctx["mcp_tools"]}
-    assert "kg_task_context" in names, f"kg_task_context no en MCP: {sorted(names)}"
+    assert "task_context" in names, f"task_context no en MCP: {sorted(names)}"
 
 
 @then("kg_diagnose está presente")
 def _kg_diagnose_present(equivalence_ctx: dict):
     names = {t.get("name", "") for t in equivalence_ctx["mcp_tools"]}
-    assert "kg_diagnose" in names, f"kg_diagnose no en MCP: {sorted(names)}"
+    assert "diagnose_failure" in names, f"diagnose_failure no en MCP: {sorted(names)}"
 
 
 @then("kg_qa_evidence está presente")
 def _kg_qa_evidence_present(equivalence_ctx: dict):
     names = {t.get("name", "") for t in equivalence_ctx["mcp_tools"]}
-    assert "kg_qa_evidence" in names, f"kg_qa_evidence no en MCP: {sorted(names)}"
+    assert "verify_evidence" in names, f"verify_evidence no en MCP: {sorted(names)}"
 
 
 @then("kg_sprint_evidence está presente")
 def _kg_sprint_evidence_present(equivalence_ctx: dict):
     names = {t.get("name", "") for t in equivalence_ctx["mcp_tools"]}
-    assert "kg_sprint_evidence" in names, f"kg_sprint_evidence no en MCP: {sorted(names)}"
+    assert "sprint_evidence" in names, f"sprint_evidence no en MCP: {sorted(names)}"

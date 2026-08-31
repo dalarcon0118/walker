@@ -37,3 +37,4 @@ Característica: Equivalencia MCP tools/list vs registry
     Y kg_diagnose está presente
     Y kg_qa_evidence está presente
     Y kg_sprint_evidence está presente
+
