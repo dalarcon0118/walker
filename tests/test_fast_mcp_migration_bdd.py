@@ -47,13 +47,25 @@ def test_build_server_construye_fastmcp(fastmcp_server):
     assert isinstance(fastmcp_server, FastMCP)
 
 
-def test_server_expone_exactamente_las_3_tools_del_adr(fastmcp_server):
-    """Las tools expuestas son EXACTAMENTE las 3 del ADR §3 Fase 1.
+def test_server_expone_tools_fase1_y_fase2(fastmcp_server):
+    """Las tools expuestas incluyen Fase 1 + Fase 2 + Fase 3.
 
-    Sin walker_ping ni tools extra (decisión del usuario: foco en las 3).
+    Fase 1: prepare/list/status. Fase 2: memorias CKG/CPG (14 tools).
+    Fase 3: submit/transition/help/list_projects (workflow engine-backed).
+    Sin walker_ping ni tools extra no declarados.
     """
     names = {t.name for t in _remote_list(fastmcp_server)}
-    assert names == {"prepare", "list", "status"}, f"tools inesperadas: {names}"
+    fase1 = {"prepare", "list", "status"}
+    fase2 = {
+        "build_code_index", "index_repo", "update_incremental_code",
+        "extract_knowledge", "knowledge_query", "memory_schema",
+        "recall_knowledge", "documenting_knowledge", "search_memories",
+        "agent_context", "code_context", "inspect_codebase",
+        "read_code", "code_search",
+    }
+    fase3 = {"submit", "transition", "help", "list_projects"}
+    expected = fase1 | fase2 | fase3
+    assert names == expected, f"tools inesperadas: {names - expected}; faltantes: {expected - names}"
 
 
 def test_list_roundtrip(fastmcp_server):

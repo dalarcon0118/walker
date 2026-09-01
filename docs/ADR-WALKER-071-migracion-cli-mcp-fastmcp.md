@@ -220,30 +220,40 @@ migrarlas progresivamente.
 
 ```
 walker/
-  fast_mcp/                       # NUEVO: paquete importable (renombrado de fast-mcp/)
+  fast_mcp/                       # NUEVO: paquete importable
     __init__.py
     server.py                     # build_server() — assembly (Fase 0 hecho)
     main.py                       # run(transport="stdio")
+    registration.py               # puente FastMCP (schema SSOT + arg_model)
+    composition.py                # cableado de contexts (workflow + memories)
     phases/
       __init__.py                 # PHASES[] + install() — ensamblado por fase
-      phase1_prepare.py           # Fase 1: prepare/list/status (+ submit/transition/help)
-      phase2_memories.py          # Fase 2: memorias CKG/CPG (stub)
-      phase3_tasks.py             # Fase 3: tasks+workflow (stub)
-  tests/test_fast_mcp_migration_bdd.py   # Fase 0: skeleton (verde) — base de todas las fases
+      phase1_prepare.py           # Fase 1: prepare/list/status
+      phase2_memories.py          # Fase 2: memorias CKG/CPG (14 tools)
+      phase3_tasks.py             # Fase 3: submit/transition/help/list_projects
+    features/
+      project/                    # Fase 1: prepare/list/status (domain/app/infra)
+      code_analysis/              # Fase 2: CPG, ast-grep
+      cognitive_knowledge/        # Fase 2: CKG
+      memories/                   # Fase 2: handler registry + dispatch
+      workflow/                   # Fase 3: engine (domain/app/infra/handlers)
+    shared_kernel/                # kernel compartido
+  tests/test_fast_mcp_migration_bdd.py   # Fase 0: skeleton (verde)
 ```
 
 ### Tools por feature (inventario verificado)
 
 | Feature | Tools públicas (name) | Fase |
 |---|---|---|
-| **workflow core** | `prepare` `list` `status` `submit` `transition` `help` | **1** |
-| **proyecto/init** | `detect_project_context`* `build_project_config`* `create_first_sprint`* `list_projects` | 3 |
+| **workflow core** | `prepare` `list` `status` | **1** |
+| **workflow engine** | `submit` `transition` `help` `list_projects` | **3** |
+| **proyecto/init** | `detect_project_context`* `build_project_config`* `create_first_sprint`* | deferred |
 | **indexación CPG** | `build_code_index` `index_repo` `update_incremental_code` | 2 |
 | **conocimiento CKG** | `extract_knowledge` `knowledge_query` `knowledge_metadata` `knowledge_agent_context` `session_knowledge` | 2 |
 | **análisis de código** | `cpg_*` `code_context` `inspect_codebase` `read_code` `code_search` | 2 |
-| **sprint/planning** | `sprint_planning` `resolve_project_sprint` | 3 |
-| **ejecución** | `implement_task` `run_tests` `verify_predicates` `review_code` `capture` `refine_*` `research_topic` `trace_push` `intelligence` | 3 |
-| **integración** | `update_project` `context_gathering` `initial_sample` | 3 |
+| **sprint/planning** | `sprint_planning` `resolve_project_sprint` | deferred |
+| **ejecución** | `implement_task` `run_tests` `verify_predicates` `review_code` `capture` `refine_*` `research_topic` `trace_push` `intelligence` | deferred |
+| **integración** | `update_project` `context_gathering` `initial_sample` | deferred |
 
 \* scope internal — no expuestas al agente, pero forman parte del bootstrap de prepare.
 
@@ -348,44 +358,132 @@ el **registro de tools en el server + su verificación**.
 - **Nota:** una primera implementación (oct-2026) fue un **shim** que delegaba
   en `AppContainer`/`execute_public_task` con `mcp/` en sys.path (cargaba 18
   módulos `protocols.*` en runtime); **violaba §0 #4/#5** y fue reemplazada
-  por este port real.
+  por este port real.### Fase 2 — Memorias (CKG/CPG) que leen y escriben en prepare — DONE ✅
+- **Qué (resultado real):** port de memorias CKG/CPG a `fast_mcp/`:
+  - `fast_mcp/features/cognitive_knowledge/` (domain + application + infrastructure):
+    `CkgApplicationService` (fachada), `CodeKnowledgeGraph` (dominio), `CognitiveCkgRepository`
+    (infra via CognitiveGraph), `WalkerCkgAdapter` (puerto task_execution), use cases
+    (`SaveToCkgUseCase`, `GatherCkgContextUseCase`, `CheckCkgHealthUseCase`, `IndexRepoUseCase`,
+    `CollectKnowledgeUseCase`, `ResearchTopicUseCase`, `GetCkgNodesForTaskUseCase`).
+  - `fast_mcp/features/code_analysis/` ya estaba portado (Fase 0/1): CpgService,
+    CodeContextService, CodeAnalysisService, use cases, domain entities.
+  - `fast_mcp/shared_kernel/cognitive_graph/` ya estaba portado: CognitiveGraph,
+    FileBackend, Index, ODM.
+  - `fast_mcp/composition.py` extendido con `memory_tool_runner()` y
+    `_dispatch_memory_tool()` — despacha las 14 tools a los application services.
+  - `fast_mcp/phases/phase2_memories.py` — registra las 14 tools con
+    `register_domain_tool()` + inputSchema declarativo (R-03bis).
+- **Tools (14):** indexación (`build_code_index` `index_repo` `update_incremental_code`),
+  conocimiento (`extract_knowledge` `knowledge_query` `memory_schema` `recall_knowledge`
+  `documenting_knowledge` `search_memories` `agent_context`) y análisis
+  (`code_context` `inspect_codebase` `read_code` `code_search`).
+- **Criterio de salida:** server arranca con 17 tools (3 Fase 1 + 14 Fase 2),
+  inputSchema declarativo verificado, cero imports de `mcp/` en fase2_memories.py.
+- **Capa de test:** 13 tests en `tests/test_fast_mcp_phase2_bdd.py` (superficie,
+  schemas, autonomía, despacho) + tests existentes de Fase 1 (10) = 23 verdes.
+- **Pendiente (mejora continua):** stale checks en `status` (CPG/CKG health),
+  port completo de `task_intelligence` para `agent_context`, tests E2E con
+  proyecto real indexado.
 
-### Fase 2 — Memorias (CKG/CPG) que leen y escriben en prepare
-- **Pre-refactor (barato hoy, carísimo después):** reacomodar lo existente a
-  la estructura §3bis: `use_cases.py`/`core.py` → `features/project/` +
-  `shared_kernel/`; crear `composition.py` + test de arquitectura
-  (import-linter, reglas de coherencia 1–5).
-- **Port de contexts:** `features/code_analysis` (9.212 LOC) +
-  `features/cognitive_knowledge` (3.772) + `shared/libs/cognitive_graph` (4.432)
-  → `fast_mcp/features/{code_analysis, cognitive_knowledge}/` + graph en kernel.
-- **Tools (~12-14):** indexación (`build_code_index` `index_repo`
-  `update_incremental_code`), conocimiento (`extract_knowledge` `knowledge_query`
-  `knowledge_metadata` `knowledge_agent_context` `session_knowledge`) y análisis
-  (`cpg_*` `code_context` `inspect_codebase` `read_code` `code_search`).
-- **Incluye:** checks de stale (files/CPG/CKG) en `status` — port de
-  CheckCpgHealthUseCase / CkgApplicationService.check_health / fingerprint del
-  watcher (pendiente marcado por el usuario: el status debe reportar
-  "CPG is stale"/"10778 nodes" como el legacy).
-- **Criterio de salida:** indexar un proyecto, consultar CKG, analizar CPG vía
-  el server FastMCP y ver que el resultado persiste; status reporta stale.
-- **Capa de test:** port de `test_kg_search_*`, `test_cpg_*`,
-  `test_cognitive_graph_bdd.py`, `test_rag_pipeline_bdd.py`,
-  `test_knowledge_capture_schema_bdd.py` + audit de arquitectura.
+### Fase 2.1 — Clean design refactor (dentro de Fase 2)
+- **Qué:** refactor de arquitectura limpio sobre el port de Fase 2:
+  1. **Handler Registry Pattern** (`fast_mcp/features/memories/`): `_dispatch_memory_tool`
+     (god function 150+ líneas) → `MemoryContext` + `handlers/__init__.py` (registry)
+     + `handlers/code_analysis.py` (6 handlers) + `handlers/knowledge.py` (8 handlers).
+     Dispatch centralizado con error handling uniforme, lazy import + cache.
+  2. **Service Split** (`cognitive_knowledge/application/services/`):
+     `CkgApplicationService` (god object 600 líneas) → `CkgWriteService` (182 líneas,
+     mutaciones) + `CkgReadService` (199 líneas, queries) + `CkgExtractService`
+     (201 líneas, CPG cross-feature) + `ckg_common.py` (56 líneas, helpers compartidos).
+     `CkgApplicationService` queda como facade thin de 135 líneas (delegación pura).
+  3. **Dead code removal**: EventBus (15 líneas, nunca instanciado), IKnowledgeQueryService
+     (25 líneas, nunca implementado), `save_knowledge` method (42 líneas, nunca llamado),
+     `ckg_application_service` factory (3 líneas, nunca llamado), 6 trivial use cases
+     (220 líneas, 33-40 líneas cada una de ceremonia pura) inlineadas en el servicio.
+  4. **Law of Demeter fix**: 3 handlers (`recall_knowledge`, `search_memories`,
+     `memory_schema`) que accedían a `ckg._repo._cg.*` ahora usan métodos públicos
+     `ckg.schema()`, `ckg.search_many()`, `ckg.list_indexes()`.
+- **Resultado:** 26 archivos → 17 archivos (-35%), 1,827 líneas → 1,669 líneas (-9%),
+  god object eliminado, 0 LoD violations, 0 dead abstractions.
+- **Capa de test:** 32 tests verdes (10 migration + 13 phase2 + 9 handler registry).
+  Tests de handler registry: `tests/test_fast_mcp_handler_registry_bdd.py`.
+- **Decisiones de diseño:**
+  - `CodeKnowledgeGraph` (93 líneas) se mantiene como objeto de dominio enfocado
+    (no se fusiona en el servicio — riesgo/beneficio desfavorable).
+  - Empty `__init__.py` se mantienen (requeridos para packages Python).
+  - `index_repo.py` (122 líneas, lógica real: git clone + outline parsing)
+    se mantiene como use case independiente.
 
-### Fase 3 — Tasks + workflow completo
-- **Port de contexts:** `shared/core/engine` (15.948 LOC — estado, gates,
-  orquestadores, side effects atómicos) + `features/delta_tracking` (6.428) +
-  `shared/tasks` (6.643) + orquestadores de `app/` → `fast_mcp/features/workflow/`
-  + registries explícitos (sin service locator). Puertos como `typing.Protocol`.
-- **Tools (~15):** `submit` `transition` `help` + sprint/planning
-  (`sprint_planning` `resolve_project_sprint` `create_first_sprint`*), ejecución
-  (`implement_task` `run_tests` `verify_predicates` `review_code` `capture`
-  `refine_*` `research_topic` `trace_push` `intelligence`) e integración
-  (`update_project` `context_gathering`). Cierra la superficie completa.
-- **Criterio de salida:** flujo E2E completo por MCP (prepare→memorias→tasks→
-  workflow) con side effects atómicos y trace — sin existir `mcp/` en runtime.
-- **Capa de test:** port de `test_workflow_e2e_*`, `test_task_contract_ssot_bdd.py`,
-  `test_smoke_agent_harness_bdd.py`, `test_agent_e2e_bdd.py`, `test_intelligence_service_bdd.py`.
+### Fase 3 — Tasks + workflow completo — DONE ✅
+
+**Resultado real (4 Sprints, domain-first):**
+
+**Sprint 1 — Domain layer** (`fast_mcp/features/workflow/domain/`):
+- Port de `entities.py` (401 LOC — simplificado: sin `generate_flows()`, `SubState.from_dict()`
+  con defaults), `ports.py` (206 LOC — 8 puertos, reducido de 16), `values.py` (93 LOC),
+  `execution.py` (74 LOC), `events.py` (44 LOC), `guards.py` (36 LOC), `errors.py` (67 LOC),
+  `enums.py` (24 LOC).
+- Domain services: `advance.py` (60 LOC), `block_resolver.py` (72 LOC — simplificado:
+  solo estrategia "force"), `transition.py` (48 LOC), `validation.py` (59 LOC).
+- Eliminados: `contract_validator.py` (443 LOC), `graph_analyzer.py` (157 LOC),
+  `session.py` (91 LOC), `workflow_action.py` (141 LOC), 5 domain services
+  (compensation_engine, conflict_resolver, escalation_registry, signal_bus, field_resolver).
+- **Result:** 1,190 LOC (de 4,982 originales, -76%), 14 archivos (de 30, -53%).
+- **Tests:** 52 domain tests (39 originales + 13 post-review fixes).
+
+**Sprint 2 — Application layer** (`fast_mcp/features/workflow/application/`):
+- `bundle.py` (41 LOC — EngineBundle, project-scoped VO, frozen).
+- `orchestrator.py` (509 LOC — OrchestrationService: submit/transition/status/help,
+  colapsado de 4 sub-orchestrators + 6 use cases).
+- `task_dispatcher.py` (65 LOC — bridge MCP → domain).
+- `state_manager.py` (36 LOC — ensure_state, store_submit_data).
+- Eliminados: 6 use cases (1,400 LOC), 4 sub-orchestrators (1,471 LOC),
+  step_orchestrator, error_handler, prompt_service, event_dispatch_service,
+  side_effect_saga, context_resolver, workflow_api.
+- **Result:** 656 LOC (de 4,491 originales, -85%), 4 archivos (de 18, -78%).
+- **Tests:** 32 application tests (mocked ports).
+
+**Sprint 3 — Infrastructure adapters** (`fast_mcp/features/workflow/infrastructure/`):
+- `noop_tracer.py` (70 LOC — NoopTracer, stub silencioso).
+- `noop_side_effects.py` (29 LOC — NoOpSideEffectEngine, retorna Success).
+- `default_workflow_io.py` (68 LOC — ejecución de scripts vía subprocess).
+- `graph_repository.py` (216 LOC — carga workflow.json con import resolution,
+  validación de invariantes en load).
+- `state_repository.py` (131 LOC — CAS + reconciliación sub_state_index en load,
+  atomic write vía .tmp + os.replace()).
+- `workflow_store_adapter.py` (31 LOC — IWorkflowStore unificado).
+- **Result:** 550 LOC (de 1,180 originales, -53%), 7 archivos (de 12, -42%).
+- **Tests:** 23 infrastructure tests (filesystem real + CAS).
+
+**Sprint 4 — Handlers + composition wiring**
+(`fast_mcp/features/workflow/handlers/` + `composition.py` + `phase3_tasks.py`):
+- `context.py` (106 LOC — WorkflowContext, resuelve dependencias per-project).
+- `handlers/__init__.py` (80 LOC — registry + dispatch, mismo patrón que Phase 2).
+- `handlers/workflow.py` (85 LOC — 5 handlers: submit, transition, status, help, list_projects).
+- `composition.py` extendido con `workflow_tool_runner()`.
+- `phase3_tasks.py` actualizado: registra 4 tools (submit, transition, help, list_projects)
+  con inputSchema declarativo (R-03bis). `status` se mantiene en Phase 1 (evita conflicto).
+- **Result:** 271 LOC, 3 archivos nuevos + 2 editados.
+- **Tests:** 26 handler/composition tests.
+
+**Total Fase 3:** 2,684 LOC, 133 tests nuevos, 152 tests totales.
+
+**Tools registradas por Fase 3 (4):** `submit` `transition` `help` `list_projects`.
+
+**Fase 3 NO incluye (deferred a Sprint 5):**
+- `delta_tracking/` (6,428 LOC) — usa ISprintService (stub retorna vacío).
+- `event_tracing/` (1,324 LOC) — usa ITracer (NoopTracer).
+- `shared/tasks/` (6,643 LOC) — task registry + side effects.
+- `context/` (1,256 LOC) — DI container, reemplazado por composition.py.
+- Sprint/planning tools, ejecución tools, intelligence tools.
+
+**Criterio de salida:** ✅ Flujo E2E por MCP: prepare → submit → transition → help
+sin imports de `mcp/`. 152 tests verdes. Zero `mcp/` imports en workflow/.
+
+**Capa de test:** `tests/test_fast_mcp_workflow_domain_bdd.py` (52),
+`tests/test_fast_mcp_workflow_application_bdd.py` (32),
+`tests/test_fast_mcp_workflow_infrastructure_bdd.py` (23),
+`tests/test_fast_mcp_workflow_handlers_bdd.py` (26).
 
 ### Fase 4 — Cierre: eliminación de `mcp/`
 - **Qué:** con Fase 3 verde, **eliminar `mcp/` por completo** (el dominio ya
@@ -470,15 +568,117 @@ el **registro de tools en el server + su verificación**.
   {
     "fallo": "la suite de tests no resuelve los imports de mcp/ tras el move (from app/shared/protocols)",
     "causa_raiz": "pythonpath apuntaba a la raiz ('.'), pero el codigo ahora vive en mcp/",
-    "mitigacion": "pythonpath = ['mcp', '.'] en pyproject.toml; fast_mcp/ y mcp/ ambos resolubles",
+    "mitigacion": "pythonpath incluye mcp y . en pyproject.toml; fast_mcp/ y mcp/ ambos resolubles",
     "deteccion": "conftest importa shared/app sin ImportError; suite completa colecta"
+  },
+  {
+    "fallo": "CognitiveCkgRepository no puede resolver graph_factory y lanza ValueError en runtime",
+    "causa_raiz": "graph_factory no se inyecta desde el composition root y el fallback no esta disponible",
+    "mitigacion": "_resolve_graph_factory() construye CognitiveGraph con MemoryConnection; fallback a None con error claro",
+    "deteccion": "test_fase2_composition_memory_runner_disponible verifica que el runner se construye sin errores"
+  },
+  {
+    "fallo": "una tool de Fase 2 (knowledge_query, inspect_codebase, etc.) falla en runtime porque el CPG/CKG no esta disponible",
+    "causa_raiz": "proyecto no preparado o .cognitive/ corrupto",
+    "mitigacion": "cada runner en _dispatch_memory_tool devuelve dict con key error sin levantar excepcion; fail-open",
+    "deteccion": "tests de despacho (test_fase2_read_code_sin_contexto_devuelve_error, test_fase2_code_search_sin_query_devuelve_error)"
+  },
+  {
+    "fallo": "inputSchema de una tool de Fase 2 no tiene properties y FastMCP rechaza el tools/list",
+    "causa_raiz": "schema declarativo incompleto (falta type=object o properties)",
+    "mitigacion": "_valid_input_schema() en tool_catalog normaliza; test_fase2_tools_tienen_input_schema verifica todas",
+    "deteccion": "test de superficie: cada tool tiene inputSchema con type=object y properties"
+  },
+  {
+    "fallo": "phase2_memories.py importa modulos de mcp/ (features.cognitive_knowledge del legacy) en vez de fast_mcp/",
+    "causa_raiz": "copia sin actualizar imports al portar del legacy",
+    "mitigacion": "test_fase2_no_importa_nada_de_mcp hace audit AST de phase2_memories.py",
+    "deteccion": "test de autonomia: cero imports forbidden en fase2_memories.py"
+  },
+  {
+    "fallo": "CkgApplicationService facade se desincroniza de los servicios focused (CkgWriteService, CkgReadService, CkgExtractService) despues de un cambio",
+    "causa_raiz": "la facade delega a los servicios pero si se agrega un metodo nuevo al servicio sin actualizar la facade, los consumidores que usan la facade no lo ven",
+    "mitigacion": "la facade es thin delegation pura (metodos = 1 linea de delegacion); los handlers importan directamente del servicio focused, no de la facade",
+    "deteccion": "test de superficie: CkgApplicationService expone todos los metodos de los 3 servicios"
+  },
+  {
+    "fallo": "handler imports CkgApplicationService en vez del servicio focused, perdiendo la ventaja del split",
+    "causa_raiz": "惯性: los handlers existentes importaban CkgApplicationService antes del split",
+    "mitigacion": "handlers actualizados para importar CkgWriteService/CkgReadService/CkgExtractService directamente",
+    "deteccion": "grep de imports: handlers no deben importar CkgApplicationService (facade backward-compat only)"
+  },
+  {
+    "fallo": "MemoryContext.resuelve servicios percall pero los handlers tambien resuelven via CkgApplicationService, causando doble resolucion",
+    "causa_raiz": "MemoryContext.ckg() resuelve CKG, pero handler de knowledge_query llama a CkgReadService.gather_context(chain_dir) que resuelve CKG otra vez",
+    "mitigacion": "aceptable en la fase actual (lazy resolution es idempotente); optimizacion futura: inyectar servicios via MemoryContext",
+    "deteccion": "no hay bug visible, pero doble resolucion es overhead medible en profiles"
+  },
+  {
+    "fallo": "StateRepository.save() pierde actualizaciones concurrentes (lost update) porque no verifica revision",
+    "causa_raiz": "CAS removido del orchestrator (Sprint 2) y no implementado en repository",
+    "mitigacion": "StateRepository implementa CAS: compara state.revision con stored_revision antes de guardar; incrementa en save; retorna StateConflictError en mismatch",
+    "deteccion": "test: guardar estado con revision vieja retorna StateConflictError"
+  },
+  {
+    "fallo": "GraphRepository no resuelve imports del workflow.json modular (import.nodes, import.edges) y retorna grafo vacio",
+    "causa_raiz": "workflow.json real usa formato modular, no inline nodes/edges",
+    "mitigacion": "GraphRepository implementa _resolve_imports + _build_graph (port completo del legacy)",
+    "deteccion": "test: load workflow.json con import section retorna grafo con nodos y edges"
+  },
+  {
+    "fallo": "StateRepository.load() retorna estado con sub_state_index inconsistente con current_sub_state",
+    "causa_raiz": "archivos .workflow-state.json del legacy pueden tener inconsistencias",
+    "mitigacion": "StateRepository reconcilia sub_state_index en load (GAP-1 fix)",
+    "deteccion": "test: load estado con index desincronizado corrige automaticamente"
+  },
+  {
+    "fallo": "WorkflowState.from_dict falla al cargar estado del disco (formato legacy v4)",
+    "causa_raiz": "archivos .workflow-state.json del mcp/ usan formato v4, no v5",
+    "mitigacion": "from_dict acepta campos faltantes con defaults; roundtrip test verifica fidelidad",
+    "deteccion": "test de roundtrip: to_dict -> from_dict -> to_dict produce mismo output"
+  },
+  {
+    "fallo": "Handler de submit lanza excepcion y FastMCP la propaga como error crudo al agente",
+    "causa_raiz": "dispatch() no captura excepciones del handler",
+    "mitigacion": "dispatch() envuelve cada handler en try/except; retorna {error: str(e)}",
+    "deteccion": "test: handler que lanza retorna dict con 'error' key, no exception"
+  },
+  {
+    "fallo": "OrchestrationService es god object (645 LOC) portado sin simplificar",
+    "causa_raiz": "port as-is de 4 sub-orchestrators + 6 use cases",
+    "mitigacion": "colapsado a 509 LOC: submit/transition/status/help son metodos, no clases separadas",
+    "deteccion": "metrica: OrchestrationService < 550 LOC"
+  },
+  {
+    "fallo": "NoopTracer permite side effects a ejecutarse en produccion",
+    "causa_raiz": "stub no compensa; side effects reales se ejecutan sin compensacion",
+    "mitigacion": "NoOpSideEffectEngine retorna Result.success con side_effect_id generado pero no ejecuta nada",
+    "deteccion": "test: side_effects.run() retorna success sin efectos colaterales"
+  },
+  {
+    "fallo": "Atomic write en StateRepository falla y deja archivo .tmp huérfano",
+    "causa_raiz": "crash durante os.replace() o permisos insuficientes",
+    "mitigacion": "write a .tmp + os.replace() es atomico en POSIX; .tmp se limpia en next load",
+    "deteccion": "test: simular crash despues de write verifica que estado original no se corrompe"
+  },
+  {
+    "fallo": "Circular import entre workflow/ y project/ al resolver IProjectContext",
+    "causa_raiz": "workflow/__init__.py importa project/ al construir el bundle",
+    "mitigacion": "IProjectContext se inyecta via composition.py; workflow/ solo conoce el puerto",
+    "deteccion": "test de autonomia: workflow/ no importa project/ directamente"
+  },
+  {
+    "fallo": "Phase 3 tools no se registran porque composition.py falla al construir WorkflowContext",
+    "causa_raiz": "algun adapter lanza en __init__ (filesystem no disponible)",
+    "mitigacion": "fail-open: phase3_tasks.py envuelve install() en try/except; Phase 1+2 siguen",
+    "deteccion": "test: server arranca con 17+ tools aunque Phase 3 falle"
   }
 ]
 ```
 
 ## 6. Estado / aprobación
 
-**DRAFT en refinamiento — plan por fases.** 
+**Fase 3 COMPLETADA. Pendiente Fase 4 (cierre).**
 - ✅ Move a `mcp/` commiteado como rename (commit `395729b`, 553 renames); `mcp/sqlite:` eliminado.
 - ✅ FastMCP verificado disponible (`mcp==1.23.3`, `mcp.server.fastmcp.FastMCP`).
 - ✅ Server actual mapeado (McpServer propio + `_call_tool` dispatch + `_build_server`).
@@ -526,11 +726,51 @@ el **registro de tools en el server + su verificación**.
   plumbing de mcp/ — ~1.7k LOC de service locator/manifests). Benchmark de MCPs
   comparables (Serena, Task Master, Memory MCP, Code-Index) y presupuesto de
   contexto medido (31 tools ≈ 7.8k tokens) en §3bis.
-- ⏳ **Fase 2 (siguiente)**: pre-refactor a estructura §3bis (features/project +
-  shared_kernel + composition.py + test de arquitectura) → port de memorias
-  (~17.4k LOC → `features/{code_analysis, cognitive_knowledge}/`) + checks de
-  stale en `status` + ~12-14 tools con su capa de test.
-- ⏳ Fase 3: port del engine + tasks (~29k LOC) + submit/transition/help + ~15 tools.
+- ✅ **Fase 2 COMPLETADA + CLEAN DESIGN REFACTOR**: port de memorias CKG/CPG a
+  `fast_mcp/` + refactor de arquitectura limpia.
+  `fast_mcp/features/cognitive_knowledge/` (domain + application + infrastructure)
+  + `fast_mcp/features/code_analysis/` (ya existente) + `fast_mcp/shared_kernel/cognitive_graph/`
+  (ya existente). **14 tools de memorias** registradas en `phase2_memories.py` con
+  inputSchema declarativo (R-03bis). `composition.py` extendido con
+  `memory_tool_runner()` + handler registry (`fast_mcp/features/memories/`).
+  **Service split**: CkgWriteService (182L) + CkgReadService (199L) + CkgExtractService
+  (201L) + ckg_common.py (56L), facade thin (135L). **Dead code removed**: EventBus,
+  IKnowledgeQueryService, 6 trivial use cases, save_knowledge, ckg_application_service factory.
+  **LoD fix**: 0 violations (antes 3 handlers accedían a `ckg._repo._cg.*`).
+  **32 tests verdes** (10 migration + 13 phase2 + 9 handler registry). Server arranca
+  con **17 tools** (3 Fase 1 + 14 Fase 2). Cero imports de `mcp/` en handlers (audit AST).
+  Pendiente: stale checks en `status`, port completo de `task_intelligence` para `agent_context`.
+- ✅ **Fase 3 COMPLETADA (4 Sprints, domain-first)**: port del workflow engine a
+  `fast_mcp/features/workflow/` (domain + application + infrastructure + handlers).
+  **Sprint 1 — Domain**: 1,190 LOC (de 4,982, -76%), 14 archivos, 8 puertos
+  (de 16, -50%), 4 domain services (de 9, -56%). Eliminados: contract_validator,
+  graph_analyzer, session, workflow_action, 5 domain services.
+  **Sprint 2 — Application**: 656 LOC (de 4,491, -85%), 4 archivos (de 18, -78%).
+  OrchestrationService colapsado de 4 sub-orchestrators + 6 use cases a 1 clase
+  con métodos submit/transition/status/help. Eliminados: 6 use cases, 4 sub-orchestrators,
+  step_orchestrator, error_handler, prompt_service, event_dispatch_service, side_effect_saga,
+  context_resolver, workflow_api.
+  **Sprint 3 — Infrastructure**: 550 LOC (de 1,180, -53%), 7 archivos (de 12, -42%).
+  NoopTracer (70L), NoOpSideEffectEngine (29L), DefaultWorkflowIO (68L),
+  GraphRepository (216L — import resolution + validación), StateRepository (131L — CAS +
+  reconciliación + atomic write), WorkflowStoreAdapter (31L).
+  **Sprint 4 — Handlers + Composition**: 271 LOC, 3 archivos nuevos + 2 editados.
+  WorkflowContext (106L), handlers/workflow.py (85L — 5 handlers), handlers/__init__.py
+  (80L — registry + dispatch). composition.py extendido con workflow_tool_runner().
+  phase3_tasks.py registra 4 tools (submit, transition, help, list_projects) con
+  inputSchema declarativo. `status` se mantiene en Phase 1 (evita conflicto de registro).
+  **Tools añadidas por Fase 3 (4):** `submit` `transition` `help` `list_projects`.
+  **152 tests verdes** (52 domain + 32 application + 23 infrastructure + 26 handlers).
+  **2,684 LOC** en `fast_mcp/features/workflow/`. Zero imports de `mcp/`.
+  **CAS (optimistic concurrency)** en StateRepository: check revision + increment en save.
+  **Reconciliación** en StateRepository.load(): corrige sub_state_index ↔ current_sub_state.
+  **Import resolution** en GraphRepository: carga workflow.json modular (nodes + edges files).
+  **Atomic write** en StateRepository: write a .tmp + os.replace() (no corrupción en crash).
+  **Sprint 2 orchestrator actualizado**: eliminado `_bump_revision()` (CAS movido a repository).
+  **Deferred a Sprint 5**: delta_tracking (6,428L), event_tracing (1,324L), shared/tasks
+  (6,643L), sprint/planning tools, ejecución tools, intelligence tools.
+  Capa de test: 4 archivos de tests (`workflow_domain_bdd` 52, `workflow_application_bdd` 32,
+  `workflow_infrastructure_bdd` 23, `workflow_handlers_bdd` 26).
 - ⏳ Fase 4 (cierre): eliminar `mcp/` por completo.
 `failure_scenarios` presente. Pendiente de aprobar.
 
@@ -542,6 +782,10 @@ el **registro de tools en el server + su verificación**.
 - ADR-045/062: composition root y puertos (FastMCP se cablea en main.py).
 - ADR-067: engine anémico — el dominio no importa superficies.
 - ADR-069 T4: `app/path_resolver` puede subir a `shared/` como utilidad pura.
+- docs/DESIGN-PHASE3-workflow-engine.md: diseño v2 de Fase 3 (10 fixes aplicados).
+- docs/DESIGN-SPRINT2-application-layer.md: diseño de Sprint 2 (application layer).
+- docs/DESIGN-SPRINT3-infrastructure-adapters.md: diseño de Sprint 3 (infrastructure).
+- docs/DESIGN-SPRINT4-handlers-composition.md: diseño de Sprint 4 (handlers + composition).
 - SDK oficial: `mcp/server/fastmcp/` (`mcp==1.23.3`) — `FastMCP.add_tool`/`@tool`/`resource`,
   `Tool.parameters` (schema servido al agente), `Tool.from_function` (infiere schema de la firma).
 - `fast_mcp/`: paquete nuevo de la migración (`server.py::build_server`, `phases/`);

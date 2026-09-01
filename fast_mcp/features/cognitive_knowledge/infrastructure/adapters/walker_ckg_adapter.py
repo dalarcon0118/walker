@@ -1,0 +1,114 @@
+"""infrastructure/adapters/walker_ckg_adapter.py — Adapter for task_execution.
+
+Implements ICkgServicePort (port defined in task_execution) orchestrating
+CognitiveCkgRepository + KnowledgeGraph of the CKG domain.
+
+SRP: this file is the ONLY coupling point between cognitive_knowledge
+and task_execution. If task_execution changes the port, only this adapter
+is updated.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+
+from fast_mcp.features.cognitive_knowledge.domain.services.ckg_service import ICkgService
+
+logger = logging.getLogger(__name__)
+
+
+class WalkerCkgAdapter(ICkgService):
+    """Implementation of the task_execution port over cognitive_knowledge."""
+
+    def __init__(self, repo, event_bus=None):
+        self._repo = repo
+        self._bus = event_bus
+
+    def save_knowledge(
+        self, nodes: list[dict], project_id: str = ""
+    ) -> dict[str, object]:
+        result = self._repo.save_nodes(nodes)
+        self._emit(
+            KnowledgeSaved(
+                node_ids=result.get("node_ids", []),
+                count=result.get("nodes_created", 0),
+                project_id=project_id,
+            )
+        )
+        return result
+
+    def search_knowledge(
+        self, query: str, max_results: int = 20
+    ) -> list[dict[str, object]]:
+        results = self._repo.search(query, max_results)
+        self._emit(
+            KnowledgeSearched(
+                query=query,
+                index="ckg",
+                hits=len(results),
+            )
+        )
+        return results
+
+    def get_active_knowledge(self, type_name: str = "") -> list[dict[str, object]]:
+        return self._repo.query(
+            {"status": "active", "type": type_name}
+            if type_name
+            else {"status": "active"}
+        )
+
+    def supersede_decision(
+        self, old_node_id: str, new_node_id: str, statement: str = ""
+    ) -> dict[str, object]:
+        old = self._repo.query({"_id": old_node_id})
+        if not old:
+            return {"ok": False, "error": f"Node {old_node_id} not found"}
+        old_doc = old[0]
+        old_meta = dict(old_doc.get("metadata", {}) or {})
+        old_meta["superseded_by"] = new_node_id
+        old_meta["status"] = "superseded"
+        old_meta["superseded_at"] = datetime.now(timezone.utc).isoformat()
+        update_result = self._repo.save_nodes([{**old_doc, "metadata": old_meta}])
+        self._emit(
+            DecisionSuperseded(
+                old_node_id=old_node_id,
+                new_node_id=new_node_id,
+                statement=statement,
+            )
+        )
+        return update_result
+
+    def get_knowledge_for_files(
+        self, files: list[str], depth: int = 2
+    ) -> list[dict[str, object]]:
+        all_nodes = self._repo.query({})
+        relevant = []
+        for doc in all_nodes:
+            doc_text = json.dumps(doc).lower()
+            for tf in files:
+                tf_lower = tf.lower()
+                if tf_lower in doc_text:
+                    relevant.append(doc)
+                    break
+        return relevant[-5:]
+
+    def _emit(self, event):
+        if self._bus is not None:
+            try:
+                self._bus.publish(event)
+            except Exception as e:  # noqa: BLE001 — the bus must never break the flow
+                logger.warning(
+                    "ckg_adapter: could not publish event %s (%s: %s)",
+                    type(event).__name__,
+                    type(e).__name__,
+                    e,
+                )
+
+
+# Domain events (imported locally to avoid circular imports)
+from fast_mcp.features.cognitive_knowledge.domain.events import (
+    KnowledgeSaved,
+    DecisionSuperseded,
+    KnowledgeSearched,
+)
