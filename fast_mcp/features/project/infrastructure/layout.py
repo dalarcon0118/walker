@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fast_mcp.features.project.infrastructure.registry_store import RegistryStore
+from fast_mcp.shared_kernel.registry_store import RegistryStore
 from fast_mcp.shared_kernel import paths
 
 STATE_FILE = ".workflow-state.json"

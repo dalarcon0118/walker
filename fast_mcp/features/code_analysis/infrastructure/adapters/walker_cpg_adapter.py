@@ -21,7 +21,7 @@ from typing import Any
 from fast_mcp.features.code_analysis.application.ports.cpg_repository import CpgRepository
 from fast_mcp.features.code_analysis.domain.events import AnalysisCompleted, EventBus
 from fast_mcp.features.code_analysis.domain.services.analysis_service import IBusinessAnalyzer
-from fast_mcp.features.workflow.domain.ports import ICpgAnalysisPort
+from fast_mcp.shared_kernel.ports import ICpgAnalysisPort
 
 
 class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):

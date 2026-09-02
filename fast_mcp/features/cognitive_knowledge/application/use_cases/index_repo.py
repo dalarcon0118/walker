@@ -21,16 +21,24 @@ class IndexRepoUseCase:
 
     @staticmethod
     def execute(
-        chain_dir: str, url: str, name: str, branch: str = "main"
+        chain_dir: str,
+        url: str,
+        name: str,
+        branch: str = "main",
+        outline: tuple | None = None,
     ) -> Result[dict, Exception]:
         import shutil
         import subprocess
         import tempfile
-        from fast_mcp.features.code_analysis.infrastructure.ast_grep_adapter import (
-            run_outline,
-            parse_outline,
-        )
         from fast_mcp.features.cognitive_knowledge import ckg_service
+
+        # outline, si viene, es (run_outline, parse_outline) inyectado por el
+        # composition root (regla §3bis R1): este feature NO importa
+        # code_analysis; recibe el adapter cableado externamente.
+        if outline is None:
+            return safe(lambda: _raise_no_outline())()
+
+        run_outline, parse_outline = outline
 
         @safe
         def _index() -> dict:
@@ -120,3 +128,11 @@ class IndexRepoUseCase:
                 raise
 
         return _index()
+
+
+def _raise_no_outline() -> dict:
+    """Centinela: fail-fast si el composition root no inyectó el outline."""
+    raise RuntimeError(
+        "IndexRepoUseCase requiere el outline provider inyectado "
+        "(composition root / handler) — regla §3bis R1"
+    )

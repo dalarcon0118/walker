@@ -40,6 +40,9 @@ _FASE3_TOOLS = (
     "transition",
     "help",
     "list_projects",
+    "sprint_planning",
+    "resolve_project_sprint",
+    "trace_push",
 )
 
 # inputSchema SSOT (R-03bis)
@@ -70,6 +73,41 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "type": "object",
         "properties": {},
     },
+    "sprint_planning": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "description": "Project identifier"},
+            "goal": {"type": "string", "description": "Sprint goal description"},
+            "tasks": {
+                "type": "array",
+                "description": "List of tasks (objective, type, domain)",
+                "items": {"type": "object"},
+            },
+        },
+        "required": ["goal"],
+    },
+    "resolve_project_sprint": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "description": "Project identifier"},
+            "chain_dir": {"type": "string", "description": "Optional chain_dir override"},
+        },
+    },
+    "trace_push": {
+        "type": "object",
+        "properties": {
+            "event_type": {"type": "string", "description": "Event type (e.g. task_execute, tool_call, error)"},
+            "source": {"type": "string", "description": "Event source (e.g. walker_task, workflow)"},
+            "task_id": {"type": "string", "description": "Task identifier"},
+            "sprint_id": {"type": "string", "description": "Sprint identifier"},
+            "node": {"type": "string", "description": "Workflow node"},
+            "tool": {"type": "string", "description": "Tool used"},
+            "data": {"type": "object", "description": "Event payload"},
+            "files": {"type": "array", "description": "Affected files", "items": {"type": "string"}},
+            "project_id": {"type": "string", "description": "Project identifier (resolves chain_dir)"},
+        },
+        "required": ["event_type"],
+    },
 }
 
 _DESCRIPTIONS = {
@@ -77,6 +115,9 @@ _DESCRIPTIONS = {
     "transition": "Transition to the next workflow node via a gate.",
     "help": "Get help: available tools and current workflow state.",
     "list_projects": "List projects managed by walker.",
+    "sprint_planning": "Create a sprint with specs from task list.",
+    "resolve_project_sprint": "Find the active sprint for a project.",
+    "trace_push": "Push an event to the execution trace index.",
 }
 
 
@@ -99,6 +140,14 @@ def install(server: FastMCP) -> None:
 
 
 def _build_runner(name: str):
-    """Build a tool runner via workflow_tool_runner."""
+    """Build a tool runner via workflow, delta, or trace tool runner."""
+    _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
+    _TRACE_TOOLS = {"trace_push"}
+    if name in _DELTA_TOOLS:
+        from fast_mcp.composition import delta_tool_runner
+        return delta_tool_runner(name)
+    if name in _TRACE_TOOLS:
+        from fast_mcp.composition import trace_tool_runner
+        return trace_tool_runner(name)
     from fast_mcp.composition import workflow_tool_runner
     return workflow_tool_runner(name)

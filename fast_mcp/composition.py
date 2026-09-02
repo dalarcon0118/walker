@@ -14,7 +14,7 @@ from typing import Any
 
 from fast_mcp.features.project.application.use_cases import ProjectCtx
 from fast_mcp.features.project.infrastructure.layout import ProjectLayout
-from fast_mcp.features.project.infrastructure.registry_store import RegistryStore
+from fast_mcp.shared_kernel.registry_store import RegistryStore
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +81,11 @@ def memory_tool_runner(name: str, root: Path | None = None):
     Regla de coherencia §3bis 2 y 3: phases nunca importa features —
     recibe el callable cerrado sobre su contexto.
 
-    Dispatches to fast_mcp.features.memories.handlers.dispatch() —
+    Dispatches to fast_mcp.memories.handlers.dispatch() —
     each tool handler is in its own module (SRP, OCP).
     """
-    from fast_mcp.features.memories.handlers import dispatch
-    from fast_mcp.features.memories.context import MemoryContext
+    from fast_mcp.memories.handlers import dispatch
+    from fast_mcp.memories.context import MemoryContext
 
     def runner(**kwargs) -> dict:
         chain_dir = _resolve_chain_dir(kwargs)
@@ -102,7 +102,6 @@ def memory_tool_runner(name: str, root: Path | None = None):
 
 
 # ── Workflow tool runners (Phase 3 — handler registry) ──────────────────
-
 
 def workflow_tool_runner(name: str, root: Path | None = None):
     """Runner de tool del context workflow, con contexto YA cableado.
@@ -126,5 +125,63 @@ def workflow_tool_runner(name: str, root: Path | None = None):
             return {"error": f"Could not resolve workflow for '{chain_dir}'"}
 
         return dispatch(name, ctx, **kwargs)
+
+    return runner
+
+
+# ── Delta tool runners (Sprint 5.2 — handler registry) ─────────────
+
+def delta_tool_runner(name: str, root: Path | None = None):
+    """Runner de tool del context delta_tracking, con contexto YA cableado.
+
+    Regla de coherencia §3bis 2 y 3: phases nunca importa features —
+    recibe el callable cerrado sobre su contexto.
+
+    Dispatches to fast_mcp.features.delta_tracking.handlers.dispatch_delta().
+    """
+    from fast_mcp.features.delta_tracking.handlers import dispatch_delta
+
+    def runner(**kwargs) -> dict:
+        return dispatch_delta(name, kwargs)
+
+    return runner
+
+
+# ── Trace tool runners (Sprint 5.3 — handler registry) ─────────────────
+def trace_tool_runner(name: str, root: Path | None = None):
+    """Runner de tool del context event_tracing, con contexto YA cableado.
+
+    Regla de coherencia §3bis 2 y 3: phases nunca importa features —
+    recibe el callable cerrado sobre su contexto.
+
+    Dispatches to fast_mcp.features.event_tracing.handlers.dispatch_trace().
+    """
+    from fast_mcp.features.event_tracing.handlers import dispatch_trace
+
+    def runner(**kwargs) -> dict:
+        chain_dir = _resolve_chain_dir(kwargs)
+        if not chain_dir:
+            return {"error": "No project context. Run 'walker prepare <path>' first."}
+
+        # Lazy-import TraceService to avoid circular deps
+        from fast_mcp.features.event_tracing.infrastructure.cognitive_trace_repo import (
+            CognitiveTraceRepository,
+        )
+        from fast_mcp.features.event_tracing.application.services.trace_service import (
+            TraceService,
+        )
+
+        # Build CG for the project
+        try:
+            from fast_mcp.shared_kernel.cognitive_graph import CognitiveGraph
+            cg = CognitiveGraph(chain_dir)
+        except Exception as exc:
+            return {"error": f"Could not initialize CognitiveGraph: {exc}"}
+
+        repo = CognitiveTraceRepository(cg)
+        trace_svc = TraceService(repo)
+        ctx = {"trace_service": trace_svc, "chain_dir": chain_dir}
+
+        return dispatch_trace(name, ctx, **kwargs)
 
     return runner

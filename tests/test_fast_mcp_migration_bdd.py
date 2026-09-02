@@ -63,7 +63,7 @@ def test_server_expone_tools_fase1_y_fase2(fastmcp_server):
         "agent_context", "code_context", "inspect_codebase",
         "read_code", "code_search",
     }
-    fase3 = {"submit", "transition", "help", "list_projects"}
+    fase3 = {"submit", "transition", "help", "list_projects", "sprint_planning", "resolve_project_sprint", "trace_push"}
     expected = fase1 | fase2 | fase3
     assert names == expected, f"tools inesperadas: {names - expected}; faltantes: {expected - names}"
 
@@ -97,7 +97,7 @@ def test_fast_mcp_no_importa_nada_de_mcp():
     import fast_mcp.shared_kernel.paths
     import fast_mcp.phases.phase1_prepare
     import fast_mcp.features.project.application.use_cases
-    import fast_mcp.features.project.infrastructure.registry_store
+    import fast_mcp.shared_kernel.registry_store  # movido del feature al kernel (DIP, R1)
     import fast_mcp.features.project.infrastructure.layout
     import fast_mcp.features.project.infrastructure.detection
 
@@ -122,7 +122,7 @@ def test_fast_mcp_no_importa_nada_de_mcp():
         fast_mcp.registration, fast_mcp.shared_kernel.paths,
         fast_mcp.phases.phase1_prepare,
         fast_mcp.features.project.application.use_cases,
-        fast_mcp.features.project.infrastructure.registry_store,
+        fast_mcp.shared_kernel.registry_store,  # movido del feature al kernel (DIP, R1)
         fast_mcp.features.project.infrastructure.layout,
         fast_mcp.features.project.infrastructure.detection,
     ):

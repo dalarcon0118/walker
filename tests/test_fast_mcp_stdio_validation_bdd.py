@@ -28,7 +28,12 @@ def _params() -> StdioServerParameters:
 
 
 def test_stdio_handshake_y_tools_list():
-    """El server arranca por stdio y expone EXACTAMENTE las 3 tools del ADR."""
+    """El server arranca por stdio y expone el contrato completo del ADR.
+
+    Superficie canónica: 3 tools de Fase 1 (prepare/list/status) + 14 de Fase 2
+    (memorias) + 4 de Fase 3 (tasks). Test de completitud (patrón AGENTS.md):
+    si se registra una fase nueva, este conteo se actualiza explícitamente.
+    """
 
     async def _go():
         async with stdio_client(_params()) as (read, write):
@@ -39,7 +44,10 @@ def test_stdio_handshake_y_tools_list():
                 return {t.name for t in tools.tools}, tools
 
     names, tools = asyncio.run(_go())
-    assert names == {"prepare", "list", "status"}, f"tools inesperadas: {names}"
+    # Contrato mínimo del ADR (§3 Fase 1) — siempre presentes.
+    assert {"prepare", "list", "status"} <= names, f"faltan tools Fase 1: {names}"
+    # Superficie total registrada (F1: 3 + F2: 14 + F3: 7 = 24).
+    assert len(names) == 24, f"superficie inesperada ({len(names)}): {sorted(names)}"
     status = next(t for t in tools.tools if t.name == "status")
     assert status.inputSchema.get("type") == "object"
 

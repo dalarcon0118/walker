@@ -22,7 +22,7 @@ from fast_mcp.features.project.infrastructure.detection import (
     detect_project,
 )
 from fast_mcp.features.project.infrastructure.layout import ProjectLayout
-from fast_mcp.features.project.infrastructure.registry_store import RegistryStore
+from fast_mcp.shared_kernel.registry_store import RegistryStore
 from fast_mcp.shared_kernel import paths
 
 

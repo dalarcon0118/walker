@@ -67,7 +67,7 @@ def handle_help(ctx: Any, **kwargs: Any) -> dict:
 def handle_list_projects(ctx: Any, **kwargs: Any) -> dict:
     """List available projects from the registry."""
     try:
-        from fast_mcp.features.project.infrastructure.registry_store import RegistryStore
+        from fast_mcp.shared_kernel.registry_store import RegistryStore
         store = RegistryStore()
         projects = store.list_projects()
         return {

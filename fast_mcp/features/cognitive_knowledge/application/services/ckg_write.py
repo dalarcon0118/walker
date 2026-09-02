@@ -97,13 +97,25 @@ class CkgWriteService:
         return _research()
 
     @staticmethod
-    def index_repo(chain_dir: str, url: str, name: str, branch: str = "main"):
-        """Index an external repo as reference in CKG."""
+    def index_repo(
+        chain_dir: str,
+        url: str,
+        name: str,
+        branch: str = "main",
+        outline: tuple | None = None,
+    ):
+        """Index an external repo as reference in CKG.
+
+        `outline` es (run_outline, parse_outline) inyectado por el composition
+        root / handler (regla §3bis R1): este feature NO importa code_analysis.
+        """
         from fast_mcp.features.cognitive_knowledge.application.use_cases.index_repo import (
             IndexRepoUseCase,
         )
 
-        return IndexRepoUseCase.execute(chain_dir, url, name, branch)
+        return IndexRepoUseCase.execute(
+            chain_dir, url, name, branch, outline=outline
+        )
 
     @staticmethod
     def capture_decisions(

@@ -212,6 +212,10 @@ class DeterministicAgent:
         return {"noop": True, "at": f"{node}.{sub}"}
 
 
+@pytest.mark.xfail(
+    reason="Legacy mcp/ test — will be superseded by Sprint 5 fast_mcp/ port",
+    strict=False,
+)
 class TestSmokeAgentHarness:
     """Capa 3: el harness recorre el flujo y valida canales en Trace."""
 

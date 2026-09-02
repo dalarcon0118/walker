@@ -54,7 +54,9 @@ def _imported_modules(source: str) -> set[str]:
     tree = ast.parse(source)
     mods: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            # level > 0 → import relativo (`.config`, `..domain`): nunca apunta
+            # al monorepo mcp/ (raíces app/features/shared/...) — falso positivo.
             mods.add(node.module)
         elif isinstance(node, ast.Import):
             for n in node.names:
@@ -74,12 +76,23 @@ def test_r1_features_no_se_importan_entre_si():
     """Regla 1 — un feature solo importa: sí mismo, shared_kernel, stdlib/lib."""
     violations = []
     for mod_name in _modules_of("features"):
-        mod = importlib.import_module(mod_name)
-        owner = _feature_of(mod_name)
-        for imported in _imported_modules(inspect.getsource(mod)):
-            target = _feature_of(imported)
-            if target is not None and target != owner:
-                violations.append(f"{mod_name} → {imported}")
+        # Leemos el archivo directamente (no inspect.getsource): paquetes con
+        # __init__.py vacío rompen getsource, y módulos con imports rotos no
+        # deben impedir auditar el resto del árbol.
+        path = os.path.join(_FAST_MCP_ROOT, mod_name[len("fast_mcp."):].replace(".", os.sep) + ".py")
+        if not os.path.exists(path):
+            # _modules_of ya recorta el sufijo ".__init__": probamos el __init__.py.
+            path = os.path.join(
+                _FAST_MCP_ROOT, mod_name[len("fast_mcp."):].replace(".", os.sep), "__init__.py"
+            )
+        if not os.path.exists(path):
+            continue
+        with open(path) as fh:
+            owner = _feature_of(mod_name)
+            for imported in _imported_modules(fh.read()):
+                target = _feature_of(imported)
+                if target is not None and target != owner:
+                    violations.append(f"{mod_name} → {imported}")
     assert not violations, f"R1 violada (feature→feature): {violations}"
 
 
