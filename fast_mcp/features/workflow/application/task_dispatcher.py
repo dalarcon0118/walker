@@ -20,11 +20,12 @@ def execute_public_task(
     session_id: str = "mcp",
     channel: str = "mcp",
     registry: Any = None,
+    workflow_context: Any = None,
 ) -> dict:
     """Execute a public task by name.
 
     Pipeline:
-        1. Guard: if registry is None → return error
+        1. Resolve registry: explicit param > workflow_context.task_registry > error
         2. Build ExecutionContext
         3. Merge _payload into task_data
         4. Execute via registry
@@ -32,10 +33,13 @@ def execute_public_task(
 
     Never raises: returns {ok: True, data} or {ok: False, error}.
     """
+    # Resolve registry: explicit > context > error
+    if registry is None and workflow_context is not None:
+        registry = getattr(workflow_context, "task_registry", None)
     if registry is None:
         return {
             "ok": False,
-            "error": "Task registry not available (tasks not ported yet)",
+            "error": "Task registry not available",
             "name": name,
         }
 

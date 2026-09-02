@@ -1,8 +1,0 @@
-{
-  "id": "verify/predicate-check",
-  "type": "auto",
-  "version": 1,
-  "description": "Automated predicate verification - checks all DoD criteria before allowing QA review",
-  "tags": ["verify", "predicates", "quality-gate"],
-  "template": "VERIFY.PREDICATE_CHECK - Verifying task predicates...\n\nChecking all Definition of Done criteria for task {task_id}\nbefore allowing QA review.\n\nPredicates to verify:\n  {predicates}\n\nThis runs automatically - verifies each predicate against\nactual code state. Any failure routes back to implementation.\n\nNo action needed."
-}

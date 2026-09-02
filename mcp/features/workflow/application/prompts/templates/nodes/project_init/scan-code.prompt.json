@@ -1,7 +1,0 @@
-{
-  "id": "project_init/scan-code",
-  "type": "auto",
-  "version": 1,
-  "description": "Scan code and build CPG via sg outline",
-  "template": "PROJECT_INIT.SCAN_CODE - Scanning code...\n\nRunning sg outline on code paths to build the Code Property Graph.\nThis runs automatically - no action needed."
-}

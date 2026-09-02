@@ -1,7 +1,0 @@
-{
-  "id": "start/list",
-  "type": "auto",
-  "version": 1,
-  "description": "List all available projects — auto action",
-  "template": "START.LIST — Scanning available projects...\n\n{count} project(s) found. Ready for selection."
-}

@@ -64,7 +64,7 @@ def test_sesion_completa_protocolo_mcp():
         # Contrato mínimo del ADR (Fase 1) + superficie total (F1:3 + F2:14 + F3:4 = 21).
         # Test de completitud (patrón AGENTS.md): una fase nueva actualiza el conteo.
         assert {"prepare", "list", "status"} <= set(names), names
-        assert len(names) == 24, f"superficie inesperada ({len(names)}): {names}"
+        assert len(names) == 28, f"superficie inesperada ({len(names)}): {names}"
 
         # ── 4. tools/call list ──
         send({

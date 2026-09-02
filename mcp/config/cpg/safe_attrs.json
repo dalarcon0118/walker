@@ -1,5 +1,0 @@
-[
-  "strip", "lower", "upper", "replace", "split", "join",
-  "items", "keys", "values", "get", "append", "extend",
-  "write", "read"
-]

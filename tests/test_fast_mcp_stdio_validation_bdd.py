@@ -46,8 +46,8 @@ def test_stdio_handshake_y_tools_list():
     names, tools = asyncio.run(_go())
     # Contrato mínimo del ADR (§3 Fase 1) — siempre presentes.
     assert {"prepare", "list", "status"} <= names, f"faltan tools Fase 1: {names}"
-    # Superficie total registrada (F1: 3 + F2: 14 + F3: 7 = 24).
-    assert len(names) == 24, f"superficie inesperada ({len(names)}): {sorted(names)}"
+    # Superficie total registrada (F1: 3 + F2: 14 + F3: 11 = 28).
+    assert len(names) == 28, f"superficie inesperada ({len(names)}): {sorted(names)}"
     status = next(t for t in tools.tools if t.name == "status")
     assert status.inputSchema.get("type") == "object"
 

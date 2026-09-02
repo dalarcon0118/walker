@@ -30,6 +30,7 @@ class WorkflowContext:
     chain_dir: str
     orchestrator: Any  # OrchestrationService
     bundle: Any  # EngineBundle
+    task_registry: Any = None  # TaskRegistry (Sprint 5.4)
 
     @classmethod
     def resolve(cls, chain_dir: str) -> WorkflowContext | None:

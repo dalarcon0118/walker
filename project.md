@@ -141,6 +141,117 @@ Sin presupuesto, el sistema sufre la tragedia de los comunes.
 
 ---
 
+## Análisis crítico: teoría del modelo delta vs. implementación
+
+> **Fecha:** 2026-09-02 | **Última verificación:** suite fast_mcp 172 passed, 0 failed
+
+### El propósito real de Walker (marco de análisis)
+
+La teoría en `docs/teoria.md` define el contrato que Walker debe cumplir para ser
+útil: **G_objetivo = G_actual + Δ**. Cada tarea es un subdelta `{qué, cómo, validación}`
+que debe **reducir de forma verificable la distancia a G_objetivo**. No basta con
+"avanzar en el workflow": un submit solo importa si mueve el sistema hacia el
+objetivo y eso se puede comprobar.
+
+Este análisis contrasta la implementación real (evidencia en código, no especulación)
+contra ese contrato.
+
+> **Refinamiento del modelo (ADR-WALKER-072):** la descomposición de G_objetivo se da en
+> **sprints** (deltas intermedios, cuya suma de goals = estado deseado), y cada **submit** es
+> progreso *local* dentro del sprint en curso — **no** incrementa G_actual. G_actual se
+> actualiza solo al **completar un sprint** (`G_actual += Δᵢ`). Ver `docs/ADR-WALKER-072-*` y
+> `docs/teoria.md` §5.
+
+---
+
+### (a) Qué de la teoría SE hace realmente
+
+| Contrato teórico | Implementación | Evidencia |
+|------------------|----------------|-----------|
+| Persistir cada avance sin perder estado | `submit` persiste el estado + revision bump (optimistic concurrency) | `orchestrator.py` `_submit_impl` pasos 5–8 |
+| Ciclo plan→spec→implement→verify→retro | El workflow define 8 nodos con sub-estados por fase | `mcp/data/workflow/nodes/*.node.json` |
+| Verificación tipada de predicates (>alucinación) | `VERIFY.PREDICATE_CHECK` es `execution: auto`, `action: verify_predicates` | `verify.node.json` línea 64 |
+| Motor real de verificación con cache | `verify_engine.py` (predicates: symbol_exists, test_pass, grep, ...) | `mcp/shared/tasks/infrastructure/verify_engine.py` |
+| Design by Contract | `ContractValidator.verify_pre/post/invariant` | `mcp/shared/core/engine/domain/contract_validator.py` |
+| Trazabilidad completa del avance | `node_executions` graba cada submit/transition | `status` en orchestrator |
+
+### (b) Qué de la teoría FALTA (la brecha real)
+
+El port fast_mcp **trunca el engine a un "contador avanzado de estados"**: el
+`submit` registra datos y guarda, pero **nunca ejecuta la transformación del
+sub-delta**.
+
+1. **El `submit` NO ejecuta `sub_state.action`.** El legacy `SubmitDataUseCase._execute_task`
+   (submit.py línea 285) ejecutaba la acción real (`plan_sprint`, `spec_task`,
+   `verify_predicates`, `run_tests`, ...) y solo entonces registraba. El port fast_mcp
+   (`orchestrator.py`) escribe directamente `task_ok=True` (línea 196) **sin ejecutar
+   nada**. Un sub-estado `llm_task` con `action: spec_task` **no genera spec**.
+
+2. **`verify_predicates` no puede funcionar en el port.** El `submit` fast_mcp no
+   inyecta predicates (el legacy `_inject_spec_predicates`, submit.py línea 330/381,
+   está ausente en fast_mcp) y no hay ActionCatalog que dispare `verify_predicates`.
+   El nodo la declara (`verify.node.json` línea 64) pero el engine **no la ejecuta**.
+
+3. **No se mide la distancia a G_objetivo.** El contador disponible,
+   `graph_progress.distance_to_terminal`, es **hops BFS del grafo** (`GraphAnalyzer`),
+   no una métrica semántica de `G_actual vs G_objetivo`. No existe ningún cálculo que
+   diga "cuánto acercó este submit al objetivo del sprint".
+
+4. **No hay sub-delta formal.** La teoría exige `{qué, cómo, validación}` +
+   `impacted_artifacts`, `risks (curvature/pre_churn/trust)`, `refinement
+   (attempts/dead_ends)` y `validation`. **Nada de esto existe en la implementación**:
+   no hay WIP limits, ni risks, ni attempts/dead_ends, ni validación de
+   output_contract (`verify_post`).
+
+5. **No hay side effects ni auto-advance.** El legacy tenía `_execute_side_effects`
+   (Saga/Outbox) y `_auto_advance` (submit.py línea 514). El port no tiene ninguno de
+   ambos: el submit **no avanza** a pesar de que muchos sub-estados son `execution:
+   auto` con `on_success`.
+
+### (c) Qué puede mejorar para cumplir el propósito
+
+1. **Ejecutar la acción del sub-estado en `submit`** (el mayor déficit). Reintroducir
+   ActionCatalog/TaskRegistry en el port: `submit` debe disparar la acción declarada
+   y usar su resultado como `task_ok`, no hardcodear `True`.
+2. **Reintroducir `_auto_advance` + side effects.** Los sub-estados `auto` con la
+   acción resuelta deben avanzar solos; esto es lo que hace que el workflow "fluya"
+   hacia el objetivo en lugar de ser una secuencia manual de clics.
+3. **Restaurar `verify_predicates` vía `_inject_spec_predicates`.** Es el único
+   componente anti-alucinación del ciclo; sin él, la acceptación de tareas no
+   comprueba que el trabajo entregado cumple los predicates.
+4. **Medida de progreso hacia el objetivo.** Sustituir/aumentar `distance_to_terminal`
+   (hops) con una evaluación de cuántos predicates de la spec activa quedan por
+   satisfacer: eso hace la "reducción de distancia a G_objetivo" medible.
+
+### Herramientas fast_mcp registradas (estado)
+
+| Fase | Tool | Estado | Notas |
+|------|------|--------|-------|
+| F1 | `prepare` / `list` / `status` / `list_projects` | ✅ | Gestión de proyectos + estado |
+| F2 | `inspect_codebase`, `knowledge_*`, `read_code`, `code_*`, `index_repository`, `extract_knowledge` | ✅ | CPG + CKG (superficie de conocimiento) |
+| F3 | `submit` / `transition` / `help` | ✅ | Workflow — **anémico** (no ejecuta acción) |
+
+### Tools de ejecución pendientes de portar (la brecha central)
+
+| Tool | Ubicación legacy | Por qué importa |
+|------|------------------|-----------------|
+| `implement_task` | `shared/tasks/actions/implement.py` | La transformación real del código |
+| `verify_predicates` | `features/delta_tracking/tasks/verification.py` | Validación anti-alucinación del entregable |
+| `run_tests` | `shared/tasks/actions/verify.py` | `VERIFY.QA_RUN` la declara (`verify.node.json` línea 13) |
+| `spec_task` / `plan_sprint` / `refine_*` | `shared/tasks/actions/` | Acompañan cada fase del ciclo |
+| El resto de acciones con `action:` en `*.node.json` | `shared/tasks/actions/` | Sin ActionCatalog, `action` es decorativo |
+
+### Resumen ejecutivo
+
+Walker hoy es una **máquina de registrar y avanzar estados**, no una máquina de
+**aplicar sub-deltas verificables**. La infraestructura (workflow, persistencia,
+trace, CPG/CKG, verificación tipada) está sólida; lo que falta es **conectar el
+engine con la ejecución real de las acciones declaradas en el grafo**. Mientras `submit`
+no ejecute `sub_state.action` ni mida la proximidad a G_objetivo, Walker sabe *dónde
+está* el agente pero no *qué logró* ni *cuánto acercó al objetivo**.
+
+---
+
 ## Próximas mejoras (backlog)
 
 | ID | Mejora | Prioridad | Estado |
@@ -155,3 +266,4 @@ Sin presupuesto, el sistema sufre la tragedia de los comunes.
 | SPEC-010 | Ritual pre-mortem en AGENTS.md | Media | ✅ Completada |
 | SPEC-001 | Unificar protocolo MCP como SSOT dinámico | Alta | ✅ Implementada |
 | SPEC-002 | Traza verificable multi-canal (cpg_indexed, side_effect_execute, channel) | Media | ✅ Implementada |
+| ADR-072 | Modelo delta refinado: descomposición G_objetivo→sprints + regla temporal de G_actual (submit≠incremento; completar sprint → G_actual+=Δᵢ) | Alta | 📝 Documentada (ADR en revisión; implementación pendiente) |

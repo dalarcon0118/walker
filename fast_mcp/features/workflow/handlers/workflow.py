@@ -83,3 +83,30 @@ def handle_list_projects(ctx: Any, **kwargs: Any) -> dict:
         }
     except Exception as e:
         return {"error": f"Could not list projects: {e}"}
+
+
+def handle_execute_task(ctx: Any, **kwargs: Any) -> dict:
+    """Execute a task by name via execute_public_task.
+
+    Uses the TaskRegistry from WorkflowContext (Sprint 5.4).
+    Registry is injected by composition.py — never imported here (R1).
+    """
+    from ..application.task_dispatcher import execute_public_task
+
+    task_name = kwargs.get("task_name", "") or kwargs.get("name", "")
+    if not task_name:
+        return {"ok": False, "error": "Missing required parameter: task_name"}
+
+    project_id = kwargs.get("project_id", "") or kwargs.get("_project_id", "")
+    task_data = {k: v for k, v in kwargs.items() if k not in ("task_name", "name")}
+
+    # Get registry from context (injected by composition.py, never imported — R1)
+    registry = getattr(ctx, "task_registry", None)
+
+    return execute_public_task(
+        name=task_name,
+        project_id=project_id,
+        chain_dir=ctx.chain_dir,
+        task_data=task_data,
+        registry=registry,
+    )

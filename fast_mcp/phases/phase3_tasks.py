@@ -43,6 +43,10 @@ _FASE3_TOOLS = (
     "sprint_planning",
     "resolve_project_sprint",
     "trace_push",
+    "implement_task",
+    "run_tests",
+    "verify_predicates",
+    "capture",
 )
 
 # inputSchema SSOT (R-03bis)
@@ -108,6 +112,44 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         },
         "required": ["event_type"],
     },
+    "implement_task": {
+        "type": "object",
+        "properties": {
+            "objective": {"type": "string", "description": "Expected result of the task"},
+            "files": {"type": "array", "description": "Files to modify", "items": {"type": "string"}},
+            "task_id": {"type": "string", "description": "Task identifier"},
+            "project_id": {"type": "string", "description": "Project identifier"},
+        },
+        "required": ["objective"],
+    },
+    "run_tests": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "Task identifier"},
+            "project_id": {"type": "string", "description": "Project identifier"},
+        },
+    },
+    "verify_predicates": {
+        "type": "object",
+        "properties": {
+            "predicates": {
+                "type": "array",
+                "description": "List of predicates to verify (type + target)",
+                "items": {"type": "object"},
+            },
+            "task_id": {"type": "string", "description": "Task identifier"},
+            "project_id": {"type": "string", "description": "Project identifier"},
+        },
+    },
+    "capture": {
+        "type": "object",
+        "properties": {
+            "evidence": {"type": "string", "description": "Evidence text to capture"},
+            "artifacts": {"type": "array", "description": "Artifact file paths", "items": {"type": "string"}},
+            "task_id": {"type": "string", "description": "Task identifier"},
+            "project_id": {"type": "string", "description": "Project identifier"},
+        },
+    },
 }
 
 _DESCRIPTIONS = {
@@ -118,6 +160,10 @@ _DESCRIPTIONS = {
     "sprint_planning": "Create a sprint with specs from task list.",
     "resolve_project_sprint": "Find the active sprint for a project.",
     "trace_push": "Push an event to the execution trace index.",
+    "implement_task": "Prepare task implementation (records objective and files).",
+    "run_tests": "Run test suite via pytest (fail-loud if 0 tests).",
+    "verify_predicates": "Verify that predicates are satisfied (file_exists, test_passes).",
+    "capture": "Capture evidence and artifacts for a task.",
 }
 
 
@@ -140,14 +186,18 @@ def install(server: FastMCP) -> None:
 
 
 def _build_runner(name: str):
-    """Build a tool runner via workflow, delta, or trace tool runner."""
+    """Build a tool runner via workflow, delta, trace, or task runner."""
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push"}
+    _TASK_TOOLS = {"implement_task", "run_tests", "verify_predicates", "capture"}
     if name in _DELTA_TOOLS:
         from fast_mcp.composition import delta_tool_runner
         return delta_tool_runner(name)
     if name in _TRACE_TOOLS:
         from fast_mcp.composition import trace_tool_runner
         return trace_tool_runner(name)
+    if name in _TASK_TOOLS:
+        from fast_mcp.composition import task_tool_runner
+        return task_tool_runner(name)
     from fast_mcp.composition import workflow_tool_runner
     return workflow_tool_runner(name)

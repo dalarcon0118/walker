@@ -185,3 +185,57 @@ def trace_tool_runner(name: str, root: Path | None = None):
         return dispatch_trace(name, ctx, **kwargs)
 
     return runner
+
+
+# ── Task/SideEffect registry (Sprint 5.4) ─────────────────────────────
+
+def _build_task_registry():
+    """Build and populate a TaskRegistry with all registered handlers."""
+    from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
+    from fast_mcp.features.tasks.handlers import register_all_tasks
+
+    registry = TaskRegistry()
+    register_all_tasks(registry)
+    return registry
+
+
+def _build_side_effect_registry():
+    """Build and populate a SideEffectRegistry with all registered handlers."""
+    from fast_mcp.features.tasks.domain.side_effect_registry import SideEffectRegistry
+    from fast_mcp.features.tasks.side_effects import register_all_side_effects
+
+    registry = SideEffectRegistry()
+    register_all_side_effects(registry)
+    return registry
+
+
+def task_tool_runner(name: str, root: Path | None = None):
+    """Runner de tool del context tasks, con contexto YA cableado.
+
+    Regla de coherencia §3bis 2 y 3: phases nunca importa features —
+    recibe el callable cerrado sobre su contexto.
+
+    Dispatches via execute_public_task → TaskRegistry.
+    """
+    from fast_mcp.features.workflow.application.task_dispatcher import execute_public_task
+
+    def runner(**kwargs) -> dict:
+        chain_dir = _resolve_chain_dir(kwargs)
+        if not chain_dir:
+            return {"error": "No project context. Run 'walker prepare <path>' first."}
+
+        # Build TaskRegistry (lazy, per call)
+        registry = _build_task_registry()
+
+        project_id = kwargs.get("project_id", "") or kwargs.get("_project_id", "")
+        task_data = {k: v for k, v in kwargs.items() if k not in ("project_id",)}
+
+        return execute_public_task(
+            name=name,
+            project_id=project_id,
+            chain_dir=chain_dir,
+            task_data=task_data,
+            registry=registry,
+        )
+
+    return runner

@@ -245,15 +245,19 @@ walker/
 
 | Feature | Tools públicas (name) | Fase |
 |---|---|---|
-| **workflow core** | `prepare` `list` `status` | **1** |
-| **workflow engine** | `submit` `transition` `help` `list_projects` | **3** |
+| **workflow core** | `prepare` `list` `status` | **1** ✅ |
+| **workflow engine** | `submit` `transition` `help` `list_projects` | **3** ✅ |
+| **indexación CPG** | `build_code_index` `index_repo` `update_incremental_code` | **2** ✅ |
+| **conocimiento CKG** | `extract_knowledge` `knowledge_query` `memory_schema` `recall_knowledge` `documenting_knowledge` `search_memories` `agent_context` | **2** ✅ |
+| **análisis de código** | `code_context` `inspect_codebase` `read_code` `code_search` | **2** ✅ |
+| **sprint/planning** | `sprint_planning` `resolve_project_sprint` | **5.2** ✅ |
+| **tracing** | `trace_push` | **5.3** ✅ |
+| **ejecución** | `implement_task` `run_tests` `verify_predicates` `capture` | **5.5** ✅ |
 | **proyecto/init** | `detect_project_context`* `build_project_config`* `create_first_sprint`* | deferred |
-| **indexación CPG** | `build_code_index` `index_repo` `update_incremental_code` | 2 |
-| **conocimiento CKG** | `extract_knowledge` `knowledge_query` `knowledge_metadata` `knowledge_agent_context` `session_knowledge` | 2 |
-| **análisis de código** | `cpg_*` `code_context` `inspect_codebase` `read_code` `code_search` | 2 |
-| **sprint/planning** | `sprint_planning` `resolve_project_sprint` | deferred |
-| **ejecución** | `implement_task` `run_tests` `verify_predicates` `review_code` `capture` `refine_*` `research_topic` `trace_push` `intelligence` | deferred |
+| **ejecución avanzada** | `review_code` `refine_*` `research_topic` `intelligence` | deferred |
 | **integración** | `update_project` `context_gathering` `initial_sample` | deferred |
+
+**Total: 28 tools** (F1:3 + F2:14 + F3:11 = 28)
 
 \* scope internal — no expuestas al agente, pero forman parte del bootstrap de prepare.
 
@@ -485,6 +489,52 @@ sin imports de `mcp/`. 152 tests verdes. Zero `mcp/` imports en workflow/.
 `tests/test_fast_mcp_workflow_infrastructure_bdd.py` (23),
 `tests/test_fast_mcp_workflow_handlers_bdd.py` (26).
 
+### Sprint 5 — Port de delta_tracking + event_tracing + tasks — DONE ✅
+
+**Sprint 5.1 — delta_tracking domain + application** (1,043 LOC):
+- `domain/` (entities, values, events, conflict, spec_service) — 620 LOC.
+- `application/` (ports, SprintService) — 423 LOC.
+- 48 domain/application tests.
+
+**Sprint 5.2 — delta_tracking infrastructure + handlers** (+327 LOC):
+- `infrastructure/cognitive_delta_repo.py` (147 LOC — DI-injected CG).
+- `handlers/sprint.py` (142 LOC — sprint_planning, resolve_project_sprint).
+- `composition.py` extended with `delta_tool_runner()`.
+- 17 infrastructure tests.
+- **Tools:** `sprint_planning`, `resolve_project_sprint`.
+
+**Sprint 5.3 — event_tracing (all layers)** (783 LOC):
+- `domain/` (TraceEvent, values, events) — 194 LOC.
+- `application/` (TraceRepository port, TraceService) — 261 LOC.
+- `infrastructure/` (CognitiveTraceRepository, CognitiveTracer) — 254 LOC.
+- `handlers/trace.py` (39 LOC — trace_push).
+- **CognitiveTracer** replaces NoopTracer (real persistence to trace index).
+- 33 tests.
+- **Tools:** `trace_push`.
+
+**Sprint 5.4 — TaskRegistry + SideEffectRegistry** (530 LOC):
+- `domain/task_registry.py` (104 LOC — register + execute).
+- `domain/side_effect_registry.py` (59 LOC — implements ISideEffectEngine).
+- `handlers/` (implement_task, run_tests, verify_predicates, capture) — 207 LOC.
+- `side_effects/` (capture_decision, validate_plan, detect_decision, update_status) — 161 LOC.
+- `execute_public_task` wired to TaskRegistry via WorkflowContext.
+- 28 + 9 tests.
+
+**Sprint 5.5 — Tool registration** (+4 MCP tools):
+- `implement_task`, `run_tests`, `verify_predicates`, `capture` registered as MCP tools.
+- `task_tool_runner` in composition.py.
+- 28 tools total (F1:3 + F2:14 + F3:11 = 28).
+
+**Total Sprint 5:** 2,683 LOC, 130 tests, 7 new MCP tools.
+
+**Criterio de salida:** ✅ 28 tools registered, 199 tests verdes, R1/R3 clean.
+
+**Capa de test:** `test_fast_mcp_delta_tracking_bdd.py` (48),
+`test_fast_mcp_delta_infrastructure_bdd.py` (17),
+`test_fast_mcp_event_tracing_bdd.py` (33),
+`test_fast_mcp_tasks_bdd.py` (28),
+`test_fast_mcp_task_dispatch_bdd.py` (9).
+
 ### Fase 4 — Cierre: eliminación de `mcp/`
 - **Qué:** con Fase 3 verde, **eliminar `mcp/` por completo** (el dominio ya
   vive en `fast_mcp/` — Opción A): ~65k LOC de fuente transitoria fuera,
@@ -678,7 +728,13 @@ sin imports de `mcp/`. 152 tests verdes. Zero `mcp/` imports en workflow/.
 
 ## 6. Estado / aprobación
 
-**Fase 3 COMPLETADA. Pendiente Fase 4 (cierre).**
+**MIGRACIÓN COMPLETADA — Fase 4 CERRADA.**
+- ✅ `mcp/` eliminado del repositorio (commiteado por usuario).
+- ✅ `app/` y `shared/` eliminados (dependencias legacy del conftest).
+- ✅ `tests/conftest.py` actualizado: imports legacy wrapped en try/except, fixtures graceful degradation.
+- ✅ `fast_mcp/` es 100% autónomo: 28 tools MCP, 307 tests, R1/R2/R3 architecture compliance.
+- ✅ Suite completa: `test_fast_mcp_*.py` — **307 passed, 0 failed**.
+- ✅ `bin/walker-mcp` → `fast_mcp.main.run(transport="stdio")` — entry point funcional.
 - ✅ Move a `mcp/` commiteado como rename (commit `395729b`, 553 renames); `mcp/sqlite:` eliminado.
 - ✅ FastMCP verificado disponible (`mcp==1.23.3`, `mcp.server.fastmcp.FastMCP`).
 - ✅ Server actual mapeado (McpServer propio + `_call_tool` dispatch + `_build_server`).
@@ -771,7 +827,7 @@ sin imports de `mcp/`. 152 tests verdes. Zero `mcp/` imports en workflow/.
   (6,643L), sprint/planning tools, ejecución tools, intelligence tools.
   Capa de test: 4 archivos de tests (`workflow_domain_bdd` 52, `workflow_application_bdd` 32,
   `workflow_infrastructure_bdd` 23, `workflow_handlers_bdd` 26).
-- ⏳ Fase 4 (cierre): eliminar `mcp/` por completo.
+- ✅ **Fase 4 (cierre)**: `mcp/` eliminado. `fast_mcp/` paquete autónomo con 28 tools, 307 tests, zero imports de `mcp/`.
 `failure_scenarios` presente. Pendiente de aprobar.
 
 ## 7. Cross-references
