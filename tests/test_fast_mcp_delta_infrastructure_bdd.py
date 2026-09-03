@@ -203,15 +203,60 @@ class TestHandlers:
 
 # ── Composition wiring ────────────────────────────────────────────
 
+def _make_disposable_project(tmp_path: Path) -> str:
+    """Proyecto desechable PREPARADO (higiene de validación, ADR-073).
+
+    Manifest mínimo + layout cognitivo canónico (.cognitive/projects/<pid>/data)
+    para que ProjectService.resolve_paths() resuelva el data_dir DENTRO de
+    tmp_path — nunca muta el SSOT del proyecto walker real.
+    El layout se crea para ambos pid posibles (meta.project_id del manifest o
+    basename del tmp) para ser determinista ante cualquier resolución.
+    """
+    import json
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "project.json").write_text(json.dumps({
+        "project": {
+            "meta": {"project_id": "tp1"},
+            "location": {"repo_path": str(tmp_path)},
+        }
+    }))
+    for pid in ("tp1", tmp_path.name):
+        cog = tmp_path / ".cognitive" / "projects" / pid / "data"
+        cog.mkdir(parents=True, exist_ok=True)
+    return str(tmp_path)
+
+
 class TestCompositionWiring:
     def test_delta_tool_runner_returns_callable(self):
         from fast_mcp.composition import delta_tool_runner
         runner = delta_tool_runner("sprint_planning")
         assert callable(runner)
 
-    def test_delta_tool_runner_dispatches(self):
+    def test_delta_tool_runner_without_project_context_returns_error(self):
+        """INV-016 (regla 4): sin contexto de proyecto → error estructurado,
+        nunca write silencioso en el CWD (base parásita)."""
         from fast_mcp.composition import delta_tool_runner
         runner = delta_tool_runner("sprint_planning")
-        result = runner(project_id="walker", goal="Test")
-        # May fail due to project resolution, but should not crash
+        result = runner(goal="Test")
+        assert isinstance(result, dict) and "error" in result
+        assert "No project context" in result["error"]
+
+    def test_delta_tool_runner_dispatches_to_canonical_db(self, tmp_path):
+        """El dispatch real escribe en el data_dir CANÓNICO del proyecto
+        desechable (resuelto vía ProjectService.resolve_paths), no en el
+        repo root / CWD — la base parásita no debe existir."""
+        from fast_mcp.composition import delta_tool_runner
+
+        project_root = Path(_make_disposable_project(tmp_path))
+        runner = delta_tool_runner("sprint_planning")
+        result = runner(project_id=str(tmp_path), goal="Test")
+
         assert isinstance(result, dict)
+        assert "error" not in result, f"dispatch falló: {result}"
+
+        dbs = list(tmp_path.glob(".cognitive/projects/*/data/cognitive.sqlite3"))
+        assert dbs, "la DB no se creó en el layout cognitivo canónico del proyecto"
+        stray = Path.cwd() / "cognitive.sqlite3"
+        assert not stray.exists(), "base parásita recreada en el CWD del repo"

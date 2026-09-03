@@ -294,15 +294,19 @@ def trace_tool_runner(name: str, root: Path | None = None):
             TraceService,
         )
 
-        # Build CG for the project and ensure trace index is registered
+        # Build CG for the project and ensure trace index is registered.
+        # INV-016 (regla 3): resolver el data_dir canónico del proyecto
+        # (no el repo root) — mismo contrato que _build_delta_repo.
         try:
             from fast_mcp.shared_kernel.cognitive_graph.config import (
                 load_memory_connection,
             )
             from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+            from fast_mcp.shared_kernel.project_support import ProjectService
 
-            conn = load_memory_connection(chain_dir)
-            cg = build_cognitive_graph(chain_dir, conn=conn)
+            paths = ProjectService.resolve_paths(chain_dir)
+            conn = load_memory_connection(paths.data_dir)
+            cg = build_cognitive_graph(paths.data_dir, conn=conn)
             # Register trace index if not already present
             try:
                 cg.register_index("trace", {
@@ -337,15 +341,24 @@ def _build_delta_repo(chain_dir: str):
     Creates the CognitiveGraph via the canonical factory (config-driven
     sqlite, ADR-063/INV-016 fail-fast) and registers the 'delta' index.
     Cross-feature wiring is legal ONLY here (R1/§3bis).
+
+    INV-016 (regla 3): `build_cognitive_graph` exige el data_dir YA resuelto
+    (contrato de su docstring). `chain_dir` aquí es el REPO ROOT (contrato de
+    `_resolve_chain_dir`) — pasarle el repo root a `load_memory_connection`
+    ancla la DB al lugar equivocado (vector histórico de la base parásita
+    `<repo>/cognitive.sqlite3`). Se resuelve el data_dir canónico del proyecto
+    vía ProjectService.resolve_paths() (ADR-WALKER-054 D4).
     """
     from fast_mcp.shared_kernel.cognitive_graph.config import load_memory_connection
     from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+    from fast_mcp.shared_kernel.project_support import ProjectService
     from fast_mcp.features.delta_tracking.infrastructure.cognitive_delta_repo import (
         CognitiveDeltaRepository,
     )
 
-    conn = load_memory_connection(chain_dir)
-    cg = build_cognitive_graph(chain_dir, conn=conn)
+    paths = ProjectService.resolve_paths(chain_dir)
+    conn = load_memory_connection(paths.data_dir)
+    cg = build_cognitive_graph(paths.data_dir, conn=conn)
     try:
         cg.register_index("delta", {
             "fields": {

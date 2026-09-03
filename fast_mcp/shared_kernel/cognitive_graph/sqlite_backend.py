@@ -394,6 +394,18 @@ class SqliteBackend:
         uri = conn.uri
         if uri.startswith("sqlite://"):
             path = uri[len("sqlite://"):]
+            if not path:
+                # INV-016 (fail-fast, sin fallbacks): un uri "sqlite://" con
+                # path vacío resolvería cognitive.sqlite3 en el CWD del
+                # proceso y crearía una base parásita fuera del proyecto
+                # (vector histórico del strays en la raíz del repo).
+                raise ValueError(
+                    "MemoryConnection.uri='sqlite://' con path vacío — fail-fast "
+                    "(INV-016): resolvería cognitive.sqlite3 en el CWD y crearía "
+                    "una base parásita. Ancla el uri a un directorio explícito "
+                    "(p.ej. sqlite://<data_dir> via load_memory_connection(base_dir) "
+                    "o WALKER_MEMORY_URI)."
+                )
             if path.endswith(".sqlite3"):
                 return os.path.abspath(path)
             return os.path.abspath(os.path.join(path, "cognitive.sqlite3"))
