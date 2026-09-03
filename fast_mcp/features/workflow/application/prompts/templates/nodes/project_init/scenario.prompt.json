@@ -1,0 +1,7 @@
+{
+  "id": "project_init/scenario",
+  "type": "user_input",
+  "version": 1,
+  "description": "Choose initialization scenario: from code, greenfield, or from spec",
+  "template": "📌 PROJECT_INIT.SCENARIO - Choose Initialization Scenario\n\n🧑‍💻 You are the **Project Analyst**.\nYour job is to guide the user through the project initialization process,\npresenting the detection results and helping them choose the right scenario.\n\nDetection results are shown above. Based on what was found, choose:\n\n  Options:\n    . from_code   -> scan existing code, auto-detect project config\n    . greenfield  -> no code yet, define specs interactively\n    . from_spec   -> import from a specification file\n\nIf from_code, provide the project name and path.\nIf greenfield, provide the project name.\nIf from_spec, provide the path to the spec file.\n\nIf a legacy walker project was detected, 'from_code' is the recommended\noption — it will preserve all existing history while rebuilding CPG/CKG\nfrom the actual source code.\n\nCommand:\n  walker <project>/submit '{\"scenario\":\"from_code\",\"project_name\":\"<name>\",\"project_path\":\"<path>\"}'\n  walker <project>/submit '{\"scenario\":\"greenfield\",\"project_name\":\"<name>\"}'\n  walker <project>/submit '{\"scenario\":\"from_spec\",\"project_name\":\"<name>\",\"spec_path\":\"<path>\"}'"
+}

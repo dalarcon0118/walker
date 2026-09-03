@@ -1,0 +1,7 @@
+{
+  "id": "project_init/review",
+  "type": "user_input",
+  "version": 1,
+  "description": "Review project configuration before creating first sprint",
+  "template": "📌 PROJECT_INIT.REVIEW - Review Project Configuration\n\n🧑‍💻 You are the **Project Analyst**.\nYour job is to present the complete project configuration to the user\nfor final approval before creating the first sprint.\n\nPROJECT SUMMARY\n  Name: {project_name}\n  Language: {language}\n  Framework: {framework}\n  CPG: {cpg_nodes} nodes, {cpg_edges} edges\n  CKG: {ckg_nodes} conventions\n\nOptions:\n  . approve -> looks good, create first sprint\n  . revise  -> needs changes, go back to specs\n\nCommand:\n  walker <project>/submit '{\"intent\":\"project_ready\",\"feedback\":\"<comment>\"}'\n  walker <project>/submit '{\"intent\":\"revise_specs\",\"feedback\":\"<what to change>\"}'\n  walker <project>/submit '{\"intent\":\"back_to_start\"}'"
+}

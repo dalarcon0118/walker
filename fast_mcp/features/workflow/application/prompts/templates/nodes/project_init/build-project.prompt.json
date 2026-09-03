@@ -1,0 +1,7 @@
+{
+  "id": "project_init/build-project",
+  "type": "auto",
+  "version": 1,
+  "description": "Build project.json from gathered specs",
+  "template": "PROJECT_INIT.BUILD_PROJECT - Building project configuration...\n\nCreating project.json from gathered specifications.\nThis runs automatically - no action needed."
+}

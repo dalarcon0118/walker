@@ -1,0 +1,7 @@
+{
+  "id": "start/select",
+  "type": "llm_task",
+  "version": 2,
+  "description": "Select or create a project — main entry point.",
+  "template": "👋 ¡Bienvenido! Estos son los proyectos disponibles (arriba en << project >>).\n\n🎯 YOUR ROLE: You are the Onboarding Guide. Help the user select or create a project.\n\n¿Cuál te gustaría usar?\n  • Elegir uno existente → walker <project>/submit '{\"intent\":\"project_selected\",\"project_id\":\"<id>\"}'\n  • Crear uno nuevo      → walker <project>/submit '{\"intent\":\"create_project\"}'\n  • Refrescar la lista   → walker <project>/submit '{\"intent\":\"refresh\"}'"
+}

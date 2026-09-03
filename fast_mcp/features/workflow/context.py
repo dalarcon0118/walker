@@ -33,7 +33,7 @@ class WorkflowContext:
     task_registry: Any = None  # TaskRegistry (Sprint 5.4)
 
     @classmethod
-    def resolve(cls, chain_dir: str, task_registry: Any = None) -> WorkflowContext | None:
+    def resolve(cls, chain_dir: str, task_registry: Any = None, prompt_manager: Any = None) -> WorkflowContext | None:
         """Resolve workflow context from chain_dir.
 
         Builds the full dependency chain:
@@ -48,6 +48,10 @@ class WorkflowContext:
         `task_registry` is injected by the composition root (composition.py),
         which is the ONLY place allowed to cross-import features (R1). The
         workflow feature itself never imports the tasks feature.
+
+        `prompt_manager` (defaults to PromptManager) resolves per-node prompts
+        for LLM_TASK sub-states and is attached to the bundle so `status` /
+        `help` surface the current step's prompt.
         """
         if not chain_dir:
             return None
@@ -66,6 +70,11 @@ class WorkflowContext:
             from .application.bundle import EngineBundle
             from .application.orchestrator import OrchestrationService
 
+            if prompt_manager is None:
+                from .application.prompts.manager import PromptManager
+
+                prompt_manager = PromptManager(chain_dir=chain_dir)
+
             graph_repo = GraphRepository(workflow_path)
             state_repo = StateRepository(graph_repository=graph_repo)
             store = WorkflowStoreAdapter(graph_repo, state_repo)
@@ -81,6 +90,7 @@ class WorkflowContext:
                 side_effects=side_effects,
                 chain_dir=chain_dir,
                 task_registry=task_registry,
+                prompt_manager=prompt_manager,
             )
             orch = OrchestrationService(bundle=bundle)
 

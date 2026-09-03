@@ -1,0 +1,11 @@
+{
+  "id": "sprint/active",
+  "type": "auto",
+  "version": 1,
+  "description": "Sprint dashboard - shows active sprint status and available transitions",
+  "tags": [
+    "sprint",
+    "dashboard"
+  ],
+  "template": "SPRINT.ACTIVE - Sprint Active / Dashboard\n\n{goal_display}\nTasks: {completed_count}/{task_count} completed\n\nTASKS READY (DAG - dependencies met):\n{ready_tasks}\n\nBlocked tasks (waiting for dependencies):\n{blocked_tasks}\n\nAvailable transitions:\n  . transition start_task     -> start design + analysis of a task\n  . transition edit_plan      -> return to planning to adjust backlog\n  . transition start_review   -> start sprint review (when all tasks are done)\n  . transition close_sprint   -> close the sprint directly"
+}

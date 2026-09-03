@@ -41,3 +41,4 @@ class EngineBundle:
     side_effects: ISideEffectEngine
     chain_dir: str
     task_registry: Any = None  # TaskRegistry (Sprint 5): executes sub_state.action
+    prompt_manager: Any = None  # IPromptManager: resolve per-node prompts (LLM_TASK)

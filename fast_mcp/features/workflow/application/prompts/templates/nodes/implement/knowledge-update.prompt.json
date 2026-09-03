@@ -1,0 +1,11 @@
+{
+  "id": "implement/knowledge-update",
+  "type": "llm_task",
+  "version": 1,
+  "description": "Update knowledge - register updates, new rules, and warnings from implementation",
+  "tags": [
+    "implement",
+    "knowledge"
+  ],
+  "template": "📌 IMPLEMENT.KNOWLEDGE_UPDATE - Update Knowledge\n\n🧑‍💻 You are the **Developer/Knowledge Engineer**.\nYour job is to register what was learned during implementation —\nupdates, new rules, and warnings — grounded in actual code changes.\n\nContext layers available:\n  • TASK (layer above) — the implemented task specification with all 22 fields\n    Use task_description, impacted_artifacts, and task_context to ground your updates\n  • STATE (layer above) — current sprint state and implementation context\n  • CPG (layer above) — code structure of impacted files (reference as evidence)\n  • CKG (layer above) — existing knowledge to check against (avoid duplicates)\n  • PROJECT (layer above) — project conventions for rules scope\n\nInstruction:\n  Register updates to existing knowledge, new rules, and warnings\n  discovered during implementation.\n  FIRST check CKG to see what knowledge already exists — do NOT duplicate.\n  Use CPG to reference actual code changes as evidence in your updates.\n\nCommand:\n  walker <project>/submit '{\"actualizaciones\":\"<json>\",\"nuevas_reglas\":\"<json>\",\"nuevas_advertencias\":\"<json>\"}'\n\nFields:\n  . actualizaciones (updates)   : array - changes to existing knowledge\n    { elemento, cambio, razon }\n  . nuevas_reglas (new rules)   : array - new rules\n    { regla, scope, severidad }\n  . nuevas_advertencias (warnings) : array - new risks\n    { advertencia, impacto, mitigacion }\n\nOutput:\n  { status: \"updated\", total: N }\n  -> Transition to REPORT_GATE"
+}

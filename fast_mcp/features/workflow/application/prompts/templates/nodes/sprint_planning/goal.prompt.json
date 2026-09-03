@@ -1,0 +1,11 @@
+{
+  "id": "sprint_planning/goal",
+  "type": "llm_task",
+  "version": 1,
+  "description": "Define sprint goal interactively with the PO",
+  "tags": [
+    "sprint_planning",
+    "goal"
+  ],
+  "template": "📌 SPRINT_PLANNING.GOAL — Definir goal del sprint\n\nContext layers available:\n  • STATE   (layer above) — current project state, previous sprint outcomes\n  • CKG     (layer above) — architectural decisions and conventions\n    Query: type:decision (decisions that constrain the sprint direction)\n  • DELTA   (layer above) — gap between current state and desired goal\n    Shows what work remains and what was accomplished in prior sprints\n  • PROJECT (layer above) — project conventions and architecture patterns\n\nInstrucción:\n  Define el objetivo del sprint, el resultado esperado y los roles.\n  Usa las capas STATE, CKG, DELTA y PROJECT para informar la dirección del sprint.\n\nComando:\n  walker <project>/submit '{\"goal\":\"<objetivo>\",\"expected_result\":\"<resultado>\",\"roles\":\"<json>\"}'\n\nCampos requeridos:\n  • goal            : string, mínimo 10 caracteres — objetivo del sprint\n  • expected_result : string (opcional) — resultado esperado\n  • roles           : objeto (opcional) — roles del equipo\n    └─ { dev, qa, po }\n\nEjemplo:\n  walker <project>/submit '{\"goal\":\"Migrar workflow engine a DDD\",\"expected_result\":\"Capas separadas, tests pasando\",\"roles\":{\"dev\": \"agente\", \"qa\": \"engine\", \"po\": \"usuario\"}}'\n\nOutput:\n  { status: \"goal_defined\", goal: \"...\" }\n  → Transición a ADD_TASKS"
+}

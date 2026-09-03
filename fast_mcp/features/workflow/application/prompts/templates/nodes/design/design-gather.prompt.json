@@ -1,0 +1,11 @@
+{
+  "id": "design/design-gather",
+  "type": "auto",
+  "version": 1,
+  "description": "Gather context for design phase - code, knowledge, and previous sprint data",
+  "tags": [
+    "design",
+    "context"
+  ],
+  "template": "📌 DESIGN.DESIGN_GATHER - Gathering context...\n\n════════════════════════════════════════════════════════════════════════════════\n  GATE DE AUTO-CONSULTA DE CONOCIMIENTO (antes de diseñar)\n════════════════════════════════════════════════════════════════════════════════\n\n  Este paso recopila automaticamente el contexto que alimenta el diseño de la\n  tarea. Las siguientes capas de conocimiento estan inyectadas a continuacion:\n\n    • << business >>  →  funciones puras, flujos y patrones reutilizables del CPG\n    • << ckg >>       →  convenciones y decisiones de arquitectura del proyecto\n    • << cpg >>       →  estructura real del codigo (clases, funciones, imports)\n    • << delta >>     →  historial de tareas y sprints previos\n\n  Con este contexto, el siguiente paso (DESIGN_ANALYZE) propondra el diseno.\n  Si el contexto de convenciones del CKG es insuficiente para el scope de la\n  tarea, puedes consultar mas especificamente en DESIGN_ANALYZE:\n\n      walker <project>/memory_schema\n      walker <project>/search_memories '{\"ckg\":{\"type\":\"convention\",\"scope\":\"<dominio>\"}}'\n\n  Esto se ejecuta automaticamente - no se requiere accion del usuario."
+}

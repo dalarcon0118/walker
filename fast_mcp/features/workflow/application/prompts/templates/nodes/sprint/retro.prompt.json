@@ -1,0 +1,11 @@
+{
+  "id": "sprint/retro",
+  "type": "llm_task",
+  "version": 1,
+  "description": "Sprint retrospective - capture lessons, rules, and improvement actions",
+  "tags": [
+    "sprint",
+    "retrospective"
+  ],
+  "template": "📌 SPRINT.RETRO - Sprint Retrospective\n\n🎯 YOUR ROLE: You are the Scrum Master / Facilitator. Guide the retrospective to capture meaningful lessons and improvement actions.\n\nContext layers available:\n  • STATE   (layer above) — what happened during the sprint\n    Completed tasks, events, transitions, sprint stats\n  • CKG     (layer above) — patterns and conventions in the codebase\n    Use to identify what conventions were followed or violated\n  • DELTA   (layer above) — gap between planned goal and actual achievement\n    Use to assess what was accomplished vs what was planned\n  • TRACE   (layer above) — detailed session history during the sprint\n    Use to review key events, decisions, and failures\n  • CPG     (layer above) — code changes and quality metrics\n    Use to identify what code quality improved or degraded\n  • PROJECT (layer above) — project conventions\n\nInstruction:\n  Capture the lessons learned from this sprint. Reflect on:\n  . What went well? -> capture as positive lessons\n  . What could be improved? -> capture as improvement actions\n  . What rules/conventions did we discover? -> capture as new rules\n\n  Use ALL context layers to ground your retrospective in actual sprint data.\n  Cross-reference TRACE for key events, CPG for code quality changes,\n  and DELTA for goal achievement.\n\nCommand:\n  walker <project>/submit '{\"lecciones\":\"<json>\",\"reglas\":\"<json>\",\"acciones\":\"<json>\"}'\n\nFields:\n  . lecciones (lessons) : array of objects\n    { leccion (req), causa (req), solucion }\n  . reglas (rules)     : array of objects\n    { regla (req), scope (req), severidad (obligatoria|recomendada|informativa) }\n  . acciones (actions) : array of objects\n    { accion (req), responsable, para_cuando }\n\nOutput:\n  { status: \"completed\", items_count: N }\n  -> Transition to CLOSE - close the sprint"
+}

@@ -119,6 +119,46 @@ class OrchestrationService:
             task_id=ctx.task_id,
         )
 
+    def _resolve_current_prompt(
+        self, state: WorkflowState, graph: WorkflowGraph, ctx: Any
+    ) -> dict | None:
+        """Resuelve el prompt del sub-estado actual (carga dinámica por nodo).
+
+        Si el sub-estado es `execution == llm_task` y hay un prompt_manager
+        inyectado, devuelve el prompt LLM (template del nodo). NUNCA levanta:
+        devuelve None o un dict con 'error' si no resuelve (no rompe el flujo).
+        """
+        pm = getattr(self._bundle, "prompt_manager", None)
+        if pm is None:
+            return None
+        node = graph.get_node(state.current_node)
+        if node is None:
+            return None
+        sub = node.find_sub_state(state.current_sub_state)
+        if sub is None:
+            return None
+        exec_type = getattr(sub, "execution", None)
+        exec_value = getattr(exec_type, "value", exec_type) if exec_type else ""
+        sub_fields = {
+            "prompt": getattr(sub, "prompt", "") or "",
+            "prompt_id": getattr(sub, "prompt_id", "") or "",
+            "on_entry_message": getattr(sub, "on_entry_message", "") or "",
+            "required_tools": getattr(sub, "required_tools", None),
+        }
+        try:
+            resolved = pm.resolve_for_sub_state(
+                node_id=state.current_node,
+                sub_state_key=state.current_sub_state,
+                execution=exec_value,
+                fields=sub_fields,
+                extra_data={"revision": state.revision},
+            )
+        except Exception as e:
+            return {"error": str(e)}
+        resolved["node"] = state.current_node
+        resolved["sub_state"] = state.current_sub_state
+        return resolved
+
     # ── submit ──────────────────────────────────────────────────────────
 
     def submit(
@@ -545,6 +585,7 @@ class OrchestrationService:
             "blocked": bool(state.blocked_at),
             "task_id": ctx.task_id,
             "session_id": ctx.session_id,
+            "prompt": self._resolve_current_prompt(state, graph, ctx),
         }
 
     # ── help ────────────────────────────────────────────────────────────
@@ -589,4 +630,5 @@ class OrchestrationService:
             "history": list(state.history[-5:]),
             "blocked": bool(state.blocked_at),
             "revision": state.revision,
+            "prompt": self._resolve_current_prompt(state, graph, ctx),
         }

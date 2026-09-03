@@ -1,0 +1,7 @@
+{
+  "id": "project_init/first-sprint",
+  "type": "auto",
+  "version": 1,
+  "description": "Create first sprint and prepare for work",
+  "template": "PROJECT_INIT.FIRST_SPRINT - Creating first sprint...\n\nCreating the spring in the DeltaGraph (SSOT).\nProject is ready. Use walker status to begin."
+}

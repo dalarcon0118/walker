@@ -80,3 +80,16 @@ class AutoAdvanceError(WorkflowEngineError):
             message,
             {"node": node, "sub_state": sub_state, "level": level},
         )
+
+
+class TemplateNotFoundError(WorkflowEngineError):
+    """A prompt template could not be located in any source.
+
+    Mirrors the legacy prompts `TemplateNotFound` (mcp/features/workflow/
+    application/prompts/loader.py) restored into fast_mcp.
+    """
+    def __init__(self, template_id: str, message: str | None = None):
+        super().__init__(
+            message or f"Template '{template_id}' not found in any source",
+            {"template_id": template_id},
+        )
