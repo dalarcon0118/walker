@@ -23,15 +23,20 @@ def get_workflow_manifest_path() -> str:
     """Ruta ABSOLUTA al workflow.json canónico del motor (SSOT).
 
     Key 'workflow.manifest' (env WALKER_WORKFLOW_MANIFEST o config).
-    Sin config explícita → <walker_root>/data/workflow/workflow.json.
+    Sin config explícita → el SSOT real del repo: <walker_root>/mcp/data/workflow/workflow.json
+    (resuelto por get_engine_workflow_dir, que detecta la raíz por el marker features/).
+    El default legacy <walker_root>/data/workflow/ era una ubicación fantasma que
+    legitimaba datos parásitos en runtime — eliminado (fail-fast INV-016: decidir
+    explícitamente, no inventar layouts).
     """
     import os
-    from pathlib import Path
 
     val = str(get("workflow.manifest", "") or os.environ.get("WALKER_WORKFLOW_MANIFEST", ""))
     if val:
         return val
-    return str(Path(_config_walker_root()) / "data" / "workflow" / "workflow.json")
+    from fast_mcp.shared_kernel.paths import get_engine_workflow_dir
+
+    return str(get_engine_workflow_dir() / "workflow.json")
 
 
 def get_workflow_manifest_dir() -> str:

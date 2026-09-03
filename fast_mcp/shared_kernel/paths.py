@@ -256,7 +256,7 @@ def get_engine_workflow_dir() -> Path:
     current = Path(__file__).resolve()
     while current != current.parent:
         if (current / "features").is_dir():
-            return current / "data" / "workflow"
+            return current / "mcp" / "data" / "workflow"
         current = current.parent
     raise RuntimeError(
         "No se encontró la raíz del walker (directorio con features/) "

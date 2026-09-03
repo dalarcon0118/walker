@@ -111,13 +111,14 @@ class WorkflowContext:
 def _find_workflow_path(chain_dir: str) -> str | None:
     """Find workflow.json from chain_dir.
 
-    Search order:
-      1. {chain_dir}/mcp/data/workflow/workflow.json (standard project layout)
-      2. {chain_dir}/workflow.json (flat layout)
+    Search order (SSOT first; legacy ghost location demoted):
+      1. {chain_dir}/mcp/data/workflow/workflow.json (SSOT — repo/engine layout)
+      2. {chain_dir}/data/workflow/workflow.json     (legacy — parasite-prone location)
+      3. {chain_dir}/workflow.json                   (flat layout)
     """
     candidates = [
-        os.path.join(chain_dir, "data", "workflow", "workflow.json"),
         os.path.join(chain_dir, "mcp", "data", "workflow", "workflow.json"),
+        os.path.join(chain_dir, "data", "workflow", "workflow.json"),
         os.path.join(chain_dir, "workflow.json"),
     ]
     for path in candidates:
