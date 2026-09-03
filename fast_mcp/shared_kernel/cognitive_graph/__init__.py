@@ -7,11 +7,17 @@ handler del trace, proyección/ranking) vive en las features dueñas (forFeature
 ADR-068) y se INYECTA vía `CognitiveGraph(register_defaults=<callable>)`
 (p.ej. `app.memories.registration.apply_memory_indexes`).
 
+ADR-WALKER-061/063: el backend ES OBLIGATORIO (fail-fast). NO existe fallback
+implícito a FileBackend — 'sqlite' es el único backend runtime registrado;
+'file' no está registrado (config legacy = inválida). Construye SIEMPRE vía
+`build_cognitive_graph()` (resolve el backend por config) o resuelve el
+backend explícitamente con `resolve_storage_backend(conn)`.
+
 Almacenamiento: cada indice es un nx.DiGraph (nodos + edges) con un
 TokenIndex opcional para busqueda full-text sobre campos especificos.
 
 Uso (genérico):
-    cg = CognitiveGraph(chain_dir, register_defaults=apply_memory_indexes)
+    cg = build_cognitive_graph(chain_dir)   # config-driven sqlite (ADR-063)
     cg.register_index("mi_indice", {...})
     cg.search("mi_indice", {"text": "x"})
     cg.store("mi_indice", "ID", {...})
@@ -26,7 +32,6 @@ import time
 from typing import Any
 
 from .connection import MemoryConnection
-from .file_backend import FileBackend
 from .index import Index, IndexSchema
 from .ports import StorageBackend
 # ═══════════════════════════════════════════════════════════════════
@@ -54,20 +59,29 @@ class CognitiveGraph:
     ):
         self.chain_dir = chain_dir
         self._conn = conn
-        # Resolucion del directorio base (prioridad):
+        # Resolución del directorio base (prioridad):
         #   backend._base_dir > conn.uri > chain_dir
         if backend is not None and getattr(backend, "_base_dir", None):
             self._base_dir: str = backend._base_dir
         elif conn is not None:
-            self._base_dir = FileBackend._resolve_base_dir(conn)
+            self._base_dir = os.path.abspath(
+                conn.uri[len("file://"):] if conn.uri.startswith("file://")
+                else conn.uri
+            )
         else:
             self._base_dir = chain_dir
-        # ADR-WALKER-061 (F3 corregido): CognitiveGraph ES un StorageBackend
-        # que DELEGA a un backend concreto. El backend es el dueño real del
-        # storage. Si no se inyecta, se construye un FileBackend por defecto
-        # (comportamiento backward-compatible).
+        # ADR-WALKER-061 (F3) + ADR-WALKER-063: el backend es el dueño real
+        # del storage. NUNCA se construye un fallback implícito (FileBackend).
+        # Si no se inyecta un backend, esto FALLA — el caller debe resolverlo
+        # vía resolve_storage_backend(conn) o build_cognitive_graph.
         if backend is None:
-            backend = FileBackend(MemoryConnection(uri="file://" + os.path.abspath(self._base_dir)))
+            raise ValueError(
+                "CognitiveGraph requiere un StorageBackend explícito. "
+                "No se usa fallback implícito (ADR-WALKER-063: sqlite es el "
+                "único backend runtime; 'file' no está registrado). "
+                "Resuélvelo con resolve_storage_backend(conn) o "
+                "build_cognitive_graph(conn=..., backend=...)."
+            )
         self._backend: StorageBackend = backend
         # Mapa ligero de schemas (solo metadatos, para ref/trace checks).
         self._indexes: dict[str, IndexSchema] = {}
@@ -360,16 +374,33 @@ def build_cognitive_graph(
 ) -> CognitiveGraph:
     """Canonical CognitiveGraph construction for fast_mcp.
 
+    ADR-WALKER-061/063: if `backend` is not provided, it is resolved from
+    the MemoryConnection via resolve_storage_backend(conn) → SqliteBackend
+    (config-driven; 'file' is not registered). Never silently falls back.
+
     Simplified from legacy mcp/app/memories/registration.py: no auto-registration,
     no COMPACT_FIELDS/SEVERITY_ORDER merging. Callers register indexes explicitly.
     """
-    if conn is None and chain_dir:
-        from fast_mcp.shared_kernel.cognitive_graph.connection import (
-            load_memory_connection,
-        )
-        from fast_mcp.shared_kernel.paths import memory_data_dir
+    from fast_mcp.shared_kernel.cognitive_graph.config import (
+        load_memory_connection,
+    )
+    from fast_mcp.shared_kernel.cognitive_graph.backends import (
+        resolve_storage_backend,
+    )
 
-        conn = load_memory_connection(memory_data_dir(chain_dir))
+    if conn is None and chain_dir:
+        # chain_dir apunta al data_dir del proyecto (mismo contrato que
+        # load_memory_connection). No hay memory_data_dir: el caller pasa
+        # el data_dir YA resuelto.
+        conn = load_memory_connection(os.path.abspath(chain_dir))
+    if backend is None:
+        if conn is None:
+            raise ValueError(
+                "build_cognitive_graph requiere conn o chain_dir para "
+                "resolver el backend (ADR-WALKER-063). Pasa conn o "
+                "resuelve el data_dir del proyecto."
+            )
+        backend = resolve_storage_backend(conn)
     return CognitiveGraph(
         chain_dir,
         backend=backend,

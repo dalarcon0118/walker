@@ -15,9 +15,10 @@ def _resolve_ckg(chain_dir: str) -> tuple[Any, str]:
 
     paths = ProjectService.resolve_paths(chain_dir)
     project_root = str(paths.project_root) if paths.project_root else ""
-    if not project_root:
-        return None, ""
-    return ckg_service(project_root), project_root
+    data_dir = str(paths.data_dir) if paths.data_dir else ""
+    if not data_dir:
+        return None, project_root
+    return ckg_service(data_dir), project_root
 
 
 def build_ckg_node(payload: dict) -> dict:

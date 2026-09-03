@@ -13,41 +13,47 @@ logger = logging.getLogger(__name__)
 
 
 def ckg_service(
-    project_dir: str = "",
+    data_dir: str = "",
     repo: Any | None = None,
 ) -> Any | None:
     """Build CodeKnowledgeGraph for the given project.
 
     Args:
-        project_dir: Cognitive project directory (.cognitive/projects/...).
+        data_dir: Canonical memory DATA directory (resolved by the caller
+              via ProjectPaths.data_dir or paths module).
         repo: Injected repository (tests/alternatives) — defaults to
               CognitiveCkgRepository.
 
     Returns:
-        CodeKnowledgeGraph or None if no project_dir.
+        CodeKnowledgeGraph or None if no data_dir.
     """
-    if not project_dir:
+    if not data_dir:
         return None
     from fast_mcp.features.cognitive_knowledge.application.ckg import (
         CodeKnowledgeGraph,
     )
 
-    return CodeKnowledgeGraph(project_dir, repo=repo)
+    return CodeKnowledgeGraph(data_dir, repo=repo)
 
 
-def ckg_repository(project_dir: str = "", graph_factory: Any = None) -> Any | None:
+def ckg_repository(data_dir: str = "", graph_factory: Any = None) -> Any | None:
     """Factory for CKG repository (CognitiveCkgRepository by default).
 
     Single construction point: consumers receive the CkgRepository port
     and never import concrete infrastructure.
+
+    Args:
+        data_dir: Canonical memory data directory (resolved by the caller
+                  via ProjectPaths.data_dir or paths module).
+        graph_factory: Optional injection; defaults to sqlite-backed CognitiveGraph.
     """
-    if not project_dir:
+    if not data_dir:
         return None
     from fast_mcp.features.cognitive_knowledge.infrastructure.cognitive_ckg_repo import (
         CognitiveCkgRepository,
     )
 
-    return CognitiveCkgRepository(project_dir, graph_factory=graph_factory)
+    return CognitiveCkgRepository(data_dir, graph_factory=graph_factory)
 
 
 def ckg_analysis_adapter(chain_dir: str = "") -> Any | None:
@@ -68,7 +74,7 @@ def ckg_analysis_adapter(chain_dir: str = "") -> Any | None:
         from fast_mcp.shared_kernel.project_support import ProjectService
 
         paths = ProjectService.resolve_paths(chain_dir)
-        repo = ckg_repository(str(paths.project_root))
+        repo = ckg_repository(str(paths.data_dir))
         if repo is None:
             logger.warning(
                 "cognitive_knowledge: ckg_analysis_adapter no repo for %r",

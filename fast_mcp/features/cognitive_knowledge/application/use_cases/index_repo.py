@@ -111,7 +111,7 @@ class IndexRepoUseCase:
                             "metadata": {"url": url, "type": t, "count": count},
                         }
                     )
-                ckg = ckg_service(str(paths.project_root))
+                ckg = ckg_service(str(paths.data_dir))
                 result = ckg.save_nodes(nodes_data)
                 shutil.rmtree(tmpdir, ignore_errors=True)
                 return {

@@ -21,9 +21,13 @@ from fast_mcp.features.delta_tracking.handlers.sprint import handle_sprint_plann
 # ── Fixtures ──────────────────────────────────────────────────────
 
 def _make_cg(tmp_path):
-    """Create a CognitiveGraph backed by a temp dir with delta index."""
-    from fast_mcp.shared_kernel.cognitive_graph import CognitiveGraph
-    g = CognitiveGraph(str(tmp_path))
+    """Create a CognitiveGraph backed by a temp dir with delta index.
+
+    Uses build_cognitive_graph (config-driven sqlite backend, ADR-063) —
+    NO FileBackend fallback.
+    """
+    from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+    g = build_cognitive_graph(str(tmp_path))
     g.register_index("delta", {
         "fields": {
             "task": "spec_id",
@@ -160,19 +164,32 @@ class TestHandlers:
         assert "boom" in result["error"]
 
     def test_handle_sprint_planning(self, svc):
+        # New contract: composition root injects the repo-backed service
+        # ('_sprint_service'); the handler never self-constructs one (INV-016).
         result = handle_sprint_planning({
             "project_id": "walker",
             "goal": "Implement auth",
             "tasks": [
                 {"objective": "Login screen", "type": "feature", "domain": "frontend"},
             ],
+            "_sprint_service": svc,
         })
         assert result["ok"]
         assert result["spec_count"] == 1
         assert result["specs"][0]["objective"] == "Login screen"
 
-    def test_handle_sprint_planning_no_goal(self):
-        result = handle_sprint_planning({"project_id": "walker"})
+    def test_handle_sprint_planning_without_injection_fails_fast(self):
+        # INV-016: no anemic fallback — missing DI is a structured error,
+        # never a silent no-op write.
+        result = handle_sprint_planning({"project_id": "walker", "goal": "X"})
+        assert not result["ok"]
+        assert "_sprint_service" in result["error"]
+
+    def test_handle_sprint_planning_no_goal(self, svc):
+        result = handle_sprint_planning({
+            "project_id": "walker",
+            "_sprint_service": svc,
+        })
         assert not result["ok"]
         assert "goal" in result["error"]
 

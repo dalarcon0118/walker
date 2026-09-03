@@ -39,8 +39,8 @@ CKG_INDEX_CONFIG = {
 class CodeKnowledgeGraph:
     """CKG for software development. Delegates to CkgRepository (port)."""
 
-    def __init__(self, project_dir: str, repo: CkgRepository | None = None, graph_factory=None):
-        self.project_dir = Path(project_dir).expanduser().resolve()
+    def __init__(self, data_dir: str, repo: CkgRepository | None = None, graph_factory=None):
+        self.project_dir = Path(data_dir).expanduser().resolve()
         self._repo = repo or CognitiveCkgRepository(str(self.project_dir), graph_factory=graph_factory)
 
     def _next_id(self, prefix: str = "node") -> str:

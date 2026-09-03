@@ -26,22 +26,30 @@ def handle_sprint_planning(args: dict) -> dict[str, Any]:
       - ok, spring_id, spec_count, specs
     """
     project_id = args.get("project_id", "") or args.get("_project_id", "")
+
     goal = args.get("goal", "")
     tasks = args.get("tasks", [])
     body = args.get("body", {})
-
-    # Support both direct args and wrapped body
     if body:
         goal = goal or body.get("goal", "")
         tasks = tasks or body.get("tasks", [])
 
+    # DI: the composition root injects the repo-backed SprintService
+    # ('_sprint_service'). Fail-fast (INV-016): no anemic in-memory
+    # fallback — without repo, sprint writes would be silently dropped.
+    svc = args.get("_sprint_service")
+    if svc is None:
+        return {
+            "ok": False,
+            "error": (
+                f"Cannot resolve sprint service for project {project_id}: "
+                "no repo-backed SprintService injected ('_sprint_service'). "
+                "The composition root must wire it (INV-016 fail-fast)."
+            ),
+        }
+
     if not goal:
         return {"ok": False, "error": "goal is required"}
-
-    # Resolve sprint_service from project context
-    svc = _resolve_sprint_service(project_id)
-    if svc is None:
-        return {"ok": False, "error": f"Cannot resolve sprint service for project {project_id}"}
 
     # Create sprint
     spring_id = f"sprint-{project_id}"
@@ -88,7 +96,12 @@ def handle_resolve_project_sprint(args: dict) -> dict[str, Any]:
     project_id = args.get("project_id", "") or args.get("_project_id", "")
     chain_dir = args.get("chain_dir", "")
 
-    svc = _resolve_sprint_service(project_id, chain_dir=chain_dir)
+    # DI first (composition root injects the repo-backed service via
+    # delta_tool_runner); the local resolver is a read-only fallback for
+    # direct programmatic calls (never used by MCP tools).
+    svc = args.get("_sprint_service") or _resolve_sprint_service(
+        project_id, chain_dir=chain_dir
+    )
     if svc is None:
         return {"ok": False, "error": f"Cannot resolve sprint service for project {project_id}"}
 

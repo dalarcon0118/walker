@@ -2,9 +2,13 @@
 
 Infrastructure layer in Clean Architecture. Translates domain operations
 to CognitiveGraph (store_many batch, search O(1), delete_many).
+
+ADR-WALKER-061/063: accepts data_dir (resolved by the caller via
+ProjectPaths.data_dir or paths module — NEVER hardcoded here).
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 from returns.result import safe
@@ -15,14 +19,22 @@ from fast_mcp.features.cognitive_knowledge.domain.entities import KnowledgeFact
 
 
 def _resolve_graph_factory():
-    """Resolve graph_factory from the composition root.
+    """Resolve graph_factory: builds a sqlite-backed CognitiveGraph (ADR-063).
 
-    Fallback DI (ADR-045/058): resolves from the service locator.
-    Fail-open: None if not available.
+    Mirrors cognitive_cpg_repo._default_graph: resolve_storage_backend(conn)
+    → SqliteBackend.  Fail-open: None if imports fail.
     """
     try:
-        from fast_mcp.shared_kernel.cognitive_graph import CognitiveGraph
-        return lambda conn: CognitiveGraph(conn=conn)
+        from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+        from fast_mcp.shared_kernel.cognitive_graph.backends import (
+            resolve_storage_backend,
+        )
+
+        def _factory(conn):
+            backend = resolve_storage_backend(conn)
+            return build_cognitive_graph(chain_dir="", conn=conn, backend=backend)
+
+        return _factory
     except Exception:
         return None
 
@@ -43,7 +55,13 @@ class CognitiveCkgRepository(CkgRepository):
     (graph_factory). MUST be provided; no fallback to service locator.
     """
 
-    def __init__(self, project_root: str, graph_factory=None):
+    def __init__(self, data_dir: str, graph_factory=None):
+        """CognitiveCkgRepository — data_dir must be resolved by the caller.
+
+        ADR-WALKER-061/063: data_dir is the canonical memory data directory
+        (e.g. ProjectPaths.data_dir). The caller resolves it via the paths
+        module; this repo NEVER computes paths internally.
+        """
         if graph_factory is None:
             graph_factory = _resolve_graph_factory()
         if graph_factory is None:
@@ -51,8 +69,12 @@ class CognitiveCkgRepository(CkgRepository):
                 "CognitiveCkgRepository requires graph_factory injection. "
                 "Pass it from the composition root."
             )
-        from fast_mcp.shared_kernel.cognitive_graph.connection import MemoryConnection
-        conn = MemoryConnection(uri=f"file://{project_root}")
+        from fast_mcp.shared_kernel.cognitive_graph.config import (
+            load_memory_connection,
+        )
+
+        self._data_dir = os.path.abspath(data_dir)
+        conn = load_memory_connection(self._data_dir)
         self._cg = graph_factory(conn)
         if "ckg" not in self._cg.list_indexes():
             self._cg.register_index("ckg", {

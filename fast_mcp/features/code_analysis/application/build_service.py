@@ -294,10 +294,17 @@ class BuildGraphUseCase:
             self._cg = graph
         else:
             from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+            from fast_mcp.features.code_analysis.schema import register_cpg_indexes
 
             # Construcción canónica (ADR-068 Fase 2 G7): índices auto-registrados
             # desde las features; sin doble registro (B1/B2).
-            self._cg = build_cognitive_graph(data_dir)
+            # Registra el índice 'cpg' (SSOT del schema) sobre el grafo. Sin esto,
+            # replace_blob/store_many("cpg", ...) fallan con "Índice 'cpg' no
+            # registrado" y el CPG queda vacío → el watcher nunca detecta stale.
+            self._cg = build_cognitive_graph(
+                data_dir,
+                register_defaults=register_cpg_indexes,
+            )
         # SSOT de exclusion: .walkerignore del proyecto (si existe)
         self._ignore = self._load_ignore()
 

@@ -27,6 +27,7 @@ class MemoryContext:
     chain_dir: str
     project_root: str
     project_id: str
+    data_dir: str = ""
 
     # Lazily resolved services (avoid import-time construction)
     _ckg_factory: Callable[[str], Any] | None = field(default=None, repr=False)
@@ -43,12 +44,14 @@ class MemoryContext:
             paths = ProjectService.resolve_paths(chain_dir)
             project_root = str(paths.project_root) if paths.project_root else ""
             project_id = paths.project_id or ""
+            data_dir = str(paths.data_dir) if paths.data_dir else ""
             if not project_root:
                 return None
             return cls(
                 chain_dir=chain_dir,
                 project_root=project_root,
                 project_id=project_id,
+                data_dir=data_dir,
             )
         except Exception as e:
             logger.warning(
@@ -61,7 +64,9 @@ class MemoryContext:
         """Resolve CKG service (lazy)."""
         from fast_mcp.features.cognitive_knowledge import ckg_service
 
-        return ckg_service(self.project_root)
+        if not self.data_dir:
+            return None
+        return ckg_service(self.data_dir)
 
     def cpg(self) -> Any | None:
         """Resolve CPG service (lazy)."""

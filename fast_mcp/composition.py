@@ -258,7 +258,14 @@ def delta_tool_runner(name: str, root: Path | None = None):
     from fast_mcp.features.delta_tracking.handlers import dispatch_delta
 
     def runner(**kwargs) -> dict:
-        return dispatch_delta(name, kwargs)
+        chain_dir = _resolve_chain_dir(kwargs)
+        if not chain_dir:
+            return {"error": "No project context. Run 'walker prepare <path>' first."}
+
+        # Repo-backed service injected by the composition root (R1/§3bis):
+        # handlers never self-construct an anemic SprintService (INV-016).
+        sprint_service = _build_sprint_service(chain_dir)
+        return dispatch_delta(name, {**kwargs, "_sprint_service": sprint_service})
 
     return runner
 
@@ -289,8 +296,13 @@ def trace_tool_runner(name: str, root: Path | None = None):
 
         # Build CG for the project and ensure trace index is registered
         try:
-            from fast_mcp.shared_kernel.cognitive_graph import CognitiveGraph
-            cg = CognitiveGraph(chain_dir)
+            from fast_mcp.shared_kernel.cognitive_graph.config import (
+                load_memory_connection,
+            )
+            from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+
+            conn = load_memory_connection(chain_dir)
+            cg = build_cognitive_graph(chain_dir, conn=conn)
             # Register trace index if not already present
             try:
                 cg.register_index("trace", {
@@ -319,25 +331,57 @@ def trace_tool_runner(name: str, root: Path | None = None):
 
 # ── Task/SideEffect registry (Sprint 5.4) ─────────────────────────────
 
-def _build_sprint_service(chain_dir: str):
-    """Build a SprintService for the given chain_dir (composition root only).
+def _build_delta_repo(chain_dir: str):
+    """Build the repo-backed DeltaRepository (composition root only).
 
-    The SprintService lives in the delta_tracking feature. Composition.py is
-    the ONLY place allowed to cross-import it (R1/§3bis); it is then injected
-    into the tasks handlers via closure. Uses the in-memory service (the
-    repo-backed delta index wiring is a separate, deferred task).
+    Creates the CognitiveGraph via the canonical factory (config-driven
+    sqlite, ADR-063/INV-016 fail-fast) and registers the 'delta' index.
+    Cross-feature wiring is legal ONLY here (R1/§3bis).
+    """
+    from fast_mcp.shared_kernel.cognitive_graph.config import load_memory_connection
+    from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+    from fast_mcp.features.delta_tracking.infrastructure.cognitive_delta_repo import (
+        CognitiveDeltaRepository,
+    )
+
+    conn = load_memory_connection(chain_dir)
+    cg = build_cognitive_graph(chain_dir, conn=conn)
+    try:
+        cg.register_index("delta", {
+            "fields": {
+                "task": "spec_id",
+                "spec": "spec_id",
+                "spring": "spring_id",
+                "domain": "domain",
+                "type": "type",
+            },
+            "types": {"spec": {}, "spring": {}},
+            "description": "DeltaGraph: specs and springs",
+            "search": {
+                "type": "fulltext",
+                "fields": ["objective", "title", "description", "domain"],
+            },
+        })
+    except Exception:
+        pass  # already registered
+    return CognitiveDeltaRepository(cg)
+
+
+def _build_sprint_service(chain_dir: str):
+    """Build the repo-backed SprintService for the given chain_dir.
+
+    Sprint 5.2: the delta index is now wired — sprint/spec mutations persist
+    to the CognitiveGraph (no more anemic in-memory service). Fail-fast
+    (INV-016): if the CognitiveGraph can't be built the error propagates to
+    the caller (structured error); never a silent no-op write.
     """
     if not chain_dir:
         return None
-    try:
-        from fast_mcp.features.delta_tracking.application.services.sprint_service import (
-            SprintService,
-        )
+    from fast_mcp.features.delta_tracking.application.services.sprint_service import (
+        SprintService,
+    )
 
-        return SprintService(project_root=chain_dir)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("composition: SprintService unavailable for %s (%s)", chain_dir, exc)
-        return None
+    return SprintService(project_root=chain_dir, repo=_build_delta_repo(chain_dir))
 
 
 def _build_task_registry(sprint_service=None):

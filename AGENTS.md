@@ -67,6 +67,37 @@ Resumen:
 
 ---
 
+## Fail-fast, sin fallbacks implícitos (OBLIGATORIO)
+
+**Principio:** el código **funciona o genera un error**. No hay backends de
+fallback, no hay defaults silenciosos, no hay degradación silenciosa. Si algo
+no está explícitamente resuelto, **falla con un error claro** — un error nos
+dice que algo está mal; la ausencia de error nos dice que funcionó.
+
+Reglas:
+1. **Nada de fallback a FileBackend.** El `backend` de `CognitiveGraph` es
+   OBLIGATORIO (fail-fast). `file` no es un backend runtime válido
+   (ADR-WALKER-063); `sqlite` es el único backend registrado. Construir sin
+   backend explícito → `ValueError` con instrucciones claras.
+2. **`build_cognitive_graph()` es el único constructor canónico.** Resuelve
+   el backend por configuración (`load_memory_connection` + `resolve_storage_backend`).
+   No se instancia `CognitiveGraph(chain_dir)` directamente en producción.
+3. **Los repos (CKG/CPG/Delta/Trace) reciben `data_dir` resuelto por el
+   caller** vía `ProjectService.resolve_paths()` / `paths`. Nunca computan
+   rutas internamente (`os.path.join(project_root, "data")`) ni asumen
+   convenciones de layout.
+4. **Todo uso de un puerto/backend no disponible → error, no `None` ni
+   degradación.** Si un componente no se puede resolver, se lanza
+   `ValueError`/`StorageError` con mensaje accionable.
+5. **Excepción controlada:** los guards de "no project context" en el adapter
+   MCP devuelven error estructurado (JSON-RPC error), no un fallback a un
+   backend ficticio.
+
+Este principio se aplica en todo el codebase, no solo en el storage: cualquier
+path que antes "hacía algo por defecto" debe decidir explícitamente o fallar.
+
+---
+
 ## Estrategia domain-first (OBLIGATORIA)
 
 Walker se diseña **domain-first**: el modelo de dominio es SSOT y viene primero; la infraestructura (MCP, CLI, DB) es el último en aparecer. Fases 0–5 y su mapeo a capas reales en [`docs/domain-first.md`](docs/domain-first.md) — obligatoria para toda contribución.

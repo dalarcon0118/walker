@@ -184,11 +184,25 @@ class CkgWriteService:
 
     @staticmethod
     def init_ckg(project_root: str) -> dict:
-        """Initialize the CKG at project_root."""
-        import os
-        from fast_mcp.features.cognitive_knowledge import ckg_service
+        """Initialize the CKG at project_root.
 
-        ckg_service(project_root)
-        ckg_path = os.path.join(project_root, "data", "ckg.json.gz")
+        Resolves the canonical data_dir via ProjectService (paths module)
+        so the sqlite backend lands in the right place (ADR-063).
+        """
+        import os
+
+        from fast_mcp.features.cognitive_knowledge import ckg_service
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        try:
+            paths = ProjectService.resolve_paths(project_root)
+            data_dir = str(paths.data_dir) if paths.data_dir else os.path.join(
+                os.path.abspath(project_root), "data"
+            )
+        except Exception:  # noqa: BLE001 - best-effort fallback
+            data_dir = os.path.join(os.path.abspath(project_root), "data")
+
+        ckg_service(data_dir)
+        ckg_path = os.path.join(data_dir, "ckg.json.gz")
         os.makedirs(os.path.dirname(ckg_path), exist_ok=True)
         return {"initialized": True, "ckg_path": ckg_path}

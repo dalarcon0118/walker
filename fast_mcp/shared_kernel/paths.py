@@ -199,6 +199,49 @@ def get_sprint_dir(project_id: str, sprint_id: str) -> Path:
     """Directorio de un sprint: <project_dir>/<sprint_dir>/<sprint_id>/"""
     return get_delta_dir(project_id) / sprint_id
 
+def cognitive_data_dir(chain_dir: str) -> str:
+    """Data_dir canónico de memorias para chain_dir (SSOT ADR-063).
+
+    chain_dir puede ser el repo root o el layout dir; esta función responde
+    SIEMPRE el data_dir del layout cognitivo activo del proyecto:
+        <cognitive>/projects/<project_id>/data/
+
+    Ahí vive el cognitive.sqlite3 único (SqliteBackend resuelve
+    sqlite://<este_dir> → <este_dir>/cognitive.sqlite3). Los runners y
+    repos NUNCA deben pasar el repo root a load_memory_connection:
+    eso crea bases parásitas vacías en la raíz del repo.
+
+    Fallback explícito: sin proyecto detectado → <chain_dir>/data
+    (mismo contrato que MemoryContext.resolve).
+    """
+    from fast_mcp.shared_kernel.paths import (  # noqa: F401  (import local p/ evitar ciclo)
+        find_cognitive_root,
+        get_data_dir,
+        get_project_dir,
+    )
+
+    cognitive_root = find_cognitive_root() or get_cognitive_dir()
+    project_dir = cognitive_root / "projects"
+    try:
+        candidates = sorted(
+            (p for p in project_dir.iterdir() if p.is_dir() and not p.name.startswith(".")),
+            key=lambda p: p.name.lower(),
+        )
+        if len(candidates) == 1:
+            data_dir = candidates[0] / _get_cfg("data_dir", "data")
+            if data_dir.is_dir():
+                return str(data_dir)
+    except OSError:
+        pass
+    try:
+        data_dir = get_data_dir(os.path.basename(str(project_dir)))
+        if data_dir.is_dir():
+            return str(data_dir)
+    except Exception:  # noqa: BLE001
+        pass
+    return os.path.join(chain_dir, "data")
+
+
 
 def get_state_path(project_id: str) -> Path:
     """Estado del workflow de un proyecto: <project_dir>/state"""
