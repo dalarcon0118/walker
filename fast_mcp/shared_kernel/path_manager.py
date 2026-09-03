@@ -2,24 +2,22 @@
 
 SRP: resolver la ruta del manifiesto `workflow.json` (SSOT del concepto).
 
+MODELO (project.md § 'Configuración del workflow: GLOBAL del motor'):
+el workflow es configuración GLOBAL del motor — un solo SSOT en el root del
+walker, compartido por TODOS los agentes. NO es por-proyecto: los proyectos
+NO llevan su propio workflow.json (sería duplicación de SSOT, anti-patrón
+ADR-047). `chain_dir` identifica el proyecto para ESTADO y MEMORIA (CPG/CKG/
+DeltaGraph/TraceGraph + state), NUNCA para cargar el workflow.
+
 Cascada de resolución (INV-016 fail-fast: decidir explícitamente, no inventar):
 
   1. Override explícito: env `WALKER_WORKFLOW_MANIFEST` o config key
-     `workflow.manifest` (`config/config.json`). Gana siempre y se retorna
-     TAL CUAL (ruta relativa → resuelta contra chain_dir): si el archivo no
-     existe, el loader falla ruidosamente sobre esa ruta exacta — nunca se
-     degrada silenciosamente al candidato canónico.
-  2. Canónico:  {chain_dir}/mcp/data/workflow/workflow.json
-  3. Flat:      {chain_dir}/workflow.json
-  4. None       (el caller decide el fallo con su propio error accionable)
-
-La ubicación legacy `{chain_dir}/data/workflow/` fue ELIMINADA de la cascada:
-era una "ubicación fantasma" que legitimaba datos parásitos en runtime
-(INV-016). PathManager NO la busca.
-
-Para el manifiesto canónico del PROPIO walker (no de un proyecto target),
-usar `engine_manifest()` / `engine_workflow_dir()` — delegan en
-`paths.get_engine_workflow_dir()` (raíz detectada por el marker `features/`).
+     `workflow.manifest`. Ruta absoluta → tal cual; relativa → resuelta
+     contra la raíz del walker. Si el archivo no existe, el loader falla
+     ruidosamente sobre esa ruta exacta — nunca fallback silencioso.
+  2. Canónico: <walker_root>/mcp/data/workflow/workflow.json.
+  3. None si el canónico no existe y no hay override (caller decide el error
+     accionable). NO se buscan candidatos dentro del chain_dir del proyecto.
 """
 from __future__ import annotations
 
@@ -27,30 +25,32 @@ import os
 from pathlib import Path
 from typing import Callable, Mapping
 
-from fast_mcp.shared_kernel.paths import get_engine_workflow_dir
+from fast_mcp.shared_kernel.paths import get_walker_root
 
 
 class PathManager:
-    """Única responsabilidad: resolver rutas del manifiesto workflow.json.
+    """Única responsabilidad: resolver la ruta del manifiesto workflow.json.
 
-    Sin estado mutable: la configuración es inyectable (env + config_get)
-    para testabilidad; en producción usa os.environ y shared_kernel.config.
+    Sin estado mutable: env, config_get y engine_dir son inyectables para
+    testabilidad; en producción usan os.environ, shared_kernel.config y
+    paths.get_engine_workflow_dir().
     """
 
     ENV_OVERRIDE = "WALKER_WORKFLOW_MANIFEST"
     CONFIG_KEY = "workflow.manifest"
 
-    CANONICAL_PARTS = ("mcp", "data", "workflow", "workflow.json")
-
     def __init__(
         self,
         env: Mapping[str, str] | None = None,
         config_get: Callable[[str], str] | None = None,
+        engine_dir: Path | None = None,
     ) -> None:
-        """env: mapping alternativo a os.environ (tests). config_get: getter
-        alternativo de config por clave (tests). None → fuentes reales."""
+        """env/config_get/engine_dir: inyectables para tests. None → fuentes
+        reales (os.environ, shared_kernel.config, paths.get_engine_workflow_dir).
+        """
         self._env = env
         self._config_get = config_get
+        self._engine_dir = engine_dir
 
     # ── Fuentes del override explícito ──────────────────────────────────
 
@@ -73,51 +73,53 @@ class PathManager:
         """Override explícito (env > config). Vacío si ninguno define."""
         return self._env_value() or self._config_value()
 
-    # ── Resolución por proyecto (engine: submit/transition/status) ──────
-
-    def resolve_for_project(self, chain_dir: str | os.PathLike) -> Path | None:
-        """Ruta workflow.json del proyecto target.
-
-        1. Override explícito (env/config) — se honra tal cual: si no existe
-           el archivo, el caller falla ruidosamente sobre esa ruta (fail-fast,
-           sin fallback silencioso al canónico).
-        2. Canónico {chain_dir}/mcp/data/workflow/workflow.json.
-        3. Flat {chain_dir}/workflow.json.
-        4. None — sin workflow en el proyecto (caller decide el error).
-        """
-        chain = Path(chain_dir)
-
+    def _normalized_override(self) -> Path | None:
+        """Override normalizado: absoluto tal cual; relativo → contra walker_root."""
         override = self.explicit_override()
-        if override:
-            path = Path(override)
-            if not path.is_absolute():
-                path = chain / path
-            return path
+        if not override:
+            return None
+        path = Path(override)
+        if not path.is_absolute():
+            path = get_walker_root() / path
+        return path
 
-        canonical = chain.joinpath(*self.CANONICAL_PARTS)
-        if canonical.is_file():
-            return canonical
-
-        flat = chain / "workflow.json"
-        if flat.is_file():
-            return flat
-
-        return None
-
-    # ── Manifiesto canónico del PROPIO walker ───────────────────────────
+    # ── Resolución GLOBAL del workflow del motor ─────────────────────────
 
     def engine_manifest(self) -> Path:
-        """workflow.json canónico del motor (el propio walker).
+        """workflow.json del motor: override explícito normalizado o canónico.
 
-        Override explícito (env/config) o el SSOT del repo:
-        <walker_root>/mcp/data/workflow/workflow.json — vía
-        paths.get_engine_workflow_dir() (raíz por marker features/).
+        El override se honra TAL CUAL aunque el archivo no exista (fail-fast:
+        el loader falla ruidosamente sobre esa ruta exacta — sin fallback
+        silencioso al canónico).
         """
-        override = self.explicit_override()
-        if override:
-            return Path(override)
+        override = self._normalized_override()
+        if override is not None:
+            return override
+        if self._engine_dir is not None:
+            return self._engine_dir / "workflow.json"
+        from fast_mcp.shared_kernel.paths import get_engine_workflow_dir
+
         return get_engine_workflow_dir() / "workflow.json"
 
     def engine_workflow_dir(self) -> Path:
-        """Directorio del manifiesto canónico del motor (dirname)."""
+        """Directorio del workflow del motor (dirname del manifest resuelto).
+
+        Override-aware: con override explícito es el dirname del override;
+        sin override, el directorio canónico inyectado o
+        paths.get_engine_workflow_dir().
+        """
         return self.engine_manifest().parent
+
+    def resolve_workflow_manifest(self) -> Path | None:
+        """Ruta efectiva del workflow GLOBAL del motor.
+
+        1. Override explícito → se retorna siempre (existencia la valida el
+           loader, ruidosamente).
+        2. Canónico <walker_root>/mcp/data/workflow/workflow.json → si existe.
+        3. None → el caller decide el error accionable.
+        """
+        override = self._normalized_override()
+        if override is not None:
+            return override
+        canonical = self.engine_manifest()
+        return canonical if canonical.is_file() else None

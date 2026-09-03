@@ -248,26 +248,33 @@ def get_state_path(project_id: str) -> Path:
     return get_project_dir(project_id) / "state"
 
 
-def get_engine_workflow_dir() -> Path:
-    """Directorio workflow canónico del motor (SSOT) — CÓDIGO, no data.
+def get_walker_root() -> Path:
+    """Raíz del walker: el directorio que CONTIENE el paquete `fast_mcp/`.
 
-    Sube desde este archivo hasta la raíz del repo: el directorio que
-    CONTIENE el paquete `fast_mcp/` (marker único de la raíz).
+    Única detección de raíz (marker: fast_mcp/__init__.py). Sube desde este
+    archivo hasta encontrarla; RuntimeError si no existe (fail-fast).
 
     NOTA: el marker legacy "dir con features/" quedó obsoleto cuando
-    features/ se re-ubicó DENTRO de fast_mcp/ — resolvía
-    <repo>/fast_mcp/mcp/data/workflow/ (fantasma). Corregido para
-    detectar la raíz real que contiene fast_mcp/ y mcp/.
+    features/ se re-ubicó DENTRO de fast_mcp/ — resolvía raíces fantasma.
     """
     current = Path(__file__).resolve()
     while current != current.parent:
         if (current / "fast_mcp").is_dir() and (current / "fast_mcp" / "__init__.py").is_file():
-            return current / "mcp" / "data" / "workflow"
+            return current
         current = current.parent
     raise RuntimeError(
         "No se encontró la raíz del walker (directorio que contiene el "
         f"paquete fast_mcp/) subiendo desde {Path(__file__).resolve()!s}"
     )
+
+
+def get_engine_workflow_dir() -> Path:
+    """Directorio workflow canónico del motor (SSOT) — CÓDIGO, no data.
+
+    GLOBAL del motor (compartido por todos los agentes; project.md §
+    'Configuración del workflow: GLOBAL del motor'): <walker_root>/mcp/data/workflow.
+    """
+    return get_walker_root() / "mcp" / "data" / "workflow"
 
 
 def get_engine_workflow_path() -> Path:

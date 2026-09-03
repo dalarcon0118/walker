@@ -1,8 +1,9 @@
 """tests/test_engine_live_walk_bdd.py — Live walk del workflow real por el engine canónico.
 
-Recorre el workflow SSOT restaurado (mcp/data/workflow/) con la cadena
-canónica de producción (WorkflowContext.resolve → OrchestrationService),
-verificando EN VIVO las fases Gollwitzer cableadas:
+Recorre el workflow GLOBAL del motor (SSOT en el root del walker, project.md §
+'Configuración del workflow: GLOBAL del motor') con la cadena canónica de
+producción (WorkflowContext.resolve → OrchestrationService), verificando EN
+VIVO las fases Gollwitzer cableadas:
 
   1. START (LIST→SELECT) → transition project_selected → SPRINT.ACTIVE
   2. SPRINT.ACTIVE: gate goal_invalidation disponible (PHASE 12) y
@@ -16,7 +17,10 @@ verificando EN VIVO las fases Gollwitzer cableadas:
 
 El engine es anémico (ADR-067): el HOST avanza subestados tras submits
 exitosos vía AdvanceService — este test juega el rol del host.
-Corre sobre un chain_dir temporal (copia del SSOT) para no tocar estado real.
+
+Aislamiento (modelo global): el workflow NO se copia al proyecto — el
+fixture apunta el override `WALKER_WORKFLOW_MANIFEST` al SSOT del motor y
+usa un chain_dir temporal SOLO para el estado/memoria del proyecto.
 """
 import shutil
 from pathlib import Path
@@ -28,17 +32,18 @@ from fast_mcp.features.tasks.handlers import register_all_tasks
 from fast_mcp.features.workflow.context import WorkflowContext
 from fast_mcp.features.workflow.domain.execution import ExecutionContext
 from fast_mcp.features.workflow.domain.services.advance import AdvanceService
+from fast_mcp.shared_kernel.path_manager import PathManager
+from fast_mcp.shared_kernel.paths import get_walker_root
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+ENGINE_WORKFLOW = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
 
 
 @pytest.fixture()
-def project(tmp_path):
-    """Proyecto temporal con el SSOT del workflow real + engine completo."""
-    shutil.copytree(
-        REPO_ROOT / "mcp" / "data" / "workflow",
-        tmp_path / "mcp" / "data" / "workflow",
-    )
+def project(tmp_path, monkeypatch):
+    """Proyecto temporal (solo estado) + workflow GLOBAL vía override."""
+    monkeypatch.setenv(PathManager.ENV_OVERRIDE, str(ENGINE_WORKFLOW))
+
     registry = TaskRegistry()
     register_all_tasks(registry)
 
@@ -51,7 +56,7 @@ def project(tmp_path):
     )
 
     ctx = WorkflowContext.resolve(str(tmp_path), task_registry=registry)
-    assert ctx is not None, "WorkflowContext.resolve falló con el SSOT real"
+    assert ctx is not None, "WorkflowContext.resolve falló con el SSOT global"
     return ctx
 
 

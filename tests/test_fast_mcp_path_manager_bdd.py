@@ -1,15 +1,17 @@
 """tests/test_fast_mcp_path_manager_bdd.py — PathManager: único SSOT de rutas del workflow.
 
-Valida la política de resolución del manifiesto workflow.json (INV-016 fail-fast):
+Valida la política GLOBAL del workflow del motor (project.md § 'Configuración
+del workflow: GLOBAL del motor, no por-proyecto'):
 
   1. Override explícito (env WALKER_WORKFLOW_MANIFEST / config 'workflow.manifest')
-     gana siempre y se honra TAL CUAL (relativa → contra chain_dir; si no existe,
-     se retorna igual — el loader falla ruidosamente, sin fallback silencioso).
-  2. Canónico:  {chain_dir}/mcp/data/workflow/workflow.json
-  3. Flat:      {chain_dir}/workflow.json
-  4. None       (caller decide el error)
+     gana siempre: absoluto tal cual, relativo contra walker_root. Si no existe,
+     se retorna igual — el loader falla ruidosamente (fail-fast, sin fallback
+     silencioso al canónico).
+  2. Canónico: <walker_root>/mcp/data/workflow/workflow.json.
+  3. None si el canónico no existe y no hay override (caller decide el error).
 
-La ubicación fantasma legacy {chain_dir}/data/workflow/ NO se busca.
+Los proyectos NO llevan workflow propio: cualquier workflow.json dentro del
+chain_dir de un proyecto se IGNORA (no se busca nada en el chain_dir).
 """
 from pathlib import Path
 
@@ -20,6 +22,7 @@ from fast_mcp.shared_kernel.config import (
     get_workflow_manifest_path,
 )
 from fast_mcp.shared_kernel.path_manager import PathManager
+from fast_mcp.shared_kernel.paths import get_walker_root
 
 
 @pytest.fixture(autouse=True)
@@ -28,84 +31,92 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv(PathManager.ENV_OVERRIDE, raising=False)
 
 
-def _make_project(tmp_path: Path, layout: str) -> Path:
-    """Crea un proyecto tmp con el layout pedido y workflow.json válido."""
-    wf = tmp_path / "mcp" / "data" / "workflow" / "workflow.json"
-    if layout == "flat":
-        wf = tmp_path / "workflow.json"
-    if layout == "ghost":
-        wf = tmp_path / "data" / "workflow" / "workflow.json"
-    wf.parent.mkdir(parents=True, exist_ok=True)
-    wf.write_text('{"initial_state": "START"}')
-    return tmp_path
+@pytest.fixture()
+def engine_dir(tmp_path: Path) -> Path:
+    """Directorio engine inyectable (sustituye al SSOT real en tests)."""
+    d = tmp_path / "engine" / "workflow"
+    d.mkdir(parents=True)
+    return d
 
 
-# ── 1-3. Candidatos por proyecto ─────────────────────────────────────────
+# ── Resolución GLOBAL (canónico) ─────────────────────────────────────────
 
-class TestResolveForProject:
+class TestResolveWorkflowManifest:
 
-    def test_canonical_layout_resolves(self, tmp_path):
-        project = _make_project(tmp_path, "canonical")
-        resolved = PathManager().resolve_for_project(project)
-        assert resolved == project / "mcp" / "data" / "workflow" / "workflow.json"
+    def test_canonical_resolves_from_engine_dir(self, engine_dir):
+        (engine_dir / "workflow.json").write_text('{"initial_state": "START"}')
+        pm = PathManager(engine_dir=engine_dir)
+        assert pm.resolve_workflow_manifest() == engine_dir / "workflow.json"
 
-    def test_flat_layout_resolves(self, tmp_path):
-        project = _make_project(tmp_path, "flat")
-        resolved = PathManager().resolve_for_project(project)
-        assert resolved == project / "workflow.json"
+    def test_canonical_missing_returns_none(self, engine_dir):
+        pm = PathManager(engine_dir=engine_dir)
+        assert pm.resolve_workflow_manifest() is None
 
-    def test_no_workflow_returns_none(self, tmp_path):
-        resolved = PathManager().resolve_for_project(tmp_path)
-        assert resolved is None
+    def test_per_project_workflow_is_IGNORED(self, tmp_path, engine_dir):
+        """MODELO GLOBAL: un workflow.json dentro del chain_dir del proyecto
+        NO se busca ni se usa — el workflow es del motor, no del proyecto."""
+        project = tmp_path / "some-project"
+        (project / "mcp" / "data" / "workflow").mkdir(parents=True)
+        (project / "mcp" / "data" / "workflow" / "workflow.json").write_text("{}")
+        (project / "workflow.json").write_text("{}")  # flat también ignorado
+        (engine_dir / "workflow.json").write_text('{"initial_state": "START"}')
 
-    def test_ghost_data_workflow_is_NOT_searched(self, tmp_path):
-        """INV-016: la ubicación fantasma legacy no legitima datos parásitos."""
-        project = _make_project(tmp_path, "ghost")
-        resolved = PathManager().resolve_for_project(project)
-        assert resolved is None, "el fantasma data/workflow/ NO debe resolver"
+        pm = PathManager(engine_dir=engine_dir)
+        assert pm.resolve_workflow_manifest() == engine_dir / "workflow.json"
 
-    def test_canonical_wins_over_flat(self, tmp_path):
-        project = _make_project(tmp_path, "canonical")
-        flat = project / "workflow.json"
-        flat.write_text('{"initial_state": "START"}')
-        resolved = PathManager().resolve_for_project(project)
-        assert resolved == project / "mcp" / "data" / "workflow" / "workflow.json"
+    def test_nothing_is_searched_inside_chain_dir(self, tmp_path):
+        """Proyecto con workflow propio + engine sin workflow → None (no hay
+        fallback al proyecto; el workflow es global)."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "workflow.json").write_text("{}")
+        pm = PathManager(engine_dir=tmp_path / "nonexistent-engine-dir")
+        assert pm.resolve_workflow_manifest() is None
+
+    def test_default_points_to_real_repo_ssot(self):
+        """Sin inyección: el canónico es el SSOT real del repo (existe)."""
+        resolved = PathManager().resolve_workflow_manifest()
+        assert resolved == get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        assert resolved.is_file()
 
 
 # ── Override explícito (env / config) ────────────────────────────────────
 
 class TestExplicitOverride:
 
-    def test_env_override_absolute_wins(self, tmp_path):
-        project = _make_project(tmp_path, "canonical")
+    def test_env_override_absolute_wins(self, engine_dir, tmp_path):
+        (engine_dir / "workflow.json").write_text("{}")
         custom = tmp_path / "custom" / "wf.json"
         custom.parent.mkdir(parents=True)
         custom.write_text("{}")
-        pm = PathManager(env={PathManager.ENV_OVERRIDE: str(custom)})
-        assert pm.resolve_for_project(project) == custom
+        pm = PathManager(env={PathManager.ENV_OVERRIDE: str(custom)}, engine_dir=engine_dir)
+        assert pm.resolve_workflow_manifest() == custom
 
-    def test_env_override_relative_resolves_against_chain_dir(self, tmp_path):
-        project = _make_project(tmp_path, "canonical")
-        pm = PathManager(env={PathManager.ENV_OVERRIDE: "workflow/mine.json"})
-        expected = project / "workflow" / "mine.json"
-        assert pm.resolve_for_project(project) == expected
+    def test_env_override_relative_resolves_against_walker_root(self, tmp_path, engine_dir):
+        (engine_dir / "workflow.json").write_text("{}")
+        pm = PathManager(env={PathManager.ENV_OVERRIDE: "custom/wf.json"}, engine_dir=engine_dir)
+        assert pm.resolve_workflow_manifest() == get_walker_root() / "custom" / "wf.json"
 
-    def test_explicit_override_returned_even_if_missing(self, tmp_path):
+    def test_explicit_override_returned_even_if_missing(self, tmp_path, engine_dir):
         """Fail-fast: override explícito inexistente NO cae al canónico — el
         loader debe fallar ruidosamente sobre esa ruta exacta."""
-        project = _make_project(tmp_path, "canonical")
-        pm = PathManager(env={PathManager.ENV_OVERRIDE: str(tmp_path / "missing.json")})
-        assert pm.resolve_for_project(project) == tmp_path / "missing.json"
+        (engine_dir / "workflow.json").write_text("{}")
+        pm = PathManager(
+            env={PathManager.ENV_OVERRIDE: str(tmp_path / "missing.json")},
+            engine_dir=engine_dir,
+        )
+        assert pm.resolve_workflow_manifest() == tmp_path / "missing.json"
 
-    def test_config_override_used_when_no_env(self, tmp_path):
-        project = _make_project(tmp_path, "canonical")
+    def test_config_override_used_when_no_env(self, tmp_path, engine_dir):
         custom = tmp_path / "cfg.json"
         custom.write_text("{}")
-        pm = PathManager(config_get=lambda key: str(custom) if key == PathManager.CONFIG_KEY else "")
-        assert pm.resolve_for_project(project) == custom
+        pm = PathManager(
+            config_get=lambda key: str(custom) if key == PathManager.CONFIG_KEY else "",
+            engine_dir=engine_dir,
+        )
+        assert pm.engine_manifest() == custom
 
-    def test_env_wins_over_config(self, tmp_path):
-        project = _make_project(tmp_path, "canonical")
+    def test_env_wins_over_config(self, tmp_path, engine_dir):
         via_env = tmp_path / "env.json"
         via_cfg = tmp_path / "cfg.json"
         for p in (via_env, via_cfg):
@@ -113,14 +124,15 @@ class TestExplicitOverride:
         pm = PathManager(
             env={PathManager.ENV_OVERRIDE: str(via_env)},
             config_get=lambda key: str(via_cfg) if key == PathManager.CONFIG_KEY else "",
+            engine_dir=engine_dir,
         )
-        assert pm.resolve_for_project(project) == via_env
+        assert pm.engine_manifest() == via_env
 
     def test_no_override_empty(self):
         assert PathManager(env={}).explicit_override() == ""
 
 
-# ── Manifest canónico del propio walker ──────────────────────────────────
+# ── Manifest del propio walker (compat API) ──────────────────────────────
 
 class TestEngineManifest:
 
@@ -137,9 +149,10 @@ class TestEngineManifest:
         assert pm.engine_manifest() == custom
         assert pm.engine_workflow_dir() == custom.parent
 
-    def test_engine_workflow_dir_is_parent_of_manifest(self):
-        pm = PathManager()
-        assert pm.engine_workflow_dir() == pm.engine_manifest().parent
+    def test_engine_dir_injectable(self, engine_dir):
+        pm = PathManager(engine_dir=engine_dir)
+        assert pm.engine_workflow_dir() == engine_dir
+        assert pm.engine_manifest() == engine_dir / "workflow.json"
 
 
 # ── Delegados de compatibilidad en config.py ─────────────────────────────
@@ -153,39 +166,48 @@ class TestConfigDelegates:
         assert get_workflow_manifest_dir() == str(PathManager().engine_workflow_dir())
 
 
-# ── Integración: el engine consume PathManager ───────────────────────────
+# ── Integración: el engine consume PathManager (global) ──────────────────
 
 class TestEngineUsesPathManager:
 
-    def test_context_find_workflow_path_delegates(self, tmp_path, monkeypatch):
+    def test_context_find_workflow_path_is_global(self, tmp_path):
+        """Sin override: _find_workflow_path() resuelve el SSOT del motor —
+        independiente del chain_dir del proyecto."""
         from fast_mcp.features.workflow.context import _find_workflow_path
 
-        project = _make_project(tmp_path, "canonical")
-        assert _find_workflow_path(str(project)) == str(
-            project / "mcp" / "data" / "workflow" / "workflow.json"
-        )
+        expected = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        assert _find_workflow_path() == str(expected)
+
+    def test_context_find_workflow_path_ignores_project_workflow(self, tmp_path):
+        """Un proyecto con workflow propio NO altera la resolución global."""
+        from fast_mcp.features.workflow.context import _find_workflow_path
+
+        (tmp_path / "mcp" / "data" / "workflow").mkdir(parents=True)
+        (tmp_path / "mcp" / "data" / "workflow" / "workflow.json").write_text("{}")
+        expected = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        assert _find_workflow_path() == str(expected)
 
     def test_context_find_workflow_path_honors_env_override(self, tmp_path, monkeypatch):
         from fast_mcp.features.workflow.context import _find_workflow_path
 
-        project = _make_project(tmp_path, "canonical")
         custom = tmp_path / "over.json"
         custom.write_text("{}")
         monkeypatch.setenv(PathManager.ENV_OVERRIDE, str(custom))
-        assert _find_workflow_path(str(project)) == str(custom)
+        assert _find_workflow_path() == str(custom)
 
     def test_context_resolve_end_to_end_with_override(self, tmp_path, monkeypatch):
-        """El engine completo carga un workflow vía el override explícito."""
+        """El engine completo carga el workflow vía override — chain_dir solo
+        para estado/memoria (no se copia el SSOT al proyecto)."""
         from fast_mcp.features.workflow.context import WorkflowContext
 
-        project = _make_project(tmp_path, "canonical")
-        custom_dir = tmp_path / "elsewhere"
-        custom_dir.mkdir()
-        custom = custom_dir / "workflow.json"
-        shutil = __import__("shutil")
-        shutil.copy(project / "mcp" / "data" / "workflow" / "workflow.json", custom)
-        monkeypatch.setenv(PathManager.ENV_OVERRIDE, str(custom))
+        project = tmp_path / "proj"
+        project.mkdir()
+        monkeypatch.setenv(
+            PathManager.ENV_OVERRIDE,
+            str(get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"),
+        )
 
         ctx = WorkflowContext.resolve(str(project), task_registry=None)
         assert ctx is not None, "el override explícito debe permitir cargar el engine"
+        assert ctx.chain_dir == str(project)
         assert ctx.orchestrator is not None

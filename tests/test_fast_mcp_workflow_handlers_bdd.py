@@ -134,31 +134,61 @@ class TestWorkflowContext:
         assert ctx.chain_dir == str(tmp_path)
         assert ctx.orchestrator is not None
 
-    def test_resolve_missing_workflow(self, tmp_path):
+    def test_resolve_missing_workflow_fails_loud_on_operation(self, tmp_path, monkeypatch):
+        """Override a archivo inexistente: la construcción es lazy (el manifest
+        no se lee en resolve), pero la PRIMERA operación falla ruidosamente
+        (ok=False) — fail-fast INV-016, sin degradación silenciosa."""
+        from types import SimpleNamespace
+
+        monkeypatch.setenv("WALKER_WORKFLOW_MANIFEST", str(tmp_path / "missing.json"))
         ctx = WorkflowContext.resolve(str(tmp_path))
-        assert ctx is None
+        assert ctx is not None  # construcción lazy: el manifest aún no se lee
+
+        status = ctx.orchestrator.status(SimpleNamespace(task_id="", session_id=""))
+        assert status["ok"] is False, "operar sin workflow real debe fallar ruidosamente"
+
+    def test_resolve_uses_global_workflow_regardless_of_project(self, tmp_path):
+        """El proyecto NO lleva workflow: resolve() carga el workflow GLOBAL
+        del motor aunque el chain_dir esté vacío (solo estado/memoria)."""
+        ctx = WorkflowContext.resolve(str(tmp_path))
+        assert ctx is not None
+        assert ctx.chain_dir == str(tmp_path)
 
     def test_resolve_empty_chain_dir(self):
         assert WorkflowContext.resolve("") is None
         assert WorkflowContext.resolve(None) is None  # type: ignore
 
 
-# ── _find_workflow_path tests ────────────────────────────────────────────
+# ── _find_workflow_path tests (workflow GLOBAL del motor) ────────────────
 
 class TestFindWorkflowPath:
 
-    def test_finds_standard_layout(self, tmp_path):
+    def test_resolves_global_engine_ssot(self, tmp_path):
+        """El workflow es GLOBAL del motor: el chain_dir del proyecto no
+        participa en la resolución — siempre el SSOT del root del walker."""
+        from fast_mcp.shared_kernel.paths import get_walker_root
+
+        expected = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        assert _find_workflow_path() == str(expected)
+
+    def test_project_workflow_is_ignored(self, tmp_path, monkeypatch):
+        """Un workflow.json dentro del chain_dir del proyecto NO se usa
+        (configuración global del motor — project.md)."""
+        from fast_mcp.shared_kernel.paths import get_walker_root
+
         wf_dir = tmp_path / "mcp" / "data" / "workflow"
         wf_dir.mkdir(parents=True)
         (wf_dir / "workflow.json").write_text("{}")
-        assert _find_workflow_path(str(tmp_path)) == str(wf_dir / "workflow.json")
+        (tmp_path / "workflow.json").write_text("{}")  # flat también ignorado
+        assert _find_workflow_path() == str(
+            get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        )
 
-    def test_finds_flat_layout(self, tmp_path):
-        (tmp_path / "workflow.json").write_text("{}")
-        assert _find_workflow_path(str(tmp_path)) == str(tmp_path / "workflow.json")
-
-    def test_returns_none_if_missing(self, tmp_path):
-        assert _find_workflow_path(str(tmp_path)) is None
+    def test_env_override_honored(self, tmp_path, monkeypatch):
+        custom = tmp_path / "override-wf.json"
+        custom.write_text("{}")
+        monkeypatch.setenv("WALKER_WORKFLOW_MANIFEST", str(custom))
+        assert _find_workflow_path() == str(custom)
 
 
 # ── Handler registry tests ───────────────────────────────────────────────

@@ -55,7 +55,7 @@ class WorkflowContext:
         if not chain_dir:
             return None
 
-        workflow_path = _find_workflow_path(chain_dir)
+        workflow_path = _find_workflow_path()
         if not workflow_path:
             return None
 
@@ -107,20 +107,24 @@ class WorkflowContext:
             return None
 
 
-def _find_workflow_path(chain_dir: str) -> str | None:
-    """Find workflow.json from chain_dir — delega en PathManager (SSOT único).
+def _find_workflow_path() -> str | None:
+    """Ruta del workflow GLOBAL del motor — delega en PathManager (SSOT único).
 
-    Política en shared_kernel.path_manager.PathManager (única fuente):
-      1. Override explícito: env WALKER_WORKFLOW_MANIFEST / config 'workflow.manifest'
-         (se honra tal cual; si no existe, el loader falla ruidosamente).
-      2. {chain_dir}/mcp/data/workflow/workflow.json  (canónico)
-      3. {chain_dir}/workflow.json                    (flat)
-      4. None (caller decide el error).
+    MODELO (project.md § 'Configuración del workflow: GLOBAL del motor'):
+    el workflow es configuración global del motor, compartida por todos los
+    agentes. Los proyectos NO llevan su propio workflow.json — NO se busca
+    nada dentro del chain_dir. `chain_dir` identifica el proyecto para
+    ESTADO y MEMORIA (CPG/CKG/DeltaGraph/TraceGraph + state), nunca para
+    cargar el flujo.
 
-    La ubicación legacy {chain_dir}/data/workflow/ fue ELIMINADA de la
-    búsqueda (INV-016: ubicación fantasma, parasite-prone — no se busca).
+    Política (shared_kernel.path_manager.PathManager.resolve_workflow_manifest):
+      1. Override explícito: env WALKER_WORKFLOW_MANIFEST / config
+         'workflow.manifest' (absoluto tal cual; relativo → walker_root).
+         Si no existe, el loader falla ruidosamente (fail-fast INV-016).
+      2. Canónico: <walker_root>/mcp/data/workflow/workflow.json.
+      3. None (caller decide el error accionable).
     """
     from fast_mcp.shared_kernel.path_manager import PathManager
 
-    resolved = PathManager().resolve_for_project(chain_dir)
+    resolved = PathManager().resolve_workflow_manifest()
     return str(resolved) if resolved else None

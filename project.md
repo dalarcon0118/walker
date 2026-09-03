@@ -110,17 +110,17 @@ TaskRegistry afecta por igual a walker-sobre-sí y a walker-sobre-cualquier-
 otro-proyecto; y la memoria de walker (su contexto como proyecto) NO se
 confunde con la configuración del motor, aunque compartan repositorio.
 
-### Deuda registrada (alineación de código con esta decisión)
+### Alineación de código con esta decisión (RESUELTA)
 
-La implementación actual `PathManager.resolve_for_project(chain_dir)` y
-`features/workflow/context.py::_find_workflow_path(chain_dir)` buscan el workflow
-**dentro del chain_dir del proyecto** — herencia del modelo per-proyecto. Con esta
-decisión, el modelo correcto es: `_find_workflow_path` debe resolver SIEMPRE
-`engine_manifest()` (global del motor) y **descartar** los candidatos dentro del
-`chain_dir` (`{chain_dir}/mcp/data/workflow/`, `{chain_dir}/workflow.json`), que
-hoy existen como candidatos legacy. Pendiente de corregir con sus tests (el
-live-walk que copia el SSOT a `tmp_path` debe migrar a apuntar el override
-`WALKER_WORKFLOW_MANIFEST` al SSOT del motor o a un fixture de workflow de test).
+`PathManager` resuelve SIEMPRE el workflow GLOBAL del motor:
+`resolve_workflow_manifest()` — override explícito (`WALKER_WORKFLOW_MANIFEST` /
+`workflow.manifest`) → canónico `<walker_root>/mcp/data/workflow/workflow.json`
+→ None — y **NO busca nada dentro del `chain_dir`** del proyecto (los candidatos
+per-proyecto fueron eliminados). `_find_workflow_path()` ya no toma `chain_dir`;
+el parámetro `chain_dir` de `WorkflowContext.resolve` queda reservado para
+estado y memoria. Los tests usan el override `WALKER_WORKFLOW_MANIFEST` (nunca
+copias del SSOT) e incluyen guardas de que un `workflow.json` dentro del
+proyecto se **ignora**.
 
 ---
 
