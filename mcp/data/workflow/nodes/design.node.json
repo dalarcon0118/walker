@@ -1,0 +1,383 @@
+{
+  "label": "Design Phase",
+  "description": "Architectural design phase: 6->3 layer analysis, review, and knowledge capture.",
+  "provides": [
+    "project_id",
+    "sprint_id"
+  ],
+  "sub_states": [
+    {
+      "key": "DESIGN_GATHER",
+      "label": "Gather context",
+      "execution": "auto",
+      "action": "gather_context",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "code_context": {
+            "type": "object",
+            "description": "Codebase context collected by the engine"
+          },
+          "knowledge_context": {
+            "type": "object",
+            "description": "Knowledge context collected by the engine"
+          },
+          "spring_context": {
+            "type": "object",
+            "description": "Previous sprint context collected by the engine"
+          }
+        },
+        "description": "Context collected. Auto-transitions to DESIGN_ANALYZE."
+      },
+      "on_success": "DESIGN_ANALYZE",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "index_code",
+          "params": {},
+          "optional": true
+        },
+        {
+          "type": "build_project_graph",
+          "params": {},
+          "optional": true
+        }
+      ],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "design/design-gather",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "sources": [
+          {
+            "provider": "business",
+            "config": {
+              "max_items": 15
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 15
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 15
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {}
+          }
+        ],
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    },
+    {
+      "key": "DESIGN_ANALYZE",
+      "label": "6->3 analysis",
+      "execution": "llm_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q1": {
+            "type": "string",
+            "description": "Question 1 of the 6->3 analysis",
+            "examples": [
+              "Which system layers will be affected?"
+            ]
+          },
+          "a1": {
+            "type": "string",
+            "description": "Answer to question 1",
+            "examples": [
+              "Domain and application layers will be affected because..."
+            ],
+            "minLength": 10
+          },
+          "q2": {
+            "type": "string",
+            "description": "Question 2 of the 6->3 analysis",
+            "examples": [
+              "What dependencies exist between components?"
+            ]
+          },
+          "a2": {
+            "type": "string",
+            "description": "Answer to question 2",
+            "examples": [
+              "Component X depends on Y through interface Z..."
+            ],
+            "minLength": 10
+          },
+          "q3": {
+            "type": "string",
+            "description": "Question 3 of the 6->3 analysis",
+            "examples": [
+              "What is the main implementation risk?"
+            ]
+          },
+          "a3": {
+            "type": "string",
+            "description": "Answer to question 3",
+            "examples": [
+              "The main risk is regression in the persistence module..."
+            ],
+            "minLength": 10
+          }
+        },
+        "required": [
+          "q1",
+          "a1",
+          "q2",
+          "a2",
+          "q3",
+          "a3"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "analyzed"
+            ],
+            "description": "Analysis completed"
+          },
+          "summary": {
+            "type": "string",
+            "description": "6->3 analysis summary"
+          }
+        },
+        "description": "6->3 analysis completed. Transitions to DESIGN_REVIEW."
+      },
+      "on_success": "DESIGN_REVIEW",
+      "on_failure": "DESIGN_GATHER",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 5000
+      },
+      "timeout_ms": 300000,
+      "prompt_id": "design/design-analyze",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 15
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "query": {
+                "file": "features"
+              },
+              "max_results": 20
+            }
+          },
+          {
+            "provider": "business",
+            "config": {
+              "max_items": 15
+            }
+          }
+        ],
+        "focus": {
+          "role": "architectural design analysis for task {task_id} in sprint \"{sprint_goal}\"",
+          "constraints": [
+            "Base your design analysis on CKG patterns + CPG code structure",
+            "Consider domain, application, and infrastructure layers when assessing impact"
+          ],
+          "context_priority": "project \u2192 task \u2192 ckg \u2192 cpg \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
+      }
+    },
+    {
+      "key": "DESIGN_REVIEW",
+      "label": "Design review",
+      "execution": "user_input",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject",
+              "refine"
+            ],
+            "description": "Design decision. approve->CKG_SAVE, reject->DESIGN_GATHER, refine->REFINE.DIAGNOSE",
+            "examples": [
+              "approve"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Evidence or reason for the decision",
+            "examples": [
+              "The design covers all layers correctly"
+            ]
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Design reviewed. approve->CKG_SAVE, reject->DESIGN_GATHER, refine->REFINE.DIAGNOSE."
+      },
+      "on_success": "CKG_SAVE",
+      "on_failure": "DESIGN_GATHER",
+      "side_effects": [
+        {
+          "type": "capture_decision",
+          "params": {}
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "design/design-review",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "reviewing architectural design for task {task_id} \u2014 build an ADR-lite decision report",
+          "constraints": [
+            "Construir INFORME DE DECISION (ADR-lite): contexto, decision propuesta, alternativas, consecuencias, recomendacion",
+            "Citar el analisis 6->3 del STATE layer (q1-a1, q2-a2, q3-a3) como evidencia",
+            "Dar recomendacion approve/reject/refine CON justificacion",
+            "Verificar alineacion con convenciones del CKG (scope, capas, patrones)",
+            "Evaluar impacto en capas y dependencias del TASK layer",
+            "Ask user to approve, reject, or refine"
+          ],
+          "context_priority": "project \u2192 task \u2192 ckg \u2192 state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      }
+    },
+    {
+      "key": "CKG_SAVE",
+      "label": "Save to CKG",
+      "execution": "auto",
+      "action": "documenting_knowledge",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "saved"
+            ],
+            "description": "Knowledge saved to CKG"
+          }
+        },
+        "description": "Design saved to knowledge graph. Transitions to next node per edges."
+      },
+      "on_success": "",
+      "on_failure": "DESIGN_REVIEW",
+      "side_effects": [
+        {
+          "type": "documenting_knowledge",
+          "params": {},
+          "compensation": {
+            "type": "remove_knowledge",
+            "description": "If subsequent step fails, revert CKG save"
+          }
+        },
+        {
+          "type": "sync_delta",
+          "params": {},
+          "optional": true
+        }
+      ],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "fixed",
+        "initial_delay_ms": 1000
+      },
+      "timeout_ms": 30000,
+      "prompt_id": "design/ckg-save",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    }
+  ]
+}

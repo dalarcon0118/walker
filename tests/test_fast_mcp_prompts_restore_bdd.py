@@ -10,6 +10,9 @@ funciona de nuevo en fast_mcp:
      cuando hay un prompt_manager en el bundle.
   4. `available_templates()` lista los templates de nodos restaurados.
 """
+import os
+from pathlib import Path
+
 import pytest
 from dataclasses import dataclass, field
 from typing import Any
@@ -512,4 +515,100 @@ class TestProtocolBuilder:
         assert isinstance(protocol, str)
         assert len(protocol) > 100
         # Should contain MCP-related content
-        assert "MCP" in protocol or "jsonrpc" in protocol.lower() or "protocol" in protocol.lower()
+        assert "MCP" in protocol or "protocol" in protocol.lower()
+
+
+# ── Workflow config restoration (mcp/data/workflow/) ──────────────────────
+# Valida que la configuración del workflow (SSOT del grafo BPMN) restaurada
+# desde mcp/data/workflow/ carga con el GraphRepository canónico de fast_mcp
+# y que cada sub_estado llm_task tiene su template de prompt restaurado.
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW_JSON = REPO_ROOT / "mcp" / "data" / "workflow" / "workflow.json"
+
+EXPECTED_WORKFLOW_NODES = {
+    "START",
+    "SPRINT",
+    "PROJECT_INIT",
+    "DESIGN",
+    "ANALYZE",
+    "IMPLEMENT",
+    "VERIFY",
+    "REFINE",
+}
+
+
+class TestWorkflowConfigRestored:
+
+    def test_workflow_json_exists(self):
+        assert WORKFLOW_JSON.exists(), (
+            f"workflow.json no restaurado: {WORKFLOW_JSON}"
+        )
+
+    def test_restored_workflow_loads_with_graph_repository(self):
+        from fast_mcp.features.workflow.infrastructure.graph_repository import GraphRepository
+
+        graph = GraphRepository(str(WORKFLOW_JSON)).load()
+
+        assert graph.initial_state == "START"
+        assert graph.nodes is not None
+        assert empirical_subset(EXPECTED_WORKFLOW_NODES, set(graph.nodes))
+        # Edges (gates) definidos
+        assert len(graph.edges) > 0
+        # context_bag propagado (SSOT de placeholders)
+        assert graph.on_events is not None
+
+    def test_every_llm_task_sub_state_has_restored_prompt(self):
+        """Cada sub_estado execution == llm_task apunta a un template restaurado."""
+        from fast_mcp.features.workflow.infrastructure.graph_repository import GraphRepository
+        from fast_mcp.features.workflow.application.prompts.static_loader import canonical_nodes_dir
+
+        graph = GraphRepository(str(WORKFLOW_JSON)).load()
+        templates_dir = Path(canonical_nodes_dir())
+        missing = []
+        for node_id, node in graph.nodes.items():
+            for ss in node.sub_states:
+                if getattr(ss, "execution", "") == "llm_task" or is_llm_task(ss):
+                    pid = ss.prompt_id or ss.prompt
+                    if not pid:
+                        continue
+                    # template canónico: nodes/<nodo>/<pid-sin-prefijo>.prompt.json
+                    tpl = templates_dir / (pid + ".prompt.json")
+                    if not tpl.exists():
+                        missing.append(f"{node_id}/{pid}")
+        assert not missing, f"Templates faltantes para llm_task: {missing}"
+
+    def test_every_prompt_id_in_nodes_has_template(self):
+        """Todos los prompt_id referenciados por los nodos tienen template."""
+        from fast_mcp.features.workflow.infrastructure.graph_repository import GraphRepository
+        from fast_mcp.features.workflow.application.prompts.static_loader import canonical_nodes_dir
+
+        # Leer prompt_ids directo del JSON (resolución modular ya embebida)
+        import json as _json
+        with open(WORKFLOW_JSON) as f:
+            base = _json.load(f)
+        nodes_dir = WORKFLOW_JSON.parent / "nodes"
+        templates_dir = Path(canonical_nodes_dir())
+        missing = []
+        for node_file in sorted(nodes_dir.glob("*.node.json")):
+            with open(node_file) as f:
+                node_data = _json.load(f)
+            for ss in node_data.get("sub_states", []):
+                pid = ss.get("prompt_id") or ss.get("prompt")
+                if not pid:
+                    continue
+                tpl = templates_dir / (pid + ".prompt.json")
+                if not tpl.exists():
+                    missing.append(f"{node_file.name}/{pid}")
+        assert not missing, f"Templates faltantes: {missing}"
+
+
+def is_llm_task(ss) -> bool:
+    """Un sub_estado es llm_task si pide prompt o su execution es llm_task."""
+    return (getattr(ss, "execution", "") == "llm_task"
+            or bool(getattr(ss, "prompt_id", "") or getattr(ss, "prompt", "")))
+
+
+def empirical_subset(expected: set, actual: set) -> bool:
+    """expected ⊆ actual (los nodos clave del workflow deben existir)."""
+    return expected.issubset(actual)
