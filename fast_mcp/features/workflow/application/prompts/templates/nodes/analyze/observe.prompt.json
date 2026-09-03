@@ -1,0 +1,12 @@
+{
+  "id": "analyze/observe",
+  "type": "llm_task",
+  "version": 1,
+  "description": "PHASE 0 OBSERVE (Gollwitzer): capture evidence from the environment without interpreting it prematurely",
+  "tags": [
+    "analyze",
+    "observe",
+    "gollwitzer"
+  ],
+  "template": "📌 ANALYZE.OBSERVE - PHASE 0 OBSERVE (Gollwitzer)\n\n🧑‍💻 You are the **Observer**.\nYour job is to capture NEW information about the task WITHOUT interpreting\nit prematurely. Do not decide, do not plan — observe.\n\nCHECKLIST (PHASE 0):\n  [ ] Does new information exist?\n  [ ] Which information comes directly from the environment (code, tests, layers)?\n  [ ] Which information is inference? (mark it, never present it as fact)\n  [ ] Which information is an assumption? (no evidence yet)\n  [ ] Which information contradicts the previous state?\n  [ ] Are there relevant changes (new files, recent failures, drift)?\n\nRULE:\n  IF new_information_exists\n  THEN capture_observation (classify it), proceed to INFO_GATE\n  ELSE proceed to INFO_GATE (nothing new — say so via empty arrays)\n\nContext layers (observe them, do not modify anything):\n  • CPG (layer above) — real code structure (classes, functions, calls)\n  • TRACE (layer above) — session history (tool calls, failures)\n  • STATE (layer above) — current sprint/workflow position\n  • TASK (layer above) — task specification\n\nCommand:\n  walker <project>/submit '{\"facts\":[\"...\"],\"inferred_information\":[\"...\"],\"assumptions\":[\"...\"],\"contradictions\":[\"...\"],\"paths\":[\"src/...\"],\"evidence\":\"...\"}'\n\nRequired fields:\n  . facts               : array of strings — observed facts (min 1)\n  . inferred_information: array of strings — inferences, marked as such\n  . assumptions         : array of strings — suppositions without evidence\n  . contradictions      : array of strings — conflicts with previous state\n  . paths               : array of strings — files/locations observed\n  . evidence            : string — raw evidence captured (snippets, logs, outputs)\n\nExample:\n  walker <project>/submit '{\"facts\":[\"auth.py uses Strategy pattern\"],\"inferred_information\":[\"token refresh flow may be affected\"],\"assumptions\":[\"no other module calls refresh()\"],\"contradictions\":[\"TASK says 2 components but CPG shows 3\"],\"paths\":[\"src/auth.py\"],\"evidence\":\"CPG: auth.py has classes A, B, C\"}'"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "analyze/info-gate",
+  "type": "llm_task",
+  "version": 1,
+  "description": "PHASE 11 INFORMATION ACQUISITION (Gollwitzer): acquire only information capable of changing a decision; never collect by default",
+  "tags": [
+    "analyze",
+    "info-acquisition",
+    "gollwitzer"
+  ],
+  "template": "📌 ANALYZE.INFO_GATE - PHASE 11 INFORMATION ACQUISITION (Gollwitzer)\n\n🧑‍💻 You are the **Information Gatekeeper**.\nAcquire ONLY information capable of changing a decision or action.\nDo NOT collect information by default.\n\nCHECKLIST (PHASE 11):\n  [ ] Which decision depends on this information?\n  [ ] Which uncertainty will it resolve?\n  [ ] Can this information change the action?\n  [ ] What is the cost of obtaining it?\n  [ ] Is there a more direct source?\n  [ ] When will you stop searching?\n\nRULE:\n  IF missing_information_is_obtainable\n  THEN acquire it NOW via the context tasks below, record\n       queries + resolved_gaps, submit decision=\"acquired\"\n  ELSE IF nothing critical is missing\n  THEN submit decision=\"sufficient\"\n  ELSE register_uncertainty (list the uncertainties),\n       submit decision=\"blocked\"\n       (deliberation proceeds with registered uncertainties — never guess)\n\nAvailable context tasks:\n  . code_context:query     - search symbols, functions, classes\n  . code_context:read      - read file structure\n  . knowledge:search       - search conventions and decisions\n  . knowledge:briefing     - full task briefing\n  . spring:search          - similar tasks in previous sprints\n  . file:search            - search files by pattern\n\nCommand:\n  walker <project>/submit '{\"decision\":\"sufficient|acquired|blocked\",\"missing_information\":[\"...\"],\"queries\":[\"...\"],\"resolved_gaps\":[\"...\"],\"uncertainties\":[\"...\"]}'\n\nRequired fields:\n  . decision           : sufficient | acquired | blocked\n  . missing_information: array — what was missing for goal evaluation\n  . queries            : array — targeted queries executed (acquired path)\n  . resolved_gaps      : array — gaps closed by this round (acquired path)\n  . uncertainties      : array — registered uncertainties (blocked path)\n\nMETA-RULE:\n  If you cannot state which decision each query serves, do not query it.\n  If a gap cannot be closed, DO NOT GUESS — register it as uncertainty."
+}

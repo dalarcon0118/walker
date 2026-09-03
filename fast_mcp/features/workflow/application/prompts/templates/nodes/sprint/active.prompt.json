@@ -1,11 +1,13 @@
 {
   "id": "sprint/active",
-  "type": "auto",
-  "version": 1,
-  "description": "Sprint dashboard - shows active sprint status and available transitions",
+  "type": "user_input",
+  "version": 2,
+  "description": "Sprint dashboard + PHASE 12 MONITORING (Gollwitzer): active goal maintenance with invalidation check",
   "tags": [
     "sprint",
-    "dashboard"
+    "dashboard",
+    "monitoring",
+    "gollwitzer"
   ],
-  "template": "SPRINT.ACTIVE - Sprint Active / Dashboard\n\n{goal_display}\nTasks: {completed_count}/{task_count} completed\n\nTASKS READY (DAG - dependencies met):\n{ready_tasks}\n\nBlocked tasks (waiting for dependencies):\n{blocked_tasks}\n\nAvailable transitions:\n  . transition start_task     -> start design + analysis of a task\n  . transition edit_plan      -> return to planning to adjust backlog\n  . transition start_review   -> start sprint review (when all tasks are done)\n  . transition close_sprint   -> close the sprint directly"
+  "template": "SPRINT.ACTIVE - Sprint Monitoring (Gollwitzer: committed goal maintenance)\n\n{goal_display}\nTasks: {completed_count}/{task_count} completed\n\nTASKS READY (DAG - dependencies met):\n{ready_tasks}\n\nBlocked tasks (waiting for dependencies):\n{blocked_tasks}\n\n═══════════════════════════════════════════════════════════════\n PHASE 12 MONITORING — check BEFORE choosing a transition\n═══════════════════════════════════════════════════════════════\n  [ ] Is the sprint goal still active and valid?\n  [ ] Has the world state changed (new requirements, blockers, findings)?\n  [ ] Did a new relevant signal appear (qa_failed, quality gates, drift)?\n  [ ] Is an IF condition of the plan met?\n  [ ] Is an invalidation condition of the commitment present?\n\nRULE:\n  IF the goal is still valid and no invalidation is detected\n  THEN proceed normally with the transitions below.\n\n  IF an invalidation condition is detected\n  (goal no longer achievable as planned, scope changed, cost > benefit)\n  THEN transition goal_invalidation -> re-deliberate the sprint plan\n       (back to PLANNING). Register WHAT invalidated the goal in the reason.\n       DO NOT keep executing a dead plan.\n\nAvailable transitions:\n  . transition start_task        -> start design + analysis of a task\n  . transition edit_plan         -> return to planning to adjust backlog\n  . transition goal_invalidation -> PHASE 12: goal invalidated, re-deliberate (PLANNING)\n  . transition start_review      -> start sprint review (when all tasks are done)\n  . transition close_sprint      -> close the sprint directly"
 }

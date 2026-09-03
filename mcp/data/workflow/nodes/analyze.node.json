@@ -11,7 +11,7 @@
       "execution": "auto",
       "input_schema": {},
       "output_schema": {},
-      "on_success": "ANALYZE",
+      "on_success": "OBSERVE",
       "on_failure": "",
       "side_effects": [
         {
@@ -38,6 +38,277 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
+      }
+    },
+    {
+      "key": "OBSERVE",
+      "label": "PHASE 0 Observe: capture evidence without interpreting",
+      "execution": "llm_task",
+      "action": "observe",
+      "needs": [
+        "project_id",
+        "task_id",
+        "sprint_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "facts": {
+            "type": "array",
+            "description": "New information taken directly from the environment (code, tests, context layers)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inferred_information": {
+            "type": "array",
+            "description": "Conclusions derived from facts, explicitly marked as inference (not fact)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assumptions": {
+            "type": "array",
+            "description": "Suppositions without evidence yet",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contradictions": {
+            "type": "array",
+            "description": "Information that contradicts the previous state",
+            "items": {
+              "type": "string"
+            }
+          },
+          "paths": {
+            "type": "array",
+            "description": "Files/locations observed",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Raw evidence captured (outputs, snippets, logs)"
+          }
+        },
+        "required": [
+          "facts"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "observed"
+            ],
+            "description": "Observation captured"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "observe"
+            ],
+            "description": "Gollwitzer phase recorded by the action"
+          }
+        },
+        "description": "Observation recorded (facts/inferences/assumptions/contradictions). Transitions to INFO_GATE."
+      },
+      "on_success": "INFO_GATE",
+      "on_failure": "GATHER",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
+      },
+      "timeout_ms": 300000,
+      "prompt_id": "analyze/observe",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 10
+            }
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 5
+            }
+          }
+        ],
+        "focus": {
+          "role": "observing the environment for task {task_id} in sprint \"{sprint_goal}\" — capture, do not interpret",
+          "constraints": [
+            "Separate facts from inferences and assumptions (PHASE 0 discipline)",
+            "Mark contradictions against the previous state explicitly",
+            "Do not decide, do not plan — observation only"
+          ],
+          "context_priority": "task → cpg → state → trace"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
+      }
+    },
+    {
+      "key": "INFO_GATE",
+      "label": "PHASE 11 Information acquisition gate (decision value)",
+      "execution": "llm_task",
+      "action": "info_acquisition",
+      "needs": [
+        "project_id",
+        "task_id",
+        "sprint_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "sufficient",
+              "acquired",
+              "blocked"
+            ],
+            "description": "sufficient: state is enough for deliberation. acquired: missing info was obtainable and has been acquired now. blocked: unobtainable, uncertainties registered."
+          },
+          "missing_information": {
+            "type": "array",
+            "description": "Information that was missing for goal evaluation",
+            "items": {
+              "type": "string"
+            }
+          },
+          "queries": {
+            "type": "array",
+            "description": "Targeted queries executed to acquire the missing information",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resolved_gaps": {
+            "type": "array",
+            "description": "Gaps closed by the acquisition round",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uncertainties": {
+            "type": "array",
+            "description": "Unresolvable uncertainties registered (blocked path) — deliberation will account for them",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "gated"
+            ],
+            "description": "Information gate evaluated"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "info_acquisition"
+            ],
+            "description": "Gollwitzer phase recorded by the action"
+          }
+        },
+        "description": "Decision-value gate passed. Transitions to ANALYZE (deliberation)."
+      },
+      "on_success": "ANALYZE",
+      "on_failure": "GATHER",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
+      },
+      "timeout_ms": 300000,
+      "prompt_id": "analyze/info-gate",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "decision"
+              },
+              "max_nodes": 10
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 10
+            }
+          }
+        ],
+        "focus": {
+          "role": "gating information acquisition for task {task_id} — only info that can change a decision",
+          "constraints": [
+            "Do NOT collect information by default (PHASE 11 discipline)",
+            "If missing info is obtainable, acquire it via context tasks BEFORE submitting",
+            "If unobtainable, register uncertainties instead of guessing (DO NOT GUESS)"
+          ],
+          "context_priority": "task → state → ckg → cpg"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
       }
     },
     {

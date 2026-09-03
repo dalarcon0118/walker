@@ -30,7 +30,7 @@
         },
         "description": "Context collected. Auto-transitions to DESIGN_ANALYZE."
       },
-      "on_success": "DESIGN_ANALYZE",
+      "on_success": "DESIGN_OBSERVE",
       "on_failure": "",
       "side_effects": [
         {
@@ -89,6 +89,145 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
+      }
+    },
+    {
+      "key": "DESIGN_OBSERVE",
+      "label": "PHASE 0 Observe: capture architectural evidence without interpreting",
+      "execution": "llm_task",
+      "action": "observe",
+      "needs": [
+        "project_id",
+        "sprint_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "facts": {
+            "type": "array",
+            "description": "Architectural facts taken directly from the context layers (CKG patterns, CPG structure, business flows)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inferred_information": {
+            "type": "array",
+            "description": "Conclusions derived from the gathered context, explicitly marked as inference",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assumptions": {
+            "type": "array",
+            "description": "Suppositions without evidence yet",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contradictions": {
+            "type": "array",
+            "description": "Information that contradicts the previous design state or conventions",
+            "items": {
+              "type": "string"
+            }
+          },
+          "paths": {
+            "type": "array",
+            "description": "Files/modules observed",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Raw evidence captured (CKG nodes, CPG symbols, business rules)"
+          }
+        },
+        "required": [
+          "facts"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "observed"
+            ],
+            "description": "Observation captured"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "observe"
+            ],
+            "description": "Gollwitzer phase recorded by the action"
+          }
+        },
+        "description": "Architectural observation recorded. Transitions to DESIGN_ANALYZE."
+      },
+      "on_success": "DESIGN_ANALYZE",
+      "on_failure": "DESIGN_GATHER",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
+      },
+      "timeout_ms": 300000,
+      "prompt_id": "design/observe",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 10
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 10
+            }
+          },
+          {
+            "provider": "business",
+            "config": {
+              "max_items": 10
+            }
+          }
+        ],
+        "focus": {
+          "role": "observing the architectural environment for sprint \"{sprint_goal}\" — capture, do not interpret",
+          "constraints": [
+            "Separate facts from inferences and assumptions (PHASE 0 discipline)",
+            "Observe CKG conventions and CPG structure as they are, without deciding yet",
+            "Do not design, do not plan — observation only"
+          ],
+          "context_priority": "ckg → cpg → business → state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
       }
     },
     {

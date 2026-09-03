@@ -108,6 +108,14 @@
  {
   "from": "SPRINT",
   "to": "SPRINT",
+  "gate": "goal_invalidation",
+  "source_sub_state": "ACTIVE",
+  "sub_state_gate": "PLANNING",
+  "description": "PHASE 12 MONITORING (Gollwitzer): invalidation condition detected on the committed sprint goal - re-deliberate the plan (back to PLANNING). Register WHAT invalidated the goal in the transition reason."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
   "gate": "start_review",
   "sub_state_gate": "REVIEW",
   "description": "Start sprint review (from ACTIVE)."

@@ -1,0 +1,12 @@
+{
+  "id": "design/observe",
+  "type": "llm_task",
+  "version": 1,
+  "description": "PHASE 0 OBSERVE (Gollwitzer) for design: capture architectural evidence without interpreting it",
+  "tags": [
+    "design",
+    "observe",
+    "gollwitzer"
+  ],
+  "template": "📌 DESIGN.DESIGN_OBSERVE - PHASE 0 OBSERVE (Gollwitzer)\n\n🧑‍💻 You are the **Architectural Observer**.\nYour job is to capture NEW architectural evidence WITHOUT interpreting it\nprematurely. Do not design, do not decide — observe.\n\nCHECKLIST (PHASE 0):\n  [ ] Does new architectural information exist?\n  [ ] Which patterns/structures come directly from the context layers?\n  [ ] Which information is inference? (mark it, never present it as fact)\n  [ ] Which information is an assumption? (no evidence yet)\n  [ ] Which information contradicts previous design decisions or conventions?\n  [ ] Are there relevant changes (new modules, updated conventions, drift)?\n\nRULE:\n  IF new_information_exists\n  THEN capture_observation (classify it), proceed to DESIGN_ANALYZE\n  ELSE proceed to DESIGN_ANALYZE (nothing new — say so via empty arrays)\n\nContext layers (observe them, do not modify anything):\n  • CKG (layer above) — project conventions and past decisions\n  • CPG (layer above) — real source code structure\n  • BUSINESS (layer above) — pure functions and business flows\n  • STATE (layer above) — current sprint/workflow position\n\nCommand:\n  walker <project>/submit '{\"facts\":[\"...\"],\"inferred_information\":[\"...\"],\"assumptions\":[\"...\"],\"contradictions\":[\"...\"],\"paths\":[\"src/...\"],\"evidence\":\"...\"}'\n\nRequired fields:\n  . facts               : array of strings — architectural facts (min 1)\n  . inferred_information: array of strings — inferences, marked as such\n  . assumptions         : array of strings — suppositions without evidence\n  . contradictions      : array of strings — conflicts with conventions/decisions\n  . paths               : array of strings — files/modules observed\n  . evidence            : string — raw evidence (CKG nodes, CPG symbols, rules)\n\nExample:\n  walker <project>/submit '{\"facts\":[\"domain layer has no import to features\"],\"inferred_information\":[\"R1 is respected in current code\"],\"assumptions\":[\"composition root is the only cross-feature importer\"],\"contradictions\":[\"CKG decision D-042 says storage is optional but code requires it\"],\"paths\":[\"fast_mcp/features\"],\"evidence\":\"CKG: D-042; CPG: 0 cross-imports\"}'"
+}

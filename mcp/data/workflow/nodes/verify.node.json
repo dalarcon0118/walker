@@ -84,7 +84,7 @@
         ],
         "description": "Predicate verification completed. all_passed=true -> QA. all_passed=false -> IMPLEMENT.WORK."
       },
-      "on_success": "QA",
+      "on_success": "MONITOR",
       "on_failure": "QA_RUN",
       "side_effects": [],
       "retry": {
@@ -105,6 +105,113 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
+      }
+    },
+    {
+      "key": "MONITOR",
+      "label": "PHASE 12 Monitoring: plan vs result (non-occurrence)",
+      "execution": "llm_task",
+      "action": "monitoring",
+      "needs": [
+        "project_id",
+        "task_id",
+        "sprint_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "array",
+            "description": "What was committed in the implementation plan",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deviations": {
+            "type": "array",
+            "description": "Observed differences between plan and result",
+            "items": {
+              "type": "string"
+            }
+          },
+          "non_occurrence": {
+            "type": "array",
+            "description": "Things that should NOT have happened — and whether they did",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "monitored"
+            ],
+            "description": "Monitoring recorded"
+          },
+          "compliant": {
+            "type": "boolean",
+            "description": "True when no deviations were recorded"
+          }
+        },
+        "description": "Monitoring recorded. Transitions to QA (postactional evaluation)."
+      },
+      "on_success": "QA",
+      "on_failure": "PREDICATE_CHECK",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
+      },
+      "timeout_ms": 180000,
+      "prompt_id": "verify/monitor",
+      "context": {
+        "sources": [
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "diff",
+            "config": {}
+          },
+          {
+            "provider": "test_results",
+            "config": {}
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 5
+            }
+          }
+        ],
+        "focus": {
+          "role": "monitoring implementation vs plan for task {task_id} (PHASE 12, non-occurrence effect)",
+          "constraints": [
+            "Record deviations explicitly — do not normalize them silently",
+            "Check what should NOT have happened (non-occurrence), not only what should"
+          ],
+          "context_priority": "state → diff → test_results → trace"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
       }
     },
     {

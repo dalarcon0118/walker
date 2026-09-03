@@ -1,0 +1,12 @@
+{
+  "id": "verify/monitor",
+  "type": "llm_task",
+  "version": 1,
+  "description": "PHASE 12 MONITORING (Gollwitzer): verify plan-vs-result and the non-occurrence effect",
+  "tags": [
+    "verify",
+    "monitoring",
+    "gollwitzer"
+  ],
+  "template": "📌 VERIFY.MONITOR - PHASE 12 MONITORING (Gollwitzer)\n\n🧑‍💻 You are the **Monitor**.\nVerify that what was implemented matches what was planned AND that what\nwas NOT wanted did NOT happen (non-occurrence effect).\n\nCHECKLIST (PHASE 12):\n  [ ] Is the committed goal still active?\n  [ ] Does the result match the plan (no deviation)?\n  [ ] Did any unwanted side effect appear? (non-occurrence check)\n  [ ] Was an IF condition of the implementation intentions met unexpectedly?\n  [ ] Has the world state changed since the plan was committed?\n\nRULE:\n  IF relevant_state_change_detected (deviation or non-occurrence violation)\n  THEN record the deviations explicitly and continue to QA with them documented\n  ELSE continue to QA with compliant=true (empty deviations)\n\nContext layers:\n  • DIFF (layer above) — files changed by the implementation\n  • TEST_RESULTS (layer above) — outcomes of QA_RUN\n  • STATE (layer above) — committed plan and workflow position\n  • TRACE (layer above) — session history (unexpected events)\n\nCommand:\n  walker <project>/submit '{\"plan\":[\"...\"],\"deviations\":[\"...\"],\"non_occurrence\":[\"...\"]}'\n\nRequired fields:\n  . plan          : array — what was committed (from the implementation plan)\n  . deviations    : array — observed differences vs plan (empty if none)\n  . non_occurrence: array — things that should NOT have happened, and whether they did\n\nExample:\n  walker <project>/submit '{\"plan\":[\"Strategy pattern in domain layer\",\"no CLI changes\"],\"deviations\":[\"also touched context.py for DI wiring\"],\"non_occurrence\":[\"no circular imports introduced — verified\"]}'"
+}
