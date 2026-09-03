@@ -186,10 +186,14 @@ def install(server: FastMCP) -> None:
 
 
 def _build_runner(name: str):
-    """Build a tool runner via workflow, delta, trace, or task runner."""
+    """Build a tool runner via session, workflow, delta, trace, or task runner."""
+    _SESSION_TOOLS = {"help", "list_projects"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push"}
     _TASK_TOOLS = {"implement_task", "run_tests", "verify_predicates", "capture"}
+    if name in _SESSION_TOOLS:
+        from fast_mcp.composition import session_tool_runner
+        return session_tool_runner(name)
     if name in _DELTA_TOOLS:
         from fast_mcp.composition import delta_tool_runner
         return delta_tool_runner(name)

@@ -97,9 +97,9 @@ class ProjectService:
             get_data_dir,
             get_delta_dir,
             get_trace_dir,
-            get_walker_root,
             resolve_project_id,
             resolve_project_root,
+            walker_root,
         )
 
         if not chain_dir:
@@ -120,7 +120,10 @@ class ProjectService:
                 data_dir = str(get_data_dir(pid_str))
             except Exception:  # noqa: BLE001
                 pass
-        delta_dir = str(get_delta_dir(pid_str))
+        try:
+            delta_dir = str(get_delta_dir(pid_str))
+        except (FileNotFoundError, Exception):
+            delta_dir = os.path.join(data_dir, "spring")
         workflow_dir = config.get_workflow_manifest_dir()
         trace_dir = str(get_trace_dir(pid_str))
         cpg_path = str(get_cpg_path(pid_str))
@@ -142,13 +145,13 @@ class ProjectService:
                 pass
 
         cognitive_dir = ""
-        walker_root = ""
+        walker_root_str = ""
         try:
             cognitive_dir = str(get_cognitive_dir())
         except Exception:  # noqa: BLE001
             pass
         try:
-            walker_root = str(get_walker_root())
+            walker_root_str = str(walker_root())
         except Exception:  # noqa: BLE001
             pass
 
@@ -166,7 +169,7 @@ class ProjectService:
             workflow_json_path=workflow_json,
             repo_path=repo_path,
             cognitive_dir=cognitive_dir,
-            walker_root=walker_root,
+            walker_root=walker_root_str,
         )
 
     # ── Discovery ─────────────────────────────────────────────────────

@@ -302,6 +302,128 @@ class TestOrchestratorSubmit:
         assert s.revision == 0
 
 
+# ── Engine anémico: sub_state.action execution (Sprint 5) ────────────────
+
+class TestActionExecution:
+    """Verify submit executes sub_state.action via TaskRegistry (engine anémico).
+
+    Previously submit recorded task_ok=True hardcoded without running the
+    declared action (orchestrator.py line ~196). Now it dispatches the action
+    through bundle.task_registry and blocks (fail-loud) if it fails.
+    """
+
+    def _make_action_graph(self, action: str) -> WorkflowGraph:
+        return WorkflowGraph(
+            nodes={
+                "START": WorkflowNode(
+                    node_id="START",
+                    sub_states=[
+                        SubState(key="INIT", label="Init", action=action)
+                    ],
+                    label="Start",
+                ),
+            },
+            edges=[],
+            edges_by_source={},
+            initial_state="START",
+        )
+
+    def _make_action_registry(self, ok: bool, error: str = ""):
+        from fast_mcp.features.tasks.domain.task_registry import TaskRegistry, TaskResult
+
+        reg = TaskRegistry()
+
+        def _handler(ctx, data):
+            if not ok:
+                return TaskResult.failure(error or "action failed")
+            return TaskResult.success(data={"executed": True, "action": data.get("task_id")})
+
+        reg.register("test_action", _handler)
+        return reg
+
+    def test_submit_executes_action_and_succeeds(self):
+        g = self._make_action_graph(action="test_action")
+        s = WorkflowState(current_node="START", current_sub_state="INIT")
+        bundle, store, _ = _make_bundle(graph=g, state=s)
+        # Inject real task registry via the bundle (engine anémico fix).
+        bundle = EngineBundle(
+            workflow_store=bundle.workflow_store,
+            workflow_io=bundle.workflow_io,
+            tracer=bundle.tracer,
+            side_effects=bundle.side_effects,
+            chain_dir=bundle.chain_dir,
+            task_registry=self._make_action_registry(ok=True),
+        )
+        orch = OrchestrationService(bundle=bundle)
+
+        result = orch.submit(_ctx(), fields={"decision": "approve"})
+
+        assert result["ok"] is True
+        # The recorded NodeExecution must carry the real task_ok + action result.
+        last_exec = store._saved_states[-1][-1].node_executions[-1]
+        assert last_exec.action == "test_action"
+        assert last_exec.task_ok is True
+        assert last_exec.task_result == {
+            "action": "test_action",
+            "data": {"executed": True, "action": "T1"},
+        }
+        assert last_exec.task_result["data"]["executed"] is True
+
+    def test_submit_executes_action_and_fail_loud_on_failure(self):
+        g = self._make_action_graph(action="test_action")
+        s = WorkflowState(current_node="START", current_sub_state="INIT")
+        bundle, store, _ = _make_bundle(graph=g, state=s)
+        bundle = EngineBundle(
+            workflow_store=bundle.workflow_store,
+            workflow_io=bundle.workflow_io,
+            tracer=bundle.tracer,
+            side_effects=bundle.side_effects,
+            chain_dir=bundle.chain_dir,
+            task_registry=self._make_action_registry(ok=False, error="DoD no verificada"),
+        )
+        orch = OrchestrationService(bundle=bundle)
+
+        result = orch.submit(_ctx(), fields={"decision": "approve"})
+
+        # Fail-loud: action returned ok=False → submit must NOT succeed.
+        assert result["ok"] is False
+        assert result["action"] == "task_failed"
+        assert "DoD no verificada" in result["error"]
+        last_exec = store._saved_states[-1][-1].node_executions[-1]
+        assert last_exec.task_ok is False
+
+    def test_submit_action_unknown_fails_loud(self):
+        g = self._make_action_graph(action="does_not_exist")
+        s = WorkflowState(current_node="START", current_sub_state="INIT")
+        bundle, store, _ = _make_bundle(graph=g, state=s)
+        bundle = EngineBundle(
+            workflow_store=bundle.workflow_store,
+            workflow_io=bundle.workflow_io,
+            tracer=bundle.tracer,
+            side_effects=bundle.side_effects,
+            chain_dir=bundle.chain_dir,
+            task_registry=self._make_action_registry(ok=True),
+        )
+        orch = OrchestrationService(bundle=bundle)
+
+        result = orch.submit(_ctx())
+
+        assert result["ok"] is False
+        assert "does_not_exist" in result["error"]
+
+    def test_submit_no_action_still_succeeds_without_registry(self):
+        """Backward compat: sub-state without action needs no registry."""
+        g = _make_graph()
+        s = WorkflowState(current_node="START", current_sub_state="INIT")
+        bundle, store, _ = _make_bundle(graph=g, state=s)  # no task_registry
+        orch = OrchestrationService(bundle=bundle)
+
+        result = orch.submit(_ctx(), fields={"decision": "approve"})
+
+        assert result["ok"] is True
+        assert store._saved_states[-1][-1].node_executions[-1].task_ok is True
+
+
 # ── OrchestrationService.transition tests ────────────────────────────────
 
 class TestOrchestratorTransition:

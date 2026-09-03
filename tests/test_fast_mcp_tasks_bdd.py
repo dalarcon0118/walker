@@ -147,7 +147,7 @@ class TestVerifyPredicates:
 
         ctx = ExecutionContext(chain_dir=str(tmp_path))
         result = verify_predicates(ctx, {
-            "predicates": [{"type": "file_exists", "target": "test.py"}]
+            "predicates": [{"type": "file_exists", "path": "test.py"}]
         })
         assert result.ok is True
         assert result.data["all_satisfied"] is True
@@ -158,19 +158,20 @@ class TestVerifyPredicates:
 
         ctx = ExecutionContext(chain_dir=str(tmp_path))
         result = verify_predicates(ctx, {
-            "predicates": [{"type": "file_exists", "target": "nonexistent.py"}]
+            "predicates": [{"type": "file_exists", "path": "nonexistent.py"}]
         })
         assert result.ok is True
         assert result.data["all_satisfied"] is False
 
     def test_empty_predicates(self):
+        """G-W6 anti-hallucination: empty predicates → failure."""
         from fast_mcp.features.tasks.handlers.verify import verify_predicates
         from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
 
-        ctx = ExecutionContext()
+        ctx = ExecutionContext(chain_dir="/tmp")
         result = verify_predicates(ctx, {})
-        assert result.ok is True
-        assert result.data["all_satisfied"] is True
+        assert result.ok is False
+        assert "predicat" in result.error.lower() or "vacío" in result.error
 
 
 class TestCapture:
@@ -185,6 +186,118 @@ class TestCapture:
         assert result.ok is True
         assert result.data["captured"] is True
         assert result.data["evidence"] == "patch applied"
+
+
+# ── Sprint Planning ──
+
+
+class TestSprintPlanning:
+    """sprint_planning handler tests.
+
+    NOTE (Sprint 5 / R1): sprint_planning handlers are closures bound to an
+    injected sprint_service (composition root). They are no longer importable
+    as bare module-level callables. Tests build them via _build_handlers().
+    """
+
+    @staticmethod
+    def _svc(project_root: str = "/tmp"):
+        from fast_mcp.features.delta_tracking.application.services.sprint_service import (
+            SprintService,
+        )
+
+        return SprintService(project_root=project_root)
+
+    @staticmethod
+    def _handlers(sprint_service=None):
+        from fast_mcp.features.tasks.handlers.sprint_planning import _build_handlers
+
+        plan_sprint, validate_plan, spec_task, close_sprint = _build_handlers(sprint_service)
+        return plan_sprint, validate_plan, spec_task, close_sprint
+
+    def test_plan_sprint_requires_goal(self):
+        from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
+
+        plan_sprint, _, _, _ = self._handlers(self._svc())
+        ctx = ExecutionContext(chain_dir="/tmp")
+        result = plan_sprint(ctx, {"tasks": []})
+        assert result.ok is False
+        assert "goal" in result.error
+
+    def test_plan_sprint_requires_context(self):
+        from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
+
+        # No sprint_service injected → fail-loud at composition (R1).
+        plan_sprint, _, _, _ = self._handlers(None)
+        ctx = ExecutionContext(chain_dir="/tmp/x")
+        result = plan_sprint(ctx, {"goal": "build x"})
+        assert result.ok is False
+        assert "sprint_service" in result.error
+
+    def test_plan_sprint_success_with_project_root(self):
+        from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
+
+        plan_sprint, _, _, _ = self._handlers(self._svc())
+        ctx = ExecutionContext(chain_dir="/tmp/x")
+        result = plan_sprint(ctx, {
+            "goal": "Port sprint planning",
+            "project_root": "/tmp",
+            "tasks": [{"objective": "task 1"}, {"objective": "task 2"}],
+        })
+        assert result.ok is True
+        assert result.data["goal"] == "Port sprint planning"
+        assert result.data["spec_count"] == 2
+
+    def test_spec_task_requires_fields(self):
+        from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
+
+        _, _, spec_task, _ = self._handlers(self._svc())
+        ctx = ExecutionContext(chain_dir="/tmp")
+        result = spec_task(ctx, {"spring_id": ""})
+        assert result.ok is False
+        assert "incompleta" in result.error
+
+    def test_spec_task_success(self):
+        from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
+
+        _, _, spec_task, _ = self._handlers(self._svc())
+        ctx = ExecutionContext(chain_dir="/tmp")
+        result = spec_task(ctx, {
+            "project_root": "/tmp",
+            "spring_id": "sprint-1",
+            "objective": "Implement feature",
+        })
+        assert result.ok is True
+        assert result.data["valid"] is True
+        assert result.data["objective"] == "Implement feature"
+
+    def test_validate_plan_requires_context(self):
+        from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
+
+        _, validate_plan, _, _ = self._handlers(None)
+        ctx = ExecutionContext()
+        result = validate_plan(ctx, {})
+        assert result.ok is False
+        assert "sprint_service" in result.error
+
+    def test_close_sprint_requires_context(self):
+        from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
+
+        _, _, _, close_sprint = self._handlers(None)
+        ctx = ExecutionContext()
+        result = close_sprint(ctx, {})
+        assert result.ok is False
+
+    def test_registered_in_registry(self):
+        from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
+        from fast_mcp.features.tasks.handlers import register_all_tasks
+
+        registry = TaskRegistry()
+        register_all_tasks(registry)
+        tasks = registry.list_tasks()
+        assert "plan_sprint" in tasks
+        assert "spec_task" in tasks
+        assert "validate_plan" in tasks
+        assert "close_sprint" in tasks
 
 
 # ── Side Effect Handlers ──

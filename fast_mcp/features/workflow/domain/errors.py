@@ -65,3 +65,18 @@ class StateConflictError(WorkflowEngineError):
             f"{expected}, stored {stored}",
             {"chain_dir": chain_dir, "expected": expected, "stored": stored},
         )
+
+
+class AutoAdvanceError(WorkflowEngineError):
+    """A task action failed → auto-advance must NOT occur.
+
+    Mirrors legacy mcp/shared/core/engine ApplicationError (AutoAdvanceError):
+    when `sub_state.action` executes and its TaskResult.ok is False, the
+    workflow stays in the current sub-state (no auto-advance) and the error
+    is surfaced (fail-loud, never silent empty-success).
+    """
+    def __init__(self, node: str, sub_state: str, level: int, message: str):
+        super().__init__(
+            message,
+            {"node": node, "sub_state": sub_state, "level": level},
+        )

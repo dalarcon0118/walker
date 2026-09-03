@@ -1,53 +1,78 @@
-"""handlers/verify.py — verify_predicates handler.
+"""handlers/verify.py — verify_predicates handler (anti-hallucination, G-W6).
 
-Checks if predicates are satisfied (files exist, tests pass, etc.).
+Uses the verify_engine from infrastructure/ for real predicate checking:
+  - file_exists, symbol_exists, test_pass, command_exit, grep, etc.
+  - Empty predicates → failure (never empty success, G-W6).
+  - Shell commands, AST-level verification, batch optimization.
 """
 from __future__ import annotations
 
-import os
+import logging
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
+from fast_mcp.features.tasks.infrastructure.verify_engine import (
+    invalidate_verify_cache,
+    verify_predicates_batch,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    """Verify that predicates are satisfied."""
+    """Verify predicates against real code using the verify engine.
+
+    G-W6 anti-hallucination: empty predicates → failure.
+    """
+    if data.get("_fresh"):
+        invalidate_verify_cache()
+
     predicates = data.get("predicates", [])
     if not isinstance(predicates, list):
         predicates = []
 
-    chain_dir = ctx.chain_dir or ""
-    results = []
+    project_root = data.get("project_root") or ctx.chain_dir or ""
+    if not project_root:
+        return TaskResult.failure(
+            "verify_predicates: no project_root/chain_dir — cannot verify"
+        )
 
-    for pred in predicates:
-        pred_type = pred.get("type", "")
-        target = pred.get("target", "")
+    # G-W6: empty predicates = no verification criteria = failure
+    if not predicates:
+        return TaskResult.failure(
+            "verify_predicates: predicates vacíos — "
+            "el gate no puede validar nada. Inyecta task.validation.predicates "
+            "desde la spec (DeltaGraph) o define predicates en la spec."
+        )
 
-        if pred_type == "file_exists":
-            path = os.path.join(chain_dir, target) if target else ""
-            exists = os.path.isfile(path) if path else False
-            results.append({"predicate": pred, "satisfied": exists})
-        elif pred_type == "test_passes":
-            # Simplified: assume test passes if file exists
-            path = os.path.join(chain_dir, target) if target else ""
-            exists = os.path.isfile(path) if path else False
-            results.append({"predicate": pred, "satisfied": exists})
-        else:
-            results.append({"predicate": pred, "satisfied": False, "error": f"unknown predicate type: {pred_type}"})
+    results = verify_predicates_batch(predicates, project_root)
 
-    all_satisfied = all(r["satisfied"] for r in results) if results else True
+    detailed = []
+    failed = 0
+    for pred, (passed, info) in zip(predicates, results):
+        if not passed:
+            failed += 1
+        detailed.append({
+            "predicate": info.get("label") or (pred if isinstance(pred, str) else str(pred)),
+            "method": info.get("method", "unknown"),
+            "passed": passed,
+            "detail": info,
+        })
 
     return TaskResult.success(data={
         "task_id": data.get("task_id") or ctx.task_id,
-        "all_satisfied": all_satisfied,
-        "results": results,
+        "all_satisfied": failed == 0,
+        "results": detailed,
+        "failed_count": failed,
+        "passed_count": len(detailed) - failed,
+        "total": len(detailed),
     })
 
 
 def register(registry) -> None:
     """Register verify_predicates."""
     registry.register("verify_predicates", verify_predicates, metadata={
-        "description": "Verify task predicates",
+        "description": "Verify task predicates against code (anti-hallucination)",
         "tags": ["verification"],
         "scope": "internal",
     })

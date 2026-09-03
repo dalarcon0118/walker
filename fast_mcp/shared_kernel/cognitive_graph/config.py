@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import os
 
-from fast_mcp.shared_kernel import config as _walker_config
+from fast_mcp.shared_kernel.config import get as _walker_config
 from .connection import MemoryConnection
 
 __all__ = ["load_memory_connection", "ENV_MEMORY_BACKEND", "ENV_MEMORY_URI",

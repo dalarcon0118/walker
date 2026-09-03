@@ -9,6 +9,7 @@ Simplified: 40 LOC with 4 required fields, no helper methods.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from ..domain.ports import (
     ITracer,
@@ -39,3 +40,4 @@ class EngineBundle:
     tracer: ITracer
     side_effects: ISideEffectEngine
     chain_dir: str
+    task_registry: Any = None  # TaskRegistry (Sprint 5): executes sub_state.action

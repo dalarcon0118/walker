@@ -295,26 +295,36 @@ def resolve_source_code_dirs(project_id: str) -> list[Path]:
 def resolve_project_root(chain_dir: str) -> str:
     """Deriva el directorio del proyecto desde un chain_dir (busca project.json).
 
-    Tres ubicaciones por nivel: <c>/data/project.json (canónico),
-    <c>/project.json (legacy) y el layout cognitivo
-    <c>/.cognitive/projects/<pid>/data/project.json. Si el candidato se llama
-    'data', se retorna su padre (bug del "double data/").
+    Returns the REPO ROOT (where code lives), not the layout directory.
+    Reads project.json to extract repo_path when available.
     """
     if not chain_dir:
         raise FileNotFoundError("chain_dir vacío — no se puede resolver project root")
     candidate = str(chain_dir)
     for _ in range(10):
-        if os.path.isfile(os.path.join(candidate, "data", "project.json")):
+        pj = os.path.join(candidate, "data", "project.json")
+        if os.path.isfile(pj):
             if os.path.basename(candidate) == "data":
-                parent = os.path.dirname(candidate)
-                if parent != candidate:
-                    return parent
+                candidate = os.path.dirname(candidate)
+                pj = os.path.join(candidate, "data", "project.json")
+            # Read repo_path from manifest (the actual code root)
+            repo = _read_repo_path(pj)
+            if repo:
+                return repo
             return candidate
-        if os.path.isfile(os.path.join(candidate, "project.json")):
+        pj2 = os.path.join(candidate, "project.json")
+        if os.path.isfile(pj2):
             if os.path.basename(candidate) != "data":
+                repo = _read_repo_path(pj2)
+                if repo:
+                    return repo
                 return candidate
         cognitive_manifest = _find_cognitive_manifest(candidate)
         if cognitive_manifest:
+            pj3 = os.path.join(cognitive_manifest, "data", "project.json")
+            repo = _read_repo_path(pj3) if os.path.isfile(pj3) else ""
+            if repo:
+                return repo
             return cognitive_manifest
         parent = os.path.dirname(candidate)
         if parent == candidate:
@@ -324,6 +334,19 @@ def resolve_project_root(chain_dir: str) -> str:
         f"No se pudo resolver project root desde chain_dir='{chain_dir}'. "
         "Ningún directorio en la jerarquía contiene project.json ni data/project.json."
     )
+
+
+def _read_repo_path(manifest_path: str) -> str:
+    """Extract repo_path from project.json manifest. Returns '' if unavailable."""
+    try:
+        with open(manifest_path) as f:
+            data = json.load(f)
+        repo = data.get("project", {}).get("location", {}).get("repo_path", "")
+        if repo and os.path.isdir(repo):
+            return repo
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
 
 
 def _find_cognitive_manifest(candidate: str) -> str:

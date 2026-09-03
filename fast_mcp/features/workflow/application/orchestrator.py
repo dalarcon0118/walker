@@ -14,6 +14,10 @@ No resolve_port(), no service locator, no lazy imports.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -149,6 +153,17 @@ class OrchestrationService:
         if graph is None or state is None:
             return {"ok": False, "error": "Failed to load workflow state"}
 
+        # Auto-initialize: if state has no current_node, set to graph's initial_state
+        if not state.current_node and graph.initial_state:
+            from dataclasses import replace
+            init_node = graph.get_node(graph.initial_state)
+            init_sub = init_node.sub_states[0].key if init_node and init_node.sub_states else ""
+            state = replace(
+                state,
+                current_node=graph.initial_state,
+                current_sub_state=init_sub,
+            )
+
         # 1. Reconcile index (INV-P3-01)
         state, warnings = state.reconcile_index(graph)
 
@@ -186,14 +201,45 @@ class OrchestrationService:
         if fields:
             state = state.record_submit(state.current_sub_state, fields)
 
-        # 6. Record NodeExecution
+        # 6. Execute sub_state.action via TaskRegistry (Sprint 5 — engine anémico)
+        task_result, task_ok, task_field = self._execute_action(
+            ctx, sub_state, state, fields
+        )
+        if task_result is not None and not task_ok:
+            # Task failed → fail-loud, no auto-advance (G-W6 never empty success).
+            error_msg = (
+                task_field
+                or f"Action '{sub_state.action}' failed"
+            )
+            state = state.record_node_execution(
+                node=state.current_node,
+                sub_state=state.current_sub_state,
+                execution_type=sub_state.execution.value if sub_state else "manual",
+                action=sub_state.action if sub_state else "",
+                submitted_fields=fields,
+                task_ok=False,
+                task_result={"error": error_msg, "action": sub_state.action},
+                error=error_msg,
+                error_type="task_failed",
+            )
+            if not self._save_state(state):
+                return {"ok": False, "error": "Failed to persist state"}
+            return {
+                "ok": False,
+                "action": "task_failed",
+                "error": error_msg,
+                "task_action": sub_state.action if sub_state else "",
+            }
+
+        # 6b. Record NodeExecution
         state = state.record_node_execution(
             node=state.current_node,
             sub_state=state.current_sub_state,
             execution_type=sub_state.execution.value if sub_state else "manual",
             action=sub_state.action if sub_state else "",
             submitted_fields=fields,
-            task_ok=True,
+            task_ok=task_ok,
+            task_result=task_result,
         )
 
         # 7. Save state (repository handles CAS + revision bump)
@@ -210,6 +256,73 @@ class OrchestrationService:
             "revision": state.revision,
             "data": fields,
         }
+
+    def _execute_action(
+        self,
+        ctx: ExecutionContext,
+        sub_state: Any,
+        state: WorkflowState,
+        fields: dict[str, Any],
+    ) -> tuple[Any, bool, str]:
+        """Execute sub_state.action via TaskRegistry (Sprint 5).
+
+        Mirrors legacy mcp/shared/core/engine/.../submit.py `_execute_task`:
+
+          - No action → (None, True, "") — nothing to execute, task assumed OK
+            (there is no declared work to run).
+          - Action set but NO task_registry in bundle → FAIL-LOUD (composition
+            error, D1/capa_rout.md): the engine MUST NOT silently advance
+            without running the declared action.
+          - Action executed → returns (task_result, task_ok, task_error).
+
+        G-W6 anti-hallucination: verify_predicates with no predicates must
+        NOT pass as empty-success — the target handler already returns
+        ok=False in that case, which we propagate (no auto-advance).
+        """
+        action = sub_state.action if sub_state else ""
+        if not action:
+            return None, True, ""
+
+        registry = getattr(self._bundle, "task_registry", None)
+        if registry is None:
+            # Fail-loud: declared action but no registry (broken composition).
+            raise WorkflowEngineError(
+                f"Sub-state '{state.current_node}.{state.current_sub_state}' "
+                f"declares action='{action}' but the engine has no task_registry "
+                f"injected (composition root broken). Inject it via context/setup."
+            )
+
+        if not registry.has(action):
+            raise WorkflowEngineError(
+                f"TaskRegistry: action '{action}' not found for "
+                f"'{state.current_node}.{state.current_sub_state}'"
+            )
+
+        # Build a duck-typed execution context exposing ONLY the attributes the
+        # tasks handlers consume (chain_dir, task_id, session_id). We do NOT
+        # import the tasks feature's ExecutionContext here (R1: workflow must
+        # not import tasks); the injected registry accepts any context object
+        # with those attributes.
+        from types import SimpleNamespace
+
+        exec_ctx = SimpleNamespace(
+            chain_dir=self._bundle.chain_dir,
+            task_id=(ctx.task_id if ctx else "") or action,
+            session_id=(ctx.session_id if ctx else "") or "mcp",
+        )
+        exec_data = {
+            "task_id": (ctx.task_id if ctx else "") or action,
+            "chain_dir": self._bundle.chain_dir,
+            **fields,
+        }
+
+        # The bundle.task_registry is a tasks.feature TaskRegistry whose
+        # execute returns TaskResult(ok, data, error).
+        result = registry.execute(action, exec_ctx, exec_data)
+        ok = bool(getattr(result, "ok", True))
+        error = getattr(result, "error", "") or ""
+        data = getattr(result, "data", None) or {}
+        return {"action": action, "data": data}, ok, error
 
     def _check_required_tools_gate(
         self, ctx: ExecutionContext, sub_state: Any

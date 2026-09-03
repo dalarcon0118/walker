@@ -25,7 +25,7 @@ def handle_sprint_planning(args: dict) -> dict[str, Any]:
     Output:
       - ok, spring_id, spec_count, specs
     """
-    project_id = args.get("project_id", "")
+    project_id = args.get("project_id", "") or args.get("_project_id", "")
     goal = args.get("goal", "")
     tasks = args.get("tasks", [])
     body = args.get("body", {})
@@ -85,7 +85,7 @@ def handle_resolve_project_sprint(args: dict) -> dict[str, Any]:
     Output:
       - ok, spring_id, sprint info, specs
     """
-    project_id = args.get("project_id", "")
+    project_id = args.get("project_id", "") or args.get("_project_id", "")
     chain_dir = args.get("chain_dir", "")
 
     svc = _resolve_sprint_service(project_id, chain_dir=chain_dir)

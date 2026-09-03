@@ -170,7 +170,7 @@ class TestWorkflowContextTaskRegistry:
         assert result.ok is True
         assert result.data["captured"] is True
 
-        # verify_predicates
+        # verify_predicates (G-W6: empty predicates → failure, never empty success)
         result = registry.execute("verify_predicates", ctx, {"predicates": []})
-        assert result.ok is True
-        assert result.data["all_satisfied"] is True
+        assert result.ok is False
+        assert "predicat" in result.error.lower() or "vacío" in result.error

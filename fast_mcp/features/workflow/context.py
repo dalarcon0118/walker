@@ -33,7 +33,7 @@ class WorkflowContext:
     task_registry: Any = None  # TaskRegistry (Sprint 5.4)
 
     @classmethod
-    def resolve(cls, chain_dir: str) -> WorkflowContext | None:
+    def resolve(cls, chain_dir: str, task_registry: Any = None) -> WorkflowContext | None:
         """Resolve workflow context from chain_dir.
 
         Builds the full dependency chain:
@@ -45,7 +45,9 @@ class WorkflowContext:
           6. EngineBundle (project-scoped)
           7. OrchestrationService (injected bundle)
 
-        Returns None if workflow.json not found.
+        `task_registry` is injected by the composition root (composition.py),
+        which is the ONLY place allowed to cross-import features (R1). The
+        workflow feature itself never imports the tasks feature.
         """
         if not chain_dir:
             return None
@@ -78,10 +80,16 @@ class WorkflowContext:
                 tracer=tracer,
                 side_effects=side_effects,
                 chain_dir=chain_dir,
+                task_registry=task_registry,
             )
             orch = OrchestrationService(bundle=bundle)
 
-            return cls(chain_dir=chain_dir, orchestrator=orch, bundle=bundle)
+            return cls(
+                chain_dir=chain_dir,
+                orchestrator=orch,
+                bundle=bundle,
+                task_registry=task_registry,
+            )
         except Exception as e:
             logger.warning(
                 "WorkflowContext.resolve(%s) failed (%s: %s)",
@@ -98,6 +106,7 @@ def _find_workflow_path(chain_dir: str) -> str | None:
       2. {chain_dir}/workflow.json (flat layout)
     """
     candidates = [
+        os.path.join(chain_dir, "data", "workflow", "workflow.json"),
         os.path.join(chain_dir, "mcp", "data", "workflow", "workflow.json"),
         os.path.join(chain_dir, "workflow.json"),
     ]

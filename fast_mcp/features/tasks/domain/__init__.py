@@ -1,4 +1,8 @@
-"""domain/__init__.py — Domain layer of tasks feature."""
-from fast_mcp.features.tasks.domain.validated_vo import ValidatedVO, TaskInput
+"""domain/__init__.py — Domain layer of tasks feature.
 
-__all__ = ["ValidatedVO", "TaskInput"]
+Provides: TaskRegistry, ExecutionContext, TaskResult, SideEffectRegistry.
+"""
+from fast_mcp.features.tasks.domain.task_registry import TaskRegistry, ExecutionContext, TaskResult
+from fast_mcp.features.tasks.domain.side_effect_registry import SideEffectRegistry
+
+__all__ = ["TaskRegistry", "ExecutionContext", "TaskResult", "SideEffectRegistry"]
