@@ -38,8 +38,8 @@ export const WalkerHooks = async ({ project, $, directory }) => {
 
   const ALLOWED_TOOLS =
     "walker_documenting_knowledge, walker_recall_knowledge, walker_search_memories, " +
-    "walker_cpg_business, walker_analyze_code, " +
-    "walker_submit, walker_transition, walker_capture_task"
+    "walker_code_context, walker_inspect_codebase, " +
+    "walker_submit, walker_transition, walker_capture"
 
   // ── Helpers ──
 
@@ -633,20 +633,20 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         `1. walker_memory_schema → discover available indices (ckg, cpg, delta, trace)\n` +
         `2. walker_recall_knowledge → query CKG (knowledge, ADRs, decisions, patterns, conventions)\n` +
         `3. walker_search_memories → federated query across CPG + CKG + Delta + Trace\n` +
-        `4. walker_cpg_business → business layer: reusable functions, flows, patterns\n` +
-        `5. walker_analyze_code → full code analysis via CPG\n` +
-        `6. walker_kg_task_context → file/task context before editing (IMPLEMENT phase)\n` +
-        `7. walker_kg_diagnose → failure diagnosis with conventions (REFINE phase)\n` +
-        `8. walker_kg_qa_evidence → verification coverage (VERIFY phase)\n` +
-        `9. walker_kg_sprint_evidence → sprint planning evidence (SPRINT.PLANNING phase)\n` +
-        `10. walker_agent_context → consolidated session context (delta+ckg+cpg+trace)\n` +
+        `4. walker_code_context → structured code context by file/query (symbols, calls, imports)\n` +
+        `5. walker_inspect_codebase → architecture, dead code, security review via CPG\n` +
+        `6. walker_agent_context → consolidated session context (delta+ckg+cpg+trace)\n` +
+        `7. walker_run_tests → execute the test suite (fail-loud, pytest)\n` +
+        `8. walker_verify_predicates → check task DoD predicates (VERIFY phase)\n` +
+        `9. walker_sprint_planning → sprint ceremonies and evidence (SPRINT.PLANNING phase)\n` +
+        `10. walker_capture → capture evidence and artifacts into the active sprint\n` +
         `\n` +
         `### PHASE TOOLS (MANDATORY per workflow phase)\n` +
         `Use these structured tools at each phase:\n` +
-        `- IMPLEMENT: walker_kg_task_context before editing\n` +
-        `- REFINE: walker_kg_diagnose when task fails\n` +
-        `- VERIFY: walker_kg_qa_evidence to check coverage\n` +
-        `- SPRINT.PLANNING: walker_kg_sprint_evidence to gather evidence\n` +
+        `- IMPLEMENT: walker_code_context before editing\n` +
+        `- REFINE: walker_agent_context when task fails (consolidated context for diagnosis)\n` +
+        `- VERIFY: walker_run_tests + walker_verify_predicates to check coverage\n` +
+        `- SPRINT.PLANNING: walker_sprint_planning to gather evidence\n` +
         `\n` +
         `### STRICT RULES\n` +
         `- FORBIDDEN: python3 -c / python3 << / python3 script.py → use walker MCP tools\n` +
@@ -654,7 +654,7 @@ export const WalkerHooks = async ({ project, $, directory }) => {
         `- FORBIDDEN: echo/cat con > >> tee hacia .cognitive/ o data/*.json.gz\n` +
         `- walker_documenting_knowledge → register ADRs and conventions after architectural decisions\n` +
         `- walker_submit / walker_transition → navigate spring workflow\n` +
-        `- walker_capture_task → capture specs into active sprint\n` +
+        `- walker_capture → capture specs into active sprint\n` +
         `- CONVENTIONS: chequear walker_recall_knowledge type=convention y cumplirlas\n`
       )
     },

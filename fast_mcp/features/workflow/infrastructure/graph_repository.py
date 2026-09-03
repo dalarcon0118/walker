@@ -25,6 +25,10 @@ from ..domain.values import RetryPolicy, SelectOption, SideEffectDef
 
 logger = logging.getLogger(__name__)
 
+# Default de sub_state.timeout_ms cuando workflow.json no lo declara (ms).
+# Valor idéntico al default legacy — nombrado para eliminar el número mágico.
+DEFAULT_SUB_STATE_TIMEOUT_MS = 120_000
+
 
 class GraphRepository:
     """Load WorkflowGraph from workflow.json.
@@ -148,7 +152,7 @@ class GraphRepository:
 
     def _build_sub_state(self, ss_raw: dict, node_id: str, index: int) -> SubState:
         """Construct a SubState from JSON dict."""
-        exec_raw = ss_raw.get("execution", ss_raw.get("mode", "manual"))
+        exec_raw = ss_raw.get("execution", ss_raw.get("mode", ExecutionType.MANUAL.value))
 
         side_effects = []
         for se_raw in ss_raw.get("side_effects", []):
@@ -196,7 +200,7 @@ class GraphRepository:
             on_success=ss_raw.get("on_success", ""),
             on_failure=ss_raw.get("on_failure", ""),
             retry=retry,
-            timeout_ms=int(ss_raw.get("timeout_ms", 120000)),
+            timeout_ms=int(ss_raw.get("timeout_ms", DEFAULT_SUB_STATE_TIMEOUT_MS)),
             required_fields=ss_raw.get("required_fields", ss_raw.get("required", [])),
             auto_complete_script=ss_raw.get("auto_complete", ""),
             prompt=ss_raw.get("prompt", ""),

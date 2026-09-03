@@ -24,6 +24,7 @@ from typing import Any
 from returns.pipeline import is_successful
 
 from ..domain.entities import WorkflowGraph, WorkflowState
+from ..domain.enums import ExecutionType
 from ..domain.errors import (
     GateNotFoundError,
     NodeNotFoundError,
@@ -254,7 +255,7 @@ class OrchestrationService:
             state = state.record_node_execution(
                 node=state.current_node,
                 sub_state=state.current_sub_state,
-                execution_type=sub_state.execution.value if sub_state else "manual",
+                execution_type=sub_state.execution.value if sub_state else ExecutionType.MANUAL.value,
                 action=sub_state.action if sub_state else "",
                 submitted_fields=fields,
                 task_ok=False,
@@ -275,7 +276,7 @@ class OrchestrationService:
         state = state.record_node_execution(
             node=state.current_node,
             sub_state=state.current_sub_state,
-            execution_type=sub_state.execution.value if sub_state else "manual",
+            execution_type=sub_state.execution.value if sub_state else ExecutionType.MANUAL.value,
             action=sub_state.action if sub_state else "",
             submitted_fields=fields,
             task_ok=task_ok,

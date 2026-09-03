@@ -24,6 +24,7 @@ import logging
 import os
 from typing import Any
 
+from ...domain.enums import ExecutionType
 from .ports.prompt_manager import IPromptManager
 from .loader import TemplateLoader
 from .renderer import TemplateRenderer
@@ -31,7 +32,8 @@ from .static_loader import canonical_nodes_dir
 
 logger = logging.getLogger(__name__)
 
-_EXECUTION_LLM_TASK = "llm_task"
+# SSOT del valor de ejecución LLM: ExecutionType (domain.enums) — sin duplicar literales.
+_EXECUTION_LLM_TASK = ExecutionType.LLM_TASK.value
 
 
 class PromptManager(IPromptManager):
@@ -118,7 +120,7 @@ class PromptManager(IPromptManager):
                         "template_id": prompt_id or f"{node_id}/{sub_state_key}",
                         "template": self._renderer.render(prompt_literal, extra),
                         "data": extra,
-                        "type": "llm_task",
+                        "type": _EXECUTION_LLM_TASK,
                     }
                 return {
                     "node_id": node_id,
@@ -126,7 +128,7 @@ class PromptManager(IPromptManager):
                     "template_id": prompt_id or "",
                     "template": "",
                     "data": extra,
-                    "type": "llm_task",
+                    "type": _EXECUTION_LLM_TASK,
                     "error": f"template '{prompt_id or (node_id + '/' + sub_state_key)}' no encontrado",
                 }
             data = self._build_data(extra, None)
@@ -137,7 +139,7 @@ class PromptManager(IPromptManager):
                 "template_id": template_id,
                 "template": self._renderer.render(template, data),
                 "data": data,
-                "type": "llm_task",
+                "type": _EXECUTION_LLM_TASK,
             }
 
         # Ejecución no-LLM: sin conserta (auto/user_input/gate). Marcador.

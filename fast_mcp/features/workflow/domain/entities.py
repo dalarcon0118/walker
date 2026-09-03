@@ -78,7 +78,7 @@ class SubState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SubState:
-        execution = data.get("execution", "manual")
+        execution = data.get("execution", ExecutionType.MANUAL.value)
         if isinstance(execution, str):
             execution = ExecutionType(execution)
         side_effects = [
