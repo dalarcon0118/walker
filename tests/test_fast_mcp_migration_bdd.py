@@ -232,3 +232,240 @@ def test_fase1_status_resuelve_proyecto(tmp_path):
     assert health["checks"]["project_json"] == "ok"
     assert health["project"]["language"] == "python"
     assert health["project"]["repo_path"] == str(repo)
+
+
+def test_fase1_watcher_status_autocontenido(tmp_path):
+    """status reporta stale desde los archivos del propo watcher, sin CPG.
+
+    El status stale se deriva de change_detected.json + .file_snapshot.json
+    (persistidos por el FileWatcher), de forma auto-contenida — no depende del
+    CPG ni de su fingerprint (Fase 2 pendiente resuelta para el status).
+    """
+    import json
+
+    from fast_mcp import composition
+    from fast_mcp.features.project.application import use_cases
+
+    fake_root = tmp_path / "walker-root"
+    (fake_root / "config").mkdir(parents=True)
+    (fake_root / "config" / "config.json").write_text("{}")
+    ctx = composition.build(root=fake_root).project
+
+    repo = tmp_path / "demo-repo"
+    use_cases.prepare_use_case(ctx, project_path=str(repo), args={"language": "python"})
+
+    data_dir = repo / ".cognitive" / "projects" / "demo-repo" / "data"
+    (data_dir / "change_detected.json").write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "files_changed": ["a.py", "b.py"],
+                "total_changes": 2,
+                "new_changes": ["b.py"],
+                "fingerprint": "abc",
+                "ckg_status": "up_to_date",
+                "cpg_status": "stale",
+            }
+        )
+    )
+    (data_dir / ".file_snapshot.json").write_text(
+        json.dumps({"a.py": "1:1", "b.py": "2:2"})
+    )
+
+    # Direto: helper autocontenido.
+    w = use_cases._watcher_status(data_dir)
+    assert w["available"] is True
+    assert w["total_changes"] == 2
+    assert w["files_changed"] == ["a.py", "b.py"]
+    assert w["cpg_status"] == "stale"
+    assert w["stale"] is True
+    assert w["snapshot_files"] == 2
+
+    # Vía status_use_case: el estado del watcher viaja en el health.
+    health = use_cases.status_use_case(ctx, {"_project_id": "demo-repo"})
+    assert health["checks"]["watcher"] == "ok"
+    assert health["watcher"]["stale"] is True
+    assert health["watcher"]["total_changes"] == 2
+
+
+def test_fase1_watcher_status_pending_sin_archivos(tmp_path):
+    """Sin archivos del watcher, status reporta pending (no simulado)."""
+    from fast_mcp import composition
+    from fast_mcp.features.project.application import use_cases
+
+    fake_root = tmp_path / "walker-root"
+    (fake_root / "config").mkdir(parents=True)
+    (fake_root / "config" / "config.json").write_text("{}")
+    ctx = composition.build(root=fake_root).project
+
+    repo = tmp_path / "demo-repo"
+    use_cases.prepare_use_case(ctx, project_path=str(repo), args={"language": "python"})
+
+    health = use_cases.status_use_case(ctx, {"_project_id": "demo-repo"})
+    assert health["checks"]["watcher"] == "pending"
+    assert health["watcher"]["available"] is False
+    assert health["watcher"]["cpg_status"] == "pending"
+    assert health["watcher"]["stale"] is False
+
+
+def test_cpg_index_se_registra_con_register_cpg_indexes(tmp_path):
+    """register_cpg_indexes registra el indice 'cpg' y permite store_many.
+
+    ADR-068 (una feature, un indice): el indice CPG es SSOT del schema.py.
+    Sin registrarlo, store_many/replace_blob("cpg", ...) fallan con "Indice
+    'cpg' no registrado" y el CPG queda vacio → el watcher nunca detecta stale.
+    """
+    from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+    from fast_mcp.features.code_analysis.schema import register_cpg_indexes
+
+    g = build_cognitive_graph(str(tmp_path), register_defaults=register_cpg_indexes)
+
+    # El indice queda registrado (get_index no lanza).
+    idx = g.get_index("cpg")
+    assert idx is not None
+
+    # store_many sobre el indice registrado NO falla (antes: no registrado).
+    result = g.store_many(
+        "cpg",
+        {"n1": {"name": "foo", "path": "a.py", "type": "function"}},
+    )
+    assert result.get("stored", 0) >= 1
+
+    # search devuelve el doc indexado.
+    hits = g.search("cpg", {"query": "foo"})
+    assert hits.get("hits", {}).get("total", 0) >= 1
+
+
+def test_cpg_repo_default_graph_registra_indice(tmp_path):
+    """CognitiveCpgRepository (via _default_graph) registra el indice 'cpg'.
+
+    El repo es el dueño del puerto StorageBackend y el punto donde build()
+    ejecuta self._repo.save() → replace_blob("cpg", ...). Si su grafo no
+    registra el indice, el build falla con "Indice 'cpg' no registrado"
+    ANTES de _sync_to_cognitive. Este test cubre ese camino.
+    """
+    from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import (
+        CognitiveCpgRepository,
+    )
+
+    repo = CognitiveCpgRepository(str(tmp_path), "demo")
+    # replace_blob sobre el índice registrado NO debe lanzar StorageContractError.
+    repo.save(
+        {
+            "project_id": "demo",
+            "nodes": {"n1": {"name": "foo", "path": "a.py", "type": "function"}},
+            "edges": [{"type": "CALLS", "from": "n1", "to": "n2"}],
+            "stats": {"total_nodes": 1},
+        }
+    )
+    data = repo.load("demo")
+    assert "n1" in data.get("nodes", {})
+    assert repo.exists() is True
+
+
+def test_indice_cpg_se_persiste_y_restaura_al_reabrir(tmp_path):
+    """El catálogo de índices sobrevive al reabrir la BD (opción 2).
+
+    Boot del escenario MCP real: una instancia construye el repo (registra +
+    persiste el índice 'cpg'); una SEGUNDA instancia sobre el MISMO data_dir
+    reabre la BD y el índice ya está disponible SIN volver a registrarlo —
+    no depende de que cada caller recuerde pasar register_defaults.
+    """
+    from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+
+    data_dir = str(tmp_path / "mem")
+    # Resolver la conexión real del data_dir para ambas instancias.
+    from fast_mcp.shared_kernel.cognitive_graph.config import (
+        load_memory_connection,
+    )
+    from fast_mcp.shared_kernel.cognitive_graph.backends import (
+        resolve_storage_backend,
+    )
+
+    conn = load_memory_connection(data_dir)
+
+    # Instancia 1: registra el índice (lo persiste).
+    from fast_mcp.features.code_analysis.schema import register_cpg_indexes
+
+    g1 = build_cognitive_graph(
+        chain_dir="", conn=conn, backend=resolve_storage_backend(conn),
+        register_defaults=register_cpg_indexes,
+    )
+    g1.store_many(
+        "cpg",
+        {"n1": {"name": "foo", "path": "a.py", "type": "function"}},
+    )
+    assert "cpg" in g1.list_indexes()
+
+    # Instancia 2: nueva conexión + backend, MISMO data_dir, SIN llamar a
+    # register_cpg_indexes. El índice debe restaurarse desde la BD.
+    conn2 = load_memory_connection(data_dir)
+    g2 = build_cognitive_graph(
+        chain_dir="", conn=conn2, backend=resolve_storage_backend(conn2),
+    )
+    assert "cpg" in g2.list_indexes(), (
+        "El índice 'cpg' debió restaurarse del catálogo persistido en la BD"
+    )
+    # Y debe poder leer los docs escritos por la instancia 1.
+    hits = g2.search("cpg", {"query": "foo"})
+    assert hits.get("hits", {}).get("total", 0) >= 1
+
+
+def test_resolve_paths_data_dir_canonico_cuando_existe_layout(tmp_path):
+    """resolve_paths produce el data_dir canónico .cognitive/projects/<pid>/data.
+
+    ADR-WALKER-054 D4: el layout cognitivo ES la fuente de verdad de las
+    memorias. ANTES resolve_paths priorizaba el legacy <repo>/data, lo que
+    desalineaba CPG/CKG/grep/read del data_dir que usan prepare/status/watcher.
+    """
+    from fast_mcp import composition
+    from fast_mcp.features.project.application import use_cases
+    from fast_mcp.shared_kernel.project_support import ProjectService
+
+    fake_root = tmp_path / "walker-root"
+    (fake_root / "config").mkdir(parents=True)
+    (fake_root / "config" / "config.json").write_text("{}")
+    ctx = composition.build(root=fake_root).project
+
+    repo = tmp_path / "demo-repo"
+    (repo / "data").mkdir(parents=True)  # legacy <repo>/data existe (índice del bug)
+    use_cases.prepare_use_case(ctx, project_path=str(repo), args={"language": "python"})
+
+    cog_data = repo / ".cognitive" / "projects" / "demo-repo" / "data"
+    paths = ProjectService.resolve_paths(str(repo))
+    assert paths.data_dir == str(cog_data), (
+        "El data_dir debe ser el layout cognitivo canónico, no el legacy <repo>/data"
+    )
+
+
+def test_memory_context_cpg_usa_mismo_data_dir_que_context(tmp_path):
+    """ctx.cpg() construye el CpgService con el data_dir del context (no repo root).
+
+    ADR-WALKER-054 D4: cpg debe usar el MISMO data_dir canónico que ckg/status/
+    watcher. ANTES ctx.cpg() re-resolvía por from_chain_dir → data_dir=project_root
+    (base parásita en el repo root).
+    """
+    from fast_mcp import composition
+    from fast_mcp.features.project.application import use_cases
+    from fast_mcp.memories.context import MemoryContext
+
+    fake_root = tmp_path / "walker-root"
+    (fake_root / "config").mkdir(parents=True)
+    (fake_root / "config" / "config.json").write_text("{}")
+    ctx = composition.build(root=fake_root).project
+
+    repo = tmp_path / "demo-repo"
+    use_cases.prepare_use_case(ctx, project_path=str(repo), args={"language": "python"})
+
+    cog_data = repo / ".cognitive" / "projects" / "demo-repo" / "data"
+    mctx = MemoryContext.resolve(str(repo))
+    assert mctx is not None
+    # El context ya resuelve el data_dir canónico.
+    assert mctx.data_dir == str(cog_data)
+
+    cpg = mctx.cpg()
+    assert cpg is not None
+    # El CpgService debe usar el data_dir del context (canónico), no el repo root.
+    assert cpg._repo._data_dir == str(cog_data), (
+        "El repo del CPG debe apuntar al data_dir canónico, no al project_root"
+    )

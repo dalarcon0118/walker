@@ -46,6 +46,68 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
+# Nombre del archivo de estado del watcher (SSOT del stale, auto-contenido).
+# El FileWatcher (shared_kernel/project_support/watcher.py) persiste su estado
+# en data_dir/change_detected.json + data_dir/.file_snapshot.json. El status
+# stale se deriva AQUÍ desde los archivos del propio watcher — NO depende del
+# CPG ni de su fingerprint. (Fase 2 pendiente en el comentario de este módulo.)
+_CHANGE_FILE = "change_detected.json"
+_SNAPSHOT_FILE = ".file_snapshot.json"
+
+
+def _watcher_status(data_dir: Path) -> dict:
+    """Lee el estado stale del watcher de forma auto-contenida.
+
+    Devuelve un dict con la info que el FileWatcher ya persistió en sus propios
+    archivos (change_detected.json + .file_snapshot.json), sin tocar el CPG:
+      - total_changes / files_changed: archivos que difieren entre el snapshot
+        anterior y el actual.
+      - cpg_status: up_to_date | stale | pending (derivado del diff de
+        snapshots si no hay info del CPG).
+      - stale: bool, si hay archivos pendientes de re-indexar.
+
+    Si el watcher nunca ha corrido (no hay archivos), reporta pending/unknown —
+    nunca inventa un estado simulado (convention: no simular lo pendiente).
+    """
+    change = _read_json(data_dir / _CHANGE_FILE)
+    snapshot = _read_json(data_dir / _SNAPSHOT_FILE)
+
+    if not change:
+        return {
+            "available": False,
+            "files_changed": [],
+            "total_changes": 0,
+            "new_changes": [],
+            "cpg_status": "pending",
+            "stale": False,
+            "message": (
+                "watcher: sin estado aún (no ha corrido scan/update). "
+                "Construye el CPG (Fase 2) para generar el snapshot inicial."
+            ),
+        }
+
+    files_changed = change.get("files_changed", [])
+    total = change.get("total_changes", len(files_changed))
+    total = int(total)
+
+    # Deriva stale del diff de snapshots del propio watcher (no del CPG).
+    # Si hay archivos que difieren entre snapshot anterior y actual → stale.
+    cpg_status = change.get("cpg_status")
+    if cpg_status not in ("up_to_date", "stale"):
+        cpg_status = "stale" if total > 0 else "up_to_date"
+
+    return {
+        "available": True,
+        "timestamp": change.get("timestamp", ""),
+        "files_changed": files_changed,
+        "total_changes": total,
+        "new_changes": change.get("new_changes", []),
+        "cpg_status": cpg_status,
+        "stale": total > 0,
+        "snapshot_files": len(snapshot),
+    }
+
+
 # ── Caso de uso 1: prepare ─────────────────────────────────────────
 
 
@@ -223,6 +285,14 @@ def status_use_case(ctx: ProjectCtx, args: dict | None = None) -> dict:
         health["warnings"].append(
             f"project.json: not found in {data_dir} — ¿proyecto preparado?"
         )
+
+    # Estado stale del código — entregado desde el WATCHER de forma
+    # auto-contenida (change_detected.json + .file_snapshot.json), sin depender
+    # del CPG ni de su fingerprint (Fase 2 pendiente en el header del módulo).
+    health["watcher"] = _watcher_status(data_dir)
+    health["checks"]["watcher"] = (
+        "ok" if health["watcher"]["available"] else "pending"
+    )
 
     # Sprint activo (best-effort: el DeltaGraph completo llega en Fase 2/3).
     sprint_state = ctx.layout.find_sprint_state(data_dir)

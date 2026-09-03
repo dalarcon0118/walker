@@ -319,6 +319,69 @@ class SqliteBackend:
         self._ensure_schema_version()
         self._schemas: dict[str, IndexSchema] = {}
         self._indexes: dict[str, SqliteIndex] = {}
+        # Restaura el catálogo de índices persistido (opción 2 — adr).
+        # Al reabrir una BD existente los índices de dominio ya registrados
+        # quedan disponibles sin depender de que cada caller recuerde
+        # volver a registrarlos (resuelve de raíz el "Índice 'X' no
+        # registrado. Disponibles: []").
+        self._restore_persisted_indexes()
+
+    def _persist_index_config(self, name: str, schema: IndexSchema) -> None:
+        """Guarda el config del schema para restaurarlo al reabrir la BD.
+
+        Se usa INSERT OR REPLACE: el registro explícito SIEMPRE gana (si el
+        caller registra con un schema actualizado, la persistencia sigue).
+        El search_handler (callable Python) no es serializable → no se
+        persiste; los que no requieren handler (cpg/ckg/delta/trace) se
+        restauran sin problema.
+        """
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO meta (`index`, key, value) VALUES (?,?,?)",
+                (
+                    "__indexes__",
+                    f"{name}/config",
+                    json.dumps(schema.to_config(), ensure_ascii=False, default=str),
+                ),
+            )
+
+    def _restore_persisted_indexes(self) -> None:
+        """Restaura los índices cuyo config fue persistido en `meta`."""
+        try:
+            rows = self._db.execute(
+                "SELECT key, value FROM meta WHERE `index`='__indexes__'"
+            ).fetchall()
+        except sqlite3.DatabaseError:
+            # Guarda de lector: si la tabla meta no expone el catálogo (BD
+            # antigua), no hay índices persistidos — proceder con vacío no es
+            # un fallo silencioso, el registro explícito sigue siendo idempotente.
+            return
+        for row in rows:
+            key, value = row["key"], row["value"]
+            if not key.endswith("/config"):
+                continue
+            name = key[: -len("/config")]
+            try:
+                config = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            self._register_index_without_persist(name, config)
+
+    def _register_index_without_persist(self, name: str, config: dict) -> None:
+        """Registra un índice sin persistir (uso interno de restauración)."""
+        schema = config if isinstance(config, IndexSchema) else IndexSchema(config)
+        self._schemas[name] = schema
+        self._indexes[name] = SqliteIndex(
+            name, schema, self._db, None, db_path=self._db_path
+        )
+
+    def registered_schemas(self) -> dict[str, IndexSchema]:
+        """Devuelve los schemas registrados (restaurados + explícitos).
+
+        Permite a la facade `CognitiveGraph` sincronizar su mapa ligero de
+        schemas con los índices que el backend restauró de la BD.
+        """
+        return dict(self._schemas)
 
     @property
     def _base_dir(self) -> str:
@@ -413,6 +476,15 @@ class SqliteBackend:
         self._indexes[name] = SqliteIndex(
             name, schema, self._db, search_handler, db_path=self._db_path
         )
+        # Opción 2 — persiste el catálogo para que reabrir la BD restaure el
+        # índice (el search_handler no es serializable → no se persiste).
+        try:
+            self._persist_index_config(name, schema)
+        except sqlite3.DatabaseError:
+            # No fallar el registro si la persistencia del catálogo falla;
+            # el índice queda funcional en memoria (fail-open acotado al
+            # catálogo, no al storage).
+            pass
 
     def _idx(self, name: str) -> SqliteIndex:
         idx = self._indexes.get(name)

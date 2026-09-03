@@ -128,7 +128,11 @@ class CpgService:
 
         paths = ProjectService.resolve_paths(chain_dir)
         project_id = paths.project_id
-        data_dir = str(paths.project_root)
+        # ADR-WALKER-054 D4: el data_dir canónico (memorias) es la raíz del
+        # índice — NUNCA el project_root (el repo root como data_dir creaba
+        # un cognitive.sqlite3 parásito en la raíz del repo, desalineado del
+        # data_dir que leen status/watcher/ckg).
+        data_dir = str(paths.data_dir)
         code_root = str(paths.project_root)
         return cls(
             project_id=project_id,

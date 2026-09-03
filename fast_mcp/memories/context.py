@@ -74,7 +74,20 @@ class MemoryContext:
             CpgService,
         )
 
-        return CpgService.from_chain_dir(self.chain_dir)
+        if not self.project_root:
+            return None
+        # Construye el CpgService con el data_dir YA resuelto por MemoryContext
+        # (ADR-WALKER-054 D4), consistente con ctx.ckg(). ANTES se re-resolvía
+        # vía from_chain_dir(self.chain_dir), que usaba project_root como
+        # data_dir → el índice cpg se escribía en un directorio distinto al
+        # data_dir canónico que leen status/watcher/ckg.
+        return CpgService(
+            project_id=self.project_id,
+            data_dir=self.data_dir,
+            code_root=self.project_root,
+            repo_path=self.project_root,
+            chain_dir=self.chain_dir,
+        )
 
     def code_analysis_service(self) -> Any:
         """Resolve CodeAnalysisService (lazy)."""

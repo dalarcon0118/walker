@@ -53,6 +53,26 @@ class IndexSchema:
     def has_fulltext(self) -> bool:
         return self.search_type == "fulltext" and bool(self.fulltext_fields)
 
+    def to_config(self) -> dict:
+        """Serializa el schema a su config dict original (para persistencia).
+
+        Inverso de `__init__(config)`: permite restaurar el índice idéntico
+        tras reabrir la BD (opción 2 — adr: persistencia del catálogo de
+        índices en sqlite).
+        """
+        config: dict[str, Any] = {
+            "fields": dict(self.fields),
+            "types": {k: dict(v) for k, v in self.types.items()},
+            "description": self.description,
+            "search": {
+                "type": self.search_type,
+                "fields": list(self.fulltext_fields),
+            },
+        }
+        if getattr(self, "storage_path", None):
+            config["storage"] = {"path": self.storage_path}
+        return config
+
 
 class Index:
     """Indice individual: grafo (nx.DiGraph) + schema + storage + searcher opcional.

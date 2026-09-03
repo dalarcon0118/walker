@@ -113,9 +113,23 @@ class ProjectService:
         project_id = resolve_project_id(chain_dir)
         pid_str = project_id or os.path.basename(project_root)
 
-        # data_dir: derivar del project_root real (fallback registro global).
+        # data_dir canónico (ADR-WALKER-054 D4): el layout cognitivo del
+        # proyecto ES la fuente de verdad — <repo>/.cognitive/projects/<pid>/data.
+        # El legacy <repo>/data es SOLO fallback para proyectos sin .cognitive
+        # (tests, proyectos simples sin preparar) — misma cascada que
+        # FileWatcher._default_data_dir y ProjectLayout.data_dir.
+        #
+        # ANTES esto invertía la prioridad (legacy <repo>/data primero si existía),
+        # lo que desalineaba CPG/CKG/grep/read del data_dir canónico que usan
+        # prepare/status/watcher → el CPG se escribía en una base parásita
+        # distinta a la que lee el watcher (cpg_status stale permanente).
         data_dir = os.path.join(project_root, "data")
-        if not os.path.isdir(data_dir):
+        cog_layout = os.path.join(
+            project_root, ".cognitive", "projects", pid_str, "data"
+        )
+        if os.path.isdir(cog_layout):
+            data_dir = cog_layout
+        elif not os.path.isdir(data_dir):
             try:
                 data_dir = str(get_data_dir(pid_str))
             except Exception:  # noqa: BLE001

@@ -85,6 +85,12 @@ class CognitiveGraph:
         self._backend: StorageBackend = backend
         # Mapa ligero de schemas (solo metadatos, para ref/trace checks).
         self._indexes: dict[str, IndexSchema] = {}
+        # Opción 2 — sincroniza el mapa ligero con los índices que el backend
+        # restauró de la BD (si la base ya tenía catálogo persistido). Así la
+        # facade conoce los schemas restaurados sin necesidad de que el caller
+        # vuelva a registrarlos.
+        if hasattr(backend, "registered_schemas"):
+            self._indexes.update(backend.registered_schemas())
         # Proyección/ranking: por defecto vacíos (storage genérico). El walker
         # los inyecta (app/memory_schemas.py) — negocio, no del storage.
         self.compact_fields: dict = compact_fields or {}
@@ -378,8 +384,18 @@ def build_cognitive_graph(
     the MemoryConnection via resolve_storage_backend(conn) → SqliteBackend
     (config-driven; 'file' is not registered). Never silently falls back.
 
-    Simplified from legacy mcp/app/memories/registration.py: no auto-registration,
+    Simplified from legacy mcp/app/memories/registration.py: no auto-registration
+    de schemas de features (cada feature registra el suyo vía `register_defaults`),
     no COMPACT_FIELDS/SEVERITY_ORDER merging. Callers register indexes explicitly.
+
+    Persistencia del catálogo (opción 2): cuando una feature registra un índice
+    (`register_index`), el config del schema se persiste en la BD sqlite
+    (`meta` → `__indexes__/<name>/config`). Al reabrir una BD existente, el
+    SqliteBackend restaura esos índices automáticamente, de modo que el índice
+    de dominio está disponible SIN depender de que cada punto de construcción
+    recuerde volver a registrarlo. El registro explícito (register_defaults)
+    SIEMPRE sobrescribe el schema persistido (fuente de verdad del schema);
+    la restauración es solo disponibilidad.
     """
     from fast_mcp.shared_kernel.cognitive_graph.config import (
         load_memory_connection,

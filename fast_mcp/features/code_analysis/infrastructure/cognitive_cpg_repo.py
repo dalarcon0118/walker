@@ -132,8 +132,17 @@ def _default_graph(conn: Any) -> Any:
     """
     from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
     from fast_mcp.shared_kernel.cognitive_graph.backends import resolve_storage_backend
+    from fast_mcp.features.code_analysis.schema import register_cpg_indexes
 
     backend = resolve_storage_backend(conn)
     # Construcción canónica (ADR-068 G7): índices auto-registrados por features.
-    graph = build_cognitive_graph(chain_dir="", conn=conn, backend=backend)
+    # El índice 'cpg' (SSOT del schema) debe quedar registrado en el grafo del
+    # repo; sin esto, replace_blob/store_many("cpg", ...) fallan con "Índice
+    # 'cpg' no registrado" al guardar/leer el CPG por el puerto StorageBackend.
+    graph = build_cognitive_graph(
+        chain_dir="",
+        conn=conn,
+        backend=backend,
+        register_defaults=register_cpg_indexes,
+    )
     return graph
