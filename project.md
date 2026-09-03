@@ -44,23 +44,43 @@ configuración global del motor**, que vive en el **root del walker**
 instancias del walker que operan hoy usan ESTA MISMA configuración.** No existe
 "el workflow de un proyecto": cada proyecto **no** define su propio flujo.
 
-Lo que **sí es por-proyecto** es la **memoria cognitiva**, que vive en
-`.cognitive/` (por proyecto): estado del workflow (`state`), proyectos y sesiones
-registrados, y los índices cognitivos (CPG/CKG/Delta/Trace del proyecto).
+Lo que **sí es por-proyecto** es el **contexto del propio proyecto**: su memoria
+cognitiva — **CPG** (índice del código), **CKG** (conocimiento: decisiones,
+convenciones, patrones), **DeltaGraph** (sprints, specs, tasks, springs) y
+**TraceGraph** (eventos de sesión) — más el **estado del workflow** (`state`) y
+las sesiones. Todo ello vive aislado por proyecto (directorio cognitivo del
+proyecto).
+
+En una línea: **el flujo, las tasks y los prompts son idénticos para todos los
+proyectos; lo único que cambia por proyecto es su CONTEXTO, guardado en las
+memorias (CPG, CKG, DeltaGraph, TraceGraph).**
 
 Por eso el workflow está en el root (`walker/mcp/data/workflow/`) y **nunca dentro
-de `.cognitive/`**: el workflow es **configuración del motor** (compartida,
-versionada, una sola fuente), mientras que `.cognitive/` es **estado/memoria por
-proyecto** (mutante, aislado por proyecto).
+del directorio cognitivo del proyecto**: el workflow es **configuración del motor**
+(compartida, versionada, una sola fuente), mientras que la memoria cognitiva es
+**contexto por proyecto** (mutante, aislado por proyecto).
 
 ### Topología de datos
 
-| Ruta | Naturaleza | Alcance | Contenido |
-|------|-----------|---------|-----------|
-| `mcp/data/workflow/` | **Configuración** del motor | **Global** (todos los agentes) | `workflow.json`, `nodes/*.node.json`, `edges.json`, `schema/` — SSOT del flujo BPMN |
-| `.cognitive/` | **Memoria** cognitiva | **Por-proyecto** | state del workflow, sesiones, projects registrados, CPG/CKG/Delta/Trace |
-| `data/projects.json` | Registro del motor | Global | catálogo de proyectos gestionados (legacy) |
-| `config/config.json` | Configuración del motor | Global | claves de comportamiento (`workflow.manifest`, quality, scan…) |
+**GLOBAL — configuración del motor (idéntica en cualquier proyecto, compartida por todos los agentes):**
+
+| Componente | Contenido |
+|-----------|-----------|
+| `mcp/data/workflow/` | `workflow.json`, `nodes/*.node.json`, `edges.json`, `schema/` — SSOT del flujo BPMN |
+| Templates de prompts | `fast_mcp/features/workflow/application/prompts/templates/` — prompts por nodo/fase (parte del workflow) |
+| TaskRegistry | las tasks del agente (`fast_mcp/features/tasks/handlers/`: implement, verify, observe, state_construction, info_acquisition, monitoring, …) — las mismas tareas en cualquier proyecto |
+| `config/config.json` | claves de comportamiento del motor (`workflow.manifest`, quality, scan…) |
+| `data/projects.json` | catálogo global de proyectos gestionados |
+
+**POR-PROYECTO — contexto del proyecto (memoria cognitiva aislada por proyecto):**
+
+| Componente | Contenido |
+|-----------|-----------|
+| **CPG** | índice del código del proyecto (símbolos, llamadas, estructura real) |
+| **CKG** | conocimiento del proyecto (decisiones, convenciones, patrones) |
+| **DeltaGraph** | sprints, specs, tasks, springs del proyecto |
+| **TraceGraph** | eventos de sesión del proyecto |
+| workflow `state` | posición del proyecto en el flujo (nodo/subestado, submits, historia) |
 
 ### Implicaciones de diseño
 
@@ -77,6 +97,18 @@ proyecto** (mutante, aislado por proyecto).
    flujo por proyecto) se resolverá con **perfiles de workflow declarados en
    config global** (`workflow.profile: <variante>`), no con workflow.json
    copiados dentro de cada proyecto.
+
+### Walker se gestiona a sí mismo como proyecto
+
+Walker es **dogfooding total**: el propio walker está registrado y gestionado
+**como un proyecto más** por el walker. Su memoria cognitiva (su CPG, su CKG,
+su DeltaGraph con sus sprints/specs, su TraceGraph) vive en su propio root,
+y **usa exactamente el mismo workflow global y las mismas tasks que cualquier
+otro proyecto** — sin casos especiales ni ramas de código "walker sobre walker".
+Consecuencia directa: cualquier cambio en `mcp/data/workflow/` o en el
+TaskRegistry afecta por igual a walker-sobre-sí y a walker-sobre-cualquier-
+otro-proyecto; y la memoria de walker (su contexto como proyecto) NO se
+confunde con la configuración del motor, aunque compartan repositorio.
 
 ### Deuda registrada (alineación de código con esta decisión)
 
