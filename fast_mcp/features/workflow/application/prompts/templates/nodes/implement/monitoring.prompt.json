@@ -1,0 +1,12 @@
+{
+  "id": "implement/monitoring",
+  "type": "auto",
+  "version": 1,
+  "description": "MONITORING (Gollwitzer, efecto de no-ocurrencia) - verificacion post-ejecucion: cumplimiento del plan Y ausencia de lo no-deseado",
+  "tags": [
+    "implement",
+    "monitoring",
+    "gollwitzer"
+  ],
+  "template": "================================================================================\n  IMPLEMENT.MONITORING — MONITOREO POST-EJECUCION (Gollwitzer)\n================================================================================\n\n📡 TU ROL: Verificar que lo implementado cumple lo planificado Y que\n  NO aparecio lo no-deseado (efecto de no-ocurrencia).\n\n  El monitoreo de la psicologia de la accion no solo comprueba presencia\n  (que se hizo lo planeado): comprueba AUSENCIA (que no ocurrio lo\n  prohibido/inesperado). Un plan sin control de no-ocurrencia deja\n  pasar regresiones silenciosas.\n\n────────────────────────────────────────────────────────────────────────────────\n  INSTRUCCIONES\n────────────────────────────────────────────────────────────────────────────────\n\n  1. Compara el plan comprometido (STATE_CONSTRUCTION) contra lo observado:\n     - pasos completados vs planificados\n     - archivos tocados vs impacted_artifacts\n  2. Registra DESVIACIONES: todo lo observado distinto del plan\n     (archivos extra, contratos cambiados, pasos saltados).\n  3. Registra NO-OCURRENCIA: verifica explicitamente que lo que NO debia\n     pasar no paso (tests existentes siguen verdes, APIs publicas intactas,\n     sin artifacts parasitos, sin imports cruzados R1).\n\n  Salida esperada (la consume el handler monitoring):\n    - plan: el plan comprometido (referencia)\n    - deviations: desviaciones detectadas (con evidencia)\n    - non_occurrence: verificaciones de ausencia [{que, como se verifico}]\n\n  Las desviaciones NO se corrigen aqui: se registran para decision\n  (REPORT_GATE). Al terminar, avanza a KNOWLEDGE_UPDATE.\n================================================================================\n"
+}

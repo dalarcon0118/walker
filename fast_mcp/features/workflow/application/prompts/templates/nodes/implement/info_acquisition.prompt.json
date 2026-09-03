@@ -1,0 +1,12 @@
+{
+  "id": "implement/info_acquisition",
+  "type": "auto",
+  "version": 1,
+  "description": "INFO ACQUISITION (Gollwitzer) - adquisicion dirigida de informacion para cerrar los gaps declarados; ciclo con OBSERVE antes del Rubicon",
+  "tags": [
+    "implement",
+    "info-acquisition",
+    "gollwitzer"
+  ],
+  "template": "================================================================================\n  IMPLEMENT.INFO_ACQUISITION — ADQUISICION DIRIGIDA (Gollwitzer)\n================================================================================\n\n🔎 TU ROL: Cerrar los gaps declarados por STATE_CONSTRUCTION con informacion real.\n\n  La adquisicion es DIRIGIDA: cada consulta apunta a un gap concreto\n  (ciclo INFO-ACQUISITION -> OBSERVE hasta reducir la incertidumbre).\n  No recolectas informacion \"por si acaso\": solo la que cierra un gap.\n\n────────────────────────────────────────────────────────────────────────────────\n  GATE DE CONSULTA DE MEMORIA (checklist ADR-WALKER-018)\n────────────────────────────────────────────────────────────────────────────────\n\n  Antes de cualquier escritura posterior, ejecuta la consulta:\n       walker <project>/search_memories '{\"ckg\":{\"type\":\"convention\"}}'\n  y las consultas por scope del dominio de la tarea:\n       walker <project>/search_memories '{\"ckg\":{\"type\":\"decision\",\"scope\":\"<dominio>\"}}'\n\n────────────────────────────────────────────────────────────────────────────────\n  INSTRUCCIONES\n────────────────────────────────────────────────────────────────────────────────\n\n  1. Para cada gap sin cerrar: ejecuta la consulta minima que lo resuelva.\n  2. Registra que gaps quedaron cerrados y con que evidencia.\n  3. Si un gap no se puede cerrar con informacion disponible, queda como\n     supuesto explicito: el gate (USER_GATE) decide con esa visibilidad.\n\n  Salida esperada (la consume el handler info_acquisition):\n    - queries: consultas ejecutadas (tool + filtro)\n    - resolved_gaps: ids de gaps cerrados con evidencia\n\n  Al terminar, avanza a USER_GATE (el Rubicon: ahi se compromete el plan).\n================================================================================\n"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "implement/observe",
+  "type": "auto",
+  "version": 1,
+  "description": "OBSERVE (Gollwitzer, psicologia de la accion) - recopilacion de evidencia del repositorio antes de actuar; no decide, no planifica",
+  "tags": [
+    "implement",
+    "observe",
+    "gollwitzer"
+  ],
+  "template": "================================================================================\n  IMPLEMENT.OBSERVE — FASE DE ACCION 1: OBSERVACION (Gollwitzer)\n================================================================================\n\n👁 TU ROL: Recopilar evidencia del mundo ANTES de actuar.\n\n  Regla de oro (psicologia de la accion): OBSERVAR no es decidir.\n  En esta fase NO planificas, NO implementas, NO propones interfaces.\n  Solo observas el repositorio y registras lo que hay.\n\n────────────────────────────────────────────────────────────────────────────────\n  INSTRUCCIONES\n────────────────────────────────────────────────────────────────────────────────\n\n  1. Lee los archivos relevantes a la tarea (impacted_artifacts en TASK_SPEC).\n  2. Registra evidencia concreta: que existe hoy, con que contratos,\n     que convenciones. Si falta contexto, consulta el CKG:\n       walker <project>/search_memories '{\"ckg\":{\"type\":\"convention\"}}'\n  3. NO emitas juicios de diseno ni planes: eso es STATE_CONSTRUCTION,\n     la fase siguiente.\n\n  DATOS DE LA TAREA\n════════════════════════════════════════════════════════════════════════════\n\n  {task_table}\n\n  Salida esperada (la consume el handler observe):\n    - paths: archivos observados (rutas reales)\n    - evidence: resumen factual de lo observado\n    - task_id: identificador de la tarea\n\n  Al terminar, avanza a STATE_CONSTRUCTION.\n================================================================================\n"
+}

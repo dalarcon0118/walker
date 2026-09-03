@@ -43,6 +43,10 @@ _HANDLER_MODULES = [
     "verify",
     "capture",
     "sprint_planning",
+    "observe",
+    "state_construction",
+    "info_acquisition",
+    "monitoring",
 ]
 
 

@@ -7,6 +7,85 @@
   ],
   "sub_states": [
     {
+      "key": "OBSERVE",
+      "label": "Gollwitzer: gather repository evidence before acting",
+      "description": "OBSERVE phase (psicologia de la accion): pure information acquisition from the repository. No decisions are made here - only evidence for the mental state.",
+      "execution": "auto",
+      "action": "observe",
+      "input_schema": {},
+      "output_schema": {},
+      "on_success": "STATE_CONSTRUCTION",
+      "on_failure": "OBSERVE",
+      "retry": {"max_attempts": 3, "backoff": "exponential", "initial_delay_ms": 2000},
+      "timeout_ms": 120000,
+      "prompt_id": "implement/observe",
+      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
+      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
+    },
+    {
+      "key": "STATE_CONSTRUCTION",
+      "label": "Gollwitzer: build the mental state of the work",
+      "description": "STATE CONSTRUCTION phase: the LLM builds the mental state (interface, gaps, plan) BEFORE crossing into implementation commitment. The plan produced here is what MONITORING verifies against.",
+      "execution": "llm_task",
+      "action": "state_construction",
+      "needs": ["project_id", "sprint_id", "task_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "interface": {"type": "object", "description": "Proposed interface contract"},
+          "gaps": {"type": "array", "items": {"type": "string"}, "description": "Known gaps in the mental state"},
+          "plan": {"type": "array", "items": {"type": "string"}, "description": "Implementation plan - commitment reference for MONITORING"}
+        },
+        "required": ["plan"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "enum": ["constructed"]},
+          "plan": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "on_success": "INFO_ACQUISITION",
+      "on_failure": "OBSERVE",
+      "side_effects": [],
+      "retry": {"max_attempts": 2, "backoff": "exponential", "initial_delay_ms": 2000},
+      "timeout_ms": 300000,
+      "prompt_id": "implement/state_construction",
+      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
+      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
+    },
+    {
+      "key": "INFO_ACQUISITION",
+      "label": "Gollwitzer: fill gaps in the mental state before commitment",
+      "description": "INFO ACQUISITION phase (psicologia de la accion): targeted information gathering to close the gaps declared by STATE_CONSTRUCTION. Closes the deliberative loop (STATE_CONSTRUCTION -> INFO_ACQUISITION -> OBSERVE) before crossing the Rubicon at USER_GATE.",
+      "execution": "auto",
+      "action": "info_acquisition",
+      "needs": ["project_id", "sprint_id", "task_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queries": {"type": "array", "items": {"type": "string"}, "description": "Targeted information queries to resolve the declared gaps"},
+          "resolved_gaps": {"type": "array", "items": {"type": "string"}, "description": "Gap ids closed by this acquisition round"}
+        },
+        "required": ["queries"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "enum": ["acquired"]},
+          "resolved_gaps": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "on_success": "USER_GATE",
+      "on_failure": "OBSERVE",
+      "side_effects": [],
+      "retry": {"max_attempts": 3, "backoff": "exponential", "initial_delay_ms": 2000},
+      "timeout_ms": 120000,
+      "prompt_id": "implement/info_acquisition",
+      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
+      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
+    },
+    {
       "key": "USER_GATE",
       "label": "User approval gate",
       "execution": "user_input",
@@ -317,9 +396,9 @@
         "required": [
           "decision"
         ],
-        "description": "Code review results reviewed. approve->KNOWLEDGE_UPDATE, refine->WORK, analyze->DIAGNOSE, cancel->SPRINT."
+        "description": "Code review results reviewed. approve->MONITORING (Gollwitzer plan-vs-result check), refine->WORK, analyze->DIAGNOSE, cancel->SPRINT."
       },
-      "on_success": "KNOWLEDGE_UPDATE",
+      "on_success": "MONITORING",
       "on_failure": "WORK",
       "side_effects": [
         {
@@ -394,6 +473,22 @@
         "capture_evidence": true,
         "level": "full"
       }
+    },
+    {
+      "key": "MONITORING",
+      "label": "Gollwitzer: verify implementation against the committed plan",
+      "description": "MONITORING phase (psicologia de la accion): plan-vs-result verification after code review approval. Records deviations from the STATE_CONSTRUCTION plan and confirms non-occurrence of unwanted effects. Does not correct - only records.",
+      "execution": "auto",
+      "action": "monitoring",
+      "input_schema": {},
+      "output_schema": {},
+      "on_success": "KNOWLEDGE_UPDATE",
+      "on_failure": "WORK",
+      "retry": {"max_attempts": 3, "backoff": "exponential", "initial_delay_ms": 2000},
+      "timeout_ms": 120000,
+      "prompt_id": "implement/monitoring",
+      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
+      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
     },
     {
       "key": "KNOWLEDGE_UPDATE",

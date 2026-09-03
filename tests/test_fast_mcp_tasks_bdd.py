@@ -381,6 +381,19 @@ class TestAutoRegistration:
         assert "verify_predicates" in tasks
         assert "capture" in tasks
 
+    def test_gollwitzer_handlers_complete(self):
+        """Completeness test (patrón AGENTS.md): los 4 sub-estados de la
+        psicología de la acción deben estar registrados como tasks —
+        OBSERVE, STATE_CONSTRUCTION, INFO_ACQUISITION, MONITORING."""
+        from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
+        from fast_mcp.features.tasks.handlers import register_all_tasks
+
+        EXPECTED = {"observe", "state_construction", "info_acquisition", "monitoring"}
+        registry = TaskRegistry()
+        register_all_tasks(registry)
+        missing = EXPECTED - set(registry.list_tasks())
+        assert not missing, f"Faltan handlers Gollwitzer: {missing}"
+
     def test_register_all_side_effects(self):
         from fast_mcp.features.tasks.domain.side_effect_registry import SideEffectRegistry
         from fast_mcp.features.tasks.side_effects import register_all_side_effects
