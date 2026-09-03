@@ -31,6 +31,67 @@ Estos principios son **inmutables** a menos que se apruebe un ADR explícito que
 
 ---
 
+## Configuración del workflow: GLOBAL del motor, no por-proyecto
+
+> **Decisión constitucional** — define qué es configuración del motor y qué es
+> memoria de proyecto. Refuerza INV-016 (decidir explícitamente el layout).
+
+### Principio
+
+**El workflow (`workflow.json` + `nodes/*.node.json` + `edges.json`) es UNO solo:
+configuración global del motor**, que vive en el **root del walker**
+(`mcp/data/workflow/`; legacy: `data/workflow/`). **Todos los agentes y todas las
+instancias del walker que operan hoy usan ESTA MISMA configuración.** No existe
+"el workflow de un proyecto": cada proyecto **no** define su propio flujo.
+
+Lo que **sí es por-proyecto** es la **memoria cognitiva**, que vive en
+`.cognitive/` (por proyecto): estado del workflow (`state`), proyectos y sesiones
+registrados, y los índices cognitivos (CPG/CKG/Delta/Trace del proyecto).
+
+Por eso el workflow está en el root (`walker/mcp/data/workflow/`) y **nunca dentro
+de `.cognitive/`**: el workflow es **configuración del motor** (compartida,
+versionada, una sola fuente), mientras que `.cognitive/` es **estado/memoria por
+proyecto** (mutante, aislado por proyecto).
+
+### Topología de datos
+
+| Ruta | Naturaleza | Alcance | Contenido |
+|------|-----------|---------|-----------|
+| `mcp/data/workflow/` | **Configuración** del motor | **Global** (todos los agentes) | `workflow.json`, `nodes/*.node.json`, `edges.json`, `schema/` — SSOT del flujo BPMN |
+| `.cognitive/` | **Memoria** cognitiva | **Por-proyecto** | state del workflow, sesiones, projects registrados, CPG/CKG/Delta/Trace |
+| `data/projects.json` | Registro del motor | Global | catálogo de proyectos gestionados (legacy) |
+| `config/config.json` | Configuración del motor | Global | claves de comportamiento (`workflow.manifest`, quality, scan…) |
+
+### Implicaciones de diseño
+
+1. **`chain_dir` identifica el proyecto para ESTADO y MEMORIA** (dónde leer/escribir
+   su `.cognitive/`), **nunca para cargar el workflow**. La resolución del workflow
+   es siempre la del motor: `PathManager.engine_manifest()` —
+   `<walker_root>/mcp/data/workflow/workflow.json` — con override explícito
+   (`env WALKER_WORKFLOW_MANIFEST` / config `workflow.manifest`) y fail-fast
+   (INV-016) si no existe.
+2. Un proyecto target **no debe llevar su propio `workflow.json`**: si lo llevara,
+   sería duplicación de configuración global (dos SSOT en conflicto, anti-patrón
+   ADR-047). El hook de guardas puede asumir que el workflow vivirá en el root.
+3. La parametrización por-proyecto del flujo (si algún día se necesita variar el
+   flujo por proyecto) se resolverá con **perfiles de workflow declarados en
+   config global** (`workflow.profile: <variante>`), no con workflow.json
+   copiados dentro de cada proyecto.
+
+### Deuda registrada (alineación de código con esta decisión)
+
+La implementación actual `PathManager.resolve_for_project(chain_dir)` y
+`features/workflow/context.py::_find_workflow_path(chain_dir)` buscan el workflow
+**dentro del chain_dir del proyecto** — herencia del modelo per-proyecto. Con esta
+decisión, el modelo correcto es: `_find_workflow_path` debe resolver SIEMPRE
+`engine_manifest()` (global del motor) y **descartar** los candidatos dentro del
+`chain_dir` (`{chain_dir}/mcp/data/workflow/`, `{chain_dir}/workflow.json`), que
+hoy existen como candidatos legacy. Pendiente de corregir con sus tests (el
+live-walk que copia el SSOT a `tmp_path` debe migrar a apuntar el override
+`WALKER_WORKFLOW_MANIFEST` al SSOT del motor o a un fixture de workflow de test).
+
+---
+
 ## Decisiones arquitectónicas
 
 | ID | Decisión | Estado |
