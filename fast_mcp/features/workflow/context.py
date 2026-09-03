@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -109,19 +108,19 @@ class WorkflowContext:
 
 
 def _find_workflow_path(chain_dir: str) -> str | None:
-    """Find workflow.json from chain_dir.
+    """Find workflow.json from chain_dir — delega en PathManager (SSOT único).
 
-    Search order (SSOT first; legacy ghost location demoted):
-      1. {chain_dir}/mcp/data/workflow/workflow.json (SSOT — repo/engine layout)
-      2. {chain_dir}/data/workflow/workflow.json     (legacy — parasite-prone location)
-      3. {chain_dir}/workflow.json                   (flat layout)
+    Política en shared_kernel.path_manager.PathManager (única fuente):
+      1. Override explícito: env WALKER_WORKFLOW_MANIFEST / config 'workflow.manifest'
+         (se honra tal cual; si no existe, el loader falla ruidosamente).
+      2. {chain_dir}/mcp/data/workflow/workflow.json  (canónico)
+      3. {chain_dir}/workflow.json                    (flat)
+      4. None (caller decide el error).
+
+    La ubicación legacy {chain_dir}/data/workflow/ fue ELIMINADA de la
+    búsqueda (INV-016: ubicación fantasma, parasite-prone — no se busca).
     """
-    candidates = [
-        os.path.join(chain_dir, "mcp", "data", "workflow", "workflow.json"),
-        os.path.join(chain_dir, "data", "workflow", "workflow.json"),
-        os.path.join(chain_dir, "workflow.json"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    return None
+    from fast_mcp.shared_kernel.path_manager import PathManager
+
+    resolved = PathManager().resolve_for_project(chain_dir)
+    return str(resolved) if resolved else None

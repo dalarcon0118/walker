@@ -7,7 +7,6 @@ kernel cubre las claves de rutas/behavior que path_resolver y libs necesitan.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fast_mcp.shared_kernel.paths import _read_config_file
@@ -20,30 +19,22 @@ def get(key: str, default: Any = None) -> Any:
 
 
 def get_workflow_manifest_path() -> str:
-    """Ruta ABSOLUTA al workflow.json canónico del motor (SSOT).
+    """(Compat) Delega en PathManager — único SSOT de rutas del workflow.
 
-    Key 'workflow.manifest' (env WALKER_WORKFLOW_MANIFEST o config).
-    Sin config explícita → el SSOT real del repo: <walker_root>/mcp/data/workflow/workflow.json
-    (resuelto por get_engine_workflow_dir, que detecta la raíz por el marker features/).
-    El default legacy <walker_root>/data/workflow/ era una ubicación fantasma que
-    legitimaba datos parásitos en runtime — eliminado (fail-fast INV-016: decidir
-    explícitamente, no inventar layouts).
+    Política real: shared_kernel.path_manager.PathManager.engine_manifest()
+    (override env WALKER_WORKFLOW_MANIFEST / config 'workflow.manifest' →
+    default <walker_root>/mcp/data/workflow/workflow.json).
     """
-    import os
+    from fast_mcp.shared_kernel.path_manager import PathManager
 
-    val = str(get("workflow.manifest", "") or os.environ.get("WALKER_WORKFLOW_MANIFEST", ""))
-    if val:
-        return val
-    from fast_mcp.shared_kernel.paths import get_engine_workflow_dir
-
-    return str(get_engine_workflow_dir() / "workflow.json")
+    return str(PathManager().engine_manifest())
 
 
 def get_workflow_manifest_dir() -> str:
-    """Directorio del manifiesto canónico (dirname de workflow.manifest)."""
-    import os
+    """(Compat) Delega en PathManager.engine_workflow_dir() (SSOT único)."""
+    from fast_mcp.shared_kernel.path_manager import PathManager
 
-    return os.path.dirname(get_workflow_manifest_path())
+    return str(PathManager().engine_workflow_dir())
 
 
 def _config_walker_root() -> str:

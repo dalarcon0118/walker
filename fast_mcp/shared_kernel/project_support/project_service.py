@@ -14,7 +14,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from fast_mcp.shared_kernel import config, paths
+from fast_mcp.shared_kernel import paths
+from fast_mcp.shared_kernel.path_manager import PathManager
 
 
 class ProjectResolutionError(Exception):
@@ -138,13 +139,14 @@ class ProjectService:
             delta_dir = str(get_delta_dir(pid_str))
         except (FileNotFoundError, Exception):
             delta_dir = os.path.join(data_dir, "spring")
-        workflow_dir = config.get_workflow_manifest_dir()
+        _pm = PathManager()
+        workflow_dir = str(_pm.engine_workflow_dir())
         trace_dir = str(get_trace_dir(pid_str))
         cpg_path = str(get_cpg_path(pid_str))
         ckg_path = str(get_ckg_path(pid_str))
 
         project_json = os.path.join(data_dir, "project.json")
-        workflow_json = config.get_workflow_manifest_path()
+        workflow_json = str(_pm.engine_manifest())
 
         # Repo info — del project.json ya resuelto (SSOT local).
         repo_path = ""
