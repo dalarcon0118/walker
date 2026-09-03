@@ -18,9 +18,12 @@ del monorepo no migrado se elimina (ADR-WALKER-071).
 Capa de test de la fase: tests/ — test_workflow_e2e_*, test_task_contract_ssot,
 test_smoke_agent_harness, test_agent_e2e_bdd, test_intelligence_service_bdd.
 
-ESTADO: skeleton — solo `help` y `list_projects` implementados (proof of concept).
-Los tools que dependen del engine (submit, transition, implement_task, etc.)
-requieren port de `shared/core/engine` (~16k LOC) — Fase 3 completa.
+ESTADO: completa — las 11 tools registran y despachan vía runners del
+composition root (fast_mcp.composition): session (help, list_projects),
+delta (sprint_planning, resolve_project_sprint — repo-backed, INV-016),
+trace (trace_push), task (implement_task, run_tests, verify_predicates,
+capture) y workflow (submit, transition → WorkflowContext → engine con
+task registry, ADR-071 Sprint 5).
 """
 
 from __future__ import annotations
@@ -170,8 +173,11 @@ _DESCRIPTIONS = {
 def install(server: FastMCP) -> None:
     """Register Phase 3 tools (workflow engine-backed).
 
-    Tools: submit, transition, status, help, list_projects.
-    Each tool dispatches via workflow_tool_runner → WorkflowContext → handlers.
+    Tools: submit, transition, help, list_projects, sprint_planning,
+    resolve_project_sprint, trace_push, implement_task, run_tests,
+    verify_predicates, capture.
+    Each tool dispatches via its composition-root runner (session, delta,
+    trace, task or workflow) — inyección desde el composition root (R1).
     """
     for name in _FASE3_TOOLS:
         runner = _build_runner(name)

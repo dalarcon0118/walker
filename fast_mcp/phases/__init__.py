@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 PHASES = [
     ("fast_mcp.phases.phase1_prepare", True),  # Fase 1: prepare/list/status
     ("fast_mcp.phases.phase2_memories", True),  # Fase 2: memorias CKG/CPG
-    ("fast_mcp.phases.phase3_tasks", True),  # Fase 3: tasks + workflow (skeleton: help + list_projects)
+    ("fast_mcp.phases.phase3_tasks", True),  # Fase 3: tasks + workflow (11 tools — completa)
 ]
 
 

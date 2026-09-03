@@ -49,7 +49,8 @@ The agent called the available MCP tools directly and interpreted the responses.
   described in earlier drafts is **not re-verified here by raw JSON-RPC reimplementation**. Those belong
   to the Walker stdio server surface. Validating them consistently requires exercising them through the
   server (covered separately in `tests/test_fast_mcp_stdio_validation_bdd.py`, which uses the official
-  `mcp` client, and in the workflow/application BDD tests).
+  `mcp` client and asserts the **complete 28-tool surface** — F1: 3 + F2: 14 + F3: 11 — via the
+  completeness test, and in the workflow/application BDD tests).
 
 ---
 
@@ -61,10 +62,10 @@ The agent called the available MCP tools directly and interpreted the responses.
 | Project health | ✅ | `walker_status` → healthy, no active sprint |
 | Project prepare idempotency | ✅ | `walker_prepare` → `already_exists` |
 | Memory stats / tags | ✅ | `memora_memory_stats`, `memora_memory_tags` return valid data |
-| Workflow submit/transition E2E | ⚠️ | Covered by `tests/test_fast_mcp_workflow_application_bdd.py` and `test_fast_mcp_stdio_validation_bdd.py` (official MCP client), not by agent raw-JSON-RPC calls |
+| Workflow submit/transition E2E | ⚠️ | Covered by `tests/test_fast_mcp_stdio_validation_bdd.py` (official MCP client; asserts the full 28-tool surface) and `tests/test_fast_mcp_workflow_application_bdd.py` (`TestActionExecution`), not by agent tool calls — the agent's live surface does not expose submit/transition |
 
 **Note:** The workflow execution path (`submit` → `transition` → status) is validated at the
-application/BDD layer (`TestActionExecution`, 322 tests green) and the modules import cleanly under the
+application/BDD layer (`TestActionExecution`; full suite **328 passed**) and the modules import cleanly under the
 stdio server. Exercising it via direct agent tool calls requires a loaded workflow graph, as noted in
 prior findings.
 
@@ -86,7 +87,7 @@ prior findings.
 |-------|--------|--------|
 | Server stability | ✅ | Multiple calls across walker + memora servers, no crashes |
 | Response format | ✅ | All responses valid structured JSON (`status_code`, `type`, `data`) |
-| Full test suite | ✅ | `pytest tests/ -q` → **322 passed** (incl. architecture R1/R2/R3) |
+| Full test suite | ✅ | `pytest tests/ -q` → **328 passed** (incl. architecture R1/R2/R3) |
 
 ---
 
@@ -101,7 +102,7 @@ Phase 1 (Agent tool calls):   ✅  walker_list (7 projects), walker_status, walk
 Phase 2 (Workflow E2E):       ⚠️  project/memory lifecycle covered as agent;
                                   workflow submit/transition covered at BDD/application layer
 Phase 3 (Error Handling):     ✅  graceful, idempotent, tool-gate enforced
-Phase 4 (Production):         ✅  stable, structured responses, 322 tests green
+Phase 4 (Production):         ✅  stable, structured responses, 328 tests green
 ```
 
 ### Key architectural decision (ADR-WALKER-073)
@@ -123,8 +124,10 @@ The context gate (search_memories before write) fired after producing this repor
 | memora hybrid search fallback | ✅ Recovered the governing decision (11842: agent-as-validator, no custom client) + consolidated report (11843) + prior gate resolution (11844) |
 
 **Conclusion:** the relevant CKG/memora context governing `docs/MCP_VALIDATION_REPORT.md` was recovered
-and is linked to the ADR-073 workstream. The local walker index being unprepared is expected — the
-repo-backed `delta` index is **not yet wired** (deferred), consistent with existing findings.
+and is linked to the ADR-073 workstream. The local walker index being unprepared was the symptom of the
+repo-backed `delta` index not being wired; that root cause has since been **resolved** (commit `b56ad9b`:
+`CognitiveDeltaRepository` wired via `build_cognitive_graph` per INV-016, sprint/spec writes persist to
+sqlite).
 
 ---
 
