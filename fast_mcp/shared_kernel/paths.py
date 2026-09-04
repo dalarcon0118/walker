@@ -325,25 +325,49 @@ def get_engine_workflow_path() -> Path:
 
 
 # ── 5. Archivos de datos específicos (CPG, CKG, trace) ─────────────
+#
+# DEPRECADO (blobs legacy .json.gz): desde ADR-WALKER-063 el SSOT runtime
+# de las memorias (cpg/ckg/delta/trace) es sqlite v2 (cognitive.sqlite3,
+# puerto StorageBackend). Los blobs .json.gz ya no se escriben ni se leen
+# en runtime (CA-9: lecturas SOLO por el puerto). Los helpers de esta
+# sección describen archivos muertos → DeprecationWarning; se eliminarán
+# en una versión futura.
+
+
+def _warn_legacy_blob(helper: str) -> None:
+    import warnings
+
+    warnings.warn(
+        f"paths.{helper} está DEPRECATO: describe el blob legacy "
+        f".json.gz que ya no es SSOT. El runtime lee/escribe por el puerto "
+        f"StorageBackend (sqlite v2 — cognitive.sqlite3, ADR-WALKER-063 "
+        f"CA-9). Se eliminará en una versión futura.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def get_cpg_path(project_id: str) -> Path:
-    """Ruta a cpg.json.gz dentro de data/ del proyecto."""
+    """DEPRECADO — Ruta a cpg.json.gz (blob legacy; SSOT = sqlite v2)."""
+    _warn_legacy_blob("get_cpg_path")
     return get_data_path(project_id, "cpg.json.gz")
 
 
 def get_ckg_path(project_id: str) -> Path:
-    """Ruta a ckg.json.gz dentro de data/ del proyecto."""
+    """DEPRECADO — Ruta a ckg.json.gz (blob legacy; SSOT = sqlite v2)."""
+    _warn_legacy_blob("get_ckg_path")
     return get_data_path(project_id, "ckg.json.gz")
 
 
 def get_trace_dir(project_id: str) -> Path:
-    """Directorio de traces: <project_dir>/data/traces/"""
+    """DEPRECADO — Directorio de traces del blob legacy (SSOT = sqlite v2)."""
+    _warn_legacy_blob("get_trace_dir")
     return get_data_dir(project_id) / "traces"
 
 
 def get_trace_path(project_id: str, sprint_id: str) -> Path:
-    """Ruta a un trace: <project_dir>/data/traces/<sprint_id>.json.gz"""
+    """DEPRECADO — Ruta a un trace .json.gz (SSOT = sqlite v2)."""
+    _warn_legacy_blob("get_trace_path")
     return get_trace_dir(project_id) / f"{sprint_id}.json.gz"
 
 
@@ -558,7 +582,8 @@ def resolve_data_path(chain_dir: str, filename: str) -> str:
 
 
 def resolve_trace_path(chain_dir: str) -> str:
-    """Resuelve ruta al trace del sprint desde chain_dir."""
+    """DEPRECADO — Ruta al trace .json.gz del sprint (SSOT = sqlite v2)."""
+    _warn_legacy_blob("resolve_trace_path")
     if not chain_dir:
         raise FileNotFoundError("chain_dir vacío — no se puede resolver trace path")
     sprint_id = os.path.basename(chain_dir)

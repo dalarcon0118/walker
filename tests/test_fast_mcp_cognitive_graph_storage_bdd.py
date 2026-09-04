@@ -40,3 +40,56 @@ class TestFailFastDBPathResolution:
         conn = MemoryConnection(backend="sqlite", uri=f"sqlite://{db_file}")
         backend = resolve_storage_backend(conn)
         assert str(backend._db_path) == str(db_file)
+
+
+class TestLegacyBlobPathHelpersDeprecated:
+    """Los helpers de paths que describen blobs legacy .json.gz están
+    DEPRECATOS (ADR-WALKER-063 CA-9): el SSOT runtime de las memorias
+    (cpg/ckg/delta/trace) es sqlite v2 (cognitive.sqlite3, puerto
+    StorageBackend). Los blobs .json.gz ya no se escriben ni se leen en
+    runtime → DeprecationWarning; se eliminarán en una versión futura."""
+
+    def test_get_cpg_path_warns(self, tmp_path, monkeypatch):
+        import pytest as _pytest
+
+        from fast_mcp.shared_kernel import paths
+
+        monkeypatch.setattr(paths, "walker_root", lambda: tmp_path)
+        with _pytest.warns(DeprecationWarning, match="DEPRECATO"):
+            paths.get_cpg_path("demo")
+
+    def test_get_ckg_path_warns(self, tmp_path, monkeypatch):
+        import pytest as _pytest
+
+        from fast_mcp.shared_kernel import paths
+
+        monkeypatch.setattr(paths, "walker_root", lambda: tmp_path)
+        with _pytest.warns(DeprecationWarning, match="DEPRECATO"):
+            paths.get_ckg_path("demo")
+
+    def test_get_trace_dir_y_get_trace_path_warns(self, tmp_path, monkeypatch):
+        import pytest as _pytest
+
+        from fast_mcp.shared_kernel import paths
+
+        monkeypatch.setattr(paths, "walker_root", lambda: tmp_path)
+        with _pytest.warns(DeprecationWarning, match="DEPRECATO"):
+            paths.get_trace_dir("demo")
+        with _pytest.warns(DeprecationWarning, match="DEPRECATO"):
+            paths.get_trace_path("demo", "sprint-1")
+
+    def test_resolve_trace_path_warns(self, tmp_path, monkeypatch):
+        import pytest as _pytest
+
+        from fast_mcp.shared_kernel import paths
+
+        monkeypatch.setattr(paths, "walker_root", lambda: tmp_path)
+        chain = tmp_path / "sprint-1"
+        chain.mkdir()
+        with _pytest.warns(DeprecationWarning, match="DEPRECATO"):
+            # El warning dispara ANTES de la resolución; el error de
+            # resolución (tmp no es un proyecto preparado) es esperado aquí.
+            try:
+                paths.resolve_trace_path(str(chain))
+            except FileNotFoundError:
+                pass

@@ -43,6 +43,11 @@ class ProjectPaths:
     data_dir: str
     delta_dir: str
     workflow_dir: str
+    # DEPRECADOS (blobs legacy .json.gz — ADR-WALKER-063 CA-9): el SSOT
+    # runtime de las memorias es sqlite v2 (cognitive.sqlite3, puerto
+    # StorageBackend). Los helpers que las poblaban emiten
+    # DeprecationWarning; se eliminarán en una versión futura. Sin
+    # consumidores conocidos — no usar en código nuevo.
     traces_dir: str
     cpg_path: str
     ckg_path: str
