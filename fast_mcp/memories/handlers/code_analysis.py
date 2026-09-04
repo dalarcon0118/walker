@@ -97,4 +97,6 @@ def handle_update_incremental_code(ctx: MemoryContext, **kwargs: Any) -> dict:
     if cpg is None:
         return {"updated": False, "error": "CPG not available"}
     result = cpg.update()
-    return {"updated": True, "project_root": ctx.project_root, "result": result}
+    # Fail-fast honesto: un update abortado NO se reporta como exitoso.
+    updated = bool(result.get("ok", True)) if isinstance(result, dict) else True
+    return {"updated": updated, "project_root": ctx.project_root, "result": result}

@@ -68,7 +68,24 @@ def register_domain_tool(
         input_schema: `inputSchema` declarativo SSOT (tool_catalog) — servido al
             agente en `tools/list` (R-03bis), NO re-inferido de la firma.
     """
-    server.add_tool(runner, name=name, description=description)
+
+    async def _offload_runner(**kwargs: Any) -> Any:
+        # FIX -32001: los runners del dominio son SYNC y pesados (scan CPG,
+        # saves sqlite, json de blobs). Ejecutarlos inline en el event loop
+        # bloqueaba TODAS las tools del server mientras uno corría (sample
+        # nativo: task_step → json encoder → sqlite en el hilo principal).
+        # El offload a worker thread libera el loop para I/O (sqlite3,
+        # subprocess ast-grep y hashlib liberan el GIL); el CPU-bound puro
+        # sigue siendo GIL-bound pero ya no_serializa blobs gigantes por
+        # operación (fixes de storage). Los contextos se resuelven POR
+        # LLAMADA (composition: sin caché) → cada conexión sqlite se crea y
+        # usa en el MISMO worker thread (sin problema de thread-affinity).
+        import anyio
+
+        return await anyio.to_thread.run_sync(lambda: runner(**kwargs))
+
+    _offload_runner.__name__ = name
+    server.add_tool(_offload_runner, name=name, description=description)
     tool = server._tool_manager.get_tool(name)
     if tool is not None:
         # SSOT: el schema que ve el agente es el declarativo, no el inferido.

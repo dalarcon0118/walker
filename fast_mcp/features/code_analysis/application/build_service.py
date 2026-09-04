@@ -686,20 +686,28 @@ class BuildGraphUseCase:
             )
             status = watcher.scan()
         except Exception as e:
-            # FIX (fallback visible): antes este path hacia build() completo en
-            # silencio (solo logger.warning), ocultando la causa de los rebuilds.
-            # Ahora el warning viaja en el resultado para CLI/MCP/status.
-            fallback = self.build()
-            warning = (
-                f"watcher no disponible ({type(e).__name__}: {e}); "
-                "fallback a build completo"
+            # INV-016 (fail-fast, sin fallback implícito): un watcher roto NO
+            # dispara un rebuild completo silencioso (minutos de CPU dentro
+            # del event loop del server MCP; el warning viajaba en un result
+            # que el cliente nunca ve porque el request expira antes). El
+            # error es EXPLÍCITO y accionable: el agente decide si pide el
+            # rebuild completo con build_code_index.
+            logger.error(
+                "watcher no disponible (%s: %s); update incremental abortado "
+                "(fail-fast, sin fallback a build — INV-016)",
+                type(e).__name__, e,
             )
-            logger.warning("%s", warning)
-            if isinstance(fallback, dict):
-                warnings = list(fallback.get("warnings", []))
-                warnings.append(warning)
-                fallback["warnings"] = warnings
-            return fallback
+            return {
+                "ok": False,
+                "updated": False,
+                "files_updated": 0,
+                "scope": "incremental",
+                "error": (
+                    f"watcher no disponible ({type(e).__name__}: {e}); "
+                    "update incremental abortado. Para un rebuild completo "
+                    "usa explícitamente la tool build_code_index."
+                ),
+            }
 
         changed = status.get("files_changed", [])
         if not changed and status.get("cpg_status") == "up_to_date":

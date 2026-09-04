@@ -59,6 +59,19 @@ def _sha1(value: Any) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
+def _sha1_raw(raw: str) -> str:
+    """sha1 del payload EXACTO almacenado en BD (sin re-serializar).
+
+    El diff load/save compara el hash de los bytes guardados. Antes el
+    load recomputaba `_sha1(doc)` (un json.dumps(sort_keys) POR FILA:
+    ~40K dumps de docs + ~24K de edges en un CPG mediano → minutos de
+    CPU dentro del event loop del server MCP). Ahora el payload se
+    escribe canónico (sort_keys) y el hash se calcula sobre el raw:
+    costo O(bytes), cero serialización.
+    """
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 class SqliteIndex(Index):
     """Index con persistencia SQLite (read model en memoria + delta writes).
 
@@ -102,7 +115,12 @@ class SqliteIndex(Index):
                 "SELECT id, data FROM docs WHERE `index`=?", (self.name,)
             ):
                 docs[raw_id] = json.loads(raw_data)
-                self._saved_docs[raw_id] = _sha1(docs[raw_id])
+                # FIX perf: hash del payload EXACTO (sin re-serializar el doc).
+                # Antes: _sha1(docs[raw_id]) = json.dumps(sort_keys) por fila
+                # (~40K dumps en un CPG mediano). Nota: filas escritas por el
+                # save anterior (payload sin sort_keys) se normalizan en el
+                # primer save posterior (rewrite one-time, self-healing).
+                self._saved_docs[raw_id] = _sha1_raw(raw_data)
             self._docs = docs
             for doc_id, doc_data in docs.items():
                 self._graph.add_node(doc_id, **doc_data)
@@ -113,7 +131,9 @@ class SqliteIndex(Index):
             ):
                 attrs = json.loads(attrs_raw) if attrs_raw else {}
                 self._graph.add_edge(src, dst, **attrs)
-                self._saved_edges[(src, dst)] = _sha1(attrs)
+                # FIX perf: hash del raw de atributos; NULL/"" ≡ "{}" (el
+                # save canónico escribe dumps({}) = "{}").
+                self._saved_edges[(src, dst)] = _sha1_raw(attrs_raw or "{}")
 
             self._metadata = {}
             self._metadata_hash = ""
@@ -198,32 +218,30 @@ class SqliteIndex(Index):
         try:
             with cur:  # commit/rollback automático (sqlite3)
                 # ── docs ──
+                # FIX perf: UN json.dumps(sort_keys) por doc sirve para el
+                # hash (payload canónico ≡ _sha1) Y para el INSERT/UPDATE —
+                # antes eran 2 dumps por fila cambiada + 1 por no-cambiada.
+                _ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 current: dict[str, str] = {}
                 for doc_id, data in self._docs.items():
-                    h = _sha1(data)
+                    raw = json.dumps(
+                        data, sort_keys=True, ensure_ascii=False, default=str
+                    )
+                    h = _sha1_raw(raw)
                     current[doc_id] = h
                     if doc_id in self._saved_docs:
-                        if self._saved_docs[doc_id] != h:
-                            cur.execute(
-                                "UPDATE docs SET data=?, updated_at=? "
-                                "WHERE `index`=? AND id=?",
-                                (
-                                    json.dumps(data, ensure_ascii=False, default=str),
-                                    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                                    self.name,
-                                    doc_id,
-                                ),
-                            )
+                        if self._saved_docs[doc_id] == h:
+                            continue  # sin cambios — 0 writes, 0 dumps extra
+                        cur.execute(
+                            "UPDATE docs SET data=?, updated_at=? "
+                            "WHERE `index`=? AND id=?",
+                            (raw, _ts, self.name, doc_id),
+                        )
                     else:
                         cur.execute(
                             "INSERT OR REPLACE INTO docs (`index`, id, data, updated_at) "
                             "VALUES (?,?,?,?)",
-                            (
-                                self.name,
-                                doc_id,
-                                json.dumps(data, ensure_ascii=False, default=str),
-                                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            ),
+                            (self.name, doc_id, raw, _ts),
                         )
                 for doc_id in set(self._saved_docs) - set(current):
                     cur.execute(
@@ -233,8 +251,13 @@ class SqliteIndex(Index):
 
                 # ── edges (diff por par, O(E) al vuelo) ──
                 graph_edges: dict[tuple[str, str], str] = {}
+                graph_raws: dict[tuple[str, str], str] = {}
                 for u, v, data in self._graph.edges(data=True):
-                    graph_edges[(u, v)] = _sha1(data)
+                    raw = json.dumps(
+                        dict(data), sort_keys=True, ensure_ascii=False, default=str
+                    )
+                    graph_raws[(u, v)] = raw
+                    graph_edges[(u, v)] = _sha1_raw(raw)
                 for key in set(self._saved_edges) - set(graph_edges):
                     cur.execute(
                         "DELETE FROM edges WHERE `index`=? AND src=? AND dst=?",
@@ -242,29 +265,18 @@ class SqliteIndex(Index):
                     )
                 for (u, v), h in graph_edges.items():
                     if (u, v) in self._saved_edges:
-                        if self._saved_edges[(u, v)] != h:
-                            attrs = dict(self._graph.edges[(u, v)])
-                            cur.execute(
-                                "UPDATE edges SET attributes=? "
-                                "WHERE `index`=? AND src=? AND dst=?",
-                                (
-                                    json.dumps(attrs, ensure_ascii=False, default=str),
-                                    self.name,
-                                    u,
-                                    v,
-                                ),
-                            )
+                        if self._saved_edges[(u, v)] == h:
+                            continue  # sin cambios — 0 writes, 0 dumps extra
+                        cur.execute(
+                            "UPDATE edges SET attributes=? "
+                            "WHERE `index`=? AND src=? AND dst=?",
+                            (graph_raws[(u, v)], self.name, u, v),
+                        )
                     else:
-                        attrs = dict(self._graph.edges[(u, v)])
                         cur.execute(
                             "INSERT OR REPLACE INTO edges (`index`, src, dst, attributes) "
                             "VALUES (?,?,?,?)",
-                            (
-                                self.name,
-                                u,
-                                v,
-                                json.dumps(attrs, ensure_ascii=False, default=str),
-                            ),
+                            (self.name, u, v, graph_raws[(u, v)]),
                         )
                 self._saved_edges = graph_edges
 

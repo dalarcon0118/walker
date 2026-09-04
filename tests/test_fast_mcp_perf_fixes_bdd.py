@@ -212,3 +212,206 @@ def test_puerto_storage_backend_incluye_get_metadata_only():
         assert hasattr(backend_cls, "get_metadata_only"), (
             f"{backend_cls.__name__} sin get_metadata_only (fail-fast del puerto)"
         )
+
+
+# ── 4. FIX D: update() fail-fast, sin fallback a build() (INV-016) ──
+
+
+def test_update_fail_fast_sin_fallback_build(monkeypatch, tmp_path):
+    """update() con watcher roto NO cae a build() completo (INV-016).
+
+    El fallback silencioso disparaba minutos de CPU dentro del event loop
+    del server MCP; el warning solo viajaba en un result que el cliente
+    nunca veía (el request expiraba). Ahora: error estructurado accionable.
+    """
+    import fast_mcp.shared_kernel.project_support as ps
+    from fast_mcp.features.code_analysis.application.build_service import (
+        BuildGraphUseCase,
+    )
+
+    class _WatcherRoto:
+        def __init__(self, *a, **k):
+            raise RuntimeError("watcher simulado roto")
+
+    monkeypatch.setattr(ps, "FileWatcher", _WatcherRoto)
+
+    uc = BuildGraphUseCase(
+        project_id="demo",
+        data_dir=str(tmp_path / "data"),
+        code_root=str(tmp_path),
+        repo_path=str(tmp_path),
+    )
+
+    def _no_build(*a, **k):
+        raise AssertionError("build() NO debe invocarse desde update() (INV-016)")
+
+    monkeypatch.setattr(uc, "build", _no_build)
+
+    result = uc.update()
+    assert result["ok"] is False
+    assert result["updated"] is False
+    assert "watcher no disponible" in result["error"]
+    assert "build_code_index" in result["error"], (
+        "el error debe ser accionable: remitir al rebuild explícito"
+    )
+
+
+# ── 5. FIX B: hash del payload crudo — 0 re-writes sin cambios ──────
+
+
+def test_sqlite_save_sin_rewrites_de_filas_sin_cambios(tmp_path):
+    """Re-save de contenido idéntico = 0 writes (updated_at estable).
+
+    FIX perf: el hash del load era sha1(json.dumps(doc)) POR FILA
+    (~40K dumps de docs + ~24K de edges en un CPG mediano); ahora es
+    sha1 del raw almacenado y el payload se escribe canónico (sort_keys).
+    """
+    import glob
+    import json
+    import sqlite3
+
+    from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import (
+        CognitiveCpgRepository,
+    )
+
+    data_dir = str(tmp_path / "mem")
+    nodes = {
+        "n1": {"name": "foo", "path": "a.py", "type": "function"},
+        "n2": {"name": "bar", "path": "b.py", "type": "function"},
+    }
+    edges = [{"type": "CALLS", "from": "n1", "to": "n2"}]
+
+    # Timestamp determinista por _save (updated_at tiene granularidad de 1s:
+    # sin esto, 3 saves en el mismo segundo son indistinguibles)
+    import fast_mcp.shared_kernel.cognitive_graph.sqlite_backend as sb_mod
+
+    counter = {"n": 0}
+
+    def _fake_strftime(fmt, t=None):  # noqa: ARG001
+        counter["n"] += 1
+        return f"2026-09-04T00:00:{counter['n']:02d}Z"
+
+    orig_strftime = sb_mod.time.strftime
+
+    repo = CognitiveCpgRepository(data_dir, "demo")
+    repo.save(
+        {
+            "project_id": "demo",
+            "nodes": nodes,
+            "edges": edges,
+            "stats": {"total_nodes": 2},
+        }
+    )
+
+    db_files = glob.glob(os.path.join(data_dir, "**", "*.sqlite3"), recursive=True)
+    assert db_files, "la BD sqlite debe existir tras el save"
+    conn = sqlite3.connect(f"file:{db_files[0]}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+
+    def _updated_at(doc_id: str) -> str:
+        row = conn.execute(
+            "SELECT updated_at, data FROM docs WHERE `index`='cpg' AND id=?",
+            (doc_id,),
+        ).fetchone()
+        return row["updated_at"]
+
+    try:
+        sb_mod.time.strftime = _fake_strftime  # save#1 → ts :01
+        ts_n1_v1 = _updated_at("n1")
+
+        # Payload canónico (sort_keys) — el contrato del FIX B
+        row = conn.execute(
+            "SELECT data FROM docs WHERE `index`='cpg' AND id='n1'"
+        ).fetchone()
+        assert json.dumps(json.loads(row["data"]), sort_keys=True) == row["data"]
+
+        # Instancia fresca (load completo con hashes del raw) + save IDÉNTICO:
+        # ningún doc cambió → 0 rewrites (updated_at estable)
+        repo2 = CognitiveCpgRepository(data_dir, "demo")
+        repo2.save(
+            {
+                "project_id": "demo",
+                "nodes": nodes,
+                "edges": edges,
+                "stats": {"total_nodes": 2},
+            }
+        )  # save#2 → ts :02 (pero 0 rewrites → DB conserva :01)
+        assert _updated_at("n1") == ts_n1_v1, (
+            "el re-save sin cambios NO debe reescribir filas "
+            "(el diff por hash del raw debe detectar igualdad)"
+        )
+
+        # Cambio SOLO n1 → n1 se reescribe, n2 NO (aislamiento del delta)
+        nodes2 = dict(nodes)
+        nodes2["n1"] = {"name": "foo2", "path": "a.py", "type": "function"}
+        repo3 = CognitiveCpgRepository(data_dir, "demo")
+        repo3.save(
+            {
+                "project_id": "demo",
+                "nodes": nodes2,
+                "edges": edges,
+                "stats": {"total_nodes": 2},
+            }
+        )  # save#3 → ts :03
+        ts_n1_v3 = _updated_at("n1")
+        assert ts_n1_v3 != ts_n1_v1, "n1 cambió → debe reescribirse"
+        assert _updated_at("n2") == ts_n1_v1, (
+            "n2 NO cambió → no debe reescribirse (write amplification = 0)"
+        )
+    finally:
+        sb_mod.time.strftime = orig_strftime
+        conn.close()
+
+
+# ── 6. FIX C: offload del event loop a worker thread ────────────────
+
+
+def test_tools_offload_a_worker_thread_no_bloquean_event_loop():
+    """register_domain_tool ejecuta los runners sync en worker thread.
+
+    FIX -32001: el runner sync inline en el event loop bloqueaba TODAS
+    las tools del server mientras una corría (evidencia: sample nativo
+    con task_step → json encoder en el hilo principal). Ahora una tool
+    lenta NO retrasa a las demás.
+    """
+    import asyncio
+    import inspect
+    import time as _time
+
+    from mcp.server.fastmcp import FastMCP
+
+    from fast_mcp.registration import register_domain_tool
+
+    server = FastMCP("perf-offload")
+
+    def slow_runner(**kw):
+        _time.sleep(0.6)
+        return {"slow": True}
+
+    def fast_runner(**kw):
+        return {"fast": True}
+
+    register_domain_tool(server, "slow", slow_runner, "desc", {"type": "object"})
+    register_domain_tool(server, "fast", fast_runner, "desc", {"type": "object"})
+
+    async def _main():
+        slow_fn = server._tool_manager.get_tool("slow").fn  # noqa: SLF001
+        fast_fn = server._tool_manager.get_tool("fast").fn  # noqa: SLF001
+        assert inspect.iscoroutinefunction(fast_fn), (
+            "la tool registrada debe ser async (offload a thread)"
+        )
+        slow_task = asyncio.ensure_future(slow_fn())
+        await asyncio.sleep(0.05)
+        t0 = _time.monotonic()
+        fast_res = await fast_fn()
+        dt_fast = _time.monotonic() - t0
+        slow_res = await slow_task
+        return fast_res, slow_res, dt_fast
+
+    fast_res, slow_res, dt_fast = asyncio.run(_main())
+    assert fast_res == {"fast": True}
+    assert slow_res == {"slow": True}
+    assert dt_fast < 0.5, (
+        f"la tool fast tardó {dt_fast:.2f}s — el event loop quedó bloqueado "
+        "por el runner lento (offload a worker thread roto)"
+    )
