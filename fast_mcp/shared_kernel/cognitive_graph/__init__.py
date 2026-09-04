@@ -295,6 +295,10 @@ class CognitiveGraph:
     def get_metadata(self, index: str) -> dict:
         return self._backend.get_metadata(index)
 
+    def get_metadata_only(self, index: str) -> dict:
+        """Metadata SIN poblar el read model (chequeos de staleness O(ms))."""
+        return self._backend.get_metadata_only(index)
+
     def get(self, index: str, doc_id: str) -> dict | None:
         return self._backend.get(index, doc_id)
 

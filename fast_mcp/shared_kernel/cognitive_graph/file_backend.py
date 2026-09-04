@@ -142,6 +142,9 @@ class FileBackend:
     def get_metadata(self, index: str) -> dict:
         return self._get_index(index).get_metadata()
 
+    def get_metadata_only(self, index: str) -> dict:
+        return self._get_index(index).get_metadata_only()
+
     def get_docs(self, index: str) -> dict[str, dict]:
         return self._get_index(index).get_docs()
 

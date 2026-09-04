@@ -54,10 +54,17 @@ class CognitiveCpgRepository(CpgRepository):
         """Devuelve el source_fingerprint del CPG (metadata del índice cpg).
 
         ADR-WALKER-055 F1 + ADR-WALKER-063 CA-9: lectura SOLO por el puerto
-        (v2); el .json.gz legacy ya no se lee en el runtime.
+        (sqlite v2 SSOT), jamás del `.json.gz` legacy.
+
+        FIX perf (timeouts -32001): lee SOLO la tabla meta
+        (get_metadata_only). El load() completo hacía json.loads +
+        sha1(json.dumps) POR FILA (docs + edges: ~80K serializaciones en
+        un CPG de 15K nodos) SOLO para leer un string — y el watcher la
+        invoca en CADA chequeo de staleness (scan/status/update), dentro
+        del event loop del server MCP.
         """
-        data = self.load(self._project_id)
-        return str(data.get("source_fingerprint", "") or "")
+        metadata = self._cg.get_metadata_only(self.INDEX)
+        return str(metadata.get("source_fingerprint", "") or "")
 
     def load(self, project_id: str = "") -> dict:
         pid = project_id or self._project_id

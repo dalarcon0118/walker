@@ -147,3 +147,68 @@ def test_token_index_remove_node_limpia_keys():
     idx.add("sprint", e1)
     assert len(idx.entries["sprint"]) == 2
     assert ("sprint", "node-1", "name") in idx._keys
+
+
+# ── 3. get_metadata_only: fingerprint sin load completo del CPG ─────
+
+
+def test_read_fingerprint_metadata_only(tmp_path):
+    """read_fingerprint() lee SOLO la tabla meta — SIN poblar el read model.
+
+    Causa raíz del timeout -32001 restante: el watcher.scan() invoca
+    read_fingerprint() en CADA chequeo de staleness, y antes hacía
+    load() completo del CPG (json.loads + sha1(json.dumps) POR FILA:
+    ~80K serializaciones con 15K docs + 24K edges) SOLO para leer un
+    string — minutos de CPU dentro del event loop del server MCP.
+    """
+    from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import (
+        CognitiveCpgRepository,
+    )
+
+    repo = CognitiveCpgRepository(str(tmp_path), "demo")
+    repo.save(
+        {
+            "project_id": "demo",
+            "source_fingerprint": "fp-abc-123",
+            "nodes": {"n1": {"name": "foo", "path": "a.py", "type": "function"}},
+            "edges": [{"type": "CALLS", "from": "n1", "to": "n2"}],
+            "stats": {"total_nodes": 1},
+        }
+    )
+
+    # Instancia NUEVA (read model vacío) sobre el mismo data_dir: el
+    # fingerprint DEBE leerse de la tabla meta sin cargar docs/edges.
+    repo2 = CognitiveCpgRepository(str(tmp_path), "demo")
+    assert repo2.read_fingerprint() == "fp-abc-123"
+
+    idx = repo2._cg.get_index("cpg")  # noqa: SLF001 — contrato de test
+    assert idx._docs == {}, (
+        "get_metadata_only NO debe poblar el read model (docs)"
+    )
+    assert idx._saved_docs == {}, (
+        "get_metadata_only NO debe calcular sha1 por fila (_saved_docs)"
+    )
+
+    # Y el read model sigue disponible lazy para usos reales:
+    data = repo2.load("demo")
+    assert "n1" in data.get("nodes", {})
+    assert data.get("source_fingerprint") == "fp-abc-123"
+
+
+def test_puerto_storage_backend_incluye_get_metadata_only():
+    """El Protocol StorageBackend exige get_metadata_only en los backends.
+
+    El puerto es @runtime_checkable: si un backend no implementa la
+    primitiva, isinstance() falla en toda la app (composition, repos).
+    """
+    from fast_mcp.shared_kernel.cognitive_graph.ports import StorageBackend
+    from fast_mcp.shared_kernel.cognitive_graph.sqlite_backend import SqliteBackend
+    from fast_mcp.shared_kernel.cognitive_graph.file_backend import FileBackend
+
+    for backend_cls in (SqliteBackend, FileBackend):
+        assert isinstance(backend_cls, StorageBackend), (
+            f"{backend_cls.__name__} no satisface el puerto StorageBackend"
+        )
+        assert hasattr(backend_cls, "get_metadata_only"), (
+            f"{backend_cls.__name__} sin get_metadata_only (fail-fast del puerto)"
+        )

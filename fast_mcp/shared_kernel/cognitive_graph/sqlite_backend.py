@@ -158,6 +158,34 @@ class SqliteIndex(Index):
                         if isinstance(item, str):
                             self._token_index.index_node(doc_id, item, field)
 
+    def get_metadata_only(self) -> dict:
+        """Lee la tabla meta DIRECTO de sqlite (sin poblar el read model).
+
+        El _do_load() completo hace json.loads + sha1(json.dumps) POR FILA
+        (docs + edges: ~80K serializaciones en un CPG mediano) solo para
+        devolver la metadata. Para chequeos de staleness (fingerprint del
+        CPG, invocado por watcher.scan() en cada scan) basta un SELECT de
+        la tabla meta: O(ms), sin tocar docs/edges/_saved_*/grafos.
+        """
+        try:
+            metadata: dict = {}
+            for key, value in self._db.execute(
+                "SELECT key, value FROM meta WHERE `index`=? AND value IS NOT NULL",
+                (self.name,),
+            ):
+                if key in ("schema_hash", "__schema__"):
+                    continue
+                try:
+                    metadata[key] = json.loads(value)
+                except json.JSONDecodeError:
+                    metadata[key] = value
+            return metadata
+        except sqlite3.Error as e:
+            raise StorageReadError(
+                f"SqliteIndex['{self.name}']: no se pudo leer la metadata "
+                f"({type(e).__name__}: {e})"
+            ) from e
+
     # ── Persistencia: save con delta transaccional (IV-1/CA-1) ──
 
     def _save(self) -> None:  # type: ignore[override]
@@ -611,6 +639,9 @@ class SqliteBackend:
 
     def get_metadata(self, index: str) -> dict:
         return self._idx(index).get_metadata()
+
+    def get_metadata_only(self, index: str) -> dict:
+        return self._idx(index).get_metadata_only()
 
     def get_docs(self, index: str) -> dict[str, dict]:
         return self._idx(index).get_docs()

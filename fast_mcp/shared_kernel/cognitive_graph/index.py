@@ -625,6 +625,24 @@ class Index:
         self._load()
         return dict(self._metadata)
 
+    def get_metadata_only(self) -> dict:
+        """Metadata SIN poblar el read model (sin docs/edges).
+
+        El _load() completo reconstruye grafo + índices secundarios +
+        token index — prohibitivo para leer un solo valor (chequeos de
+        staleness O(ms)). Extrae solo 'metadata' del blob crudo.
+        """
+        path = self._path
+        if not os.path.exists(path):
+            return {}
+        if path.endswith(".gz"):
+            raw = self._read_gz(path)
+        else:
+            with open(path) as f:
+                raw = f.read()
+        data = json.loads(raw)
+        return dict(data.get("metadata", {}) or {})
+
     def get(self, doc_id: str) -> dict | None:
         self._load()
         doc = self._docs.get(doc_id)

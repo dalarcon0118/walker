@@ -82,6 +82,16 @@ class StorageBackend(Protocol):
     def get_metadata(self, index: str) -> dict:
         ...
 
+    def get_metadata_only(self, index: str) -> dict:
+        """Metadata SIN poblar el read model (sin docs/edges ni sha1 por fila).
+
+        Chequeos de staleness O(ms): el load completo de un índice grande
+        reconstruye grafo/índices y serializa cada fila (json.loads +
+        json.dumps por doc) — prohibitivo para leer un solo valor (ej:
+        source_fingerprint del CPG, invocado por el watcher en cada scan).
+        """
+        ...
+
     def get_docs(self, index: str) -> dict[str, dict]:
         ...
 
