@@ -102,6 +102,7 @@ Conclusión: el modelo "blob JSON + Python" escala mal en CPU/GIL para lecturas 
 | FS-6 | Divergencia de semántica search entre backends (sqlite=FTS vs FileBackend=TokenIndex) → tests verdes con semántica distinta a producción | dos implementaciones de fulltext | contratos de search parametrizados sobre ambos backends con fixture compartido y aserciones idénticas | suite parametrizada (M-08); un contrato que falle en uno falla en CI |
 | FS-7 | Proceso muere entre mutación en RAM y delta en BD → el delta no commitado se pierde | el read model es efímero; la durabilidad vive solo en BD | CONTRATO EXPLÍCITO: el estado en RAM es efímero; el SSOT en reposo es la última transacción commitada. Toda mutación (store/add_edge/delete) dispara `_save` síncrono en el mismo ciclo → la ventana de pérdida = un solo op. Builders multi-op (`replace_blob`, `build`) aceptan la ventana: crash a mitad = BD consistente con el estado ANTERIOR (atomicidad de transacción) | test: kill -9 entre ops → reabrir BD → estado = última transacción commitada (nunca a medias); `PRAGMA integrity_check` en boot (existente) |
 | FS-8 | WAL sin techo: readers largos impiden checkpoint → cognitive.sqlite3-wal crece sin límite → disco lleno, escrituras bloqueadas | checkpoints pospuestos por lectores activos; resyncs masivos de FTS en `replace_blob` | `wal_autocheckpoint` default (1000 págs) + `PRAGMA wal_checkpoint(TRUNCATE)` manual tras `replace_blob`/build; presupuesto WAL observable | `metrics()` reporta tamaño de WAL + umbral de alerta; test de crecimiento acotado tras build completo |
+| FS-9 | Migración v2→v3 sobre BD SUCIA → backfill de FTS/doc_sha1 contamina con filas huérfanas/blobs muertos → hits muertos, counts desalineados, sha de residuos | migrar sin gate de limpieza (H-1..H-7) | GATE OBLIGATORIO §10.0: `pre_migration_check` falla ruidoso con lista accionable de suciedad; cpg/ckg derivables se reconstruyen post-migración (H-6) | el propio gate (fail-fast); reconciliación post-migración `count(docs)==count(fts)` por índice (M-04) |
 
 ---
 
@@ -189,6 +190,36 @@ Protocolo (en una copia real de la BD + fixture sintético):
 
 ## 10. Protocolo de rollout de esquema v3 (cierra G6 — Enmienda 1)
 
+### 10.0 GATE OBLIGATORIO: estado pre-migración LIMPIO (directiva PO — Enmienda 1)
+
+**La migración v3 SOLO arranca sobre una BD limpia, sin suciedad heredada.** Migrar una BD sucia contamina el backfill (FTS con hits muertos, sha de filas huérfanas, counts desalineados — FS-9).
+
+Checklist de limpieza (TODO verificable por comando):
+
+| # | Check | Cómo se verifica | Si falla |
+|---|---|---|---|
+| H-1 | Integridad | `PRAGMA integrity_check == ok` | StorageIntegrityError (existente, FS-5) — restaurar backup |
+| H-2 | WAL en cero | `PRAGMA wal_checkpoint(TRUNCATE)` → `-wal` ≈ 0 bytes | checkpoint manual; si readers activos lo impiden → abortar migración |
+| H-3 | Sin edges huérfanos | todo `(src,dst)` de `edges` existe en `docs` del MISMO índice | borrar edges huérfanos (listado en el error — accionable) |
+| H-4 | Catálogo consistente | todo índice de `meta.__indexes__` tiene `schema_hash` y docs ≥ 0 | índice fantasma → registrar o purgar catálogo |
+| H-5 | Sin blobs legacy en el data dir | NO existen `*.json.gz` ni `*.json.gz.lock` junto a la BD | **cuarentena** a `<data_dir>/legacy-blobs/` (nunca borrado silencioso — ADR-063) |
+| H-6 | Índices derivables RECONSTRUIDOS (opción recomendada) | `cpg`/`ckg` pueden vaciarse y reconstruirse post-migración (`build_code_index`/`extract_knowledge`) — garantiza arranque sin suciedad acumulada | si el PO opta por rebuild: drop de docs/edges del índice derivable ANTES de migrar; delta/trace NUNCA (SSOT — INV delta_tracking) |
+| H-7 | Sin estado pendiente | el diff-cache `_saved_docs/_saved_edges` de la BD abierta coincide con lo commitado (0 ops pendientes) | forzar `_save` de reconciliación o abortar |
+
+```text
+IF pre_migration_check != ok (H-1..H-7)
+THEN
+    StorageStateError con la lista ESPECÍFICA de suciedad (accionable)
+    NEXT_STATE: operador limpia → re-intenta
+ELSE
+    ejecutar migración (cadena §10.1)
+    NEXT_STATE: BD v3
+```
+
+**Distinción clave (H-6):** `cpg`/`ckg` son DERIVABLES del código → el estado más limpio es vaciarlos y reconstruirlos después de migrar el esquema. `delta`/`trace` son SSOT de dominio → NUNCA se vacían; migran con conteos reconciliados. "Vacío sin suciedad" = cero residuo heredado en lo que entra a la migración.
+
+### 10.1 Cadena de migración (existente)
+
 ```text
 IF la BD se abre con código v3 y meta.__schema__ == v2
 THEN
@@ -217,13 +248,25 @@ Cada fase como `implementation_intention` ejecutable: IF/THEN/ELSE con precondic
 
 ```yaml
 implementation_intention:
+  id: H0-pre-migration-hygiene
+  if: {condition: "BD v2 seleccionada para migración"}
+  then:
+    action: "ejecutar checklist H-1..H-7 (§10.0): integrity_check, wal_checkpoint(TRUNCATE), edges huérfanos, catálogo, cuarentena blobs legacy, reconciliación de ops pendientes"
+  else:
+    action: "no-op (gate solo aplica a BD en migración)"
+  preconditions: ["ninguna — es la PRIMERA intención del plan"]
+  expected_result: "BD limpia (0 suciedad) — precondición de F1"
+  failure_condition: "cualquier check H-x falla"
+  failure_action: "StorageStateError con lista accionable de suciedad (nunca migrar sucio — FS-9)"
+  next_state: "limpio → F1"
+
   id: F1-fts5
   if: {condition: "schema.has_fulltext() y tabla FTS del índice NO existe"}
   then:
     action: "crear {index}_fts (external content) + backfill por lotes (fts_backfill_batch) + registrar en meta"
   else:
     action: "verificar count(fts)==count(docs) (reconciliación) y abortar si difiere"
-  preconditions: ["baseline M0 registrado", "transacción única por lote", "busy_timeout=10s"]
+  preconditions: ["H0 verde (BD limpia — gate §10.0)", "baseline M0 registrado", "transacción única por lote", "busy_timeout=10s"]
   expected_result: "recall fulltext vía MATCH, restart-proof (M-01..M-04)"
   failure_condition: "count mismatch o timeout de lote"
   failure_action: "rollback transacción + StorageWriteError (nunca partial)"
