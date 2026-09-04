@@ -1,6 +1,6 @@
 # ADR-WALKER-074: ProjectService → bounded context Project; PathManager = rutas del walker (separación de responsabilidades)
 
-> **Status:** Propuesta
+> **Status:** Aprobado
 > **Fecha:** 2026-09-04
 > **Autor:** Kilo (agente) + PO
 > **Complementa:** ADR-WALKER-047 (bounded contexts = módulos puros), ADR-WALKER-053 (ProjectContext centralizado), ADR-WALKER-054 (data_dir canónico), ADR-WALKER-071 (port app/path_resolver a fast_mcp)
@@ -64,14 +64,14 @@ La pregunta estructural (PO): "¿hace falta crear un ProjectManager nuevo?" La r
 ### D4 — Métricas de calidad por fase (AGENTS.md, mínimo 3 por fase)
 
 **Fase A (I/O del registro):**
-- [ ] M-01 `get_repo_path` extrae `repo_path` vía una única llamada a `RegistryStore.resolve` — anti-patrón a evitar: reabrir `projects.json` con `json.load` en `project_service.py`
-- [ ] M-02 El fail-fast INV-016 conserva los 3 errores accionables (sin registro / no registrado / repo inexistente) — anti-patrón: errores vagos o degradación silenciosa a ruta adivinada
-- [ ] M-03 Los tests de `get_repo_path` pasan sin depender del registro real del repo (root inyectado) — anti-patrón: acoplar tests al projects.json del walker real
+- [x] M-01 `get_repo_path` extrae `repo_path` vía una única llamada a `RegistryStore.resolve` — anti-patrón a evitar: reabrir `projects.json` con `json.load` en `project_service.py`
+- [x] M-02 El fail-fast INV-016 conserva los 3 errores accionables (sin registro / no registrado / repo inexistente) — anti-patrón: errores vagos o degradación silenciosa a ruta adivinada
+- [x] M-03 Los tests de `get_repo_path` pasan sin depender del registro real del repo (root inyectado) — anti-patrón: acoplar tests al projects.json del walker real
 
 **Fase B (frontera PathManager↔ProjectService):**
-- [ ] M-04 `PathManager` no contiene ninguna referencia a `projects.json` ni `project_id` en su superficie — anti-patrón: PathManager leyendo el registro de proyectos
-- [ ] M-05 `ProjectService` no abre `projects.json` a mano (grep cero `json.load(registry)`) — anti-patrón: duplicar la I/O del registro fuera de RegistryStore
-- [ ] M-06 `resolve_paths(chain_dir)` y `resolve_from_project_id(project_id)` comparten `_build_paths` (sin duplicación de tail) — anti-patrón: dos builders divergentes
+- [x] M-04 `PathManager` no contiene ninguna referencia a `projects.json` ni `project_id` en su superficie — anti-patrón: PathManager leyendo el registro de proyectos
+- [x] M-05 `ProjectService` no abre `projects.json` a mano (grep cero `json.load(registry)`) — anti-patrón: duplicar la I/O del registro fuera de RegistryStore
+- [x] M-06 `resolve_paths(chain_dir)` y `resolve_from_project_id(project_id)` comparten `_build_paths` (sin duplicación de tail) — anti-patrón: dos builders divergentes
 
 ---
 
@@ -104,8 +104,8 @@ La pregunta estructural (PO): "¿hace falta crear un ProjectManager nuevo?" La r
 ## 5. Implementación
 
 1. `ProjectService.get_repo_path` → delega en `RegistryStore(root).resolve(project_id)` (D1) — **HECHO en este ADR**.
-2. Verificar suite completa verde (429 tests) y test de contrato de paridad `get_repo_path` ↔ `RegistryStore.resolve`.
-3. Actualizar memoria del workstream y proyectar en project.md la sección de frontera de responsabilidades (PathManager vs bounded context Project).
+2. Verificar suite completa verde (**430 tests**) y test de contrato de paridad `get_repo_path` ↔ `RegistryStore.resolve` — **HECHO**.
+3. Actualizar memoria del workstream y proyectar en project.md la sección de frontera de responsabilidades (PathManager vs bounded context Project) — **HECHO** (commit `fe6e339`).
 
 ---
 
