@@ -62,6 +62,8 @@ class TokenIndex:
 
     entries: dict[str, list[IndexEntry]] = field(default_factory=dict)
     _bigrams: dict[str, set[str]] = field(default_factory=dict)
+    # (token, node_id, field) ya indexados — dedup O(1) en add()
+    _keys: set = field(default_factory=set)
 
     # ── Helpers de bigramas ──
 
@@ -89,12 +91,16 @@ class TokenIndex:
         token = token.lower().strip()
         if not token or len(token) < 2:
             return
+        key = (token, entry.node_id, entry.field)
+        if key in self._keys:
+            # (token, node_id, field) ya indexado — dedup O(1).
+            # Antes: scan lineal de entries[token] → O(n²) acumulado en
+            # re-index masivo (37K nodos × tokens comunes = horas de CPU).
+            return
         if token not in self.entries:
             self.entries[token] = []
-        for existing in self.entries[token]:
-            if existing.node_id == entry.node_id and existing.field == entry.field:
-                return
         self.entries[token].append(entry)
+        self._keys.add(key)
         self._add_bigrams(token)
 
     def index_node(self, node_id: str, text: str, field: str) -> None:
@@ -110,6 +116,9 @@ class TokenIndex:
         removed = 0
         for token in list(self.entries.keys()):
             before = len(self.entries[token])
+            for e in self.entries[token]:
+                if e.node_id == node_id:
+                    self._keys.discard((token, e.node_id, e.field))
             self.entries[token] = [
                 e for e in self.entries[token] if e.node_id != node_id
             ]

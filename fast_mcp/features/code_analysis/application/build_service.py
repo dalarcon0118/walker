@@ -43,6 +43,56 @@ def _load_ignore_core(root: str) -> Any | None:
     from fast_mcp.shared_kernel.project_support import IgnoreRules
 
     return IgnoreRules(str(root)) if root else None
+def _walk_code_files(
+    raw_paths: list[str],
+    ignore: Any | None,
+) -> list[str]:
+    """Walk único del pipeline con SSOT de exclusión (.walkerignore).
+
+    Repara los walks que solo podaban '.'/'__pycache__': en proyectos con
+    node_modules (91K+ archivos) se recorría el árbol completo y el análisis
+    por archivo quemaba CPU durante horas dentro del event loop del server
+    MCP (todas las tools del server expiraban con -32001).
+
+    Semántica idéntica a scan_files (ast_grep_adapter): poda de directorios
+    ignorados + filtro por-relpath de archivos + solo lenguajes conocidos
+    (_detect_lang). Un solo lugar para la política "qué es código".
+    """
+    from fast_mcp.features.code_analysis.infrastructure.ast_grep_adapter import (
+        _detect_lang,
+        _resolve_ignore_root,
+        _to_rel,
+        IGNORED_DIRS,
+    )
+
+    ignore_root = _resolve_ignore_root(ignore, raw_paths)
+    all_files: list[str] = []
+    for p in raw_paths:
+        if os.path.isfile(p):
+            if ignore is not None and ignore.is_ignored(_to_rel(p, ignore_root)):
+                continue
+            if _detect_lang(p):
+                all_files.append(p)
+        elif os.path.isdir(p):
+            for root, dirs, files in os.walk(p):
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if not d.startswith(".")
+                    and d != "__pycache__"
+                    and d not in IGNORED_DIRS
+                    and (ignore is None or not ignore.is_ignored(f"{d}/"))
+                ]
+                for f in files:
+                    fp = os.path.join(root, f)
+                    if not _detect_lang(fp):
+                        continue
+                    if ignore is not None and ignore.is_ignored(
+                        _to_rel(fp, ignore_root)
+                    ):
+                        continue
+                    all_files.append(fp)
+    return all_files
 
 
 @safe
@@ -882,19 +932,10 @@ class BuildGraphUseCase:
         También mantiene análisis de bugs Python-only (dead_branches, etc.)
         para compatibilidad con proyectos Python.
         """
-        # 1. Resolver archivos de cualquier lenguaje
+        # 1. Resolver archivos de cualquier lenguaje (SSOT .walkerignore —
+        #    sin esto el walk recorre node_modules completo y quema CPU horas)
         raw_paths = scan_paths if scan_paths is not None else self.resolve_code_paths()
-        all_files = []
-        for p in raw_paths:
-            if os.path.isfile(p):
-                all_files.append(p)
-            elif os.path.isdir(p):
-                for root, dirs, files in os.walk(p):
-                    dirs[:] = [
-                        d for d in dirs if not d.startswith(".") and d != "__pycache__"
-                    ]
-                    for f in files:
-                        all_files.append(os.path.join(root, f))
+        all_files = _walk_code_files(raw_paths, self._ignore)
 
         if not all_files:
             return {"dead_branches": [], "missing_returns": [], "infinite_loops": []}
@@ -1094,25 +1135,16 @@ class BuildGraphUseCase:
                 print(*a, file=sys.stderr, flush=True)
 
         raw_paths = scan_paths if scan_paths is not None else self.resolve_code_paths()
-        all_files = []
         _data_dir_abs = os.path.realpath(self.data_dir)
         _cache_markers = ("_cache.json", "quality_report.json", "bug_proposals.json")
-        for p in raw_paths:
-            if os.path.isfile(p):
-                all_files.append(p)
-            elif os.path.isdir(p):
-                for root, dirs, files in os.walk(p):
-                    dirs[:] = [
-                        d for d in dirs if not d.startswith(".") and d != "__pycache__"
-                    ]
-                    for f in files:
-                        full = os.path.join(root, f)
-                        # Excluir el data_dir (cachés/JSONs generados) y archivos de cache
-                        if os.path.realpath(full).startswith(_data_dir_abs):
-                            continue
-                        if f.endswith(_cache_markers):
-                            continue
-                        all_files.append(full)
+        # SSOT: mismo walk con .walkerignore que el resto del pipeline
+        all_files = [
+            f
+            for f in _walk_code_files(raw_paths, self._ignore)
+            # Excluir el data_dir (cachés/JSONs generados) y archivos de cache
+            if not os.path.realpath(f).startswith(_data_dir_abs)
+            and not os.path.basename(f).endswith(_cache_markers)
+        ]
 
         # Limitar por performance, pero reportar el límite
         MAX_FILES = 200
