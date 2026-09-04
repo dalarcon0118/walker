@@ -1,10 +1,11 @@
 # ADR-WALKER-075: Normalización física del storage sqlite — FTS5, columnas generadas y read model lazy (modelo ES-like en un solo archivo)
 
 > **Status:** Propuesta
-> **Fecha:** 2026-09-04
+> **Fecha:** 2026-09-04 (Enmienda 1 post-crítica: parámetros operativos, baseline M0, rollout v3, intenciones ejecutables rule.md, FS-7/FS-8, re-scope F2/edges)
 > **Autor:** Kilo (agente) + PO
 > **Complementa:** ADR-WALKER-063 (sqlite v2 = SSOT runtime, CA-9), ADR-WALKER-055 (F2/F3 blob reemplazos, derivados fuera del blob), ADR-WALKER-054 (data_dir canónico)
 > **Origen:** sesión de remediación de timeouts -32001 (commits `caa49c3`, `63865c0`, `701efe2`, `6e96f58`) + pregunta del PO: "por qué no una estructura por memoria, similar a Elasticsearch; qué tan eficiente/costoso/mantenible es un sqlite con todo mezclado"
+> **Calificación pre-enmienda (auto-crítica):** 4.5/10 como plan de implementación — gaps: parámetros sin valores, sin baseline, sin rollout, F2 sub-especificada, edges sin alcance. Esta enmienda los cierra.
 
 ---
 
@@ -48,13 +49,15 @@ Conclusión: el modelo "blob JSON + Python" escala mal en CPU/GIL para lecturas 
 - Tokenización por índice según `IndexSchema.search.fields` (cpg: `name`, `path`, `signature`, `kind`).
 - Sincronización DENTRO de la MISMA transacción del `_save` (insert/update/delete de docs → update de FTS) y resync completo en `replace_blob`.
 - Búsqueda: `MATCH` nativo (C-speed, incremental, restart-proof). El path de search de `SqliteIndex` DEJA de tokenizar/filtrar en Python.
+- **Enmienda 1 (post-crítica) — semántica de ranking:** FTS5 rankea con **bm25**; `TokenIndex` usaba score propio + bigrams. Contrato de paridad: **mismo SET de docs (recall idéntico), orden por bm25** (mejora documentada, NO orden idéntico). Los tests de `top_k` se actualizan a aserciones de set + orden por relevancia FTS; el ADR declara esto como cambio de comportamiento, no fix invisible.
 - Migración v2→v3 backfill: un pase por índice con fulltext, verificado por conteo.
 - `TokenIndex` (RAM) deja de ser el camino de producción (queda para FileBackend/tests no-runtime).
 
 ### D3 — F2: columnas generadas + índices SQL para campos calientes
 
 - Columnas **generated VIRTUAL** sobre `docs` para los campos calientes compartidos del modelo: `doc_type` (`$.type`), `doc_name` (`$.name`), `doc_path` (`$.path`), `doc_scope` (`$.scope`).
-- Índices SQL: `(index, doc_type)`, `(index, doc_path)`, `(index, doc_name)`, `(index, doc_scope)` — suficientes para cpg (type/path/name), ckg (type/scope), trace/delta (type).
+- **Enmienda 1 (post-crítica):** las 4 columnas genéricas NO cubren trace/delta → se añaden `doc_event` (`$.event_type`) y `doc_sprint` (`$.sprint_id`), evaluadas a NULL en índices que no las usan. Índices SQL resultantes: `(index, doc_type)`, `(index, doc_path)`, `(index, doc_name)`, `(index, doc_scope)`, `(index, doc_event)`, `(index, doc_sprint)`.
+- **Edges (enmienda):** el PK `(index, src, dst)` cubre lookups por `src` (prefijo), pero `get_edges(direction="both")` exige `idx_edges_dst (index, dst)` — índice nuevo, único cambio en `edges`.
 - El router de search despacha filtros estructurados a `WHERE` indexado y **carga solo los docs matcheados** (sin materializar el resto).
 - VIRTUAL (no STORED) → cero duplicación de payload; el índice usa el json_extract en write time.
 
@@ -97,6 +100,8 @@ Conclusión: el modelo "blob JSON + Python" escala mal en CPU/GIL para lecturas 
 | FS-4 | Consumidor full-graph (DFG/quality/agent_context) recibe datos PARCIALES del read model lazy → análisis incorrectos silenciosos | consumidor olvida llamar `materialize_all()` | API explícita `materialize_all(index)` exigida por análisis de grafo completo; el router solo enruta queries selectivas a SQL; paridad lazy vs eager en tests de integración | tests de paridad (resultados idénticos lazy/eager sobre fixtures) + `stats` del DFG (files_scanned vs total docs) |
 | FS-5 | Latencia de escritura regresa (mantenimiento de FTS+índices en cada save) | exceso de índices o columnas STORED duplicando payload | solo campos calientes indexados; columnas VIRTUAL; benchmark de write en CI | benchmark test (write N docs dentro de presupuesto) + throughput en `metrics()` |
 | FS-6 | Divergencia de semántica search entre backends (sqlite=FTS vs FileBackend=TokenIndex) → tests verdes con semántica distinta a producción | dos implementaciones de fulltext | contratos de search parametrizados sobre ambos backends con fixture compartido y aserciones idénticas | suite parametrizada (M-08); un contrato que falle en uno falla en CI |
+| FS-7 | Proceso muere entre mutación en RAM y delta en BD → el delta no commitado se pierde | el read model es efímero; la durabilidad vive solo en BD | CONTRATO EXPLÍCITO: el estado en RAM es efímero; el SSOT en reposo es la última transacción commitada. Toda mutación (store/add_edge/delete) dispara `_save` síncrono en el mismo ciclo → la ventana de pérdida = un solo op. Builders multi-op (`replace_blob`, `build`) aceptan la ventana: crash a mitad = BD consistente con el estado ANTERIOR (atomicidad de transacción) | test: kill -9 entre ops → reabrir BD → estado = última transacción commitada (nunca a medias); `PRAGMA integrity_check` en boot (existente) |
+| FS-8 | WAL sin techo: readers largos impiden checkpoint → cognitive.sqlite3-wal crece sin límite → disco lleno, escrituras bloqueadas | checkpoints pospuestos por lectores activos; resyncs masivos de FTS en `replace_blob` | `wal_autocheckpoint` default (1000 págs) + `PRAGMA wal_checkpoint(TRUNCATE)` manual tras `replace_blob`/build; presupuesto WAL observable | `metrics()` reporta tamaño de WAL + umbral de alerta; test de crecimiento acotado tras build completo |
 
 ---
 
@@ -140,3 +145,120 @@ Cada fase commitea y declara verde su checklist de métricas; sin métricas verd
 | `701efe2` | payloads canónicos `sort_keys` + hash del raw (precondición del `doc_sha1` de F3; 0 dumps en load) |
 | `6e96f58` | `_loaded=True` + rebuild una vez (corrige la tormenta de reloads; F1 elimina el rebuild mismo) |
 | `8ab011b` | helpers de blobs `.json.gz` deprecados (el modelo físico por-archivo queda marcado muerto) |
+
+---
+
+## 8. Parámetros operativos (cierra G1, G3, G4 — Enmienda 1)
+
+Valores CONCRETOS que convierten el ADR de opinión a diseño. Sin estos números el plan no es ejecutable.
+
+| Parámetro | Valor | Fundamento | Dónde vive |
+|---|---|---|---|
+| `read_model_budget_mb` | **256** | 60–80 MB medidos (16K docs + 24K edges); headroom 3× | `config.json` del walker (`memory.read_model_budget_mb`) |
+| `compaction_trigger` | **delta pendiente ≥ 10k ops** O **p99 save > 50 ms** | degrada antes de bloquear | check post-`_save` (contador en RAM) |
+| `wal_checkpoint_policy` | auto (1000 págs) + manual `TRUNCATE` post `replace_blob` | evita FS-8 | `SqliteBackend` post-build |
+| `fts_backfill_batch` | **2000 filas/pase** | backfill de migración acotado (no bloquea event loop > 100 ms/pase) | migración v3 |
+| `retention.trace` | **90 días** (configurable `memory.trace_retention_days`) | traces de sprints cerrados | limpieza en boot |
+| `retention.delta` | **∞** (SSOT del sprint — INV: delta_tracking) | el delta NUNCA se poda automáticamente | — |
+| `retention.cpg/ckg` | **∞** (espejo del código; el watcher lo invalida) | no aplica TTL | — |
+| `benchmark_fixture` | **16K docs sintéticos** (shape cpg real) | fixture determinista; corre en CI **nocturno**, no por PR | `tests/benchmarks/` |
+
+**Anti-patrón a evitar:** parámetro declarado en ADR sin valor, o valor sin el mecanismo que lo hace cumplir (todo parámetro de esta tabla tiene test o check de runtime que lo vigila).
+
+---
+
+## 9. Fase M0 — Baseline obligatorio (cierra G5 — Enmienda 1)
+
+**Regla: ningún umbral de este ADR (M-03, `compaction_trigger`, p99) se ACTIVA sin baseline medido antes.** Umbral sin baseline = opinión.
+
+Protocolo (en una copia real de la BD + fixture sintético):
+
+| Métrica | Cómo se mide | Registro |
+|---|---|---|
+| `save()` p50/p95/p99 | timer alrededor de `_save` con 1 doc nuevo / 1 edge nueva / 0 cambios (3 casos) | `docs/baselines/storage-v2.md` |
+| `load` completo (arranque) | timer de `_do_load` sobre BD real (16K docs) | idem |
+| fulltext recall | timer de search `{"text": ...}` con índice poblado (post `6e96f58`, pre FTS) | idem |
+| query selectiva | timer de `search {"type": "function"}` materializado | idem |
+| WAL growth | bytes de `-wal` tras 1 build completo | idem |
+
+- Baseline commiteado en `docs/baselines/storage-v2.md` ANTES de tocar código.
+- Los umbrales de M-03/M-05/FS-5 se **recalibran** contra el baseline: umbral = max(baseline_p99 × 2, valor propuesto) — si el baseline ya cumple el umbral propuesto, el umbral pasa a ser de no-regresión.
+- M0 se ejecuta UNA vez y se re-ejecuta solo si cambia el formato de payload (v3).
+
+---
+
+## 10. Protocolo de rollout de esquema v3 (cierra G6 — Enmienda 1)
+
+```text
+IF la BD se abre con código v3 y meta.__schema__ == v2
+THEN
+    migrar in situ (lazy): ALTER + backfill FTS/doc_sha1 + set v3
+    — UNA transacción, busy_timeout 10s, checkpoint TRUNCATE al final
+    NEXT_STATE: BD en v3, writers v2 bloqueados (guard fail-loud)
+ELSE IF meta.__schema__ == v3
+THEN
+    abrir normal
+    NEXT_STATE: operación normal
+ELSE IF meta.__schema__ desconocida
+THEN
+    StorageSchemaVersionError (fail-loud, INV-016)
+    NEXT_STATE: operador decide (backup/restore o upgrade)
+```
+
+- **Checklist de rollout:** (1) detener todo proceso walker con código v2 contra esta BD; (2) primer arranque v3 ejecuta la migración lazy; (3) verificar conteos pre/post (FS-2); (4) los demás procesos arrancan ya en v3.
+- **Rollback:** restore del backup de la BD (pre-migración) + revert del código. La migración NO destruye datos (solo añade columnas/FTS); el guard v3 es lo que impide writers mixtos.
+- **Migración idempotente:** si el proceso muere a mitad, la transacción hace rollback y el próximo arranque re-intenta (FS-2).
+
+---
+
+## 11. Implementation intentions (metodología rule.md — contrato ejecutable por agente)
+
+Cada fase como `implementation_intention` ejecutable: IF/THEN/ELSE con precondiciones, resultado esperado y condición de fallo. El agente implementador NO requiere contexto extra fuera de este ADR.
+
+```yaml
+implementation_intention:
+  id: F1-fts5
+  if: {condition: "schema.has_fulltext() y tabla FTS del índice NO existe"}
+  then:
+    action: "crear {index}_fts (external content) + backfill por lotes (fts_backfill_batch) + registrar en meta"
+  else:
+    action: "verificar count(fts)==count(docs) (reconciliación) y abortar si difiere"
+  preconditions: ["baseline M0 registrado", "transacción única por lote", "busy_timeout=10s"]
+  expected_result: "recall fulltext vía MATCH, restart-proof (M-01..M-04)"
+  failure_condition: "count mismatch o timeout de lote"
+  failure_action: "rollback transacción + StorageWriteError (nunca partial)"
+  next_state: "F1 verde → F2"
+
+  id: F2-generated-columns
+  if: {condition: "PRAGMA table_info(docs) sin columna doc_X requerida"}
+  then:
+    action: "ALTER TABLE ADD COLUMN generated VIRTUAL + CREATE INDEX (index, doc_X) + idx_edges_dst"
+  else:
+    action: "no-op (columna/índice ya existen — idempotente)"
+  preconditions: ["F1 verde", "EXPLAIN QUERY PLAN verificado en test"]
+  expected_result: "filtros estructurados resuelven por índice (M-05..M-08)"
+  failure_condition: "DDL falla (locked/disco)"
+  failure_action: "rollback + StorageSchemaVersionError path (FS-2)"
+  next_state: "F2 verde → F3"
+
+  id: F3-lazy-readmodel
+  if: {condition: "index marcado lazy y consumidor full-graph solicita datos"}
+  then:
+    action: "exigir materialize_all(index) explícito; queries selectivas leen por índice"
+  else:
+    action: "read model eager (comportamiento actual) para índices no migrados"
+  preconditions: ["F2 verde", "paridad lazy/eager en tests de integración", "guard v3 activo"]
+  expected_result: "_do_load solo id+sha1+meta por defecto (M-09..M-12)"
+  failure_condition: "consumidor full-graph recibe datos parciales"
+  failure_action: "assert de materialización en consumers full-graph (FS-4) + test de paridad rojo"
+  next_state: "F3 verde → TERMINATE (ADR ejecutado)"
+```
+
+**Regla de ejecución (rule.md):** cada intención se ejecuta solo si sus precondiciones están verdes; si `failure_condition` se dispara, la fase NO se declara completa y `next_state` vuelve a la fase previa — nunca se salta una fase con checks rojos.
+
+---
+
+## 12. Alcance explícito (lo que este ADR NO hace)
+
+- **Edges sin normalizar** (fuera de scope de F2 salvo `idx_edges_dst`): las traversals de grafo siguen en RAM sobre el read model materializado — la normalización de edges se re-evalúa en un ADR futuro SOLO si `get_related(depth>2)` sobre CPGs >50K docs lo justifica con baseline.
+- **F3 no aplica al CPG como consumidor por defecto**: scan_cfg/DFG/quality son full-graph por naturaleza y usarán `materialize_all()` explícito; el lazy beneficia a ckg/trace/delta (consultas puntuales).
