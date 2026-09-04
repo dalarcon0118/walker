@@ -415,3 +415,82 @@ def test_tools_offload_a_worker_thread_no_bloquean_event_loop():
         f"la tool fast tardó {dt_fast:.2f}s — el event loop quedó bloqueado "
         "por el runner lento (offload a worker thread roto)"
     )
+
+
+# ── 7. FIX: SqliteIndex._do_load nunca seteaba _loaded ──────────────
+
+
+def test_sqlite_load_una_sola_vez_por_indice(tmp_path):
+    """_do_load corre UNA vez: _loaded nunca se seteaba en sqlite.
+
+    BUG preexistente grave: el base _load() re-ejecutaba _do_load en CADA
+    acceso (search/get/save) → re-SELECT de TODAS las filas + JSON parse
+    por operación (16K docs + 24K edges en el CPG real: segundos por cada
+    llamada, dentro del event loop del server MCP).
+    """
+    from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import (
+        CognitiveCpgRepository,
+    )
+
+    repo = CognitiveCpgRepository(str(tmp_path / "mem"), "demo")
+    repo.save(
+        {
+            "project_id": "demo",
+            "nodes": {"n1": {"name": "foo", "path": "a.py", "type": "function"}},
+            "edges": [],
+        }
+    )
+
+    # Instancia fresca (read model vacío) — la PRIMERA _load debe cargar;
+    # las siguientes NO (return temprano por _loaded=True)
+    repo2 = CognitiveCpgRepository(str(tmp_path / "mem"), "demo")
+    idx = repo2._cg.get_index("cpg")  # noqa: SLF001 — contrato de test
+    calls = {"n": 0}
+    orig_do_load = idx._do_load
+
+    def counting_do_load():
+        calls["n"] += 1
+        orig_do_load()
+
+    idx._do_load = counting_do_load  # noqa: SLF001 — sombra de instancia
+
+    idx._load()  # noqa: SLF001
+    idx._load()  # noqa: SLF001
+    idx._load()  # noqa: SLF001
+
+    assert calls["n"] == 1, (
+        f"_do_load corrió {calls['n']} veces — cada acceso re-cargaba el "
+        "índice completo desde sqlite (bug _loaded jamás seteado)"
+    )
+
+
+def test_fulltext_vivo_tras_reload_sqlite(tmp_path):
+    """El token index se reconstruye al cargar desde sqlite (FTS sordo).
+
+    Antes: el fulltext quedaba mudo tras cada restart (0 hits con el CPG
+    poblado) — el índice solo se llenaba en memoria durante writes del
+    mismo proceso; al reabrir, nadie lo reconstruía.
+    """
+    from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import (
+        CognitiveCpgRepository,
+    )
+
+    repo = CognitiveCpgRepository(str(tmp_path / "mem"), "demo")
+    repo.save(
+        {
+            "project_id": "demo",
+            "nodes": {
+                "n1": {"name": "voucher_service", "path": "a.ts", "type": "function"},
+                "n2": {"name": "unrelated", "path": "b.ts", "type": "function"},
+            },
+            "edges": [],
+        }
+    )
+
+    repo2 = CognitiveCpgRepository(str(tmp_path / "mem"), "demo")
+    result = repo2._cg.search("cpg", {"text": "voucher"})  # noqa: SLF001
+    hits = result.get("hits", {}).get("total", 0)
+    assert hits >= 1, (
+        f"fulltext mudo tras reload sqlite: {hits} hits para 'voucher' "
+        "con docs poblados (token index no reconstruido en _do_load)"
+    )

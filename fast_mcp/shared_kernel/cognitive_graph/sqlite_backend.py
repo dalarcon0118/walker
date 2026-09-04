@@ -157,7 +157,21 @@ class SqliteIndex(Index):
             # schema_hash: migración de estructura igual que el blob (G3)
             if stored_hash and stored_hash != self._schema_hash:  # pragma: no cover
                 self._rebuild_secondary_indexes()
-                self._rebuild_token_index_inline()
+
+            # BUG (preexistente, grave): SqliteIndex._do_load nunca seteaba
+            # _loaded → el base _load() re-ejecutaba ESTE método en CADA
+            # acceso (search/get/save): re-SELECT de TODAS las filas + JSON
+            # parse por operación (16K docs + 24K edges en el CPG real →
+            # segundos por cada llamada, dentro del event loop).
+            # Además: FIX FTS sordo (sqlite) — el read model viene de FILAS,
+            # no hay blob que traiga token_index/_type_index persistidos (no
+            # existe tabla de tokens). Sin rebuild, el fulltext quedaba MUDO
+            # tras cada restart: 0 hits con el CPG poblado aunque el schema
+            # configurara search fulltext (el índice solo se llenaba en
+            # memoria durante writes del MISMO proceso).
+            self._rebuild_secondary_indexes()
+            self._rebuild_token_index_inline()
+            self._loaded = True
         except (sqlite3.Error, json.JSONDecodeError) as e:
             raise StorageReadError(
                 f"SqliteIndex['{self.name}']: no se pudo cargar desde la BD "
