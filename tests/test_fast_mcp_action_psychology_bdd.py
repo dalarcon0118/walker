@@ -26,7 +26,7 @@ import pytest
 from fast_mcp.features.workflow.infrastructure.graph_repository import GraphRepository
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW_JSON = REPO_ROOT / "mcp" / "data" / "workflow" / "workflow.json"
+WORKFLOW_JSON = REPO_ROOT / "data" / "workflow" / "workflow.json"
 TEMPLATES = REPO_ROOT / "fast_mcp" / "features" / "workflow" / "application" / "prompts" / "templates" / "nodes"
 
 

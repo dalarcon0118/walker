@@ -314,9 +314,9 @@ def get_engine_workflow_dir() -> Path:
     """Directorio workflow canónico del motor (SSOT) — CÓDIGO, no data.
 
     GLOBAL del motor (compartido por todos los agentes; project.md §
-    'Configuración del workflow: GLOBAL del motor'): <walker_root>/mcp/data/workflow.
+    'Configuración del workflow: GLOBAL del motor'): <walker_root>/data/workflow.
     """
-    return get_walker_root() / "mcp" / "data" / "workflow"
+    return get_walker_root() / "data" / "workflow"
 
 
 def get_engine_workflow_path() -> Path:

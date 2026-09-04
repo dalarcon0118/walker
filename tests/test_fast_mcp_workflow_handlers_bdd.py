@@ -168,7 +168,7 @@ class TestFindWorkflowPath:
         participa en la resolución — siempre el SSOT del root del walker."""
         from fast_mcp.shared_kernel.paths import get_walker_root
 
-        expected = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        expected = get_walker_root() / "data" / "workflow" / "workflow.json"
         assert _find_workflow_path() == str(expected)
 
     def test_project_workflow_is_ignored(self, tmp_path, monkeypatch):
@@ -181,7 +181,7 @@ class TestFindWorkflowPath:
         (wf_dir / "workflow.json").write_text("{}")
         (tmp_path / "workflow.json").write_text("{}")  # flat también ignorado
         assert _find_workflow_path() == str(
-            get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+            get_walker_root() / "data" / "workflow" / "workflow.json"
         )
 
     def test_env_override_honored(self, tmp_path, monkeypatch):

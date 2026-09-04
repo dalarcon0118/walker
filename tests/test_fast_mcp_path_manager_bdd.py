@@ -7,7 +7,7 @@ del workflow: GLOBAL del motor, no por-proyecto'):
      gana siempre: absoluto tal cual, relativo contra walker_root. Si no existe,
      se retorna igual — el loader falla ruidosamente (fail-fast, sin fallback
      silencioso al canónico).
-  2. Canónico: <walker_root>/mcp/data/workflow/workflow.json.
+  2. Canónico: <walker_root>/data/workflow/workflow.json.
   3. None si el canónico no existe y no hay override (caller decide el error).
 
 Los proyectos NO llevan workflow propio: cualquier workflow.json dentro del
@@ -76,7 +76,7 @@ class TestResolveWorkflowManifest:
     def test_default_points_to_real_repo_ssot(self):
         """Sin inyección: el canónico es el SSOT real del repo (existe)."""
         resolved = PathManager().resolve_workflow_manifest()
-        assert resolved == get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        assert resolved == get_walker_root() / "data" / "workflow" / "workflow.json"
         assert resolved.is_file()
 
 
@@ -139,7 +139,7 @@ class TestEngineManifest:
     def test_default_points_to_repo_ssot(self):
         resolved = PathManager().engine_manifest()
         assert resolved.name == "workflow.json"
-        assert resolved.parts[-4:-1] == ("mcp", "data", "workflow")
+        assert resolved.parts[-3:-1] == ("data", "workflow")
         assert resolved.is_file(), "el SSOT restaurado debe existir en el repo"
 
     def test_engine_env_override_honored(self, tmp_path):
@@ -175,7 +175,7 @@ class TestEngineUsesPathManager:
         independiente del chain_dir del proyecto."""
         from fast_mcp.features.workflow.context import _find_workflow_path
 
-        expected = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        expected = get_walker_root() / "data" / "workflow" / "workflow.json"
         assert _find_workflow_path() == str(expected)
 
     def test_context_find_workflow_path_ignores_project_workflow(self, tmp_path):
@@ -184,7 +184,7 @@ class TestEngineUsesPathManager:
 
         (tmp_path / "mcp" / "data" / "workflow").mkdir(parents=True)
         (tmp_path / "mcp" / "data" / "workflow" / "workflow.json").write_text("{}")
-        expected = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+        expected = get_walker_root() / "data" / "workflow" / "workflow.json"
         assert _find_workflow_path() == str(expected)
 
     def test_context_find_workflow_path_honors_env_override(self, tmp_path, monkeypatch):
@@ -204,7 +204,7 @@ class TestEngineUsesPathManager:
         project.mkdir()
         monkeypatch.setenv(
             PathManager.ENV_OVERRIDE,
-            str(get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"),
+            str(get_walker_root() / "data" / "workflow" / "workflow.json"),
         )
 
         ctx = WorkflowContext.resolve(str(project), task_registry=None)

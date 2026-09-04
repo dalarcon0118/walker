@@ -518,13 +518,13 @@ class TestProtocolBuilder:
         assert "MCP" in protocol or "protocol" in protocol.lower()
 
 
-# ── Workflow config restoration (mcp/data/workflow/) ──────────────────────
+# ── Workflow config restoration (data/workflow/) ──────────────────────────
 # Valida que la configuración del workflow (SSOT del grafo BPMN) restaurada
-# desde mcp/data/workflow/ carga con el GraphRepository canónico de fast_mcp
+# desde data/workflow/ carga con el GraphRepository canónico de fast_mcp
 # y que cada sub_estado llm_task tiene su template de prompt restaurado.
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW_JSON = REPO_ROOT / "mcp" / "data" / "workflow" / "workflow.json"
+WORKFLOW_JSON = REPO_ROOT / "data" / "workflow" / "workflow.json"
 
 EXPECTED_WORKFLOW_NODES = {
     "START",

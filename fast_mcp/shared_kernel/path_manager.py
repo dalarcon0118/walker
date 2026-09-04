@@ -15,7 +15,7 @@ Cascada de resolución (INV-016 fail-fast: decidir explícitamente, no inventar)
      `workflow.manifest`. Ruta absoluta → tal cual; relativa → resuelta
      contra la raíz del walker. Si el archivo no existe, el loader falla
      ruidosamente sobre esa ruta exacta — nunca fallback silencioso.
-  2. Canónico: <walker_root>/mcp/data/workflow/workflow.json.
+  2. Canónico: <walker_root>/data/workflow/workflow.json.
   3. None si el canónico no existe y no hay override (caller decide el error
      accionable). NO se buscan candidatos dentro del chain_dir del proyecto.
 """
@@ -115,7 +115,7 @@ class PathManager:
 
         1. Override explícito → se retorna siempre (existencia la valida el
            loader, ruidosamente).
-        2. Canónico <walker_root>/mcp/data/workflow/workflow.json → si existe.
+        2. Canónico <walker_root>/data/workflow/workflow.json → si existe.
         3. None → el caller decide el error accionable.
         """
         override = self._normalized_override()

@@ -40,7 +40,7 @@ Estos principios son **inmutables** a menos que se apruebe un ADR explícito que
 
 **El workflow (`workflow.json` + `nodes/*.node.json` + `edges.json`) es UNO solo:
 configuración global del motor**, que vive en el **root del walker**
-(`mcp/data/workflow/`; legacy: `data/workflow/`). **Todos los agentes y todas las
+(`data/workflow/`). **Todos los agentes y todas las
 instancias del walker que operan hoy usan ESTA MISMA configuración.** No existe
 "el workflow de un proyecto": cada proyecto **no** define su propio flujo.
 
@@ -55,7 +55,7 @@ En una línea: **el flujo, las tasks y los prompts son idénticos para todos los
 proyectos; lo único que cambia por proyecto es su CONTEXTO, guardado en las
 memorias (CPG, CKG, DeltaGraph, TraceGraph).**
 
-Por eso el workflow está en el root (`walker/mcp/data/workflow/`) y **nunca dentro
+Por eso el workflow está en el root (`walker/data/workflow/`) y **nunca dentro
 del directorio cognitivo del proyecto**: el workflow es **configuración del motor**
 (compartida, versionada, una sola fuente), mientras que la memoria cognitiva es
 **contexto por proyecto** (mutante, aislado por proyecto).
@@ -66,7 +66,7 @@ del directorio cognitivo del proyecto**: el workflow es **configuración del mot
 
 | Componente | Contenido |
 |-----------|-----------|
-| `mcp/data/workflow/` | `workflow.json`, `nodes/*.node.json`, `edges.json`, `schema/` — SSOT del flujo BPMN |
+| `data/workflow/` | `workflow.json`, `nodes/*.node.json`, `edges.json`, `schema/` — SSOT del flujo BPMN |
 | Templates de prompts | `fast_mcp/features/workflow/application/prompts/templates/` — prompts por nodo/fase (parte del workflow) |
 | TaskRegistry | las tasks del agente (`fast_mcp/features/tasks/handlers/`: implement, verify, observe, state_construction, info_acquisition, monitoring, …) — las mismas tareas en cualquier proyecto |
 | `config/config.json` | claves de comportamiento del motor (`workflow.manifest`, quality, scan…) |
@@ -87,7 +87,7 @@ del directorio cognitivo del proyecto**: el workflow es **configuración del mot
 1. **`chain_dir` identifica el proyecto para ESTADO y MEMORIA** (dónde leer/escribir
    su `.cognitive/`), **nunca para cargar el workflow**. La resolución del workflow
    es siempre la del motor: `PathManager.engine_manifest()` —
-   `<walker_root>/mcp/data/workflow/workflow.json` — con override explícito
+   `<walker_root>/data/workflow/workflow.json` — con override explícito
    (`env WALKER_WORKFLOW_MANIFEST` / config `workflow.manifest`) y fail-fast
    (INV-016) si no existe.
 2. Un proyecto target **no debe llevar su propio `workflow.json`**: si lo llevara,
@@ -105,7 +105,7 @@ Walker es **dogfooding total**: el propio walker está registrado y gestionado
 su DeltaGraph con sus sprints/specs, su TraceGraph) vive en su propio root,
 y **usa exactamente el mismo workflow global y las mismas tasks que cualquier
 otro proyecto** — sin casos especiales ni ramas de código "walker sobre walker".
-Consecuencia directa: cualquier cambio en `mcp/data/workflow/` o en el
+Consecuencia directa: cualquier cambio en `data/workflow/` o en el
 TaskRegistry afecta por igual a walker-sobre-sí y a walker-sobre-cualquier-
 otro-proyecto; y la memoria de walker (su contexto como proyecto) NO se
 confunde con la configuración del motor, aunque compartan repositorio.
@@ -114,7 +114,7 @@ confunde con la configuración del motor, aunque compartan repositorio.
 
 `PathManager` resuelve SIEMPRE el workflow GLOBAL del motor:
 `resolve_workflow_manifest()` — override explícito (`WALKER_WORKFLOW_MANIFEST` /
-`workflow.manifest`) → canónico `<walker_root>/mcp/data/workflow/workflow.json`
+`workflow.manifest`) → canónico `<walker_root>/data/workflow/workflow.json`
 → None — y **NO busca nada dentro del `chain_dir`** del proyecto (los candidatos
 per-proyecto fueron eliminados). `_find_workflow_path()` ya no toma `chain_dir`;
 el parámetro `chain_dir` de `WorkflowContext.resolve` queda reservado para
@@ -311,7 +311,7 @@ contra ese contrato.
 | Contrato teórico | Implementación | Evidencia |
 |------------------|----------------|-----------|
 | Persistir cada avance sin perder estado | `submit` persiste el estado + revision bump (optimistic concurrency) | `orchestrator.py` `_submit_impl` pasos 5–8 |
-| Ciclo plan→spec→implement→verify→retro | El workflow define 8 nodos con sub-estados por fase | `mcp/data/workflow/nodes/*.node.json` |
+| Ciclo plan→spec→implement→verify→retro | El workflow define 8 nodos con sub-estados por fase | `data/workflow/nodes/*.node.json` |
 | Verificación tipada de predicates (>alucinación) | `VERIFY.PREDICATE_CHECK` es `execution: auto`, `action: verify_predicates` | `verify.node.json` línea 64 |
 | Motor real de verificación con cache | `verify_engine.py` (predicates: symbol_exists, test_pass, grep, ...) | `mcp/shared/tasks/infrastructure/verify_engine.py` |
 | Design by Contract | `ContractValidator.verify_pre/post/invariant` | `mcp/shared/core/engine/domain/contract_validator.py` |

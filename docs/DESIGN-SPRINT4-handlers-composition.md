@@ -111,9 +111,13 @@ class WorkflowContext:
 **Key design:** `resolve()` is a classmethod on the context (same as `MemoryContext.resolve()`). The composition.py calls it, not the handlers. Handlers receive a pre-built context.
 
 **`_find_workflow_path()` helper:**
-- Looks for `workflow.json` in `{chain_dir}/mcp/data/workflow/` (standard project layout)
-- Falls back to `{chain_dir}/workflow.json`
-- Returns None if not found
+- _Nota (actual): con la política GLOBAL del motor (project.md § 'Configuración
+  del workflow: GLOBAL del motor'), esta descripción primitiva quedó obsoleta._
+  La resolución actual delega en `PathManager.resolve_workflow_manifest()`
+  (override `WALKER_WORKFLOW_MANIFEST`/`workflow.manifest` → canónico
+  `<walker_root>/data/workflow/workflow.json` → None), con
+  `chain_dir` reservado SOLO para estado/memoria y un workflow.json dentro del
+  chain_dir del proyecto IGNORADO (ADR-047).
 
 ### 3.2 Handler Registry (~50 LOC)
 

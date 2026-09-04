@@ -23,7 +23,7 @@ def get_workflow_manifest_path() -> str:
 
     Política real: shared_kernel.path_manager.PathManager.engine_manifest()
     (override env WALKER_WORKFLOW_MANIFEST / config 'workflow.manifest' →
-    default <walker_root>/mcp/data/workflow/workflow.json).
+    default <walker_root>/data/workflow/workflow.json).
     """
     from fast_mcp.shared_kernel.path_manager import PathManager
 

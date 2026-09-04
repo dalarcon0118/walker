@@ -36,7 +36,7 @@ from fast_mcp.shared_kernel.path_manager import PathManager
 from fast_mcp.shared_kernel.paths import get_walker_root
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ENGINE_WORKFLOW = get_walker_root() / "mcp" / "data" / "workflow" / "workflow.json"
+ENGINE_WORKFLOW = get_walker_root() / "data" / "workflow" / "workflow.json"
 
 
 @pytest.fixture()

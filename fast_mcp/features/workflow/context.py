@@ -121,7 +121,7 @@ def _find_workflow_path() -> str | None:
       1. Override explícito: env WALKER_WORKFLOW_MANIFEST / config
          'workflow.manifest' (absoluto tal cual; relativo → walker_root).
          Si no existe, el loader falla ruidosamente (fail-fast INV-016).
-      2. Canónico: <walker_root>/mcp/data/workflow/workflow.json.
+      2. Canónico: <walker_root>/data/workflow/workflow.json.
       3. None (caller decide el error accionable).
     """
     from fast_mcp.shared_kernel.path_manager import PathManager
