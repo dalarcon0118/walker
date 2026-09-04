@@ -49,6 +49,48 @@ def _get_cfg(key: str, default: Any = None) -> Any:
     return None
 
 
+# ── Config del layout per-proyecto (ProjectManager, parte 4) ────────
+#
+# El layout cognitivo de un proyecto es configurable por config en vez de
+# estar hardcodeado: `project.cognitive_dir` (def ".cognitive"),
+# `project.data_dir` (def "data"), `project.ckg_dir` (def "ckg"). Estas claves
+# se componen SIEMPRE sobre el repo_path del proyecto (resuelto por
+# ProjectService.get_repo_path), nunca sobre convenciones implícitas.
+
+
+def project_cognitive_dir() -> str:
+    """Nombre del directorio cognitivo de un proyecto (config)."""
+    cfg = _read_config_file()
+    return str((cfg.get("project") or {}).get("cognitive_dir", ".cognitive"))
+
+
+def project_data_dir() -> str:
+    """Nombre del directorio de datos de un proyecto (config)."""
+    cfg = _read_config_file()
+    return str((cfg.get("project") or {}).get("data_dir", "data"))
+
+
+def project_ckg_dir() -> str:
+    """Nombre del directorio de conocimiento (CKG) de un proyecto (config)."""
+    cfg = _read_config_file()
+    return str((cfg.get("project") or {}).get("ckg_dir", "ckg"))
+
+
+def compose_project_layout(repo_path: str, project_id: str) -> Path:
+    """Layout cognitivo de un proyecto compuesto sobre su repo path.
+
+    <repo_path>/<project.cognitive_dir>/projects/<project_id>/<project.data_dir>/
+    """
+    return (
+        Path(repo_path)
+        / project_cognitive_dir()
+        / "projects"
+        / project_id
+        / project_data_dir()
+    )
+
+
+
 # ── 1. Raíz del proyecto walker ────────────────────────────────────
 
 

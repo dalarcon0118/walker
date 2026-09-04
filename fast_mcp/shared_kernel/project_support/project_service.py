@@ -90,22 +90,32 @@ class ProjectService:
 
     @staticmethod
     def resolve_paths(chain_dir: str) -> ProjectPaths:
-        """Resuelve todas las rutas desde un chain_dir (vía kernel paths)."""
+        """Resuelve todas las rutas desde un chain_dir (vía kernel paths).
+
+        Entrada canónica por-proyecto: si `chain_dir` es un project_id
+        registrado en el registro global, se resuelve por registro
+        (resolve_from_project_id); si es un path/layout, se resuelve por
+        chain_dir (legacy, backward-compatible con los 20+ callers que solo
+        tienen un path). Ambas comparten el mismo builder de ProjectPaths.
+        """
         from fast_mcp.shared_kernel.paths import (
-            get_ckg_path,
-            get_cognitive_dir,
-            get_cpg_path,
-            get_data_dir,
-            get_delta_dir,
-            get_trace_dir,
+            project_data_dir,
             resolve_project_id,
             resolve_project_root,
-            walker_root,
         )
 
         if not chain_dir:
             raise ProjectResolutionError("chain_dir vacio — no se puede resolver paths")
 
+        # Vía 1 (ProjectManager, parte 3/4): `chain_dir` ES un project_id
+        # registrado → resolver por registro (SSOT global), sin adivinar rutas.
+        if "/" not in chain_dir and "\\" not in chain_dir:
+            try:
+                return ProjectService.resolve_from_project_id(chain_dir)
+            except ValueError:
+                pass  # no registrado → cae a la vía legacy por path
+
+        # Vía 2 (legacy, backward-compatible): chain_dir es un path/layout.
         try:
             project_root = resolve_project_root(chain_dir)
         except FileNotFoundError as e:
@@ -115,29 +125,96 @@ class ProjectService:
         pid_str = project_id or os.path.basename(project_root)
 
         # data_dir canónico (ADR-WALKER-054 D4): el layout cognitivo del
-        # proyecto ES la fuente de verdad — <repo>/.cognitive/projects/<pid>/data.
-        # El legacy <repo>/data es SOLO fallback para proyectos sin .cognitive
-        # (tests, proyectos simples sin preparar) — misma cascada que
-        # FileWatcher._default_data_dir y ProjectLayout.data_dir.
-        #
-        # ANTES esto invertía la prioridad (legacy <repo>/data primero si existía),
-        # lo que desalineaba CPG/CKG/grep/read del data_dir canónico que usan
-        # prepare/status/watcher → el CPG se escribía en una base parásita
-        # distinta a la que lee el watcher (cpg_status stale permanente).
-        data_dir = os.path.join(project_root, "data")
-        cog_layout = os.path.join(
-            project_root, ".cognitive", "projects", pid_str, "data"
-        )
+        # proyecto ES la fuente de verdad — <repo>/<project.cognitive_dir>/
+        # projects/<pid>/<project.data_dir>. El legacy <repo>/data es SOLO
+        # fallback para proyectos sin .cognitive (tests, proyectos simples sin
+        # preparar). Prioridad: layout cognitivo > legacy data.
+        cog_layout = ProjectService.compose_project_layout(project_root, pid_str)
+        data_dir = os.path.join(project_root, project_data_dir())
         if os.path.isdir(cog_layout):
             data_dir = cog_layout
         elif not os.path.isdir(data_dir):
-            try:
-                data_dir = str(get_data_dir(pid_str))
-            except Exception:  # noqa: BLE001
-                pass
+            data_dir = cog_layout  # señal accionable del path esperado
+
+        return ProjectService._build_paths(
+            chain_dir=chain_dir,
+            project_root=project_root,
+            pid_str=pid_str,
+            data_dir=data_dir,
+        )
+
+    @staticmethod
+    def resolve_from_project_id(
+        project_id: str, root: os.PathLike | None = None
+    ) -> ProjectPaths:
+        """Resuelve TODAS las rutas de un proyecto desde su project_id.
+
+        El corazón del modelo ProjectManager: todo lo per-proyecto se resuelve
+        por el id registrado en projects.json (SSOT global), NO por convención
+        de path. Equivale a resolve_paths(project_id) pero garantizado por
+        registro (fail-fast INV-016 vía get_repo_path).
+
+        `root`: raíz del walker (inyectable para tests; None → real).
+        """
+        if not project_id:
+            raise ProjectResolutionError("project_id vacio — no se puede resolver paths")
+        repo_path = ProjectService.get_repo_path(project_id, root=root)
+        data_dir = ProjectService.compose_project_layout(repo_path, project_id)
+        if not os.path.isdir(data_dir):
+            # Sin layout preparado: fallback explícito a <repo>/data (misma
+            # regla que la vía chain_dir) — señal accionable, no degradación.
+            legacy = os.path.join(repo_path, project_data_dir())
+            data_dir = data_dir if os.path.isdir(data_dir) else legacy
+        return ProjectService._build_paths(
+            chain_dir=project_id,
+            project_root=repo_path,
+            pid_str=project_id,
+            data_dir=data_dir,
+        )
+
+    @staticmethod
+    def compose_project_layout(project_root: str, pid_str: str) -> str:
+        """Layout cognitivo de un proyecto compuesto por config (parte 4).
+
+        <project_root>/<project.cognitive_dir>/projects/<pid_str>/<project.data_dir>/
+        """
+        from fast_mcp.shared_kernel.paths import (
+            project_cognitive_dir,
+            project_data_dir,
+        )
+
+        return os.path.join(
+            project_root,
+            project_cognitive_dir(),
+            "projects",
+            pid_str,
+            project_data_dir(),
+        )
+
+    @staticmethod
+    def _build_paths(
+        *,
+        chain_dir: str,
+        project_root: str,
+        pid_str: str,
+        data_dir: str,
+    ) -> ProjectPaths:
+        """Builder común de ProjectPaths (compartido por resolve_paths y
+        resolve_from_project_id). Toma las rutas ya resueltas del proyecto y
+        rellena las derivadas (workflow global, cpg/ckg/trace, manifest)."""
+        from fast_mcp.shared_kernel.paths import (
+            cognitive_data_dir,
+            get_ckg_path,
+            get_cognitive_dir,
+            get_cpg_path,
+            get_delta_dir,
+            get_trace_dir,
+            walker_root,
+        )
+
         try:
             delta_dir = str(get_delta_dir(pid_str))
-        except (FileNotFoundError, Exception):
+        except (FileNotFoundError, Exception):  # noqa: BLE001
             delta_dir = os.path.join(data_dir, "spring")
         _pm = PathManager()
         workflow_dir = str(_pm.engine_workflow_dir())
@@ -187,6 +264,50 @@ class ProjectService:
             cognitive_dir=cognitive_dir,
             walker_root=walker_root_str,
         )
+
+    # ── Registro (ProjectManager: todo per-proyecto por project_id) ──
+
+    @staticmethod
+    def get_repo_path(project_id: str, root: os.PathLike | None = None) -> str:
+        """Path absoluto del repo desde el registro global (data/projects.json).
+
+        SSOT de rutas globales: projects.json es la única fuente autoritativa
+        para project_id → repo_path. INV-016 fail-fast: si el proyecto no está
+        registrado, se lanza ValueError accionable — sin fallback silencioso,
+        sin adivinar rutas por convención.
+
+        `root`: raíz del walker a usar para localizar projects.json (inyectable
+        para tests; None → raíz real detectada).
+        """
+        from fast_mcp.shared_kernel.paths import registry_path
+
+        reg_path = registry_path(Path(root) if root is not None else None)
+        if not reg_path.is_file():
+            raise ValueError(
+                f"Registro global de proyectos no encontrado en '{reg_path}'. "
+                "No se puede resolver repo_path para '{project_id}'."
+            )
+        try:
+            with open(reg_path) as f:
+                registry = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            raise ValueError(
+                f"No se pudo leer el registro global '{reg_path}': {e}"
+            )
+        entry = registry.get("projects", {}).get(project_id, {})
+        repo = entry.get("repo_path", "")
+        if not repo:
+            raise ValueError(
+                f"Projecto '{project_id}' no registrado en '{reg_path}'. "
+                "Ejecuta 'walker prepare <path>' para registrarlo primero."
+            )
+        abs_repo = os.path.abspath(repo)
+        if not os.path.isdir(abs_repo):
+            raise ValueError(
+                f"El repo del projecto '{project_id}' no existe: '{abs_repo}'. "
+                "Verifica el repo_path en el registro global."
+            )
+        return abs_repo
 
     # ── Discovery ─────────────────────────────────────────────────────
 
