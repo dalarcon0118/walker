@@ -122,6 +122,54 @@ estado y memoria. Los tests usan el override `WALKER_WORKFLOW_MANIFEST` (nunca
 copias del SSOT) e incluyen guardas de que un `workflow.json` dentro del
 proyecto se **ignora**.
 
+### Frontera de responsabilidades: PathManager vs. bounded context Project (ADR-WALKER-074)
+
+Dos "managers" conceptualmente distintos que el código mantiene separados por
+**role, no por nombre** (no existe una clase `ProjectManager`; es la suma de
+`ProjectService` + `RegistryStore` + `use_cases` dentro del bounded context
+Project):
+
+| Role | Responsabilidad | NO hace |
+|------|-----------------|---------|
+| **`PathManager`** (+ `paths.py`) | rutas INTERNAS del walker: `walker_root`, `paths.registry_path` (la **ubicación** de `projects.json`), config del walker, workflow GLOBAL del motor | NO resuelve proyectos ni lee el registro de proyectos |
+| **`RegistryStore`** | I/O de `data/projects.json` (read/register/resolve/resolve_from_cwd) — **único lector del registro** | NO tiene lógica de negocio de proyecto |
+| **`ProjectService`** | fachada de resolución per-proyecto por `project_id`: `get_repo_path`, `resolve_from_project_id`, `resolve_paths`, `compose_project_layout` | NO lee `projects.json` a mano; delega en `RegistryStore` |
+| **`use_cases`** (`features/project/application`) | negocio de proyecto: preparar / listar / estado | NO reimplementa lecturas del registro; usa `RegistryStore` |
+
+Reglas derivadas (ADR-WALKER-074 D2/D3):
+1. **Un solo lector de `projects.json`**: `RegistryStore`. `ProjectService.get_repo_path`
+   delega en `RegistryStore(root).resolve(project_id)` — nunca abre el archivo a mano
+   (fail-fast INV-016 conservado: sin registro / no registrado / repo inexistente).
+2. **`ProjectService` es la fachada pública** que consumen las features para rutas
+   per-proyecto; su API es estable (`resolve_paths(chain_dir)` backward-compatible
+   + `resolve_from_project_id(project_id)` por registro).
+3. **`PathManager` jamás referencia proyectos**: solo layout, config y workflow del
+   walker. Si un cambio introduce lectura del registro ahí, viola la frontera.
+
+**Layout del proyecto configurable por config (claves `project.*`):**
+
+El layout cognitivo de un proyecto se compone **sobre su `repo_path`** (resuelto
+por `ProjectService.get_repo_path`) y es configurable en `config/config.json`,
+no hardcodeado:
+
+```json
+{
+  "project": {
+    "cognitive_dir": ".cognitive",   // def; directorio cognitivo del proyecto
+    "data_dir": "data",              // def; directorio de datos/memorias
+    "ckg_dir": "ckg"                 // def; directorio del conocimiento (CKG)
+  }
+}
+```
+
+Layout compuesto resultante:
+```
+<repo_path>/<project.cognitive_dir>/projects/<project_id>/<project.data_dir>/
+```
+Implementado en `paths.compose_project_layout` / `ProjectService.compose_project_layout`
+(defaults `.cognitive` / `data` / `ckg`). Es la única fuente de verdad del layout
+per-proyecto y reemplaza convenciones implícitas dispersas.
+
 ---
 
 ## Decisiones arquitectónicas
