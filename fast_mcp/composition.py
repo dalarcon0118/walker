@@ -143,6 +143,28 @@ def project_tool_runner(name: str, root: Path | None = None):
 # ── Memory tool runners (Phase 2 — handler registry) ────────────────────
 
 
+def _no_project_context_error() -> dict:
+    """Error fail-fast (INV-016) ACCIONABLE para las tools que exigen proyecto.
+
+    NO resuelve el proyecto de forma implícita (prohibido: fail-fast, sin
+    fallback por CWD - AGENTS.md). En su lugar le dice al agente exactamente
+    qué hacer: pasar el parámetro EXPLÍCITO `project_id` y enumera los
+    proyectos disponibles para que sepa valores válidos.
+    """
+    from fast_mcp.shared_kernel.registry_store import RegistryStore
+
+    reg = RegistryStore().read().get("projects", {})
+    avail = ", ".join(sorted(reg)) if reg else "(no hay proyectos registrados)"
+    return {"error": (
+        "No project context. Esta tool MCP exige el parámetro EXPLÍCITO "
+        "'project_id' en la llamada (fail-fast: el proyecto NO se infiere del "
+        "directorio de trabajo; no hay fallback). Pase 'project_id' con uno de "
+        f"estos proyectos registrados: [{avail}]. Si no hay ninguno, registre "
+        "uno primero con la tool 'walker_prepare' pasando 'path' al repo. "
+        "Ver proyectos con 'walker_list'."
+    )}
+
+
 def _resolve_chain_dir(kwargs: dict) -> str:
     """Resolve chain_dir from kwargs (project_id or _project_id).
 
@@ -200,7 +222,7 @@ def memory_tool_runner(name: str, root: Path | None = None):
     def runner(**kwargs) -> dict:
         chain_dir = _resolve_chain_dir(kwargs)
         if not chain_dir:
-            return {"error": "No project context. Run 'walker prepare <path>' first."}
+            return _no_project_context_error()
 
         ctx = MemoryContext.resolve(chain_dir)
         if ctx is None:
@@ -228,7 +250,7 @@ def workflow_tool_runner(name: str, root: Path | None = None):
     def runner(**kwargs) -> dict:
         chain_dir = _resolve_chain_dir(kwargs)
         if not chain_dir:
-            return {"error": "No project context. Run 'walker prepare <path>' first."}
+            return _no_project_context_error()
 
         # Inject the TaskRegistry (Sprint 5 — engine anémico). Cross-feature
         # wiring is legal ONLY here (composition root, R1/§3bis): the workflow
@@ -260,7 +282,7 @@ def delta_tool_runner(name: str, root: Path | None = None):
     def runner(**kwargs) -> dict:
         chain_dir = _resolve_chain_dir(kwargs)
         if not chain_dir:
-            return {"error": "No project context. Run 'walker prepare <path>' first."}
+            return _no_project_context_error()
 
         # Repo-backed service injected by the composition root (R1/§3bis):
         # handlers never self-construct an anemic SprintService (INV-016).
@@ -284,7 +306,7 @@ def trace_tool_runner(name: str, root: Path | None = None):
     def runner(**kwargs) -> dict:
         chain_dir = _resolve_chain_dir(kwargs)
         if not chain_dir:
-            return {"error": "No project context. Run 'walker prepare <path>' first."}
+            return _no_project_context_error()
 
         # Lazy-import TraceService to avoid circular deps
         from fast_mcp.features.event_tracing.infrastructure.cognitive_trace_repo import (
@@ -430,7 +452,7 @@ def task_tool_runner(name: str, root: Path | None = None):
     def runner(**kwargs) -> dict:
         chain_dir = _resolve_chain_dir(kwargs)
         if not chain_dir:
-            return {"error": "No project context. Run 'walker prepare <path>' first."}
+            return _no_project_context_error()
 
         # Build TaskRegistry (lazy, per call)
         sprint_service = _build_sprint_service(chain_dir)

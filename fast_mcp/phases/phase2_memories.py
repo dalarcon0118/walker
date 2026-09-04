@@ -82,6 +82,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "knowledge_query": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "action": {"type": "string", "description": "Sub-command: search, save, active, supersede, context (default search)."},
             "query": {"type": "string", "description": "Full-text search (action=search)."},
             "text": {"type": "string", "description": "Alias of query (action=search)."},
@@ -97,21 +98,24 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "memory_schema": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "index": {"type": "string", "description": "Index to get schema from (delta, ckg, cpg, trace). Without body returns list of indexes."},
         },
     },
     "recall_knowledge": {
         "type": "object",
-        "description": "Each key is an index query (delta, ckg, cpg, trace).",
+        "description": "Each key is an index query (delta, ckg, cpg, trace). Requires project_id.",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "_index": {"type": "string", "description": "Index to search (default ckg)."},
             "text": {"type": "string", "description": "Full-text search query."},
         },
     },
     "documenting_knowledge": {
         "type": "object",
-        "description": "Knowledge to save: nodes (workflow) or statement/label with lifecycle.",
+        "description": "Knowledge to save: nodes (workflow) or statement/label with lifecycle. Requires project_id.",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "nodes": {"type": "array", "description": "Knowledge nodes to save."},
             "statement": {"type": "string", "description": "Knowledge statement."},
             "type": {"type": "string", "description": "Knowledge type."},
@@ -120,8 +124,9 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     },
     "search_memories": {
         "type": "object",
-        "description": "Federated query across multiple indexes.",
+        "description": "Federated query across multiple indexes. Requires project_id.",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "delta": {"type": "object", "description": "Delta index query."},
             "ckg": {"type": "object", "description": "CKG index query."},
             "cpg": {"type": "object", "description": "CPG index query."},
@@ -131,6 +136,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "agent_context": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "file": {"type": "string", "description": "File/area to analyze (cross-layer by file)."},
             "task_id": {"type": "string", "description": "Spec/TASK of the sprint (delta×trace cross)."},
             "text": {"type": "string", "description": "Full-text fallback search in CKG."},
@@ -143,6 +149,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "code_context": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "file": {"type": "string", "description": "File path to contextualize (relative to project_root)."},
             "query": {"type": "string", "description": "Structured search by symbol, function or class name."},
             "depth": {"type": "string", "description": "Depth: shallow | normal | deep (default normal)."},
@@ -151,6 +158,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "inspect_codebase": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "scope": {"type": "string", "description": "Path or scope to inspect."},
             "action": {"type": "string", "description": "Action: business, dead_code, security, review, metrics, build, update."},
             "detect": {"type": "string", "description": "Detection mode: dead_code, security."},
@@ -171,6 +179,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "code_search": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "query": {"type": "string", "description": "Full-text search query (required)."},
             "max_results": {"type": "integer", "description": "Result limit (default 20)."},
         },

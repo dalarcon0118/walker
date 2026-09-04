@@ -60,6 +60,31 @@ def test_fase2_tools_tienen_input_schema(fastmcp_server):
         assert "properties" in schema, f"Tool {name}: inputSchema sin properties"
 
 
+_PROJECT_SCOPED_TOOLS = {
+    # Tools que resuelven el proyecto vía kwargs project_id/_project_id (el
+    # resto o no lo necesitan o ya exponían project_id en su schema).
+    "build_code_index", "update_incremental_code", "extract_knowledge",
+    "knowledge_query", "memory_schema", "recall_knowledge",
+    "documenting_knowledge", "search_memories", "agent_context",
+    "code_context", "inspect_codebase", "read_code", "code_search",
+}
+
+
+def test_fase2_tools_requieren_project_id_en_schema(fastmcp_server):
+    """Las tools per-proyecto deben exponer 'project_id' en su schema para que
+    el agente descubra cómo seleccionar el proyecto (fail-fast explícito; sin
+    inferencia por CWD)."""
+    tools = _remote_list(fastmcp_server)
+    by_name = {t.name: t for t in tools}
+    for name in _PROJECT_SCOPED_TOOLS:
+        schema = by_name[name].inputSchema
+        props = schema.get("properties", {})
+        assert "project_id" in props, (
+            f"Tool {name}: sin 'project_id' en schema — el agente no puede saber "
+            f"que debe pasarlo (falla 'No project context' inaccionable)"
+        )
+
+
 def test_fase2_knowledge_query_schema_tiene_action(fastmcp_server):
     """knowledge_query tiene el campo 'action' en su schema."""
     tools = _remote_list(fastmcp_server)
@@ -181,3 +206,28 @@ def test_fase2_memory_tool_runner_sin_chain_dir():
     runner = composition.memory_tool_runner("inspect_codebase")
     result = runner()
     assert "error" in result
+
+
+def test_fase2_error_sin_contexto_es_accionable():
+    """El error 'No project context' DEBE ser accionable para el agente:
+    dice que hay que pasar 'project_id' EXPLÍCITO (fail-fast, sin fallback por
+    CWD) y enumera los proyectos registrados como valores válidos."""
+    from fast_mcp import composition
+
+    runner = composition.memory_tool_runner("knowledge_query")
+    result = runner(action="search", query="test")
+
+    assert "error" in result
+    msg = result["error"]
+    # El mensaje debe indicar el parámetro requerido y cómo descubrir valores.
+    assert "project_id" in msg, "el error debe nombrar el parámetro REQUERIDO"
+    assert "walker_prepare" in msg or "walker_list" in msg, (
+        "el error debe decir cómo registrar/ver proyectos"
+    )
+    # Debe enumerar los proyectos del registro real (walker, react-native-frontend...).
+    from fast_mcp.shared_kernel.registry_store import RegistryStore
+
+    registered = RegistryStore().read().get("projects", {})
+    assert registered, "el registro real debe tener proyectos para el test"
+    for pid in registered:
+        assert pid in msg, f"el error debe enumerar el proyecto registrado '{pid}'"
