@@ -67,6 +67,29 @@ class DeadCodeReferenceScanner:
         # Archivos fuente del proyecto (paths absolutos), para resolver
         # referencias fuera del propio archivo de definición.
         self._source_files = [os.path.realpath(f) for f in source_files if f]
+        # Caché de textos (una lectura por archivo y por BUILD, no por
+        # símbolo). Sin esto, is_referenced re-leía TODO el proyecto por
+        # cada función candidata: 2.7k funciones × 1.1k archivos ≈ 3M de
+        # lecturas de disco (~260s de un build de 290s, y el server MCP
+        # entero bloqueado hasta el timeout -32001).
+        self._text_cache: dict[str, str] = {}
+
+    def _text(self, fp: str) -> str:
+        """Texto del archivo (cacheado). Vacío si ilegible (skip idéntico)."""
+        cached = self._text_cache.get(fp)
+        if cached is None:
+            result = _read_source_file(fp)
+            if not is_successful(result):
+                error = result.failure()
+                logger.debug(
+                    "Archivo ilegible %s (%s); se omite del scan de referencias",
+                    fp, error,
+                )
+                cached = ""
+            else:
+                cached = result.value_or("")
+            self._text_cache[fp] = cached
+        return cached
 
     @classmethod
     def _ident_re(cls):
@@ -86,15 +109,7 @@ class DeadCodeReferenceScanner:
         quoted = f'"{name}"'
         quoted_single = f"'{name}'"
         for fp in self._source_files:
-            content = _read_source_file(fp)
-            if not is_successful(content):
-                error = content.failure()
-                logger.debug(
-                    "Archivo ilegible %s (%s); se omite del scan de strings",
-                    fp, error,
-                )
-                continue
-            text = content.value_or("")
+            text = self._text(fp)
             if quoted in text or quoted_single in text:
                 return True
         return False
@@ -113,18 +128,11 @@ class DeadCodeReferenceScanner:
         """
         if not path:
             return False
-        content = _read_source_file(path)
-        if not is_successful(content):
-            error = content.failure()
-            logger.debug(
-                "Archivo propio ilegible %s (%s); se asume sin referencia",
-                path, error,
-            )
-            return False
-        for lineno, line in enumerate(content.value_or("").splitlines(), 1):
+        content = self._text(path)
+        for lineno, line in enumerate(content.splitlines(), 1):
             if lineno == def_line:
                 continue
-            if self._ident_re().search(line) and name in line:
+            if name in line:
                 return True
         return False
 
@@ -148,20 +156,12 @@ class DeadCodeReferenceScanner:
         if self._is_registered_string(name, path):
             return True
 
-        # 2. Identificador en otro archivo (imports, dispatch, llamadas)
-        regex = self._ident_re()
+        # 2. Identificador en otro archivo (imports, dispatch, llamadas).
+        #    `name in text` es equivalente al chequeo por-línea: name es un
+        #    identificador, por lo que regex.search(line) es redundante.
         for other in self._other_files(path):
-            content = _read_source_file(other)
-            if not is_successful(content):
-                error = content.failure()
-                logger.debug(
-                    "Archivo ilegible %s (%s); se omite del scan de referencias",
-                    other, error,
-                )
-                continue
-            for line in content.value_or("").splitlines():
-                if regex.search(line) and name in line:
-                    return True
+            if name in self._text(other):
+                return True
 
         # 3. Identificador en el propio archivo (dispatch intra-archivo)
         if self._referenced_in_own_file(name, path, def_line):
