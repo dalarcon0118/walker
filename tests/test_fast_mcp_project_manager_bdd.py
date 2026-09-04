@@ -56,6 +56,29 @@ def test_get_repo_path_resuelve_desde_registro(tmp_path, _clean_env):
     assert ProjectService.get_repo_path("mi-app", root=fake_root) == str(repo.resolve())
 
 
+def test_get_repo_path_paridad_con_registry_store(tmp_path, _clean_env):
+    """D1·M-01: get_repo_path DELEGA en RegistryStore (un único lector del registro).
+
+    La ruta que produce get_repo_path debe ser idéntica a la que el resto del
+    sistema (prepare/status/watcher) resuelve vía RegistryStore — sin dualidad
+    de lectura de projects.json."""
+    from pathlib import Path
+
+    from fast_mcp.shared_kernel.project_support import ProjectService
+    from fast_mcp.shared_kernel.registry_store import RegistryStore
+
+    fake_root = tmp_path / "walker-root"
+    (fake_root / "config").mkdir(parents=True)
+    (fake_root / "config" / "config.json").write_text("{}")
+    repo = tmp_path / "mi-app"
+    repo.mkdir()
+    _register(fake_root, "mi-app", str(repo))
+
+    via_service = ProjectService.get_repo_path("mi-app", root=fake_root)
+    via_store = RegistryStore(fake_root).resolve("mi-app").get("repo_path")
+    assert via_service == str(Path(via_store).resolve())
+
+
 def test_get_repo_path_fail_fast_no_registrado(tmp_path, _clean_env):
     from fast_mcp.shared_kernel.project_support import ProjectService
 

@@ -276,25 +276,26 @@ class ProjectService:
         registrado, se lanza ValueError accionable — sin fallback silencioso,
         sin adivinar rutas por convención.
 
+        DELECHA en RegistryStore (la capa de I/O del registro dentro del
+        bounded context Project) — el registro NO se lee a mano aquí; hay un
+        único lector de projects.json (V4 del mapeo de responsabilidades).
+
         `root`: raíz del walker a usar para localizar projects.json (inyectable
         para tests; None → raíz real detectada).
         """
-        from fast_mcp.shared_kernel.paths import registry_path
+        from fast_mcp.shared_kernel.registry_store import RegistryStore
 
-        reg_path = registry_path(Path(root) if root is not None else None)
+        reg_path = paths.registry_path(Path(root) if root is not None else None)
         if not reg_path.is_file():
             raise ValueError(
                 f"Registro global de proyectos no encontrado en '{reg_path}'. "
-                "No se puede resolver repo_path para '{project_id}'."
+                f"No se puede resolver repo_path para '{project_id}'."
             )
-        try:
-            with open(reg_path) as f:
-                registry = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            raise ValueError(
-                f"No se pudo leer el registro global '{reg_path}': {e}"
-            )
-        entry = registry.get("projects", {}).get(project_id, {})
+        # La búsqueda del entry DELEGA en RegistryStore (único lector del
+        # registro dentro del bounded context Project).
+        entry = RegistryStore(Path(root) if root is not None else None).resolve(
+            project_id
+        )
         repo = entry.get("repo_path", "")
         if not repo:
             raise ValueError(
