@@ -39,6 +39,17 @@ class StorageIntegrityError(StorageError):
     """
 
 
+class StorageStateError(StorageError):
+    """Estado de la BD incompatible con la operación pedida.
+
+    Caso canónico (ADR-WALKER-075 §10.0, directiva PO): el gate de higiene
+    pre-migración (H-1..H-7) detecta suciedad heredada → `el sqlite entra a
+    v3 LIMPIO o no migra` (FS-9). El mensaje incluye la lista ESPECÍFICA y
+    accionable de suciedad; el operador limpia y re-intenta — nunca migrar
+    sucio, nunca limpiar en silencio (IV-6).
+    """
+
+
 class StorageSchemaVersionError(StorageError):
     """`schema_version` > soportado o BD v2 leída por lector v1 (§6.4).
 

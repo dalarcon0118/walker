@@ -37,6 +37,7 @@ import sqlite3
 import time
 from typing import Any
 
+from . import fts as fts_mod
 from .connection import MemoryConnection
 from .index import Index, IndexSchema
 from .models import TokenIndex
@@ -46,11 +47,18 @@ from .storage_errors import (
     StorageIntegrityError,
     StorageReadError,
     StorageSchemaVersionError,
+    StorageStateError,
     StorageWriteError,
 )
 
 _SCHEMA_VERSION = "v2"
 _DEFAULT_SCHEMA_VERSION = "v1"  # blobs .json.gz (legacy, §6.4)
+
+# System-keys de meta EXCLUIDAS del passthrough de metadata de dominio
+# (el DELETE de metadata de _save las preserva; los reads de metadata las
+# filtran). El marker FTS (fts_config) es system-key: borrarlo = "migración
+# a medias" fail-fast al boot (FS-2).
+_META_SYSTEM_KEYS = ("__schema__", "schema_hash", fts_mod.MARKER_KEY)
 
 
 def _sha1(value: Any) -> str:
@@ -96,6 +104,11 @@ class SqliteIndex(Index):
         self._saved_docs: dict[str, str] = {}  # doc_id -> sha1(json) ya en BD
         self._saved_edges: dict[tuple[str, str], str] = {}  # (u,v) -> sha1(attrs)
         self._metadata_hash: str = ""
+        # F1 (ADR-WALKER-075 D2): columnas FTS activas para este índice
+        # (schema.search.fields) o None si el índice no tiene FTS — lo setea
+        # SqliteBackend tras ensure_fts (boot/register). Con FTS activo el
+        # fulltext va por MATCH y el TokenIndex NO se reconstruye en load.
+        self._fts_fields: list[str] | None = None
 
     # ── Locks: SQLite+WAL serializa; sin fcntl (evita ficheros .lock) ──
 
@@ -142,10 +155,9 @@ class SqliteIndex(Index):
                 "SELECT key, value FROM meta WHERE `index`=? AND value IS NOT NULL",
                 (self.name,),
             ):
-                if key == "schema_hash":
-                    stored_hash = value
-                    continue
-                if key == "__schema__":
+                if key in _META_SYSTEM_KEYS:
+                    if key == "schema_hash":
+                        stored_hash = value
                     continue
                 try:
                     self._metadata[key] = json.loads(value)
@@ -170,7 +182,12 @@ class SqliteIndex(Index):
             # configurara search fulltext (el índice solo se llenaba en
             # memoria durante writes del MISMO proceso).
             self._rebuild_secondary_indexes()
-            self._rebuild_token_index_inline()
+            # M-03 (anti-patrón: reconstruir el token index en cada load):
+            # con FTS activo el TokenIndex NO es camino de producción (D2) —
+            # el fulltext va por MATCH y el rebuild se omite (el load baja
+            # el costo del token reindex completo).
+            if self._fts_fields is None:
+                self._rebuild_token_index_inline()
             self._loaded = True
         except (sqlite3.Error, json.JSONDecodeError) as e:
             raise StorageReadError(
@@ -192,6 +209,123 @@ class SqliteIndex(Index):
                         if isinstance(item, str):
                             self._token_index.index_node(doc_id, item, field)
 
+    # ── F1: FTS5 MATCH como camino de producción del fulltext ────────────
+
+    def _fulltext_ids(
+        self,
+        text_query: str,
+        max_results: int,
+        text_fields: list[str] | None,
+    ) -> set[str]:
+        """M-01: la parte fulltext resuelve vía FTS5 MATCH (C-speed),
+        sin tokenizar/filtrar en Python. Fallback TokenIndex SOLO si el
+        índice no tiene FTS activo. Si piden field-scoping sobre columnas
+        fuera del FTS → StorageContractError (fail-fast: el TokenIndex no
+        se reconstruye cuando FTS es el camino — responder vacío sería un
+        hit sordo, IV-6/IV-7)."""
+        if self._fts_fields is None:
+            return super()._fulltext_ids(text_query, max_results, text_fields)
+        if text_fields and not set(text_fields) <= set(self._fts_fields):
+            raise StorageContractError(
+                f"field-scoped search sobre columna(s) sin FTS en "
+                f"'{self.name}': {sorted(set(text_fields) - set(self._fts_fields))} "
+                f"(columnas FTS: {self._fts_fields}) — añada el campo a "
+                f"IndexSchema.search.fields y re-backfill (drop_fts + reabrir), "
+                f"o use un campo indexado (fail-fast: sin FTS activo el "
+                f"TokenIndex no está poblado; responder vacío sería sordera "
+                f"silenciosa)."
+            )
+        rows, _total = fts_mod.search_fts(
+            self._db, self.name, text_query,
+            max_results=max_results, fields_scoped=text_fields,
+        )
+        return {r[0] for r in rows}
+
+    def search(self, query: Any) -> dict:  # type: ignore[override]
+        """F1 (D2/Enmienda 1): query PURA-TEXTUAL resuelve 100% vía FTS5
+        MATCH con orden bm25 y total real (sin cap de token index) — el
+        contrato declara mismo SET de docs, orden por bm25 (mejora
+        documentada, no orden idéntico). Toda otra combinación (filtros
+        estructurados/combinados) → Index.search base, cuyo texto pasa por
+        `_fulltext_ids` (FTS) y cuyos filtros usan los índices secundarios
+        hasta F2 (columnas generadas)."""
+        if self._search_handler is not None or self._fts_fields is None:
+            return super().search(query)
+        if not isinstance(query, dict) or query.get("text") is None:
+            return super().search(query)
+
+        filters = dict(query)
+        raw_text = filters.pop("text")
+        for _mc in ("max_results", "size", "max_events", "_index", "query",
+                    "_from", "from", "text_fields"):
+            filters.pop(_mc, None)
+        if filters:  # hay filtros estructurados → path combinado (base)
+            return super().search(query)
+
+        max_results = (
+            query.get("max_results") or query.get("size")
+            or query.get("max_events")
+        )
+        try:
+            max_results = int(max_results) if max_results else 50
+        except (TypeError, ValueError):
+            max_results = 50
+        try:
+            _from = max(int(query.get("_from") or query.get("from") or 0), 0)
+        except (TypeError, ValueError):
+            _from = 0
+
+        if isinstance(raw_text, dict):
+            text = raw_text.get("query", "")
+            fields_scoped = raw_text.get("fields")
+        else:
+            text, fields_scoped = str(raw_text), None
+        if fields_scoped is None:
+            tf = query.get("text_fields")
+            fields_scoped = tf if isinstance(tf, list) else ([tf] if tf else None)
+        if fields_scoped and not set(fields_scoped) <= set(self._fts_fields):
+            raise StorageContractError(
+                f"field-scoped search sobre columna(s) sin FTS en "
+                f"'{self.name}': {sorted(set(fields_scoped) - set(self._fts_fields))} "
+                f"(columnas FTS: {self._fts_fields}) — añada el campo a "
+                f"IndexSchema.search.fields y re-backfill (drop_fts + reabrir)."
+            )
+
+        took = time.time()
+        self._load()  # materializa el read model (los hits leen _source)
+        ranked, total = fts_mod.search_fts(
+            self._db, self.name, text,
+            max_results=max_results, fields_scoped=fields_scoped,
+            offset=_from,
+        )
+        results = []
+        for doc_id, rank in ranked:
+            doc = self._docs.get(doc_id)
+            if doc is None:  # FTS-drift no debería pasar (M-04 verifica en boot)
+                continue
+            entry = {
+                "_id": doc_id,
+                "_index": self.name,
+                "_score": round(-rank, 6),  # bm25 es costo; _score = relevancia
+                "_source": doc,
+            }
+            related = self._get_neighbor_ids(doc_id, depth=1)
+            if related:
+                entry["_related"] = related
+            results.append(entry)
+        took = int((time.time() - took) * 1000)
+        return {
+            "took": took,
+            "index": self.name,
+            "hits": {
+                "total": total,
+                "hits": results,
+                "from": _from,
+                "size": max_results,
+            },
+            "schema": self._schema_info(),
+        }
+
     def get_metadata_only(self) -> dict:
         """Lee la tabla meta DIRECTO de sqlite (sin poblar el read model).
 
@@ -207,7 +341,7 @@ class SqliteIndex(Index):
                 "SELECT key, value FROM meta WHERE `index`=? AND value IS NOT NULL",
                 (self.name,),
             ):
-                if key in ("schema_hash", "__schema__"):
+                if key in _META_SYSTEM_KEYS:
                     continue
                 try:
                     metadata[key] = json.loads(value)
@@ -227,41 +361,70 @@ class SqliteIndex(Index):
 
         Diff contra `_saved_docs`/`_saved_edges`: un `append` de 1 doc
         produce 1 INSERT (nunca reescribe filas ajenas — CA-1).
+
+        F1 (M-02, ADR-WALKER-075): el sync de FTS ocurre DENTRO de esta
+        MISMA transacción. Para external content, el comando 'delete' exige
+        los valores indexados ORIGINALES: se capturan de la view ANTES de
+        tocar `docs`; los nuevos se leen de la view DESPUÉS de escribir.
+        El UPDATE de docs pasa a upsert (ON CONFLICT DO UPDATE) para
+        PRESERVAR el rowid — vínculo fts.rowid == docs.rowid (D2); con
+        INSERT OR REPLACE el rowid cambiaba por update y dejaba postings
+        huérfanas (hits muertos, FS-1).
         """
         cur = self._db
         try:
             with cur:  # commit/rollback automático (sqlite3)
-                # ── docs ──
+                # ── diff de docs (solo hashes + raws, sin writes aún) ──
                 # FIX perf: UN json.dumps(sort_keys) por doc sirve para el
                 # hash (payload canónico ≡ _sha1) Y para el INSERT/UPDATE —
                 # antes eran 2 dumps por fila cambiada + 1 por no-cambiada.
                 _ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 current: dict[str, str] = {}
+                raws: dict[str, str] = {}
                 for doc_id, data in self._docs.items():
                     raw = json.dumps(
                         data, sort_keys=True, ensure_ascii=False, default=str
                     )
-                    h = _sha1_raw(raw)
-                    current[doc_id] = h
-                    if doc_id in self._saved_docs:
-                        if self._saved_docs[doc_id] == h:
-                            continue  # sin cambios — 0 writes, 0 dumps extra
-                        cur.execute(
-                            "UPDATE docs SET data=?, updated_at=? "
-                            "WHERE `index`=? AND id=?",
-                            (raw, _ts, self.name, doc_id),
-                        )
-                    else:
-                        cur.execute(
-                            "INSERT OR REPLACE INTO docs (`index`, id, data, updated_at) "
-                            "VALUES (?,?,?,?)",
-                            (self.name, doc_id, raw, _ts),
-                        )
-                for doc_id in set(self._saved_docs) - set(current):
+                    raws[doc_id] = raw
+                    current[doc_id] = _sha1_raw(raw)
+                changed = [
+                    d for d, h in current.items() if self._saved_docs.get(d) != h
+                ]
+                deleted = list(set(self._saved_docs) - set(current))
+
+                # ── FTS: valores VIEJOS de los afectados (ANTES de tocar
+                #    docs — el 'delete' de external content los exige) ──
+                old_fts: dict[str, tuple] = {}
+                if self._fts_fields and (changed or deleted):
+                    old_fts = fts_mod.fetch_view_rows(
+                        cur, self.name, self._fts_fields,
+                        [*changed, *deleted],
+                    )
+
+                # ── docs (upsert rowid-preserving: D2 vínculo por rowid) ──
+                for doc_id in changed:
                     cur.execute(
-                        "DELETE FROM docs WHERE `index`=? AND id=?", (self.name, doc_id)
+                        "INSERT INTO docs (`index`, id, data, updated_at) "
+                        "VALUES (?,?,?,?) "
+                        "ON CONFLICT(`index`, id) DO UPDATE SET "
+                        "data=excluded.data, updated_at=excluded.updated_at",
+                        (self.name, doc_id, raws[doc_id], _ts),
+                    )
+                for doc_id in deleted:
+                    cur.execute(
+                        "DELETE FROM docs WHERE `index`=? AND id=?",
+                        (self.name, doc_id),
                     )
                 self._saved_docs = current
+
+                # ── FTS: deletes con valores indexados originales ──
+                if self._fts_fields:
+                    for doc_id in (*deleted, *changed):
+                        row = old_fts.get(doc_id)
+                        if row is not None:
+                            fts_mod.apply_delete(
+                                cur, self.name, self._fts_fields, row
+                            )
 
                 # ── edges (diff por par, O(E) al vuelo) ──
                 graph_edges: dict[tuple[str, str], str] = {}
@@ -295,12 +458,14 @@ class SqliteIndex(Index):
                 self._saved_edges = graph_edges
 
                 # ── metadata (passthrough, ADR-054 D5) ──
+                # NOTA F1: las system-keys (incl. fts_config) NUNCA se
+                # tocan aquí — borrar el marker FTS = FS-2 al boot.
                 mh = _sha1(self._metadata)
                 if mh != self._metadata_hash:
                     cur.execute(
                         "DELETE FROM meta WHERE `index`=? AND key NOT IN "
-                        "('__schema__', 'schema_hash')",
-                        (self.name,),
+                        "('__schema__', 'schema_hash', ?)",
+                        (self.name, fts_mod.MARKER_KEY),
                     )
                     for key, value in self._metadata.items():
                         cur.execute(
@@ -315,6 +480,16 @@ class SqliteIndex(Index):
                     "INSERT OR REPLACE INTO meta (`index`, key, value) VALUES (?,?,?)",
                     (self.name, "schema_hash", self._schema_hash),
                 )
+
+                # ── FTS: inserts con valores NUEVOS (docs ya escritos) ──
+                if self._fts_fields and changed:
+                    new_rows = fts_mod.fetch_view_rows(
+                        cur, self.name, self._fts_fields, changed
+                    )
+                    fts_mod.apply_insert(
+                        cur, self.name, self._fts_fields,
+                        [new_rows[d] for d in changed if d in new_rows],
+                    )
         except sqlite3.Error as e:
             raise StorageWriteError(
                 f"SqliteIndex['{self.name}']: persistencia falló "
@@ -379,6 +554,11 @@ class SqliteBackend:
         # volver a registrarlos (resuelve de raíz el "Índice 'X' no
         # registrado. Disponibles: []").
         self._restore_persisted_indexes()
+        # F1 (§5.1): FTS para índices con fulltext — crea+backfill si falta,
+        # verifica conteos si existe (fail-fast en drift FS-1). ANTES de
+        # cualquier acceso: todo write posterior sincroniza FTS en su
+        # transacción (M-02).
+        self._ensure_fts_indexes()
 
     def _persist_index_config(self, name: str, schema: IndexSchema) -> None:
         """Guarda el config del schema para restaurarlo al reabrir la BD.
@@ -535,6 +715,26 @@ class SqliteBackend:
 
     # ── Registro ──
 
+    def _ensure_fts_indexes(self) -> None:
+        """F1 (§5.1/M-04): FTS por índice con fulltext.
+
+        Idempotente vía marker `fts_config` en meta. Al crear: view +
+        VIRTUAL TABLE + backfill por lotes + marker en UNA transacción
+        (FS-2). Al existir: reconciliación count(docs)==count(fts) —
+        drift → StorageStateError accionable (FS-1, nunca auto-heal
+        silencioso que enmascare writers pre-F1).
+        """
+        for name, schema in list(self._schemas.items()):
+            if not schema.has_fulltext():
+                continue
+            report = fts_mod.ensure_fts(self._db, name, schema.fulltext_fields)
+            # FS-2 detection: conteos pre/post loggeados en la migración.
+            print(f"[fts] {name}: {report['status']} docs={report['docs']} "
+                  f"fields={report.get('fields', schema.fulltext_fields)}")
+            idx = self._indexes.get(name)
+            if idx is not None:
+                idx._fts_fields = list(schema.fulltext_fields)
+
     def register_index(self, name: str, schema: Any, search_handler: Any = None) -> None:
         if isinstance(schema, dict):
             schema = IndexSchema(schema)
@@ -542,6 +742,11 @@ class SqliteBackend:
         self._indexes[name] = SqliteIndex(
             name, schema, self._db, search_handler, db_path=self._db_path
         )
+        if schema.has_fulltext():
+            report = fts_mod.ensure_fts(self._db, name, schema.fulltext_fields)
+            print(f"[fts] {name}: {report['status']} docs={report['docs']} "
+                  f"fields={report.get('fields', schema.fulltext_fields)}")
+            self._indexes[name]._fts_fields = list(schema.fulltext_fields)
         # Opción 2 — persiste el catálogo para que reabrir la BD restaure el
         # índice (el search_handler no es serializable → no se persiste).
         try:

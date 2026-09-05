@@ -828,6 +828,27 @@ class Index:
 
     # ── Search ──
 
+    def _fulltext_ids(
+        self,
+        text_query: str,
+        max_results: int,
+        text_fields: list[str] | None,
+    ) -> set[str]:
+        """Resuelve la parte fulltext de una query → ids de docs.
+
+        Default: TokenIndex RAM (FileBackend / path no-runtime). SqliteIndex
+        lo overridea con FTS5 MATCH (ADR-WALKER-075 D2/M-01: sin tokenizar
+        ni filtrar en Python).
+        """
+        if self._token_index is None:
+            return set()
+        return {
+            e.node_id
+            for e in self._token_index.search(
+                text_query, max_results=max_results, fields=text_fields,
+            )
+        }
+
     def search(self, query: Any) -> dict:
         """Busca en el indice.
 
@@ -889,13 +910,11 @@ class Index:
         if tf_raw and text_fields is None:
             text_fields = tf_raw if isinstance(tf_raw, list) else [tf_raw]
 
-        # 1. Busqueda full-text via TokenIndex
+        # 1. Busqueda full-text — hook (TokenIndex default; FTS5 MATCH en
+        #    SqliteIndex, ADR-WALKER-075 D2/M-01)
         text_matches: set[str] = set()
-        if text_query and self._token_index is not None:
-            for entry in self._token_index.search(
-                text_query, max_results=max_results, fields=text_fields,
-            ):
-                text_matches.add(entry.node_id)
+        if text_query:
+            text_matches = self._fulltext_ids(text_query, max_results, text_fields)
 
         # 2. Filtro estructurado usando indices secundarios O(1) en vez
         #    de iterar todos los docs O(n). Cada filtro resuelto por
