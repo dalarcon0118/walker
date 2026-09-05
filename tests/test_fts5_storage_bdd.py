@@ -297,3 +297,73 @@ class TestF1FailFast:
         backend2 = _reopen(tmp_path)  # re-backfill transparente
         res = backend2.search("cpg", {"text": "authenticate"})
         assert _hit_ids(res) == {"cpg:function:1"}
+
+
+class TestF1BootCheapVerify:
+    """T-06 (M-08): boot en estado sano NO ejecuta full reconcile O(docs+terms).
+
+    El verified-path usa COUNT docs↔fts + sample-verify acotado; el
+    reconcile completo (fts5vocab + scans) solo corre si hay sospecha.
+    """
+
+    def test_healthy_reopen_skips_full_reconcile(self, tmp_path, monkeypatch):
+        backend = _make_backend(tmp_path)
+        backend.store_many("cpg", _seed_docs())
+        backend._db.close()
+
+        calls = {"n": 0}
+        real_reconcile = fts_mod.reconcile
+
+        def spy(*args, **kwargs):
+            calls["n"] += 1
+            return real_reconcile(*args, **kwargs)
+
+        monkeypatch.setattr(fts_mod, "reconcile", spy)
+        backend2 = _reopen(tmp_path)
+        assert calls["n"] == 0, (
+            "boot sano no debe ejecutar reconcile completo (M-08 anti-patrón: "
+            "scan O(docs+terms) por apertura)"
+        )
+        # búsqueda operativa tras el boot barato (paridad M-03)
+        res = backend2.search("cpg", {"text": "authenticate"})
+        assert _hit_ids(res) == {"cpg:function:1"}
+
+    def test_term_corruption_with_equal_counts_detected(self, tmp_path):
+        """Término corrupto con conteos IGUALES (COUNT delega a la view):
+        el sample-verify lo detecta y escala a reconcile → drift FS-1."""
+        backend = _make_backend(tmp_path)
+        backend.store_many("cpg", _seed_docs())
+        backend._db.close()
+
+        c = sqlite3.connect(str(tmp_path / "cognitive.sqlite3"))
+        c.execute(
+            "UPDATE docs SET data=? WHERE `index`='cpg' AND id='cpg:function:1'",
+            ('{"name": "zanzibar unico", "type": "function", '
+             '"path": "src/auth.py", "signature": "def zanzibar():", '
+             '"kind": "def"}',),
+        )
+        c.commit()
+        assert fts_mod.counts(c, "cpg") == (4, 4)  # conteos NO delatan el drift
+        c.close()
+
+        with pytest.raises(StorageStateError, match="drift"):
+            _reopen(tmp_path)
+
+    def test_insert_without_sync_still_escalates(self, tmp_path):
+        """El conteo es la primera señal: doc insertado sin sync → full
+        reconcile → StorageStateError accionable (FS-1, sin regresión)."""
+        backend = _make_backend(tmp_path)
+        backend.store_many("cpg", _seed_docs())
+        backend._db.close()
+
+        c = sqlite3.connect(str(tmp_path / "cognitive.sqlite3"))
+        c.execute(
+            "INSERT INTO docs (`index`, id, data) VALUES "
+            "('cpg', 'cpg:raw:9', '{\"name\": \"writer_pre_f1\", "
+            "\"type\": \"function\"}')"
+        )
+        c.commit()
+        c.close()
+
+        with pytest.raises(StorageStateError, match="drift"):
+            _reopen(tmp_path)

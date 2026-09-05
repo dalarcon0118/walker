@@ -260,6 +260,50 @@ def match_expr(text: str, fields_scoped: list[str] | None = None,
 
 # ── Ciclo de vida: ensure / backfill / drop ────────────────────────────────
 
+def _sample_verify(
+    conn: sqlite3.Connection,
+    index: str,
+    fields: list[str],
+    sample_size: int = SAMPLE_VERIFY_SIZE,
+) -> dict:
+    """Verificación acotada O(sample) para el boot en estado sano (T-06/M-08).
+
+    Sin scans O(docs+terms): ni view completa ni fts5vocab. Sample
+    determinista de docs con tokens (ORDER BY rowid LIMIT) → cada uno DEBE
+    responder MATCH por su primer token; un doc que no responde = término
+    corrupto / writer sin sync → el caller escala a `reconcile` completo
+    (que eleva el error accionable FS-1).
+
+    Returns {"docs": n, "checked": k, "missing": [...]} — `missing` no
+    vacío ⇒ sospecha real (el conteo de COUNT es la primera señal, no
+    prueba de integridad; postings huérfanos por delete-sin-sync solo los
+    ve MATCH/vocab y quedan fuera del path barato — documentado).
+    """
+    n_docs, _ = counts(conn, index)
+    missing: list[str] = []
+    checked = 0
+    for rowid, doc_id in conn.execute(
+        f"SELECT rowid, id FROM {fts_src(index)} ORDER BY rowid LIMIT ?",
+        (sample_size,),
+    ):
+        values = conn.execute(
+            f"SELECT {', '.join(fields)} FROM {fts_src(index)} WHERE rowid=?",
+            (rowid,),
+        ).fetchone()
+        tokens = tokenize(" ".join(str(v) for v in values if v))
+        if not tokens:
+            continue  # doc sin tokens → sin postings por diseño
+        checked += 1
+        found = conn.execute(
+            f"SELECT 1 FROM {fts_table(index)} "
+            f"WHERE {fts_table(index)} MATCH ? AND rowid=?",
+            (match_expr(tokens[0]), rowid),
+        ).fetchone()
+        if found is None:
+            missing.append(doc_id)
+    return {"docs": n_docs, "checked": checked, "missing": missing[:5]}
+
+
 def ensure_fts(
     conn: sqlite3.Connection,
     index: str,
@@ -310,8 +354,23 @@ def ensure_fts(
                 f"hits parciales si se sigue usando (FS-1). Remediación: "
                 f"drop_fts('{index}') y reabrir (re-backfill con el schema nuevo)."
             )
-        report = reconcile(conn, index, fields)
-        return {"status": "verified", **report,
+        # T-06 (M-08): verificación BARATA por defecto — COUNT docs↔fts +
+        # sample-verify acotado; reconcile completo (O(docs+terms)) SOLO si
+        # hay sospecha (conteo roto o doc sampleado sin postings).
+        n_docs, n_fts = counts(conn, index)
+        if n_docs != n_fts:
+            # primera señal de drift (writer pre-F1 / sync roto) → full
+            report = reconcile(conn, index, fields)  # eleva FS-1 si drift real
+            return {"status": "verified", **report,
+                    "fields": fields, "created_at": cfg.get("created_at")}
+        sample = _sample_verify(conn, index, fields)
+        if sample["missing"]:
+            # término corrupto sin tocar conteos → escalar (FS-1 accionable)
+            report = reconcile(conn, index, fields)
+            return {"status": "verified", **report,
+                    "fields": fields, "created_at": cfg.get("created_at")}
+        return {"status": "verified", "docs": n_docs,
+                "checked": sample["checked"],
                 "fields": fields, "created_at": cfg.get("created_at")}
 
     # create + backfill + marker — UNA transacción (FS-2: DDL transaccional)
