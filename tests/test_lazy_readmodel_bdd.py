@@ -419,3 +419,69 @@ class TestEdgeWritePathTouched:
         edges = backend2.get_all_edges("delta")
         assert any(e["from"] == "n:0" and e["to"] == "n:2001" for e in edges)
         assert len(edges) == 2001
+
+class TestGenerationCas:
+    """T-12a (H-1): proceso stale NO puede escribir — CAS por generación.
+
+    WAL multi-proceso está in-contract (ADR-WALKER-063 CA-8): el guard no es
+    un lock de fichero sino un CAS transaccional sobre `__generation__`; el
+    diff-cache stale falla con StorageStateError accionable (reabrir) en vez
+    de corromper silenciosamente.
+    """
+
+    def test_stale_process_save_rejected(self, tmp_path):
+        backend = _make(tmp_path)  # 3 docs → generación 1
+        # "proceso B": abre ANTES de que A escriba y fuerza el light-load
+        conn_b = MemoryConnection(backend="sqlite", uri=f"sqlite://{tmp_path}")
+        b_backend = resolve_storage_backend(conn_b)
+        b_idx = b_backend._indexes["cpg"]  # noqa: SLF001
+        assert set(b_idx.keys()) == set(DOCS)  # cache con generación 1
+        assert b_idx._generation == 1
+
+        # "proceso A": escribe (generación 1 → 2)
+        backend.store("cpg", "f:9", {"name": "fn_nueve", "type": "function",
+                                      "path": "src/nueve.py",
+                                      "signature": "def fn_nueve():", "kind": "def"})
+
+        # B guarda con cache stale → CAS falla, cero corrupción silenciosa
+        result = b_backend.store(
+            "cpg", "f:10", {"name": "fn_diez", "type": "function",
+                             "path": "src/diez.py",
+                             "signature": "def fn_diez():", "kind": "def"})
+        assert result.get("ok") is False
+        assert "cambió bajo el cache" in result.get("error", "")
+        db = _db(tmp_path)
+        ids = {r[0] for r in db.execute("SELECT id FROM docs WHERE `index`='cpg'")}
+        assert "f:9" in ids and "f:10" not in ids
+        db.close()
+
+    def test_same_process_no_false_positive(self, tmp_path):
+        backend = _make(tmp_path)
+        assert backend.store("cpg", "f:9", {"name": "fn_nueve", "type": "function",
+                                             "path": "src/nueve.py",
+                                             "signature": "def fn_nueve():", "kind": "def"})
+        backend._db.close()
+        backend2 = _reopen(tmp_path)  # re-lee la generación committed
+        r = backend2.store("cpg", "f:10", {"name": "fn_diez", "type": "function",
+                                            "path": "src/diez.py",
+                                            "signature": "def fn_diez():", "kind": "def"})
+        assert r.get("ok") is True  # CAS ok: sin falso positivo (FS-P3)
+
+    def test_metadata_upsert_preserves_foreign_keys(self, tmp_path):
+        backend = _make(tmp_path)
+        backend.set_metadata("cpg", {"version": "1.0", "keep": True})
+        # otra "proceso" escribe una key de metadata vía SQL directo
+        db = _db(tmp_path)
+        db.execute(
+            "INSERT OR REPLACE INTO meta VALUES ('cpg','foreign_key','{\"x\": 1}')"
+        )
+        db.commit()
+        db.close()
+        # este proceso actualiza SOLO su metadata → la key extranjera sobrevive
+        backend.set_metadata("cpg", {"version": "1.0"})
+        db = _db(tmp_path)
+        keys = {r[0] for r in db.execute("SELECT key FROM meta WHERE `index`='cpg'")}
+        assert "foreign_key" in keys, "upsert-por-key borró metadata ajena"
+        assert "keep" not in keys  # la removida explícitamente SÍ se elimina
+        assert "version" in keys
+        db.close()

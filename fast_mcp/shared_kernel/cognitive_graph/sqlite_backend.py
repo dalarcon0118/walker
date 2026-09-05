@@ -65,7 +65,7 @@ _DEFAULT_SCHEMA_VERSION = "v1"  # blobs .json.gz (legacy, §6.4)
 # (el DELETE de metadata de _save las preserva; los reads de metadata las
 # filtran). El marker FTS (fts_config) es system-key: borrarlo = "migración
 # a medias" fail-fast al boot (FS-2).
-_META_SYSTEM_KEYS = ("__schema__", "schema_hash", fts_mod.MARKER_KEY)
+_META_SYSTEM_KEYS = ("__schema__", "schema_hash", "__generation__", fts_mod.MARKER_KEY)
 
 
 def _sha1(value: Any) -> str:
@@ -115,6 +115,10 @@ class SqliteIndex(Index):
         self._edge_raws: dict[tuple[str, str], str] = {}  # (u,v) -> raw json
         self._dirty_edges: set[tuple[str, str]] = set()  # tocados desde el último save
         self._metadata_hash: str = ""
+        # T-12a (H-1): claves de metadata persistidas (para DELETE por key) +
+        # generación committed del CAS multi-proceso.
+        self._metadata_keys: set[str] = set()
+        self._generation: int = 0
         # F1 (ADR-WALKER-075 D2): columnas FTS activas para este índice
         # (schema.search.fields) o None si el índice no tiene FTS — lo setea
         # SqliteBackend tras ensure_fts (boot/register). Con FTS activo el
@@ -215,6 +219,14 @@ class SqliteIndex(Index):
                     self._metadata[key] = value
             if self._metadata:
                 self._metadata_hash = _sha1(self._metadata)
+            self._metadata_keys = set(self._metadata)
+            # T-12a (H-1): generación committed — el CAS del _save la compara
+            # contra la actual (proceso stale NO puede escribir).
+            gen = self._db.execute(
+                "SELECT value FROM meta WHERE `index`=? AND key='__generation__'",
+                (self.name,),
+            ).fetchone()
+            self._generation = int(gen[0]) if gen and gen[0] else 0
             # NOTA: los índices secundarios/token index NO se reconstruyen
             # aquí — con _docs vacío serían PARCIALES (FS-4). materialize()
             # los levanta; el router F2 resuelve los filtros por SQL.
@@ -898,13 +910,19 @@ class SqliteIndex(Index):
                 # ── metadata (passthrough, ADR-054 D5) ──
                 # NOTA F1: las system-keys (incl. fts_config) NUNCA se
                 # tocan aquí — borrar el marker FTS = FS-2 al boot.
+                # T-12a (H-1): upsert POR KEY — jamás `DELETE ... NOT IN RAM`
+                # (un proceso con cache stale borraría keys escritas por otro);
+                # solo se eliminan las keys que ESTE índice removió.
                 mh = _sha1(self._metadata)
                 if mh != self._metadata_hash:
-                    cur.execute(
-                        "DELETE FROM meta WHERE `index`=? AND key NOT IN "
-                        "('__schema__', 'schema_hash', ?)",
-                        (self.name, fts_mod.MARKER_KEY),
-                    )
+                    removed = self._metadata_keys - set(self._metadata)
+                    for key in removed:
+                        cur.execute(
+                            "DELETE FROM meta WHERE `index`=? AND key=? "
+                            "AND key NOT IN ('__schema__', 'schema_hash', "
+                            "'__generation__', ?)",
+                            (self.name, key, fts_mod.MARKER_KEY),
+                        )
                     for key, value in self._metadata.items():
                         cur.execute(
                             "INSERT OR REPLACE INTO meta (`index`, key, value) "
@@ -912,6 +930,31 @@ class SqliteIndex(Index):
                             (self.name, key, json.dumps(value, ensure_ascii=False)),
                         )
                     self._metadata_hash = mh
+                    self._metadata_keys = set(self._metadata)
+
+                # ── T-12a (H-1): CAS por generación — un proceso con cache
+                #    stale NO puede escribir (su diff es contra un estado que
+                #    ya no es committed). UPDATE condicional en la MISMA
+                #    transacción (FS-P3): rowcount 0 ⇒ otro proceso ganó. ──
+                cur.execute(
+                    "INSERT OR IGNORE INTO meta (`index`, key, value) "
+                    "VALUES (?, '__generation__', '0')",
+                    (self.name,),
+                )
+                bumped = cur.execute(
+                    "UPDATE meta SET value = CAST(value AS INTEGER) + 1 "
+                    "WHERE `index`=? AND key='__generation__' "
+                    "AND CAST(value AS INTEGER) = ?",
+                    (self.name, self._generation),
+                )
+                if bumped.rowcount != 1:
+                    raise StorageStateError(
+                        f"SqliteIndex['{self.name}']: el storage cambió bajo el "
+                        f"cache (generación {self._generation} != committed) — "
+                        "otro proceso escribió. Remediación: reabrir/recargar "
+                        "el índice y reintentar (jamás sobrescribir ciego)."
+                    )
+                self._generation += 1
 
                 # ── schema_hash (migración de estructura, G3) ──
                 cur.execute(
