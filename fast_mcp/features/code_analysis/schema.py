@@ -18,22 +18,18 @@ CPG_COMPACT_FIELDS = ["_id", "name", "type", "file", "line", "signature", "kind"
 
 
 def register_cpg_index(graph: Any) -> None:
-    """Registra el índice CPG en el storage genérico (una feature, un índice)."""
-    graph.register_index(
-        "cpg",
-        {
-            "fields": {"function": "name", "file": "path", "type": "type"},
-            "types": {"function": {}, "class": {}, "file": {}, "module": {}},
-            # FIX FTS sordo: sin este bloque has_fulltext()=False → _token_index
-            # None → toda búsqueda textual devolvía 0 hits aunque los docs
-            # existieran (el CPG llevaba años mudo para recall_knowledge).
-            "search": {
-                "type": "fulltext",
-                "fields": ["name", "path", "signature", "kind"],
-            },
-            "description": "CPG: Code Property Graph - estructura del codigo fuente",
-        },
+    """Registra el índice CPG en el storage genérico (una feature, un índice).
+
+    Schema del SSOT ÚNICO (T-10/M-6: fast_mcp/shared_kernel/cognitive_graph/
+    schemas.py) — jamás copia literal. Incluye search.fulltext (FIX FTS sordo:
+    sin este bloque has_fulltext()=False → _token_index None → toda búsqueda
+    textual devolvía 0 hits aunque los docs existieran).
+    """
+    from fast_mcp.shared_kernel.cognitive_graph.schemas import (
+        PRODUCTION_INDEX_SCHEMAS,
     )
+
+    graph.register_index("cpg", PRODUCTION_INDEX_SCHEMAS["cpg"])
 
 
 def _make_ref_search(ref_path: str):

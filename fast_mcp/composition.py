@@ -324,23 +324,18 @@ def trace_tool_runner(name: str, root: Path | None = None):
                 load_memory_connection,
             )
             from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+            from fast_mcp.shared_kernel.cognitive_graph.schemas import (
+                PRODUCTION_INDEX_SCHEMAS,
+            )
             from fast_mcp.shared_kernel.project_support import ProjectService
 
             paths = ProjectService.resolve_paths(chain_dir)
             conn = load_memory_connection(paths.data_dir)
             cg = build_cognitive_graph(paths.data_dir, conn=conn)
-            # Register trace index if not already present
+            # Register trace index if not already present (schema del SSOT —
+            # T-10/M-6: quirk event_type→'keyword' definido UNA vez).
             try:
-                cg.register_index("trace", {
-                    "fields": {
-                        "event_type": "keyword",
-                        "source": "keyword",
-                        "task_id": "keyword",
-                        "sprint_id": "keyword",
-                        "node": "keyword",
-                        "tool": "keyword",
-                    },
-                })
+                cg.register_index("trace", PRODUCTION_INDEX_SCHEMAS["trace"])
             except Exception:
                 pass  # already registered
         except Exception as exc:
@@ -373,6 +368,9 @@ def _build_delta_repo(chain_dir: str):
     """
     from fast_mcp.shared_kernel.cognitive_graph.config import load_memory_connection
     from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+    from fast_mcp.shared_kernel.cognitive_graph.schemas import (
+        PRODUCTION_INDEX_SCHEMAS,
+    )
     from fast_mcp.shared_kernel.project_support import ProjectService
     from fast_mcp.features.delta_tracking.infrastructure.cognitive_delta_repo import (
         CognitiveDeltaRepository,
@@ -382,21 +380,7 @@ def _build_delta_repo(chain_dir: str):
     conn = load_memory_connection(paths.data_dir)
     cg = build_cognitive_graph(paths.data_dir, conn=conn)
     try:
-        cg.register_index("delta", {
-            "fields": {
-                "task": "spec_id",
-                "spec": "spec_id",
-                "spring": "spring_id",
-                "domain": "domain",
-                "type": "type",
-            },
-            "types": {"spec": {}, "spring": {}},
-            "description": "DeltaGraph: specs and springs",
-            "search": {
-                "type": "fulltext",
-                "fields": ["objective", "title", "description", "domain"],
-            },
-        })
+        cg.register_index("delta", PRODUCTION_INDEX_SCHEMAS["delta"])
     except Exception:
         pass  # already registered
     return CognitiveDeltaRepository(cg)

@@ -38,40 +38,11 @@ DATA_DIR = os.path.join(ROOT, ".cognitive", "projects", "walker", "data")
 CANON_DB = os.path.join(DATA_DIR, "cognitive.sqlite3")
 BACKUP_DIR = os.path.join(ROOT, ".cognitive", "backups")
 
-# Schemas de PRODUCCIÓN (SSOT de cada fuente) — copiados del m0 baseline
-PRODUCTION_INDEX_SCHEMAS: dict[str, dict] = {
-    "delta": {
-        "fields": {
-            "task": "spec_id", "spec": "spec_id", "spring": "spring_id",
-            "domain": "domain", "type": "type",
-        },
-        "types": {"spec": {}, "spring": {}},
-        "description": "DeltaGraph: specs and springs",
-        "search": {"type": "fulltext", "fields": ["objective", "title", "description", "domain"]},
-    },
-    "trace": {
-        "fields": {
-            "event_type": "keyword", "source": "keyword", "task_id": "keyword",
-            "sprint_id": "keyword", "node": "keyword", "tool": "keyword",
-        },
-    },
-    "cpg": {
-        "fields": {"name": "path", "node_id": "id", "type": "type", "kind": "kind"},
-        "types": {"function": {}, "class": {}, "file": {}, "module": {}},
-        "search": {"type": "fulltext", "fields": ["name", "path", "signature", "kind"]},
-    },
-    "ckg": {
-        "fields": {
-            "type": "type", "scope": "scope", "label": "statement",
-            "description": "rationale", "tag": "tags", "task": "metadata.task_id",
-        },
-        "types": {
-            "decision": {}, "refactor": {}, "convention": {},
-            "pattern": {}, "rule": {}, "component": {},
-        },
-        "search": {"type": "fulltext", "fields": ["statement", "rationale"]},
-    },
-}
+# Schemas de PRODUCCIÓN — SSOT ÚNICO (T-10/M-6): shared_kernel schemas.py;
+# la copia local (con cpg stale) se descartó en favor de la forma runtime.
+from fast_mcp.shared_kernel.cognitive_graph.schemas import (  # noqa: E402
+    PRODUCTION_INDEX_SCHEMAS,
+)
 
 
 def backup_canonical() -> str:

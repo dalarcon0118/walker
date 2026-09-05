@@ -77,18 +77,12 @@ class CognitiveCkgRepository(CkgRepository):
         conn = load_memory_connection(self._data_dir)
         self._cg = graph_factory(conn)
         if "ckg" not in self._cg.list_indexes():
-            self._cg.register_index("ckg", {
-                "fields": {
-                    "type": "type", "scope": "scope",
-                    "label": "statement", "description": "rationale",
-                    "tag": "tags", "task": "metadata.task_id",
-                },
-                "types": {
-                    "decision": {}, "refactor": {}, "convention": {},
-                    "pattern": {}, "rule": {}, "component": {},
-                },
-                "search": {"type": "fulltext", "fields": ["statement", "rationale"]},
-            })
+            # Schema del SSOT ÚNICO (T-10/M-6: schemas.py) — jamás copia literal.
+            from fast_mcp.shared_kernel.cognitive_graph.schemas import (
+                PRODUCTION_INDEX_SCHEMAS,
+            )
+
+            self._cg.register_index("ckg", PRODUCTION_INDEX_SCHEMAS["ckg"])
 
     def save_nodes(self, nodes_data: list[dict]) -> dict:
         """Batch persist with full domain logic (supersedes, metadata)."""

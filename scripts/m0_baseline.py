@@ -45,8 +45,10 @@ sys.path.insert(0, REPO)
 
 from fast_mcp.shared_kernel.cognitive_graph.backends import resolve_storage_backend
 from fast_mcp.shared_kernel.cognitive_graph.connection import MemoryConnection
+from fast_mcp.shared_kernel.cognitive_graph.schemas import (  # T-10/M-6: SSOT
+    PRODUCTION_INDEX_SCHEMAS,
+)
 from tests.benchmarks.cpg_fixture import (
-    CPG_SCHEMA_CONFIG,
     build_cpg_fixture,
     sample_search_terms,
 )
@@ -65,53 +67,7 @@ N_SEARCH = 100
 
 DERIVABLES = ("cpg", "ckg")  # H-6: dropeados por el gate; delta/trace SSOT
 
-# Schemas de PRODUCCIÓN (SSOT de cada fuente) para registrar en la copia real
-# los índices que el catálogo __indexes__ no restauró (ver HALLAZGO M0-1 en
-# el baseline: catálogo incompleto — solo ckg/config persistido).
-PRODUCTION_INDEX_SCHEMAS: dict[str, dict] = {
-    # fast_mcp/composition.py:385 (composition root, _build_delta_repo)
-    "delta": {
-        "fields": {
-            "task": "spec_id",
-            "spec": "spec_id",
-            "spring": "spring_id",
-            "domain": "domain",
-            "type": "type",
-        },
-        "types": {"spec": {}, "spring": {}},
-        "description": "DeltaGraph: specs and springs",
-        "search": {
-            "type": "fulltext",
-            "fields": ["objective", "title", "description", "domain"],
-        },
-    },
-    # fast_mcp/composition.py:334 (trace runner)
-    "trace": {
-        "fields": {
-            "event_type": "keyword",
-            "source": "keyword",
-            "task_id": "keyword",
-            "sprint_id": "keyword",
-            "node": "keyword",
-            "tool": "keyword",
-        },
-    },
-    # fast_mcp/features/code_analysis/schema.py (register_cpg_index)
-    "cpg": CPG_SCHEMA_CONFIG,
-    # fast_mcp/features/cognitive_knowledge/infrastructure/cognitive_ckg_repo.py:80
-    "ckg": {
-        "fields": {
-            "type": "type", "scope": "scope",
-            "label": "statement", "description": "rationale",
-            "tag": "tags", "task": "metadata.task_id",
-        },
-        "types": {
-            "decision": {}, "refactor": {}, "convention": {},
-            "pattern": {}, "rule": {}, "component": {},
-        },
-        "search": {"type": "fulltext", "fields": ["statement", "rationale"]},
-    },
-}
+# Schemas de PRODUCCIÓN — SSOT ÚNICO (T-10/M-6): shared_kernel schemas.py.
 
 
 def pct(samples: list[float], p: float) -> float:
@@ -171,7 +127,7 @@ def precondition_on_copy(db_path: str) -> tuple[bool, dict]:
 def build_fixture(work_dir: str) -> dict:
     conn = MemoryConnection(backend="sqlite", uri=f"sqlite://{work_dir}")
     backend = resolve_storage_backend(conn)
-    backend.register_index("cpg", CPG_SCHEMA_CONFIG)
+    backend.register_index("cpg", PRODUCTION_INDEX_SCHEMAS["cpg"])
     docs, edges = build_cpg_fixture()
     t0 = time.perf_counter_ns()
     result = backend.replace_blob("cpg", docs, edges, {"source": "m0-fixture", "seed": 42})
