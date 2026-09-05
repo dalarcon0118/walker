@@ -28,6 +28,8 @@ import sqlite3
 import sys
 import time
 
+from fast_mcp.shared_kernel.cognitive_graph.sqlite_backend import SqliteBackend
+
 # Workspace root + canónica
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -102,9 +104,33 @@ def pre_state(conn_path: str) -> dict:
     return {"schema": sv[0] if sv else None, "docs": docs, "edges": edges, "events": ev}
 
 
+def _assert_exact_set(actual, expected, label):
+    """Completitud por IGUALDAD de sets (T-02/M-03) — nunca membresía.
+
+    Un desvío como "8 índices donde el contrato dice 7" aborta listando
+    exceso y falta; el DDL nuevo legítimo se incorpora actualizando el
+    EXPECTED, no relajando la comparación.
+    """
+    actual_set, expected_set = set(actual), set(expected)
+    excess = sorted(actual_set - expected_set)
+    missing = sorted(expected_set - actual_set)
+    assert not excess and not missing, (
+        f"desvío en {label}: "
+        + (f"exceso={excess} " if excess else "")
+        + (f"falta={missing}" if missing else "")
+    )
+
+
 def verify_post(backend, expected_docs: dict, expected_edges: dict) -> dict:
     """Verificación post-migración completa (M-04/M-10/M-12/FS-1/FS-2)."""
     out: dict = {}
+    # L10 (T-02): fail-fast sobre el tipo de backend — verify_post asume el
+    # layout sqlite (PRAGMA table_xinfo, sqlite_master, _db); un backend de
+    # otro tipo jamás debe pasar por aquí en silencio.
+    assert isinstance(backend, SqliteBackend), (
+        f"verify_post requiere SqliteBackend, recibió {type(backend).__name__} "
+        f"— fail-fast (L10)"
+    )
     db = backend._db  # noqa: SLF001 — script de verificación
 
     # M-12: schema v3 marcado (FS-2)
@@ -142,7 +168,8 @@ def verify_post(backend, expected_docs: dict, expected_edges: dict) -> dict:
     out["doc_sha1"] = {"total": int(total_sha), "empty": int(empty_sha or 0)}
     assert out["doc_sha1"]["empty"] == 0
 
-    # F2: columnas generadas + índices SQL
+    # F2: columnas generadas + índices SQL — IGUALDAD de sets (M-03/T-02):
+    # un desvío 8-vs-7 es imposible de colar por membresía.
     gen_cols = sorted(
         r[1] for r in db.execute("PRAGMA table_xinfo(docs)") if r[6]
     )
@@ -151,8 +178,17 @@ def verify_post(backend, expected_docs: dict, expected_edges: dict) -> dict:
         "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
     )]
     out["sql_indexes"] = sql_idx
-    assert "doc_type" in gen_cols and "doc_event" in gen_cols, "columnas generadas faltan"
-    assert "idx_edges_dst" in sql_idx, "idx_edges_dst falta"
+    _assert_exact_set(
+        gen_cols,
+        {"doc_type", "doc_name", "doc_path", "doc_scope", "doc_event", "doc_sprint"},
+        "columnas generadas (docs)",
+    )
+    _assert_exact_set(
+        sql_idx,
+        {"idx_docs_type", "idx_docs_name", "idx_docs_path", "idx_docs_scope",
+         "idx_docs_event", "idx_docs_sprint", "idx_edges_dst"},
+        "índices SQL",
+    )
 
     # F1/M-04: FTS tables + markers + reconcile real vía MATCH
     fts_tables = [r[0] for r in db.execute(
