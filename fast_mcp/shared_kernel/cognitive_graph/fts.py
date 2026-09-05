@@ -39,15 +39,15 @@ import time
 
 from .models import tokenize
 from .storage_errors import StorageStateError
+from .structured import _validate_ident  # L2: canonico ASCII (reexportado)
 
 FTS_BATCH = 2000  # §8 `fts_backfill_batch`: backfill de migración acotado
 # Marker de ciclo de vida en meta (system-key: excluida del passthrough de
 # metadata de dominio — _save la preserva junto a __schema__/schema_hash).
 MARKER_KEY = "fts_config"
 
-# ^[A-Za-z_][A-Za-z0-9_]*$ — identificadores SQL seguros (campo/doc col)
-_SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-# nombres de índice del runtime (cpg, ckg, delta, trace, cpg-ref-*)
+# nombres de índice del runtime (cpg, ckg, delta, trace, cpg-ref-*) — el
+# patron de ÍNDICE es distinto del de identificador (permite '.', '-', dígitos)
 _SAFE_INDEX = re.compile(r"^[a-z][a-z0-9_.-]*$")
 
 
@@ -69,11 +69,7 @@ def _validate(index: str, fields: list[str]) -> None:
             f"{_SAFE_INDEX.pattern}) — nunca interpolar identificadores crudos."
         )
     for f in fields:
-        if not _SAFE_IDENT.match(f):
-            raise StorageStateError(
-                f"campo fulltext inválido para FTS en '{index}': {f!r} — "
-                "solo identificadores simples (sin puntos ni comillas)."
-            )
+        _validate_ident(f)  # L2: canonico compartido con structured.py
 
 
 def _fts5_available(conn: sqlite3.Connection) -> bool:
@@ -478,7 +474,6 @@ def fetch_view_rows(
     out: dict[str, tuple] = {}
     ids = list(doc_ids)
     fts_cols = ["rowid", "id"] + list(fields)
-    phs = ", ".join("?" * len(fts_cols))
     cols_sql = ", ".join(fts_cols)
     for i in range(0, len(ids), chunk):
         part = ids[i:i + chunk]

@@ -36,6 +36,7 @@ import logging
 import os
 import sqlite3
 import time
+from collections.abc import Callable
 from typing import Any
 
 import networkx as nx
@@ -66,6 +67,13 @@ _DEFAULT_SCHEMA_VERSION = "v1"  # blobs .json.gz (legacy, §6.4)
 # filtran). El marker FTS (fts_config) es system-key: borrarlo = "migración
 # a medias" fail-fast al boot (FS-2).
 _META_SYSTEM_KEYS = ("__schema__", "schema_hash", "__generation__", fts_mod.MARKER_KEY)
+
+# Meta-keys de control del query de search (G8): NO son filtros. Constantes
+# compartidas por `_page_params` y el loop que las descarta del query (L3) —
+# una sola fuente de verdad para los nombres de página.
+_PAGE_SIZE_KEYS = ("max_results", "size", "max_events")
+_PAGE_FROM_KEYS = ("_from", "from")
+_META_QUERY_KEYS = (*_PAGE_SIZE_KEYS, "_index", "query", *_PAGE_FROM_KEYS, "text_fields")
 
 
 def _sha1(value: Any) -> str:
@@ -102,7 +110,7 @@ class SqliteIndex(Index):
         name: str,
         schema: IndexSchema,
         db: sqlite3.Connection,
-        search_handler: callable | None = None,
+        search_handler: Callable | None = None,
         db_path: str = "",
     ):
         super().__init__(name, schema, chain_dir="", search_handler=search_handler)
@@ -139,6 +147,9 @@ class SqliteIndex(Index):
         self._fallback_materializations: int = 0
         self._fallback_last_docs: int = 0
         self._fallback_last_reason: str = ""
+        # L1: hits de FTS sin doc resuelto (drift) — contados y logueados,
+        # jamás sordera silenciosa (IV-6/IV-7).
+        self._fts_hits_sin_doc: int = 0
 
     # ── Locks: SQLite+WAL serializa; sin fcntl (evita ficheros .lock) ──
 
@@ -381,30 +392,38 @@ class SqliteIndex(Index):
             self._release_write_lock()
 
     def delete_many(self, doc_ids: set[str]) -> dict:
-        """Elimina varios nodos SIN materializar (F3, tombstones)."""
-        if not doc_ids:
-            return {"ok": True, "deleted": 0}
+        """Elimina varios nodos SIN materializar (F3, tombstones, L7: Result)."""
         self._acquire_write_lock()
         self._write_locked = True
         try:
-            self._ensure_light()
-            deleted = 0
-            for doc_id in doc_ids:
-                if doc_id in self._saved_docs or doc_id in self._docs:
-                    if self._loaded and doc_id in self._docs:
-                        self._deindex_doc(doc_id)
-                    self._docs.pop(doc_id, None)
-                    if doc_id in self._graph:
-                        self._drop_incident_edges(doc_id)
-                        self._graph.remove_node(doc_id)
-                    self._deleted_docs.add(doc_id)
-                    deleted += 1
-            if deleted:
-                self._save()
-            return {"ok": True, "deleted": deleted, "_index": self.name}
+            result = self._delete_many_light_core(doc_ids)
+            if is_successful(result):
+                return result.value_or({"ok": True, "deleted": 0})
+            return {"ok": False, "deleted": 0, "error": str(result.failure())}
         finally:
             self._write_locked = False
             self._release_write_lock()
+
+    @safe
+    def _delete_many_light_core(self, doc_ids: set[str]) -> dict:
+        """Core F3 de delete_many (puede lanzar) — contrato Result (L7)."""
+        if not doc_ids:
+            return {"ok": True, "deleted": 0}
+        self._ensure_light()
+        deleted = 0
+        for doc_id in doc_ids:
+            if doc_id in self._saved_docs or doc_id in self._docs:
+                if self._loaded and doc_id in self._docs:
+                    self._deindex_doc(doc_id)
+                self._docs.pop(doc_id, None)
+                if doc_id in self._graph:
+                    self._drop_incident_edges(doc_id)
+                    self._graph.remove_node(doc_id)
+                self._deleted_docs.add(doc_id)
+                deleted += 1
+        if deleted:
+            self._save()
+        return {"ok": True, "deleted": deleted, "_index": self.name}
 
     def _drop_incident_edges(self, doc_id: str) -> None:
         """Marca dirty los edges incidentes de un nodo antes de remove_node."""
@@ -614,8 +633,7 @@ class SqliteIndex(Index):
             return super().search(query)
         filters = dict(query)
         raw_text = filters.pop("text", None)
-        for _mc in ("max_results", "size", "max_events", "_index", "query",
-                    "_from", "from", "text_fields"):
+        for _mc in _META_QUERY_KEYS:
             filters.pop(_mc, None)
         if raw_text is not None:
             if filters or self._fts_fields is None:
@@ -659,16 +677,17 @@ class SqliteIndex(Index):
     @staticmethod
     def _page_params(query: dict) -> tuple[int, int]:
         """max_results/_from con los defaults del contrato (G8)."""
-        max_results = (
-            query.get("max_results") or query.get("size")
-            or query.get("max_events")
+        max_results = next(
+            (query.get(k) for k in _PAGE_SIZE_KEYS if query.get(k)), None
         )
         try:
             max_results = int(max_results) if max_results else 50
         except (TypeError, ValueError):
             max_results = 50
         try:
-            _from = max(int(query.get("_from") or query.get("from") or 0), 0)
+            _from = max(int(
+                next((query.get(k) for k in _PAGE_FROM_KEYS if query.get(k)), 0)
+            ), 0)
         except (TypeError, ValueError):
             _from = 0
         return max_results, _from
@@ -733,6 +752,14 @@ class SqliteIndex(Index):
         for doc_id, rank in ranked:
             doc = page_docs.get(doc_id)
             if doc is None:  # FTS-drift no debería pasar (reconcile en boot)
+                # L1: hit sordo VISIBLE — contado en metrics() y logueado;
+                # el total reportado ya cuenta el hit, el doc no resuelve.
+                self._fts_hits_sin_doc += 1
+                logger.warning(
+                    "search('%s'): hit FTS sin doc (%s) — drift; "
+                    "reconcile en boot debería haberlo corregido (L1)",
+                    self.name, doc_id,
+                )
                 continue
             entry = {
                 "_id": doc_id,
@@ -1015,6 +1042,8 @@ class SqliteIndex(Index):
             # len(self._docs) en estado lazy es SOLO los docs tocados.
             "total_docs": len(self._saved_docs),
             "total_edges": self._graph.number_of_edges(),
+            # L1: hits de FTS que no resolvieron a un doc (drift) — 0 = sano.
+            "fts_hits_sin_doc": self._fts_hits_sin_doc,
             "storage_size": f"{size / 1024:.1f}KB",
             "storage_path": self._db_path,
             "last_updated": last_updated,

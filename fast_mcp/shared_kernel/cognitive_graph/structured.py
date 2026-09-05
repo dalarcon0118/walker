@@ -35,10 +35,15 @@ el json_extract en write time, el valor no se copia a la fila.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any
 
 from .storage_errors import StorageStateError
+
+# L2: patron CANONICO de identificador SQL (ASCII puro). fts.py lo re-exporta;
+# nunca definir un segundo validador de identificadores en el shared kernel.
+_SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # rfield (resuelto por IndexSchema.resolve_field) → (columna, expresión, modo)
 DOC_COLUMN_SPECS: dict[str, tuple[str, str, str]] = {
@@ -84,9 +89,17 @@ EDGES_DST_INDEX = "idx_edges_dst"
 
 
 def _validate_ident(name: str) -> str:
-    """Los nombres llegan a SQL interpolado — whitelist estricta."""
-    if not name.replace("_", "").isalnum() or not name:
-        raise StorageStateError(f"identificador SQL inválido: {name!r}")
+    """Los nombres llegan a SQL interpolado — whitelist estricta ASCII.
+
+    Canonical (L2): el UNICO validador de identificadores del shared kernel —
+    fts.py lo re-exporta. ASCII puro: `^[A-Za-z_][A-Za-z0-9_]*$` (isalnum
+    aceptaría unicode y dígitos iniciales, que romperían SQL interpolado).
+    """
+    if not _SAFE_IDENT.match(name):
+        raise StorageStateError(
+            f"identificador SQL inválido: {name!r} (patrón {_SAFE_IDENT.pattern}) — "
+            "solo ASCII simple, sin puntos ni comillas."
+        )
     return name
 
 

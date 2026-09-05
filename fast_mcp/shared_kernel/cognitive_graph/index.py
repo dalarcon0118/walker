@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 from returns.result import safe
@@ -91,7 +92,7 @@ class Index:
         name: str,
         schema: IndexSchema,
         chain_dir: str,
-        search_handler: callable | None = None,
+        search_handler: Callable | None = None,
     ):
         self.name = name
         self.schema = schema
@@ -713,29 +714,37 @@ class Index:
         return {"ok": True, "deleted": existed, "_id": doc_id, "_index": self.name}
 
     def delete_many(self, doc_ids: set[str]) -> dict:
-        """Elimina varios nodos en batch (1 lock + 1 save)."""
-        if not doc_ids:
-            return {"ok": True, "deleted": 0}
+        """Elimina varios nodos en batch (1 lock + 1 save, Result pattern)."""
         self._acquire_write_lock()
         self._write_locked = True
         try:
-            self._load()
-            deleted = 0
-            for doc_id in doc_ids:
-                if doc_id in self._docs:
-                    self._deindex_doc(doc_id)
-                    self._docs.pop(doc_id)
-                    if doc_id in self._graph:
-                        self._graph.remove_node(doc_id)
-                    if self._token_index is not None:
-                        self._token_index.remove_node(doc_id)
-                    deleted += 1
-            if deleted:
-                self._save()
-            return {"ok": True, "deleted": deleted, "_index": self.name}
+            result = self._delete_many_core(doc_ids)
+            if is_successful(result):
+                return result.value_or({"ok": True, "deleted": 0})
+            return {"ok": False, "deleted": 0, "error": str(result.failure())}
         finally:
             self._write_locked = False
             self._release_write_lock()
+
+    @safe
+    def _delete_many_core(self, doc_ids: set[str]) -> dict:
+        """Core puro de delete_many (puede lanzar) — L7: contrato Result."""
+        if not doc_ids:
+            return {"ok": True, "deleted": 0}
+        self._load()
+        deleted = 0
+        for doc_id in doc_ids:
+            if doc_id in self._docs:
+                self._deindex_doc(doc_id)
+                self._docs.pop(doc_id)
+                if doc_id in self._graph:
+                    self._graph.remove_node(doc_id)
+                if self._token_index is not None:
+                    self._token_index.remove_node(doc_id)
+                deleted += 1
+        if deleted:
+            self._save()
+        return {"ok": True, "deleted": deleted, "_index": self.name}
 
     # ── Edges ──
 

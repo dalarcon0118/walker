@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 from .connection import MemoryConnection
@@ -53,7 +54,7 @@ class CognitiveGraph:
         *,
         backend: StorageBackend | None = None,
         conn: MemoryConnection | None = None,
-        register_defaults: callable | None = None,
+        register_defaults: Callable | None = None,
         compact_fields: dict | None = None,
         severity_order: dict | None = None,
     ):
@@ -109,7 +110,7 @@ class CognitiveGraph:
         return dict(idx._docs)  # noqa: SLF001
 
     def register_index(
-        self, name: str, config: dict, search_handler: callable | None = None
+        self, name: str, config: dict, search_handler: Callable | None = None
     ) -> IndexSchema:
         """Registra un indice con su schema (delega al backend StorageBackend).
 
@@ -388,7 +389,7 @@ def build_cognitive_graph(
     *,
     conn: MemoryConnection | None = None,
     backend: StorageBackend | None = None,
-    register_defaults: callable | None = None,
+    register_defaults: Callable | None = None,
 ) -> CognitiveGraph:
     """Canonical CognitiveGraph construction for fast_mcp.
 

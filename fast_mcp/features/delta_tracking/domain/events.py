@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any
 
 
@@ -163,9 +164,9 @@ class EventBus:
     """Simple in-memory event bus for delta domain events."""
 
     def __init__(self) -> None:
-        self._listeners: list[callable] = []
+        self._listeners: list[Callable] = []
 
-    def subscribe(self, listener: callable) -> None:
+    def subscribe(self, listener: Callable) -> None:
         self._listeners.append(listener)
 
     def publish(self, event: DomainEvent) -> None:
