@@ -1053,8 +1053,10 @@ class SqliteBackend:
                     "INSERT OR REPLACE INTO meta (`index`, key, value) "
                     "VALUES ('__db__','__schema__',?)", (_SCHEMA_VERSION,)
                 )
-            print(f"[migrate] schema {_SCHEMA_VERSION} marcado — migración "
-                  f"v2→v3 completada (lazy in-situ, idempotente)")
+            logger.info(
+                "[migrate] schema %s marcado — migración v2→v3 completada "
+                "(lazy in-situ, idempotente)", _SCHEMA_VERSION,
+            )
 
     def _persist_index_config(self, name: str, schema: IndexSchema) -> None:
         """Guarda el config del schema para restaurarlo al reabrir la BD.
@@ -1226,7 +1228,7 @@ class SqliteBackend:
                 self._db.execute(
                     "ALTER TABLE docs ADD COLUMN doc_sha1 TEXT NOT NULL DEFAULT ''"
                 )
-            print("[f3] docs: +columna doc_sha1 (backfill a continuación)")
+            logger.info("[f3] docs: +columna doc_sha1 (backfill a continuación)")
         pending = self._db.execute(
             "SELECT COUNT(*) FROM docs WHERE doc_sha1=''"
         ).fetchone()[0]
@@ -1245,7 +1247,7 @@ class SqliteBackend:
                     [(_sha1_raw(data), rowid) for rowid, data in rows],
                 )
             backfilled += len(rows)
-        print(f"[f3] doc_sha1 backfill: {backfilled} filas (lotes de 2000)")
+        logger.info("[f3] doc_sha1 backfill: %d filas (lotes de 2000)", backfilled)
 
     def materialize_all(self, index: str) -> dict:
         """F3 (D4): materialización explícita del read model completo.
@@ -1278,8 +1280,10 @@ class SqliteBackend:
         """
         report = structured_mod.ensure_structured_indexes(self._db)
         if report["added_columns"]:
-            print(f"[f2] docs: +columnas VIRTUAL {report['added_columns']} "
-                  f"+ índices {report['indexes']}")
+            logger.info(
+                "[f2] docs: +columnas VIRTUAL %s + índices %s",
+                report["added_columns"], report["indexes"],
+            )
 
     def _ensure_fts_indexes(self) -> None:
         """F1 (§5.1/M-04): FTS por índice con fulltext.
@@ -1295,8 +1299,11 @@ class SqliteBackend:
                 continue
             report = fts_mod.ensure_fts(self._db, name, schema.fulltext_fields)
             # FS-2 detection: conteos pre/post loggeados en la migración.
-            print(f"[fts] {name}: {report['status']} docs={report['docs']} "
-                  f"fields={report.get('fields', schema.fulltext_fields)}")
+            logger.info(
+                "[fts] %s: %s docs=%s fields=%s", name, report["status"],
+                report["docs"],
+                report.get("fields", schema.fulltext_fields),
+            )
             idx = self._indexes.get(name)
             if idx is not None:
                 idx._fts_fields = list(schema.fulltext_fields)
@@ -1310,8 +1317,11 @@ class SqliteBackend:
         )
         if schema.has_fulltext():
             report = fts_mod.ensure_fts(self._db, name, schema.fulltext_fields)
-            print(f"[fts] {name}: {report['status']} docs={report['docs']} "
-                  f"fields={report.get('fields', schema.fulltext_fields)}")
+            logger.info(
+                "[fts] %s: %s docs=%s fields=%s", name, report["status"],
+                report["docs"],
+                report.get("fields", schema.fulltext_fields),
+            )
             self._indexes[name]._fts_fields = list(schema.fulltext_fields)
         # Opción 2 — persiste el catálogo para que reabrir la BD restaure el
         # índice (el search_handler no es serializable → no se persiste).
