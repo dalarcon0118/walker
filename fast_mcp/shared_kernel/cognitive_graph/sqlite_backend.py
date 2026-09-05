@@ -38,6 +38,7 @@ import time
 from typing import Any
 
 from . import fts as fts_mod
+from . import structured as structured_mod
 from .connection import MemoryConnection
 from .index import Index, IndexSchema
 from .models import TokenIndex
@@ -242,26 +243,40 @@ class SqliteIndex(Index):
         return {r[0] for r in rows}
 
     def search(self, query: Any) -> dict:  # type: ignore[override]
-        """F1 (D2/Enmienda 1): query PURA-TEXTUAL resuelve 100% vía FTS5
-        MATCH con orden bm25 y total real (sin cap de token index) — el
-        contrato declara mismo SET de docs, orden por bm25 (mejora
-        documentada, no orden idéntico). Toda otra combinación (filtros
-        estructurados/combinados) → Index.search base, cuyo texto pasa por
-        `_fulltext_ids` (FTS) y cuyos filtros usan los índices secundarios
-        hasta F2 (columnas generadas)."""
-        if self._search_handler is not None or self._fts_fields is None:
-            return super().search(query)
-        if not isinstance(query, dict) or query.get("text") is None:
-            return super().search(query)
+        """Router de search nativo de SqliteIndex (ADR-WALKER-075 D2/D3).
 
+        - Texto puro → FTS5 MATCH con orden bm25 y total real (F1, M-01).
+        - Estructurado puro → WHERE por columnas generadas e índices SQL,
+          cargando SOLO los hits de la página (F2, M-05/M-07) — sin
+          materializar el read model.
+        - Combinado (texto + filtros), filtros no resolubles por SQL, o
+          search_handler legacy → Index.search base (texto vía
+          `_fulltext_ids` = FTS; filtros vía índices secundarios en RAM).
+
+        Semántica idéntica entre rutas (M-08): exacto para `type` (como
+        _type_index), lowered+COALESCE(metadata) para el resto (como
+        _field_index + _match).
+        """
+        if self._search_handler is not None or not isinstance(query, dict):
+            return super().search(query)
         filters = dict(query)
-        raw_text = filters.pop("text")
+        raw_text = filters.pop("text", None)
         for _mc in ("max_results", "size", "max_events", "_index", "query",
                     "_from", "from", "text_fields"):
             filters.pop(_mc, None)
-        if filters:  # hay filtros estructurados → path combinado (base)
+        if raw_text is not None:
+            if filters or self._fts_fields is None:
+                # combinado → base; texto puro sin FTS → base
+                return super().search(query)
+            return self._search_text_only(raw_text, query)
+        clauses = structured_mod.resolve_filters(self.schema, filters)
+        if clauses is None:
             return super().search(query)
+        return self._search_structured(clauses, query)
 
+    @staticmethod
+    def _page_params(query: dict) -> tuple[int, int]:
+        """max_results/_from con los defaults del contrato (G8)."""
         max_results = (
             query.get("max_results") or query.get("size")
             or query.get("max_events")
@@ -274,7 +289,38 @@ class SqliteIndex(Index):
             _from = max(int(query.get("_from") or query.get("from") or 0), 0)
         except (TypeError, ValueError):
             _from = 0
+        return max_results, _from
 
+    def _search_structured(self, clauses: list, query: dict) -> dict:
+        """F2: filtros estructurados resueltos por índice SQL (M-05/M-07).
+
+        NO materializa el read model: COUNT por el índice + SELECT de la
+        página con json.loads SOLO de los hits.
+        """
+        max_results, _from = self._page_params(query)
+        took = time.time()
+        res = structured_mod.search_structured(
+            self._db, self.name, clauses,
+            max_results=max_results, offset=_from,
+        )
+        took = int((time.time() - took) * 1000)
+        return {
+            "took": took,
+            "index": self.name,
+            "hits": {
+                "total": res["total"],
+                "hits": res["hits"],
+                "from": res["from"],
+                "size": res["size"],
+            },
+            "schema": self._schema_info(),
+        }
+
+    def _search_text_only(self, raw_text: Any, query: dict) -> dict:
+        """F1 (D2/Enmienda 1): query pura-textual resuelve 100% vía FTS5
+        MATCH con orden bm25 y total real — el contrato declara mismo SET
+        de docs, orden por bm25 (mejora documentada, no orden idéntico)."""
+        max_results, _from = self._page_params(query)
         if isinstance(raw_text, dict):
             text = raw_text.get("query", "")
             fields_scoped = raw_text.get("fields")
@@ -283,10 +329,10 @@ class SqliteIndex(Index):
         if fields_scoped is None:
             tf = query.get("text_fields")
             fields_scoped = tf if isinstance(tf, list) else ([tf] if tf else None)
-        if fields_scoped and not set(fields_scoped) <= set(self._fts_fields):
+        if fields_scoped and not set(fields_scoped) <= set(self._fts_fields or []):
             raise StorageContractError(
                 f"field-scoped search sobre columna(s) sin FTS en "
-                f"'{self.name}': {sorted(set(fields_scoped) - set(self._fts_fields))} "
+                f"'{self.name}': {sorted(set(fields_scoped) - set(self._fts_fields or []))} "
                 f"(columnas FTS: {self._fts_fields}) — añada el campo a "
                 f"IndexSchema.search.fields y re-backfill (drop_fts + reabrir)."
             )
@@ -554,6 +600,9 @@ class SqliteBackend:
         # volver a registrarlos (resuelve de raíz el "Índice 'X' no
         # registrado. Disponibles: []").
         self._restore_persisted_indexes()
+        # F2 (§11): columnas generadas VIRTUAL + índices SQL — DDL
+        # idempotente por inspección (PRAGMA/IF NOT EXISTS), instantáneo.
+        self._ensure_structured_indexes()
         # F1 (§5.1): FTS para índices con fulltext — crea+backfill si falta,
         # verifica conteos si existe (fail-fast en drift FS-1). ANTES de
         # cualquier acceso: todo write posterior sincroniza FTS en su
@@ -714,6 +763,16 @@ class SqliteBackend:
             )
 
     # ── Registro ──
+
+    def _ensure_structured_indexes(self) -> None:
+        """F2 (D3/M-06): columnas generadas VIRTUAL + índices SQL.
+
+        Idempotente por inspección — solo reporta cuando hay DDL nuevo.
+        """
+        report = structured_mod.ensure_structured_indexes(self._db)
+        if report["added_columns"]:
+            print(f"[f2] docs: +columnas VIRTUAL {report['added_columns']} "
+                  f"+ índices {report['indexes']}")
 
     def _ensure_fts_indexes(self) -> None:
         """F1 (§5.1/M-04): FTS por índice con fulltext.
