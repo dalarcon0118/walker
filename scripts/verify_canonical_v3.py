@@ -15,7 +15,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-DATA_DIR = os.path.join(ROOT, ".cognitive", "projects", "walker", "data")
+DATA_DIR = os.environ.get(
+    "WALKER_DATA_DIR",
+    os.path.join(ROOT, ".cognitive", "projects", "walker", "data"),
+)
 
 from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph  # noqa: E402
 
@@ -25,15 +28,35 @@ b1 = g1._backend  # noqa: SLF001
 sv = b1._db.execute(  # noqa: SLF001
     "SELECT value FROM meta WHERE `index`='__db__' AND key='__schema__'"
 ).fetchone()
-print(f"[boot2] schema={sv[0]} — sin re-migración (idempotente) ✓" if sv[0] == "v3"
-      else f"[boot2] FAIL schema={sv}")
+# T-03 (M-7): la rama FAIL es exit-code real — un CI no puede dar verde
+# ante una BD que no quedó marcada v3 (FS-2).
+if not (sv and sv[0] == "v3"):
+    print(f"[boot2] FAIL schema={sv[0] if sv else None} — BD sin marcar v3; "
+          "la migración no completó (FS-2). Remediación: revisar los logs "
+          "del boot y restaurar el backup v2 si procede.", file=sys.stderr)
+    sys.exit(1)
+print(f"[boot2] schema={sv[0]} — sin re-migración (idempotente) ✓")
 
-# FTS parity check after reopen (FS-1: drift → StorageStateError)
+# FTS parity check after reopen (FS-1: drift → StorageStateError). T-03
+# (M-7): el loop es fail-loud — marker ausente (FS-2) o paridad rota
+# (reconcile docs != docs tabla) = exit ≠ 0 con remediación accionable.
 from fast_mcp.shared_kernel.cognitive_graph import fts as fts_mod  # noqa: E402
 for name in ("delta", "cpg", "ckg"):
     marker = fts_mod.fts_marker(b1._db, name)  # noqa: SLF001
+    assert marker is not None, (
+        f"[fts-reconcile] {name}: marker FTS ausente (FS-2) — remediación: "
+        f"drop_fts('{name}') y reabrir (re-backfill), o restaurar backup"
+    )
     rep = fts_mod.reconcile(b1._db, name, marker["fields"])  # noqa: SLF001
-    print(f"[fts-reconcile] {name}: {rep}")
+    docs_in_idx = b1._db.execute(  # noqa: SLF001
+        "SELECT COUNT(*) FROM docs WHERE `index`=?", (name,)
+    ).fetchone()[0]
+    assert rep["docs"] == docs_in_idx, (
+        f"[fts-reconcile] {name}: reconcile docs={rep['docs']} != docs "
+        f"tabla={docs_in_idx} — drift FTS (FS-1); remediación: "
+        f"drop_fts('{name}') y reabrir, o restaurar backup"
+    )
+    print(f"[fts-reconcile] {name}: {rep} — paridad docs OK")
 
 # 2) Fulltext delta — término real del SSOT
 docs_delta = b1.materialize_all("delta")
