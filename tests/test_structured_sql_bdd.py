@@ -306,3 +306,51 @@ class TestF2ParidadBackends:
                 f"file={_hit_ids(r_file)}"
             )
             assert r_sql["hits"]["total"] == r_file["hits"]["total"]
+
+
+class TestF2FallbackVisible:
+    """T-07 (M-09): el fallback eager (filtro sin columna generada) es
+    VISIBLE — warning + métrica con docs materializados; jamás silencio.
+    """
+
+    def test_unsupported_filter_emits_warning_and_metric(self, tmp_path, caplog):
+        import logging
+
+        backend = _make_backend(tmp_path)
+        _seed_cpg(backend)
+        idx = backend._indexes["cpg"]  # noqa: SLF001
+        assert idx._loaded is False  # estado ligero: el fallback materializará
+
+        with caplog.at_level(
+            logging.WARNING, logger="walker.cognitive_graph.sqlite_backend"
+        ):
+            res = backend.search("cpg", {"kind": "def"})
+
+        assert "hits" in res and isinstance(res["hits"]["hits"], list)
+        assert any("fallback EAGER" in r.message for r in caplog.records), (
+            "fallback sin warning = degradación silenciosa (M-09)"
+        )
+        assert idx._fallback_materializations >= 1
+        assert idx._fallback_last_docs == 4  # los 4 docs del fixture
+        assert "kind" in idx._fallback_last_reason
+
+        metric = backend.metrics("cpg")["fallback_eager"]
+        assert metric["materializations"] >= 1
+        assert metric["last_docs"] == 4
+
+    def test_supported_filter_does_not_trip_fallback(self, tmp_path, caplog):
+        import logging
+
+        backend = _make_backend(tmp_path)
+        _seed_cpg(backend)
+        idx = backend._indexes["cpg"]  # noqa: SLF001
+
+        with caplog.at_level(
+            logging.WARNING, logger="walker.cognitive_graph.sqlite_backend"
+        ):
+            res = backend.search("cpg", {"type": "function"})
+
+        assert _hit_ids(res) == {"f:1", "f:2"}
+        assert not any("fallback EAGER" in r.message for r in caplog.records)
+        assert idx._fallback_materializations == 0
+        assert idx._loaded is False  # ruta SQL: 0 materialización (M-07)

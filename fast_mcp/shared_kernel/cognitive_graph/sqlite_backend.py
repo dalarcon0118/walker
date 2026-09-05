@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -54,6 +55,8 @@ from .storage_errors import (
     StorageStateError,
     StorageWriteError,
 )
+
+logger = logging.getLogger("walker.cognitive_graph.sqlite_backend")
 
 _SCHEMA_VERSION = "v3"
 _DEFAULT_SCHEMA_VERSION = "v1"  # blobs .json.gz (legacy, §6.4)
@@ -127,6 +130,11 @@ class SqliteIndex(Index):
         # no materializados eso borrará TODO lo no tocado).
         self._meta_loaded: bool = False
         self._deleted_docs: set[str] = set()
+        # T-07 (M-09): el fallback eager es VISIBLE — warning + métrica con
+        # los docs materializados; jamás degradación silenciosa de coste.
+        self._fallback_materializations: int = 0
+        self._fallback_last_docs: int = 0
+        self._fallback_last_reason: str = ""
 
     # ── Locks: SQLite+WAL serializa; sin fcntl (evita ficheros .lock) ──
 
@@ -599,13 +607,42 @@ class SqliteIndex(Index):
             filters.pop(_mc, None)
         if raw_text is not None:
             if filters or self._fts_fields is None:
-                # combinado → base; texto puro sin FTS → base
-                return super().search(query)
+                # combinado → base (materializa); texto puro sin FTS → base
+                reason = ("query combinada text+filtros" if filters
+                          else "texto sin FTS activo")
+                return self._fallback_eager(query, reason)
             return self._search_text_only(raw_text, query)
         clauses = structured_mod.resolve_filters(self.schema, filters)
         if clauses is None:
-            return super().search(query)
+            return self._fallback_eager(
+                query, f"filtros no resolubles por SQL: {sorted(filters)}"
+            )
         return self._search_structured(clauses, query)
+
+    def _fallback_eager(self, query: dict, reason: str) -> dict:
+        """T-07 (M-09): fallback eager DOCUMENTADO — warning + métrica con
+        el nº de docs que la materialización va a tocar.
+
+        El filtro no resuelve por columnas generadas/SQL (o el contrato lo
+        exige) → Index.search base materializa el read model completo
+        (O(N) en RAM). El coste queda visible: log + contadores en
+        metrics(); el resultado es IDÉNTICO al path base (M-08 paridad).
+        """
+        self._ensure_light()
+        materializing = len(self._saved_docs)
+        result = super().search(query)
+        self._fallback_materializations += 1
+        self._fallback_last_docs = materializing
+        self._fallback_last_reason = reason
+        logger.warning(
+            "search('%s'): fallback EAGER (%s) — materializa %d docs del "
+            "read model (coste O(N) en RAM). Si el filtro es de alto "
+            "tráfico, añadir columna generada al schema (F2) para "
+            "resolverlo por SQL (M-09: fallback visible, no degradación "
+            "silenciosa).",
+            self.name, reason, materializing,
+        )
+        return result
 
     @staticmethod
     def _page_params(query: dict) -> tuple[int, int]:
@@ -927,6 +964,12 @@ class SqliteIndex(Index):
             "storage_size": f"{size / 1024:.1f}KB",
             "storage_path": self._db_path,
             "last_updated": last_updated,
+            # T-07 (M-09): el coste del fallback eager es medible.
+            "fallback_eager": {
+                "materializations": self._fallback_materializations,
+                "last_docs": self._fallback_last_docs,
+                "last_reason": self._fallback_last_reason,
+            },
         }
 
     def _verify_sha_sample(self, sample_size: int = 5) -> None:
