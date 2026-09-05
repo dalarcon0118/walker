@@ -942,14 +942,25 @@ class SqliteIndex(Index):
     def metrics(self) -> dict:  # type: ignore[override]
         self._ensure_light()
         self._verify_sha_sample()  # M-10/FS-3: doc_sha1 stale → fail-fast
-        size = 0
+        # T-09 (M-5/M-11): métricas TRUTHFUL — page_size REAL via pragma
+        # (jamás la constante 4096) y WAL medido del archivo (FS-8). Un error
+        # de lectura propaga fail-loud; nunca 0/constante silenciosa.
         try:
-            for (n,) in self._db.execute(
+            page_count = int(self._db.execute(
                 "SELECT page_count FROM pragma_page_count()"
-            ):  # noqa: SIM117
-                size = int(n) * 4096
-        except sqlite3.Error:
-            size = 0
+            ).fetchone()[0])
+            page_size = int(self._db.execute(
+                "SELECT page_size FROM pragma_page_size()"
+            ).fetchone()[0])
+        except (sqlite3.Error, TypeError, IndexError) as exc:
+            raise StorageReadError(
+                f"SqliteIndex['{self.name}']: metrics() no pudo leer "
+                f"page_count/page_size ({type(exc).__name__}: {exc}) — "
+                "fail-loud (M-11), jamás métrica inventada."
+            ) from exc
+        size = page_count * page_size
+        wal_path = self._db_path + "-wal"
+        wal_bytes = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
         last_updated = "never"
         row = self._db.execute(
             "SELECT MAX(updated_at) FROM docs WHERE `index`=?", (self.name,)
@@ -964,6 +975,10 @@ class SqliteIndex(Index):
             "storage_size": f"{size / 1024:.1f}KB",
             "storage_path": self._db_path,
             "last_updated": last_updated,
+            # T-09 (FS-8): WAL observable — tamaño y páginas medidos, no estimados.
+            "page_size": page_size,
+            "wal_bytes": wal_bytes,
+            "wal_pages": wal_bytes // page_size if page_size else 0,
             # T-07 (M-09): el coste del fallback eager es medible.
             "fallback_eager": {
                 "materializations": self._fallback_materializations,
