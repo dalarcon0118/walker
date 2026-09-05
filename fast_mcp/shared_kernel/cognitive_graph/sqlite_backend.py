@@ -107,6 +107,10 @@ class SqliteIndex(Index):
         self._db_path = db_path
         self._saved_docs: dict[str, str] = {}  # doc_id -> sha1(json) ya en BD
         self._saved_edges: dict[tuple[str, str], str] = {}  # (u,v) -> sha1(attrs)
+        # T-05 (M-07): cache de raw json por edge + dirty set — _save difiere
+        # SOLO edges tocados, jamás re-serializa el grafo completo (O(E)).
+        self._edge_raws: dict[tuple[str, str], str] = {}  # (u,v) -> raw json
+        self._dirty_edges: set[tuple[str, str]] = set()  # tocados desde el último save
         self._metadata_hash: str = ""
         # F1 (ADR-WALKER-075 D2): columnas FTS activas para este índice
         # (schema.search.fields) o None si el índice no tiene FTS — lo setea
@@ -131,6 +135,21 @@ class SqliteIndex(Index):
 
     def _release_write_lock(self) -> None:
         return None
+
+    # ── T-05 (M-07): cache de edges — TODO mutador pasa por aquí ──
+
+    def _cache_edge(self, u: str, v: str, data: dict) -> None:
+        """Serializa UNA vez el edge (o reutiliza el raw existente) y lo marca dirty."""
+        raw = json.dumps(
+            dict(data), sort_keys=True, ensure_ascii=False, default=str
+        )
+        self._edge_raws[(u, v)] = raw
+        self._dirty_edges.add((u, v))
+
+    def _drop_edge_cache(self, key: tuple[str, str]) -> None:
+        """Edge eliminado del grafo → sale del cache, entra al diff como DELETE."""
+        self._edge_raws.pop(key, None)
+        self._dirty_edges.add(key)
 
     # ── Persistencia: carga en dos niveles (F3, D4/M-09) ──
 
@@ -162,6 +181,8 @@ class SqliteIndex(Index):
             # edges eager (D4 solo hace lazy los docs: related/neighbors y
             # todo el write path de edges quedan intactos)
             self._saved_edges = {}
+            self._edge_raws = {}
+            self._dirty_edges = set()
             for src, dst, attrs_raw in self._db.execute(
                 "SELECT src, dst, attributes FROM edges WHERE `index`=?",
                 (self.name,),
@@ -169,6 +190,9 @@ class SqliteIndex(Index):
                 attrs = json.loads(attrs_raw) if attrs_raw else {}
                 self._graph.add_edge(src, dst, **attrs)
                 self._saved_edges[(src, dst)] = _sha1_raw(attrs_raw or "{}")
+                # el raw almacenado es el json canónico del último save →
+                # se cachea sin re-serializar (T-05/M-07)
+                self._edge_raws[(src, dst)] = attrs_raw or "{}"
             self._metadata = {}
             self._metadata_hash = ""
             for key, value in self._db.execute(
@@ -293,6 +317,8 @@ class SqliteIndex(Index):
             self._deindex_doc(doc_id)
         self._docs.pop(doc_id, None)
         if doc_id in self._graph:
+            # remove_node elimina también los edges incidentes → al diff
+            self._drop_incident_edges(doc_id)
             self._graph.remove_node(doc_id)
         if existed:
             self._deleted_docs.add(doc_id)
@@ -349,6 +375,7 @@ class SqliteIndex(Index):
                         self._deindex_doc(doc_id)
                     self._docs.pop(doc_id, None)
                     if doc_id in self._graph:
+                        self._drop_incident_edges(doc_id)
                         self._graph.remove_node(doc_id)
                     self._deleted_docs.add(doc_id)
                     deleted += 1
@@ -359,10 +386,20 @@ class SqliteIndex(Index):
             self._write_locked = False
             self._release_write_lock()
 
+    def _drop_incident_edges(self, doc_id: str) -> None:
+        """Marca dirty los edges incidentes de un nodo antes de remove_node."""
+        for u, v in list(self._graph.in_edges(doc_id)) + list(
+            self._graph.out_edges(doc_id)
+        ):
+            self._drop_edge_cache((u, v))
+
     def add_edge(self, from_id: str, to_id: str, **attrs: Any) -> dict:
         """F3: edge op SIN materializar docs (grafo de edges es eager)."""
         self._ensure_light()
         self._graph.add_edge(from_id, to_id, **attrs)
+        self._cache_edge(
+            from_id, to_id, self._graph.get_edge_data(from_id, to_id)
+        )
         self._save()
         return {"ok": True, "from": from_id, "to": to_id, "attrs": attrs}
 
@@ -371,23 +408,32 @@ class SqliteIndex(Index):
         self._ensure_light()
         if self._graph.has_edge(from_id, to_id):
             self._graph.remove_edge(from_id, to_id)
+            self._drop_edge_cache((from_id, to_id))
             self._save()
         return {"ok": True, "from": from_id, "to": to_id}
 
     def sync_edges(self, edges: list[dict]) -> dict:
-        """F3: reemplazo completo de edges SIN materializar docs.
+        """F3: reemplazo completo de edges SIN materializar docs (T-05).
 
         En índice ligero el grafo se reconstruye solo con los edges nuevos
         (los nodos se materializan aparte); materializado → base (re-add de
-        nodos con payload, comportamiento histórico).
+        nodos con payload, comportamiento histórico). El cache de raws se
+        reinicia: los edges viejos entran al diff como DELETE si no
+        reaparecen — jamás diff `saved - current` con cache stale.
         """
-        if self._loaded:
-            return super().sync_edges(edges)
         self._acquire_write_lock()
         self._write_locked = True
         try:
-            self._ensure_light()
+            if self._loaded:
+                self._load()
+            else:
+                self._ensure_light()
+            old_keys = set(self._saved_edges)
             self._graph = nx.DiGraph()
+            for doc_id, doc in self._docs.items():
+                self._graph.add_node(doc_id, **doc)
+            self._edge_raws = {}
+            self._dirty_edges = set(old_keys)  # los que no reaparezcan → DELETE
             for edge in edges or []:
                 u = edge.get("from", "")
                 v = edge.get("to", "")
@@ -395,6 +441,7 @@ class SqliteIndex(Index):
                     continue
                 attrs = {k: val for k, val in edge.items() if k not in ("from", "to")}
                 self._graph.add_edge(u, v, **attrs)
+                self._cache_edge(u, v, attrs)
             self._save()
             return {"ok": True, "edges": len(edges or []), "_index": self.name}
         finally:
@@ -416,6 +463,10 @@ class SqliteIndex(Index):
         try:
             self._docs = {}
             self._graph = nx.DiGraph()
+            # reemplazo total: los edges commitados entran al diff como
+            # DELETE salvo que reaparezcan (T-05/M-07)
+            self._edge_raws = {}
+            self._dirty_edges = set(self._saved_edges)
             self._token_index = None  # FTS es el camino en sqlite (D2)
             self._type_index.clear()
             self._field_index.clear()
@@ -436,6 +487,7 @@ class SqliteIndex(Index):
                     continue
                 attrs = {k: val for k, val in edge.items() if k not in ("from", "to")}
                 self._graph.add_edge(u, v, **attrs)
+                self._cache_edge(u, v, attrs)
             self._save()
             self._loaded = True  # el read model = el estado nuevo completo
             return {"ok": True, "stored": len(nodes or {}), "edges": len(edges or [])}
@@ -768,36 +820,43 @@ class SqliteIndex(Index):
                                 cur, self.name, self._fts_fields, row
                             )
 
-                # ── edges (diff por par, O(E) al vuelo) ──
-                graph_edges: dict[tuple[str, str], str] = {}
-                graph_raws: dict[tuple[str, str], str] = {}
-                for u, v, data in self._graph.edges(data=True):
-                    raw = json.dumps(
-                        dict(data), sort_keys=True, ensure_ascii=False, default=str
-                    )
-                    graph_raws[(u, v)] = raw
-                    graph_edges[(u, v)] = _sha1_raw(raw)
-                for key in set(self._saved_edges) - set(graph_edges):
-                    cur.execute(
-                        "DELETE FROM edges WHERE `index`=? AND src=? AND dst=?",
-                        (self.name, key[0], key[1]),
-                    )
-                for (u, v), h in graph_edges.items():
-                    if (u, v) in self._saved_edges:
-                        if self._saved_edges[(u, v)] == h:
-                            continue  # sin cambios — 0 writes, 0 dumps extra
+                # ── edges (T-05/M-07): diff SOLO de edges tocados — el raw
+                #    json por edge vive en _edge_raws y los mutadores marcan
+                #    dirty; jamás re-serialización O(E) del grafo completo ──
+                if len(self._edge_raws) != self._graph.number_of_edges():
+                    # Red de seguridad: una mutación no ruteada por el cache
+                    # (edge presente sin raw) entra igualmente al diff.
+                    for u, v in self._graph.edges():
+                        if (u, v) not in self._edge_raws:
+                            self._cache_edge(u, v, self._graph.get_edge_data(u, v))
+                for key in list(self._dirty_edges):
+                    raw = self._edge_raws.get(key)
+                    if raw is None:
+                        # edge eliminado del grafo → DELETE
+                        if key in self._saved_edges:
+                            cur.execute(
+                                "DELETE FROM edges WHERE `index`=? AND src=? AND dst=?",
+                                (self.name, key[0], key[1]),
+                            )
+                            del self._saved_edges[key]
+                        continue
+                    h = _sha1_raw(raw)
+                    if self._saved_edges.get(key) == h:
+                        continue  # sin cambios — 0 writes, 0 dumps
+                    if key in self._saved_edges:
                         cur.execute(
                             "UPDATE edges SET attributes=? "
                             "WHERE `index`=? AND src=? AND dst=?",
-                            (graph_raws[(u, v)], self.name, u, v),
+                            (raw, self.name, key[0], key[1]),
                         )
                     else:
                         cur.execute(
                             "INSERT OR REPLACE INTO edges (`index`, src, dst, attributes) "
                             "VALUES (?,?,?,?)",
-                            (self.name, u, v, graph_raws[(u, v)]),
+                            (self.name, key[0], key[1], raw),
                         )
-                self._saved_edges = graph_edges
+                    self._saved_edges[key] = h
+                self._dirty_edges = set()
 
                 # ── metadata (passthrough, ADR-054 D5) ──
                 # NOTA F1: las system-keys (incl. fts_config) NUNCA se

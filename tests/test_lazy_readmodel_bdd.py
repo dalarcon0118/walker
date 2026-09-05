@@ -332,3 +332,90 @@ class TestF3SchemaV3:
         db.close()
         with pytest.raises(StorageSchemaVersionError, match="no soportado"):
             _reopen(tmp_path)
+
+
+class TestEdgeWritePathTouched:
+    """T-05 (M-07): el write path de edges es O(touched) — nunca O(E).
+
+    El _save difiere SOLO edges tocados vía cache de raw (_edge_raws) +
+    dirty set; json.dumps no se re-ejecuta sobre el grafo completo.
+    """
+
+    def _many_edges(self, n: int) -> list[dict]:
+        return [
+            {"from": f"n:{i}", "to": f"n:{i + 1}", "type": "chain"}
+            for i in range(n)
+        ]
+
+    def test_roundtrip_add_remove_sync_parity(self, tmp_path):
+        """Paridad CA-1/M-08: add/remove/sync sobreviven re-open idénticos."""
+        backend = _make(tmp_path)  # 3 docs cpg
+        backend.sync_edges("cpg", [
+            {"from": "f:1", "to": "f:2", "type": "calls"},
+            {"from": "f:2", "to": "f:3", "type": "uses"},
+        ])
+        backend.add_edge("f:1", "f:3", type="imports")
+        backend.remove_edge("f:2", "f:3")
+        # doc con edge incidente → delete debe borrar también sus edges
+        backend.delete("cpg", "f:2")
+        backend._db.close()
+
+        backend2 = _reopen(tmp_path)
+        edges = backend2.get_all_edges("cpg")
+        assert sorted((e["from"], e["to"]) for e in edges) == [
+            ("f:1", "f:3"),
+        ]
+        assert edges[0]["type"] == "imports"
+        # SSOT: la tabla edges coincide exactamente con el read model
+        db = _db(tmp_path)
+        rows = db.execute(
+            "SELECT src, dst, attributes FROM edges WHERE `index`='cpg'"
+        ).fetchall()
+        assert [(r[0], r[1]) for r in rows] == [("f:1", "f:3")]
+        db.close()
+
+    def test_sync_edges_replaces_all(self, tmp_path):
+        backend = _make(tmp_path)
+        backend.sync_edges("cpg", self._many_edges(500))
+        backend.sync_edges("cpg", [{"from": "a", "to": "b", "type": "fresh"}])
+        backend._db.close()
+
+        backend2 = _reopen(tmp_path)
+        edges = backend2.get_all_edges("cpg")
+        assert [(e["from"], e["to"]) for e in edges] == [("a", "b")]
+        assert edges[0]["type"] == "fresh"
+
+    def test_dumps_per_save_do_not_scale_with_edge_count(self, tmp_path, monkeypatch):
+        """Spy: add_edge sobre un índice con K edges hace ~1 dump, no K+1."""
+        import json as json_mod
+
+        backend = _make(tmp_path, seed=False)
+        # add_edge del backend resuelve el índice por el nodo con fallback
+        # 'delta' → registrar delta (vacío) para el spy
+        backend.register_index("delta", {"fields": {"type": "type"}})
+        backend.sync_edges("delta", self._many_edges(2000))  # K=2000, sin docs
+
+        calls = {"n": 0}
+        real_dumps = json_mod.dumps
+
+        def spy(*args, **kwargs):
+            calls["n"] += 1
+            return real_dumps(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "fast_mcp.shared_kernel.cognitive_graph.sqlite_backend.json.dumps", spy
+        )
+        backend.add_edge("n:0", "n:2001", type="spy")
+        # constante 3 = 1 edge tocado + 2 overhead fijo por save
+        # (_sha1(metadata) + _schema_hash) — INDEPENDIENTE del nº de edges;
+        # el código previo serializaba K+1 (2001 dumps de edges).
+        assert calls["n"] <= 3, (
+            f"add_edge serializó {calls['n']} raws — esperado ~1 (solo el edge "
+            f"tocado); el _save no debe re-serializar el grafo completo (M-07)"
+        )
+        # el edge tocado sí persiste (paridad)
+        backend._db.close()
+        backend2 = _reopen(tmp_path)
+        edges = backend2.get_all_edges("delta")
+        assert any(e["from"] == "n:0" and e["to"] == "n:2001" for e in edges)
+        assert len(edges) == 2001
