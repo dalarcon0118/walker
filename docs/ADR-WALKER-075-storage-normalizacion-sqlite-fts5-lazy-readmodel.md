@@ -240,6 +240,35 @@ THEN
 - **Rollback:** restore del backup de la BD (pre-migración) + revert del código. La migración NO destruye datos (solo añade columnas/FTS); el guard v3 es lo que impide writers mixtos.
 - **Migración idempotente:** si el proceso muere a mitad, la transacción hace rollback y el próximo arranque re-intenta (FS-2).
 
+#### Anexo A — Bitácora de ejecución rollout (2026-09-05)
+
+Ejecutado sobre la canónica `.cognitive/projects/walker/data/cognitive.sqlite3` con
+`scripts/migrate_canonical_v3.py` (backup vía API de sqlite + boot del runtime =
+migración lazy in-situ) y `scripts/verify_canonical_v3.py` (idempotencia + búsquedas).
+
+| Paso | Pre (v2) | Post (v3) | Verificación |
+|---|---|---|---|
+| schema marker | `v2` | `v3` | marcado SOLO tras éxito (FS-2) |
+| docs delta / trace | 8 / 872 | 8 / 872 | **SSOT intacto** (M-04 conteos) |
+| edges delta | 7 | 7 | intacto |
+| integrity / orphans | ok / 0 | ok / 0 | FS-5 |
+| `doc_sha1` | — | 880/880 sin vacíos | M-10: backfill 1 lote (880≤2000) |
+| columnas generadas | 0 | 6 (doc_type..doc_sprint) | F2 VIRTUAL (M-06) |
+| índices SQL | 0 | 8 (incl. `idx_edges_dst`) | F2 |
+| FTS (view+vt+marker) | — | delta=8 (reconcile 7/7 MATCH), cpg/ckg=0 | F1 M-04 a nivel MATCH |
+| events (append-only) | 55 | 55 | log preservado |
+| catálogo `__indexes__` | incompleto (M0-1) | **completo**: ckg/cpg/delta/trace | M0-1 cerrado (restauración futura sin re-registro) |
+
+Idempotencia confirmada: re-boot sobre v3 = sin re-migración, FTS `verified` sin
+drift (FS-1). Búsquedas reales sobre la canónica: fulltext delta `'trabajo'` → 7
+hits (F1); structured delta `{type: 'spring'}` → 1/1 sin materializar (F2/M-07);
+fallback seguro del quirk de schema trace (`event_type→'keyword'`) → 0 hits sin
+resultados inventados (M-08; quirk pre-existente, pendiente de decisión del PO).
+Backup v2: `.cognitive/backups/cognitive.v2.<ts>.sqlite3` (rollback §10.1).
+Pendiente del rollout: (1) porción de librería del gate H0 (`pre_migration_check`
+como módulo + tests); (2) decisión PO sobre el schema de trace; (3) rebuild de
+cpg/ckg derivables en v3 (H-6 opción recomendada del gate).
+
 ---
 
 ## 11. Implementation intentions (metodología rule.md — contrato ejecutable por agente)

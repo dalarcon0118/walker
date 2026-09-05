@@ -41,6 +41,10 @@ Thumbs.db
 .cognitive/projects/*/data/data/
 .cognitive/docs/
 
+# Backups de la canónica (runtime, snapshot v2/v3 pre/post migración)
+.cognitive/backups/
+.cognitive/projects/*/backups/
+
 # ── SQLite runtime (canónica: .cognitive/projects/<id>/data/cognitive.sqlite3) ──
 # Copias parásitas en root/ y data/ eliminadas (fail-fast ADR-063: una sola
 # ubicación canónica). Ignore anclado a root para que no reaparezcan.
