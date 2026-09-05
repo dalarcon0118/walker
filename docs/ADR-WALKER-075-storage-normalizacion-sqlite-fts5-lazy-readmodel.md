@@ -254,7 +254,7 @@ migración lazy in-situ) y `scripts/verify_canonical_v3.py` (idempotencia + bús
 | integrity / orphans | ok / 0 | ok / 0 | FS-5 |
 | `doc_sha1` | — | 880/880 sin vacíos | M-10: backfill 1 lote (880≤2000) |
 | columnas generadas | 0 | 6 (doc_type..doc_sprint) | F2 VIRTUAL (M-06) |
-| índices SQL | 0 | 8 (incl. `idx_edges_dst`) | F2 |
+| índices SQL | 0 | 7 (6 `idx_docs_*` por columnas generadas + `idx_edges_dst`) | F2 |
 | FTS (view+vt+marker) | — | delta=8 (reconcile 7/7 MATCH), cpg/ckg=0 | F1 M-04 a nivel MATCH |
 | events (append-only) | 55 | 55 | log preservado |
 | catálogo `__indexes__` | incompleto (M0-1) | **completo**: ckg/cpg/delta/trace | M0-1 cerrado (restauración futura sin re-registro) |
@@ -268,6 +268,25 @@ Backup v2: `.cognitive/backups/cognitive.v2.<ts>.sqlite3` (rollback §10.1).
 Pendiente del rollout: (1) porción de librería del gate H0 (`pre_migration_check`
 como módulo + tests); (2) decisión PO sobre el schema de trace; (3) rebuild de
 cpg/ckg derivables en v3 (H-6 opción recomendada del gate).
+
+**Cierre de remediación (plan `docs/plan-remediation-review-adr075.md`, Waves 0-4,
+merge fast-forward `16e4c1f..f77d22b` en `adr-065-f1-f6`, 2026-09-05):** los
+hallazgos del code review quedaron corregidos por las tareas T-01..T-13.
+Pendientes del rollout actualizados: (1) ~~gate H0 como librería~~ → **CERRADO**
+(T-04: `shared_kernel/cognitive_graph/pre_migration.py` con `Result`/`StorageStateError`
++ `tests/test_pre_migration_bdd.py`); (2) decisión PO sobre el schema de trace →
+**HABILITADA** (T-10: SSOT único `shared_kernel/cognitive_graph/schemas.py::PRODUCTION_INDEX_SCHEMAS`
+— el quirk `event_type→'keyword'` ahora se define una sola vez; la corrección es
+1 línea + drop/re-backfill de trace); (3) rebuild cpg/ckg derivables (H-6) →
+**DESBLOQUEADO** (Wave 2 resolvió los cliffs pre-rebuild: T-05 write path de edges
+O(touched), T-06 reconcile de boot barato, T-07 fallback eager visible con warning
++ métrica). H-1 cerrado vía T-12a (CAS por `update_count` en `_save`, decisión
+multi-proceso in-contract documentada; BDD multi-conexión en
+`test_lazy_readmodel_bdd.py`). Deuda M-5 cerrada (T-09: `metrics()` reporta
+`wal_bytes`/`wal_pages` con `pragma_page_size()` real + benchmarks M-03/FS-5 en
+`test_benchmarks_bdd.py`). H-2 cerrado (T-08: cero prints en shared_kernel,
+meta-test `test_shared_kernel_no_prints_bdd.py`). Suite al cierre: 553 passed
+(+56 sobre el baseline de 497).
 
 ---
 
