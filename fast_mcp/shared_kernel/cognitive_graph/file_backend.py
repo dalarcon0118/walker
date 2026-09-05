@@ -189,6 +189,15 @@ class FileBackend:
     def metrics(self, index: str) -> dict:
         return self._get_index(index).metrics()
 
+    def materialize_all(self, index: str) -> dict:
+        """F3 (D4): el FileBackend es eager — materializar = asegurar load.
+
+        Contrato del puerto completo (M-08): misma firma que sqlite.
+        """
+        idx = self._get_index(index)
+        idx._load()
+        return {"ok": True, "docs": len(idx._docs), "_index": index}
+
     def list_indexes(self) -> list[str]:
         return list(self._indexes.keys())
 

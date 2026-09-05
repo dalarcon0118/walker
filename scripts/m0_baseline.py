@@ -199,17 +199,27 @@ def reopen_index(db_dir: str, name: str):
 
 # ── Métricas ────────────────────────────────────────────────────────────────
 
-def measure_load(fixture: dict) -> list[float]:
-    """Métrica 2: timer de _do_load sobre BD con 16K docs (arranque)."""
-    runs = []
-    for i in range(N_LOAD_RUNS):
+def measure_load(fixture: dict) -> tuple[list[float], list[float]]:
+    """Métrica 2 post-F3: el arranque tiene DOS niveles (D4/M-09).
+
+    - light (`_ensure_light`): diff-cache (id+sha1 desde la columna) +
+      edges + metadata — SIN parsear docs. Es el costo de boot real.
+    - materialize (`_load` completo): + docs + índices secundarios —
+      on-demand para consumidores full-graph.
+    """
+    light_runs: list[float] = []
+    full_runs: list[float] = []
+    for _i in range(N_LOAD_RUNS):
         backend, idx = reopen_index(fixture["db_dir"], "cpg")
         t0 = time.perf_counter_ns()
+        idx._ensure_light()
+        light_runs.append((time.perf_counter_ns() - t0) / 1_000_000.0)
+        t0 = time.perf_counter_ns()
         idx._load()
-        runs.append((time.perf_counter_ns() - t0) / 1_000_000.0)
-        assert len(idx._docs) == fixture["n_docs"], "load incompleto"
+        full_runs.append((time.perf_counter_ns() - t0) / 1_000_000.0)
+        assert len(idx._docs) == fixture["n_docs"], "materialización incompleta"
         backend._db.close()
-    return runs
+    return light_runs, full_runs
 
 
 def measure_save(idx) -> dict[str, list[float]]:
@@ -378,9 +388,10 @@ def main() -> int:
           f"WAL tras build: {fixture['wal_bytes']} bytes")
 
     # 2) load completo (métrica 2)
-    load_runs = measure_load(fixture)
+    load_light, load_full = measure_load(fixture)
     print(f"[M0] load 16K docs (3 corridas): "
-          f"{[round(r, 1) for r in load_runs]} ms")
+          f"light={[round(r, 1) for r in load_light]} ms | "
+          f"materialize={[round(r, 1) for r in load_full]} ms")
 
     # 3) save() p50/p95/p99 (métrica 1) sobre el índice poblado cargado
     _, idx = reopen_index(fixture["db_dir"], "cpg")
@@ -430,8 +441,12 @@ def main() -> int:
             "save_doc_nuevo_ms": pstats(save_samples["doc_nuevo"]),
             "save_edge_nueva_ms": pstats(save_samples["edge_nueva"]),
             "save_sin_cambios_ms": pstats(save_samples["sin_cambios"]),
-            "load_16k_ms": {"runs": [round(r, 1) for r in load_runs],
-                            "min": round(min(load_runs), 1)},
+            "load_16k_ms": {
+                "light_runs": [round(r, 1) for r in load_light],
+                "light_min": round(min(load_light), 1),
+                "full_runs": [round(r, 1) for r in load_full],
+                "full_min": round(min(load_full), 1),
+            },
             "wal_after_build_bytes": fixture["wal_bytes"],
             "fulltext_recall_ms": {**ft, "hit_rate": res["fulltext"]["hit_rate"]},
             "selective_query_ms": {**sel, "total_hits": res["selective"]["total_hits"]},
@@ -446,7 +461,8 @@ def main() -> int:
             "save_sin_cambios": save_samples["sin_cambios"],
             "fulltext": res["fulltext"]["samples_ms"],
             "selective": res["selective"]["samples_ms"],
-            "load_16k": load_runs,
+            "load_16k": [round(r, 1) for r in load_full],
+            "load_16k_light": [round(r, 1) for r in load_light],
         },
     }
 
@@ -469,13 +485,15 @@ def render_md(r: dict) -> str:
     rl = ", ".join(
         f"{k}: {v['load_ms']} ms / {v['docs']} docs" for k, v in m["real_copy_load_ms"].items()
     )
-    return f"""# Baseline storage v2 — M0 (ADR-WALKER-075 §9, cierra G5 — Enmienda 1)
+    return f"""# Baseline storage — M0 re-ejecutado en v3 (ADR-WALKER-075 §9, cierra G5)
 
 **Regla §9:** ningún umbral de este ADR (M-03, M-05, FS-5, `compaction_trigger`, p99)
 se ACTIVA sin baseline medido antes — umbral sin baseline = opinión.
 Recalibración: `umbral = max(baseline_p99 × 2, valor propuesto)`; si el baseline
 ya cumple el umbral propuesto, el umbral pasa a ser de no-regresión.
-M0 se ejecuta UNA vez; re-ejecutar solo si cambia el formato de payload (v3).
+Esta corrida es la RE-EJECUCIÓN sancionada por §9 ("M0 se re-ejecuta solo si
+cambia el formato de payload (v3)") — post F1+F2+F3; el baseline v2 histórico
+vive en el commit 6c40c28.
 
 - Fecha: {r['date']}
 - Entorno: Python {r['env']['python']} / sqlite {r['env']['sqlite']} / {r['env']['machine']}
@@ -500,7 +518,8 @@ M0 se ejecuta UNA vez; re-ejecutar solo si cambia el formato de payload (v3).
 | `save()` 1 doc nuevo | {m['save_doc_nuevo_ms']['p50']} ms | {m['save_doc_nuevo_ms']['p95']} ms | {m['save_doc_nuevo_ms']['p99']} ms | {m['save_doc_nuevo_ms']['n']} | timer alrededor de `_save` |
 | `save()` 1 edge nueva | {m['save_edge_nueva_ms']['p50']} ms | {m['save_edge_nueva_ms']['p95']} ms | {m['save_edge_nueva_ms']['p99']} ms | {m['save_edge_nueva_ms']['n']} | idem |
 | `save()` 0 cambios | {m['save_sin_cambios_ms']['p50']} ms | {m['save_sin_cambios_ms']['p95']} ms | {m['save_sin_cambios_ms']['p99']} ms | {m['save_sin_cambios_ms']['n']} | diff-scan completo (costo O(docs+edges)) |
-| `load` completo (16K docs) | — | — | {m['load_16k_ms']['min']} ms (min de {len(m['load_16k_ms']['runs'])}) | {len(m['load_16k_ms']['runs'])} | `_do_load`: corridas {m['load_16k_ms']['runs']} |
+| `load` light (boot, post-F3) | — | — | {m['load_16k_ms']['light_min']} ms (min de {len(m['load_16k_ms']['light_runs'])}) | {len(m['load_16k_ms']['light_runs'])} | `_ensure_light` (sin parsear docs): corridas {m['load_16k_ms']['light_runs']} |
+| `load` materialize (on-demand) | — | — | {m['load_16k_ms']['full_min']} ms (min de {len(m['load_16k_ms']['full_runs'])}) | {len(m['load_16k_ms']['full_runs'])} | `_load` completo: corridas {m['load_16k_ms']['full_runs']} |
 | fulltext recall `{{"text": ...}}` | {m['fulltext_recall_ms']['p50']} ms | {m['fulltext_recall_ms']['p95']} ms | {m['fulltext_recall_ms']['p99']} ms | {m['fulltext_recall_ms']['n']} | hits {m['fulltext_recall_ms']['hit_rate']} — post 6e96f58, pre-FTS5 |
 | query selectiva `{{"type": "function"}}` | {m['selective_query_ms']['p50']} ms | {m['selective_query_ms']['p95']} ms | {m['selective_query_ms']['p99']} ms | {m['selective_query_ms']['n']} | índice materializado, {m['selective_query_ms']['total_hits']} hits |
 | WAL growth tras 1 build | — | — | — | — | {m['wal_after_build_bytes']:,} bytes (replace_blob 16K+24K) |

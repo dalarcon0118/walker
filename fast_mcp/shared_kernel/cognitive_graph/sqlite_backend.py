@@ -37,11 +37,14 @@ import sqlite3
 import time
 from typing import Any
 
+import networkx as nx
+from returns.pipeline import is_successful
+from returns.result import safe
+
 from . import fts as fts_mod
 from . import structured as structured_mod
 from .connection import MemoryConnection
 from .index import Index, IndexSchema
-from .models import TokenIndex
 from .ports import StorageBackend
 from .storage_errors import (
     StorageContractError,
@@ -52,7 +55,7 @@ from .storage_errors import (
     StorageWriteError,
 )
 
-_SCHEMA_VERSION = "v2"
+_SCHEMA_VERSION = "v3"
 _DEFAULT_SCHEMA_VERSION = "v1"  # blobs .json.gz (legacy, §6.4)
 
 # System-keys de meta EXCLUIDAS del passthrough de metadata de dominio
@@ -110,6 +113,16 @@ class SqliteIndex(Index):
         # SqliteBackend tras ensure_fts (boot/register). Con FTS activo el
         # fulltext va por MATCH y el TokenIndex NO se reconstruye en load.
         self._fts_fields: list[str] | None = None
+        # F3 (D4): read model LAZY — dos niveles de carga:
+        #   _meta_loaded: diff-cache (_saved_docs desde columna doc_sha1,
+        #     sin parsear data) + edges (grafo eager) + metadata.
+        #   _loaded: read model COMPLETO (docs materializados + índices
+        #     secundarios) — solo tras materialize_all()/ops que lo exigen.
+        # Los writes en índice ligero NO materializan: diff por doc_sha1 +
+        # tombstones (_deleted_docs) — jamás "saved - current" (con docs
+        # no materializados eso borrará TODO lo no tocado).
+        self._meta_loaded: bool = False
+        self._deleted_docs: set[str] = set()
 
     # ── Locks: SQLite+WAL serializa; sin fcntl (evita ficheros .lock) ──
 
@@ -119,46 +132,50 @@ class SqliteIndex(Index):
     def _release_write_lock(self) -> None:
         return None
 
-    # ── Persistencia: load desde BD ──
+    # ── Persistencia: carga en dos niveles (F3, D4/M-09) ──
 
-    def _do_load(self) -> None:  # type: ignore[override]
-        """Carga el read model desde sqlite (reemplaza la lectura del blob)."""
+    def _load(self) -> None:  # type: ignore[override]
+        """Compat del contrato base: light-load + materialización completa.
+
+        Cualquier op de la clase base (search combinado, get_docs,
+        get_related, ...) obtiene el read model completo — la lazy es el
+        DEFAULT, no un modo especial (materialize_all() es la API explícita
+        para consumidores full-graph).
+        """
+        self._ensure_light()
+        if not self._loaded:
+            self._materialize_docs()
+            self._loaded = True
+
+    def _ensure_light(self) -> None:
+        """Nivel 1 (M-09): diff-cache + edges + metadata — SIN parsear docs."""
+        if self._meta_loaded:
+            return
         try:
-            docs: dict[str, dict] = {}
-            for raw_id, raw_data in self._db.execute(
-                "SELECT id, data FROM docs WHERE `index`=?", (self.name,)
+            # diff-cache de docs DESDE LA COLUMNA doc_sha1 — cero json.loads
+            # por fila (M-10: jamás recomputar hashes con dumps en el load)
+            self._saved_docs = {}
+            for raw_id, sha in self._db.execute(
+                "SELECT id, doc_sha1 FROM docs WHERE `index`=?", (self.name,)
             ):
-                docs[raw_id] = json.loads(raw_data)
-                # FIX perf: hash del payload EXACTO (sin re-serializar el doc).
-                # Antes: _sha1(docs[raw_id]) = json.dumps(sort_keys) por fila
-                # (~40K dumps en un CPG mediano). Nota: filas escritas por el
-                # save anterior (payload sin sort_keys) se normalizan en el
-                # primer save posterior (rewrite one-time, self-healing).
-                self._saved_docs[raw_id] = _sha1_raw(raw_data)
-            self._docs = docs
-            for doc_id, doc_data in docs.items():
-                self._graph.add_node(doc_id, **doc_data)
-
+                self._saved_docs[raw_id] = sha or ""
+            # edges eager (D4 solo hace lazy los docs: related/neighbors y
+            # todo el write path de edges quedan intactos)
             self._saved_edges = {}
             for src, dst, attrs_raw in self._db.execute(
-                "SELECT src, dst, attributes FROM edges WHERE `index`=?", (self.name,)
+                "SELECT src, dst, attributes FROM edges WHERE `index`=?",
+                (self.name,),
             ):
                 attrs = json.loads(attrs_raw) if attrs_raw else {}
                 self._graph.add_edge(src, dst, **attrs)
-                # FIX perf: hash del raw de atributos; NULL/"" ≡ "{}" (el
-                # save canónico escribe dumps({}) = "{}").
                 self._saved_edges[(src, dst)] = _sha1_raw(attrs_raw or "{}")
-
             self._metadata = {}
             self._metadata_hash = ""
-            stored_hash = ""
             for key, value in self._db.execute(
                 "SELECT key, value FROM meta WHERE `index`=? AND value IS NOT NULL",
                 (self.name,),
             ):
                 if key in _META_SYSTEM_KEYS:
-                    if key == "schema_hash":
-                        stored_hash = value
                     continue
                 try:
                     self._metadata[key] = json.loads(value)
@@ -166,49 +183,313 @@ class SqliteIndex(Index):
                     self._metadata[key] = value
             if self._metadata:
                 self._metadata_hash = _sha1(self._metadata)
-
-            # schema_hash: migración de estructura igual que el blob (G3)
-            if stored_hash and stored_hash != self._schema_hash:  # pragma: no cover
-                self._rebuild_secondary_indexes()
-
-            # BUG (preexistente, grave): SqliteIndex._do_load nunca seteaba
-            # _loaded → el base _load() re-ejecutaba ESTE método en CADA
-            # acceso (search/get/save): re-SELECT de TODAS las filas + JSON
-            # parse por operación (16K docs + 24K edges en el CPG real →
-            # segundos por cada llamada, dentro del event loop).
-            # Además: FIX FTS sordo (sqlite) — el read model viene de FILAS,
-            # no hay blob que traiga token_index/_type_index persistidos (no
-            # existe tabla de tokens). Sin rebuild, el fulltext quedaba MUDO
-            # tras cada restart: 0 hits con el CPG poblado aunque el schema
-            # configurara search fulltext (el índice solo se llenaba en
-            # memoria durante writes del MISMO proceso).
-            self._rebuild_secondary_indexes()
-            # M-03 (anti-patrón: reconstruir el token index en cada load):
-            # con FTS activo el TokenIndex NO es camino de producción (D2) —
-            # el fulltext va por MATCH y el rebuild se omite (el load baja
-            # el costo del token reindex completo).
-            if self._fts_fields is None:
-                self._rebuild_token_index_inline()
-            self._loaded = True
+            # NOTA: los índices secundarios/token index NO se reconstruyen
+            # aquí — con _docs vacío serían PARCIALES (FS-4). materialize()
+            # los levanta; el router F2 resuelve los filtros por SQL.
+            self._meta_loaded = True
         except (sqlite3.Error, json.JSONDecodeError) as e:
             raise StorageReadError(
-                f"SqliteIndex['{self.name}']: no se pudo cargar desde la BD "
-                f"({type(e).__name__}: {e})"
+                f"SqliteIndex['{self.name}']: no se pudo cargar el estado "
+                f"ligero ({type(e).__name__}: {e})"
             ) from e
 
-    def _rebuild_token_index_inline(self) -> None:
-        if self._token_index is None:
-            return
-        self._token_index = TokenIndex()
-        for doc_id, doc in self._docs.items():
-            for field in self.schema.fulltext_fields:
-                value = self._resolve_field(doc, field)
-                if isinstance(value, str) and value:
-                    self._token_index.index_node(doc_id, value, field)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, str):
-                            self._token_index.index_node(doc_id, item, field)
+    def _materialize_docs(self) -> None:
+        """Nivel 2: materializa docs + índices secundarios (one-shot)."""
+        try:
+            docs: dict[str, dict] = {}
+            for raw_id, raw_data in self._db.execute(
+                "SELECT id, data FROM docs WHERE `index`=?", (self.name,)
+            ):
+                docs[raw_id] = json.loads(raw_data)
+            self._docs = docs
+            for doc_id, doc_data in docs.items():
+                self._graph.add_node(doc_id, **doc_data)
+            self._rebuild_secondary_indexes()
+        except (sqlite3.Error, json.JSONDecodeError) as e:
+            raise StorageReadError(
+                f"SqliteIndex['{self.name}']: no se pudo materializar el "
+                f"read model ({type(e).__name__}: {e})"
+            ) from e
+
+    def materialize_all(self) -> dict:
+        """F3 (D4/M-09): materialización EXPLÍCITA del read model completo.
+
+        CONTRATO para consumidores full-graph (scan_cfg, DFG, quality,
+        agent_context — FS-4): llamar SIEMPRE antes de recorrer docs/grafo
+        completos; el default lazy no garantiza materialización.
+        """
+        self._load()
+        return {"ok": True, "docs": len(self._docs),
+                "edges": self._graph.number_of_edges(), "_index": self.name}
+
+    # ── F3: ops light — writes y lecturas puntuales SIN materializar ──
+
+    def get(self, doc_id: str) -> dict | None:
+        """F3 (D4): doc on-demand — 1 SELECT, sin materializar el índice."""
+        self._ensure_light()
+        doc = self._docs.get(doc_id)
+        if doc is None:
+            row = self._db.execute(
+                "SELECT data FROM docs WHERE `index`=? AND id=?",
+                (self.name, doc_id),
+            ).fetchone()
+            if row is None:
+                return None
+            doc = json.loads(row[0])
+            self._docs[doc_id] = doc
+            self._graph.add_node(doc_id, **doc)
+        return {"_id": doc_id, "_index": self.name, "_source": doc}
+
+    def keys(self) -> list[str]:
+        """F3: inventario de ids desde el diff-cache (sin materializar)."""
+        self._ensure_light()
+        return list(self._saved_docs.keys())
+
+    def max_key(self, prefix: str = "") -> tuple[str, int] | None:
+        """F3: (id, num) máximo desde el diff-cache (sin materializar)."""
+        self._ensure_light()
+        best_id: str | None = None
+        best_num = -1
+        for doc_id in self._saved_docs:
+            if prefix and not doc_id.startswith(prefix + "-"):
+                continue
+            tail = doc_id.rsplit("-", 1)[-1] if "-" in doc_id else ""
+            if tail.isdigit():
+                num = int(tail)
+                if num > best_num:
+                    best_num = num
+                    best_id = doc_id
+        if best_id is None:
+            return None
+        return best_id, best_num
+
+    @safe
+    def _store_core(self, doc_id: str, data: dict) -> dict:  # type: ignore[override]
+        """F3: write SIN materializar (diff por doc_sha1 + tombstones).
+
+        Los índices secundarios solo se mantienen si el índice está
+        materializado; en estado ligero quedan vacíos hasta materialize()
+        (el router F2 resuelve por SQL, el path base materializa antes de
+        usarlos — FS-4 sin lecturas parciales).
+        """
+        self._ensure_light()
+        old = self._docs.get(doc_id)
+        if self._loaded:
+            if old is not None:
+                self._deindex_doc(doc_id)
+            self._index_doc(doc_id, data)
+        self._docs[doc_id] = data
+        self._graph.add_node(doc_id, **data)
+        self._save()
+        return {"ok": True, "_id": doc_id, "_index": self.name}
+
+    @safe
+    def _delete_core(self, doc_id: str) -> dict:  # type: ignore[override]
+        """F3: delete SIN materializar — tombstone explícito (el diff jamás
+        asume que _docs contiene TODO lo commitado)."""
+        self._ensure_light()
+        existed = doc_id in self._saved_docs or doc_id in self._docs
+        if existed and self._loaded and doc_id in self._docs:
+            self._deindex_doc(doc_id)
+        self._docs.pop(doc_id, None)
+        if doc_id in self._graph:
+            self._graph.remove_node(doc_id)
+        if existed:
+            self._deleted_docs.add(doc_id)
+            self._save()
+        return {"ok": True, "deleted": existed, "_id": doc_id, "_index": self.name}
+
+    @safe
+    def _store_many_light_core(self, docs: dict[str, dict]) -> dict:
+        """Core F3 de store_many (mismo contrato que _store_many_core base)."""
+        self._ensure_light()
+        skipped = 0
+        touched = 0
+        for doc_id, data in docs.items():
+            old = self._docs.get(doc_id)
+            if old == data:
+                skipped += 1
+                continue
+            touched += 1
+            if self._loaded:
+                if old is not None:
+                    self._deindex_doc(doc_id)
+                self._index_doc(doc_id, data)
+            self._docs[doc_id] = data
+            self._graph.add_node(doc_id, **data)
+        self._save()
+        return {"ok": True, "stored": len(docs), "_index": self.name,
+                "skipped": skipped, "touched": touched}
+
+    def store_many(self, docs: dict[str, dict]) -> dict:
+        """Indexa muchos nodos en batch SIN materializar (F3)."""
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            result = self._store_many_light_core(docs)
+            if is_successful(result):
+                return result.value_or({"ok": False, "stored": 0})
+            return {"ok": False, "stored": 0, "error": str(result.failure())}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    def delete_many(self, doc_ids: set[str]) -> dict:
+        """Elimina varios nodos SIN materializar (F3, tombstones)."""
+        if not doc_ids:
+            return {"ok": True, "deleted": 0}
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            self._ensure_light()
+            deleted = 0
+            for doc_id in doc_ids:
+                if doc_id in self._saved_docs or doc_id in self._docs:
+                    if self._loaded and doc_id in self._docs:
+                        self._deindex_doc(doc_id)
+                    self._docs.pop(doc_id, None)
+                    if doc_id in self._graph:
+                        self._graph.remove_node(doc_id)
+                    self._deleted_docs.add(doc_id)
+                    deleted += 1
+            if deleted:
+                self._save()
+            return {"ok": True, "deleted": deleted, "_index": self.name}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    def add_edge(self, from_id: str, to_id: str, **attrs: Any) -> dict:
+        """F3: edge op SIN materializar docs (grafo de edges es eager)."""
+        self._ensure_light()
+        self._graph.add_edge(from_id, to_id, **attrs)
+        self._save()
+        return {"ok": True, "from": from_id, "to": to_id, "attrs": attrs}
+
+    def remove_edge(self, from_id: str, to_id: str) -> dict:
+        """F3: edge op SIN materializar docs."""
+        self._ensure_light()
+        if self._graph.has_edge(from_id, to_id):
+            self._graph.remove_edge(from_id, to_id)
+            self._save()
+        return {"ok": True, "from": from_id, "to": to_id}
+
+    def sync_edges(self, edges: list[dict]) -> dict:
+        """F3: reemplazo completo de edges SIN materializar docs.
+
+        En índice ligero el grafo se reconstruye solo con los edges nuevos
+        (los nodos se materializan aparte); materializado → base (re-add de
+        nodos con payload, comportamiento histórico).
+        """
+        if self._loaded:
+            return super().sync_edges(edges)
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            self._ensure_light()
+            self._graph = nx.DiGraph()
+            for edge in edges or []:
+                u = edge.get("from", "")
+                v = edge.get("to", "")
+                if not u or not v:
+                    continue
+                attrs = {k: val for k, val in edge.items() if k not in ("from", "to")}
+                self._graph.add_edge(u, v, **attrs)
+            self._save()
+            return {"ok": True, "edges": len(edges or []), "_index": self.name}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    def replace_blob(self, nodes: dict, edges: list, metadata: dict) -> dict:
+        """F3: reemplazo total SIN materializar el estado VIEJO (tombstones).
+
+        Versión light del ciclo base: reset → indexar los NUEVOS → save.
+        El read model post-op = el estado nuevo completo (_loaded=True);
+        lo commitado anterior se borra por tombstones (jamás diff
+        `saved - current`, que con docs no materializados borra de más).
+        """
+        self._ensure_light()
+        self._deleted_docs |= set(self._saved_docs) - set(nodes or {})
+        self._acquire_write_lock()
+        self._write_locked = True
+        try:
+            self._docs = {}
+            self._graph = nx.DiGraph()
+            self._token_index = None  # FTS es el camino en sqlite (D2)
+            self._type_index.clear()
+            self._field_index.clear()
+            self._metadata = dict(metadata or {})
+            for doc_id, doc in (nodes or {}).items():
+                if not isinstance(doc, dict):
+                    raise TypeError(
+                        f"nodo '{doc_id}' inválido (esperaba dict, obtuvo "
+                        f"{type(doc).__name__})"
+                    )
+                self._index_doc(doc_id, doc)
+                self._docs[doc_id] = doc
+                self._graph.add_node(doc_id, **doc)
+            for edge in edges or []:
+                u = edge.get("from", "")
+                v = edge.get("to", "")
+                if not u or not v:
+                    continue
+                attrs = {k: val for k, val in edge.items() if k not in ("from", "to")}
+                self._graph.add_edge(u, v, **attrs)
+            self._save()
+            self._loaded = True  # el read model = el estado nuevo completo
+            return {"ok": True, "stored": len(nodes or {}), "edges": len(edges or [])}
+        finally:
+            self._write_locked = False
+            self._release_write_lock()
+
+    def _fetch_docs_bulk(self, doc_ids: list[str], chunk: int = 500) -> dict[str, dict]:
+        """docs por lote de ids (página de search on-demand — M-07/M-09)."""
+        out: dict[str, dict] = {}
+        ids = list(doc_ids)
+        for i in range(0, len(ids), chunk):
+            part = ids[i:i + chunk]
+            phs = ", ".join("?" * len(part))
+            for doc_id, data in self._db.execute(
+                f"SELECT id, data FROM docs WHERE `index`=? AND id IN ({phs})",
+                (self.name, *part),
+            ):
+                out[doc_id] = json.loads(data)
+        return out
+
+    def _sql_neighbor_ids(self, doc_id: str) -> list[dict]:
+        """_related vía SQL (ruta de search sin materializar): out por PK
+        prefix, in por idx_edges_dst (F2), labels por fetch bulk."""
+        out: list[dict] = []
+        neighbor_ids: list[str] = []
+        pairs_out: list[tuple[str, dict]] = []
+        pairs_in: list[tuple[str, dict]] = []
+        for dst, attrs_raw in self._db.execute(
+            "SELECT dst, attributes FROM edges WHERE `index`=? AND src=?",
+            (self.name, doc_id),
+        ):
+            attrs = json.loads(attrs_raw) if attrs_raw else {}
+            pairs_out.append((dst, attrs))
+            neighbor_ids.append(dst)
+        for src, attrs_raw in self._db.execute(
+            "SELECT src, attributes FROM edges WHERE `index`=? AND dst=?",
+            (self.name, doc_id),
+        ):
+            attrs = json.loads(attrs_raw) if attrs_raw else {}
+            pairs_in.append((src, attrs))
+            neighbor_ids.append(src)
+        labels: dict[str, str] = {}
+        uniq = list(dict.fromkeys(neighbor_ids))
+        if uniq:
+            for nid, doc in self._fetch_docs_bulk(uniq).items():
+                labels[nid] = doc.get("objective") or doc.get("name") or nid
+        for dst, attrs in pairs_out:
+            out.append({"id": dst, "rel": attrs.get("type", "related"),
+                        "label": labels.get(dst, dst)})
+        for src, attrs in pairs_in:
+            out.append({"id": src, "rel": attrs.get("type", "related") + " (incoming)",
+                        "label": labels.get(src, src)})
+        return out
 
     # ── F1: FTS5 MATCH como camino de producción del fulltext ────────────
 
@@ -338,16 +619,19 @@ class SqliteIndex(Index):
             )
 
         took = time.time()
-        self._load()  # materializa el read model (los hits leen _source)
+        self._ensure_light()  # F3/M-09: search NO materializa el read model
         ranked, total = fts_mod.search_fts(
             self._db, self.name, text,
             max_results=max_results, fields_scoped=fields_scoped,
             offset=_from,
         )
+        # F3: los _source de la PÁGINA llegan por SQL (M-07/M-09) — jamás
+        # materializar el índice completo para armar hits.
+        page_docs = self._fetch_docs_bulk([doc_id for doc_id, _ in ranked])
         results = []
         for doc_id, rank in ranked:
-            doc = self._docs.get(doc_id)
-            if doc is None:  # FTS-drift no debería pasar (M-04 verifica en boot)
+            doc = page_docs.get(doc_id)
+            if doc is None:  # FTS-drift no debería pasar (reconcile en boot)
                 continue
             entry = {
                 "_id": doc_id,
@@ -355,7 +639,7 @@ class SqliteIndex(Index):
                 "_score": round(-rank, 6),  # bm25 es costo; _score = relevancia
                 "_source": doc,
             }
-            related = self._get_neighbor_ids(doc_id, depth=1)
+            related = self._sql_neighbor_ids(doc_id)
             if related:
                 entry["_related"] = related
             results.append(entry)
@@ -436,7 +720,12 @@ class SqliteIndex(Index):
                 changed = [
                     d for d, h in current.items() if self._saved_docs.get(d) != h
                 ]
-                deleted = list(set(self._saved_docs) - set(current))
+                # F3: tombstones EXPLÍCITOS — jamás `saved - current` (con
+                # docs no materializados eso borraría TODO lo no tocado).
+                deleted = [
+                    d for d in self._deleted_docs
+                    if d in self._saved_docs and d not in current
+                ]
 
                 # ── FTS: valores VIEJOS de los afectados (ANTES de tocar
                 #    docs — el 'delete' de external content los exige) ──
@@ -447,21 +736,28 @@ class SqliteIndex(Index):
                         [*changed, *deleted],
                     )
 
-                # ── docs (upsert rowid-preserving: D2 vínculo por rowid) ──
+                # ── docs (upsert rowid-preserving + doc_sha1: D2/F3) ──
                 for doc_id in changed:
                     cur.execute(
-                        "INSERT INTO docs (`index`, id, data, updated_at) "
-                        "VALUES (?,?,?,?) "
+                        "INSERT INTO docs (`index`, id, data, updated_at, doc_sha1) "
+                        "VALUES (?,?,?,?,?) "
                         "ON CONFLICT(`index`, id) DO UPDATE SET "
-                        "data=excluded.data, updated_at=excluded.updated_at",
-                        (self.name, doc_id, raws[doc_id], _ts),
+                        "data=excluded.data, updated_at=excluded.updated_at, "
+                        "doc_sha1=excluded.doc_sha1",
+                        (self.name, doc_id, raws[doc_id], _ts, current[doc_id]),
                     )
                 for doc_id in deleted:
                     cur.execute(
                         "DELETE FROM docs WHERE `index`=? AND id=?",
                         (self.name, doc_id),
                     )
-                self._saved_docs = current
+                # F3: el committed-state incluye lo NO tocado (light) —
+                # jamás se sustituye por `current` (perdería lo no tocado).
+                self._saved_docs = {
+                    **{d: h for d, h in self._saved_docs.items()
+                       if d not in set(deleted)},
+                    **current,
+                }
 
                 # ── FTS: deletes con valores indexados originales ──
                 if self._fts_fields:
@@ -536,6 +832,9 @@ class SqliteIndex(Index):
                         cur, self.name, self._fts_fields,
                         [new_rows[d] for d in changed if d in new_rows],
                     )
+                # F3: tombstones consumidos — SOLO tras éxito (un rollback
+                # los conserva y el próximo _save re-intenta el delete).
+                self._deleted_docs = set()
         except sqlite3.Error as e:
             raise StorageWriteError(
                 f"SqliteIndex['{self.name}']: persistencia falló "
@@ -545,7 +844,8 @@ class SqliteIndex(Index):
     # ── metrics sin path de blob (IV-10: layout sqlite) ──
 
     def metrics(self) -> dict:  # type: ignore[override]
-        self._load()
+        self._ensure_light()
+        self._verify_sha_sample()  # M-10/FS-3: doc_sha1 stale → fail-fast
         size = 0
         try:
             for (n,) in self._db.execute(
@@ -561,12 +861,40 @@ class SqliteIndex(Index):
         if row and row[0]:
             last_updated = row[0]
         return {
-            "total_docs": len(self._docs),
+            # F3: el truth de conteo es el diff-cache (light-safe) —
+            # len(self._docs) en estado lazy es SOLO los docs tocados.
+            "total_docs": len(self._saved_docs),
             "total_edges": self._graph.number_of_edges(),
             "storage_size": f"{size / 1024:.1f}KB",
             "storage_path": self._db_path,
             "last_updated": last_updated,
         }
+
+    def _verify_sha_sample(self, sample_size: int = 5) -> None:
+        """M-10/FS-3: sample-verify determinista de doc_sha1 vs payload.
+
+        Recomputar el sha del payload crudo (sin re-serializar) de N filas
+        y compararlo contra la columna — un writer pre-v3 o una corrupción
+        se detectan en el primer status, no silenciosamente.
+        """
+        ids = sorted(self._saved_docs)
+        if not ids:
+            return
+        stride = max(1, len(ids) // sample_size)
+        sampled = ids[::stride][:sample_size]
+        phs = ", ".join("?" * len(sampled))
+        for doc_id, data, sha in self._db.execute(
+            f"SELECT id, data, doc_sha1 FROM docs "
+            f"WHERE `index`=? AND id IN ({phs})",
+            (self.name, *sampled),
+        ):
+            if (sha or "") != _sha1_raw(data):
+                raise StorageStateError(
+                    f"doc_sha1 stale en '{self.name}' para '{doc_id}' (FS-3): "
+                    f"la columna no coincide con el payload — writer pre-v3 "
+                    f"o corrupción. Remediación: restaurar backup o "
+                    f"re-backfill (UPDATE docs SET doc_sha1='')."
+                )
 
 
 class SqliteBackend:
@@ -591,7 +919,10 @@ class SqliteBackend:
         self._db.execute("PRAGMA synchronous=NORMAL")
         self._db.execute("PRAGMA busy_timeout=10000")
         self._create_schema()
-        self._ensure_schema_version()
+        # F3/M-12: guard de versión — v2 pendiente de migrar se resuelve al
+        # final del boot (los pasos DDL/backfill son idempotentes); versión
+        # desconocida → fail-loud (INV-016: jamás writers mixtos).
+        self._pending_v2_migration = self._ensure_schema_version()
         self._schemas: dict[str, IndexSchema] = {}
         self._indexes: dict[str, SqliteIndex] = {}
         # Restaura el catálogo de índices persistido (opción 2 — adr).
@@ -603,11 +934,25 @@ class SqliteBackend:
         # F2 (§11): columnas generadas VIRTUAL + índices SQL — DDL
         # idempotente por inspección (PRAGMA/IF NOT EXISTS), instantáneo.
         self._ensure_structured_indexes()
+        # F3 (D4/M-10): columna doc_sha1 + backfill one-time por lotes —
+        # ANTES de FTS (los light-loads leen la columna).
+        self._ensure_doc_sha1()
         # F1 (§5.1): FTS para índices con fulltext — crea+backfill si falta,
         # verifica conteos si existe (fail-fast en drift FS-1). ANTES de
         # cualquier acceso: todo write posterior sincroniza FTS en su
         # transacción (M-02).
         self._ensure_fts_indexes()
+        # §10.1: v3 SOLO se marca tras éxito de todos los pasos (FS-2 —
+        # crash a mitad = v2 persistente → próximo boot re-intenta, todo
+        # idempotente).
+        if self._pending_v2_migration:
+            with self._db:
+                self._db.execute(
+                    "INSERT OR REPLACE INTO meta (`index`, key, value) "
+                    "VALUES ('__db__','__schema__',?)", (_SCHEMA_VERSION,)
+                )
+            print(f"[migrate] schema {_SCHEMA_VERSION} marcado — migración "
+                  f"v2→v3 completada (lazy in-situ, idempotente)")
 
     def _persist_index_config(self, name: str, schema: IndexSchema) -> None:
         """Guarda el config del schema para restaurarlo al reabrir la BD.
@@ -730,7 +1075,18 @@ class SqliteBackend:
                 """
             )
 
-    def _ensure_schema_version(self) -> None:
+    def _ensure_schema_version(self) -> str | None:
+        """Guard fail-loud (M-12/INV-016).
+
+        Returns:
+            None: versión OK (v3 o BD nueva, ya marcada).
+            "v2": migración v2→v3 PENDIENTE — el boot ejecuta los pasos
+            DDL/backfill idempotentes y marca v3 al final (§10.1).
+
+        Raises:
+            StorageSchemaVersionError: versión desconocida (p.ej. BD v3
+            abierta por código v2, o v1/legacy) — jamás datos stale.
+        """
         row = self._db.execute(
             "SELECT value FROM meta WHERE `index`='__db__' AND key='__schema__'"
         ).fetchone()
@@ -738,15 +1094,64 @@ class SqliteBackend:
         if existing is None:
             with self._db:
                 self._db.execute(
-                    "INSERT OR REPLACE INTO meta (`index`, key, value) VALUES ('__db__','__schema__',?)",
+                    "INSERT OR REPLACE INTO meta (`index`, key, value) "
+                    "VALUES ('__db__','__schema__',?)",
                     (_SCHEMA_VERSION,),
                 )
+            return None
+        if existing == _SCHEMA_VERSION:
+            return None
+        if existing == "v2":
+            return "v2"
+        raise StorageSchemaVersionError(
+            f"schema_version '{existing}' no soportado (esperado "
+            f"'{_SCHEMA_VERSION}'). Guarda de lector §6.4/INV-016 — fail "
+            f"ruidoso, nunca datos stale. Si la BD es v3 y este proceso es "
+            f"v2: reiniciar el proceso (guard fail-loud intencional)."
+        )
+
+    def _ensure_doc_sha1(self) -> None:
+        """F3 (D4/M-10): columna `doc_sha1` + backfill one-time por lotes.
+
+        El light-load y el diff del save leen/comparan ESTA columna —
+        jamás recomputan dumps por fila en el load (anti-patrón M-10).
+        Crash a mitad del backfill = filas pendientes ('') → el próximo
+        boot re-anuda (idempotente, sin marker).
+        """
+        cols = {r[1] for r in self._db.execute("PRAGMA table_xinfo(docs)")}
+        if "doc_sha1" not in cols:
+            with self._db:
+                self._db.execute(
+                    "ALTER TABLE docs ADD COLUMN doc_sha1 TEXT NOT NULL DEFAULT ''"
+                )
+            print("[f3] docs: +columna doc_sha1 (backfill a continuación)")
+        pending = self._db.execute(
+            "SELECT COUNT(*) FROM docs WHERE doc_sha1=''"
+        ).fetchone()[0]
+        if not pending:
             return
-        if existing != _SCHEMA_VERSION:
-            raise StorageSchemaVersionError(
-                f"schema_version '{existing}' no soportado (esperado '{_SCHEMA_VERSION}'). "
-                f"Guarda de lector §6.4 — fail ruidoso, nunca datos stale."
-            )
+        backfilled = 0
+        while True:
+            rows = self._db.execute(
+                "SELECT rowid, data FROM docs WHERE doc_sha1='' LIMIT 2000"
+            ).fetchall()
+            if not rows:
+                break
+            with self._db:
+                self._db.executemany(
+                    "UPDATE docs SET doc_sha1=? WHERE rowid=?",
+                    [(_sha1_raw(data), rowid) for rowid, data in rows],
+                )
+            backfilled += len(rows)
+        print(f"[f3] doc_sha1 backfill: {backfilled} filas (lotes de 2000)")
+
+    def materialize_all(self, index: str) -> dict:
+        """F3 (D4): materialización explícita del read model completo.
+
+        Obligatorio para consumidores full-graph (scan_cfg, DFG, quality,
+        agent_context) — el default lazy no garantiza materialización.
+        """
+        return self._idx(index).materialize_all()
 
     def _integrity_guard(self) -> None:
         try:

@@ -111,6 +111,15 @@ class StorageBackend(Protocol):
     def metrics(self, index: str) -> dict:
         ...
 
+    def materialize_all(self, index: str) -> dict:
+        """F3 (ADR-WALKER-075 D4): materializa el read model completo.
+
+        CONTRATO para consumidores full-graph (scan_cfg, DFG, quality,
+        agent_context — FS-4): llamar SIEMPRE antes de recorrer docs/grafo
+        completos; el default lazy no garantiza materialización.
+        """
+        ...
+
     def list_indexes(self) -> list[str]:
         ...
 

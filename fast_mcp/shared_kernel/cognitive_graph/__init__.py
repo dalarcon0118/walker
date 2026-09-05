@@ -369,6 +369,14 @@ class CognitiveGraph:
     def metrics(self, index: str) -> dict:
         return self._backend.metrics(index)
 
+    def materialize_all(self, index: str) -> dict:
+        """F3 (D4): materializa el read model completo del índice.
+
+        Obligatorio para consumidores full-graph (scan_cfg, DFG, quality,
+        agent_context) — el default lazy no garantiza materialización.
+        """
+        return self._backend.materialize_all(index)
+
     def list_indexes(self) -> list[str]:
         return self._backend.list_indexes()
 

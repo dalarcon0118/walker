@@ -1,17 +1,19 @@
-# Baseline storage v2 — M0 (ADR-WALKER-075 §9, cierra G5 — Enmienda 1)
+# Baseline storage — M0 re-ejecutado en v3 (ADR-WALKER-075 §9, cierra G5)
 
 **Regla §9:** ningún umbral de este ADR (M-03, M-05, FS-5, `compaction_trigger`, p99)
 se ACTIVA sin baseline medido antes — umbral sin baseline = opinión.
 Recalibración: `umbral = max(baseline_p99 × 2, valor propuesto)`; si el baseline
 ya cumple el umbral propuesto, el umbral pasa a ser de no-regresión.
-M0 se ejecuta UNA vez; re-ejecutar solo si cambia el formato de payload (v3).
+Esta corrida es la RE-EJECUCIÓN sancionada por §9 ("M0 se re-ejecuta solo si
+cambia el formato de payload (v3)") — post F1+F2+F3; el baseline v2 histórico
+vive en el commit 6c40c28.
 
-- Fecha: 2026-09-04T23:11:48Z
+- Fecha: 2026-09-05T01:49:25Z
 - Entorno: Python 3.12.2 / sqlite 3.45.1 / arm64
 - Canónica: `/Users/davidmartinez/develop/Active-projects/walker/.cognitive/projects/walker/data/cognitive.sqlite3` (376,832 bytes)
 - Fixture: 16,000 docs + 24,000 edges deterministas
   (seed 42, shape cpg real — `tests/benchmarks/cpg_fixture.py`),
-  build 878.7 ms.
+  build 736.9 ms.
 
 ## Precondición H0 (§10.0 — gate verde, commit 54f019e)
 
@@ -26,15 +28,16 @@ M0 se ejecuta UNA vez; re-ejecutar solo si cambia el formato de payload (v3).
 
 | Métrica | p50 | p95 | p99 | n | Detalle |
 |---|---|---|---|---|---|
-| `save()` 1 doc nuevo | 108.671 ms | 116.84 ms | 130.578 ms | 100 | timer alrededor de `_save` |
-| `save()` 1 edge nueva | 109.652 ms | 130.824 ms | 150.819 ms | 100 | idem |
-| `save()` 0 cambios | 109.072 ms | 117.247 ms | 119.656 ms | 50 | diff-scan completo (costo O(docs+edges)) |
-| `load` completo (16K docs) | — | — | 682.9 ms (min de 3) | 3 | `_do_load`: corridas [778.7, 682.9, 696.0] |
-| fulltext recall `{"text": ...}` | 14.717 ms | 17.048 ms | 20.762 ms | 100 | hits 99/100 — post 6e96f58, pre-FTS5 |
-| query selectiva `{"type": "function"}` | 8.111 ms | 52.828 ms | 62.963 ms | 100 | índice materializado, 12000 hits |
-| WAL growth tras 1 build | — | — | — | — | 7,284,192 bytes (replace_blob 16K+24K) |
+| `save()` 1 doc nuevo | 113.88 ms | 124.241 ms | 133.639 ms | 100 | timer alrededor de `_save` |
+| `save()` 1 edge nueva | 114.597 ms | 122.358 ms | 126.455 ms | 100 | idem |
+| `save()` 0 cambios | 115.553 ms | 122.868 ms | 124.425 ms | 50 | diff-scan completo (costo O(docs+edges)) |
+| `load` light (boot, post-F3) | — | — | 94.9 ms (min de 3) | 3 | `_ensure_light` (sin parsear docs): corridas [121.7, 94.9, 106.7] |
+| `load` materialize (on-demand) | — | — | 70.5 ms (min de 3) | 3 | `_load` completo: corridas [70.5, 82.2, 82.2] |
+| fulltext recall `{"text": ...}` | 14.872 ms | 16.211 ms | 19.995 ms | 100 | hits 100/100 — post 6e96f58, pre-FTS5 |
+| query selectiva `{"type": "function"}` | 3.983 ms | 4.843 ms | 6.133 ms | 100 | índice materializado, 12100 hits |
+| WAL growth tras 1 build | — | — | — | — | 12,442,432 bytes (replace_blob 16K+24K) |
 
-Load de la COPIA REAL (SSOT post-H0): ckg: 0.0 ms / 0 docs, cpg: 0.0 ms / 0 docs, delta: 0.3 ms / 8 docs, trace: 4.9 ms / 872 docs.
+Load de la COPIA REAL (SSOT post-H0): ckg: 0.0 ms / 0 docs, cpg: 0.0 ms / 0 docs, delta: 0.2 ms / 8 docs, trace: 4.7 ms / 872 docs.
 
 ## Hallazgos M0 (de la medición, no de la interpretación)
 

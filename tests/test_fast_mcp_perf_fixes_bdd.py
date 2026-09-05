@@ -442,25 +442,44 @@ def test_sqlite_load_una_sola_vez_por_indice(tmp_path):
     )
 
     # Instancia fresca (read model vacío) — la PRIMERA _load debe cargar;
-    # las siguientes NO (return temprano por _loaded=True)
+    # las siguientes NO (return temprano por _loaded=True).
+    # F3 (ADR-WALKER-075 D4): el load es de dos niveles — light
+    # (_ensure_light, una vez por _meta_loaded) + materialización de docs
+    # (_materialize_docs, una vez por _loaded). El invariante es el mismo:
+    # NINGUNA fase de carga corre por acceso; se cuentan ambas.
     repo2 = CognitiveCpgRepository(str(tmp_path / "mem"), "demo")
     idx = repo2._cg.get_index("cpg")  # noqa: SLF001 — contrato de test
-    calls = {"n": 0}
-    orig_do_load = idx._do_load
+    calls = {"light": 0, "materialize": 0}
+    orig_light = idx._ensure_light
+    orig_materialize = idx._materialize_docs
 
-    def counting_do_load():
-        calls["n"] += 1
-        orig_do_load()
+    def counting_light():
+        # el guard (_meta_loaded) vive DENTRO de _ensure_light — el
+        # invariante cuenta TRABAJO real (re-SELECT), no llamadas al guard
+        if not getattr(idx, "_meta_loaded", False):
+            calls["light"] += 1
+        orig_light()
 
-    idx._do_load = counting_do_load  # noqa: SLF001 — sombra de instancia
+    def counting_materialize():
+        if not getattr(idx, "_loaded", False):
+            calls["materialize"] += 1
+        orig_materialize()
+
+    idx._ensure_light = counting_light  # noqa: SLF001 — sombra de instancia
+    idx._materialize_docs = counting_materialize  # noqa: SLF001
 
     idx._load()  # noqa: SLF001
     idx._load()  # noqa: SLF001
     idx._load()  # noqa: SLF001
 
-    assert calls["n"] == 1, (
-        f"_do_load corrió {calls['n']} veces — cada acceso re-cargaba el "
-        "índice completo desde sqlite (bug _loaded jamás seteado)"
+    assert calls["light"] == 1, (
+        f"_load_light corrió {calls['light']} veces — cada acceso re-cargaba "
+        "el estado ligero desde sqlite"
+    )
+    assert calls["materialize"] == 1, (
+        f"_materialize_docs corrió {calls['materialize']} veces — cada acceso "
+        "re-materializaba el read model completo (write amplification / "
+        "bug _loaded jamás seteado)"
     )
 
 
