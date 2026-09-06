@@ -107,6 +107,8 @@ def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
         # W3: DFG/CFG consultables (P-1/P-2 ADR-076).
         "dataflow": lambda: service.dataflow(file=scope, symbol=kwargs.get("symbol", "")),
         "controlflow": lambda: service.controlflow(file=scope, symbol=kwargs.get("symbol", "")),
+        # W4: DSL trace/relations del CPG (P-3 ADR-076).
+        "query": lambda: service.query(query=kwargs.get("query", "")),
     }
 
     result_fn = dispatch_map.get(action)

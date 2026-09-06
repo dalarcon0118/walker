@@ -236,10 +236,7 @@ class TestControlflowAction:
 
 
 def test_inspect_codebase_completitud_actions_w3():
-    """W3: EXPECTED_ACTIONS == set(dispatch_map keys) — anti-patrón: action huérfana."""
-    from fast_mcp.memories.handlers.code_analysis import handle_inspect_codebase
-
-    # Reconstruir el dispatch_map como lo hace el handler (fuente de verdad).
+    """W3/W4: EXPECTED_ACTIONS == set(dispatch_map keys) — anti-patrón: action huérfana."""
     from fast_mcp.features.code_analysis.application.services.code_analysis_service import (
         CodeAnalysisService,
     )
@@ -254,6 +251,7 @@ def test_inspect_codebase_completitud_actions_w3():
         "security": service.security_scan,
         "dataflow": service.dataflow,
         "controlflow": service.controlflow,
+        "query": service.query,
     }
     expected = {
         "business",
@@ -264,9 +262,63 @@ def test_inspect_codebase_completitud_actions_w3():
         "security",
         "dataflow",
         "controlflow",
+        "query",
     }
     actual = set(dispatch_map.keys())
     missing = expected - actual
     extra = actual - expected
     assert not missing, f"Faltan actions en dispatch_map: {missing}"
     assert not extra, f"Actions extras no declaradas en expected: {extra}"
+
+
+# ── Tests W4: action=query DSL trace/relations ───────────────────────────────
+
+
+class TestQueryAction:
+    """W4: action=query delega en QueryGraphUseCase.grep (DSL trace/relations)."""
+
+    def test_query_sin_parametro_fallla(self, tmp_path):
+        from fast_mcp.features.code_analysis.application.services.code_analysis_service import (
+            CodeAnalysisService,
+        )
+
+        repo, data_dir, project_id = _prepared_project(tmp_path)
+        svc = CodeAnalysisService(chain_dir=repo, project_id=project_id)
+        result = svc.query(query="")
+        assert "error" in result
+        assert "query is required" in result["error"]
+
+    def test_query_sin_data_dir_fail_fast(self, tmp_path):
+        from fast_mcp.features.code_analysis.application.services.code_analysis_service import (
+            CodeAnalysisService,
+        )
+
+        svc = CodeAnalysisService(chain_dir=str(tmp_path))
+        result = svc.query(query="trace:a->b")
+        assert "error" in result
+        assert "build_code_index" in result["error"]
+
+    def test_query_trace_dsl_passthrough(self, tmp_path):
+        from fast_mcp.features.code_analysis.application.services.code_analysis_service import (
+            CodeAnalysisService,
+        )
+
+        repo, data_dir, project_id = _prepared_project(tmp_path)
+        svc = CodeAnalysisService(chain_dir=repo, project_id=project_id)
+        # CPG vacío: trace no encuentra nodos → error estructurado (no excepción).
+        result = svc.query(query="trace:a->b")
+        assert result["query"] == "trace:a->b"
+        assert "error" in result or result.get("total", -1) >= 0
+
+    def test_query_relations_dsl_passthrough(self, tmp_path):
+        from fast_mcp.features.code_analysis.application.services.code_analysis_service import (
+            CodeAnalysisService,
+        )
+
+        repo, data_dir, project_id = _prepared_project(tmp_path)
+        svc = CodeAnalysisService(chain_dir=repo, project_id=project_id)
+        result = svc.query(query="calls:foo")
+        assert result["query"] == "calls:foo"
+        assert "total" in result
+        assert "matches" in result
+

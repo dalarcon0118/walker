@@ -199,6 +199,44 @@ class CodeAnalysisService:
             "truncated": len(entries) > 50,
         }
 
+    def query(self, query: str = "") -> dict[str, Any]:
+        """DSL query sobre el CPG: trace, relations, bugs, security, text.
+
+        Sintaxis aceptada (ver QueryGraphUseCase.grep):
+          trace:funcA->funcB        call path A→B (BFS sobre CALLS)
+          calls:target              quién llama a target
+          called_by:target          quién es llamado por target
+          imports:target            quién importa target
+          imported_by:target        quién es importado por target
+          contains:target           quién contiene target
+          bug:type                  dead_branches, missing_returns...
+          security:vuln_type        sqli, xss, hardcoded_secrets...
+          function:name file:path   búsqueda por atributo
+          <text>                    búsqueda por texto libre
+
+        Fail-fast: si el proyecto no se resuelve, retorna error con remediación.
+        """
+        from fast_mcp.features.code_analysis.application.query_service import QueryGraphUseCase
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        if not query:
+            return {"error": "query is required"}
+
+        try:
+            paths = ProjectService.resolve_paths(self._chain_dir)
+        except ProjectResolutionError as exc:
+            return {"error": f"data_dir no resuelto ({exc}). Ejecuta build_code_index primero."}
+
+        uc = QueryGraphUseCase(
+            self._chain_dir,
+            project_id=self._project_id or (paths.project_id or ""),
+            data_dir=str(paths.data_dir) if paths.data_dir else None,
+        )
+        result = uc.grep(query)
+        if not isinstance(result, dict):
+            return {"query": query, "count": 0, "results": [], "source": "cpg", "result": result}
+        return result
+
     def controlflow(self, file: str = "", symbol: str = "") -> dict[str, Any]:
         """Control-flow findings desde analysis_results.json (CFG scan).
 
