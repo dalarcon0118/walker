@@ -2,7 +2,7 @@
 
 Usa `ast-grep outline --json` multi-lenguaje (20+ via tree-sitter).
 Proporciona símbolos (funciones, clases, imports, exports, miembros).
-Reemplaza tanto a sg_adapter.py como a los patterns manuales.
+Reemplaza los patterns manuales legacy.
 
 Result pattern: los cores puros con @safe devuelven Result (nunca lanzan);
 los wrappers públicos deciden con is_successful y hacen fallback explícito

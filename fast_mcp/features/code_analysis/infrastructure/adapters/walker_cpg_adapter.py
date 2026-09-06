@@ -250,6 +250,14 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
     # Alias para compatibilidad con el helper de task handlers (action=conventions).
     conventions = check_conventions
 
+    def check_health(self) -> dict[str, object]:
+        """Verifica el estado del CPG (wrapper de CheckCpgHealthUseCase).
+
+        W8 (ADR-076): expone health del CPG como action=health en
+        inspect_codebase. Retorna status y node_count del índice.
+        """
+        return self._service.check_health()
+
     def scan_dfg(
         self, action: str = "start", project_root: str = ""
     ) -> dict[str, object]:

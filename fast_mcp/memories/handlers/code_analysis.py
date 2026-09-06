@@ -111,6 +111,8 @@ def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
         "query": lambda: service.query(query=kwargs.get("query", "")),
         # W7: convenciones del CKG contra el código (CKG↔CPG circuit).
         "conventions": lambda: service.check_conventions(languages=kwargs.get("languages")),
+        # W8: health del CPG (index status, node count).
+        "health": lambda: service.check_health(),
     }
 
     result_fn = dispatch_map.get(action)

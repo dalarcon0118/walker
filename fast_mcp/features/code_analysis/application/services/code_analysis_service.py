@@ -282,3 +282,25 @@ class CodeAnalysisService:
             "matches": entries[:50],
             "truncated": len(entries) > 50,
         }
+
+    def check_health(self) -> dict[str, Any]:
+        """Verifica el estado del CPG (wrapper de CheckCpgHealthUseCase).
+
+        W8 (ADR-076): expone health del CPG como action=health en
+        inspect_codebase. Fail-fast si data_dir no resuelve.
+        """
+        from fast_mcp.features.code_analysis.application.use_cases.check_cpg_health import (
+            CheckCpgHealthUseCase,
+        )
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        try:
+            paths = ProjectService.resolve_paths(self._chain_dir)
+        except ProjectResolutionError as exc:
+            return {"error": f"data_dir no resuelto ({exc}). Ejecuta build_code_index primero."}
+
+        data_dir = str(paths.data_dir) if paths.data_dir else ""
+        if not data_dir:
+            return {"error": "data_dir no resuelto. Ejecuta build_code_index primero."}
+
+        return CheckCpgHealthUseCase.execute(data_dir)

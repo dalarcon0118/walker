@@ -380,6 +380,29 @@ Cada wave declara ≥3 métricas aplicables sobre las áreas que toca. Las no li
 - [ ] M-06 (configuración): test de completitud `EXPECTED_ACTIONS == set(actions de inspect_codebase)` — anti-patrón a evitar: actions huérfanas sin dispatch (patrón AGENTS.md)
 - [ ] M-02 (estrategias): cada archivo legacy de `infrastructure/` con decisión PO registrada (borrar o plan con owner) — anti-patrón a evitar: muerto sin dueño (HU-4)
 
+---
+
+## W9 — Decisión PO: `sg_adapter.py` y `codereview/main.py`
+
+**Contexto (HU-4, Phase 0):**
+- `infrastructure/sg_adapter.py`: wrapper legacy de ast-grep sin importadores.
+- `infrastructure/codereview/main.py`: módulo legacy de code review sin importadores.
+- La vía viva de code review es `review_code` → `deep.py` (ver `bug_service.py` y `walker_cpg_adapter.py`).
+- Ningún plan de Sprint ni tarea pendiente revivir estos archivos.
+
+**Decisión PO (2026-09-06):**
+1. `sg_adapter.py` → **BORRAR** (la funcionalidad vive en `WalkerCpgAnalysisAdapter` y `conventions.py` via ast-grep directo).
+2. `codereview/main.py` → **BORRAR** (la funcionalidad vive en `CodeAnalysisService.review_code` y el adapter).
+3. Si en el futuro se necesita un adapter de ast-grep propio, se construye en `application/` con puerto explícito (no en `infrastructure/` como residuo).
+
+**Criterios de éxito:**
+- Cero archivos `.py` en `infrastructure/` sin importadores activos.
+- `grep -r "sg_adapter" fast_mcp/` y `grep -r "codereview/main" fast_mcp/` devuelven solo referencias en docs/ADR-WALKER-076.
+
+**Owner:** Agent (sesión actual).
+**Fecha de ejecución:** W9 (post-W8, suite verde).
+
+---
 
 
 

@@ -26,7 +26,7 @@ modulo — los consumidores no se tocan.
 Arquitectura DDD + Hexagonal:
     domain/         → entities, values, events, services
     application/    → BuildGraphUseCase, QueryGraphUseCase, ScanBugsUseCase, CpgService
-    infrastructure/ → sg_adapter, repository, ast_grep_calls, filters
+    infrastructure/ → repository, ast_grep_adapter, filters
 """
 from __future__ import annotations
 

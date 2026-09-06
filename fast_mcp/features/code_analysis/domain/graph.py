@@ -57,7 +57,7 @@ class Node:
 
 
 # ── Roles semánticos canónicos (SSOT) ──────────────────────────────────────
-# Los productores de nodos (sg_adapter / ast_grep_adapter) asignan estos
+# Los productores de nodos (ast_grep_adapter / cpg builder) asignan estos
 # `type`. Cualquier consumidor que agrupe por rol DEBE usar estas constantes,
 # nunca re-hardcodear strings (lección ADR-WALKER-053 §metrics).
 FUNCTION_TYPES = frozenset({"function", "method"})
