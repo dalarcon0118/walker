@@ -39,10 +39,12 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
         analyzer: IBusinessAnalyzer | None = None,
         event_bus: EventBus | None = None,
         service: Any = None,
+        ckg: Any = None,
     ):
         self._repo = repo
         self._analyzer = analyzer
         self._bus = event_bus
+        self._ckg = ckg
         # Application Service inyectado (DI). Default defensivo: construido
         # desde el data_dir del repo (mismo resultado que el provider DI).
         if service is None:
@@ -221,6 +223,32 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
 
     # Alias para compatibilidad con el helper de task handlers (action=imports).
     imports = detect_imports
+
+    def check_conventions(self, languages: list[str] | None = None) -> dict[str, object]:
+        """Chequea convenciones del CKG contra el código (delegada en CodeAnalysisService).
+
+        W7 (ADR-076): consume CKG (self._ckg) inyectado en el adapter.
+        Si no hay CKG disponible, retorna error con remediación explícita
+        (fail-fast, nunca [] silencioso).
+        """
+        if self._ckg is None:
+            return {
+                "error": "CKG no inyectado en el adapter. "
+                "Inyecta CKG al construir WalkerCpgAnalysisAdapter "
+                "(composition root / cpg_analysis_adapter).",
+                "rules_checked": 0,
+                "violations": [],
+                "by_rule": {},
+            }
+        report = self._service.check_conventions(languages=languages, ckg=self._ckg)
+        if isinstance(report, dict):
+            report.setdefault("rules_checked", 0)
+            report.setdefault("violations", [])
+            report.setdefault("by_rule", {})
+        return report
+
+    # Alias para compatibilidad con el helper de task handlers (action=conventions).
+    conventions = check_conventions
 
     def scan_dfg(
         self, action: str = "start", project_root: str = ""

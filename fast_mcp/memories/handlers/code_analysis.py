@@ -109,6 +109,8 @@ def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
         "controlflow": lambda: service.controlflow(file=scope, symbol=kwargs.get("symbol", "")),
         # W4: DSL trace/relations del CPG (P-3 ADR-076).
         "query": lambda: service.query(query=kwargs.get("query", "")),
+        # W7: convenciones del CKG contra el código (CKG↔CPG circuit).
+        "conventions": lambda: service.check_conventions(languages=kwargs.get("languages")),
     }
 
     result_fn = dispatch_map.get(action)

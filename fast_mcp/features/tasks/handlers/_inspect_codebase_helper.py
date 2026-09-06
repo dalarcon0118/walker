@@ -44,6 +44,7 @@ def run_inspect_codebase(adapter: Any, data: dict[str, Any]) -> dict[str, Any] |
             "depth",
             "action",
             "project_root",
+            "languages",
         )
         if key in data
     }
