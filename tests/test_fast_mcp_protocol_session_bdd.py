@@ -61,10 +61,11 @@ def test_sesion_completa_protocolo_mcp():
         tools = recv("tools/list")
         names = [t["name"] for t in tools["result"]["tools"]]
         print(f"    tools expuestas: {names}")
-        # Contrato mínimo del ADR (Fase 1) + superficie total (F1:3 + F2:14 + F3:4 = 21).
+        # Contrato mínimo del ADR (Fase 1) + superficie total (F1:3 + F2:14 + F3:12 = 29).
         # Test de completitud (patrón AGENTS.md): una fase nueva actualiza el conteo.
+        # trace_message (T-14) suma en F3: captura user/agent messages → TraceGraph.
         assert {"prepare", "list", "status"} <= set(names), names
-        assert len(names) == 28, f"superficie inesperada ({len(names)}): {names}"
+        assert len(names) == 29, f"superficie inesperada ({len(names)}): {names}"
 
         # ── 4. tools/call list ──
         send({

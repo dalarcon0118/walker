@@ -18,10 +18,10 @@ del monorepo no migrado se elimina (ADR-WALKER-071).
 Capa de test de la fase: tests/ — test_workflow_e2e_*, test_task_contract_ssot,
 test_smoke_agent_harness, test_agent_e2e_bdd, test_intelligence_service_bdd.
 
-ESTADO: completa — las 11 tools registran y despachan vía runners del
+ESTADO: completa — las 12 tools registran y despachan vía runners del
 composition root (fast_mcp.composition): session (help, list_projects),
 delta (sprint_planning, resolve_project_sprint — repo-backed, INV-016),
-trace (trace_push), task (implement_task, run_tests, verify_predicates,
+trace (trace_push, trace_message), task (implement_task, run_tests, verify_predicates,
 capture) y workflow (submit, transition → WorkflowContext → engine con
 task registry, ADR-071 Sprint 5).
 """
@@ -46,6 +46,7 @@ _FASE3_TOOLS = (
     "sprint_planning",
     "resolve_project_sprint",
     "trace_push",
+    "trace_message",
     "implement_task",
     "run_tests",
     "verify_predicates",
@@ -115,6 +116,23 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         },
         "required": ["event_type"],
     },
+    "trace_message": {
+        "type": "object",
+        "properties": {
+            "role": {
+                "type": "string",
+                "description": "Message author: 'user' or 'agent'",
+                "enum": ["user", "agent"],
+            },
+            "text": {"type": "string", "description": "Message content (required)"},
+            "session_id": {"type": "string", "description": "Session identifier"},
+            "task_id": {"type": "string", "description": "Task identifier"},
+            "sprint_id": {"type": "string", "description": "Sprint identifier"},
+            "source": {"type": "string", "description": "Event source (default: walker)"},
+            "project_id": {"type": "string", "description": "Project identifier (resolves chain_dir)"},
+        },
+        "required": ["role", "text"],
+    },
     "implement_task": {
         "type": "object",
         "properties": {
@@ -163,6 +181,7 @@ _DESCRIPTIONS = {
     "sprint_planning": "Create a sprint with specs from task list.",
     "resolve_project_sprint": "Find the active sprint for a project.",
     "trace_push": "Push an event to the execution trace index.",
+    "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
     "implement_task": "Prepare task implementation (records objective and files).",
     "run_tests": "Run test suite via pytest (fail-loud if 0 tests).",
     "verify_predicates": "Verify that predicates are satisfied (file_exists, test_passes).",
@@ -195,7 +214,7 @@ def _build_runner(name: str):
     """Build a tool runner via session, workflow, delta, trace, or task runner."""
     _SESSION_TOOLS = {"help", "list_projects"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
-    _TRACE_TOOLS = {"trace_push"}
+    _TRACE_TOOLS = {"trace_push", "trace_message"}
     _TASK_TOOLS = {"implement_task", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner

@@ -39,8 +39,14 @@ def _register_delta_handlers():
 def _register_trace_handlers():
     """Register event_tracing handlers into the dispatch registry."""
     from fast_mcp.features.event_tracing.handlers import register_trace_handlers
-    from fast_mcp.features.event_tracing.handlers.trace import handle_trace_push
-    register_trace_handlers({"trace_push": handle_trace_push})
+    from fast_mcp.features.event_tracing.handlers.trace import (
+        handle_trace_message,
+        handle_trace_push,
+    )
+    register_trace_handlers({
+        "trace_push": handle_trace_push,
+        "trace_message": handle_trace_message,
+    })
     logger.debug("composition: trace handlers registered")
 
 

@@ -82,6 +82,27 @@ del directorio cognitivo del proyecto**: el workflow es **configuración del mot
 | **TraceGraph** | eventos de sesión del proyecto |
 | workflow `state` | posición del proyecto en el flujo (nodo/subestado, submits, historia) |
 
+### Las 4 memorias cognitivas (taxonomía)
+
+Las cuatro memorias atacan un área distinta del proceso y **todas operan sobre el
+mismo CognitiveGraph** (backend sqlite único, índices separados por schema —
+SSOT en `shared_kernel/cognitive_graph/schemas.py`, `PRODUCTION_INDEX_SCHEMAS`):
+
+| Memoria | Área del proceso | Propósito | Paths de E/S |
+|---------|------------------|-----------|--------------|
+| **CPG** | el código | Memoria del CÓDIGO: símbolos, llamadas y estructura, consultable (fulltext + filtros SQL) y con casos de uso (outline, scan de bugs, queries de grafo) | `build_code_index` / `CpgQueryService` |
+| **CKG** | el conocimiento | Memoria del CONOCIMIENTO: decisiones, reglas, invariantes, convenciones, patrones y componentes — el "porqué" detrás del código | `extract_knowledge` / capture de learnings / `CkgService` |
+| **DeltaGraph** | los planes | Memoria de PLANES, TAREAS, ESPECIFICACIONES y ESTADO; SSOT del sprint/specs (INV-004) — el workflow escribe y lee aquí | handlers spring/spec / `SprintService` |
+| **TraceGraph** | la ejecución | Memoria de la EJECUCIÓN: eventos del propio MCP y del agente — herramientas usadas (agente y MCP), mensajes user/agent, estados del workflow y tareas | `trace_push` / `CognitiveTracer` / `TraceService` |
+
+Estado de la canónica (auditado 2026-09-05): delta 8 (1 spring + 7 specs) y
+trace 872 (806 ToolRegistered de arranque, 62 ToolInvoked, 2 task_execute,
+2 AnalysisCompleted); **cpg y ckg en 0** hasta el rebuild de derivables
+(H-6, ADR-WALKER-075). Brechas de captura conocidas en trace: los mensajes
+del agente (`agent_message` — tipo válido del dominio, sin emisor) y del
+usuario (`user_message` — aún sin tipo ni emisor) son propósito declarado
+pendiente de implementación (memoria #11916).
+
 ### Implicaciones de diseño
 
 1. **`chain_dir` identifica el proyecto para ESTADO y MEMORIA** (dónde leer/escribir

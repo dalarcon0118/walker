@@ -38,6 +38,10 @@ class CodeContextService:
         use_case = QueryGraphUseCase(
             chain_dir=self._chain_dir,
             project_id=project_id,
+            # R-A fix: data_dir canónico SIEMPRE explícito (ADR-054 D4) —
+            # el path-guessing de QueryGraphUseCase.repo apuntaba a
+            # <repo_root>/data en vez de la memoria canónica del proyecto.
+            data_dir=str(paths.data_dir) if paths.data_dir else None,
         )
         graph = use_case.graph
         context_uc = CodeContextUseCase(use_case, graph)

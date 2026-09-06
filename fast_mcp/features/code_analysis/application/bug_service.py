@@ -349,34 +349,52 @@ def _load_repo_data_core(repo: CpgRepository) -> dict:
 
 @safe
 def _scan_cfg_on_demand_core(chain_dir: str) -> dict:
-    """Core puro de _scan_cfg_on_demand (puede lanzar)."""
-    from fast_mcp.features.code_analysis.application.build_service import BuildGraphUseCase
-    from fast_mcp.shared_kernel.paths import resolve_project_root
+    """Core puro de _scan_cfg_on_demand (puede lanzar).
 
-    project_dir = resolve_project_root(chain_dir)
-    if project_dir and os.path.isdir(project_dir):
-        # Build a minimal build_service to run scan_cfg
-        builder = BuildGraphUseCase(
-            project_id=os.path.basename(project_dir),
-            data_dir=os.path.join(project_dir, "data"),
-            code_root=project_dir,
+    R-A fix: data_dir canónico via ProjectService (ADR-054 D4) — jamás
+    os.path.join(project_root, "data"). Sin contexto de proyecto → error
+    accionable (fail-fast), nunca una BD parásita en la raíz del repo.
+    """
+    from fast_mcp.features.code_analysis.application.build_service import BuildGraphUseCase
+    from fast_mcp.shared_kernel.project_support import ProjectService
+
+    paths = ProjectService.resolve_paths(chain_dir)
+    project_dir = str(paths.project_root) if paths.project_root else ""
+    data_dir = str(paths.data_dir) if paths.data_dir else ""
+    if not data_dir or not project_dir or not os.path.isdir(project_dir):
+        raise ValueError(
+            "scan_cfg on-demand: sin contexto de proyecto resolvible "
+            f"(chain_dir={chain_dir!r}). Ejecuta build_code_index primero."
         )
-        return builder.scan_cfg()
-    return {}
+    builder = BuildGraphUseCase(
+        project_id=paths.project_id or os.path.basename(project_dir),
+        data_dir=data_dir,
+        code_root=project_dir,
+    )
+    return builder.scan_cfg()
 
 
 @safe
 def _scan_dfg_on_demand_core(chain_dir: str) -> dict:
-    """Core puro de _scan_dfg_on_demand (puede lanzar)."""
-    from fast_mcp.features.code_analysis.application.build_service import BuildGraphUseCase
-    from fast_mcp.shared_kernel.paths import resolve_project_root
+    """Core puro de _scan_dfg_on_demand (puede lanzar).
 
-    project_dir = resolve_project_root(chain_dir)
-    if project_dir and os.path.isdir(project_dir):
-        builder = BuildGraphUseCase(
-            project_id=os.path.basename(project_dir),
-            data_dir=os.path.join(project_dir, "data"),
-            code_root=project_dir,
+    R-A fix: mismo criterio que _scan_cfg_on_demand_core (fail-fast,
+    data_dir canónico, sin guessing de rutas).
+    """
+    from fast_mcp.features.code_analysis.application.build_service import BuildGraphUseCase
+    from fast_mcp.shared_kernel.project_support import ProjectService
+
+    paths = ProjectService.resolve_paths(chain_dir)
+    project_dir = str(paths.project_root) if paths.project_root else ""
+    data_dir = str(paths.data_dir) if paths.data_dir else ""
+    if not data_dir or not project_dir or not os.path.isdir(project_dir):
+        raise ValueError(
+            "scan_dfg on-demand: sin contexto de proyecto resolvible "
+            f"(chain_dir={chain_dir!r}). Ejecuta build_code_index primero."
         )
-        return builder.scan_dfg()
-    return {}
+    builder = BuildGraphUseCase(
+        project_id=paths.project_id or os.path.basename(project_dir),
+        data_dir=data_dir,
+        code_root=project_dir,
+    )
+    return builder.scan_dfg()

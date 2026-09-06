@@ -21,7 +21,7 @@ class EventId:
 class EventType:
     """Type of execution event."""
     VALID = {
-        "workflow_state", "task_execute", "agent_message",
+        "workflow_state", "task_execute", "agent_message", "user_message",
         "tool_call", "file_impact", "kg_query", "event",
         "error", "submit", "transition",
     }

@@ -39,19 +39,42 @@ def handle_read_code(ctx: MemoryContext, **kwargs: Any) -> dict:
 
 
 def handle_code_search(ctx: MemoryContext, **kwargs: Any) -> dict:
-    """Full-text search in CKG over indexed code and knowledge."""
-    from returns.pipeline import is_successful
+    """Búsqueda estructurada en el CPG (memoria del código).
 
-    from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import CkgReadService
-
+    DSL de QueryGraphUseCase.grep: texto libre, function:name file:path,
+    trace:funcA->funcB (call path), calls:fn (relations), bug:* (dead
+    branches, missing returns, taint paths...), security:* (taint flows,
+    hardcoded secrets...).
+    """
     query = kwargs.get("query", "").strip()
     if not query:
         return {"error": "query is required"}
 
+    from fast_mcp.features.code_analysis.application.query_service import QueryGraphUseCase
+    from fast_mcp.shared_kernel.project_support import ProjectService
+
+    # data_dir canónico explícito (ADR-054 D4 / fix R-A) — la herramienta
+    # busca en la memoria CPG del proyecto, no en una ruta adivinada.
+    paths = ProjectService.resolve_paths(ctx.chain_dir)
+    use_case = QueryGraphUseCase(
+        chain_dir=ctx.chain_dir,
+        project_id=paths.project_id or "",
+        data_dir=str(paths.data_dir) if paths.data_dir else None,
+    )
+    result = use_case.grep(query)
+    if not isinstance(result, dict):
+        return {"query": query, "count": 0, "results": [], "source": "cpg", "result": result}
+
     max_results = int(kwargs.get("max_results", 20))
-    result = CkgReadService.gather_context(ctx.chain_dir, query=query)
-    results = result.value_or([]) if is_successful(result) else []
-    return {"query": query, "count": len(results), "results": results[:max_results]}
+    matches = result.get("matches", [])
+    return {
+        "query": query,
+        "count": len(matches),
+        "results": matches[:max_results],
+        "total": result.get("total", len(matches)),
+        "source": "cpg",
+        "result": result,
+    }
 
 
 def handle_code_context(ctx: MemoryContext, **kwargs: Any) -> dict:
@@ -73,6 +96,14 @@ def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
         "dead_code": lambda: service.detect_unused_functions(file_filter=scope),
         "review": lambda: service.review_code(),
         "metrics": lambda: service.project_metrics(file_filter=scope),
+        # CFG/DFG como ciudadanos de primera (antes: solo via DSL code_search;
+        # action=security estaba documentada en el schema y devolvía Unknown).
+        "bugs": lambda: service.find_bugs(
+            bug_type=kwargs.get("bug_type", "taint_paths"), file_filter=scope
+        ),
+        "security": lambda: service.security_scan(
+            vuln_type=kwargs.get("vuln_type", "all"), file_filter=scope
+        ),
     }
 
     result_fn = dispatch_map.get(action)

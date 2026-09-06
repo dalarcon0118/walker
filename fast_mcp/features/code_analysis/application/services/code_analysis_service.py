@@ -35,9 +35,59 @@ class CodeAnalysisService:
         Delega en QueryGraphUseCase.business_layer (derivado on-the-fly).
         """
         from fast_mcp.features.code_analysis.application.query_service import QueryGraphUseCase
+        from fast_mcp.shared_kernel.project_support import ProjectService
 
-        uc = QueryGraphUseCase(self._chain_dir)
+        # R-A fix: data_dir canónico explícito (ADR-054 D4) — el guessing
+        # de QueryGraphUseCase.repo resolvía <repo_root>/data, no la memoria.
+        paths = ProjectService.resolve_paths(self._chain_dir)
+        uc = QueryGraphUseCase(
+            self._chain_dir,
+            project_id=self._project_id or (paths.project_id or ""),
+            data_dir=str(paths.data_dir) if paths.data_dir else None,
+        )
         return uc.business_layer(focus=focus)
+
+    # ── Bugs / Security (CFG/DFG) ───────────────────────────────────
+
+    def find_bugs(self, bug_type: str = "taint_paths", file_filter: str = "") -> dict[str, Any]:
+        """Detección de bugs vía CFG/DFG (bug:* del DSL — ScanBugsUseCase).
+
+        Tipos: dead_branches, missing_returns, infinite_loops,
+        uninitialized_vars, taint_paths, data_gaps, unused_functions.
+        """
+        from fast_mcp.features.code_analysis.application.query_service import QueryGraphUseCase
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        paths = ProjectService.resolve_paths(self._chain_dir)
+        uc = QueryGraphUseCase(
+            self._chain_dir,
+            project_id=self._project_id or (paths.project_id or ""),
+            data_dir=str(paths.data_dir) if paths.data_dir else None,
+        )
+        q = f"bug:{bug_type}"
+        if file_filter:
+            q += f" file:{file_filter}"
+        return uc.grep(q)
+
+    def security_scan(self, vuln_type: str = "all", file_filter: str = "") -> dict[str, Any]:
+        """Security scan vía taint analysis DFG (security:* — ScanBugsUseCase).
+
+        Tipos: sqli, command_injection, xss, code_injection, data_leak,
+        weak_crypto, path_traversal, hardcoded_secrets, spoofing, all.
+        """
+        from fast_mcp.features.code_analysis.application.query_service import QueryGraphUseCase
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        paths = ProjectService.resolve_paths(self._chain_dir)
+        uc = QueryGraphUseCase(
+            self._chain_dir,
+            project_id=self._project_id or (paths.project_id or ""),
+            data_dir=str(paths.data_dir) if paths.data_dir else None,
+        )
+        q = f"security:{vuln_type}"
+        if file_filter:
+            q += f" file:{file_filter}"
+        return uc.grep(q)
 
     # ── Dead code ───────────────────────────────────────────────────
 

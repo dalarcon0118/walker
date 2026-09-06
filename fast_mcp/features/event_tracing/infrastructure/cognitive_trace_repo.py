@@ -39,21 +39,21 @@ class CognitiveTraceRepository(TraceRepository):
         self._cg = cg
 
     def load_traces(self, chain_dir: str) -> list[TraceEvent]:
-        if not chain_dir:
-            return []
-
-        cached = _CACHE.get(chain_dir)
+        # DI-injected: el CG es el scope (chain_dir es solo clave de cache).
+        # Sin guard de chain_dir vacío — simétrico con push_event (T-14).
+        cache_key = (chain_dir, id(self._cg))
+        cached = _CACHE.get(cache_key)
         if cached and cached[0] > time.time():
             return cached[1]
 
         events = self._load_from_cg()
         events = _dedupe(events)
         events.sort(key=lambda ev: (ev.timestamp or "", ev.event_type or ""))
-        _CACHE[chain_dir] = (time.time() + _CACHE_TTL, events)
+        _CACHE[cache_key] = (time.time() + _CACHE_TTL, events)
         return events
 
     def push_event(self, chain_dir: str, data: dict) -> dict:
-        _CACHE.pop(chain_dir, None)
+        _CACHE.pop((chain_dir, id(self._cg)), None)
         try:
             event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             ts = datetime.now(timezone.utc).isoformat()

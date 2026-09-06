@@ -1,5 +1,10 @@
 """CPG — Code Property Graph builder + query service.
 
+PROPÓSITO (taxonomía de memorias, project.md): memoria del CÓDIGO del
+proyecto — leer y buscar código vía consultas estructuradas (fulltext +
+filtros SQL) y casos de uso (outline, scan de bugs, queries de grafo).
+Estado canónica: 0 docs hasta el rebuild de derivables (H-6, ADR-075).
+
 FACHADA PEREZOSA (PEP 562 — ADR-WALKER-053): la implementación vive en
 builder.py y submódulos; este init NO importa nada eager (rompe el ciclo
 con cpg_service). API pública idéntica:

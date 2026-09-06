@@ -1,5 +1,10 @@
 """CKG — Code Knowledge Graph (software development knowledge).
 
+PROPÓSITO (taxonomía de memorias, project.md): memoria del CONOCIMIENTO
+del proyecto — decisiones, reglas, invariantes, convenciones, patrones
+y componentes: el "porqué" detrás del código (capture de learnings).
+Estado canónica: 0 docs hasta el capture + rebuild (H-6, ADR-075).
+
 Lazy facade (PEP 562 — ADR-WALKER-053): implementation lives in
 application/ and infrastructure/; this init does NOT eagerly import anything
 (circular dependency with cpg_service). Public API:

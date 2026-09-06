@@ -129,6 +129,11 @@ class CognitiveCkgRepository(CkgRepository):
                 tags=item.get("tags", []),
             )
             new_docs[doc_id] = fact.to_dict()
+            # Persistir el supersedes RESUELTO (con los IDs de los viejos
+            # degradados) en el nodo nuevo — el enlace viejo→nuevo vive en
+            # metadata.superseded_by y el nuevo→viejo aquí (T-15).
+            if supersedes:
+                new_docs[doc_id]["supersedes"] = supersedes
 
             # Degrade decisions that this one replaces
             if supersedes:

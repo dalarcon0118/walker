@@ -1,4 +1,8 @@
-"""fast_mcp.features.delta_tracking — Sprint/Spec management (delta as SSOT).
+"""fast_mcp.features.delta_tracking — DeltaGraph: memoria de planes (delta como SSOT).
+
+PROPÓSITO (taxonomía de memorias, project.md): memoria de PLANES, TAREAS,
+ESPECIFICACIONES y ESTADO del proyecto; SSOT del sprint/specs (INV-004,
+ADR-WALKER-013/016). El workflow guarda y lee aquí.
 
 Domain:     Spring, Spec (pure entities)
 Application: SprintService (thin orchestrator), ports
