@@ -9,7 +9,7 @@ Consumidores externos: usan ESTE servicio, NUNCA los use cases directos.
 
 from __future__ import annotations
 
-from typing import Any
+from fast_mcp.shared_kernel.project_support.project_service import ProjectResolutionError
 
 
 class CodeAnalysisService:
@@ -148,3 +148,99 @@ class CodeAnalysisService:
         )
         report["errors"] = errors
         return report
+
+    # ── DFG / CFG consultables (W3 ADR-076) ──────────────────────────
+
+    def dataflow(self, file: str = "", symbol: str = "") -> dict[str, Any]:
+        """Data-flow de un símbolo desde la proyección dfg.json.
+
+        Fail-fast: si la proyección no existe, retorna error con remediación
+        ('ejecute build_code_index').
+        """
+        from fast_mcp.features.code_analysis.application.projection_helpers import (
+            filter_entries,
+            filter_by_file,
+            load_projection,
+        )
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        try:
+            paths = ProjectService.resolve_paths(self._chain_dir)
+        except ProjectResolutionError as exc:
+            return {"error": f"data_dir no resuelto ({exc}). Ejecuta build_code_index primero."}
+
+        data_dir = str(paths.data_dir) if paths.data_dir else ""
+        if not data_dir:
+            return {"error": "data_dir no resuelto. Ejecuta build_code_index primero."}
+
+        try:
+            dfg = load_projection(data_dir, "dfg.json")
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+        entries: list[dict] = []
+        for key in ("taint_paths", "hardcoded_secrets", "uninitialized_vars", "data_gaps"):
+            if isinstance(dfg.get(key), list):
+                entries.extend(dfg[key])
+
+        if file:
+            entries = filter_by_file(entries, file)
+        if symbol:
+            entries = filter_entries(
+                entries, symbol, ["source", "sink", "variable", "path", "detail", "function"]
+            )
+
+        return {
+            "action": "dataflow",
+            "file": file,
+            "symbol": symbol,
+            "total": len(entries),
+            "matches": entries[:50],
+            "truncated": len(entries) > 50,
+        }
+
+    def controlflow(self, file: str = "", symbol: str = "") -> dict[str, Any]:
+        """Control-flow findings desde analysis_results.json (CFG scan).
+
+        Fail-fast: si la proyección no existe, retorna error con remediación
+        ('ejecute build_code_index').
+        """
+        from fast_mcp.features.code_analysis.application.projection_helpers import (
+            filter_entries,
+            filter_by_file,
+            load_projection,
+        )
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        try:
+            paths = ProjectService.resolve_paths(self._chain_dir)
+        except ProjectResolutionError as exc:
+            return {"error": f"data_dir no resuelto ({exc}). Ejecuta build_code_index primero."}
+
+        data_dir = str(paths.data_dir) if paths.data_dir else ""
+        if not data_dir:
+            return {"error": "data_dir no resuelto. Ejecuta build_code_index primero."}
+
+        try:
+            analysis = load_projection(data_dir, "analysis_results.json")
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+        entries: list[dict] = []
+        for key in ("dead_branches", "missing_returns", "infinite_loops"):
+            if isinstance(analysis.get(key), list):
+                entries.extend(analysis[key])
+
+        if file:
+            entries = filter_by_file(entries, file)
+        if symbol:
+            entries = filter_entries(entries, symbol, ["function", "name", "detail"])
+
+        return {
+            "action": "controlflow",
+            "file": file,
+            "symbol": symbol,
+            "total": len(entries),
+            "matches": entries[:50],
+            "truncated": len(entries) > 50,
+        }

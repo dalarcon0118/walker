@@ -160,7 +160,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "properties": {
             "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "scope": {"type": "string", "description": "Path or scope to inspect."},
-            "action": {"type": "string", "description": "Action: business, dead_code, bugs (CFG), security (DFG taint), review, metrics, build, update."},
+            "action": {"type": "string", "description": "Action: business, dead_code, bugs (CFG), security (DFG taint), review, metrics, dataflow, controlflow, build, update."},
             "bug_type": {"type": "string", "description": "For action=bugs: dead_branches, missing_returns, infinite_loops, uninitialized_vars, taint_paths, data_gaps, unused_functions."},
             "vuln_type": {"type": "string", "description": "For action=security: sqli, command_injection, xss, code_injection, data_leak, weak_crypto, path_traversal, hardcoded_secrets, spoofing, all."},
             "detect": {"type": "string", "description": "Detection mode: dead_code, security."},
@@ -201,7 +201,7 @@ _DESCRIPTIONS = {
     "search_memories": "Federated query across multiple indexes at once.",
     "agent_context": "Consolidated delta+ckg+cpg+trace query with cross-references.",
     "code_context": "Structured code context: symbols, calls, imports and relations by file or search.",
-    "inspect_codebase": "Inspect codebase: architecture (business), dead_code, bugs (CFG scans: dead_branches, missing_returns, taint_paths...), security (DFG taint: sqli, xss, secrets...), review, metrics or CPG index.",
+    "inspect_codebase": "Inspect codebase: architecture (business), dead_code, bugs (CFG scans: dead_branches, missing_returns, taint_paths...), security (DFG taint: sqli, xss, secrets...), review, metrics, dataflow (DFG symbol paths), controlflow (CFG findings) or CPG index.",
     "read_code": "Read a project file's content by path.",
     "code_search": "Structured search over the CPG (code memory): symbols, relations, call paths (trace:a->b), bug:* scans (dead_branches, missing_returns, taint_paths...), security:* (taint flows, hardcoded secrets).",
 }

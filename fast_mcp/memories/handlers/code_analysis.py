@@ -104,6 +104,9 @@ def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
         "security": lambda: service.security_scan(
             vuln_type=kwargs.get("vuln_type", "all"), file_filter=scope
         ),
+        # W3: DFG/CFG consultables (P-1/P-2 ADR-076).
+        "dataflow": lambda: service.dataflow(file=scope, symbol=kwargs.get("symbol", "")),
+        "controlflow": lambda: service.controlflow(file=scope, symbol=kwargs.get("symbol", "")),
     }
 
     result_fn = dispatch_map.get(action)
