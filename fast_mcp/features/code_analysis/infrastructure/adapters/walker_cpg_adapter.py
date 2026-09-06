@@ -50,7 +50,11 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
                 CodeAnalysisService,
             )
 
-            service = CodeAnalysisService(self._repo._file_repo.data_dir)
+            data_dir = getattr(repo, "data_dir", None)
+            if data_dir:
+                service = CodeAnalysisService(data_dir)
+            else:
+                service = CodeAnalysisService()
         self._service = service
 
     def business_layer(self, focus: str = "") -> dict[str, object]:
@@ -177,6 +181,46 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
     def query(self, query_text: str = "") -> dict[str, object]:
         """DSL query sobre el CPG (delegada en CodeAnalysisService.grep)."""
         return self._service.query(query=query_text)
+
+    def detect_imports(self, files: list[str] | None = None, project_root: str = "") -> dict[str, object]:
+        """Detecta imports alucinados en archivos del proyecto (hallucination.py).
+
+        W6 (ADR-076): consume `infrastructure/hallucination.py` (HU-3) para
+        verificar que cada import resuelva a un símbolo real del proyecto,
+        stdlib o terceros. Fail-fast si no hay contexto de proyecto.
+        """
+        from fast_mcp.features.code_analysis.infrastructure.hallucination import scan_file
+        from pathlib import Path
+
+        if not files:
+            return {"files_scanned": 0, "hallucinations": 0, "issues": []}
+
+        root = project_root or getattr(self._service, "_chain_dir", "") or ""
+        if not root:
+            return {
+                "error": "project_root no resuelto. Inyecta project_root o usa chain_dir canónico.",
+                "files_scanned": 0,
+                "hallucinations": 0,
+                "issues": [],
+            }
+
+        issues: list[dict] = []
+        hallucinations = 0
+        for file_path in files:
+            result = scan_file(Path(file_path), root)
+            file_issues = result.get("issues", [])
+            issues.extend(file_issues)
+            hallucinations += result.get("hallucinations", 0)
+
+        return {
+            "files_scanned": len(files),
+            "hallucinations": hallucinations,
+            "issues": issues[:50],
+            "truncated": len(issues) > 50,
+        }
+
+    # Alias para compatibilidad con el helper de task handlers (action=imports).
+    imports = detect_imports
 
     def scan_dfg(
         self, action: str = "start", project_root: str = ""

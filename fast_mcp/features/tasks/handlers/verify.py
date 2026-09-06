@@ -75,6 +75,24 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)
     if inspect_result is not None:
         result_data["inspect_codebase"] = inspect_result
+        # W6 (ADR-076): action=imports detecta imports alucinados;
+        # si hay Hallucinations, fallar el predicado con el listado.
+        if data.get("inspect_codebase_action") == "imports":
+            hallucinations = inspect_result.get("hallucinations", 0)
+            if hallucinations > 0:
+                result_data["all_satisfied"] = False
+                result_data["hallucinations_found"] = True
+                result_data["failed_count"] = result_data.get("failed_count", 0) + hallucinations
+                result_data["total"] = result_data.get("total", 0) + hallucinations
+                result_data["results"].append({
+                    "predicate": "imports:no_hallucinations",
+                    "method": "hallucination_detector",
+                    "passed": False,
+                    "detail": {
+                        "hallucinations": hallucinations,
+                        "issues": inspect_result.get("issues", [])[:10],
+                    },
+                })
 
     return TaskResult.success(data=result_data)
 
