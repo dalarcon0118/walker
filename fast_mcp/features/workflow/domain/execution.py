@@ -62,6 +62,7 @@ class ExecutionContext:
     task_id: str = ""
     channel: str = "mcp"
     started_at: str = ""
+    cpg_adapter: Any = None
 
     @classmethod
     def create(cls, chain_dir: str, **kw: Any) -> "ExecutionContext":

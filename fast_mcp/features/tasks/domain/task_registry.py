@@ -43,6 +43,7 @@ class ExecutionContext:
     task_id: str = ""
     session_id: str = ""
     channel: str = "mcp"
+    cpg_adapter: Any = None
 
     @classmethod
     def create(
@@ -51,8 +52,15 @@ class ExecutionContext:
         task_id: str = "",
         session_id: str = "mcp",
         channel: str = "mcp",
+        cpg_adapter: Any = None,
     ) -> ExecutionContext:
-        return cls(chain_dir=chain_dir, task_id=task_id, session_id=session_id, channel=channel)
+        return cls(
+            chain_dir=chain_dir,
+            task_id=task_id,
+            session_id=session_id,
+            channel=channel,
+            cpg_adapter=cpg_adapter,
+        )
 
 
 class TaskRegistry:

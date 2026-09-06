@@ -21,6 +21,7 @@ def execute_public_task(
     channel: str = "mcp",
     registry: Any = None,
     workflow_context: Any = None,
+    cpg_adapter: Any = None,
 ) -> dict:
     """Execute a public task by name.
 
@@ -44,7 +45,10 @@ def execute_public_task(
         }
 
     ctx = ExecutionContext.create(
-        session_id=session_id, chain_dir=chain_dir, channel=channel
+        session_id=session_id,
+        chain_dir=chain_dir,
+        channel=channel,
+        cpg_adapter=cpg_adapter,
     )
 
     data = dict(task_data or {})

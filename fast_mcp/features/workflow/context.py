@@ -30,9 +30,16 @@ class WorkflowContext:
     orchestrator: Any  # OrchestrationService
     bundle: Any  # EngineBundle
     task_registry: Any = None  # TaskRegistry (Sprint 5.4)
+    cpg_adapter: Any = None  # ICpgAnalysisPort (W5 ADR-076)
 
     @classmethod
-    def resolve(cls, chain_dir: str, task_registry: Any = None, prompt_manager: Any = None) -> WorkflowContext | None:
+    def resolve(
+        cls,
+        chain_dir: str,
+        task_registry: Any = None,
+        prompt_manager: Any = None,
+        cpg_adapter: Any = None,
+    ) -> WorkflowContext | None:
         """Resolve workflow context from chain_dir.
 
         Builds the full dependency chain:
@@ -51,6 +58,10 @@ class WorkflowContext:
         `prompt_manager` (defaults to PromptManager) resolves per-node prompts
         for LLM_TASK sub-states and is attached to the bundle so `status` /
         `help` surface the current step's prompt.
+
+        `cpg_adapter` (W5 ADR-076) is injected by the composition root to allow
+        task handlers to consume the CPG via the adapter port (fail-fast, no
+        path-guessing). If not provided, the workflow feature never builds it.
         """
         if not chain_dir:
             return None
@@ -98,6 +109,7 @@ class WorkflowContext:
                 orchestrator=orch,
                 bundle=bundle,
                 task_registry=task_registry,
+                cpg_adapter=cpg_adapter,
             )
         except Exception as e:
             logger.warning(

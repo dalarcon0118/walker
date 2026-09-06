@@ -11,20 +11,31 @@ import subprocess
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
+from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspect_codebase
 
 
 def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    """Prepare task implementation — records objective and files."""
+    """Prepare task implementation — records objective and files.
+
+    W5 (ADR-076): si ctx.cpg_adapter está disponible y `data` incluye
+    `inspect_codebase_action`, ejecuta la action y añade el resultado.
+    """
     objective = data.get("objective", "")
     files = data.get("files", [])
     if not isinstance(files, list):
         files = []
 
-    return TaskResult.success(data={
+    result: dict[str, Any] = {
         "task_id": data.get("task_id") or ctx.task_id,
         "result_state": objective,
         "files_modified": files,
-    })
+    }
+
+    inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)
+    if inspect_result is not None:
+        result["inspect_codebase"] = inspect_result
+
+    return TaskResult.success(data=result)
 
 
 def _resolve_project_root(chain_dir: str) -> str:

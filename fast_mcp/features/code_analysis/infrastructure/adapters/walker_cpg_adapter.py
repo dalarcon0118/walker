@@ -82,6 +82,32 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
     def gather_context(self, files: list[str] | None = None) -> dict[str, object]:
         return self._service.gather_context(files=files)
 
+    def business_layer(self, focus: str = "") -> dict[str, object]:
+        result = self._service.business_layer(focus=focus)
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="business_layer",
+                scope=focus or "project",
+                result_summary={
+                    "pure_functions": len(result.get("pure_functions", [])),
+                    "flows": len(result.get("business_flows", [])),
+                    "patterns": len(result.get("architecture_patterns", [])),
+                },
+            )
+        )
+        return result
+
+    def detect_unused_functions(self, file_filter: str = "") -> dict[str, object]:
+        result = self._service.detect_unused_functions(file_filter=file_filter)
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="dead_code",
+                scope=file_filter or "project",
+                result_summary={"total": result.get("total", 0)},
+            )
+        )
+        return result
+
     def review_code(
         self, files: list[str] | None = None, thresholds: dict | None = None
     ) -> dict[str, object]:
@@ -115,6 +141,42 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
             )
         )
         return result_dict
+
+    def find_bugs(self, bug_type: str = "taint_paths", file_filter: str = "") -> dict[str, object]:
+        """Detección de bugs vía CFG/DFG (delegada en CodeAnalysisService)."""
+        result = self._service.find_bugs(bug_type=bug_type, file_filter=file_filter)
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="bug_scan",
+                scope=file_filter or "project",
+                result_summary={"total": result.get("total", 0), "bug": bug_type},
+            )
+        )
+        return result
+
+    def security_scan(self, vuln_type: str = "all", file_filter: str = "") -> dict[str, object]:
+        """Security scan vía taint analysis DFG (delegada en CodeAnalysisService)."""
+        result = self._service.security_scan(vuln_type=vuln_type, file_filter=file_filter)
+        self._emit(
+            AnalysisCompleted(
+                analysis_type="security_scan",
+                scope=file_filter or "project",
+                result_summary={"total": result.get("total", 0), "vuln": vuln_type},
+            )
+        )
+        return result
+
+    def dataflow(self, file: str = "", symbol: str = "") -> dict[str, object]:
+        """Data-flow de un símbolo desde dfg.json (delegada en CodeAnalysisService)."""
+        return self._service.dataflow(file=file, symbol=symbol)
+
+    def controlflow(self, file: str = "", symbol: str = "") -> dict[str, object]:
+        """Control-flow findings desde analysis_results.json (delegada en CodeAnalysisService)."""
+        return self._service.controlflow(file=file, symbol=symbol)
+
+    def query(self, query_text: str = "") -> dict[str, object]:
+        """DSL query sobre el CPG (delegada en CodeAnalysisService.grep)."""
+        return self._service.query(query=query_text)
 
     def scan_dfg(
         self, action: str = "start", project_root: str = ""

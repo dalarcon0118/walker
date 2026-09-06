@@ -100,8 +100,9 @@ def handle_execute_task(ctx: Any, **kwargs: Any) -> dict:
     project_id = kwargs.get("project_id", "") or kwargs.get("_project_id", "")
     task_data = {k: v for k, v in kwargs.items() if k not in ("task_name", "name")}
 
-    # Get registry from context (injected by composition.py, never imported — R1)
+    # Get registry and cpg_adapter from context (injected by composition.py, never imported — R1)
     registry = getattr(ctx, "task_registry", None)
+    cpg_adapter = getattr(ctx, "cpg_adapter", None)
 
     return execute_public_task(
         name=task_name,
@@ -109,4 +110,5 @@ def handle_execute_task(ctx: Any, **kwargs: Any) -> dict:
         chain_dir=ctx.chain_dir,
         task_data=task_data,
         registry=registry,
+        cpg_adapter=cpg_adapter,
     )

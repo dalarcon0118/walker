@@ -264,7 +264,24 @@ def workflow_tool_runner(name: str, root: Path | None = None):
         sprint_service = _build_sprint_service(chain_dir)
         task_registry = _build_task_registry(sprint_service=sprint_service)
 
-        ctx = WorkflowContext.resolve(chain_dir, task_registry=task_registry)
+        # W5 (ADR-076): inyectar adapter CPG para task handlers (fail-fast,
+        # no guessing). Si no hay proyecto resolvible o el adapter falla, se
+        # deja como None: los handlers lo tratan como ausente (opcional).
+        cpg_adapter = None
+        if chain_dir:
+            try:
+                from fast_mcp.features.code_analysis.application.services.cpg_service import CpgService
+                cpg_service = CpgService.from_chain_dir(chain_dir)
+                if cpg_service:
+                    cpg_adapter = cpg_service.get_analysis_adapter(chain_dir)
+            except Exception as exc:
+                logger.debug("No se pudo construir cpg_adapter para task handlers (%s)", exc)
+
+        ctx = WorkflowContext.resolve(
+            chain_dir,
+            task_registry=task_registry,
+            cpg_adapter=cpg_adapter,
+        )
         if ctx is None:
             return {"error": f"Could not resolve workflow for '{chain_dir}'"}
 
