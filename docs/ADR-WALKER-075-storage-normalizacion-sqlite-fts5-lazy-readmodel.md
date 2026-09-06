@@ -288,6 +288,30 @@ multi-proceso in-contract documentada; BDD multi-conexión en
 meta-test `test_shared_kernel_no_prints_bdd.py`). Suite al cierre: 553 passed
 (+56 sobre el baseline de 497).
 
+#### Anexo A.1 — Reconciliación de pendientes (2026-09-06)
+
+Este bloque reconcilia cualquier lista de "next steps" de este ADR con el estado
+pos-cierre. **Los tres pendientes que el resumen ejecutivo de la propuesta seguía
+marcando como abiertos ya NO lo están** (ver "Cierre de remediación" arriba):
+
+| Pendiente (propuesta) | Estado real | Cómo se resuelve |
+|---|---|---|
+| Gate H0 como librería + tests | **CERRADO** (T-04) | `pre_migration.py` + `test_pre_migration_bdd.py` |
+| Decisión PO schema de trace | **HABILITADO** (T-10) — sigue siendo dec. del PO | 1 línea en `PRODUCTION_INDEX_SCHEMAS` + drop/re-backfill de trace |
+| Rebuild cpg/ckg derivables (H-6) | **DESBLOQUEADO** — pendiente de ejecución | `build_code_index` / `extract_knowledge` en v3 |
+
+**Pendientes vigentes del ADR (los 3 reales):**
+1. **Decisión PO sobre el schema de trace** — corregir `event_type→'keyword'`
+   habilita FTS/filtros SQL en trace (1 línea + drop/re-backfill); mientras el quirk
+   siga activo, los filtros structured de trace caen al fallback base con 0 hits
+   (M-08: sin resultados inventados). Esta es la ÚNICA corrección de schema del ADR
+   que requiere decisión de negocio.
+2. **Rebuild de derivables (H-6)** — poblar cpg (~16K docs) y ckg en v3 una vez
+   decidido el punto anterior (los índices SSOT delta/trace quedan intactos).
+3. **Forwarding a ADR-WALKER-076** — el próximo trabajo del CPG (restaurar casos de
+   uso consultables: dataflow/controlflow, conventions CKG↔CPG, hallucination en
+   verify_predicates, health, deuda AR-1..AR-3) vive en ese ADR, no aquí.
+
 ---
 
 ## 11. Implementation intentions (metodología rule.md — contrato ejecutable por agente)
