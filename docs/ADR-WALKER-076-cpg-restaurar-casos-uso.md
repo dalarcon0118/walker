@@ -147,8 +147,16 @@ commitment:
 
 ### Wave 1 — Consolidar lo corregido (T-C0) y cerrar la familia de path-guessing
 
+> **ESTADO (2026-09-06): W1 ✅ CERRADO** — commit `82d9b30` (22 files, 897+/55-):
+> T-C0 completo (code_search→CPG R-S, bugs/security fail-loud, data_dir explícito
+> en bug_service/code_analysis_service/code_context_service) + T-14/T-15
+> (trace_message tool 29 en superficie; load_traces sin guard de chain_dir, cache
+> key por id(cg); supersedes persistido). Los 3 rojos documentados
+> (test_trace_messages_ckg_bdd.py) quedaron **verdes** en este commit — la suite
+> dejó de tener rojos en esta rama: **569 passed al cierre de W1**.
+
 ```yaml
-id: W1-commit-tc0                    # prioridad: HIGH · est: S
+id: W1-commit-tc0                    # prioridad: HIGH · est: S — ✅ DONE 82d9b30
 if:   {condition: "los fixes R-A (3 sitios), R-S (code_search→CPG) y fail-loud de bugs/security están aplicados sin commit"}
 then:
   action: "commit atómico de T-C0 (código+tests de contrato de superficie ya ajustados)
@@ -164,8 +172,17 @@ next_state: W2
 touches: [git; sin código nuevo]
 ```
 
+> **ESTADO (2026-09-06): W2 ✅ CERRADO** — commit `7d3cb5e` (5 files, +140/-27):
+> QueryGraphUseCase/ReviewService con fail-fast (ValueError "data_dir no
+> inyectado"); schema._register_ref_indexes usa `graph.chain_dir` directo
+> (v3: los refs viven en data_dir/cpg.ref.*, no en <chain_dir>/data — legacy
+> inexistente en v3 → refs quedaban sin registrar en silencio); CPGBuilder sin
+> fallback legacy y stats() con self._inner.data_dir. Test NUEVO
+> test_fast_mcp_cpg_query_failfast_bdd.py (5 tests, incluye M-06: 0
+> ocurrencias de os.path.join(project_root, "data")). **574 passed al cierre.**
+
 ```yaml
-id: W2-failfast-data-dir             # prioridad: HIGH (R-A raíz) · est: S
+id: W2-failfast-data-dir             # prioridad: HIGH (R-A raíz) · est: S — ✅ DONE 7d3cb5e
 if:   {condition: "QueryGraphUseCase.repo aún contiene el guessing resolve_project_root+os.path.join(root,'data')"}
 then:
   action: "reemplazar el guessing por fail-fast: si data_dir no fue inyectado →
