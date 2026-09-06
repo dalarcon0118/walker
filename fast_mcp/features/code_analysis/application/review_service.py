@@ -44,20 +44,17 @@ class ReviewUseCase:
     @property
     def repo(self) -> CognitiveCpgRepository:
         if self._repo is None:
-            if self._data_dir:
-                self._repo = CognitiveCpgRepository(self._data_dir, self._project_id)
-            else:
-                from fast_mcp.shared_kernel.paths import resolve_project_root, get_data_dir
-
-                project_root = resolve_project_root(self.chain_dir)
-                project_id = os.path.basename(project_root) if project_root else ""
-                data_dir = str(get_data_dir(project_id)) if project_id else ""
-                self._project_id = self._project_id or project_id
-                self._repo = CognitiveCpgRepository(
-                    data_dir
-                    or (os.path.join(project_root, "data") if project_root else ""),
-                    self._project_id,
+            # W2 (ADR-076): fail-fast sin fallback de rutas (ADR-054 D4).
+            # El caller SIEMPRE inyecta data_dir resuelto vía
+            # ProjectService.resolve_paths; adivinar <root>/data crea una
+            # BD parásita en la raíz del repo (anti-patrón R-A).
+            if not self._data_dir:
+                raise ValueError(
+                    "ReviewService.repo: data_dir no inyectado. "
+                    "Pase data_dir=paths.data_dir resuelto por "
+                    "ProjectService.resolve_paths (ADR-054 D4)."
                 )
+            self._repo = CognitiveCpgRepository(self._data_dir, self._project_id)
         return self._repo
 
     @property

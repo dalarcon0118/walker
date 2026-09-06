@@ -63,9 +63,10 @@ class CPGBuilder:
         self.code_root = code_root
 
         # CPG data goes to cognitive dir: .cognitive/projects/<pid>/data/
+        # W2 (ADR-076): sin fallback legacy a <project_root>/data — eso creaba
+        # una BD parásita en la raíz del repo (anti-patrón R-A, ADR-054 D4).
+        # El layout canónico v3 es el único válido; el build crea el dir.
         cognitive_data = self.project_dir / ".cognitive" / "projects" / self.project_id / "data"
-        if not cognitive_data.is_dir():
-            cognitive_data = self.project_dir / "data"  # fallback
         self._inner = BuildGraphUseCase(
             project_id=self.project_id,
             data_dir=str(cognitive_data),
@@ -106,7 +107,9 @@ class CPGBuilder:
         from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import (
             CognitiveCpgRepository,
         )
-        repo = CognitiveCpgRepository(str(self.project_dir / "data"), self.project_id)
+        # W2 (ADR-076): usar el data_dir canónico que ya resolvió el build
+        # (.cognitive/projects/<pid>/data), no <project_root>/data (legacy).
+        repo = CognitiveCpgRepository(self._inner.data_dir, self.project_id)
         data = repo.load(self.project_id)
         return {
             "total_nodes": len(data.get("nodes", {})),

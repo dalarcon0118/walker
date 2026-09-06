@@ -93,8 +93,16 @@ def _make_ref_search(ref_path: str):
 
 
 def _register_ref_indexes(graph: Any) -> None:
-    """Descubre y registra CPGs de referencia (data/cpg.ref.*.json.gz)."""
-    refs_dir = os.path.join(graph.chain_dir, "data")
+    """Descubre y registra CPGs de referencia (cpg.ref.*.json.gz).
+
+    W2 (ADR-076): en el layout canónico v3, `graph.chain_dir` YA es el
+    data_dir del proyecto (composition.py pasa paths.data_dir), y los refs
+    viven directamente en `data_dir/cpg.ref.*.json.gz`
+    (walker_cpg_adapter.py:223). El join con "data" era del layout legacy v2
+    (chain_dir=repo_root + data/ dentro) y apuntaba a un directorio que no
+    existe en v3 → los refs quedaban sin registrar en silencio.
+    """
+    refs_dir = graph.chain_dir
     if not os.path.isdir(refs_dir):
         return
     for fname in os.listdir(refs_dir):

@@ -37,15 +37,17 @@ class QueryGraphUseCase:
     @property
     def repo(self) -> CognitiveCpgRepository:
         if self._repo is None:
-            if self._data_dir:
-                data = self._data_dir
-            else:
-                from fast_mcp.shared_kernel.paths import resolve_project_root
-                project_root = resolve_project_root(self.chain_dir)
-                data = os.path.join(project_root, "data") if project_root else ""
-                if not data or not os.path.isdir(data):
-                    data = os.path.join(os.path.dirname(self.chain_dir), "data")
-            self._repo = CognitiveCpgRepository(data, self._project_id)
+            # W2 (ADR-076): fail-fast sin fallback de rutas (ADR-054 D4).
+            # El caller SIEMPRE inyecta data_dir resuelto vía
+            # ProjectService.resolve_paths; adivinar <root>/data crea una
+            # BD parásita en la raíz del repo (anti-patrón R-A).
+            if not self._data_dir:
+                raise ValueError(
+                    "QueryGraphUseCase.repo: data_dir no inyectado. "
+                    "Pase data_dir=paths.data_dir resuelto por "
+                    "ProjectService.resolve_paths (ADR-054 D4)."
+                )
+            self._repo = CognitiveCpgRepository(self._data_dir, self._project_id)
         return self._repo
 
     @property
