@@ -12,6 +12,8 @@ dependencies = [
     "returns",
     # Comparación de constraints de plugins (hooks/módulos): ">=3.0,<4".
     "packaging",
+    # Firmas ed25519 de paquetes de hooks (verificación de autoría).
+    "cryptography",
 ]
 
 [project.optional-dependencies]

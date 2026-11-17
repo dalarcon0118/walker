@@ -27,6 +27,15 @@ if str(WALKER_ROOT) not in sys.path:
 from fast_mcp import __version__ as WALKER_VERSION  # noqa: E402
 from fast_mcp.shared_kernel.hooks.bus import HookBus  # noqa: E402
 from fast_mcp.shared_kernel.hooks.events import describe, known_events  # noqa: E402
+from fast_mcp.shared_kernel.hooks.signature import (  # noqa: E402
+    SignatureError,
+    TrustedKey,
+    keys_path,
+    load_keys,
+    save_keys,
+    sign_digest,
+    write_signature,
+)
 from fast_mcp.shared_kernel.hooks.package import (  # noqa: E402
     HookManifestError,
     fetch_git,
@@ -85,6 +94,7 @@ def _cmd_install(args) -> int:
             ref=args.ref,
             subdir=args.subdir,
             expect_sha256=args.sha256,
+            require_signature=args.require_signature,
         )
     except HookManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -106,6 +116,7 @@ def _cmd_update(args) -> int:
             scope="project" if args.project else "global",
             check=args.check,
             expect_sha256=args.sha256,
+            require_signature=args.require_signature,
         )
     except HookManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -119,6 +130,56 @@ def _cmd_update(args) -> int:
         print("  (check-only: no se instaló)")
         return 0
     print("  actualizado" if outcome["installed"] else "  sin cambios")
+    return 0
+
+
+def _cmd_keys(args) -> int:
+    keys = load_keys()
+    if args.action == "list":
+        if not keys:
+            print(f"sin claves confiables ({keys_path()})")
+        for key in keys.values():
+            print(f"  {key.id:<20} {key.ed25519[:16]}…  {key.added_at}")
+        return 0
+    if args.action == "add":
+        raw = args.public_key.strip()
+        from pathlib import Path as _P
+
+        if _P(raw).is_file():
+            raw = _P(raw).read_text().strip()
+        if not raw:
+            print("error: --public-key vacío", file=sys.stderr)
+            return 2
+        from datetime import datetime, timezone
+
+        keys[args.id] = TrustedKey(
+            id=args.id, ed25519=raw,
+            added_at=datetime.now(timezone.utc).isoformat(),
+        )
+        path = save_keys(keys)
+        print(f"clave '{args.id}' agregada a {path}")
+        return 0
+    if args.action == "remove":
+        if args.id not in keys:
+            print(f"no existe la clave '{args.id}'")
+            return 1
+        del keys[args.id]
+        save_keys(keys)
+        print(f"clave '{args.id}' eliminada")
+        return 0
+    return 2
+
+
+def _cmd_sign(args) -> int:
+    from pathlib import Path as _P
+
+    try:
+        payload = write_signature(_P(args.path), args.key, args.id)
+    except (SignatureError, OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"firmado con '{payload['key_id']}' · sha256 {payload['sha256']}")
+    print(f"  {_P(args.path) / 'hook.sig.json'}")
     return 0
 
 
@@ -196,6 +257,9 @@ def _cmd_doctor(args) -> int:
             state = "on " if item["enabled"] else "off"
             print(f"  [{state}] {item['id']} v{item['version']} · "
                   f"{','.join(item['events'])}")
+            perms = item.get("permissions") or []
+            print(f"        permisos: {','.join(perms) if perms else '(mínimos)'} · "
+                  f"{item.get('signature', 'sin firma')}")
     print("\nissues:" if report["issues"] else "\nissues: ninguno")
     for issue in report["issues"]:
         print(f"  ! {issue}")
@@ -220,6 +284,8 @@ def main() -> int:
                            help="subdirectorio del repo donde vive hook.json")
     p_install.add_argument("--sha256", default=None,
                            help="digest esperado del árbol (aborta si no coincide)")
+    p_install.add_argument("--require-signature", action="store_true",
+                           help="falla si el paquete no está firmado por una clave confiable")
 
     p_remove = sub.add_parser("remove", help="desinstala un paquete")
     p_remove.add_argument("id")
@@ -235,6 +301,17 @@ def main() -> int:
         p = sub.add_parser(name, help=f"{name} un paquete instalado")
         p.add_argument("id")
 
+    p_keys = sub.add_parser("keys", help="claves ed25519 confiables")
+    p_keys.add_argument("action", choices=["list", "add", "remove"])
+    p_keys.add_argument("id", nargs="?")
+    p_keys.add_argument("--public-key", default=None,
+                        help="base64 de la clave pública o path a un .pub")
+
+    p_sign = sub.add_parser("sign", help="firma un paquete con una clave privada")
+    p_sign.add_argument("path")
+    p_sign.add_argument("--key", required=True, help="PEM de la clave privada")
+    p_sign.add_argument("--id", required=True, help="id de la clave (el de keys add)")
+
     p_digest = sub.add_parser("digest", help="calcula el sha256 de un paquete")
     p_digest.add_argument("source")
     p_digest.add_argument("--ref", default=None)
@@ -249,6 +326,8 @@ def main() -> int:
         "install": _cmd_install,
         "update": _cmd_update,
         "digest": _cmd_digest,
+        "keys": _cmd_keys,
+        "sign": _cmd_sign,
         "remove": _cmd_remove,
         "enable": _cmd_toggle,
         "disable": _cmd_toggle,

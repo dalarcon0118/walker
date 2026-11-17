@@ -204,3 +204,51 @@ y un hook inline que declara uno inexistente aparece en `doctor`.
 | `task.after` | `TaskRegistry` (hook inyectado por composition) | `task, task_id, session_id, ok, error, chain_dir` |
 
 Agregar un evento = agregarlo al catálogo + emitirlo desde quien lo produce.
+
+### Firmas: integridad y autoría
+
+El digest solo no prueba autoría. Un paquete puede firmarse con ed25519 y
+verificarse contra una lista de claves confiables del usuario:
+
+```bash
+# autor: genera el par de claves y firma el paquete
+python3 -m scripts.hooks_cli keys --help          # ver subcomandos
+python3 scripts/hooks_cli.py sign ./notify-slack --key david.pem --id david
+# (el par se genera con generate_keypair(".", "david") de
+#  fast_mcp.shared_kernel.hooks.signature)
+
+# usuario: confía en la clave (una sola vez) e instala exigiendo firma
+python3 scripts/hooks_cli.py keys add david --public-key david.pub
+python3 scripts/hooks_cli.py keys list
+python3 scripts/hooks_cli.py install github:user/notify-slack#v1.2.0 --require-signature
+```
+
+Se firma el **digest del árbol**, no el archivo: cualquier cambio posterior en
+cualquier archivo invalida la firma (`hook.sig.json` queda fuera del digest).
+Una firma de una clave que no está en `~/.walker/trusted_keys.json` se rechaza
+con el id de la clave, para que decidas explícitamente si confiás en ella.
+`doctor` muestra `firmado por <id>` o `sin firma`.
+
+Límites: la firma prueba que el contenido lo firmó esa clave; no prueba que la
+clave sea de quien dice ser (eso es gestión de claves, fuera de alcance), ni
+protege si la clave privada se filtra.
+
+### Permisos
+
+El manifiesto declara lo que el hook necesita; el vocabulario es cerrado (un
+typo falla al instalar):
+
+| Permiso | Efecto |
+|---|---|
+| `env:all` | hereda TODO el entorno; sin esto, el hook corre con PATH/HOME/LANG/TMPDIR/WALKER_* |
+| `network` | permite red; sin esto, en macOS `sandbox-exec` la deniega |
+| `exec` | declara que lanza subprocesos (informativo: no se puede impedir) |
+| `fs:repo`, `fs:tmp` | declara alcance de archivos (informativo) |
+
+El entorno mínimo es la parte con enforcement real y multiplataforma: un hook no
+ve `AWS_SECRET_ACCESS_KEY` ni `GITHUB_TOKEN` salvo que pida `env:all`. En macOS
+la red se deniega con `sandbox-exec` (verificado en test); en Linux/Windows no
+hay mecanismo sin privilegios, así que el permiso queda como intención declarada
+y `doctor` no lo marca como garantizado. Esto no es una jaula: un hook es código
+que corre con tu usuario. La decisión de instalar (y firmar) sigue siendo el
+límite de seguridad.

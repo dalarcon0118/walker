@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -67,6 +68,7 @@ class HookSpec:
     blocking: bool = False
     source: str = "global"              # global | project | package:global | package:project
     version: str = ""                   # versión del paquete (si aplica)
+    permissions: tuple[str, ...] = ()   # fs:repo, exec, network, env:all, ...
 
     def matches(self, event: str) -> bool:
         return event in (self.events or (self.event,))
@@ -117,6 +119,48 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+_ENV_ALLOWLIST = {
+    "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TERM",
+    "TMPDIR", "SHELL", "USER", "LOGNAME", "PWD",
+}
+
+
+def _scrub_env(env: dict[str, str], permissions: tuple[str, ...]) -> dict[str, str]:
+    """Entorno mínimo: sin tokens del usuario, salvo que se pida `env:all`.
+
+    Un hook no necesita `AWS_SECRET_ACCESS_KEY` ni `GITHUB_TOKEN` para
+    reindexar el CPG. `env:all` es explícito porque hereda secretos.
+    """
+    if "env:all" in permissions:
+        return dict(env)
+    return {
+        key: value
+        for key, value in env.items()
+        if key in _ENV_ALLOWLIST or key.startswith("WALKER_")
+    }
+
+
+def _wrap_command(command: str, permissions: tuple[str, ...]) -> str:
+    """Sin `network`, se niega la red con sandbox-exec (macOS), best-effort.
+
+    En Linux/Windows no hay un mecanismo sin privilegios disponible: se corre
+    sin aislamiento y `doctor` lo informa. El permiso es una intención
+    declarada, no una jaula garantizada.
+    """
+    if "network" in permissions or sys.platform != "darwin":
+        return command
+    if not shutil.which("sandbox-exec"):
+        return command
+    # `sh -c` adentro: sin esto, sandbox-exec ejecuta el primer token como
+    # binario y se pierden builtins, redirecciones y pipes del comando original.
+    import shlex
+
+    return (
+        "sandbox-exec -p '(version 1)(allow default)(deny network*)' sh -c "
+        + shlex.quote(command)
+    )
+
+
 def _parse_specs(data: dict[str, Any], source: str) -> list[HookSpec]:
     specs: list[HookSpec] = []
     for raw in data.get("hooks") or []:
@@ -141,6 +185,7 @@ def _parse_specs(data: dict[str, Any], source: str) -> list[HookSpec]:
             timeout_s=int(raw.get("timeout_s") or 10),
             blocking=bool(raw.get("blocking", False)),
             source=source,
+            permissions=tuple(str(p) for p in (raw.get("permissions") or [])),
         ))
     return specs
 
@@ -243,6 +288,7 @@ class HookBus:
                     blocking=pkg.blocking,
                     source=f"package:{scope}",
                     version=pkg.version,
+                    permissions=pkg.permissions,
                 )
 
         for hook_id in project_data.get("disabled") or []:
@@ -299,14 +345,14 @@ class HookBus:
         started = time.time()
         try:
             proc = subprocess.run(
-                spec.command,
+                _wrap_command(spec.command, spec.permissions),
                 shell=True,
                 cwd=str(self.project_root),
                 input=stdin_body,
                 capture_output=True,
                 text=True,
                 timeout=spec.timeout_s,
-                env=env,
+                env=_scrub_env(env, spec.permissions),
             )
             result = HookResult(
                 hook_id=spec.id, event=spec.event, ok=proc.returncode == 0,

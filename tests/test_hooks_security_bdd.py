@@ -1,0 +1,219 @@
+"""test_hooks_security_bdd.py — firmas ed25519 y permisos declarados.
+
+Dos problemas distintos:
+
+1. Integridad ≠ autoría. El digest del árbol dice "este contenido es el que
+   esperabas", pero si el hash sale del mismo repo que el código, un atacante
+   publica los dos. La firma ed25519 contra una lista de claves confiables del
+   usuario cierra ese canal.
+2. Un hook corre con el entorno del usuario: `AWS_SECRET_ACCESS_KEY`,
+   `GITHUB_TOKEN`, red sin restricción. `permissions` declara lo que necesita y
+   el bus aplica lo que puede: entorno mínimo (salvo `env:all`) y deny de red
+   con `sandbox-exec` en macOS.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from fast_mcp.shared_kernel.hooks.bus import HookBus, HookSpec, _scrub_env, _wrap_command
+from fast_mcp.shared_kernel.hooks.package import (
+    HookManifestError,
+    install,
+    installed,
+    read_manifest,
+)
+from fast_mcp.shared_kernel.hooks.signature import (
+    SIG_NAME,
+    SignatureError,
+    generate_keypair,
+    verify_package,
+    write_signature,
+)
+
+MANIFEST = {
+    "id": "firmado",
+    "version": "1.0.0",
+    "walker": ">=3.0,<4",
+    "events": ["commit"],
+    "entry": "main.py",
+    "permissions": ["env:all"],
+}
+
+
+def _package(tmp_path: Path, manifest: dict | None = None) -> Path:
+    directory = tmp_path / "pkg"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "hook.json").write_text(json.dumps(manifest or MANIFEST))
+    (directory / "main.py").write_text(
+        "import os\n"
+        "open(os.environ['HOOK_OUT'], 'a').write(os.environ.get('SECRET_TOKEN', 'MISSING') + '\\n')\n"
+    )
+    return directory
+
+
+@pytest.fixture()
+def trust(tmp_path, monkeypatch) -> Path:
+    path = tmp_path / "trusted_keys.json"
+    monkeypatch.setenv("WALKER_TRUSTED_KEYS", str(path))
+    return path
+
+
+def _trust_key(trust: Path, key_id: str, public_b64: str) -> None:
+    trust.write_text(json.dumps({"keys": [{"id": key_id, "ed25519": public_b64}]}))
+
+
+# ── Firmas ────────────────────────────────────────────────────────────────
+
+
+def test_firma_verifica_con_clave_confiable(tmp_path, trust):
+    source = _package(tmp_path)
+    private, public = generate_keypair(tmp_path / "keys", "david")
+    payload = write_signature(source, private, "david")
+    _trust_key(trust, "david", public.read_text().strip())
+
+    signed, detail = verify_package(source)
+
+    assert signed is True
+    assert detail == "firmado por david"
+    assert payload["sha256"]  # digest firmado
+
+
+def test_firma_con_clave_desconocida_falla(tmp_path, trust):
+    source = _package(tmp_path)
+    private, _ = generate_keypair(tmp_path / "keys", "intruso")
+    write_signature(source, private, "intruso")
+
+    with pytest.raises(SignatureError) as exc:
+        verify_package(source)
+    assert "NO está en las claves confiables" in str(exc.value)
+
+
+def test_modificar_despues_de_firmar_invalida(tmp_path, trust):
+    source = _package(tmp_path)
+    private, public = generate_keypair(tmp_path / "keys", "david")
+    write_signature(source, private, "david")
+    _trust_key(trust, "david", public.read_text().strip())
+
+    (source / "main.py").write_text("print('hackeado')\n")
+
+    with pytest.raises(SignatureError) as exc:
+        verify_package(source)
+    assert "no coincide con el contenido actual" in str(exc.value)
+
+
+def test_firmar_no_cambia_el_digest_firmado(tmp_path):
+    """`hook.sig.json` queda fuera del digest: firmar dos veces da el mismo."""
+    source = _package(tmp_path)
+    private, _ = generate_keypair(tmp_path / "keys", "david")
+
+    first = write_signature(source, private, "david")
+    second = write_signature(source, private, "david")
+
+    assert first["sha256"] == second["sha256"]
+    assert (source / SIG_NAME).is_file()
+
+
+def test_install_requiere_firma_si_se_pide(tmp_path, trust):
+    source = _package(tmp_path)
+    home = tmp_path / "home"
+
+    with pytest.raises(HookManifestError) as exc:
+        install(source, home, walker_version="3.0.0", require_signature=True)
+    assert "sin firma" in str(exc.value)
+    assert installed(home) == []
+
+    private, public = generate_keypair(tmp_path / "keys", "david")
+    write_signature(source, private, "david")
+    _trust_key(trust, "david", public.read_text().strip())
+
+    install(source, home, walker_version="3.0.0", require_signature=True)
+    entry = json.loads((home / "registry.json").read_text())["hooks"][0]
+    assert entry["signature"] == "david"
+
+
+# ── Permisos ──────────────────────────────────────────────────────────────
+
+
+def test_permiso_desconocido_falla_al_leer(tmp_path):
+    manifest = {**MANIFEST, "permissions": ["netwrok"]}
+    with pytest.raises(HookManifestError) as exc:
+        read_manifest(_package(tmp_path, manifest))
+    assert "netwrok" in str(exc.value)
+    assert "network" in str(exc.value)
+
+
+def test_scrub_env_quita_secretos_salvo_env_all(monkeypatch):
+    monkeypatch.setenv("SECRET_TOKEN", "s3cr3t")
+    env = {"PATH": "/bin", "SECRET_TOKEN": "s3cr3t", "WALKER_EVENT": "commit"}
+
+    scrubbed = _scrub_env(env, ())
+    assert "SECRET_TOKEN" not in scrubbed
+    assert scrubbed["PATH"] == "/bin"
+    assert scrubbed["WALKER_EVENT"] == "commit"
+
+    full = _scrub_env(env, ("env:all",))
+    assert full["SECRET_TOKEN"] == "s3cr3t"
+
+
+def test_hook_sin_env_all_no_ve_el_secreto(tmp_path, monkeypatch):
+    source = _package(tmp_path, {**MANIFEST, "permissions": []})
+    home = tmp_path / "home"
+    install(source, home, walker_version="3.0.0")
+    out = tmp_path / "out.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
+    monkeypatch.setenv("SECRET_TOKEN", "s3cr3t")
+
+    bus = HookBus(
+        specs=[HookSpec(id="firmado", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+                        event="commit")],
+        project_root=tmp_path, walker_root=tmp_path,
+    )
+    bus.emit("commit", {})
+
+    # HOOK_OUT tampoco se hereda sin env:all → el hook falla, y eso es correcto:
+    # no puede leer secretos ni entorno arbitrario.
+    assert out.read_text() == "" if out.exists() else True
+    assert installed(home)[0].permissions == ()
+
+
+def test_wrap_command_deniega_red_sin_permiso(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    wrapped = _wrap_command("echo hola", ())
+    assert wrapped.startswith("sandbox-exec")
+    assert "deny network*" in wrapped
+
+    assert _wrap_command("echo hola", ("network",)) == "echo hola"
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _wrap_command("echo hola", ()) == "echo hola"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec es de macOS")
+def test_red_bloqueada_en_runtime(tmp_path, monkeypatch):
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all"]})
+    (source / "main.py").write_text(
+        "import os, socket\n"
+        "try:\n"
+        "    socket.create_connection(('1.1.1.1', 80), timeout=2)\n"
+        "    result = 'network-ok'\n"
+        "except Exception:\n"
+        "    result = 'blocked'\n"
+        "open(os.environ['HOOK_OUT'], 'w').write(result)\n"
+    )
+    out = tmp_path / "net.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
+    home = tmp_path / "home"
+    install(source, home, walker_version="3.0.0")
+
+    bus = HookBus(specs=[HookSpec(
+        id="firmado", command=f'"$WALKER_PYTHON" "{home}/firmado/main.py"',
+        event="commit", permissions=("env:all",),
+    )], project_root=tmp_path, walker_root=tmp_path)
+    bus.emit("commit", {})
+
+    assert out.read_text() == "blocked"

@@ -35,6 +35,18 @@ logger = logging.getLogger(__name__)
 
 MANIFEST_NAME = "hook.json"
 REGISTRY_NAME = "registry.json"
+SIGNATURE_NAME = "hook.sig.json"
+
+# Vocabulario cerrado: un permiso desconocido en el manifiesto es un typo y se
+# rechaza al instalar (un `netwrok` que se ignora en silencio es peor que no
+# declararlo).
+PERMISSIONS: dict[str, str] = {
+    "fs:repo": "leer/escribir dentro del repo",
+    "fs:tmp": "usar el directorio temporal",
+    "exec": "lanzar subprocesos",
+    "network": "acceso a red",
+    "env:all": "heredar TODO el entorno (incluye secretos)",
+}
 HOOKS_HOME_ENV = "WALKER_HOOKS_HOME"
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
@@ -59,6 +71,8 @@ class HookPackage:
     enabled: bool = True
     source: str = ""
     installed_at: str = ""
+    permissions: tuple[str, ...] = ()
+    signature: str = ""  # key_id que firmó, "" si no está firmado
 
     def command(self) -> str:
         target = self.path / self.entry
@@ -172,6 +186,15 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
         raise HookManifestError("falta 'entry' (script a ejecutar)")
     if not (directory / entry).is_file():
         raise HookManifestError(f"entry inexistente: {directory / entry}")
+    permissions = manifest.get("permissions") or []
+    if not isinstance(permissions, list):
+        raise HookManifestError("'permissions' debe ser una lista")
+    unknown_perms = [str(p) for p in permissions if str(p) not in PERMISSIONS]
+    if unknown_perms:
+        raise HookManifestError(
+            f"permisos desconocidos: {', '.join(unknown_perms)} · válidos: "
+            f"{', '.join(PERMISSIONS)}"
+        )
 
     return HookPackage(
         id=hook_id,
@@ -184,6 +207,7 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
         blocking=bool(manifest.get("blocking", False)),
         description=str(manifest.get("description", "")),
         scope=scope,
+        permissions=tuple(str(p) for p in permissions),
     )
 
 
@@ -242,6 +266,8 @@ def tree_digest(directory: str | Path) -> str:
             continue
         if rel.endswith(_IGNORE_SUFFIX) or rel == ".DS_Store":
             continue
+        if rel == SIGNATURE_NAME:
+            continue  # firmar no puede cambiar el hash firmado
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
@@ -303,6 +329,7 @@ def install(
     ref: str | None = None,
     subdir: str = "",
     expect_sha256: str | None = None,
+    require_signature: bool = False,
 ) -> HookPackage:
     """Instala un paquete local o desde git (ref opcional, pinneado al commit).
 
@@ -332,6 +359,23 @@ def install(
             raise HookManifestError(f"{package.id}: {incompatible}")
 
         _reject_symlinks(source_dir)
+
+        from fast_mcp.shared_kernel.hooks.signature import (
+            SignatureError,
+            verify_package,
+        )
+
+        try:
+            sig_ok, sig_detail = verify_package(source_dir, require=require_signature)
+        except SignatureError as exc:
+            raise HookManifestError(f"{package.id}: {exc}") from exc
+        if not sig_ok:
+            raise HookManifestError(
+                f"{package.id}: {sig_detail} y se exigió firma "
+                "(--require-signature)"
+            )
+        signature_key = sig_detail.split()[-1] if sig_detail.startswith("firmado por") else ""
+
         source_digest = tree_digest(source_dir)
         if expect_sha256:
             expected = expect_sha256.strip().lower()
@@ -383,6 +427,8 @@ def install(
             "subdir": subdir,
             "sha256": source_digest,
             "digest": DIGEST_ALGO,
+            "signature": signature_key,
+            "permissions": list(installed_pkg.permissions),
             "enabled": True,
             "installed_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -531,11 +577,24 @@ def doctor_report(
         drifted = {item["id"]: item for item in verify_installed(root)}
         for package in installed(root, scope=scope):
             problem = check_compat(package, walker_version)
+            from fast_mcp.shared_kernel.hooks.signature import (
+                SignatureError,
+                verify_package,
+            )
+
+            try:
+                signed, sig_detail = verify_package(root / package.id)
+            except SignatureError as exc:
+                signed, sig_detail = False, f"firma inválida: {exc}"
             report[scope].append({
                 "id": package.id, "version": package.version,
                 "events": list(package.events), "enabled": package.enabled,
                 "source": package.source, "problem": problem,
+                "permissions": list(package.permissions),
+                "signed": signed, "signature": sig_detail,
             })
+            if not signed:
+                report["issues"].append(f"{scope}/{package.id}: {sig_detail}")
             if problem:
                 report["issues"].append(f"{scope}/{package.id}: {problem}")
             if not package.enabled:

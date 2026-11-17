@@ -37,6 +37,8 @@ MANIFEST = {
     "entry": "main.py",
     "timeout_s": 10,
     "description": "hook de prueba",
+    # el hook de prueba escribe en $HOOK_OUT: necesita el entorno completo
+    "permissions": ["env:all"],
 }
 
 
