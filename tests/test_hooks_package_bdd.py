@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from fast_mcp.shared_kernel.hooks import package as pkg_mod
-from fast_mcp.shared_kernel.hooks.bus import HookBus
+from fast_mcp.shared_kernel.hooks.bus import HookBus, HookSpec
 from fast_mcp.shared_kernel.hooks.package import (
     HookManifestError,
     check_compat,
@@ -515,3 +515,55 @@ def test_install_rechaza_entry_no_ejecutable(tmp_path):
     with pytest.raises(HookManifestError):
         install(source, _home(tmp_path), walker_version="3.0.0")
     assert installed(_home(tmp_path)) == []
+
+
+# ── PYTHONPATH: `import fast_mcp` no depende de la instalación ─────────────
+
+def test_with_pythonpath_prefija_y_dedupea():
+    from fast_mcp.shared_kernel.hooks.bus import _with_pythonpath
+
+    assert _with_pythonpath({}, "/walker")["PYTHONPATH"] == "/walker"
+    env = _with_pythonpath({"PYTHONPATH": "/a:/walker:/b"}, "/walker")
+    assert env["PYTHONPATH"] == "/walker:/a:/b"
+
+
+def test_hook_python_importa_fast_mcp_desde_el_root(tmp_path, monkeypatch):
+    """El entry .py corre con cwd=<repo> y sin walker instalado en el cwd."""
+    project = tmp_path / "repo"
+    project.mkdir()
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all", "fs:repo"]})
+    (source / "main.py").write_text(
+        "from fast_mcp.shared_kernel.hooks.events import known_events\n"
+        "print(len(known_events()))\n"
+    )
+    bus = HookBus(
+        specs=[HookSpec(id="py", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+                        event="commit", permissions=("env:all", "fs:repo"))],
+        project_root=project, walker_root=Path(__file__).resolve().parents[1],
+    )
+
+    result = bus.emit("commit", {})[0]
+
+    assert result.ok is True, result.stderr
+    assert result.stdout.strip().isdigit(), "el import de fast_mcp debe resolver"
+
+
+def test_pythonpath_hereda_el_valor_del_usuario(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", "/custom/path")
+    project = tmp_path / "repo"
+    project.mkdir()
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all", "fs:repo"]})
+    (source / "main.py").write_text(
+        "import os\nprint(os.environ.get('PYTHONPATH', ''))\n"
+    )
+    walker_root = Path(__file__).resolve().parents[1]
+    bus = HookBus(
+        specs=[HookSpec(id="py", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+                        event="commit", permissions=("env:all", "fs:repo"))],
+        project_root=project, walker_root=walker_root,
+    )
+
+    out = bus.emit("commit", {})[0].stdout.strip().split(":")
+
+    assert out[0] == str(walker_root)
+    assert "/custom/path" in out

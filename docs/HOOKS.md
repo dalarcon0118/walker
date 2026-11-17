@@ -212,6 +212,13 @@ Los hooks inline (`hooks.json`) son shell puro: `"command": "jq -r .task | ..."`
 funciona sin manifiesto. El payload llega por stdin y `WALKER_EVENT`/`WALKER_REPO`
 por entorno.
 
+Para hooks Python, el entorno incluye `PYTHONPATH` con el root de walker
+prefijado (y el valor heredado del usuario, sin duplicar). Así `import fast_mcp`
+apunta al repo aunque el intérprete no tenga el paquete instalado; es inocuo para
+los hooks que no son Python. Los módulos hermanos del paquete (`import helper`)
+funcionan sin configuración porque Python agrega el directorio del script a
+`sys.path`.
+
 ## Catálogo de eventos
 
 Los eventos son un catálogo explícito (`shared_kernel/hooks/events.py`), no

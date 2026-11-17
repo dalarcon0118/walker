@@ -122,6 +122,8 @@ def _read_json(path: Path) -> dict[str, Any]:
 _ENV_ALLOWLIST = {
     "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TERM",
     "TMPDIR", "SHELL", "USER", "LOGNAME", "PWD",
+    # no es un secreto: un hook Python puede depender de paths propios
+    "PYTHONPATH",
 }
 
 
@@ -186,6 +188,21 @@ def _fs_profile(
     parts.append('(allow file-write* (literal "/dev/null"))')
     parts.append('(allow file-write* (literal "/dev/tty"))')
     return "".join(parts)
+
+
+def _with_pythonpath(env: dict[str, str], walker_root: str | Path) -> dict[str, str]:
+    """Prefija `PYTHONPATH` con el root de walker.
+
+    Un entry `.py` corre con `$WALKER_PYTHON`, pero `import fast_mcp` solo
+    resolvía si ese intérprete tenía walker instalado (venv editable). Con el
+    root en PYTHONPATH, el import apunta al repo pase lo que pase con la
+    instalación. Es inocuo para hooks que no son Python.
+    """
+    root = str(walker_root)
+    inherited = [p for p in (env.get("PYTHONPATH") or "").split(os.pathsep) if p]
+    env = dict(env)
+    env["PYTHONPATH"] = os.pathsep.join([root, *[p for p in inherited if p != root]])
+    return env
 
 
 def _wrap_command(
@@ -423,7 +440,7 @@ class HookBus:
                 capture_output=True,
                 text=True,
                 timeout=spec.timeout_s,
-                env=_scrub_env(env, spec.permissions),
+                env=_with_pythonpath(_scrub_env(env, spec.permissions), self.walker_root),
             )
             result = HookResult(
                 hook_id=spec.id, event=spec.event, ok=proc.returncode == 0,
