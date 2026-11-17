@@ -459,3 +459,23 @@ prefijo `auto-` para poder distinguirlas de las declaradas a mano.
 
 Efecto colateral esperado: al existir `activeTask`, la inyección del workflow y
 el gate de negación (si está encendido) empiezan a aplicar desde esa escritura.
+
+### El objetivo de la tarea es el pedido real
+
+El hook `context` recibe `event.messages` (conversación completa). La
+auto-declaración toma el **primer** mensaje de rol `user` —no el último, que
+puede ser un seguimiento o un resultado de tool—, lo aplana a una línea, lo
+corta a 240 chars y lo usa como `objective`:
+
+```
+task_autodeclared  objective "Agregá a b.py una función triple(a) que multiplique
+                             por tres, con docstring."
+                   files ["b.py"] · task_context.task_id auto-ZCqO3IIXba
+```
+
+Si la conversación no trae texto de usuario (sesión sin prompt), cae a
+«cambios sobre <archivo>» como antes.
+
+De paso, el hook crashaba con `state.data` nulo (`null is not an object
+(evaluating 'state.data.position')`) y se llevaba la sesión entera: ahora lee
+`state.data?.position`.

@@ -39,6 +39,7 @@ let activeTask = null
 // Baseline calculado en la primera lectura de archivo de la sesión. Se inyecta
 // en el siguiente turno: el agente lo recibe justo cuando empieza a mirar
 // código, sin tener que acordarse de pedirlo.
+let sessionGoal = ""
 let pendingBaseline = null
 let baselineDone = false
 let projectDir = ""
@@ -70,6 +71,20 @@ function relPath(file) {
   const base = String(projectDir || "").replace(/\/+$/, "")
   if (base && p.startsWith(base + "/")) return p.slice(base.length + 1)
   return p
+}
+
+function firstUserText(event) {
+  // `event.messages` trae la conversación; el pedido original es el PRIMER
+  // mensaje de rol user (el último puede ser un seguimiento o un tool result).
+  const msgs = event?.messages || []
+  const user = msgs.find((m) => (m?.role || "") === "user")
+  const content = user?.content
+  const parts = Array.isArray(content) ? content : (content ? [content] : [])
+  const text = parts
+    .map((p) => (typeof p === "string" ? p : p?.type === "text" ? p.text : ""))
+    .filter(Boolean)
+    .join(" ")
+  return String(text).replace(/\s+/g, " ").trim().slice(0, 240)
 }
 
 function taskIdFor(sessionID) {
@@ -217,6 +232,7 @@ export default {
         refresh()
         const sid = event.sessionID || event.sessionId || ""
         const entry = sessionOf(sid)
+        if (!sessionGoal) sessionGoal = firstUserText(event)
         if (pendingBaseline) {
           event.system.push({ type: "text", text: pendingBaseline })
           pendingBaseline = null
@@ -231,7 +247,7 @@ export default {
         if (!block) return
         event.system.push({ type: "text", text: block })
         entry.injections += 1
-        entry.position = state.data.position
+        entry.position = state.data?.position || ""
       })
     } catch {
       // Sin el hook tipado no se inyecta; el plugin no debe romper la sesión.
@@ -349,7 +365,7 @@ export default {
                 const taskId = taskIdFor(callCtx?.sessionID)
                 const res = runTool("implement_task", {
                   task_id: taskId,
-                  objective: `cambios sobre ${file || "el proyecto"}`,
+                  objective: sessionGoal || `cambios sobre ${file || "el proyecto"}`,
                   files: file ? [file] : [],
                 })
                 if (res && res.ok !== false) {
