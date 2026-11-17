@@ -39,10 +39,14 @@ class CodeContextUseCase:
                 if s.get("name")
             ]
 
-        # Relations via graph
+        # Relations via graph.
+        # Los nodos del CPG exponen `path`, NO `file`: la versión anterior
+        # filtraba por `hasattr(n, "file")` así que `file_nodes` salía vacío
+        # SIEMPRE y `relations` se devolvía en cero aunque el grafo tuviera
+        # 16.796 edges (medido 2026-11-17: 17 símbolos, 0 calls, 0 called_by).
         file_nodes = [
             n for n in self._graph.nodes.values()
-            if hasattr(n, "file") and target_file in (n.file or "")
+            if target_file in str(getattr(n, "path", "") or getattr(n, "file", "") or "")
         ]
         relations = self._build_relations(file_nodes)
 

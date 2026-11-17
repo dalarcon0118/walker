@@ -228,20 +228,67 @@ def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
 
 
 def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
-    """Consolidated delta+ckg+cpg+trace query with cross-references."""
+    """Contexto consolidado: CKG + CPG (impacto) + TRACE.
+
+    Devolvía SOLO CKG, aunque el contrato dice "delta+ckg+cpg+trace con
+    cross-references". Era el tool que el agente más llama y la mitad de la
+    navegación (a qué afecta el cambio) nunca llegaba.
+    """
     from returns.pipeline import is_successful
 
     from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import CkgReadService
 
-    body = kwargs.get("_payload", kwargs)
+    body = kwargs.get("_payload", kwargs) or {}
     ckg_q = body.get("ckg", {}) or {}
-    query = ckg_q.get("text", ckg_q.get("query", ""))
-    result = CkgReadService.gather_context(ctx.chain_dir, query=query)
-    return {
+    query = ckg_q.get("text", ckg_q.get("query", "")) or body.get("text", "") or ""
+    target_file = body.get("file", "") or kwargs.get("file", "")
+
+    out: dict[str, Any] = {
         "type": "agent_context",
         "project_id": kwargs.get("_project_id", ctx.project_id),
-        "ckg": {"results": result.value_or([]) if is_successful(result) else []},
+        "file": target_file,
+        "text": query,
     }
+
+    # CKG: decisiones y convenciones del scope.
+    result = CkgReadService.gather_context(ctx.chain_dir, query=query or target_file)
+    out["ckg"] = {"results": result.value_or([]) if is_successful(result) else []}
+
+    # CPG: qué toca este archivo/símbolo (llamadas, llamadores, imports).
+    if target_file or query:
+        try:
+            cpg = ctx.code_context_service().execute(
+                target_file=target_file, query="" if target_file else query
+            )
+            # Recortar la lista de relaciones: 30 llamadores con 3 campos cada
+            # uno son ~1k tokens de ruido. Se informa el total y se dejan 10.
+            rel = cpg.get("relations") if isinstance(cpg, dict) else None
+            if isinstance(rel, dict):
+                for key, items in list(rel.items()):
+                    if isinstance(items, list) and len(items) > 10:
+                        rel[key] = items[:10]
+                        rel[f"{key}_total"] = len(items)
+            out["cpg"] = cpg
+        except Exception as exc:  # noqa: BLE001
+            out["cpg"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    # TRACE: los últimos eventos del proyecto (intentos previos, fallos).
+    try:
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+        )
+
+        service = build_trace_service(ctx.chain_dir)
+        if service is not None:
+            events = service.load_traces(ctx.chain_dir)[-8:]
+            out["trace"] = [
+                {"event": e.event_type, "at": (e.timestamp or "")[:19], "data": e.data}
+                for e in events
+            ]
+    except Exception:  # noqa: BLE001
+        pass
+
+    return out
 
 
 def handle_index_repo(ctx: MemoryContext, **kwargs: Any) -> dict:
