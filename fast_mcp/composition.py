@@ -519,8 +519,12 @@ def _build_task_registry(sprint_service=None):
             BaselineService,
         )
         from fast_mcp.features.tasks.handlers import baseline as baseline_handlers
+        from fast_mcp.features.tasks.handlers import implement as implement_handlers
 
         baseline_handlers.configure(lambda chain_dir: BaselineService(chain_dir))
+        # `implement_task` persiste la spec en el delta: sin esta factory el
+        # delta queda vacío y el ancla de tarea del contexto no existe.
+        implement_handlers.configure(build_sprint_service)
     except Exception as exc:  # noqa: BLE001
         logger.warning("baseline handler no configurado (%s: %s)", type(exc).__name__, exc)
 

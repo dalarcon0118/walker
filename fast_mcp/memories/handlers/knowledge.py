@@ -291,7 +291,14 @@ def _find_task_spec(chain_dir: str, task_id: str) -> dict | None:
                 continue
             seen.add(spring_id)
             for spec in service.get_specs(spring_id) or []:
-                if task_id in (str(spec.get("spec_id", "")), str(spec.get("objective", ""))):
+                # `implement_task` guarda el id real en `task_context.task_id`
+                # (el spec_id es autogenerado: SPEC-00N).
+                ctx_data = spec.get("task_context") or {}
+                if task_id in (
+                    str(spec.get("spec_id", "")),
+                    str(spec.get("objective", "")),
+                    str(ctx_data.get("task_id", "")),
+                ):
                     return spec
             found = service.get_spec(spring_id, task_id)
             if found:

@@ -11,7 +11,76 @@ import subprocess
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
+
+# R1: tasks no importa delta_tracking. El composition root inyecta una factory
+# `chain_dir -> SprintService`. Sin ella `implement_task` no persiste la spec y
+# el ancla de tarea del contexto no puede existir.
+_SPRINT_FACTORY = None
+
+
+def configure(sprint_factory) -> None:
+    global _SPRINT_FACTORY
+    _SPRINT_FACTORY = sprint_factory
 from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspect_codebase
+
+
+def _persist_spec(
+    ctx: ExecutionContext, task_id: str, objective: str, files: list[str], data: dict
+) -> dict | None:
+    """Crea o actualiza la spec de la tarea en el delta."""
+    if _SPRINT_FACTORY is None or not ctx.chain_dir:
+        return None
+    service = _SPRINT_FACTORY(ctx.chain_dir)
+    if service is None:
+        return None
+
+    spring = service.get_active_spring()
+    if not spring:
+        springs = service.list_springs() or []
+        spring = springs[0] if springs else None
+    if not spring:
+        spring = service.create_spring("SPR-ADHOC", goal="tareas declaradas en sesión")
+    spring_id = str(spring.get("spring_id") or spring.get("id") or "")
+    if not spring_id:
+        return None
+
+    base = {
+        "objective": objective or task_id or "tarea sin objetivo",
+        "files": files,
+        "status": "in_progress",
+        "task_context": {
+            "task_id": task_id,
+            "session_id": ctx.session_id or "",
+        },
+    }
+
+    # Si ya existe una spec de esta tarea, se actualiza (no se duplica).
+    for spec in service.get_specs(spring_id) or []:
+        ctx_data = spec.get("task_context") or {}
+        if task_id and (ctx_data.get("task_id") == task_id or spec.get("objective") == objective):
+            updated = service.update_spec(spring_id, str(spec.get("spec_id")), base)
+            return updated or spec
+
+    return service.add_spec(
+        spring_id,
+        objective=base["objective"],
+        files=files,
+        spec_type=str(data.get("spec_type", "fix") or "fix"),
+        status="in_progress",
+        description=str(data.get("description", "") or ""),
+    ) and _attach_task_context(service, spring_id, task_id, ctx.session_id, files, objective)
+
+
+def _attach_task_context(service, spring_id, task_id, session_id, files, objective) -> dict | None:
+    """`add_spec` no acepta `task_context`: se completa con un update."""
+    specs = service.get_specs(spring_id) or []
+    for spec in reversed(specs):
+        if str(spec.get("objective", "")) == (objective or task_id or "tarea sin objetivo"):
+            return service.update_spec(spring_id, str(spec.get("spec_id")), {
+                "task_context": {"task_id": task_id, "session_id": session_id or ""},
+                "files": files,
+            }) or spec
+    return specs[-1] if specs else None
 
 
 def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -25,11 +94,22 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if not isinstance(files, list):
         files = []
 
+    task_id = str(data.get("task_id") or ctx.task_id or "").strip()
     result: dict[str, Any] = {
-        "task_id": data.get("task_id") or ctx.task_id,
+        "task_id": task_id,
         "result_state": objective,
         "files_modified": files,
     }
+
+    # Persistir la tarea en el delta: es la ÚNICA forma de que el contexto del
+    # agente pueda anclarse en la tarea (delta → archivos → CPG → CKG). Antes
+    # sólo devolvía un dict y el delta quedaba vacío para siempre.
+    try:
+        spec = _persist_spec(ctx, task_id, objective, files, data)
+        if spec:
+            result["spec"] = {"spec_id": spec.get("spec_id"), "status": spec.get("status")}
+    except Exception as exc:  # noqa: BLE001 — fail-loud en el dato, no en la tool
+        result["spec_error"] = f"{type(exc).__name__}: {exc}"
 
     inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)
     if inspect_result is not None:
