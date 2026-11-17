@@ -76,3 +76,7 @@ Podfile.lock
 .DS_Store
 .env*
 *.local
+
+# Skills empaquetados (instrucciones + scripts de apoyo, no código de walker).
+# Se instalan con `scripts/hooks_cli.py install`, no se indexan en el CPG.
+skills-src/

@@ -176,8 +176,22 @@ Foto del entorno (se regenera con `python3 scripts/skills_gate_report.py`):
 
 | Entorno | Skills | VERIFY.QA (required) | Veredicto |
 |---|---|---|---|
-| walker | 3 globales | `frontend-design(2)` | pasa_sin_candidatos |
+| walker antes del bundle | 3 globales | `frontend-design(2)` | pasa_sin_candidatos |
+| walker con `skills-src/` | 6 | `code-review-checklist(6)` | bloquearía_sin_carga |
 | game_reset | 52 (proyecto) | `code-review-checklist(6)` | bloquearía_sin_carga |
+
+Walker shippea los skills que su propio gate necesita en `skills-src/`
+(`code-review-checklist`, `testing-patterns`, `clean-code`) con manifiesto
+`kind: skill`. Se instalan una vez:
+
+```bash
+for s in code-review-checklist testing-patterns clean-code; do
+  python3 scripts/hooks_cli.py install "skills-src/$s"
+done
+```
+
+`testing-patterns` declara `requires: [code-review-checklist]`, así que `doctor`
+detecta si falta la dependencia.
 
 El orquestador emite un evento `skill_gate` en cada submit
 (`outcome`: `blocked` / `passed` / `no_candidates`, con node/sub_state y

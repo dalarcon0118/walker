@@ -1,0 +1,8 @@
+{
+  "id": "code-review-checklist",
+  "kind": "skill",
+  "version": "1.0.0",
+  "description": "Code review guidelines: calidad, seguridad y buenas pr\u00e1cticas.",
+  "walker": ">=3.0,<4",
+  "requires": []
+}

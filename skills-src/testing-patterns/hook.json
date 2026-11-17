@@ -1,0 +1,10 @@
+{
+  "id": "testing-patterns",
+  "kind": "skill",
+  "version": "1.0.0",
+  "description": "Patrones de testing: unit, integraci\u00f3n y mocking.",
+  "walker": ">=3.0,<4",
+  "requires": [
+    "code-review-checklist"
+  ]
+}

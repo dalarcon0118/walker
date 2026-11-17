@@ -145,3 +145,30 @@ def test_install_de_skill_en_proyecto_va_a_cognitive_skills(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert (repo / ".cognitive" / "skills" / "ui-review" / "SKILL.md").is_file()
+
+
+def test_los_skills_empaquetados_cubren_el_gate_de_qa(tmp_path, monkeypatch):
+    """Los skills de review/testing que shippea walker hacen que el gate muerda.
+
+    Sin ellos, VERIFY.QA pasaba como "sin candidatos" (el único match era
+    frontend-design con score 2). Con el bundle, el candidato fuerte es
+    code-review-checklist.
+    """
+    from scripts.skills_gate_report import collect
+
+    home = tmp_path / "skills-home"
+    monkeypatch.setenv("WALKER_SKILLS_HOME", str(home))
+    bundled = WALKER_ROOT / "skills-src"
+    assert bundled.is_dir(), "falta skills-src/"
+    for package in sorted(bundled.iterdir()):
+        if package.is_dir():
+            install(package, home, walker_version="3.0.0", scope="walker")
+
+    report = collect(WALKER_ROOT)
+    qa = next(
+        row for row in report["rows"]
+        if row["node"] == "VERIFY" and row["sub_state"] == "QA"
+    )
+
+    assert qa["verdict"] == "bloquearía_sin_carga"
+    assert qa["candidates"][0] == "code-review-checklist"
