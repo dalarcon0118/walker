@@ -60,9 +60,69 @@ def run(cmd: list[str], cwd: Path, env: dict[str, str], timeout: int) -> tuple[i
         return 124, out + f"\n[timeout {timeout}s]", time.time() - started
 
 
-def session_usage(session_id: str | None) -> dict[str, float | None]:
-    """Lee tokens/costo de la sesión en la DB de OpenCode (best-effort)."""
-    empty = {"tokens_in": None, "tokens_out": None, "cost_usd": None}
+def model_label(raw: object) -> str | None:
+    """Normaliza el `model` de la sesión de OpenCode a "providerID/modelID".
+
+    La columna guarda un JSON ({"id": ..., "providerID": ...}) o nada. Sin
+    normalizar, el CSV solo podía mentir de dos formas: "(config)" cuando no se
+    pasó --model, o el pin aunque la sesión hubiera corrido con otro. Medido
+    2026-11-16: baseline pinned a deepseek-v4.1-flash vs rerun con el default
+    de la config → tokens 1,9x que parecían un efecto del código.
+    """
+    if not raw:
+        return None
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw or None
+    if isinstance(data, dict):
+        model_id = data.get("id") or data.get("modelID")
+        provider = data.get("providerID")
+        if model_id and provider:
+            return f"{provider}/{model_id}"
+        return str(model_id or provider or "") or None
+    return None
+
+
+def agent_default_model(agent: str, agents_dir: Path | None = None) -> str | None:
+    """Modelo que OpenCode usará si no se pineó: el del frontmatter del agente.
+
+    Sin esto el CSV no podía explicar nada: `--agent build` toma el modelo de
+    `~/.config/opencode/agents/build.md` (hoy `opencode/beam-free`), no el
+    default global. Medido 2026-11-16: baseline pinned a deepseek-v4.1-flash y
+    rerun corrió beam-free → tokens_in 1,9x que parecían efecto del código.
+    """
+    base = agents_dir or (Path.home() / ".config/opencode/agents")
+    for suffix in (".md", ".json", ".jsonc", ""):
+        path = base / f"{agent}{suffix}"
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        if suffix in (".json", ".jsonc"):
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict) and data.get("model"):
+                return str(data["model"])
+            continue
+        # Frontmatter YAML: primer bloque --- ... ---
+        match = re.search(r"^---\s*$(.+?)^---\s*$", text, re.MULTILINE | re.DOTALL)
+        block = match.group(1) if match else ""
+        found = re.search(r"^model:\s*[\"']?([^\s\"']+)", block, re.MULTILINE)
+        if found:
+            return found.group(1)
+    return None
+
+
+def session_usage(session_id: str | None) -> dict:
+    """Lee tokens/costo/modelo de la sesión en la DB de OpenCode (best-effort)."""
+    empty = {"tokens_in": None, "tokens_out": None, "cost_usd": None, "model": None}
     if not session_id:
         return empty
     db = Path.home() / ".local/share/opencode/opencode.db"
@@ -72,12 +132,18 @@ def session_usage(session_id: str | None) -> dict[str, float | None]:
         try:
             with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
                 row = conn.execute(
-                    f"SELECT tokens_input, tokens_output, cost FROM {table} WHERE id = ?",
+                    f"SELECT tokens_input, tokens_output, cost, model FROM {table} WHERE id = ?",
                     (session_id,),
                 ).fetchone()
             if row:
-                return {"tokens_in": row[0], "tokens_out": row[1], "cost_usd": row[2]}
+                return {
+                    "tokens_in": row[0],
+                    "tokens_out": row[1],
+                    "cost_usd": row[2],
+                    "model": model_label(row[3]),
+                }
         except sqlite3.Error:
+            # La tabla `session` (v1) no tiene la misma forma que session_v2.
             continue
     return empty
 
@@ -156,7 +222,9 @@ def main() -> int:
     ap.add_argument("--k", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=1, help="tareas en paralelo (cada una con su sandbox)")
     ap.add_argument("--agent", default="build")
-    ap.add_argument("--model", default=None)
+    ap.add_argument("--model", default=os.environ.get("HARNESS_MODEL"),
+                    help="modelo a pinear; si se omite se usa el default de la "
+                         "config y el CSV registra el que reporte la sesión")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     ap.add_argument("--filter", default=None, help="substring del id de tarea")
     ap.add_argument("--check-tasks", action="store_true",
@@ -205,6 +273,16 @@ def main() -> int:
     lock = threading.Lock()
     walker_ctx: dict = {}
     print(f"run {stamp} · {len(tasks)} tarea(s) × k={args.k} · jobs={args.jobs} · salida en {outdir}")
+    effective_model = args.model or agent_default_model(args.agent)
+    if args.model:
+        print(f"  modelo: {args.model} (pinneado)")
+    elif effective_model:
+        print(f"  modelo: {effective_model} (del agente '{args.agent}', NO pinneado) "
+              f"— pinear con --model o HARNESS_MODEL para comparar tokens")
+    else:
+        print("  modelo: NO pinneado — se usa el default de la config; el CSV "
+              "registra el que reporte la sesión. Para comparar tokens entre "
+              "corridas, pinear con --model o HARNESS_MODEL.")
 
     if args.walker_project and not args.check_tasks:
         selftest_path = Path(__file__).resolve().parent / "selftest.py"
@@ -355,7 +433,7 @@ def main() -> int:
         passed = code == 0 and test_rc == 0 and gate in (None, 1)
         row = {
             "run": stamp, "task": task["id"], "k": k, "base": base[:8],
-            "agent": args.agent, "model": args.model or "(config)",
+            "agent": args.agent, "model": usage["model"] or effective_model or "(config)",
             "pass": int(passed), "agent_rc": code, "test_rc": test_rc,
             "walker_gate": gate,
             "duration_s": round(took + test_took, 1),
