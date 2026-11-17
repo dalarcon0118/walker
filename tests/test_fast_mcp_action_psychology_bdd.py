@@ -46,7 +46,7 @@ class TestObservePhaseWiring:
     def test_analyze_has_observe_after_gather(self):
         graph = _load_graph()
         keys = [ss.key for ss in graph.nodes["ANALYZE"].sub_states]
-        assert keys == ["GATHER", "OBSERVE", "INFO_GATE", "ANALYZE", "REVIEW", "KNOWLEDGE_CAPTURE"]
+        assert keys == ["GATHER", "BASELINE", "OBSERVE", "INFO_GATE", "ANALYZE", "REVIEW", "KNOWLEDGE_CAPTURE"]
 
     def test_analyze_observe_sub_state_spec(self):
         graph = _load_graph()
@@ -120,7 +120,7 @@ class TestMonitoringPhaseWiring:
     def test_verify_has_monitor_before_qa(self):
         graph = _load_graph()
         keys = [ss.key for ss in graph.nodes["VERIFY"].sub_states]
-        assert keys == ["QA_RUN", "PREDICATE_CHECK", "MONITOR", "QA", "PO_ACCEPT"]
+        assert keys == ["QA_RUN", "PREDICATE_CHECK", "BASELINE_DIFF", "MONITOR", "QA", "PO_ACCEPT"]
         ss = graph.nodes["VERIFY"].find_sub_state("MONITOR")
         assert ss.action == "monitoring"
         assert ss.execution.value == "llm_task"

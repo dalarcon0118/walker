@@ -12,7 +12,7 @@
       "action": "sync_code_index",
       "input_schema": {},
       "output_schema": {},
-      "on_success": "OBSERVE",
+      "on_success": "BASELINE",
       "on_failure": "",
       "side_effects": [
         {
@@ -39,6 +39,37 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
+      }
+    },
+    {
+      "key": "BASELINE",
+      "label": "Baseline del scope (punto A)",
+      "execution": "auto",
+      "action": "capture_baseline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "baseline": {
+            "type": "string"
+          }
+        },
+        "description": "Punto A persistido"
+      },
+      "on_success": "OBSERVE",
+      "on_failure": "",
+      "timeout_ms": 180000,
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
       }
     },
     {

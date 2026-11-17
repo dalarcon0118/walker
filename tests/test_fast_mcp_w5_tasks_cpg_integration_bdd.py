@@ -239,6 +239,9 @@ class TestTaskRegistryCompleteness:
             "list_projects",
             # CPG bootstrap idempotente: project_init.SCAN_CODE / analyze.GATHER
             "sync_code_index",
+            # Punto A / punto B del workflow (analyze.BASELINE, verify.BASELINE_DIFF)
+            "capture_baseline",
+            "diff_baseline",
         }
         actual = set(registry.list_tasks().keys())
         missing = expected - actual

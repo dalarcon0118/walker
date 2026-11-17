@@ -502,6 +502,18 @@ def _build_task_registry(sprint_service=None):
     registry = TaskRegistry(on_task_done=_emit_task_after)
     # cpg_sync: composition es el único que puede cruzar features (R1); el
     # handler de tasks la recibe inyectada en vez de importar code_analysis.
+    # Baseline del workflow: la factory se inyecta acá porque la feature tasks
+    # no puede importar code_analysis (R1).
+    try:
+        from fast_mcp.features.code_analysis.application.baseline_service import (
+            BaselineService,
+        )
+        from fast_mcp.features.tasks.handlers import baseline as baseline_handlers
+
+        baseline_handlers.configure(lambda chain_dir: BaselineService(chain_dir))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("baseline handler no configurado (%s: %s)", type(exc).__name__, exc)
+
     register_all_tasks(
         registry, sprint_service=sprint_service, cpg_sync=sync_project_cpg
     )

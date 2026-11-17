@@ -49,6 +49,7 @@ _HANDLER_MODULES = [
     "monitoring",
     "list_projects",
     "sync_code_index",
+    "baseline",
 ]
 
 

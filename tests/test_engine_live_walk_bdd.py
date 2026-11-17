@@ -127,7 +127,13 @@ def test_live_walk_start_to_analyze_with_gollwitzer_phases(project):
     assert result["to_sub_state"] == "GATHER"
 
     # ── 4. ANALYZE.OBSERVE (PHASE 0): prompt + acción `observe` ──
-    _host_advance(project)  # GATHER -> OBSERVE
+    _host_advance(project)  # GATHER -> BASELINE (punto A automático)
+    status = orch.status(xctx)
+    assert status["ok"]
+    assert status["sub_state"] == "BASELINE"
+    assert status["execution_type"] == "auto"
+
+    _host_advance(project)  # BASELINE -> OBSERVE
     status = orch.status(xctx)
     assert status["ok"]
     assert status["sub_state"] == "OBSERVE"

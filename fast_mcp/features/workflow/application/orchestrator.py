@@ -428,6 +428,9 @@ class OrchestrationService:
             "sub_state": new_state.current_sub_state,
             "position": f"{new_state.current_node}.{new_state.current_sub_state}",
             "revision": new_state.revision,
+            # Lo que devolvió la acción (baseline, diff, tests): sin esto el
+            # agente tenía que leer node_executions para verlo.
+            "action_result": task_result,
         }
 
     def _execute_action(

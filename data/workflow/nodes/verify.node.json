@@ -84,7 +84,7 @@
         ],
         "description": "Predicate verification completed. all_passed=true -> QA. all_passed=false -> IMPLEMENT.WORK."
       },
-      "on_success": "MONITOR",
+      "on_success": "BASELINE_DIFF",
       "on_failure": "QA_RUN",
       "side_effects": [],
       "retry": {
@@ -105,6 +105,37 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
+      }
+    },
+    {
+      "key": "BASELINE_DIFF",
+      "label": "Diff contra el baseline (punto B)",
+      "execution": "auto",
+      "action": "diff_baseline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          }
+        },
+        "description": "Cambios respecto del punto A"
+      },
+      "on_success": "MONITOR",
+      "on_failure": "",
+      "timeout_ms": 180000,
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
       }
     },
     {

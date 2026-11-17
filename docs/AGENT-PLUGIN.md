@@ -374,3 +374,36 @@ existía en el CPG y no en el mapa), así que ahora se unen los nodos `file` del
 grafo con rutas relativas normalizadas; y el CLI caía al repo de walker con un
 `project_id` desconocido —un typo leía y escribía el proyecto equivocado—, ahora
 compara el id resuelto y falla ruidosamente.
+
+### Punto A y punto B enganchados al motor
+
+El baseline no depende de que el agente lo pida: son sub-estados `auto`.
+
+```
+ANALYZE:  GATHER → BASELINE → OBSERVE → INFO_GATE → ANALYZE → ...
+VERIFY:   QA_RUN → PREDICATE_CHECK → BASELINE_DIFF → MONITOR → QA → ...
+```
+
+- `BASELINE` (`action: capture_baseline`) corre después de sincronizar el índice:
+  guarda la foto con label `task-actual`.
+- `BASELINE_DIFF` (`action: diff_baseline`) corre después de los predicados:
+  compara contra esa foto y el resultado viaja en `advance().action_result`.
+
+Verificado en un proyecto de prueba (agregando un archivo después de la foto):
+
+```
+capture  → ANALYZE.OBSERVE   baselines/task-actual.json
+diff     → VERIFY.MONITOR    "5 cambio(s) en el scope"
+         added: ["pkg/otra.py"]
+         nodes 4→7 · files 1→3 · functions 3→4
+         new_hotspot: simple 1→2
+```
+
+Trampa que costó un rato: el orquestador rellena `task_id` con el **nombre de la
+acción** cuando el workflow no declara uno, así que derivar el label de ahí daba
+`task-capture_baseline` y `task-diff_baseline` — dos labels distintos, y el diff
+nunca encontraba su base. Ahora el label es fijo (`task-actual`) salvo `label`
+explícito.
+
+`R1`: la feature `tasks` no puede importar `code_analysis`, así que el
+composition root inyecta la factory con `handlers.baseline.configure(...)`.
