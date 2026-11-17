@@ -145,6 +145,7 @@ class OrchestrationService:
             "prompt_id": getattr(sub, "prompt_id", "") or "",
             "on_entry_message": getattr(sub, "on_entry_message", "") or "",
             "required_tools": getattr(sub, "required_tools", None),
+            "skill_intent": getattr(sub, "skill_intent", None) or {},
         }
         try:
             resolved = pm.resolve_for_sub_state(

@@ -42,6 +42,8 @@ _FASE2_TOOLS = (
     "documenting_knowledge",
     "search_memories",
     "agent_context",
+    "search_skills",
+    "load_skill",
     # Análisis de código
     "code_context",
     "inspect_codebase",
@@ -110,6 +112,26 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "_index": {"type": "string", "description": "Index to search (default ckg)."},
             "text": {"type": "string", "description": "Full-text search query."},
         },
+    },
+    "search_skills": {
+        "type": "object",
+        "description": "Busca skills instalados en el entorno del agente por intención (texto/tags).",
+        "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED)."},
+            "query": {"type": "string", "description": "Qué necesita la fase (texto libre)."},
+            "tags": {"type": "array", "items": {"type": "string"},
+                     "description": "Tags de la fase (ej: design, review)."},
+            "limit": {"type": "integer", "description": "Máximo de resultados (def 6)."},
+        },
+    },
+    "load_skill": {
+        "type": "object",
+        "description": "Devuelve el contenido de un skill del entorno (carga bajo demanda).",
+        "properties": {
+            "project_id": {"type": "string", "description": "Project ID (REQUIRED)."},
+            "name": {"type": "string", "description": "Nombre del skill (ver search_skills)."},
+        },
+        "required": ["name"],
     },
     "documenting_knowledge": {
         "type": "object",
@@ -202,6 +224,8 @@ _DESCRIPTIONS = {
     "documenting_knowledge": "Store knowledge in CKG (with supersedes lifecycle).",
     "search_memories": "Federated query across multiple indexes at once.",
     "agent_context": "Consolidated delta+ckg+cpg+trace query with cross-references.",
+    "search_skills": "Search installed agent skills by intent (text/tags).",
+    "load_skill": "Load an installed skill's content on demand.",
     "code_context": "Structured code context: symbols, calls, imports and relations by file or search.",
     "inspect_codebase": "Inspect codebase: architecture (business), dead_code, bugs (CFG scans: dead_branches, missing_returns, taint_paths...), security (DFG taint: sqli, xss, secrets...), review, metrics, dataflow (DFG symbol paths), controlflow (CFG findings), query (DSL: trace:funcA->funcB, calls:target, imports:target, bug:type, security:vuln, function:name file:path), conventions (CKG rules via ast-grep), health (CPG node count / status) or CPG index.",
     "read_code": "Read a project file's content by path.",

@@ -1,7 +1,7 @@
 """test_fast_mcp_handler_registry_bdd.py — Tests for the handler registry pattern.
 
 Verifies:
-  1. All 14 handlers are registered and loadable.
+  1. All handlers are registered and loadable.
   2. dispatch() routes to the correct handler.
   3. MemoryContext resolves correctly.
   4. Unknown tools return error without raising.
@@ -17,8 +17,8 @@ import inspect
 import pytest
 
 
-def test_all_14_handlers_registered():
-    """All 14 memory tool handlers are registered in the registry."""
+def test_all_handlers_registered():
+    """All memory tool handlers are registered in the registry."""
     from fast_mcp.memories.handlers import HANDLER_NAMES
 
     expected = {
@@ -27,6 +27,7 @@ def test_all_14_handlers_registered():
         "knowledge_query", "extract_knowledge", "memory_schema",
         "recall_knowledge", "documenting_knowledge", "search_memories",
         "agent_context", "index_repo",
+        "search_skills", "load_skill",
     }
     assert HANDLER_NAMES == expected, f"Missing: {expected - HANDLER_NAMES}; Extra: {HANDLER_NAMES - expected}"
 

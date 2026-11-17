@@ -61,6 +61,9 @@ class SubState:
     context: dict | None = None
     """Context Composer config: {sources: [...], focus: {...}}"""
     required_tools: list[dict] = field(default_factory=list)
+    # Intención de skills para esta fase (needs/tags/policy). El workflow NO
+    # declara ids: los skills dependen de lo que tenga el agente.
+    skill_intent: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if isinstance(self.execution, str):

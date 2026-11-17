@@ -280,7 +280,7 @@
             "Read CKG layer for quality conventions to validate against",
             "Ask user to approve or reject"
           ],
-          "context_priority": "task \u2192 cpg \u2192 ckg"
+          "context_priority": "task → cpg → ckg"
         },
         "budget": {
           "max_tokens": 80000,
@@ -292,6 +292,15 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "skill_intent": {
+        "needs": "revisión de código, testing y checklist de calidad para preparar la evidencia del gate",
+        "tags": [
+          "review",
+          "testing",
+          "quality"
+        ],
+        "policy": "advisory"
       }
     },
     {
@@ -372,7 +381,7 @@
             "Show project conventions from PROJECT layer for context",
             "Ask user to accept or reject"
           ],
-          "context_priority": "project \u2192 task \u2192 state"
+          "context_priority": "project → task → state"
         },
         "budget": {
           "max_tokens": 80000,

@@ -136,6 +136,64 @@ def handle_documenting_knowledge(ctx: MemoryContext, **kwargs: Any) -> dict:
     return result.value_or({}) if is_successful(result) else {"error": str(result.failure())}
 
 
+def _env_skills(project_root: str):
+    from fast_mcp.shared_kernel.paths import walker_root
+    from fast_mcp.shared_kernel.skills import discover, skills_roots
+
+    return discover(skills_roots(project_root or None, walker_root()))
+
+
+def handle_search_skills(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Busca skills del ENTORNO del agente por intención (texto/tags).
+
+    El workflow declara la intención de la fase, no ids: qué skills existen
+    depende de lo que el agente tenga instalado.
+    """
+    from fast_mcp.shared_kernel.skills import search
+
+    query = str(kwargs.get("query") or kwargs.get("needs") or "")
+    tags = kwargs.get("tags") or ()
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    limit = int(kwargs.get("limit") or 6)
+    try:
+        hits = search(_env_skills(ctx.project_root), query, tuple(str(t) for t in tags),
+                      limit=limit)
+    except Exception as exc:  # noqa: BLE001 — el índice no debe romper la tool
+        return {"count": 0, "skills": [], "error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "count": len(hits),
+        "skills": [
+            {"name": s.name, "description": s.description, "scope": s.scope,
+             "path": str(s.path)}
+            for s in hits
+        ],
+    }
+
+
+def handle_load_skill(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Devuelve el contenido de un skill (progressive disclosure)."""
+    name = str(kwargs.get("name") or kwargs.get("skill") or "").strip()
+    if not name:
+        return {"error": "name es obligatorio"}
+    skills = _env_skills(ctx.project_root)
+    skill = skills.get(name)
+    if skill is None:
+        return {
+            "error": f"skill '{name}' no encontrado en este entorno",
+            "available": sorted(skills)[:20],
+        }
+    body = skill.body()
+    return {
+        "name": skill.name,
+        "description": skill.description,
+        "scope": skill.scope,
+        "path": str(skill.path),
+        "chars": len(body),
+        "content": body,
+    }
+
+
 def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Federated query across multiple indexes at once."""
     ckg = ctx.ckg()

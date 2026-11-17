@@ -209,6 +209,7 @@ class GraphRepository:
             prompt_id=ss_raw.get("prompt_id", ""),
             context=ss_raw.get("context"),
             required_tools=ss_raw.get("required_tools", []),
+            skill_intent=dict(ss_raw.get("skill_intent") or {}),
             provides=ss_raw.get("provides", []),
             needs=ss_raw.get("needs", []),
             interrupting=bool(ss_raw.get("interrupting", True)),

@@ -43,6 +43,8 @@ _HANDLER_IMPORTS: dict[str, tuple[str, str]] = {
     "documenting_knowledge": ("fast_mcp.memories.handlers.knowledge", "handle_documenting_knowledge"),
     "search_memories": ("fast_mcp.memories.handlers.knowledge", "handle_search_memories"),
     "agent_context": ("fast_mcp.memories.handlers.knowledge", "handle_agent_context"),
+    "search_skills": ("fast_mcp.memories.handlers.knowledge", "handle_search_skills"),
+    "load_skill": ("fast_mcp.memories.handlers.knowledge", "handle_load_skill"),
     "index_repo": ("fast_mcp.memories.handlers.knowledge", "handle_index_repo"),
 }
 
@@ -78,20 +80,24 @@ def get_handler(name: str) -> Handler | None:
         return None
 
 
-def dispatch(name: str, ctx: MemoryContext, **kwargs) -> dict[str, Any]:
+def dispatch(tool_name: str, ctx: MemoryContext, **kwargs) -> dict[str, Any]:
     """Dispatch a tool call to its handler with consistent error handling.
 
     This is the single entry point for all memory tool dispatch.
     Replaces the 150-line if/elif chain in composition.py.
     """
-    handler = get_handler(name)
+    # OJO: el parámetro NO se puede llamar `name`: cualquier tool con un
+    # argumento `name` (p. ej. `load_skill`) colisionaba con la firma y el
+    # dispatch moría con "multiple values for argument 'name'" antes de llegar
+    # al handler.
+    handler = get_handler(tool_name)
     if handler is None:
-        return {"error": f"Unknown memory tool: {name}"}
+        return {"error": f"Unknown memory tool: {tool_name}"}
 
     try:
         return handler(ctx, **kwargs)
     except Exception as e:
         logger.warning(
-            "handler '%s' failed (%s: %s)", name, type(e).__name__, e,
+            "handler '%s' failed (%s: %s)", tool_name, type(e).__name__, e,
         )
-        return {"error": str(e), "tool": name}
+        return {"error": str(e), "tool": tool_name}

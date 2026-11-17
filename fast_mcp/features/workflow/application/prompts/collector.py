@@ -154,6 +154,39 @@ def collect_activity(
     return activity
 
 
+def collect_skills(chain_dir: str, intent: dict | None = None, limit: int = 6) -> list:
+    """Skills del ENTORNO que matchean la intención de la fase.
+
+    El workflow declara intención (`needs`/`tags`), no ids: los skills dependen
+    de qué tenga instalado el agente. Devuelve objetos `Skill` (el caller arma
+    el texto); lista vacía si no hay intención o no hay match — y eso NO es un
+    error, es información que el prompt debe declarar.
+    """
+    if not intent:
+        return []
+    from fast_mcp.shared_kernel.paths import walker_root
+    from fast_mcp.shared_kernel.project_support import ProjectService
+    from fast_mcp.shared_kernel.skills import discover, search, skills_roots
+
+    project_root = ""
+    try:
+        project_root = str(ProjectService.resolve_paths(chain_dir).project_root or "")
+    except Exception:  # noqa: BLE001 — sin layout, se escanea solo lo global
+        project_root = ""
+
+    try:
+        skills = discover(skills_roots(project_root or None, walker_root()))
+    except Exception as e:  # noqa: BLE001 — el prompt nunca depende de esto
+        logger.debug("collect_skills: discovery falló (%s)", e)
+        return []
+
+    needs = str(intent.get("needs") or "")
+    tags = intent.get("tags") or ()
+    if isinstance(tags, str):
+        tags = [tags]
+    return search(skills, needs, tuple(str(t) for t in tags), limit=limit)
+
+
 def collect_project_info(chain_dir: str, ckg_searcher: Any = None) -> dict:
     info: dict[str, Any] = {
         "language": "",

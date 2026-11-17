@@ -60,21 +60,21 @@ def get_handler(name: str) -> Handler | None:
         return None
 
 
-def dispatch(name: str, ctx: Any, **kwargs) -> dict[str, Any]:
+def dispatch(tool_name: str, ctx: Any, **kwargs) -> dict[str, Any]:
     """Dispatch a workflow tool call to its handler.
 
     Single entry point for all workflow tool dispatch.
     Consistent error handling: never raises, always returns dict.
     """
-    handler = get_handler(name)
+    handler = get_handler(tool_name)
     if handler is None:
-        return {"error": f"Unknown workflow tool: {name}"}
+        return {"error": f"Unknown workflow tool: {tool_name}"}
 
     try:
         return handler(ctx, **kwargs)
     except Exception as e:
         logger.warning(
             "workflow handler '%s' failed (%s: %s)",
-            name, type(e).__name__, e,
+            tool_name, type(e).__name__, e,
         )
-        return {"error": str(e), "tool": name}
+        return {"error": str(e), "tool": tool_name}

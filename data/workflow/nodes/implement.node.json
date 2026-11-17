@@ -16,11 +16,25 @@
       "output_schema": {},
       "on_success": "STATE_CONSTRUCTION",
       "on_failure": "OBSERVE",
-      "retry": {"max_attempts": 3, "backoff": "exponential", "initial_delay_ms": 2000},
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
       "timeout_ms": 120000,
       "prompt_id": "implement/observe",
-      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
-      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "STATE_CONSTRUCTION",
@@ -28,31 +42,85 @@
       "description": "STATE CONSTRUCTION phase: the LLM builds the mental state (interface, gaps, plan) BEFORE crossing into implementation commitment. The plan produced here is what MONITORING verifies against.",
       "execution": "llm_task",
       "action": "state_construction",
-      "needs": ["project_id", "sprint_id", "task_id"],
+      "needs": [
+        "project_id",
+        "sprint_id",
+        "task_id"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "interface": {"type": "object", "description": "Proposed interface contract"},
-          "gaps": {"type": "array", "items": {"type": "string"}, "description": "Known gaps in the mental state"},
-          "plan": {"type": "array", "items": {"type": "string"}, "description": "Implementation plan - commitment reference for MONITORING"}
+          "interface": {
+            "type": "object",
+            "description": "Proposed interface contract"
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Known gaps in the mental state"
+          },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Implementation plan - commitment reference for MONITORING"
+          }
         },
-        "required": ["plan"]
+        "required": [
+          "plan"
+        ]
       },
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {"type": "string", "enum": ["constructed"]},
-          "plan": {"type": "array", "items": {"type": "string"}}
+          "status": {
+            "type": "string",
+            "enum": [
+              "constructed"
+            ]
+          },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "on_success": "INFO_ACQUISITION",
       "on_failure": "OBSERVE",
       "side_effects": [],
-      "retry": {"max_attempts": 2, "backoff": "exponential", "initial_delay_ms": 2000},
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
       "timeout_ms": 300000,
       "prompt_id": "implement/state_construction",
-      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
-      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "skill_intent": {
+        "needs": "criterio de diseño, calidad de código y arquitectura antes de comprometer el plan",
+        "tags": [
+          "design",
+          "clean-code",
+          "architecture"
+        ],
+        "policy": "advisory"
+      }
     },
     {
       "key": "INFO_ACQUISITION",
@@ -60,30 +128,72 @@
       "description": "INFO ACQUISITION phase (psicologia de la accion): targeted information gathering to close the gaps declared by STATE_CONSTRUCTION. Closes the deliberative loop (STATE_CONSTRUCTION -> INFO_ACQUISITION -> OBSERVE) before crossing the Rubicon at USER_GATE.",
       "execution": "auto",
       "action": "info_acquisition",
-      "needs": ["project_id", "sprint_id", "task_id"],
+      "needs": [
+        "project_id",
+        "sprint_id",
+        "task_id"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "queries": {"type": "array", "items": {"type": "string"}, "description": "Targeted information queries to resolve the declared gaps"},
-          "resolved_gaps": {"type": "array", "items": {"type": "string"}, "description": "Gap ids closed by this acquisition round"}
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Targeted information queries to resolve the declared gaps"
+          },
+          "resolved_gaps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Gap ids closed by this acquisition round"
+          }
         },
-        "required": ["queries"]
+        "required": [
+          "queries"
+        ]
       },
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {"type": "string", "enum": ["acquired"]},
-          "resolved_gaps": {"type": "array", "items": {"type": "string"}}
+          "status": {
+            "type": "string",
+            "enum": [
+              "acquired"
+            ]
+          },
+          "resolved_gaps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "on_success": "USER_GATE",
       "on_failure": "OBSERVE",
       "side_effects": [],
-      "retry": {"max_attempts": 3, "backoff": "exponential", "initial_delay_ms": 2000},
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
       "timeout_ms": 120000,
       "prompt_id": "implement/info_acquisition",
-      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
-      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "USER_GATE",
@@ -484,11 +594,25 @@
       "output_schema": {},
       "on_success": "KNOWLEDGE_UPDATE",
       "on_failure": "WORK",
-      "retry": {"max_attempts": 3, "backoff": "exponential", "initial_delay_ms": 2000},
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
       "timeout_ms": 120000,
       "prompt_id": "implement/monitoring",
-      "audit": {"capture_stdout": true, "capture_stderr": true, "level": "normal"},
-      "context": {"budget": {"max_tokens": 80000, "reserve_for_response": 10000, "strategy": "truncate"}}
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
     },
     {
       "key": "KNOWLEDGE_UPDATE",

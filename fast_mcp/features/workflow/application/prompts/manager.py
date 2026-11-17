@@ -147,6 +147,8 @@ class PromptManager(IPromptManager):
                 }
             data = self._build_data(extra, None)
             data.update(extra)
+            for key, value in self._skills_data(fields).items():
+                data.setdefault(key, value)
             return {
                 "node_id": node_id,
                 "sub_state": sub_state_key,
@@ -156,13 +158,27 @@ class PromptManager(IPromptManager):
                 "type": _EXECUTION_LLM_TASK,
             }
 
-        # Ejecución no-LLM: sin conserta (auto/user_input/gate). Marcador.
+        # Ejecución no-LLM (auto/user_input/gate). Para los user gates con
+        # `prompt_id` SÍ se renderiza el briefing: es donde el agente arma la
+        # evidencia que el usuario decide, y ahí importan los skills de la fase.
+        data = self._build_data(extra, None)
+        data.update(extra)
+        for key, value in self._skills_data(fields).items():
+            data.setdefault(key, value)
+        rendered = prompt_literal
+        if prompt_id:
+            try:
+                meta = self._loader.load_with_meta(prompt_id)
+                rendered = self._renderer.render(self._template_text(meta), data)
+            except Exception as e:  # noqa: BLE001 — briefing no bloquea el gate
+                logger.debug("PromptManager: sin template para %s (%s)", prompt_id, e)
+                rendered = prompt_literal
         return {
             "node_id": node_id,
             "sub_state": sub_state_key,
             "template_id": prompt_id or "",
-            "template": prompt_literal,
-            "data": extra,
+            "template": rendered,
+            "data": data,
             "type": exec_norm or "unknown",
         }
 
@@ -214,11 +230,43 @@ class PromptManager(IPromptManager):
         data = dict(context or {})
         if extra_data:
             data.update(extra_data)
+        # Skills del entorno para la intención de la fase (opt-in por plantilla:
+        # el renderer deja vacío el placeholder si nadie lo declara).
+        if not any(key.startswith("skills_") for key in data):
+            for key, value in self._skills_data(data).items():
+                data.setdefault(key, value)
         # Enriquecimiento CKG: solo si el composition root inyectó el searcher.
         # Las claves explícitas del caller SIEMPRE ganan (setdefault).
         for key, value in self._knowledge_data(data).items():
             data.setdefault(key, value)
         return data
+
+    def _skills_data(self, fields: dict) -> dict:
+        """Catálogo de skills que matchean la intención declarada por el nodo.
+
+        No inyecta contenido: una línea por skill y la instrucción de cargarla
+        con `load_skill`. Sin match, lo dice explícitamente (un silencio se lee
+        como "aplicá cualquier cosa").
+        """
+        intent = (fields or {}).get("skill_intent") or {}
+        if not isinstance(intent, dict) or not intent:
+            return {}
+        from fast_mcp.shared_kernel.skills import format_catalog
+
+        from .collector import collect_skills
+
+        try:
+            skills = collect_skills(self._chain_dir, intent)
+        except Exception as e:  # noqa: BLE001 — el prompt no depende del FS
+            logger.debug("PromptManager: skills fallaron (%s)", e)
+            return {}
+        catalog = format_catalog(skills)
+        if not catalog:
+            catalog = (
+                "Sin skills locales que matcheen esta fase; resolvé con criterio "
+                "propio y decilo en la salida."
+            )
+        return {"skills_catalog": catalog, "skills_count": str(len(skills))}
 
     def _knowledge_data(self, data: dict) -> dict:
         """Conocimiento del proyecto como texto listo para templates.
