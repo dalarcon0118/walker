@@ -32,6 +32,10 @@ const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
 const MUTATING_TOOLS = ["edit", "write", "shell"]
 
 let projectId = process.env.WALKER_PROJECT_ID || ""
+// Tarea en curso (la declara `implement_task`). El gate solo aplica acá: sin
+// tarea declarada, una sesión ad-hoc no se bloquea (medido: bloquear todo
+// costaba ~7x tokens en un cambio de una línea).
+let activeTask = null
 let projectDir = ""
 
 function runTool(tool, payload = {}, project = projectId) {
@@ -217,7 +221,13 @@ export default {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const cur = state.data
-              if (!cur || cur.execType !== "llm_task" || cur.satisfied) {
+              if (!cur || cur.execType !== "llm_task" || cur.satisfied || !activeTask) {
+                return original(input, callCtx)
+              }
+              // Si la tarea declaró archivos, el gate solo cubre esos archivos.
+              const path = String(input?.path || input?.filePath || input?.file || "")
+              const files = activeTask.files || []
+              if (path && files.length && !files.some((f) => path.endsWith(f))) {
                 return original(input, callCtx)
               }
               const fields = cur.required.length
@@ -250,6 +260,27 @@ export default {
       })
     } catch {
       // sin transform no hay gate
+    }
+
+    try {
+      await ctx.tool.transform((editor) => {
+        const taskTool = editor.get("implement_task")
+        if (taskTool && typeof taskTool.execute === "function") {
+          editor.update("implement_task", (draft) => {
+            const original = draft.execute
+            draft.execute = async (input, callCtx) => {
+              const result = await original(input, callCtx)
+              activeTask = {
+                taskId: String(input?.task_id || ""),
+                files: Array.isArray(input?.files) ? input.files.map(String) : [],
+              }
+              return result
+            }
+          })
+        }
+      })
+    } catch {
+      // sin transform, el gate no se acota por tarea
     }
 
     try {

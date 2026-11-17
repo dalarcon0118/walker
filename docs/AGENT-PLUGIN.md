@@ -230,3 +230,27 @@ tokens; es absurdo para un cambio de una línea. Opt-in es la posición correcta
 mientras no exista una forma de atar el gate a la tarea que el agente está
 haciendo (hoy niega cualquier escritura, aunque el paso pendiente sea de otra
 tarea).
+
+### Acotado a la tarea declarada
+
+El gate ahora solo aplica si hay una tarea activa: la declara `implement_task`
+(task_id + files), que el plugin intercepta. Sin tarea declarada no se niega
+nada, y si la tarea declaró archivos, solo se cubren esos archivos.
+
+Medición (n=1 por celda, misma tarea trivial, `DENY=1`):
+
+| corrida | tarea declarada | denegaciones | pasos | tokens_in |
+|---|---|---|---|---|
+| sin gate (agente ignora la inyección) | no | 0 | 4 | 9.735 |
+| gate acotado, sin tarea | no | 0 | 15 | 49.997 |
+| gate acotado, con tarea | sí | 0 | 16 | 22.213 |
+
+**El gate no fue el costo: no denegó ni una vez en las dos corridas.** El costo
+lo produce la INYECCIÓN: al leer "complete el paso antes de escribir código", el
+agente se va a caminar `ANALYZE → IMPLEMENT.USER_GATE → WORK` aunque nadie se lo
+impida. Cuando la ignora, la misma tarea son 4 pasos.
+
+Con n=1 y varianza conocida de 0,71x–2,20x no se puede concluir que "con tarea"
+sea más barato que "sin tarea"; lo que sí se concluye es que el acotamiento del
+gate funciona (0 denegaciones cuando no corresponde) y que **el próximo lever es
+la inyección**, no la negación.
