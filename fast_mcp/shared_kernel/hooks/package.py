@@ -186,8 +186,29 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
     entry = str(manifest.get("entry", "")).strip()
     if not entry:
         raise HookManifestError("falta 'entry' (script a ejecutar)")
-    if not (directory / entry).is_file():
-        raise HookManifestError(f"entry inexistente: {directory / entry}")
+    entry_path = directory / entry
+    if not entry_path.is_file():
+        raise HookManifestError(f"entry inexistente: {entry_path}")
+    # Un entry que no es Python se ejecuta DIRECTO: sin shebang/+x falla en
+    # runtime con rc=126 y el error aparece lejos del manifiesto (medido). Se
+    # valida acá para que falle al instalar.
+    if not entry.endswith(".py") and os.name != "nt":
+        if not os.access(entry_path, os.X_OK):
+            raise HookManifestError(
+                f"entry {entry} no es ejecutable (falta el bit +x). "
+                f"Ejecutá: chmod +x {entry_path} — o usá un entry .py "
+                "(se invoca con el intérprete de walker)"
+            )
+        try:
+            first_line = entry_path.open("rb").readline(200)
+        except OSError as exc:
+            raise HookManifestError(f"no se pudo leer {entry}: {exc}") from exc
+        if not first_line.startswith(b"#!"):
+            raise HookManifestError(
+                f"entry {entry} no tiene shebang (primera línea '#!...'). "
+                "Sin intérprete declarado el shell no sabe cómo ejecutarlo; "
+                "o usá un entry .py"
+            )
     permissions = manifest.get("permissions") or []
     if not isinstance(permissions, list):
         raise HookManifestError("'permissions' debe ser una lista")

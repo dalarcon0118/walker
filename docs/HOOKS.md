@@ -191,6 +191,27 @@ el que corresponde a ese hash; **no** garantiza autoría (no hay firma), así qu
 el hash tiene que venir por un canal distinto del repo del plugin (release notes,
 un mensaje del autor, un `sha256sum` publicado). Es integridad, no autenticación.
 
+## Lenguaje del entry
+
+Un hook es un **comando**, no un import: el bus ejecuta un subproceso. Eso
+permite cualquier lenguaje y mantiene el aislamiento (un hook no puede tumbar
+el server MCP; el sandbox aplica igual).
+
+| `entry` | Cómo corre | Necesita |
+|---|---|---|
+| `main.py` | `"$WALKER_PYTHON" "<pkg>/main.py"` | nada: sin shebang, sin permiso de ejecución |
+| `main.sh` | `"<pkg>/main.sh"` directo | shebang + bit de ejecución |
+| `main.js` | `"<pkg>/main.js"` directo | shebang + bit de ejecución |
+
+Un entry que no es `.py` se ejecuta directo, así que sin `chmod +x` falla en
+runtime con `rc=126` y el error aparece lejos del manifiesto. Por eso
+`read_manifest` (y por lo tanto `install`) exige shebang y bit de ejecución
+**antes** de copiar: el fallo se ve donde se cometió.
+
+Los hooks inline (`hooks.json`) son shell puro: `"command": "jq -r .task | ..."`
+funciona sin manifiesto. El payload llega por stdin y `WALKER_EVENT`/`WALKER_REPO`
+por entorno.
+
 ## Catálogo de eventos
 
 Los eventos son un catálogo explícito (`shared_kernel/hooks/events.py`), no

@@ -452,3 +452,66 @@ def test_update_verifica_el_digest_de_la_version_nueva(tmp_path):
     outcome = update("demo-hook", home, walker_version="3.0.0", expect_sha256=new_digest)
     assert outcome["installed"] is True
     assert outcome["current_sha256"] != outcome["available_sha256"]
+
+
+# ── Entry no-Python: shebang y bit de ejecución ────────────────────────────
+# Un entry que no es .py se ejecuta directo; sin +x falla en runtime con rc=126
+# (medido) y el error aparece lejos del manifiesto. Se valida al instalar.
+
+def _script_package(tmp_path: Path, name: str = "main.sh", content: str = "#!/bin/sh\necho ok\n",
+                    executable: bool = True) -> Path:
+    directory = tmp_path / "script-pkg"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "hook.json").write_text(json.dumps({**MANIFEST, "entry": name}))
+    script = directory / name
+    script.write_text(content)
+    if executable:
+        script.chmod(0o755)
+    return directory
+
+
+def test_entry_no_python_sin_exec_falla_al_leer(tmp_path):
+    source = _script_package(tmp_path, executable=False)
+
+    with pytest.raises(HookManifestError) as exc:
+        read_manifest(source)
+
+    assert "bit +x" in str(exc.value)
+    assert "chmod +x" in str(exc.value)
+
+
+def test_entry_no_python_sin_shebang_falla_al_leer(tmp_path):
+    source = _script_package(tmp_path, content="echo ok\n", executable=True)
+
+    with pytest.raises(HookManifestError) as exc:
+        read_manifest(source)
+
+    assert "shebang" in str(exc.value)
+
+
+def test_entry_no_python_valido(tmp_path):
+    source = _script_package(tmp_path)
+
+    package = read_manifest(source)
+
+    assert package.entry == "main.sh"
+    assert package.command() == f'"{source / "main.sh"}"'
+
+
+def test_entry_python_no_necesita_exec_ni_shebang(tmp_path):
+    directory = tmp_path / "py-pkg"
+    directory.mkdir()
+    (directory / "hook.json").write_text(json.dumps({**MANIFEST, "entry": "main.py"}))
+    (directory / "main.py").write_text("print('ok')\n")  # 644, sin shebang
+
+    package = read_manifest(directory)
+
+    assert package.command().startswith('"$WALKER_PYTHON"')
+
+
+def test_install_rechaza_entry_no_ejecutable(tmp_path):
+    source = _script_package(tmp_path, executable=False)
+
+    with pytest.raises(HookManifestError):
+        install(source, _home(tmp_path), walker_version="3.0.0")
+    assert installed(_home(tmp_path)) == []
