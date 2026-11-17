@@ -48,6 +48,10 @@ Thumbs.db
 .cognitive/docs/
 .cognitive/projects/*/data/spring/
 .cognitive/projects/*/data/data/
+# Proyecciones derivadas del CPG (caches). Cambian con cada build/sync: si se
+# trackean, cada commit deja el árbol sucio (medido: analysis_results.json se
+# modificaba tras cada actualización del grafo).
+.cognitive/projects/*/data/analysis_results.json
 
 # Canónica sqlite: UNA sola ubicación (ADR-063). Estas reglas están ancladas
 # a la raíz para que las copias parásitas en root/ y data/ no reaparezcan.
