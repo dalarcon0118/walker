@@ -61,10 +61,10 @@ ARMS: dict[str, dict] = {
 
 
 def build_cmd(repo: str, tasks: str, arm: str, k: int, model: str | None,
-              out: str) -> list[str]:
+              out: str, jobs: int = 1) -> list[str]:
     cfg = ARMS[arm]
     cmd = [sys.executable, str(RUNNER), "--repo", repo, "--tasks", tasks,
-           "--k", str(k), "--out", out]
+           "--k", str(k), "--out", out, "--jobs", str(jobs)]
     if cfg["no_mcp"]:
         cmd.append("--no-mcp")
     if cfg.get("profile"):
@@ -75,8 +75,8 @@ def build_cmd(repo: str, tasks: str, arm: str, k: int, model: str | None,
 
 
 def run_arm(repo: str, tasks: str, arm: str, k: int, model: str | None,
-            out: str, dry: bool = False) -> dict:
-    cmd = build_cmd(repo, tasks, arm, k, model, out)
+            out: str, dry: bool = False, jobs: int = 1) -> dict:
+    cmd = build_cmd(repo, tasks, arm, k, model, out, jobs)
     env = {**os.environ, **ARMS[arm]["env"], "WALKER_FLIGHT_CONTROL": "0"}
     if dry:
         print(f"[{arm}] {' '.join(cmd)}")
@@ -99,6 +99,8 @@ def main() -> int:
     ap.add_argument("--repo", required=True)
     ap.add_argument("--tasks", required=True)
     ap.add_argument("--k", type=int, default=1)
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="tareas en paralelo dentro de cada brazo (cada una con su sandbox)")
     ap.add_argument("--model", default=os.environ.get("HARNESS_MODEL"))
     ap.add_argument("--arms", default="baseline,tools,lean")
     ap.add_argument("--out", default=str(Path.home() / ".local/share/walker/ablation"))
@@ -112,7 +114,7 @@ def main() -> int:
         return 2
 
     results = [run_arm(args.repo, args.tasks, a, args.k, args.model, args.out,
-                       dry=args.dry_run) for a in arms]
+                       dry=args.dry_run, jobs=args.jobs) for a in arms]
     if args.dry_run:
         return 0
 

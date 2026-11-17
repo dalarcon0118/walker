@@ -39,7 +39,6 @@ from pathlib import Path
 SESSION_RE = re.compile(r"ses_[A-Za-z0-9]+")
 DEFAULT_TIMEOUT = 900
 SUMMARY_KEEP_LINES = 40
-MCP_SERVERS = ("walker", "opencode-vision", "CodeGraphContext", "graphify", "memora")
 
 
 def run(cmd: list[str], cwd: Path, env: dict[str, str], timeout: int) -> tuple[int, str, float]:
@@ -655,6 +654,26 @@ def main() -> int:
     venv_bin = (repo / args.venv_python).parent
     env["PATH"] = f"{venv_bin}:{env.get('PATH', '')}"  # `python` = el del venv
 
+    # Perfil de tools: el server MCP lo lee de SU entorno, y opencode pasa el
+    # suyo al subproceso stdio. Verificado end-to-end 2026-11-17: con
+    # WALKER_MCP_PROFILE=agent el agente ve 10 tools y `inspect_codebase` no
+    # existe. La config de proyecto (`wt/opencode.json`) NO sirve para esto:
+    # OpenCode v2 ignora `mcp` escrito en el config del directorio.
+    if args.tool_profile:
+        env["WALKER_MCP_PROFILE"] = args.tool_profile
+
+    # `--no-mcp`: apuntar XDG_CONFIG_HOME a un config mínimo. Escribir
+    # `{"mcp": {"walker": {"enabled": false}}}` en el sandbox NO desactiva nada
+    # en v2 (medido 2026-11-17: la tool seguía respondiendo; el merge de
+    # proyecto ignora `mcp`). El override de config sí funciona. Se aplica por
+    # tarea porque el modo workflow lo necesita encendido.
+    nomcp_dir = workroot / "nomcp-config"
+    if args.no_mcp:
+        (nomcp_dir / "opencode").mkdir(parents=True, exist_ok=True)
+        (nomcp_dir / "opencode" / "opencode.json").write_text(
+            json.dumps({"$schema": "https://opencode.ai/config.json"}, indent=2))
+        print("  mcp: deshabilitado por tarea (XDG_CONFIG_HOME aislado)")
+
     rows: list[dict] = []
     lock = threading.Lock()
     walker_ctx: dict = {}
@@ -738,6 +757,9 @@ def main() -> int:
     def process(task: dict, k: int, base: str) -> None:
         name = f"{task['id']}-k{k}"
         wt = workroot / name
+        task_env = dict(env)
+        if args.no_mcp and task.get("mode") != "workflow":
+            task_env["XDG_CONFIG_HOME"] = str(nomcp_dir)
         ok, why = materialize(repo, base, wt, env)
         if not ok:
             print(f"  ! {name}: no se pudo materializar el base: {why[:200]}", file=sys.stderr)
@@ -776,17 +798,6 @@ def main() -> int:
             # CONOCIMIENTO DEL PROYECTO no llegue vacía.
             seeded = _seed_knowledge(repo, wt, env)
             print(f"  walker: conocimiento sembrado ({seeded} docs)")
-
-        if args.no_mcp and not is_workflow:
-            (wt / "opencode.json").write_text(json.dumps(
-                {"mcp": {srv: {"enabled": False} for srv in MCP_SERVERS}}, indent=2))
-        elif args.tool_profile:
-            # El perfil viaja por el entorno del server MCP: el recorte ocurre
-            # al construir `tools/list`, así que el agente NUNCA ve las tools
-            # extra (no es un filtro de permisos, es superficie).
-            (wt / "opencode.json").write_text(json.dumps(
-                {"mcp": {"walker": {"environment": {"WALKER_MCP_PROFILE": args.tool_profile}}}},
-                indent=2))
 
         run(["git", "init", "-q", "-b", "main"], wt, env, 30)
         run(["git", "add", "-A"], wt, env, 120)
@@ -846,7 +857,7 @@ def main() -> int:
             prompt = task["prompt"]
         cmd += [prompt]
 
-        code, output, took = run(cmd, wt, env, args.timeout)
+        code, output, took = run(cmd, wt, task_env, args.timeout)
         (outdir / f"{name}.jsonl").write_text(output)
 
         seen = SESSION_RE.findall(output)
