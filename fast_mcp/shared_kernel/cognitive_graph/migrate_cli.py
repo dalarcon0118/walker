@@ -71,6 +71,12 @@ def main(argv: list[str] | None = None) -> int:
         "--index", default=",".join(DEFAULT_INDEXES),
         help="Índices a migrar, separados por coma (default: cpg,ckg,delta,trace).",
     )
+    parser.add_argument(
+        "--merge", action="store_true",
+        help="Con la BD ya poblada, importa SOLO los docs que faltan (v2 gana "
+             "en conflicto y no se toca ningún doc existente). Sin este flag, "
+             "un índice con docs se SKIP (idempotencia del corte directo).",
+    )
     args = parser.parse_args(argv)
 
     data_dir = os.path.abspath(args.data_dir)
@@ -88,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[migrate] destino: {backend._db_path}")  # noqa: SLF001 — script one-shot
     failures = 0
     for name in indexes:
-        if _db_has_index(backend, name):
+        if _db_has_index(backend, name) and not args.merge:
             print(f"[migrate] SKIP  {name}: la BD v2 ya tiene docs (idempotente, sin --force).")
             continue
         blob_path = _find_blob(data_dir, name)
@@ -96,12 +102,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[migrate] INFO  {name}: sin blob v1 ({blob_path}) — nada que migrar.")
             continue
         try:
-            summary = import_json_gz_to_sqlite(backend, blob_path, index_name=name)
-            print(
-                f"[migrate] OK    {name}: {summary['docs']} docs, "
-                f"{summary['edges']} edges, metadata={summary['metadata']} "
-                f"(fuente: {blob_path})"
+            summary = import_json_gz_to_sqlite(
+                backend, blob_path, index_name=name, merge=args.merge
             )
+            if args.merge:
+                print(
+                    f"[migrate] MERGE {name}: +{summary['docs']} docs nuevos, "
+                    f"+{summary['edges']} edges, {summary['skipped_existing']} ya "
+                    f"existían en v2 (no se tocaron) — fuente: {blob_path}"
+                )
         except Exception as e:  # noqa: BLE001 — fail ruidoso por índice, FS-6 rollback
             failures += 1
             print(

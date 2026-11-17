@@ -38,6 +38,8 @@ def import_json_gz_to_sqlite(
     backend: SqliteBackend,
     blob_path: str,
     index_name: str | None = None,
+    *,
+    merge: bool = False,
 ) -> dict:
     """Importa un blob `.json.gz` histórico (v1) a sqlite (v2), transaccional.
 
@@ -129,6 +131,40 @@ def import_json_gz_to_sqlite(
     now = datetime.now(timezone.utc).isoformat()
 
     db: sqlite3.Connection = backend._db  # noqa: SLF001 (puente de migración)
+
+    # ── Merge: importar SOLO lo que falta (v2 gana en conflicto) ──────────
+    # El corte directo asume importar sobre un índice vacío; cuando la v2 ya
+    # tiene datos, re-importar pisaría lo más nuevo con un snapshot viejo y no
+    # hay forma segura de compararlos. El merge agrega lo ausente y reporta las
+    # colisiones, sin tocar un solo doc existente.
+    existing_ids: set[str] = set()
+    collided: list[str] = []
+    if merge:
+        existing_ids = {
+            str(row[0])
+            for row in db.execute(
+                "SELECT id FROM docs WHERE `index`=?", (index_name,)
+            )
+        }
+        existing_edges = {
+            (str(row[0]), str(row[1]))
+            for row in db.execute(
+                "SELECT src, dst FROM edges WHERE `index`=?", (index_name,)
+            )
+        }
+        collided = sorted(set(docs) & existing_ids)
+        docs = {k: v for k, v in docs.items() if k not in existing_ids}
+        # Aristas: sin duplicar y sin extremos colgantes (solo si ambos nodos
+        # existen ya o se están importando).
+        known_ids = existing_ids | set(docs)
+        edges = [
+            edge
+            for edge in edges
+            if (edge[0], edge[1]) not in existing_edges
+            and edge[0] in known_ids
+            and edge[1] in known_ids
+        ]
+
     try:
         with db:
             for doc_id, doc in docs.items():
@@ -153,7 +189,7 @@ def import_json_gz_to_sqlite(
                         json.dumps(attrs, ensure_ascii=False, default=str),
                     ),
                 )
-            if metadata:
+            if metadata and not merge:
                 for key, value in metadata.items():
                     db.execute(
                         "INSERT OR REPLACE INTO meta (`index`, key, value) "
@@ -165,16 +201,19 @@ def import_json_gz_to_sqlite(
                     "INSERT OR REPLACE INTO meta (`index`, key, value) VALUES (?,?,?)",
                     (index_name, "schema_hash", schema_hash),
                 )
-            # CA-6: el conteo sqlite DEBE igualar al conteo del blob ANTES del
-            # commit (los _id duplicados en el blob son señal de corrupción).
+            # CA-6: el conteo sqlite DEBE igualar al esperado ANTES del commit
+            # (los _id duplicados en el blob son señal de corrupción). Con
+            # merge el esperado incluye los docs que ya existían.
             row = db.execute(
                 "SELECT COUNT(*) FROM docs WHERE `index`=?", (index_name,)
             ).fetchone()
             count = int(row[0])
-            if count != len(raw_docs):
+            expected = len(existing_ids) + len(docs)
+            if count != expected:
                 raise StorageMigrationCountMismatchError(
-                    f"índice '{index_name}': sqlite={count} vs blob={len(raw_docs)} "
-                    f"({blob_path}) — rollback (CA-6/FS-6), nunca commit parcial."
+                    f"índice '{index_name}': sqlite={count} vs esperado={expected} "
+                    f"(blob={len(raw_docs)}, ya existían={len(existing_ids)}; "
+                    f"{blob_path}) — rollback (CA-6/FS-6), nunca commit parcial."
                 )
     except StorageMigrationCountMismatchError:
         raise
@@ -193,9 +232,11 @@ def import_json_gz_to_sqlite(
     return {
         "index": index_name,
         "migrated": True,
+        "merge": merge,
         "docs": len(docs),
         "edges": len(edges),
-        "metadata": len(metadata),
+        "metadata": 0 if merge else len(metadata),
+        "skipped_existing": len(collided),
         "source": blob_path,
     }
 
