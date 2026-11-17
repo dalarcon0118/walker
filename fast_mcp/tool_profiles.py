@@ -35,6 +35,7 @@ AGENT: frozenset[str] = frozenset({
     "status",
     "workflow_state",
     "submit",
+    "advance",
     "transition",
     # contexto del proyecto (un lector, no cuatro)
     "agent_context",

@@ -24,6 +24,7 @@ Handler = Callable[..., dict[str, Any]]
 
 _HANDLER_IMPORTS: dict[str, tuple[str, str]] = {
     "submit": ("fast_mcp.features.workflow.handlers.workflow", "handle_submit"),
+    "advance": ("fast_mcp.features.workflow.handlers.workflow", "handle_advance"),
     "transition": ("fast_mcp.features.workflow.handlers.workflow", "handle_transition"),
     "status": ("fast_mcp.features.workflow.handlers.workflow", "handle_status"),
     "help": ("fast_mcp.features.workflow.handlers.workflow", "handle_help"),

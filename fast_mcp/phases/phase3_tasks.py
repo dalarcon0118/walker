@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 _FASE3_TOOLS = (
     "submit",
+    "advance",
     "transition",
     "help",
     "list_projects",
@@ -63,6 +64,12 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "decision": {"type": "string", "description": "Decision to record"},
             "evidence": {"type": "string", "description": "Evidence for the decision"},
             "_payload": {"type": "object", "description": "Additional fields to submit"},
+        },
+    },
+    "advance": {
+        "type": "object",
+        "properties": {
+            "fields": {"type": "object", "description": "Fields for the current sub-state"},
         },
     },
     "transition": {
@@ -189,6 +196,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
 
 _DESCRIPTIONS = {
     "submit": "Submit data to the current workflow sub-state.",
+    "advance": "Advance to the next sub-state inside the current node (runs `auto` actions).",
     "transition": "Transition to the next workflow node via a gate.",
     "help": "Get help: available tools and current workflow state.",
     "list_projects": "List projects managed by walker.",

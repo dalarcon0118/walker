@@ -22,6 +22,7 @@ const WALKER_ROOT = "/Users/davidmartinez/develop/Active-projects/walker"
 const CLI = `${WALKER_ROOT}/bin/walker3`
 const ENABLED = process.env.WALKER_FLIGHT_CONTROL !== "0"
 const REFRESH_MS = 60_000
+const MAX_AUTO_STEPS = 3
 
 let projectId = process.env.WALKER_PROJECT_ID || ""
 let projectDir = ""
@@ -48,11 +49,21 @@ function runTool(tool, payload = {}, project = projectId) {
 function workflowBlock(state) {
   if (!state?.position) return ""
   const parts = [`[WALKER] Workflow: ${state.position} (${state.execType}).`]
-  if (state.required.length) parts.push(`Campos requeridos: ${state.required.join(", ")}.`)
-  if (state.gates.length) parts.push(`Salidas disponibles: ${state.gates.join(", ")}.`)
-  parts.push(
-    "Antes de avanzar, confirmá el estado con `workflow_state`; completá el paso actual con `submit` (o `transition` si corresponde)."
-  )
+  const proj = projectId || "<proyecto>"
+  if (state.required.length) {
+    parts.push(`Campos requeridos: ${state.required.join(", ")}.`)
+    const example = state.required.map((f) => `"${f}":"..."`).join(",")
+    parts.push(
+      `Complete el paso ANTES de escribir código: ${CLI} ${proj}/submit '{${example}}'.`
+    )
+  } else {
+    parts.push(`Complete el paso: ${CLI} ${proj}/submit '{}'.`)
+  }
+  if (state.gates.length) {
+    parts.push(
+      `Después, avance con: ${CLI} ${proj}/transition '{"gate":"${state.gates[0]}"}'. Salidas: ${state.gates.join(", ")}.`
+    )
+  }
   return parts.join(" ")
 }
 
@@ -73,7 +84,7 @@ export default {
     runTool("trace_push", {
       event_type: "flight_control_active",
       source: "agent_hook",
-      metadata: { project_id: projectId, directory: projectDir },
+      data: { project_id: projectId, directory: projectDir },
     })
 
     if (!projectId) return // sin proyecto registrado no se inyecta nada
@@ -95,19 +106,37 @@ export default {
       return sessions.get(key)
     }
 
+    const readState = () => {
+      const data = runTool("workflow_state", {})
+      if (!data || data.ok === false) return null
+      return {
+        position: data.current_position || "",
+        execType: data.execution_type || "",
+        required: Array.isArray(data.required_fields) ? data.required_fields : [],
+        gates: Array.isArray(data.available_gates) ? data.available_gates : [],
+        revision: data.revision ?? 0,
+      }
+    }
+
+    // Los sub-estados `execution: auto` los corre el MOTOR, no el modelo: no
+    // tiene sentido esperar a que el agente se acuerde de submitear un paso
+    // que no requiere criterio. Hasta ahora nadie los disparaba, así que todos
+    // los proyectos quedaban clavados en `START.LIST` (medido: 7/7).
+    const driveAuto = (current) => {
+      let cur = current
+      for (let i = 0; i < MAX_AUTO_STEPS; i++) {
+        if (!cur || (cur.execType !== "auto" && cur.execType !== "bootstrap")) break
+        const res = runTool("advance", {})
+        if (!res || res.ok === false) break
+        cur = readState() || cur
+      }
+      return cur
+    }
+
     const refresh = () => {
       if (Date.now() - state.fetchedAt < REFRESH_MS) return state.data
-      const data = runTool("workflow_state", {})
-      if (data && data.ok !== false) {
-        state.data = {
-          position: data.current_position || "",
-          execType: data.execution_type || "",
-          required: Array.isArray(data.required_fields) ? data.required_fields : [],
-          gates: Array.isArray(data.available_gates) ? data.available_gates : [],
-          revision: data.revision ?? 0,
-        }
-        state.fetchedAt = Date.now()
-      }
+      state.data = driveAuto(readState())
+      state.fetchedAt = Date.now()
       return state.data
     }
 
@@ -148,7 +177,7 @@ export default {
             event_type: "workflow_state_injected",
             source: "agent_hook",
             session_id: entry.sessionID,
-            metadata: {
+            data: {
               injections: entry.injections,
               position: entry.position,
               followed: entry.followed,
@@ -160,7 +189,7 @@ export default {
               event_type: "workflow_suggestion_ignored",
               source: "agent_hook",
               session_id: entry.sessionID,
-              metadata: { injections: entry.injections, position: entry.position },
+              data: { injections: entry.injections, position: entry.position },
             })
           }
           sessions.delete(sid || "global")

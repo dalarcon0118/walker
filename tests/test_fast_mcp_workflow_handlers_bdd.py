@@ -12,6 +12,7 @@ from typing import Any
 from fast_mcp.features.workflow.context import WorkflowContext, _find_workflow_path
 from fast_mcp.features.workflow.handlers import dispatch, get_handler, HANDLER_NAMES
 from fast_mcp.features.workflow.handlers.workflow import (
+    handle_advance,
     handle_submit,
     handle_transition,
     handle_status,
@@ -196,7 +197,7 @@ class TestFindWorkflowPath:
 class TestHandlerRegistry:
 
     def test_all_handlers_registered(self):
-        assert HANDLER_NAMES == {"submit", "transition", "status", "help", "list_projects", "workflow_state"}
+        assert HANDLER_NAMES == {"submit", "advance", "transition", "status", "help", "list_projects", "workflow_state"}
 
     def test_get_handler_returns_callable(self):
         for name in HANDLER_NAMES:
@@ -294,6 +295,52 @@ class TestHandleSubmit:
         assert result["ok"] is True
         assert result["data"]["extra"] == "val"
         assert result["data"]["decision"] == "x"
+
+
+# ── handle_advance tests ────────────────────────────────────────────────
+
+class TestHandleAdvance:
+    """El paso que faltaba: mover el índice DENTRO del nodo.
+
+    `sub_state_index` no se modificaba en ningún lado del motor, así que cada
+    nodo quedaba clavado en su primer sub-estado. Los prompts decían "usa
+    advance()" y la tool no existía.
+    """
+
+    def test_avanza_al_siguiente_sub_estado(self):
+        state = WorkflowState(current_node="WORK", current_sub_state="EXEC", sub_state_index=0)
+        ctx = _make_ctx(graph=_make_graph(), state=state)
+
+        result = handle_advance(ctx, data="lo que EXEC exige")
+
+        assert result["ok"] is True, result
+        assert result["position"] == "WORK.DONE"
+        assert result["sub_state"] == "DONE"
+
+    def test_sin_campos_requeridos_rechaza_y_no_avanza(self):
+        state = WorkflowState(current_node="WORK", current_sub_state="EXEC", sub_state_index=0)
+        ctx = _make_ctx(graph=_make_graph(), state=state)
+
+        result = handle_advance(ctx)
+
+        assert result["ok"] is False
+        assert result["action"] == "validation_failed"
+        assert "data" in str(result["errors"])
+
+    def test_fin_de_nodo_no_inventa_transicion(self):
+        state = WorkflowState(current_node="WORK", current_sub_state="DONE", sub_state_index=1)
+        state = state.record_submit("EXEC", {"data": "ya validado antes de avanzar"})
+        ctx = _make_ctx(graph=_make_graph(), state=state)
+
+        result = handle_advance(ctx)
+
+        assert result["ok"] is False
+        assert result["action"] == "node_complete"
+        assert isinstance(result["available_gates"], list), "devuelve los gates, no adivina"
+
+    def test_advance_esta_en_el_registro(self):
+        assert "advance" in HANDLER_NAMES
+        assert get_handler("advance") is not None
 
 
 # ── handle_transition tests ──────────────────────────────────────────────

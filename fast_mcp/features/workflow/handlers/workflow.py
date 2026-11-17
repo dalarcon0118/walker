@@ -38,6 +38,13 @@ def handle_submit(ctx: Any, **kwargs: Any) -> dict:
     return ctx.orchestrator.submit(exec_ctx, fields=fields or None)
 
 
+def handle_advance(ctx: Any, **kwargs: Any) -> dict:
+    """Avanza al siguiente sub-estado del nodo actual (intra-nodo)."""
+    exec_ctx = _make_ctx(ctx.chain_dir, kwargs)
+    fields = _extract_fields(kwargs)
+    return ctx.orchestrator.advance(exec_ctx, fields=fields or None)
+
+
 def handle_transition(ctx: Any, **kwargs: Any) -> dict:
     """Transition to the next node via a gate.
 

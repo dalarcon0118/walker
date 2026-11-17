@@ -151,3 +151,38 @@ y evidencia (`capture`). Quedan fuera tres clases:
 
 Un perfil que nombre tools inexistentes loggea warning y arranca igual (no
 rompe el boot por un nombre viejo).
+
+---
+
+## El hook conduce el motor (sub-estados `auto`)
+
+El plugin no solo sugiere: cuando el workflow está en un sub-estado
+`execution: auto` (o `bootstrap`), llama a `advance` él mismo antes de inyectar.
+Esos pasos no requieren criterio del modelo —los corre el motor— y esperar a que
+el agente se acuerde era la razón de que **los 7 proyectos registrados
+estuvieran clavados en `START.LIST`** (medido 2026-11-17).
+
+```
+sesión nueva → workflow_state = START.LIST (auto)
+             → plugin llama advance
+             → START.SELECT (llm_task) → se inyecta el bloque con los campos
+```
+
+Tope: 3 pasos automáticos por turno (`MAX_AUTO_STEPS`), y si `advance` falla se
+corta en silencio (fail-open): un workflow roto no debe bloquear la sesión.
+
+El bloque inyectado trae el comando exacto:
+
+```
+[WALKER] Workflow: START.SELECT (llm_task). Campos requeridos: project_id, decision.
+Complete el paso ANTES de escribir código: walker3 <proyecto>/submit '{"project_id":"...","decision":"..."}'.
+Después, avance con: walker3 <proyecto>/transition '{"gate":"project_selected"}'.
+```
+
+Escape hatch: `WALKER_FLIGHT_CONTROL=0`.
+
+Lo que el hook **no** hace: negar herramientas. Un agente puede ignorar la
+inyección sin costo (queda como `workflow_suggestion_ignored` en el trace). El
+único límite duro hoy es del lado del server: `submit`/`advance` rechazan si
+faltan campos requeridos y `transition` rechaza si las precondiciones no se
+cumplen.

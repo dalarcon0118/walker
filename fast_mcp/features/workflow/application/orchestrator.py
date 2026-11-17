@@ -319,6 +319,117 @@ class OrchestrationService:
             "data": fields,
         }
 
+    def advance(
+        self,
+        ctx: ExecutionContext,
+        fields: dict[str, Any] | None = None,
+    ) -> dict:
+        """Avanza al SIGUIENTE sub-estado del nodo actual.
+
+        Faltaba: `sub_state_index` no se modificaba en ningún lado del motor, así
+        que cada nodo quedaba clavado en su primer sub-estado para siempre
+        (medido 2026-11-17: los 7 proyectos registrados en `START.LIST`). Los
+        prompts ya decían "usa advance()" y la tool no existía.
+
+        Orden: graba los campos (candidato), valida los requeridos del sub-estado
+        actual, ejecuta la acción si el sub-estado es `auto`, y mueve el índice.
+        Si el nodo se terminó, NO inventa una transición: devuelve los gates
+        disponibles (esa decisión es del nodo siguiente).
+        """
+        try:
+            return self._advance_impl(ctx, fields or {})
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e), "action": "advance_error"}
+
+    def _advance_impl(self, ctx: ExecutionContext, fields: dict[str, Any]) -> dict:
+        graph = self._load_graph()
+        state = self._load_state()
+        if graph is None or state is None:
+            return {"ok": False, "error": "Failed to load workflow state"}
+
+        # Auto-init igual que `submit`: un proyecto sin estado arranca en el
+        # sub-estado inicial del grafo.
+        if not state.current_node and graph.initial_state:
+            from dataclasses import replace
+            init_node = graph.get_node(graph.initial_state)
+            init_sub = init_node.sub_states[0].key if init_node and init_node.sub_states else ""
+            state = replace(
+                state,
+                current_node=graph.initial_state,
+                current_sub_state=init_sub,
+            )
+
+        state, _ = state.reconcile_index(graph)
+        node = graph.get_node(state.current_node)
+        if not node:
+            return {"ok": False, "error": f"Current node '{state.current_node}' not in graph"}
+        sub_state = node.find_sub_state(state.current_sub_state)
+        if not sub_state:
+            return {
+                "ok": False,
+                "error": f"Sub-state '{state.current_sub_state}' not in node '{state.current_node}'",
+            }
+
+        # 1. Grabar antes de validar (mismo deadlock que tenía `submit`).
+        candidate = state.record_submit(state.current_sub_state, fields) if fields else state
+        errors = ValidationService.check_transition_preconditions(candidate, graph, "")
+        if errors:
+            return {
+                "ok": False,
+                "error": "Missing required fields",
+                "errors": errors,
+                "action": "validation_failed",
+            }
+
+        # 2. Ejecutar la acción del sub-estado (los `auto` corren sin el modelo).
+        task_result = None
+        if sub_state.action:
+            task_result, task_ok, task_field = self._execute_action(
+                ctx, sub_state, candidate, fields
+            )
+            if task_result is not None and not task_ok:
+                return {
+                    "ok": False,
+                    "action": "task_failed",
+                    "error": task_field or f"Action '{sub_state.action}' failed",
+                    "task_action": sub_state.action,
+                }
+
+        # 3. Mover el índice dentro del nodo.
+        next_index = state.sub_state_index + 1
+        if next_index >= len(node.sub_states):
+            return {
+                "ok": False,
+                "action": "node_complete",
+                "error": f"Node '{state.current_node}' complete: transition with a gate",
+                "available_gates": [
+                    g.name for g in ValidationService.get_available_gates(state, graph)
+                ],
+            }
+
+        next_sub = node.sub_states[next_index]
+        new_state = candidate.with_node(state.current_node, next_sub.key, next_index)
+        new_state = new_state.record_node_execution(
+            node=state.current_node,
+            sub_state=state.current_sub_state,
+            execution_type=sub_state.execution.value,
+            action=sub_state.action,
+            submitted_fields=fields,
+            task_ok=True,
+            task_result=task_result,
+        )
+        if not self._save_state(new_state):
+            return {"ok": False, "error": "Failed to persist state"}
+        self._trace_submit(ctx, new_state, fields)
+
+        return {
+            "ok": True,
+            "node": new_state.current_node,
+            "sub_state": new_state.current_sub_state,
+            "position": f"{new_state.current_node}.{new_state.current_sub_state}",
+            "revision": new_state.revision,
+        }
+
     def _execute_action(
         self,
         ctx: ExecutionContext,
@@ -676,6 +787,21 @@ class OrchestrationService:
         if graph is None or state is None:
             return {"ok": False, "error": "Failed to load workflow state"}
 
+        # Auto-init: un proyecto sin `.workflow-state.json` está en el estado
+        # inicial del grafo, no en ".". Sin esto el plugin recibía
+        # `current_position: "."`, no reconocía un sub-estado `auto` y nunca
+        # avanzaba: el proyecto quedaba congelado (medido 2026-11-17).
+        if not state.current_node and graph.initial_state:
+            from dataclasses import replace
+            init_node = graph.get_node(graph.initial_state)
+            init_sub = init_node.sub_states[0].key if init_node and init_node.sub_states else ""
+            state = replace(
+                state,
+                current_node=graph.initial_state,
+                current_sub_state=init_sub,
+            )
+        state, _ = state.reconcile_index(graph)
+
         node = graph.get_node(state.current_node)
         sub_state_def = node.find_sub_state(state.current_sub_state) if node else None
 
@@ -732,12 +858,26 @@ class OrchestrationService:
     def help(self, ctx: ExecutionContext) -> dict:
         """Current state summary + available operations.
 
-        Read-only: INV-S2-06.
+        Read-only: INV-S2-06 (el auto-init no persiste nada).
         """
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
             return {"ok": False, "error": "Failed to load workflow state"}
+
+        # Auto-init: el plugin lee por acá. Un proyecto sin estado está en el
+        # sub-estado inicial del grafo, no en ".". Sin esto recibía
+        # `current_position: "."`, no lo reconocía como `auto` y el workflow
+        # nunca arrancaba (medido 2026-11-17: 7/7 proyectos congelados).
+        if not state.current_node and graph.initial_state:
+            from dataclasses import replace
+            init_node = graph.get_node(graph.initial_state)
+            init_sub = init_node.sub_states[0].key if init_node and init_node.sub_states else ""
+            state = replace(
+                state,
+                current_node=graph.initial_state,
+                current_sub_state=init_sub,
+            )
 
         node = graph.get_node(state.current_node)
         sub_state_def = node.find_sub_state(state.current_sub_state) if node else None

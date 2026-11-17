@@ -39,14 +39,14 @@ def _surface_chars(tools: dict) -> int:
 def test_sin_var_de_entorno_no_se_recorta_nada(monkeypatch):
     tools = _tools(monkeypatch, None)
 
-    assert len(tools) == 33, "el default debe ser el contrato histórico"
+    assert len(tools) == 34, "el default debe ser el contrato histórico"
 
 
 def test_perfil_agent_expone_diez_tools(monkeypatch):
     tools = _tools(monkeypatch, "agent")
 
     assert set(tools) == set(tool_profiles.AGENT)
-    assert len(tools) == 10
+    assert len(tools) == 11
 
 
 def test_perfil_agent_no_expone_telemetria_ni_mantenimiento(monkeypatch):
@@ -70,7 +70,7 @@ def test_perfil_agent_no_duplica_tools_nativas(monkeypatch):
 def test_perfil_agent_conserva_el_ciclo_de_trabajo(monkeypatch):
     tools = _tools(monkeypatch, "agent")
 
-    assert {"workflow_state", "submit", "transition", "status"} <= set(tools)
+    assert {"workflow_state", "submit", "advance", "transition", "status"} <= set(tools)
     assert {"agent_context", "search_skills", "load_skill"} <= set(tools)
     assert {"run_tests", "verify_predicates", "capture"} <= set(tools)
 
@@ -94,7 +94,7 @@ def test_perfil_desconocido_cae_a_full(monkeypatch):
     monkeypatch.setenv("WALKER_MCP_PROFILE", "inexistente")
 
     assert tool_profiles.active_profile() == "full"
-    assert len(_tools(monkeypatch, "inexistente")) == 33
+    assert len(_tools(monkeypatch, "inexistente")) == 34
 
 
 def test_perfil_con_nombre_inexistente_avisa_pero_no_rompe(monkeypatch, caplog):
