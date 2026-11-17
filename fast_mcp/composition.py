@@ -441,6 +441,30 @@ def _build_sprint_service(chain_dir: str):
     return SprintService(project_root=chain_dir, repo=_build_delta_repo(chain_dir))
 
 
+def _emit_task_after(name, ctx, result) -> None:
+    """Notifica `task.after` al bus de hooks del proyecto del task.
+
+    Composition es el único lugar que puede cruzar features (R1); el registry
+    recibe esta función inyectada y no conoce ni el bus ni las rutas.
+    """
+    chain_dir = getattr(ctx, "chain_dir", "")
+    if not chain_dir:
+        return
+    try:
+        from fast_mcp.shared_kernel.hooks import HookBus
+
+        HookBus.load(chain_dir).emit("task.after", {
+            "task": name,
+            "task_id": getattr(ctx, "task_id", ""),
+            "session_id": getattr(ctx, "session_id", ""),
+            "ok": bool(result.ok),
+            "error": result.error,
+            "chain_dir": chain_dir,
+        })
+    except Exception:  # noqa: BLE001 — observador, nunca parte del task
+        pass
+
+
 def _build_task_registry(sprint_service=None):
     """Build and populate a TaskRegistry with all registered handlers."""
     from fast_mcp.features.code_analysis.application.use_cases.sync_cpg import (
@@ -449,7 +473,7 @@ def _build_task_registry(sprint_service=None):
     from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
     from fast_mcp.features.tasks.handlers import register_all_tasks
 
-    registry = TaskRegistry()
+    registry = TaskRegistry(on_task_done=_emit_task_after)
     # cpg_sync: composition es el único que puede cruzar features (R1); el
     # handler de tasks la recibe inyectada en vez de importar code_analysis.
     register_all_tasks(

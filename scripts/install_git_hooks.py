@@ -47,7 +47,7 @@ mkdir -p "$log_dir" 2>/dev/null
 
 (
     cd "$repo_root" || exit 0
-    "$python_bin" "{walker}/scripts/sync_cpg_on_commit.py" >>"$log_dir/walker-sync.log" 2>&1
+    "$python_bin" "{walker}/scripts/hooks_runner.py" commit --repo "$repo_root" >>"$log_dir/walker-sync.log" 2>&1
 ) >/dev/null 2>&1 &
 
 exit 0

@@ -29,7 +29,7 @@ def test_instala_hook_ejecutable_con_la_ruta_de_walker(tmp_path):
     content = hook.read_text()
     assert installer.MARKER in content
     assert str(installer.WALKER_ROOT) in content
-    assert "sync_cpg_on_commit.py" in content
+    assert "hooks_runner.py" in content, "el hook emite el evento commit al bus"
 
 
 def test_hook_no_bloquea_el_commit(tmp_path):

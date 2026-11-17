@@ -70,9 +70,12 @@ class TaskRegistry:
     Execute: task_name → handler(ctx, data) → TaskResult.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, on_task_done: Callable | None = None) -> None:
         self._handlers: dict[str, Callable] = {}
         self._meta: dict[str, TaskMeta] = {}
+        # Hook inyectado por composition (R1): el registro no conoce el bus de
+        # hooks ni el disco; solo notifica nombre/ctx/resultado.
+        self._on_task_done = on_task_done
 
     def register(
         self,
@@ -93,17 +96,34 @@ class TaskRegistry:
         """Execute a task by name. Never raises."""
         handler = self._handlers.get(name)
         if handler is None:
-            return TaskResult.failure(f"unknown task: {name}")
+            result = TaskResult.failure(f"unknown task: {name}")
+        else:
+            try:
+                raw = handler(ctx, data)
+                if isinstance(raw, TaskResult):
+                    result = raw
+                elif isinstance(raw, dict):
+                    result = TaskResult(
+                        ok=raw.get("ok", True),
+                        data=raw.get("data", raw),
+                        error=raw.get("error", ""),
+                    )
+                else:
+                    result = TaskResult.success({"result": raw})
+            except Exception as exc:
+                logger.exception("TaskRegistry: task '%s' failed", name)
+                result = TaskResult.failure(f"{type(exc).__name__}: {exc}")
+        self._notify(name, ctx, result)
+        return result
+
+    def _notify(self, name: str, ctx: ExecutionContext, result: TaskResult) -> None:
+        """Emite `task.after` (best-effort: un hook nunca rompe la ejecución)."""
+        if self._on_task_done is None:
+            return
         try:
-            result = handler(ctx, data)
-            if isinstance(result, TaskResult):
-                return result
-            if isinstance(result, dict):
-                return TaskResult(ok=result.get("ok", True), data=result.get("data", result), error=result.get("error", ""))
-            return TaskResult(success={"result": result})
-        except Exception as exc:
-            logger.exception("TaskRegistry: task '%s' failed", name)
-            return TaskResult.failure(f"{type(exc).__name__}: {exc}")
+            self._on_task_done(name, ctx, result)
+        except Exception:  # noqa: BLE001 — el hook es observador, no parte del task
+            logger.warning("TaskRegistry: on_task_done falló para '%s'", name, exc_info=True)
 
     def has(self, name: str) -> bool:
         return name in self._handlers

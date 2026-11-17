@@ -174,6 +174,23 @@ def run_sync(root: str, sync=None) -> dict:
         release_lock(lock_path)
 
 
+def emit_indexed(root: str, outcome: dict) -> list:
+    """Anuncia `cpg.indexed` para que otros hooks reaccionen (best-effort)."""
+    try:
+        from fast_mcp.shared_kernel.hooks import HookBus
+
+        return HookBus.load(root).emit("cpg.indexed", {
+            "project_id": outcome.get("project_id"),
+            "mode": outcome.get("mode"),
+            "nodes": outcome.get("nodes"),
+            "edges": outcome.get("edges"),
+            "files": outcome.get("files"),
+        })
+    except Exception as exc:  # noqa: BLE001 — nunca rompe el sync
+        logger.debug("no se pudo emitir cpg.indexed: %s", exc)
+        return []
+
+
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -187,6 +204,7 @@ def main() -> int:
             outcome.get("project_id"), outcome.get("mode", "?"),
             outcome.get("nodes"), outcome.get("edges"), outcome.get("seconds"),
         )
+        emit_indexed(root, outcome)
     else:
         logger.info("sync %s · %s", outcome.get("status"), outcome.get("reason")
                     or outcome.get("error") or outcome.get("project_id"))
