@@ -734,6 +734,9 @@ class BuildGraphUseCase:
 
         try:
             from fast_mcp.shared_kernel.project_support import FileWatcher
+            from fast_mcp.shared_kernel.project_support.watcher import (
+                MAX_CHANGED_FILES,
+            )
 
             # Scope y data_dir alineados con el watcher de status: repo_path
             # completo (ADR-WALKER-054 D1) + data_dir canónico
@@ -772,7 +775,17 @@ class BuildGraphUseCase:
                 ),
             }
 
-        changed = status.get("files_changed", [])
+        # Lista COMPLETA del scan: `status["files_changed"]` viene truncada a
+        # MAX_CHANGED_FILES (500) y ordenada alfabéticamente, así que con más
+        # cambios los que caen después del corte nunca se indexaban (bug
+        # medido: `harness/runner.py` quedó fuera y el CPG siguió con su
+        # versión vieja mientras el watcher reportaba "up_to_date").
+        changed = getattr(watcher, "last_changes_all", None) or status.get("files_changed", [])
+        if len(changed) > MAX_CHANGED_FILES:
+            logger.info(
+                "update incremental: %d archivos cambiados (el status truncaba a %d)",
+                len(changed), MAX_CHANGED_FILES,
+            )
         if not changed and status.get("cpg_status") == "up_to_date":
             return self._repo.load(self.project_id)
 

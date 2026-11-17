@@ -1,0 +1,95 @@
+"""test_watcher_truncation_bdd.py — el sync incremental no puede perder archivos.
+
+Bug medido 2026-11-17 en el propio repo de walker: se commiteó código nuevo en
+`harness/runner.py` y el CPG siguió sirviendo la versión vieja (sin
+`detect_project`, `eval_knowledge_nodes`, `summary_knowledge_nodes`), mientras
+`status` reportaba `total_changes: 0 / cpg_status: up_to_date`.
+
+Cadena causal:
+1. `scan()` persiste `files_changed` truncado a MAX_CHANGED_FILES (500) en orden
+   alfabético. Con más cambios, los que caen después del corte desaparecen.
+2. `update()` consumía ese JSON truncado → indexaba solo los primeros 500.
+3. `index_task_files` guardaba el fingerprint de TODO el árbol, así que
+   `mark_indexed` veía `cpg_fp == fingerprint` y declaraba up_to_date, vaciando
+   la cola.
+
+Resultado: divergencia permanente y silenciosa. El fix expone la lista completa
+en memoria (`last_changes_all`) y `update()` la consume.
+"""
+
+from __future__ import annotations
+
+import fast_mcp.shared_kernel.project_support as project_support
+import fast_mcp.shared_kernel.project_support.watcher as watcher_module
+from fast_mcp.features.code_analysis.application.build_service import (
+    BuildGraphUseCase,
+)
+from fast_mcp.shared_kernel.project_support.watcher import FileWatcher
+
+
+def _repo_with_files(tmp_path, count: int):
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    for i in range(count):
+        (root / "src" / f"f{i:02d}.py").write_text("def f():\n    return 0\n")
+    return root
+
+
+def test_scan_expone_la_lista_completa_aunque_el_json_se_trunque(tmp_path, monkeypatch):
+    monkeypatch.setattr(watcher_module, "MAX_CHANGED_FILES", 10)
+    root = _repo_with_files(tmp_path, 12)
+
+    # data_dir FUERA del árbol escaneado: si el estado del watcher vive
+    # dentro, cada scan se ve a sí mismo como cambio.
+    watcher = FileWatcher(str(root), data_dir=str(tmp_path / "state"))
+    watcher.scan()  # baseline: guarda el snapshot
+
+    for i in range(12):
+        (root / "src" / f"f{i:02d}.py").write_text("def f():\n    return 1\n")
+
+    status = watcher.scan()
+
+    assert status["total_changes"] == 12
+    assert status["truncated"] is True, "el status debe decir que truncó"
+    assert len(status["files_changed"]) == 10, "el JSON se sigue acotando"
+    assert len(watcher.last_changes_all) == 12, "en memoria va la lista completa"
+    assert "src/f11.py" in watcher.last_changes_all
+    assert "src/f11.py" not in status["files_changed"], (
+        "regresión: el último archivo alfabético caía fuera del corte"
+    )
+
+
+def test_update_consume_la_lista_completa_y_no_la_truncada(tmp_path, monkeypatch):
+    """`update()` debe indexar los 12, no los 10 del JSON."""
+    monkeypatch.setattr(watcher_module, "MAX_CHANGED_FILES", 10)
+    files = [f"src/f{i:02d}.py" for i in range(12)]
+
+    class FakeWatcher:
+        def __init__(self, *args, **kwargs):
+            self.last_changes_all = list(files)
+
+        def scan(self):
+            return {
+                "files_changed": files[:10],
+                "total_changes": len(files),
+                "truncated": True,
+                "cpg_status": "stale",
+            }
+
+        def mark_indexed(self, _index_type="cpg"):
+            self.marked = True
+
+    monkeypatch.setattr(project_support, "FileWatcher", FakeWatcher)
+
+    use_case = BuildGraphUseCase(
+        "demo", str(tmp_path), str(tmp_path), repo=object(), graph=object()
+    )
+    captured: dict = {}
+    use_case.index_task_files = lambda changed, bug_proposals=False: (  # type: ignore[method-assign]
+        captured.setdefault("files", list(changed)) or {"ok": True}
+    )
+
+    use_case.update()
+
+    assert len(captured["files"]) == 12
+    assert captured["files"][-1] == "src/f11.py"

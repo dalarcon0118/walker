@@ -134,6 +134,8 @@ class FileWatcher:
 
         # Scope = repo_path completo (ADR-WALKER-054 D1: sin code_paths)
         self.watch_dirs = [self.project_root]
+        # Lista completa del último scan (sin truncar). `update()` la consume.
+        self.last_changes_all: list[str] = []
 
         # Inyección: tracing handler (no-op por defecto, CognitiveGraph en producción)
         self._on_trace = on_trace_event or (lambda _event_type, _data: None)
@@ -199,10 +201,20 @@ class FileWatcher:
         else:
             cpg_status = "stale" if accumulated_list else prev_status.get("cpg_status", "up_to_date")
 
+        # Lista COMPLETA en memoria (el JSON se trunca a MAX_CHANGED_FILES solo
+        # para no crecer sin límite). Bug medido 2026-11-17: `update()` consumía
+        # el JSON truncado y ordenado alfabéticamente, así que con >500 cambios
+        # los archivos que caían después del corte (p. ej. `harness/runner.py`)
+        # NUNCA se indexaban; y como `index_task_files` guarda el fingerprint de
+        # TODO el árbol, `mark_indexed` declaraba "up_to_date" y vaciaba la cola.
+        # Divergencia permanente y silenciosa: el CPG quedaba con código viejo.
+        self.last_changes_all = list(accumulated_list)
+
         change_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "files_changed": accumulated_list[:MAX_CHANGED_FILES],
             "total_changes": len(accumulated_list),
+            "truncated": len(accumulated_list) > MAX_CHANGED_FILES,
             "new_changes": new_changes[:MAX_CHANGED_FILES],
             "fingerprint": current_fingerprint,
             "ckg_status": prev_status.get("ckg_status", "up_to_date"),
