@@ -206,7 +206,7 @@ class CognitiveGraph:
         # B) Ranking por relevancia de capa
         if index == "ckg":
             projected.sort(
-                key=lambda h: self.self.severity_order.get(
+                key=lambda h: self.severity_order.get(
                     (h["_source"].get("severity") or "").lower(), 9
                 )
             )
