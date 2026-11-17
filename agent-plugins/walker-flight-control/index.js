@@ -324,6 +324,7 @@ export default {
               runTool("trace_push", {
                 event_type: "flight_control_denied",
                 source: "agent_hook",
+                session_id: String(callCtx?.sessionID || ""),
                 data: { tool: name, position: cur.position, required: cur.required },
               })
               // El mensaje tiene que ser AUTOSUFICIENTE: en el probe anterior el
@@ -365,6 +366,7 @@ export default {
                 const taskId = taskIdFor(callCtx?.sessionID)
                 const res = runTool("implement_task", {
                   task_id: taskId,
+                  session_id: String(callCtx?.sessionID || ""),
                   objective: sessionGoal || `cambios sobre ${file || "el proyecto"}`,
                   files: file ? [file] : [],
                 })
@@ -373,6 +375,9 @@ export default {
                   runTool("trace_push", {
                     event_type: "task_autodeclared",
                     source: "agent_hook",
+                    session_id: String(callCtx?.sessionID || ""),
+                    task_id: taskId,
+                    files: file ? [file] : [],
                     data: { task_id: taskId, file },
                   })
                 }
@@ -399,7 +404,7 @@ export default {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
-              const file = String(input?.path || input?.filePath || "")
+              const file = relPath(input?.path || input?.filePath || "")
               if (!baselineDone && file && projectId) {
                 baselineDone = true
                 const ctxData = runTool("agent_context", { file })
@@ -408,6 +413,8 @@ export default {
                   runTool("trace_push", {
                     event_type: "intake_baseline",
                     source: "agent_hook",
+                    session_id: String(callCtx?.sessionID || ""),
+                    files: file ? [file] : [],
                     data: { file, callers: (ctxData.cpg?.relations?.called_by_total) ?? 0 },
                   })
                 }

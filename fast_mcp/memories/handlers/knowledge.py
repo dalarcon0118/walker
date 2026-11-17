@@ -127,12 +127,24 @@ def handle_documenting_knowledge(ctx: MemoryContext, **kwargs: Any) -> dict:
     payload = kwargs.get("_payload", kwargs)
     nodes = payload.get("nodes")
 
+    # `session_id`/`task_id` viajan al CKG: sin ellos una decisión no se puede
+    # correlacionar con la sesión que la tomó (la capacidad existía en el
+    # servicio y la tool no la usaba).
+    session_id = str(payload.get("session_id", "") or kwargs.get("session_id", "") or "")
+    task_id = str(payload.get("task_id", "") or kwargs.get("task_id", "") or "")
+
     if isinstance(nodes, list) and nodes:
-        result = CkgWriteService.save_nodes(ctx.chain_dir, nodes)
+        result = CkgWriteService.save_nodes(
+            ctx.chain_dir, nodes, task_id=task_id, session_id=session_id
+        )
         return result.value_or({}) if is_successful(result) else {"error": str(result.failure())}
 
     node = build_ckg_node(payload)
-    result = CkgWriteService.save_nodes(ctx.chain_dir, [node])
+    if session_id:
+        (node.setdefault("metadata", {}) or {}).setdefault("source", f"session:{session_id}")
+    result = CkgWriteService.save_nodes(
+        ctx.chain_dir, [node], task_id=task_id, session_id=session_id
+    )
     return result.value_or({}) if is_successful(result) else {"error": str(result.failure())}
 
 
@@ -386,6 +398,129 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    return out
+
+
+def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Todo lo que pasó en una sesión, unido por `session_id`.
+
+    El id es la clave de join entre los cuatro grafos: el TRACE lo guarda en
+    metadata, el DELTA en `task_context.session_id`, el CKG en
+    `metadata.source = "session:<id>"` y el CPG se alcanza por los archivos
+    tocados. Devuelve las cuatro vistas juntas y declara cuál quedó vacía.
+    """
+    body = kwargs.get("_payload", kwargs) or {}
+    sid = str(body.get("session_id", "") or kwargs.get("session_id", "") or "").strip()
+    if not sid:
+        return {"error": "session_id requerido", "type": "session_context"}
+
+    out: dict[str, Any] = {"type": "session_context", "session_id": sid}
+
+    # 1. TRACE: qué hizo el agente
+    events: list = []
+    try:
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+        )
+
+        service = build_trace_service(ctx.chain_dir)
+        if service is not None:
+            events = [
+                e for e in service.load_traces(ctx.chain_dir)
+                if str((e.metadata or {}).get("session_id", "")) == sid
+            ]
+    except Exception as exc:  # noqa: BLE001
+        out["trace_error"] = f"{type(exc).__name__}: {exc}"
+
+    out["trace"] = {
+        "count": len(events),
+        "types": sorted({e.event_type for e in events}),
+        "events": [
+            {"event": e.event_type, "at": (e.timestamp or "")[:19],
+             "task_id": e.task_id, "files": e.files, "data": e.data}
+            for e in events[-30:]
+        ],
+    }
+
+    # 2. DELTA: qué tareas se hicieron
+    tasks: list[dict] = []
+    try:
+        from fast_mcp.composition import build_sprint_service
+
+        service = build_sprint_service(ctx.chain_dir)
+        if service is not None:
+            seen: set[str] = set()
+            springs = ([service.get_active_spring()] if service.get_active_spring() else [])
+            springs += service.list_springs() or []
+            for spring in springs:
+                spring_id = str(spring.get("spring_id") or spring.get("id") or "")
+                if not spring_id or spring_id in seen:
+                    continue
+                seen.add(spring_id)
+                for spec in service.get_specs(spring_id) or []:
+                    if str((spec.get("task_context") or {}).get("session_id", "")) == sid:
+                        tasks.append({
+                            "spec_id": spec.get("spec_id"),
+                            "objective": spec.get("objective"),
+                            "status": spec.get("status"),
+                            "files": spec.get("files") or [],
+                        })
+    except Exception as exc:  # noqa: BLE001
+        out["delta_error"] = f"{type(exc).__name__}: {exc}"
+
+    out["tasks"] = tasks
+
+    # 3. Archivos tocados: trace + tareas declaradas
+    files: list[str] = []
+    for e in events:
+        for f in (e.files or []):
+            if f and f not in files:
+                files.append(f)
+    for t in tasks:
+        for f in (t.get("files") or []):
+            if f and f not in files:
+                files.append(f)
+    out["files"] = files[:50]
+
+    # 4. CKG: decisiones y hechos de la sesión
+    try:
+        from returns.pipeline import is_successful
+
+        from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import (
+            CkgReadService,
+        )
+
+        result = CkgReadService.gather_context(ctx.chain_dir, query=f"session:{sid}")
+        out["ckg"] = {
+            "results": result.value_or([]) if is_successful(result) else [],
+        }
+    except Exception as exc:  # noqa: BLE001
+        out["ckg"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    # 5. CPG: forma de los archivos tocados (máx 3, para no explotar el tamaño)
+    cpg: list[dict] = []
+    for f in files[:3]:
+        try:
+            code = ctx.code_context_service().execute(target_file=f, query="")
+            rel = code.get("relations") or {}
+            cpg.append({
+                "file": f,
+                "symbols": len(code.get("symbols") or []),
+                "calls": rel.get("calls_total", len(rel.get("calls") or [])),
+                "called_by": rel.get("called_by_total", len(rel.get("called_by") or [])),
+            })
+        except Exception:  # noqa: BLE001
+            continue
+    out["cpg"] = cpg
+
+    out["empty_layers"] = [
+        name for name, value in (
+            ("trace", out["trace"]["count"]),
+            ("delta", len(tasks)),
+            ("ckg", len((out.get("ckg") or {}).get("results") or [])),
+            ("cpg", len(cpg)),
+        ) if not value
+    ]
     return out
 
 

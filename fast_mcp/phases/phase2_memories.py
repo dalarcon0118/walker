@@ -42,6 +42,7 @@ _FASE2_TOOLS = (
     "documenting_knowledge",
     "search_memories",
     "agent_context",
+    "session_context",
     "search_skills",
     "load_skill",
     # Análisis de código
@@ -55,6 +56,13 @@ _FASE2_TOOLS = (
 
 # SSOT local del inputSchema (contrato legacy, declarativo — no inferido).
 _INPUT_SCHEMAS: dict[str, dict] = {
+    "session_context": {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "id de sesión del agente"},
+        },
+        "required": ["session_id"],
+    },
     "snapshot": {
         "type": "object",
         "properties": {
@@ -231,6 +239,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
 }
 
 _DESCRIPTIONS = {
+    "session_context": "Todo lo que pasó en una sesión, unido por session_id: trace, tareas del delta, CKG y CPG.",
     "snapshot": "Captura el estado del scope (punto A): estructura, relaciones, firmas, complejidad, archivos, convenciones y defectos.",
     "baseline_diff": "Compara un snapshot guardado contra el estado actual (punto B).",
     "build_code_index": "Full CPG rebuild from scratch. Use for initial setup or when index is corrupted.",

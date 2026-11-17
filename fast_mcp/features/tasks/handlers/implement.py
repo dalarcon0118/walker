@@ -23,7 +23,12 @@ from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspec
 
 
 def _persist_spec(
-    ctx: ExecutionContext, task_id: str, objective: str, files: list[str], data: dict
+    ctx: ExecutionContext,
+    task_id: str,
+    objective: str,
+    files: list[str],
+    data: dict,
+    session_override: str = "",
 ) -> dict | None:
     """Crea o actualiza la spec de la tarea en el delta."""
     if not ctx.chain_dir:
@@ -58,7 +63,7 @@ def _persist_spec(
         },
         "task_context": {
             "task_id": task_id,
-            "session_id": ctx.session_id or "",
+            "session_id": session_override or ctx.session_id or "",
             "derived": derived["source"],
         },
     }
@@ -80,7 +85,7 @@ def _persist_spec(
     )
     if created:
         return _attach_task_context(
-            service, spring_id, task_id, ctx.session_id, files, objective,
+            service, spring_id, task_id, session_override or ctx.session_id, files, objective,
             criteria=base["acceptance_criteria"],
             preconditions=base["preconditions"],
             predicates=base["predicates"],
@@ -127,6 +132,9 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         files = []
 
     task_id = str(data.get("task_id") or ctx.task_id or "").strip()
+    # La sesión REAL viene del caller (el plugin la conoce); `ctx.session_id`
+    # en el path de tool es "mcp" y no sirve para unir delta ↔ trace ↔ CKG.
+    session_override = str(data.get("session_id", "") or "").strip()
     result: dict[str, Any] = {
         "task_id": task_id,
         "result_state": objective,
@@ -137,7 +145,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # agente pueda anclarse en la tarea (delta → archivos → CPG → CKG). Antes
     # sólo devolvía un dict y el delta quedaba vacío para siempre.
     try:
-        spec = _persist_spec(ctx, task_id, objective, files, data)
+        spec = _persist_spec(ctx, task_id, objective, files, data, session_override)
         if task_id:
             # Puente al workflow: a partir de acá toda acción recibe el id.
             _di.record_task(ctx.chain_dir, task_id)

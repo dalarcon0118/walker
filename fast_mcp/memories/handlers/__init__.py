@@ -45,6 +45,7 @@ _HANDLER_IMPORTS: dict[str, tuple[str, str]] = {
     "documenting_knowledge": ("fast_mcp.memories.handlers.knowledge", "handle_documenting_knowledge"),
     "search_memories": ("fast_mcp.memories.handlers.knowledge", "handle_search_memories"),
     "agent_context": ("fast_mcp.memories.handlers.knowledge", "handle_agent_context"),
+    "session_context": ("fast_mcp.memories.handlers.knowledge", "handle_session_context"),
     "search_skills": ("fast_mcp.memories.handlers.knowledge", "handle_search_skills"),
     "load_skill": ("fast_mcp.memories.handlers.knowledge", "handle_load_skill"),
     "index_repo": ("fast_mcp.memories.handlers.knowledge", "handle_index_repo"),
