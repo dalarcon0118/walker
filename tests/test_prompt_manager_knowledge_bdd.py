@@ -53,7 +53,7 @@ def test_con_searcher_agrega_conocimiento_como_texto(tmp_path):
     data = m._build_data({"node_id": "implement"}, None)  # noqa: SLF001
 
     assert data["knowledge_global"] == "- Convención global\n- Gate de complejidad"
-    assert data["knowledge_architecture"] == "- Capas estrictas\n- Patrón de capas"
+    assert data["knowledge_architecture"] == "- Capas estrictas"
     assert data["knowledge_relevant"] == "- Implementación previa"
     assert all(isinstance(data[k], str) for k in data if k.startswith("knowledge_"))
 
