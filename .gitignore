@@ -1,6 +1,10 @@
-# Walker3 HTTP Proxy — Git ignore
+# ═══════════════════════════════════════════════════════════════════════
+# Walker3 — .gitignore
+# Una regla por motivo, agrupada: si una entrada aparece dos veces, nadie
+# sabe cuál es la vigente. Las reglas de runtime llevan su razón al lado.
+# ═══════════════════════════════════════════════════════════════════════
 
-# Python
+# ─── Python ────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -8,70 +12,64 @@ __pycache__/
 dist/
 build/
 
-# Docker volumes (runtime data, not committed)
+# ─── Docker / volúmenes de runtime ─────────────────────────────────────
 .walker/
 
-# OS
+# ─── SO / IDE / editor ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs
+# ─── Logs y entorno ────────────────────────────────────────────────────
 *.log
-
-# Environment
 .env*
 
-# ── Cognitive runtime data (generated, not committed) ─────────────
-# Índices de conocimiento y caches
+# ─── Runtime cognitivo (generado, no se commitea) ──────────────────────
+# Índices y proyecciones de conocimiento. Los blobs v1 (*.json.gz) quedan
+# como backup tras la migración a sqlite (ADR-063) y los locks se recrean
+# en cada escritura atómica.
 **/*.json.gz
+**/*.json.gz.lock
 **/.file_snapshot.json
 **/change_detected.json
-
-# Caches y reportes generados
 **/dfg_cache.json
-# Sesiones de agentes
-.cognitive/sessions/
-.cognitive/projects/*/data/spring/
-.cognitive/projects/*/data/data/
-.cognitive/docs/
-
-# Backups de la canónica (runtime, snapshot v2/v3 pre/post migración)
-.cognitive/backups/
-.cognitive/projects/*/backups/
-
-# ── SQLite runtime (canónica: .cognitive/projects/<id>/data/cognitive.sqlite3) ──
-# Copias parásitas en root/ y data/ eliminadas (fail-fast ADR-063: una sola
-# ubicación canónica). Ignore anclado a root para que no reaparezcan.
-/cognitive.sqlite3*
-/data/cognitive.sqlite3*
-/data/workflow/
-.cognitive/projects/*/data/cognitive.sqlite3*
 **/cfg_calls_cache.json
 **/quality_report.json
 **/bug_proposals.json
 
-# Lock files de escritura atómica (runtime del CognitiveGraph, se recrean al escribir)
-**/*.json.gz.lock
-
-# Sesiones de agentes
+# Layout por proyecto dentro de .cognitive/.
+# `data/data/` es el anidamiento que producía la doble resolución de data_dir
+# (ADR-WALKER-054 D4). Ya no se genera, pero se ignora para que una regresión
+# no meta esos bytes al repo.
 .cognitive/sessions/
+.cognitive/docs/
 .cognitive/projects/*/data/spring/
 .cognitive/projects/*/data/data/
-.cognitive/docs/
 
-# ── Artefactos locales que no forman parte del repo ─────────────────
-# Estado del motor de workflow: SSOT runtime, se escribe en el root del
+# Canónica sqlite: UNA sola ubicación (ADR-063). Estas reglas están ancladas
+# a la raíz para que las copias parásitas en root/ y data/ no reaparezcan.
+.cognitive/projects/*/data/cognitive.sqlite3*
+/cognitive.sqlite3*
+/data/cognitive.sqlite3*
+
+# Backups de la canónica (snapshots pre/post migración)
+.cognitive/backups/
+.cognitive/projects/*/backups/
+
+# Nodos del workflow: son configuración versionada que se edita a mano y se
+# agrega con `git add -f`. Están en el repo, pero no se autocomitean.
+/data/workflow/
+
+# ─── Artefactos locales que no forman parte del repo ───────────────────
+# Estado del motor de workflow: SSOT de runtime, se escribe en el root del
 # proyecto al correr un sprint/task. No es configuración.
 .workflow-state.json
 
 # Lock de uv generado localmente (2026-09-09). El repo no usa uv en CI ni
 # declara [tool.uv]; las deps viven en pyproject y se instalan con pip. Un
-# lock sin toolchain que lo consuma aparenta una reproducibilidad que no hay.
+# lock sin toolchain que lo consuma aparenta reproducibilidad que no hay.
 # Si el proyecto adopta uv, quitar esta línea y commitearlo.
 uv.lock
