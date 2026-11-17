@@ -183,8 +183,8 @@ class OrchestrationService:
             1. Load state + graph
             2. Reconcile index (INV-P3-01)
             3. Check required_tools gate
-            4. Validate required_fields
-            5. Record submit data
+            4. Record submit data (candidato, aún sin persistir)
+            5. Validate required_fields sobre el resultado
             6. Record NodeExecution
             7. Increment revision (optimistic concurrency)
             8. Save state
@@ -243,8 +243,17 @@ class OrchestrationService:
         if skill_check is not None and not skill_check.get("ok", False):
             return skill_check
 
-        # 4. Validate required_fields
-        errors = ValidationService.check_transition_preconditions(state, graph, "")
+        # 4. Aplicar los campos ANTES de validar.
+        # Validar primero hacía imposible completar un sub-estado con
+        # `required_fields`: el gate pedía el campo que este mismo submit iba a
+        # registrar, así que toda transición con campos obligatorios devolvía
+        # "Missing required fields" y el workflow quedaba trabado (medido
+        # 2026-11-17 con `preconditions` en ANALYZE.ANALYZE).
+        # La atomicidad se mantiene: si la validación falla, no se persiste.
+        candidate = state.record_submit(state.current_sub_state, fields) if fields else state
+
+        # 5. Validate required_fields sobre el estado resultante
+        errors = ValidationService.check_transition_preconditions(candidate, graph, "")
         if errors:
             return {
                 "ok": False,
@@ -252,10 +261,7 @@ class OrchestrationService:
                 "errors": errors,
                 "action": "validation_failed",
             }
-
-        # 5. Record submit data
-        if fields:
-            state = state.record_submit(state.current_sub_state, fields)
+        state = candidate
 
         # 6. Execute sub_state.action via TaskRegistry (Sprint 5 — engine anémico)
         task_result, task_ok, task_field = self._execute_action(

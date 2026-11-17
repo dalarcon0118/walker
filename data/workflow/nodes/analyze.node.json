@@ -368,6 +368,14 @@
             "examples": [
               "Recommended approach: Strategy pattern in the domain layer"
             ]
+          },
+          "preconditions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Premisas verificables de las que depende la implementacion"
           }
         },
         "required": [
@@ -376,7 +384,8 @@
           "q2",
           "a2",
           "q3",
-          "a3"
+          "a3",
+          "preconditions"
         ]
       },
       "output_schema": {
@@ -406,6 +415,9 @@
       },
       "timeout_ms": 300000,
       "prompt_id": "analyze/analyze",
+      "required_fields": [
+        "preconditions"
+      ],
       "context": {
         "sources": [
           {
@@ -453,7 +465,7 @@
             "Base your architecture analysis on CKG patterns + CPG code structure",
             "Consider each architectural layer (domain, application, infrastructure) when assessing impact"
           ],
-          "context_priority": "project \u2192 task \u2192 ckg \u2192 cpg \u2192 state \u2192 trace"
+          "context_priority": "project → task → ckg → cpg → state → trace"
         },
         "budget": {
           "max_tokens": 80000,
@@ -533,7 +545,7 @@
             "Show project conventions from PROJECT layer for context",
             "Ask user to approve or reject the analysis"
           ],
-          "context_priority": "project \u2192 task \u2192 state"
+          "context_priority": "project → task → state"
         },
         "budget": {
           "max_tokens": 80000,
@@ -774,11 +786,11 @@
         "focus": {
           "role": "extracting knowledge from the analysis of task {task_id} for sprint \"{sprint_goal}\"",
           "constraints": [
-            "Check CKG first to see what knowledge already exists \u2014 avoid duplicating existing decisions or patterns",
+            "Check CKG first to see what knowledge already exists — avoid duplicating existing decisions or patterns",
             "Use CPG to reference specific code structures impacted",
             "Extract artifacts, rules, design decisions, and warnings from the analysis"
           ],
-          "context_priority": "project \u2192 task \u2192 ckg \u2192 cpg \u2192 state \u2192 trace"
+          "context_priority": "project → task → ckg → cpg → state → trace"
         },
         "budget": {
           "max_tokens": 80000,

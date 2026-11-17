@@ -277,6 +277,17 @@ class TestHandleSubmit:
         assert result["ok"] is False
         assert "Missing required" in result["error"]
 
+    def test_submit_satisface_el_campo_requerido_que_el_mismo_registra(self):
+        """Regresión: validar antes de grabar trababa todo sub-estado con
+        `required_fields` (el gate pedía el campo que este submit traía)."""
+        g = _make_graph()
+        state = WorkflowState(current_node="WORK", current_sub_state="EXEC", sub_state_index=0)
+        ctx = _make_ctx(graph=g, state=state)
+
+        result = handle_submit(ctx, data="lo que el gate exige")
+
+        assert result["ok"] is True, result
+
     def test_extracts_payload(self):
         ctx = _make_ctx()
         result = handle_submit(ctx, _payload={"extra": "val"}, decision="x")
