@@ -237,6 +237,13 @@ def match_expr(text: str, fields_scoped: list[str] | None = None,
     bigram-index; el substring INTERNO (bigram fuzzy puro) no se replica —
     FTS5 no soporta infix (desviación documentada, Enmienda 1).
 
+    Identificadores camelCase (fix 2026-11-16): el índice FTS guarda
+    "AppProviders" como UN token, mientras `tokenize()` lo parte en
+    [app, providers] y el AND de prefijos no lo matchea (medido: FTS crudo 2
+    hits, `"app"* "providers"*` 0). Para queries de UNA palabra se agrega el
+    token LITERAL en OR con el grupo de prefijos; las multi-término mantienen
+    el AND estricto (no se relaja la semántica de búsqueda).
+
     fields_scoped → column-scoped (`campo:"tok"*`). El texto del usuario
     jamás llega crudo a MATCH (operadores/comillas neutralizados por la
     citación y por tokenize, que solo conserva \\w).
@@ -245,13 +252,28 @@ def match_expr(text: str, fields_scoped: list[str] | None = None,
     if not tokens:
         return ""
     terms = [f'"{t}"*' for t in tokens]
+    and_terms = " ".join(terms)
+    inner = and_terms
+    # OR con el literal solo si la palabra se partió (camelCase/snake/dash).
+    words = [
+        w.strip("\"'()[]{},;:!?")
+        for w in re.split(r"\s+", str(text).strip())
+        if w.strip("\"'()[]{},;:!?")
+    ]
+    if len(words) == 1 and words[0].lower() not in tokens:
+        # El literal va entre comillas: una comilla interna rompería la
+        # sintaxis MATCH (inyección de operadores), así que se elimina.
+        literal = words[0].replace('"', "")
+        if literal:
+            inner = f'("{literal}" OR ({and_terms}))'
     if fields_scoped:
         cols = set(fts_columns or [])
         valid = [f for f in fields_scoped if f in cols]
         if not valid:
             return ""
-        return " ".join(f"{f}:{term}" for f in valid for term in terms)
-    return " ".join(terms)
+        body = inner if inner.startswith("(") and inner.endswith(")") else f"({inner})"
+        return " ".join(f"{f}:{body}" for f in valid)
+    return inner
 
 
 # ── Ciclo de vida: ensure / backfill / drop ────────────────────────────────
