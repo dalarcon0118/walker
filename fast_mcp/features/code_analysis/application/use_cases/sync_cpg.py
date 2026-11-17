@@ -14,11 +14,15 @@ from __future__ import annotations
 from typing import Any
 
 
-def sync_project_cpg(chain_dir: str) -> dict[str, Any]:
+def sync_project_cpg(chain_dir: str, refresh: bool = False) -> dict[str, Any]:
     """Construye el CPG si está vacío; si no, aplica el update incremental.
 
     Args:
         chain_dir: raíz del repo del proyecto (resuelta por el caller).
+        refresh: fuerza build completo. El incremental es LOSSY por ids
+            inestables (`_rekey_scanned` usa un nonce), así que pierde
+            aristas entrantes a archivos re-escaneados; para el hook de
+            commit se usa build completo (8-50s en background).
 
     Returns:
         dict con `mode` ('full'|'incremental'), `stats_before`, `result`.
@@ -46,10 +50,14 @@ def sync_project_cpg(chain_dir: str) -> dict[str, Any]:
     has_data = any(
         isinstance(value, int) and value > 0 for value in stats.values()
     )
-    result = service.update(refresh=False) if has_data else service.build()
+    result = (
+        service.build()
+        if refresh or not has_data
+        else service.update(refresh=False)
+    )
 
     return {
-        "mode": "incremental" if has_data else "full",
+        "mode": "full" if (refresh or not has_data) else "incremental",
         "stats_before": stats,
         "result": result,
         "chain_dir": chain_dir,

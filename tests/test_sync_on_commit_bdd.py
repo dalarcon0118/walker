@@ -147,3 +147,20 @@ def test_run_sync_lee_stats_del_grafo_si_el_resultado_no_los_trae(tmp_path, monk
     assert outcome["status"] == "ok"
     assert outcome["nodes"] == 6198
     assert outcome["edges"] == 13937
+
+
+def test_run_sync_full_pide_refresh(tmp_path, monkeypatch):
+    """El hook de commit usa build completo: el incremental es lossy."""
+    monkeypatch.setattr(hook, "resolve_project", lambda root: {"project_id": "demo"})
+    seen: dict = {}
+
+    def fake_sync(root, refresh=False):
+        seen["refresh"] = refresh
+        return {"mode": "full", "result": {"stats": {
+            "total_nodes": 10, "total_edges": 20, "files_scanned": 3}}}
+
+    outcome = hook.run_sync(str(tmp_path), sync=fake_sync, full=True)
+
+    assert seen["refresh"] is True
+    assert outcome["mode"] == "full"
+    assert outcome["nodes"] == 10

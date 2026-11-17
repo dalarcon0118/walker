@@ -98,7 +98,7 @@ def read_stats(root: str) -> dict:
         return {}
 
 
-def run_sync(root: str, sync=None) -> dict:
+def run_sync(root: str, sync=None, full: bool = False) -> dict:
     """Sincroniza el CPG del proyecto dueño de `root`.
 
     Devuelve {"status": "ok"|"skipped"|"error", ...} para poder testear sin
@@ -132,7 +132,7 @@ def run_sync(root: str, sync=None) -> dict:
 
     started = time.time()
     try:
-        payload = sync(root) or {}
+        payload = (sync(root, refresh=True) if full else sync(root)) or {}
         result = (payload.get("result") if isinstance(payload, dict) else {}) or {}
         # `update()` devuelve {"ok": False, "error": "...", "scope": "task"} cuando
         # los archivos cambiados no son código (p. ej. un commit que solo toca
@@ -196,8 +196,15 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--full", action="store_true",
+                    help="build completo (el incremental es lossy por ids inestables)")
+    args = ap.parse_args()
+
     root = str(WALKER_ROOT)
-    outcome = run_sync(root)
+    outcome = run_sync(root, full=args.full)
     if outcome.get("status") == "ok":
         logger.info(
             "sync ok · %s · %s · %s nodos / %s edges · %ss",

@@ -81,6 +81,14 @@ echo '{"sha": "abc"}' | python3 scripts/hooks_runner.py commit --repo ../otro-re
   proyecto; los hooks usan la misma precedencia.
 - **Trust explícito.** Clonar un repo no debe ejecutar código. El opt-in es por
   proyecto y queda auditable en `.cognitive/config.json`.
+- **El hook de commit usa build completo.** El update incremental es *lossy*:
+  `_rekey_scanned` usa un nonce por corrida, así que al re-escanear un archivo
+  sus nodos cambian de id y el merge descarta las aristas entrantes desde
+  archivos no re-escaneados (medido: 14.825 → 12.823 aristas; CALLS 10.329 →
+  8.346). Por eso `cpg-sync-on-commit` corre con `--full` (8-50 s en
+  background) y `update()` tiene una guarda que rehace el build si el merge
+  encoge el grafo más de 2%. El fix definitivo es que los ids del scan sean
+  estables por (path, type, name) en vez de un nonce.
 - **Idempotencia del lado del hook.** Un hook que escribe estado (como
   `cpg-sync`) debe poder correr N veces sin efectos raros; el bus no lo
   garantiza por él.

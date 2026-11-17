@@ -81,6 +81,35 @@ def _rekey_scanned(nodes: dict, edges: list) -> tuple[dict, list]:
     return rekeyed, fixed_edges
 
 
+def _counts(data: Any) -> tuple[int, int]:
+    """(nodos, aristas) tolerando tres formas: stats planos, {"stats": ...} o grafo."""
+    if not isinstance(data, dict):
+        return 0, 0
+    stats = data.get("stats") or {}
+    nodes = stats.get("total_nodes", data.get("total_nodes"))
+    if nodes is None and isinstance(data.get("nodes"), dict):
+        nodes = len(data["nodes"])
+    edges = stats.get("total_edges", data.get("total_edges"))
+    if edges is None and isinstance(data.get("edges"), list):
+        edges = len(data["edges"])
+    return int(nodes or 0), int(edges or 0)
+
+
+# Tolerancia de la guarda anti-erosión: por debajo de esto se asume que el
+# incremental perdió aristas (ids inestables) y se rehace el CPG completo.
+EDGE_REGRESSION_TOLERANCE = 0.98
+
+
+def _edge_regression(before: Any, after: Any,
+                     tolerance: float = EDGE_REGRESSION_TOLERANCE) -> bool:
+    """True si el merge dejó menos aristas que antes de forma significativa."""
+    _, edges_before = _counts(before)
+    _, edges_after = _counts(after)
+    if edges_before <= 0 or edges_after <= 0:
+        return False
+    return edges_after < edges_before * tolerance
+
+
 def _walk_code_files(
     raw_paths: list[str],
     ignore: Any | None,
@@ -789,7 +818,27 @@ class BuildGraphUseCase:
         if not changed and status.get("cpg_status") == "up_to_date":
             return self._repo.load(self.project_id)
 
+        before_stats = self._repo.get_stats(self.project_id)
         result = self.index_task_files(changed, bug_proposals=bug_proposals)
+
+        # ── Guard anti-erosión (2026-11-17) ──────────────────────────────
+        # Los ids del scan son un nonce por corrida (`_rekey_scanned`), así que
+        # al re-escanear un archivo sus nodos CAMBIAN de id. El merge descarta
+        # las aristas cuyo `to` está en un archivo re-escaneado (si no quedarían
+        # colgando), y esas aristas entrantes desde archivos NO re-escaneados
+        # no se regeneran: cada incremental pierde CALLS/IMPORTS de forma
+        # silenciosa. Medido en walker: 14.825 → 12.823 aristas tras un sync
+        # (CALLS 10.329 → 8.346), y el fingerprint decía "up_to_date".
+        # Mientras los ids no sean estables por (path,type,name,line), si el
+        # merge encoge el grafo más de la tolerancia se rehace completo.
+        if _edge_regression(before_stats, result):
+            logger.warning(
+                "update incremental perdió aristas (%s → %s); se rehace el CPG "
+                "completo para no degradar el grafo en cada sync",
+                before_stats.get("total_edges"), _counts(result)[1],
+            )
+            result = self.build()
+
         try:
             watcher.mark_indexed("cpg")
         except Exception as e:
