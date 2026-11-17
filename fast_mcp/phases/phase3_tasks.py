@@ -45,6 +45,7 @@ _FASE3_TOOLS = (
     "list_projects",
     "sprint_planning",
     "resolve_project_sprint",
+    "workflow_state",
     "trace_push",
     "trace_message",
     "implement_task",
@@ -162,6 +163,12 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "project_id": {"type": "string", "description": "Project identifier"},
         },
     },
+    "workflow_state": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "description": "Project identifier"},
+        },
+    },
     "capture": {
         "type": "object",
         "properties": {
@@ -185,6 +192,7 @@ _DESCRIPTIONS = {
     "implement_task": "Prepare task implementation (records objective and files).",
     "run_tests": "Run test suite via pytest (fail-loud if 0 tests).",
     "verify_predicates": "Verify that predicates are satisfied (file_exists, test_passes).",
+    "workflow_state": "Current workflow position, allowed gates and required fields (read-only).",
     "capture": "Capture evidence and artifacts for a task.",
 }
 

@@ -196,7 +196,7 @@ class TestFindWorkflowPath:
 class TestHandlerRegistry:
 
     def test_all_handlers_registered(self):
-        assert HANDLER_NAMES == {"submit", "transition", "status", "help", "list_projects"}
+        assert HANDLER_NAMES == {"submit", "transition", "status", "help", "list_projects", "workflow_state"}
 
     def test_get_handler_returns_callable(self):
         for name in HANDLER_NAMES:

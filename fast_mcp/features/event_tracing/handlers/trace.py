@@ -29,11 +29,17 @@ def handle_trace_push(ctx: dict, **kwargs: Any) -> dict:
         "task_id": task_id,
         "sprint_id": kwargs.get("sprint_id", ""),
         "node": kwargs.get("node", ""),
+        "sub_state": kwargs.get("sub_state", ""),
         "tool": kwargs.get("tool", ""),
         "input": kwargs.get("input", {}),
         "output": kwargs.get("output", {}),
         "files": kwargs.get("files", []),
         "data": data,
+        # Sin esto, los eventos del plugin (que manda session_id/agent_id)
+        # llegaban sin forma de correlacionarse con la sesión.
+        "session_id": kwargs.get("session_id", ""),
+        "agent_id": kwargs.get("agent_id", ""),
+        "metadata": kwargs.get("metadata", {}) or {},
     }
 
     result = trace_svc.push_event(chain_dir, push_data)

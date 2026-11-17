@@ -332,6 +332,51 @@ export const WalkerHooks = async ({ project, $, directory }) => {
   const processedMessageIds = new Set()
   const sessionToolStarts = new Map()
 
+  // ── Flight control (fase 1+2: binding + estado inyectado; NO bloquea) ──
+  // El workflow vive en walker; el plugin lo trae con `workflow_state` y lo
+  // inyecta en el próximo turno. Si el agente no hace submit/transition después
+  // de la sugerencia, se traza `workflow_suggestion_ignored` (dato para medir).
+  const WORKFLOW_INJECT = process.env.WALKER_WORKFLOW_INJECT !== "0"
+  const WORKFLOW_REFRESH_MS = 60_000
+  const workflowState = new Map() // sid -> {position, execType, required, gates, revision, fetchedAt}
+  const injectedFor = new Map() // sid -> messageId ya inyectado
+  const lastInjection = new Map() // sid -> {position, at, followed}
+
+  const refreshWorkflowState = async (sid) => {
+    if (!WORKFLOW_INJECT || !sid) return null
+    const prev = workflowState.get(sid)
+    if (prev && Date.now() - prev.fetchedAt < WORKFLOW_REFRESH_MS) return prev
+    try {
+      const raw = await runWalker({ WALKER_SESSION_ID: sid }, "workflow_state", "{}")
+      if (!raw) return prev || null
+      const data = JSON.parse(raw)
+      if (!data || data.ok === false) return prev || null
+      const state = {
+        position: data.current_position || "",
+        execType: data.execution_type || "",
+        required: Array.isArray(data.required_fields) ? data.required_fields : [],
+        gates: Array.isArray(data.available_gates) ? data.available_gates : [],
+        revision: data.revision ?? 0,
+        fetchedAt: Date.now(),
+      }
+      workflowState.set(sid, state)
+      return state
+    } catch {
+      return prev || null
+    }
+  }
+
+  const workflowBlock = (state) => {
+    if (!state || !state.position) return ""
+    const parts = [`[WALKER] Workflow: ${state.position} (${state.execType}).`]
+    if (state.required.length) parts.push(`Campos requeridos: ${state.required.join(", ")}.`)
+    if (state.gates.length) parts.push(`Salidas disponibles: ${state.gates.join(", ")}.`)
+    parts.push(
+      "Antes de avanzar, confirmá el estado con `workflow_state`; completá el paso actual con `submit` (o `transition` si corresponde)."
+    )
+    return parts.join(" ")
+  }
+
   // ── Trace helpers ──
 
   const tracePush = async (eventData) => {
@@ -347,6 +392,8 @@ export const WalkerHooks = async ({ project, $, directory }) => {
   const ensureSessionStart = async (sessionID, agentID = "") => {
     if (!sessionID || sessionStartTimes.has(sessionID)) return
     sessionStartTimes.set(sessionID, Date.now())
+    // Binding: traer el estado del workflow en background (no bloquea el turno).
+    void refreshWorkflowState(sessionID).catch(() => {})
     await tracePush({
       event_type: "session_start",
       source: "agent_hook",
@@ -415,6 +462,37 @@ export const WalkerHooks = async ({ project, $, directory }) => {
           },
         })
       }
+
+      // FLIGHT CONTROL (fase 1+2): inyecta el estado del workflow en el último
+      // mensaje del usuario, una vez por mensaje. No bloquea nada todavía.
+      if (WORKFLOW_INJECT) {
+        const msgs = output.messages || []
+        const lastUser = [...msgs].reverse().find((m) => (m.info || {}).role === "user")
+        const sid = lastUser?.info?.sessionID || ""
+        const mid = lastUser?.info?.id || ""
+        if (sid && mid && injectedFor.get(sid) !== mid && Array.isArray(lastUser?.parts)) {
+          const state = workflowState.get(sid) || (await refreshWorkflowState(sid))
+          const block = workflowBlock(state)
+          if (block) {
+            lastUser.parts.push({ type: "text", text: block })
+            injectedFor.set(sid, mid)
+            lastInjection.set(sid, {
+              position: state?.position || "",
+              at: Date.now(),
+              followed: false,
+            })
+            await tracePush({
+              event_type: "workflow_state_injected",
+              source: "agent_hook",
+              session_id: sid,
+              metadata: {
+                position: state?.position || "",
+                revision: state?.revision ?? 0,
+              },
+            })
+          }
+        }
+      }
     },
 
     // ═══════════════════════════════════════════════════════════
@@ -427,6 +505,14 @@ export const WalkerHooks = async ({ project, $, directory }) => {
 
       // TRACE: ensure session_start on first tool call of a session
       if (sid) await ensureSessionStart(sid, "")
+
+      // Flight control: si el agente hace submit/transition después de la
+      // sugerencia, la inyección "se siguió" (se mide al cerrar la sesión).
+      const toolBase = String(tool || "").replace(/^walker_/, "")
+      const injection = lastInjection.get(sid)
+      if (injection && (toolBase === "submit" || toolBase === "transition")) {
+        injection.followed = true
+      }
 
       // Track tool start time for structured tool_call events
       if (sid && input.callID) {
@@ -529,6 +615,22 @@ export const WalkerHooks = async ({ project, $, directory }) => {
     // ═══════════════════════════════════════════════════════════
 
     "session.idle": async () => {
+      // Flight control: sugerencias inyectadas que no terminaron en
+      // submit/transition. Es la métrica de cumplimiento del protocolo.
+      for (const [sid, injection] of lastInjection) {
+        if (!injection.followed) {
+          await tracePush({
+            event_type: "workflow_suggestion_ignored",
+            source: "agent_hook",
+            session_id: sid,
+            metadata: { position: injection.position, waited_ms: Date.now() - injection.at },
+          })
+        }
+      }
+      lastInjection.clear()
+      workflowState.clear()
+      injectedFor.clear()
+
       // Push structured session_end para cada sesión activa
       for (const sid of sessionStartTimes.keys()) {
         await pushSessionEnd(sid)

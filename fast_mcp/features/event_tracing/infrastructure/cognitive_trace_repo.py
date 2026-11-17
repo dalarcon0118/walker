@@ -62,6 +62,14 @@ class CognitiveTraceRepository(TraceRepository):
         try:
             event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             ts = datetime.now(timezone.utc).isoformat()
+            # `session_id`/`agent_id` no están en el esquema del evento (se
+            # removieron al simplificar), pero sin ellos no se puede correlacionar
+            # una inyección con su sesión. Se conservan en metadata.
+            metadata = dict(data.get("metadata", {}) or {})
+            for extra in ("session_id", "agent_id"):
+                if data.get(extra):
+                    metadata.setdefault(extra, data[extra])
+
             event = {
                 "type": data.get("event_type", "event"),
                 "event_type": data.get("event_type", "event"),
@@ -78,7 +86,7 @@ class CognitiveTraceRepository(TraceRepository):
                 "started_at": data.get("started_at", ts),
                 "finished_at": data.get("finished_at", ts),
                 "duration_ms": data.get("duration_ms", 0),
-                "metadata": data.get("metadata", {}),
+                "metadata": metadata,
                 "data": data.get("data", {}),
             }
             self._cg.store(self.INDEX, event_id, event)

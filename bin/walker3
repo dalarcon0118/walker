@@ -14,7 +14,9 @@ _WALKER_ROOT = os.path.dirname(_SCRIPT_DIR)  # bin/../ = walker root
 if _WALKER_ROOT not in sys.path:
     sys.path.insert(0, _WALKER_ROOT)
 
-from fast_mcp.main import run  # noqa: E402
+from fast_mcp.main import main  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(run(transport="stdio"))
+    # `main()` decide: `<project>/<tool> <json>` ejecuta la tool; sin args
+    # arranca el server MCP por stdio (contrato del plugin, ADR-WALKER-016).
+    sys.exit(main())

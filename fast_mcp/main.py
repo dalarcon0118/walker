@@ -38,8 +38,17 @@ def run(transport: str = "stdio") -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point CLI: `python -m fast_mcp.main [--transport stdio]`."""
+    """Entry point CLI.
+
+    Dos modos:
+      - `<project>/<tool> [json]` → ejecuta la tool y imprime JSON (plugins).
+      - `--transport {stdio,http}` o sin args → arranca el server MCP.
+    """
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and "/" in argv[0] and not argv[0].startswith("-"):
+        from fast_mcp.cli import run_task
+
+        return run_task(argv)
     transport = "stdio"
     if argv and argv[0] == "--transport":
         transport = argv[1] if len(argv) > 1 else "stdio"

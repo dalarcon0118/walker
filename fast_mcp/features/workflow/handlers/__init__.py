@@ -28,6 +28,9 @@ _HANDLER_IMPORTS: dict[str, tuple[str, str]] = {
     "status": ("fast_mcp.features.workflow.handlers.workflow", "handle_status"),
     "help": ("fast_mcp.features.workflow.handlers.workflow", "handle_help"),
     "list_projects": ("fast_mcp.features.workflow.handlers.workflow", "handle_list_projects"),
+    # Estado del workflow para el plugin del agente (binding + inyección por
+    # turno). Reusa handle_help (orchestrator.help), que ya es read-only.
+    "workflow_state": ("fast_mcp.features.workflow.handlers.workflow", "handle_help"),
 }
 
 # Public set of all handler names
