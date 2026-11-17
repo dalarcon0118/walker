@@ -9,6 +9,7 @@ puede exigir cargar algo que no existe).
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +28,15 @@ class FakeTracer:
         if self.raises:
             raise RuntimeError("trace roto")
         return self.loaded
+
+
+class TraceRecorder(FakeTracer):
+    def __init__(self, loaded: bool = True, raises: bool = False):
+        super().__init__(loaded=loaded, raises=raises)
+        self.events: list[tuple[str, dict]] = []
+
+    def trace(self, chain_dir, event_type, data=None, task_id=None, session_id=None):
+        self.events.append((event_type, dict(data or {})))
 
 
 def _orchestrator(tmp_path, tracer):
@@ -59,7 +69,7 @@ def test_policy_advisory_no_aplica(tmp_path):
 
 def test_sin_candidatos_pasa_con_nota(tmp_path, monkeypatch):
     orch = _orchestrator(tmp_path, FakeTracer(loaded=False))
-    monkeypatch.setattr(orch, "_skill_candidates", lambda ctx, intent: [])
+    monkeypatch.setattr(orch, "_skill_candidates_scored", lambda ctx, intent: [])
 
     out = orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
 
@@ -70,7 +80,8 @@ def test_sin_candidatos_pasa_con_nota(tmp_path, monkeypatch):
 def test_con_candidatos_y_sin_carga_bloquea(tmp_path, monkeypatch):
     tracer = FakeTracer(loaded=False)
     orch = _orchestrator(tmp_path, tracer)
-    monkeypatch.setattr(orch, "_skill_candidates", lambda ctx, intent: ["review-x"])
+    monkeypatch.setattr(orch, "_skill_candidates_scored",
+                        lambda ctx, intent: [("review-x", 6)])
 
     out = orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
 
@@ -85,7 +96,8 @@ def test_con_candidatos_y_sin_carga_bloquea(tmp_path, monkeypatch):
 
 def test_con_candidatos_y_carga_pasa(tmp_path, monkeypatch):
     orch = _orchestrator(tmp_path, FakeTracer(loaded=True))
-    monkeypatch.setattr(orch, "_skill_candidates", lambda ctx, intent: ["review-x"])
+    monkeypatch.setattr(orch, "_skill_candidates_scored",
+                        lambda ctx, intent: [("review-x", 6)])
 
     out = orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
 
@@ -96,7 +108,8 @@ def test_con_candidatos_y_carga_pasa(tmp_path, monkeypatch):
 def test_tracer_roto_no_bloquea(tmp_path, monkeypatch):
     """Sin trace verificable, bloquear sería un deadlock."""
     orch = _orchestrator(tmp_path, FakeTracer(raises=True))
-    monkeypatch.setattr(orch, "_skill_candidates", lambda ctx, intent: ["review-x"])
+    monkeypatch.setattr(orch, "_skill_candidates_scored",
+                        lambda ctx, intent: [("review-x", 6)])
 
     assert orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())["ok"] is True
 
@@ -151,3 +164,92 @@ def test_load_skill_empuja_evento_al_trace(tmp_path, monkeypatch):
     assert pushed and pushed[0]["event_type"] == "skill_loaded"
     assert pushed[0]["data"]["skill"] == "demo"
     assert pushed[0]["tool"] == "load_skill"
+
+
+def test_umbral_ignora_candidatos_debiles(tmp_path, monkeypatch):
+    """Un match flojo no debe bloquear el gate pidiendo el skill equivocado.
+
+    Medido: VERIFY.QA sin skills de review matcheaba `frontend-design` con
+    score 2 (por "quality") y bloqueaba pidiendo un skill de diseño.
+    """
+    from fast_mcp.features.workflow.application.orchestrator import (
+        MIN_SKILL_SCORE_REQUIRED,
+    )
+
+    tracer = FakeTracer(loaded=False)
+    orch = _orchestrator(tmp_path, tracer)
+    monkeypatch.setattr(
+        orch, "_skill_candidates_scored",
+        lambda ctx, intent: [("frontend-design", MIN_SKILL_SCORE_REQUIRED - 1)],
+    )
+
+    out = orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
+
+    assert out["ok"] is True
+    assert "match suficiente" in out["note"]
+    assert tracer.calls == [], "no se consulta el trace sin candidatos fuertes"
+
+
+def test_umbral_acepta_el_score_minimo(tmp_path, monkeypatch):
+    from fast_mcp.features.workflow.application.orchestrator import (
+        MIN_SKILL_SCORE_REQUIRED,
+    )
+
+    tracer = FakeTracer(loaded=False)
+    orch = _orchestrator(tmp_path, tracer)
+    monkeypatch.setattr(
+        orch, "_skill_candidates_scored",
+        lambda ctx, intent: [("code-review-checklist", MIN_SKILL_SCORE_REQUIRED)],
+    )
+
+    out = orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
+
+    assert out["ok"] is False
+    assert "code-review-checklist" in out["message"]
+
+
+def test_el_gate_deja_constancia_en_el_trace(tmp_path, monkeypatch):
+    tracer = TraceRecorder(loaded=False)
+    orch = _orchestrator(tmp_path, tracer)
+    monkeypatch.setattr(orch, "_skill_candidates_scored",
+                        lambda ctx, intent: [("review-x", 6)])
+
+    orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
+
+    event_type, data = tracer.events[-1]
+    assert event_type == "skill_gate"
+    assert data["outcome"] == "blocked"
+    assert data["skills"] == ["review-x"]
+    assert data["node"] == ""
+
+
+def test_el_gate_marca_no_candidates(tmp_path, monkeypatch):
+    tracer = TraceRecorder(loaded=True)
+    orch = _orchestrator(tmp_path, tracer)
+    monkeypatch.setattr(orch, "_skill_candidates_scored", lambda ctx, intent: [])
+
+    orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
+
+    assert tracer.events[-1][1]["outcome"] == "no_candidates"
+
+
+def test_el_gate_marca_passed(tmp_path, monkeypatch):
+    tracer = TraceRecorder(loaded=True)
+    orch = _orchestrator(tmp_path, tracer)
+    monkeypatch.setattr(orch, "_skill_candidates_scored",
+                        lambda ctx, intent: [("review-x", 6)])
+
+    orch._check_skill_gate(_ctx(tmp_path), _sub(), _state())
+
+    assert tracer.events[-1][1]["outcome"] == "passed"
+
+
+def test_reporte_clasifica_con_el_mismo_umbral():
+    from scripts.skills_gate_report import collect
+
+    report = collect(Path(__file__).resolve().parents[1])
+    verdicts = {row["verdict"] for row in report["rows"]}
+
+    assert verdicts <= {"advisory", "bloquearía_sin_carga", "pasa_sin_candidatos"}
+    for row in report["rows"]:
+        assert len(row["candidates"]) == len(row["scores"])

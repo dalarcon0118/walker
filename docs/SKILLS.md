@@ -163,6 +163,27 @@ Reglas del gate (`OrchestrationService._check_skill_gate`):
 lo consulta. Verificado por MCP: tras `load_skill("frontend-design")` el trace
 del proyecto tiene el evento con el nombre y el scope.
 
+### Umbral y medición
+
+Un candidato cuenta para el gate con **score >= 3** (`MIN_SKILL_SCORE_REQUIRED`).
+La razón es medida: en un entorno sin skills de review, VERIFY.QA matcheaba
+`frontend-design` con score 2 (por la palabra "quality") y el gate bloqueaba
+pidiendo cargar un skill de diseño para revisar código. Con el umbral, ese gate
+pasa como "sin candidatos" —que es la verdad— y en un repo con skills de review
+sigue eligiendo el correcto.
+
+Foto del entorno (se regenera con `python3 scripts/skills_gate_report.py`):
+
+| Entorno | Skills | VERIFY.QA (required) | Veredicto |
+|---|---|---|---|
+| walker | 3 globales | `frontend-design(2)` | pasa_sin_candidatos |
+| game_reset | 52 (proyecto) | `code-review-checklist(6)` | bloquearía_sin_carga |
+
+El orquestador emite un evento `skill_gate` en cada submit
+(`outcome`: `blocked` / `passed` / `no_candidates`, con node/sub_state y
+skills), así que la serie histórica sale del trace: cuántas veces bloqueó, en
+qué nodo, y cuántas pasó por falta de candidatos.
+
 ## Límites (lo que NO hay todavía)
 
 - **Skills como paquetes**: `install` maneja `kind: hook`; `kind: skill` no

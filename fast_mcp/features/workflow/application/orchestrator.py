@@ -44,6 +44,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Score mínimo para que un skill cuente como candidato de un gate `required`.
+# Medido: sin umbral, VERIFY.QA en un entorno sin skills de review matcheaba
+# `frontend-design` con score 2 (por la palabra "quality") y bloqueaba el gate
+# pidiendo cargar un skill de diseño para revisar código. Con >=3 ese gate pasa
+# como "sin candidatos" y en un repo con skills de review (game_reset) sigue
+# eligiendo `code-review-checklist` (score 6).
+MIN_SKILL_SCORE_REQUIRED = 3
+
+
 class OrchestrationService:
     """Unified entry point for workflow operations.
 
@@ -371,12 +380,19 @@ class OrchestrationService:
         data = getattr(result, "data", None) or {}
         return {"action": action, "data": data}, ok, error
 
-    def _skill_candidates(self, ctx: ExecutionContext, intent: dict) -> list[str]:
-        """Skills del entorno que matchean la intención; [] si no hay/falla."""
+    def _skill_candidates_scored(
+        self, ctx: ExecutionContext, intent: dict
+    ) -> list[tuple[str, int]]:
+        """[(skill, score)] que matchean la intención; [] si no hay/falla."""
         try:
             from fast_mcp.shared_kernel.paths import walker_root
             from fast_mcp.shared_kernel.project_support import ProjectService
-            from fast_mcp.shared_kernel.skills import discover, search, skills_roots
+            from fast_mcp.shared_kernel.skills import (
+                discover,
+                score as skill_score,
+                search,
+                skills_roots,
+            )
 
             project_root = ""
             try:
@@ -388,10 +404,15 @@ class OrchestrationService:
             tags = intent.get("tags") or ()
             if isinstance(tags, str):
                 tags = [tags]
-            return [s.name for s in search(skills, needs, tuple(str(t) for t in tags))]
+            hits = search(skills, needs, tuple(str(t) for t in tags))
+            return [(s.name, skill_score(s, needs, tags)) for s in hits]
         except Exception as e:  # noqa: BLE001 — el gate no rompe el submit
             logger.debug("skill gate: discovery falló (%s)", e)
             return []
+
+    def _skill_candidates(self, ctx: ExecutionContext, intent: dict) -> list[str]:
+        """Nombres de candidatos (sin umbral: catálogo advisory)."""
+        return [name for name, _ in self._skill_candidates_scored(ctx, intent)]
 
     def _check_skill_gate(self, ctx: ExecutionContext, sub_state: Any, state: Any) -> dict | None:
         """Gate de skills: exige `load_skill` de un candidato (anti-deadlock).
@@ -406,11 +427,17 @@ class OrchestrationService:
         if not isinstance(intent, dict) or intent.get("policy") != "required":
             return None
 
-        candidates = self._skill_candidates(ctx, intent)
+        scored = self._skill_candidates_scored(ctx, intent)
+        candidates = [name for name, sc in scored if sc >= MIN_SKILL_SCORE_REQUIRED]
         if not candidates:
+            self._trace_skill_gate(ctx, state, "no_candidates", [])
             return {
                 "ok": True,
-                "note": "sin skills candidatos en este entorno: gate de skills no aplica",
+                "note": (
+                    f"sin skills con match suficiente (score >= "
+                    f"{MIN_SKILL_SCORE_REQUIRED}) en este entorno: el gate de "
+                    "skills no aplica"
+                ),
                 "skills_checked": [],
             }
 
@@ -428,8 +455,10 @@ class OrchestrationService:
                 loaded = True
 
         if loaded:
+            self._trace_skill_gate(ctx, state, "passed", candidates)
             return {"ok": True, "skills_checked": candidates}
 
+        self._trace_skill_gate(ctx, state, "blocked", candidates)
         return {
             "ok": False,
             "action": "gate_blocked",
@@ -441,6 +470,32 @@ class OrchestrationService:
             ),
             "skills_checked": candidates,
         }
+
+    def _trace_skill_gate(
+        self, ctx: ExecutionContext, state: Any, outcome: str, candidates: list[str]
+    ) -> None:
+        """Deja constancia del gate en el trace.
+
+        Sin esto no hay forma de responder "¿cuántas veces bloqueó?" sin leer
+        logs: `outcome` es blocked | passed | no_candidates.
+        """
+        tracer = getattr(self._bundle, "tracer", None)
+        if tracer is None or not hasattr(tracer, "trace"):
+            return
+        try:
+            tracer.trace(
+                self._bundle.chain_dir,
+                "skill_gate",
+                {
+                    "outcome": outcome,
+                    "skills": candidates,
+                    "node": getattr(state, "current_node", ""),
+                    "sub_state": getattr(state, "current_sub_state", ""),
+                },
+                task_id=ctx.task_id or "",
+            )
+        except Exception as e:  # noqa: BLE001 — trazabilidad best-effort
+            logger.debug("skill gate: no se pudo trazar (%s)", e)
 
     def _check_required_tools_gate(
         self, ctx: ExecutionContext, sub_state: Any
