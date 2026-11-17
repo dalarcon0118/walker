@@ -792,7 +792,31 @@ def main() -> int:
             valid = test_rc != 0 and not broken
             motivo = ("test no importa en base (falta el archivo o un fixture)"
                       if broken else ("bug presente" if valid else "PASA en base: tarea inválida"))
+            fix_rc = None
+            # Verificación en el fix: el test tiene que PASAR en el commit del
+            # arreglo. Sin esto, una tarea puede "fallar en base" porque el test
+            # está roto y no porque el bug exista.
+            if valid and task.get("fix_commit"):
+                fix_wt = workroot / f"{name}-fix"
+                ok_fix, why_fix = materialize(repo, task["fix_commit"], fix_wt, env)
+                # `.env` es untracked: sin copiarlo, Django no arranca y el
+                # check del fix da falso negativo (medido: UndefinedValueError
+                # SECRET_KEY en las 29 tareas).
+                if ok_fix and (repo / ".env").is_file():
+                    shutil.copy2(repo / ".env", fix_wt / ".env")
+                if not ok_fix:
+                    valid = False
+                    motivo = f"no se pudo materializar el fix ({why_fix[:60]})"
+                else:
+                    fix_rc, fix_out, _ = run(test_cmd, fix_wt, env, args.timeout)
+                    drop_worktree(repo, fix_wt, env)
+                    if fix_rc != 0:
+                        valid = False
+                        motivo = f"fix rc={fix_rc}: el test tampoco pasa en el fix"
+                    else:
+                        motivo = "bug presente en base, test pasa en fix"
             print(f"  {'OK ' if valid else 'OJO'} {name:<28} base rc={test_rc} "
+                  f"fix rc={fix_rc if fix_rc is not None else '-'} "
                   f"({round(test_took, 1)}s) → {motivo}")
             if not args.keep:
                 drop_worktree(repo, wt, env)

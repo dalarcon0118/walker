@@ -126,9 +126,27 @@ Toggles para experimentos propios: `WALKER_PROMPT_KNOWLEDGE=0`,
 `WALKER_PROMPT_SKILLS=0`, `WALKER_FLIGHT_CONTROL=0` (los evals ya corren con
 este último apagado).
 
-Derivación medida (2026-11-17): backend 40 candidatas, react-native 40, sobre
-333 y 839 commits respectivamente. Son **propuestas**: cuántas sobreviven a
-`--check-tasks` es el número real de benchmark.
+Derivación y validación medidas (2026-11-17), backend:
+
+```
+40 candidatas (de 333 commits)
+  → 29 válidas   (fallan en base Y pasan en fix)
+  →  4 descartadas (el test PASA en base: no mide nada)
+  →  7 descartadas (el test no importa en base: falta archivo/fixture)
+```
+
+Snapshot usable: `harness/benchmarks/backend-derived-validated.json` (29 tareas,
+referencian commits de backend-microservices).
+
+Dos lecciones del proceso:
+
+- `--check-tasks` verifica **base y fix**: si el test no pasa en el commit del
+  arreglo, la tarea no sirve (el test está roto o depende de otra cosa). La
+  primera corrida dio 0/40 porque el worktree del fix no tenía `.env`
+  (untracked): Django no arrancaba. Ahora se copia `.env` igual que en el base.
+- El prompt NO se deriva del subject del commit: "expone bono_kind y
+  count_scope en reward_rule" **es la solución**. El prompt usa el test que
+  falla ("El test `X` falla en este checkout…"), que es el síntoma.
 
 ## Validar tareas antes de gastar tokens
 

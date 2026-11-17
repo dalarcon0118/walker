@@ -1,0 +1,327 @@
+[
+  {
+    "id": "derived-c55c112",
+    "fix_commit": "c55c112",
+    "test_from": "c55c112",
+    "test_files": [
+      "tests/bet/test_cancel_materialize.py"
+    ],
+    "prompt": "El test `tests.bet.test_cancel_materialize` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(recovery): la estructura viaja dentro de cada bet, no en la raíz",
+    "test": "tests.bet.test_cancel_materialize"
+  },
+  {
+    "id": "derived-00c6eed",
+    "fix_commit": "00c6eed",
+    "test_from": "00c6eed",
+    "test_files": [
+      "tests/promotion/test_serializers.py"
+    ],
+    "prompt": "El test `tests.promotion.test_serializers` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(promociones): expone bono_kind y count_scope en reward_rule",
+    "test": "tests.promotion.test_serializers"
+  },
+  {
+    "id": "derived-a6ed5fb",
+    "fix_commit": "a6ed5fb",
+    "test_from": "a6ed5fb",
+    "test_files": [
+      "tests/core/test_global_rate_limit_route.py"
+    ],
+    "prompt": "El test `tests.core.test_global_rate_limit_route` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(rate-limit): sujeto por JWT, cuotas de rewards/OTA y Retry-After",
+    "test": "tests.core.test_global_rate_limit_route"
+  },
+  {
+    "id": "derived-548d74c",
+    "fix_commit": "548d74c",
+    "test_from": "548d74c",
+    "test_files": [
+      "tests/promotion/test_reward_replica_batch.py"
+    ],
+    "prompt": "El test `tests.promotion.test_reward_replica_batch` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(rewards): batch ?memberships=a,b,c para hidratar N socios en una request",
+    "test": "tests.promotion.test_reward_replica_batch"
+  },
+  {
+    "id": "derived-e458468",
+    "fix_commit": "e458468",
+    "test_from": "e458468",
+    "test_files": [
+      "tests/notification/test_local_id_and_scopes.py"
+    ],
+    "prompt": "El test `tests.notification.test_local_id_and_scopes` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(notifications): cortar la tormenta de 429 por IDs locales y separar scopes",
+    "test": "tests.notification.test_local_id_and_scopes"
+  },
+  {
+    "id": "derived-727fbf5",
+    "fix_commit": "727fbf5",
+    "test_from": "727fbf5",
+    "test_files": [
+      "tests/promotion/test_adr026_doctor.py"
+    ],
+    "prompt": "El test `tests.promotion.test_adr026_doctor` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(promociones): promotions_doctor y --template; validación E2E en dev",
+    "test": "tests.promotion.test_adr026_doctor"
+  },
+  {
+    "id": "derived-ed71109",
+    "fix_commit": "ed71109",
+    "test_from": "ed71109",
+    "test_files": [
+      "tests/promotion/test_adr026_catalog_programs.py"
+    ],
+    "prompt": "El test `tests.promotion.test_adr026_catalog_programs` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(promociones): precedencia de programas en el catálogo (ADR-026 F4b)",
+    "test": "tests.promotion.test_adr026_catalog_programs"
+  },
+  {
+    "id": "derived-d813321",
+    "fix_commit": "d813321",
+    "test_from": "d813321",
+    "test_files": [
+      "tests/promotion/test_adr026_emission_scope.py"
+    ],
+    "prompt": "El test `tests.promotion.test_adr026_emission_scope` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(promociones): la identidad del bono no se reescribe tras emitir",
+    "test": "tests.promotion.test_adr026_emission_scope"
+  },
+  {
+    "id": "derived-bd7752d",
+    "fix_commit": "bd7752d",
+    "test_from": "bd7752d",
+    "test_files": [
+      "tests/promotion/test_programa_alcance_estructura.py"
+    ],
+    "prompt": "El test `tests.promotion.test_programa_alcance_estructura` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(promociones): alcance por estructura en la acreditación + publish_promotions",
+    "test": "tests.promotion.test_programa_alcance_estructura"
+  },
+  {
+    "id": "derived-19b8898",
+    "fix_commit": "19b8898",
+    "test_from": "19b8898",
+    "test_files": [
+      "tests/authentication/tests_session_fix.py"
+    ],
+    "prompt": "El test `tests.authentication.tests_session_fix` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(auth): el refresh vive 48 h (ventana deslizante), no 30 días",
+    "test": "tests.authentication.tests_session_fix"
+  },
+  {
+    "id": "derived-b35cb50",
+    "fix_commit": "b35cb50",
+    "test_from": "b35cb50",
+    "test_files": [
+      "tests/authentication/test_device_binding_ssot.py"
+    ],
+    "prompt": "El test `tests.authentication.test_device_binding_ssot` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "refactor(auth): el `UserDevice` tiene un solo dueño",
+    "test": "tests.authentication.test_device_binding_ssot"
+  },
+  {
+    "id": "derived-e06bd9a",
+    "fix_commit": "e06bd9a",
+    "test_from": "e06bd9a",
+    "test_files": [
+      "tests/authentication/tests.py"
+    ],
+    "prompt": "El test `tests.authentication.tests` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(auth): el binding de dispositivo también se valida en endpoints autenticados",
+    "test": "tests.authentication.tests"
+  },
+  {
+    "id": "derived-52a943d",
+    "fix_commit": "52a943d",
+    "test_from": "52a943d",
+    "test_files": [
+      "tests/test_error_codes_contract.py"
+    ],
+    "prompt": "El test `tests.test_error_codes_contract` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(errors): catálogo de códigos como artefacto generado (ADR-109 T11/SG6b)",
+    "test": "tests.test_error_codes_contract"
+  },
+  {
+    "id": "derived-8e90ded",
+    "fix_commit": "8e90ded",
+    "test_from": "8e90ded",
+    "test_files": [
+      "tests/bet/test_autosanacion_membresia.py"
+    ],
+    "prompt": "El test `tests.bet.test_autosanacion_membresia` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(membership): el alta resuelve tambien UNVERIFIED (carrera jugada-alta)",
+    "test": "tests.bet.test_autosanacion_membresia"
+  },
+  {
+    "id": "derived-0187130",
+    "fix_commit": "0187130",
+    "test_from": "0187130",
+    "test_files": [
+      "tests/promotion/test_application.py"
+    ],
+    "prompt": "El test `tests.promotion.test_application` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(promotion): resolve por código case-insensitive (promotion_no_encontrada)",
+    "test": "tests.promotion.test_application"
+  },
+  {
+    "id": "derived-b11465e",
+    "fix_commit": "b11465e",
+    "test_from": "b11465e",
+    "test_files": [
+      "tests/authentication/test_password_schemes.py"
+    ],
+    "prompt": "El test `tests.authentication.test_password_schemes` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(admin): cambiar la clave desde /admin/ ya no rompe el login de la app",
+    "test": "tests.authentication.test_password_schemes"
+  },
+  {
+    "id": "derived-200db7e",
+    "fix_commit": "200db7e",
+    "test_from": "200db7e",
+    "test_files": [
+      "tests/accounting/test_informe_consistencia.py"
+    ],
+    "prompt": "El test `tests.accounting.test_informe_consistencia` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(auth): aceptar el PIN en claro para cuentas con SHA-256 sin sal",
+    "test": "tests.accounting.test_informe_consistencia"
+  },
+  {
+    "id": "derived-93da927",
+    "fix_commit": "93da927",
+    "test_from": "93da927",
+    "test_files": [
+      "tests/ota/test_ota_api.py"
+    ],
+    "prompt": "El test `tests.ota.test_ota_api` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(ota): una generación sin índice recibe 204, no el manifest de otra",
+    "test": "tests.ota.test_ota_api"
+  },
+  {
+    "id": "derived-90f49f3",
+    "fix_commit": "90f49f3",
+    "test_from": "90f49f3",
+    "test_files": [
+      "tests/bet/test_ticket_admission_incident.py",
+      "tests/promotion/test_ticket_consume_available.py"
+    ],
+    "prompt": "El test `tests.bet.test_ticket_admission_incident` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(rewards): consumir el bono DERIVADO en el FE (sin código, por producto)",
+    "test": "tests.bet.test_ticket_admission_incident"
+  },
+  {
+    "id": "derived-da601d3",
+    "fix_commit": "da601d3",
+    "test_from": "da601d3",
+    "test_files": [
+      "tests/telemetry/test_admin.py"
+    ],
+    "prompt": "El test `tests.telemetry.test_admin` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(telemetry): panel de operación en el admin (filtros, resumen y export)",
+    "test": "tests.telemetry.test_admin"
+  },
+  {
+    "id": "derived-c277b9e",
+    "fix_commit": "c277b9e",
+    "test_from": "c277b9e",
+    "test_files": [
+      "tests/telemetry/tests.py"
+    ],
+    "prompt": "El test `tests.telemetry.tests` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(telemetry): backfill histórico de code/category desde la etiqueta legacy",
+    "test": "tests.telemetry.tests"
+  },
+  {
+    "id": "derived-07be36f",
+    "fix_commit": "07be36f",
+    "test_from": "07be36f",
+    "test_files": [
+      "tests/bet/test_seed_promotions.py"
+    ],
+    "prompt": "El test `tests.bet.test_seed_promotions` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(seed): ancla el catálogo de negocio a la estructura Banco 2",
+    "test": "tests.bet.test_seed_promotions"
+  },
+  {
+    "id": "derived-8b03ce7",
+    "fix_commit": "8b03ce7",
+    "test_from": "8b03ce7",
+    "test_files": [
+      "tests/promotion/test_adr101_b9_bono_no_acumula.py"
+    ],
+    "prompt": "El test `tests.promotion.test_adr101_b9_bono_no_acumula` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "fix(promotion): B9 — una Jugada Bono no acumula aunque su precio sea > 0",
+    "test": "tests.promotion.test_adr101_b9_bono_no_acumula"
+  },
+  {
+    "id": "derived-ac5cd4d",
+    "fix_commit": "ac5cd4d",
+    "test_from": "ac5cd4d",
+    "test_files": [
+      "tests/promotion/test_adr101_b5_bono_producto.py"
+    ],
+    "prompt": "El test `tests.promotion.test_adr101_b5_bono_producto` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(promotion): B5 — validación diferida del producto del bono en consume()",
+    "test": "tests.promotion.test_adr101_b5_bono_producto"
+  },
+  {
+    "id": "derived-ec5b7c5",
+    "fix_commit": "ec5b7c5",
+    "test_from": "ec5b7c5",
+    "test_files": [
+      "tests/promotion/test_f1_cadena_admision.py",
+      "tests/promotion/test_f2_catalogo_techo.py",
+      "tests/promotion/test_f3_techo_real.py",
+      "tests/promotion/test_f3b_catalogo_dirigido.py",
+      "tests/promotion/test_scope.py"
+    ],
+    "prompt": "El test `tests.promotion.test_f1_cadena_admision` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(promotions): ADR-021 alcance de promociones por estructura + M4 fix copy",
+    "test": "tests.promotion.test_f1_cadena_admision"
+  },
+  {
+    "id": "derived-fd0d476",
+    "fix_commit": "fd0d476",
+    "test_from": "fd0d476",
+    "test_files": [
+      "tests/bet/test_reconcile_memberships_incident.py"
+    ],
+    "prompt": "El test `tests.bet.test_reconcile_memberships_incident` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(membresias): UN Incident AGREGADO por estructura (PO) — el reconcile agrupa TODAS las jugadas UNVERIFIED en un solo aviso por estructura con conteo y muestra de Play ids; nunca uno por jugada",
+    "test": "tests.bet.test_reconcile_memberships_incident"
+  },
+  {
+    "id": "derived-f5e328f",
+    "fix_commit": "f5e328f",
+    "test_from": "f5e328f",
+    "test_files": [
+      "tests/bet/test_membership_status_admission.py",
+      "tests/notification/test_memberships_falsified_notice.py"
+    ],
+    "prompt": "El test `tests.bet.test_membership_status_admission` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "feat(membresias): veredicto en la sincronizacion + aviso al padre — admission escribe membership_status (ISSUED/PENDIENTE_A_VALIDACION, D-13) y MembershipsFalsified ya tiene consumidor (aviso SOLO_PADRES con conteo/muestra); fail-open INV-BE-009",
+    "test": "tests.bet.test_membership_status_admission"
+  },
+  {
+    "id": "derived-812b0dd",
+    "fix_commit": "812b0dd",
+    "test_from": "812b0dd",
+    "test_files": [
+      "tests/credits/test_wallets_endpoint.py"
+    ],
+    "prompt": "El test `tests.credits.test_wallets_endpoint` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "credits GET wallets: saldos por lote (?memberships=) con aislamiento por estructuras del solicitante (ADR-098 r15 — wallet en el modulo de cliente)",
+    "test": "tests.credits.test_wallets_endpoint"
+  },
+  {
+    "id": "derived-4892d89",
+    "fix_commit": "4892d89",
+    "test_from": "4892d89",
+    "test_files": [
+      "tests/credits/test_rewards_credit_block.py"
+    ],
+    "prompt": "El test `tests.credits.test_rewards_credit_block` falla en este checkout. Encontrá la causa y hacelo pasar sin modificar los tests.",
+    "derived_from": "rewards GET: bloque credit del wallet (balance/entries, ADR-098 F5) — sin cuenta ⇒ bloque ausente (FE: sin informacion, no saldo 0); tope 50 asientos desc",
+    "test": "tests.credits.test_rewards_credit_block"
+  }
+]

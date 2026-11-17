@@ -67,7 +67,11 @@ def test_build_task_requiere_test_y_fuente():
     assert task["fix_commit"] == "abc1234"
     assert task["test"] == "tests.bet.test_cancel_materialize"
     assert task["test_files"] == ["tests/bet/test_cancel_materialize.py"]
-    assert "no modifiques los tests" in task["prompt"].lower()
+    assert "sin modificar los tests" in task["prompt"].lower()
+    assert "la cancelación materializa la jugada" not in task["prompt"], (
+        "el subject del commit ES la solución: no puede ir en el prompt"
+    )
+    assert task["derived_from"] == "fix(bet): la cancelación materializa la jugada"
 
     assert build_task(commits[1]) is None, "chore sin tests"
     assert build_task(commits[2]) is None, "test-only no tiene fuente"
@@ -100,6 +104,7 @@ def test_build_task_node_usa_test_cmd():
     task = build_task(commit, kind="node")
     assert task["test_cmd"] == ["node", "--test"]
     assert "test" not in task
+    assert "src/date.js" not in task["prompt"]
 
 
 def test_ablation_build_cmd_por_brazo():

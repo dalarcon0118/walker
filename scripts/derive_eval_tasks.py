@@ -87,19 +87,23 @@ def build_task(commit: dict, kind: str = "django") -> dict | None:
     if SKIP_SUBJECTS.search(subject) or not subject:
         return None
 
+    label = django_test_label(tests[0]) if kind == "django" else tests[0]
+    # El prompt NO puede salir del subject del commit: "expone bono_kind y
+    # count_scope en reward_rule" ES la solución (medido en 29/29 derivadas de
+    # backend). El síntoma es el test que falla; el agente lo corre y lo lee.
     task = {
         "id": f"derived-{commit['sha'][:8]}",
         "fix_commit": commit["sha"],
         "test_from": commit["sha"],
         "test_files": tests,
         "prompt": (
-            f"{clean_subject(subject)}. Reproducí y corregí el problema; "
-            "no modifiques los tests."
+            f"El test `{label}` falla en este checkout. Encontrá la causa y "
+            "hacelo pasar sin modificar los tests."
         ),
         "derived_from": subject,
     }
     if kind == "django":
-        task["test"] = django_test_label(tests[0])
+        task["test"] = label
     else:
         task["test_cmd"] = ["node", "--test"]
     return task
