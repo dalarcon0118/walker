@@ -681,6 +681,13 @@ class SqliteIndex(Index):
             "silenciosa).",
             self.name, reason, materializing,
         )
+        # M-09bis (2026-11-16): el warning del log no llega al cliente, y un
+        # filtro que el schema no declara devolvía 0 hits indistinguible de "no
+        # hay nada". La respuesta lleva el motivo y el tamaño del scan.
+        if isinstance(result, dict):
+            result = dict(result)
+            result["note"] = f"fallback eager: {reason}"
+            result["eager_docs"] = materializing
         return result
 
     @staticmethod

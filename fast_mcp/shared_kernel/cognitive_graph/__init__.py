@@ -218,12 +218,20 @@ class CognitiveGraph:
 
         # C) Presupuesto
         projected = projected[:top_k]
-        return {
+        out = {
             "took": result.get("took", 0),
             "index": index,
             "hits": {"total": total, "hits": projected},
             "schema": result.get("schema", {}),
         }
+        # M-09bis: el motivo del fallback eager viaja al cliente. Sin esto, un
+        # filtro que el schema no declara devuelve 0 hits indistinguible de
+        # "no existe el dato" (medido: search('ckg', {"no_such_field": "x"}) -> 0).
+        if result.get("note"):
+            out["note"] = result["note"]
+        if result.get("eager_docs") is not None:
+            out["eager_docs"] = result["eager_docs"]
+        return out
 
     def _project_source(self, index: str, src: dict, max_chars: int) -> dict:
         """Proyecta un documento a los campos relevantes del índice.
