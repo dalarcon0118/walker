@@ -668,3 +668,56 @@ def test_fulltext_vivo_tras_reload_sqlite(tmp_path):
         f"fulltext mudo tras reload sqlite: {hits} hits para 'voucher' "
         "con docs poblados (token index no reconstruido en _do_load)"
     )
+
+def test_ignore_rules_patron_anidado_matchea_por_path(tmp_path):
+    """`lib/es6/` (patrón con slash) debe matchear el path, no el basename.
+
+    Antes solo se comparaba por segmento (`es6` != `lib/es6`), así que el
+    directorio generado por ReScript se indexaba igual (228 nodos medidos).
+    """
+    from fast_mcp.shared_kernel.project_support.watcher import IgnoreRules
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / ".walkerignore").write_text("lib/es6/\ngraphify-out/\n")
+    ignore = IgnoreRules(str(root))
+
+    assert ignore.is_ignored("lib/es6/") is True
+    assert ignore.is_ignored("lib/es6/features/x.res.js") is True
+    assert ignore.is_ignored("graphify-out/graph.json") is True
+    assert ignore.is_ignored("shared/x.ts") is False
+
+
+def test_walk_poda_directorio_anidado_ignorado(tmp_path):
+    from fast_mcp.features.code_analysis.application.build_service import (
+        _walk_code_files,
+    )
+    from fast_mcp.shared_kernel.project_support.watcher import IgnoreRules
+
+    root = tmp_path / "proj"
+    (root / "lib" / "es6").mkdir(parents=True)
+    (root / "lib" / "es6" / "x.js").write_text("1")
+    (root / "src").mkdir()
+    (root / "src" / "a.ts").write_text("1")
+    (root / ".walkerignore").write_text("lib/es6/\n")
+
+    files = _walk_code_files([str(root)], IgnoreRules(str(root)))
+    rels = {os.path.relpath(f, str(root)) for f in files}
+    assert "src/a.ts" in rels
+    assert not any("lib/es6" in r for r in rels), "el generado no debe recorrerse"
+
+
+def test_ast_grep_calls_usa_el_binario_del_adapter():
+    """SSOT del binario: ast_grep_calls NO debe re-resolverlo por nombre.
+
+    Tenía su propio `AST_GREP_BIN = os.environ.get(...) or "ast-grep"` (wrapper
+    npm 0.1.0), así que `sg run --json` devolvía basura y TODA la extracción de
+    CALLS fallaba con JSONDecodeError en todos los lenguajes, no solo TS.
+    """
+    from fast_mcp.features.code_analysis.infrastructure import (
+        ast_grep_adapter,
+        ast_grep_calls,
+    )
+
+    assert ast_grep_calls.AST_GREP_BIN is ast_grep_adapter.AST_GREP_BIN
+    assert ast_grep_calls.AST_GREP_BIN == ast_grep_adapter.AST_GREP_BIN

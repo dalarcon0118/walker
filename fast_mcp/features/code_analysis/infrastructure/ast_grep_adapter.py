@@ -274,7 +274,15 @@ def _scan_files_core(paths: list[str], ignore: Any | None) -> Graph:
             for root, dirs, files in os.walk(p):
                 dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")]
                 if ignore:
-                    dirs[:] = [d for d in dirs if not ignore.is_ignored(f"{d}/")]
+                    # Poda por path relativo (soporta patrones anidados como
+                    # `lib/es6/`; el basename solo no matchea).
+                    kept = []
+                    for d in dirs:
+                        rel_dir = _to_rel(os.path.join(root, d), ignore_root_dir)
+                        if ignore.is_ignored(rel_dir + "/") or ignore.is_ignored(rel_dir):
+                            continue
+                        kept.append(d)
+                    dirs[:] = kept
                 for f in files:
                     fp = os.path.join(root, f)
                     if _detect_lang(fp):

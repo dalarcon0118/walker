@@ -73,6 +73,13 @@ class IgnoreRules:
             pattern = pattern.replace(os.sep, "/")
             if pattern.endswith("/"):
                 base = pattern.rstrip("/")
+                if "/" in base:
+                    # Patrón ANIDADO (`lib/es6/`): se compara contra el path
+                    # relativo completo, no por segmento. Antes caía en la rama
+                    # de basename y nunca matcheaba (`es6` != `lib/es6`).
+                    if rel == base or rel.startswith(base + "/"):
+                        return True
+                    continue
                 if base and any(fnmatch.fnmatch(seg, base) for seg in segments):
                     return True
                 continue

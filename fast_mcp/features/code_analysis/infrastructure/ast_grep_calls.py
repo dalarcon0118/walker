@@ -22,10 +22,14 @@ from returns.pipeline import is_successful
 from returns.result import safe
 
 from fast_mcp.shared_kernel.dependency_checker import ensure_tools
+from fast_mcp.features.code_analysis.infrastructure.ast_grep_adapter import (
+    AST_GREP_BIN,
+)
 
 logger = logging.getLogger(__name__)
 
-AST_GREP_BIN = os.environ.get("AST_GREP_BIN") or "ast-grep"
+# SSOT: el binario se resuelve en ast_grep_adapter (capability: 'sg' vs el
+# wrapper npm 'ast-grep' 0.1.0, que no soporta `run --json`).
 
 # Mapeo extensión → lenguaje ast-grep
 LANG_MAP: dict[str, str] = {
@@ -130,7 +134,17 @@ def _run_ast_grep_calls_core(file_path: str, lang: str) -> list[dict]:
     )
     if r.returncode != 0:
         return []
-    data = json.loads(r.stdout)
+    if not r.stdout.strip():
+        # Sin matches, ast-grep no imprime nada: no es un fallo. Antes hacía
+        # json.loads("") → JSONDecodeError → error log por cada archivo sin
+        # llamadas (ruido que ocultaba los fallos reales).
+        return []
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"salida no-JSON de ast-grep ({r.stdout[:80]!r}...)"
+        ) from e
     if not isinstance(data, list):
         return []
 

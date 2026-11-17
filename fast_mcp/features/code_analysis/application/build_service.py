@@ -125,14 +125,18 @@ def _walk_code_files(
                 all_files.append(p)
         elif os.path.isdir(p):
             for root, dirs, files in os.walk(p):
-                dirs[:] = [
-                    d
-                    for d in dirs
-                    if not d.startswith(".")
-                    and d != "__pycache__"
-                    and d not in IGNORED_DIRS
-                    and (ignore is None or not ignore.is_ignored(f"{d}/"))
-                ]
+                # Poda por path RELATIVO, no por basename: un patrón anidado
+                # (`lib/es6/`) nunca matcheaba contra el basename `es6`.
+                kept = []
+                for d in dirs:
+                    if d.startswith(".") or d == "__pycache__" or d in IGNORED_DIRS:
+                        continue
+                    if ignore is not None:
+                        rel_dir = _to_rel(os.path.join(root, d), ignore_root)
+                        if ignore.is_ignored(rel_dir + "/") or ignore.is_ignored(rel_dir):
+                            continue
+                    kept.append(d)
+                dirs[:] = kept
                 for f in files:
                     fp = os.path.join(root, f)
                     if not _detect_lang(fp):
