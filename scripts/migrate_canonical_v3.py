@@ -28,12 +28,14 @@ import sqlite3
 import sys
 import time
 
-from fast_mcp.shared_kernel.cognitive_graph.sqlite_backend import SqliteBackend
-
-# Workspace root + canónica
+# Workspace root + canónica — sys.path DEBE estar ajustado ANTES de importar
+# fast_mcp (mismo patrón que pre_migration_check.py).
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
+
+from fast_mcp.shared_kernel.cognitive_graph.sqlite_backend import SqliteBackend
+
 DATA_DIR = os.path.join(ROOT, ".cognitive", "projects", "walker", "data")
 CANON_DB = os.path.join(DATA_DIR, "cognitive.sqlite3")
 BACKUP_DIR = os.path.join(ROOT, ".cognitive", "backups")
