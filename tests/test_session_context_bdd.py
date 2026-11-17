@@ -132,3 +132,94 @@ def test_documenting_knowledge_propaga_la_sesion(monkeypatch):
 
     assert captured["session_id"] == "ses-9"
     assert captured["task_id"] == "T-9"
+
+
+# ── El CKG descartaba nodos sin `label` ─────────────────────────────────
+
+
+def test_save_nodes_deriva_label_y_no_descarta_en_silencio(monkeypatch):
+    """Sin `label` el storage descartaba el nodo y devolvía nodes_created: 0."""
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_write
+
+    class _Ckg:
+        def save_nodes(self, nodes):
+            return {"nodes_created": len(nodes), "node_ids": [n.get("id") for n in nodes]}
+
+    monkeypatch.setattr(ckg_write, "_resolve_ckg", lambda chain: (_Ckg(), None))
+
+    result = ckg_write.CkgWriteService.save_nodes(
+        "/tmp/x", [{"id": "n1", "statement": "algo pasó", "type": "session"}],
+        task_id="T", session_id="ses-1",
+    ).value_or({})
+
+    assert result["nodes_saved"] == 1
+
+
+def test_save_nodes_reporta_los_que_no_puede_guardar(monkeypatch):
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_write
+
+    class _Ckg:
+        def save_nodes(self, nodes):
+            return {"nodes_created": 0, "node_ids": []}
+
+    monkeypatch.setattr(ckg_write, "_resolve_ckg", lambda chain: (_Ckg(), None))
+
+    result = ckg_write.CkgWriteService.save_nodes("/tmp/x", [{"type": "session"}]).value_or({})
+
+    assert result["nodes_saved"] == 0
+    assert result["skipped"] == ["?"], "un descarte silencioso es peor que un error"
+
+
+# ── capture_knowledge: el cierre automático de sesión ───────────────────
+
+
+def test_capture_knowledge_escribe_el_hecho_de_la_sesion(monkeypatch):
+    from types import SimpleNamespace
+
+    from fast_mcp.features.tasks.handlers import knowledge as task_knowledge
+
+    captured = {}
+
+    def _writer(chain, nodes, task_id, session_id):
+        captured.update({"nodes": nodes, "task_id": task_id, "session_id": session_id})
+        return {"nodes_saved": 1}
+
+    monkeypatch.setattr(task_knowledge._di, "_KNOWLEDGE_WRITER", _writer)
+    monkeypatch.setattr(
+        task_knowledge._di, "current_spec",
+        lambda chain, task_id="", prefer_status=("in_progress",): {
+            "spec_id": "SPEC-1", "objective": "arreglar X", "status": "in_progress",
+            "files": ["a.py"], "task_context": {"task_id": "T-1", "session_id": "ses-1"},
+        },
+    )
+    monkeypatch.setattr(
+        task_knowledge._di, "session_events",
+        lambda chain, sid: [SimpleNamespace(event_type="task_autodeclared", files=["b.py"],
+                                            metadata={"session_id": sid})],
+    )
+
+    out = task_knowledge.capture_knowledge(
+        SimpleNamespace(chain_dir="/tmp/x", task_id="", session_id="ses-1"),
+        {"session_id": "ses-1", "task_id": "T-1"},
+    )
+
+    assert out.ok
+    fact = captured["nodes"][0]
+    assert "arreglar X" in fact["statement"]
+    assert set(fact["metadata"]["files"]) == {"a.py", "b.py"}
+    assert captured["session_id"] == "ses-1"
+
+
+def test_capture_knowledge_sin_nada_que_documentar_falla(monkeypatch):
+    from types import SimpleNamespace
+
+    from fast_mcp.features.tasks.handlers import knowledge as task_knowledge
+
+    monkeypatch.setattr(task_knowledge._di, "current_spec", lambda *a, **k: None)
+    monkeypatch.setattr(task_knowledge._di, "session_events", lambda *a, **k: [])
+
+    out = task_knowledge.capture_knowledge(
+        SimpleNamespace(chain_dir="/tmp/x", task_id="", session_id=""), {}
+    )
+
+    assert not out.ok

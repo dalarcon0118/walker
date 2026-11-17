@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 _SPRINT_FACTORY: Callable[[str], Any] | None = None
 _TASK_RECORDER: Callable[[str, str], bool] | None = None
+_KNOWLEDGE_WRITER: Callable[..., Any] | None = None
+_TRACE_READER: Callable[[str, str], list] | None = None
 
 
 def configure_sprint(factory: Callable[[str], Any] | None) -> None:
@@ -22,6 +24,36 @@ def configure_task_recorder(recorder: Callable[[str, str], bool] | None) -> None
     """Inyecta `(chain_dir, task_id) -> bool`: guarda la tarea en el workflow."""
     global _TASK_RECORDER
     _TASK_RECORDER = recorder
+
+
+def configure_knowledge_writer(writer: Callable[..., Any] | None) -> None:
+    """Inyecta `(chain_dir, nodes, task_id, session_id) -> resultado` para el CKG."""
+    global _KNOWLEDGE_WRITER
+    _KNOWLEDGE_WRITER = writer
+
+
+def configure_trace_reader(reader: Callable[[str, str], list] | None) -> None:
+    """Inyecta `(chain_dir, session_id) -> [eventos]` (R1: tasks no lee tracing)."""
+    global _TRACE_READER
+    _TRACE_READER = reader
+
+
+def session_events(chain_dir: str, session_id: str) -> list:
+    if _TRACE_READER is None or not chain_dir or not session_id:
+        return []
+    try:
+        return list(_TRACE_READER(chain_dir, session_id) or [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def save_knowledge(chain_dir: str, nodes: list[dict], task_id: str = "", session_id: str = ""):
+    if _KNOWLEDGE_WRITER is None or not chain_dir or not nodes:
+        return None
+    try:
+        return _KNOWLEDGE_WRITER(chain_dir, nodes, task_id, session_id)
+    except Exception:  # noqa: BLE001 — documentar no puede romper el workflow
+        return None
 
 
 def record_task(chain_dir: str, task_id: str) -> bool:

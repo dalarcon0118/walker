@@ -620,123 +620,26 @@
     {
       "key": "KNOWLEDGE_UPDATE",
       "label": "Update knowledge",
-      "execution": "llm_task",
+      "execution": "auto",
       "input_schema": {
         "type": "object",
         "properties": {
-          "actualizaciones": {
-            "type": "array",
-            "description": "Updates to existing knowledge",
-            "items": {
-              "type": "object",
-              "properties": {
-                "elemento": {
-                  "type": "string",
-                  "description": "What is being updated"
-                },
-                "cambio": {
-                  "type": "string",
-                  "description": "Description of the change"
-                },
-                "razon": {
-                  "type": "string",
-                  "description": "Why it is being updated"
-                }
-              }
-            },
-            "examples": [
-              [
-                {
-                  "elemento": "Schema validation rule",
-                  "cambio": "Add nested type validation",
-                  "razon": "Objects without properties detected in input_schema"
-                }
-              ]
-            ]
+          "session_id": {
+            "type": "string"
           },
-          "nuevas_reglas": {
-            "type": "array",
-            "description": "New rules detected during implementation",
-            "items": {
-              "type": "object",
-              "properties": {
-                "regla": {
-                  "type": "string",
-                  "description": "Rule description"
-                },
-                "scope": {
-                  "type": "string",
-                  "description": "Scope"
-                },
-                "severidad": {
-                  "type": "string",
-                  "enum": [
-                    "obligatoria",
-                    "recomendada",
-                    "informativa"
-                  ]
-                }
-              }
-            },
-            "examples": [
-              [
-                {
-                  "regla": "Every input_schema must have examples",
-                  "scope": "project",
-                  "severidad": "obligatoria"
-                }
-              ]
-            ]
-          },
-          "nuevas_advertencias": {
-            "type": "array",
-            "description": "New warnings or risks identified",
-            "items": {
-              "type": "object",
-              "properties": {
-                "advertencia": {
-                  "type": "string",
-                  "description": "Description"
-                },
-                "impacto": {
-                  "type": "string",
-                  "description": "Impact"
-                },
-                "mitigacion": {
-                  "type": "string",
-                  "description": "Mitigation"
-                }
-              }
-            },
-            "examples": [
-              [
-                {
-                  "advertencia": "The new flow may cause timeouts",
-                  "impacto": "medium",
-                  "mitigacion": "Add configurable timeout_ms"
-                }
-              ]
-            ]
+          "task_id": {
+            "type": "string"
           }
         }
       },
       "output_schema": {
         "type": "object",
-        "$ref": "../schema/knowledge-capture.schema.json",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "updated"
-            ],
-            "description": "Knowledge updated"
-          },
-          "total": {
-            "type": "integer",
-            "description": "Total changes recorded"
+          "fact": {
+            "type": "string"
           }
         },
-        "description": "Knowledge updated. Referencia schema/knowledge-capture.schema.json (canonico)."
+        "description": "Hecho de la tarea escrito en el CKG"
       },
       "on_success": "REPORT_GATE",
       "on_failure": "WORK",
@@ -768,7 +671,7 @@
         "backoff": "exponential",
         "initial_delay_ms": 3000
       },
-      "timeout_ms": 120000,
+      "timeout_ms": 60000,
       "prompt_id": "implement/knowledge-update",
       "context": {
         "sources": [
@@ -819,7 +722,8 @@
       },
       "audit": {
         "level": "normal"
-      }
+      },
+      "action": "capture_knowledge"
     },
     {
       "key": "REPORT_GATE",

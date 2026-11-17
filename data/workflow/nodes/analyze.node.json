@@ -593,156 +593,26 @@
     {
       "key": "KNOWLEDGE_CAPTURE",
       "label": "Capture knowledge",
-      "execution": "llm_task",
+      "execution": "auto",
       "input_schema": {
         "type": "object",
         "properties": {
-          "artefactos": {
-            "type": "array",
-            "description": "Artifacts generated during analysis (diagrams, documents, files)",
-            "items": {
-              "type": "object",
-              "properties": {
-                "nombre": {
-                  "type": "string",
-                  "description": "Artifact name"
-                },
-                "tipo": {
-                  "type": "string",
-                  "description": "Type: diagram, doc, code"
-                },
-                "descripcion": {
-                  "type": "string",
-                  "description": "Artifact description"
-                }
-              }
-            },
-            "examples": [
-              [
-                {
-                  "nombre": "Component diagram",
-                  "tipo": "diagram",
-                  "descripcion": "Diagram showing module relationships"
-                }
-              ]
-            ]
+          "session_id": {
+            "type": "string"
           },
-          "reglas": {
-            "type": "array",
-            "description": "Rules extracted from analysis (conventions, patterns, constraints)",
-            "items": {
-              "type": "object",
-              "properties": {
-                "regla": {
-                  "type": "string",
-                  "description": "Rule description"
-                },
-                "scope": {
-                  "type": "string",
-                  "description": "Scope: project, module, team"
-                },
-                "severidad": {
-                  "type": "string",
-                  "enum": [
-                    "obligatoria",
-                    "recomendada",
-                    "informativa"
-                  ]
-                }
-              }
-            },
-            "examples": [
-              [
-                {
-                  "regla": "Always use dataclasses for domain models",
-                  "scope": "project",
-                  "severidad": "obligatoria"
-                }
-              ]
-            ]
-          },
-          "decisiones": {
-            "type": "array",
-            "description": "Design decisions made during analysis",
-            "items": {
-              "type": "object",
-              "properties": {
-                "decision": {
-                  "type": "string",
-                  "description": "Decision description"
-                },
-                "alternativas": {
-                  "type": "array",
-                  "description": "Alternatives considered"
-                },
-                "razon": {
-                  "type": "string",
-                  "description": "Why the decision was made"
-                }
-              }
-            },
-            "examples": [
-              [
-                {
-                  "decision": "Use TaskRegistry instead of switch-case",
-                  "alternativas": [
-                    "switch-case",
-                    "strategy pattern"
-                  ],
-                  "razon": "DRY + extensibility"
-                }
-              ]
-            ]
-          },
-          "advertencias": {
-            "type": "array",
-            "description": "Warnings or risks identified",
-            "items": {
-              "type": "object",
-              "properties": {
-                "advertencia": {
-                  "type": "string",
-                  "description": "Warning description"
-                },
-                "impacto": {
-                  "type": "string",
-                  "description": "Potential impact"
-                },
-                "mitigacion": {
-                  "type": "string",
-                  "description": "How to mitigate the risk"
-                }
-              }
-            },
-            "examples": [
-              [
-                {
-                  "advertencia": "Migration may break backward compatibility",
-                  "impacto": "high",
-                  "mitigacion": "Implement v2 to v3 mapper"
-                }
-              ]
-            ]
+          "task_id": {
+            "type": "string"
           }
         }
       },
       "output_schema": {
         "type": "object",
-        "$ref": "../schema/knowledge-capture.schema.json",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "captured"
-            ],
-            "description": "Knowledge captured"
-          },
-          "total_items": {
-            "type": "integer",
-            "description": "Total items captured"
+          "fact": {
+            "type": "string"
           }
         },
-        "description": "Knowledge captured. Referencia schema/knowledge-capture.schema.json (canonico)."
+        "description": "Hecho de la sesión escrito en el CKG"
       },
       "on_success": "",
       "on_failure": "REVIEW",
@@ -774,7 +644,7 @@
         "backoff": "exponential",
         "initial_delay_ms": 3000
       },
-      "timeout_ms": 120000,
+      "timeout_ms": 60000,
       "prompt_id": "analyze/knowledge-capture",
       "context": {
         "sources": [
@@ -831,7 +701,8 @@
       },
       "audit": {
         "level": "normal"
-      }
+      },
+      "action": "capture_knowledge"
     }
   ]
 }

@@ -490,10 +490,22 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
             CkgReadService,
         )
 
-        result = CkgReadService.gather_context(ctx.chain_dir, query=f"session:{sid}")
-        out["ckg"] = {
-            "results": result.value_or([]) if is_successful(result) else [],
-        }
+        # El vínculo está en `metadata.session_id`, no en el texto: buscar
+        # "session:<id>" por FTS no encuentra nada. Se filtra exacto sobre el
+        # CKG del proyecto (es chico: cientos de nodos, no millones).
+        all_nodes = CkgReadService.query_all(ctx.chain_dir)
+        by_session = [
+            n for n in all_nodes
+            if str((n.get("metadata") or {}).get("session_id", "")) == sid
+        ]
+        if by_session:
+            out["ckg"] = {"results": by_session[:20], "matched": "metadata.session_id"}
+        else:
+            result = CkgReadService.gather_context(ctx.chain_dir, query=f"session:{sid}")
+            out["ckg"] = {
+                "results": result.value_or([]) if is_successful(result) else [],
+                "matched": "text",
+            }
     except Exception as exc:  # noqa: BLE001
         out["ckg"] = {"error": f"{type(exc).__name__}: {exc}"}
 

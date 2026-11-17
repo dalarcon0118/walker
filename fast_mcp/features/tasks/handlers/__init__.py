@@ -50,6 +50,7 @@ _HANDLER_MODULES = [
     "list_projects",
     "sync_code_index",
     "baseline",
+    "knowledge",
 ]
 
 

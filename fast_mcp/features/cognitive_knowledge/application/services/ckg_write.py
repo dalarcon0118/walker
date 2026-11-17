@@ -40,19 +40,36 @@ class CkgWriteService:
                 return {"message": "no data to save", "saved": False}
             if not nodes:
                 return {"message": "no data to save", "saved": False}
+            skipped: list[str] = []
             for item in nodes:
-                if isinstance(item, dict) and "label" in item:
-                    item.setdefault("metadata", {})
-                    item["metadata"].setdefault("task_id", task_id)
+                if not isinstance(item, dict):
+                    continue
+                # `label` es obligatorio para el storage: sin él el nodo se
+                # descartaba EN SILENCIO (`nodes_created: 0`, sin error). Se
+                # deriva de `statement`/`subject`/`id` y, si no hay ninguno, se
+                # reporta como skipped en vez de fingir que se guardó.
+                if not item.get("label"):
+                    item["label"] = (
+                        item.get("statement") or item.get("subject") or item.get("id") or ""
+                    )
+                if not item.get("label"):
+                    skipped.append(str(item.get("id", "?")))
+                    continue
+                item.setdefault("metadata", {})
+                item["metadata"].setdefault("task_id", task_id)
+                if session_id:
                     item["metadata"].setdefault("source", f"session:{session_id}")
-                    # Estandarización (fix 2026-11-16): type canónico al guardar.
-                    item["type"] = normalize_type(item.get("type", "decision"))
+                # Estandarización (fix 2026-11-16): type canónico al guardar.
+                item["type"] = normalize_type(item.get("type", "decision"))
             result = ckg.save_nodes(nodes)
-            return {
+            saved = {
                 "ok": True,
                 "nodes_saved": result.get("nodes_created", 0),
                 "result": result,
             }
+            if skipped:
+                saved["skipped"] = skipped
+            return saved
 
         return _save()
 

@@ -540,6 +540,35 @@ def _build_task_registry(sprint_service=None):
             )
 
         tasks_di.configure_task_recorder(_record_task_id)
+
+        from fast_mcp.features.cognitive_knowledge.application.services.ckg_write import (
+            CkgWriteService,
+        )
+
+        def _save_knowledge(chain_dir, nodes, task_id="", session_id=""):
+            result = CkgWriteService.save_nodes(
+                chain_dir, nodes, task_id=task_id, session_id=session_id
+            )
+            from returns.pipeline import is_successful
+
+            return result.value_or({}) if is_successful(result) else {"error": str(result.failure())}
+
+        tasks_di.configure_knowledge_writer(_save_knowledge)
+
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+        )
+
+        def _session_events(chain_dir: str, session_id: str) -> list:
+            service = build_trace_service(chain_dir)
+            if service is None:
+                return []
+            return [
+                e for e in service.load_traces(chain_dir)
+                if str((e.metadata or {}).get("session_id", "")) == session_id
+            ]
+
+        tasks_di.configure_trace_reader(_session_events)
     except Exception as exc:  # noqa: BLE001
         logger.warning("baseline handler no configurado (%s: %s)", type(exc).__name__, exc)
 

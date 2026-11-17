@@ -242,6 +242,7 @@ class TestTaskRegistryCompleteness:
             # Punto A / punto B del workflow (analyze.BASELINE, verify.BASELINE_DIFF)
             "capture_baseline",
             "diff_baseline",
+            "capture_knowledge",
         }
         actual = set(registry.list_tasks().keys())
         missing = expected - actual
