@@ -276,3 +276,25 @@ Hueco conocido: **bootstrap**. Si la inyección solo aparece con tarea declarada
 nada le sugiere al agente declarar una. En la corrida "con tarea" el prompt lo
 pedía explícitamente. Falta un aviso de una sola vez por sesión ("si esto es una
 implementación, declarala con `implement_task`") que se apague después.
+
+### Bootstrap: inyecta una vez, y no alcanza
+
+Una sola inyección por sesión invita a declarar la tarea, con permiso explícito
+a ignorarla ("si es una consulta o un cambio ad-hoc, ignorá este mensaje").
+
+Medido:
+
+| corrida | pasos | tokens_in | declaró tarea |
+|---|---|---|---|
+| ad-hoc con bootstrap | 4 | 12.944 | — |
+| implementación real (`resta` en un archivo) | 5 | 8.570 | **no** |
+
+El aviso no rompe el baseline ad-hoc (siguen 4 pasos) pero **tampoco logra lo
+que busca**: en una implementación real el agente lo ignoró y trabajó directo
+(`workflow_suggestion_ignored`, 0 llamadas a `implement_task`).
+
+Conclusión del ciclo completo: la prosa no obliga. Lo único que obligó fue la
+negación, y la negación acotada a "hay tarea declarada" depende de que alguien
+la declare — que es exactamente lo que el agente no hace por su cuenta. El
+círculo se rompe fuera del plugin: la entrada al workflow tiene que ser un gesto
+del humano (comando explícito), no una esperanza.

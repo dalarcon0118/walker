@@ -57,6 +57,19 @@ function runTool(tool, payload = {}, project = projectId) {
   }
 }
 
+function bootstrapBlock() {
+  // Se manda UNA vez por sesión y se apaga. Sin esto el plugin queda mudo para
+  // siempre (la inyección normal exige tarea declarada) y nadie declara nada.
+  // Da permiso explícito a ignorarlo: si no, el aviso empuja al agente a
+  // caminar el workflow en una consulta o un cambio ad-hoc.
+  const proj = projectId || "<proyecto>"
+  return (
+    `[WALKER] Si esta sesión es una IMPLEMENTACIÓN de código, declarala una vez: ` +
+    `${CLI} ${proj}/implement_task '{"task_id":"...","objective":"...","files":["..."]}'. ` +
+    `Si es una consulta, una revisión o un cambio ad-hoc, ignorá este mensaje y seguí normal.`
+  )
+}
+
 function workflowBlock(state) {
   if (!state?.position) return ""
   const parts = [`[WALKER] Workflow: ${state.position} (${state.execType}).`]
@@ -112,6 +125,7 @@ export default {
           followed: false,
           position: "",
           sessionID: sessionID || "",
+          bootstrapped: false,
         })
       }
       return sessions.get(key)
@@ -159,11 +173,17 @@ export default {
         // inyección en sesiones ad-hoc hacía que el agente caminara el
         // workflow por su cuenta (4 → 15 pasos sin que nada lo exigiera).
         refresh()
-        const block = activeTask ? workflowBlock(state.data) : ""
-        if (!block) return
         const sid = event.sessionID || event.sessionId || ""
-        event.system.push({ type: "text", text: block })
         const entry = sessionOf(sid)
+        let block = ""
+        if (activeTask) {
+          block = workflowBlock(state.data)
+        } else if (!entry.bootstrapped) {
+          block = bootstrapBlock()
+          entry.bootstrapped = true
+        }
+        if (!block) return
+        event.system.push({ type: "text", text: block })
         entry.injections += 1
         entry.position = state.data.position
       })
