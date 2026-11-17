@@ -24,11 +24,13 @@ from fast_mcp.features.code_analysis.application.use_cases.code_context import (
 
 
 class _Node:
-    def __init__(self, id, name, path, type_="function"):
+    def __init__(self, id, name, path, type_="function", cyclo=None, line=0):
         self.id = id
         self.name = name
         self.path = path
         self.type = type_
+        self.cyclo = cyclo
+        self.line = line
 
 
 class _Edge:
@@ -84,6 +86,20 @@ def test_for_file_lista_llamadas_salientes():
     out = _uc(graph).for_file("promotion/views.py")
 
     assert [x["name"] for x in out["relations"]["calls"]] == ["validar"]
+
+
+def test_for_file_expone_cyclo_por_simbolo():
+    """El baseline necesita el peso, no solo la lista de símbolos."""
+    graph = _Graph(
+        nodes=[_Node("a", "crear_promocion", "/repo/promotion/views.py", cyclo=12, line=40)],
+        edges=[],
+    )
+
+    out = _uc(graph).for_file("promotion/views.py")
+
+    sym = out["symbols"][0]
+    assert sym["cyclo"] == 12
+    assert sym["line"] == 40
 
 
 def test_for_file_sin_nodos_sigue_devolviendo_vacio():

@@ -298,3 +298,31 @@ negación, y la negación acotada a "hay tarea declarada" depende de que alguien
 la declare — que es exactamente lo que el agente no hace por su cuenta. El
 círculo se rompe fuera del plugin: la entrada al workflow tiene que ser un gesto
 del humano (comando explícito), no una esperanza.
+
+---
+
+## Baseline de intake: llega cuando el agente empieza a mirar código
+
+El agente no pide el baseline. Observado en sesiones reales: abre el archivo y
+lee, sin contexto previo ni estrategia. Pedirlo por prompt no funciona (medido:
+la inyección se ignora).
+
+Ahora el hook lo calcula **en la primera lectura de archivo de la sesión**:
+`agent_context(file)` → impacto (llamadores, llamadas salientes, imports),
+peso (los símbolos con mayor complejidad) y decisiones del CKG. Se inyecta en
+el turno siguiente, una sola vez.
+
+Costo: una llamada CLI (~1,3 s) y ~150 tokens por sesión. Traza `intake_baseline`
+con el archivo y el número de llamadores.
+
+Medido en sesión real sobre `harness/runner.py`:
+
+```
+intake_baseline  {"file": "harness/runner.py", "callers": 31}
+7 pasos · 31.553 tokens · respuesta correcta
+```
+
+Lo que **no** está probado: que el agente use el baseline. La respuesta fue
+correcta y no citó el impacto. El baseline es el punto A; la estrategia (punto
+B + plan) sigue siendo el nodo ANALYZE del workflow, que requiere que alguien
+entre.

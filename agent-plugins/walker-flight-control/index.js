@@ -36,6 +36,11 @@ let projectId = process.env.WALKER_PROJECT_ID || ""
 // tarea declarada, una sesión ad-hoc no se bloquea (medido: bloquear todo
 // costaba ~7x tokens en un cambio de una línea).
 let activeTask = null
+// Baseline calculado en la primera lectura de archivo de la sesión. Se inyecta
+// en el siguiente turno: el agente lo recibe justo cuando empieza a mirar
+// código, sin tener que acordarse de pedirlo.
+let pendingBaseline = null
+let baselineDone = false
 let projectDir = ""
 
 function runTool(tool, payload = {}, project = projectId) {
@@ -55,6 +60,28 @@ function runTool(tool, payload = {}, project = projectId) {
   } catch {
     return null // fail-open: el agente sigue aunque walker no responda
   }
+}
+
+function baselineBlock(r, file) {
+  const cpg = r?.cpg || {}
+  const rel = cpg.relations || {}
+  const syms = (cpg.symbols || []).filter((s) => s.cyclo)
+  syms.sort((a, b) => (b.cyclo || 0) - (a.cyclo || 0))
+  const callers = (rel.called_by || []).slice(0, 5).map((x) => x.name).filter(Boolean)
+  const parts = [
+    `[WALKER] PUNTO A (baseline) — ${file}`,
+    `  impacto: ${rel.called_by_total ?? (rel.called_by || []).length} llamadores · ` +
+      `${rel.calls_total ?? (rel.calls || []).length} llamadas salientes · ` +
+      `${(cpg.imports || []).length} imports`,
+  ]
+  if (syms.length) {
+    parts.push(`  peso: ${syms.slice(0, 4).map((s) => `${s.name}(${s.cyclo})`).join(", ")}`)
+  }
+  if (callers.length) parts.push(`  quién lo usa: ${callers.join(", ")}`)
+  const ckg = (r?.ckg?.results || []).length
+  if (ckg) parts.push(`  CKG: ${ckg} decisión(es)/convención(es) del scope`)
+  parts.push(`  detalle: ${CLI} ${projectId || "<proyecto>"}/agent_context '{"file":"${file}"}'`)
+  return parts.join("\n")
 }
 
 function bootstrapBlock() {
@@ -175,6 +202,10 @@ export default {
         refresh()
         const sid = event.sessionID || event.sessionId || ""
         const entry = sessionOf(sid)
+        if (pendingBaseline) {
+          event.system.push({ type: "text", text: pendingBaseline })
+          pendingBaseline = null
+        }
         let block = ""
         if (activeTask) {
           block = workflowBlock(state.data)
@@ -285,6 +316,36 @@ export default {
       })
     } catch {
       // sin transform no hay gate
+    }
+
+    try {
+      await ctx.tool.transform((editor) => {
+        const readTool = editor.get("read")
+        if (readTool && typeof readTool.execute === "function") {
+          editor.update("read", (draft) => {
+            const original = draft.execute
+            draft.execute = async (input, callCtx) => {
+              const result = await original(input, callCtx)
+              const file = String(input?.path || input?.filePath || "")
+              if (!baselineDone && file && projectId) {
+                baselineDone = true
+                const ctxData = runTool("agent_context", { file })
+                if (ctxData) {
+                  pendingBaseline = baselineBlock(ctxData, file)
+                  runTool("trace_push", {
+                    event_type: "intake_baseline",
+                    source: "agent_hook",
+                    data: { file, callers: (ctxData.cpg?.relations?.called_by_total) ?? 0 },
+                  })
+                }
+              }
+              return result
+            }
+          })
+        }
+      })
+    } catch {
+      // sin transform no hay baseline automático
     }
 
     try {

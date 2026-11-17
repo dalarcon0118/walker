@@ -50,6 +50,16 @@ class CodeContextUseCase:
         ]
         relations = self._build_relations(file_nodes)
 
+        # Completar con línea real y complejidad desde el grafo: el baseline
+        # necesita saber dónde está el peso, no solo qué símbolos hay.
+        by_name = {getattr(n, "name", ""): n for n in file_nodes if getattr(n, "name", "")}
+        for sym in symbols:
+            node = by_name.get(sym["name"])
+            if node is not None:
+                sym["line"] = getattr(node, "line", sym["line"]) or sym["line"]
+                if getattr(node, "cyclo", None):
+                    sym["cyclo"] = node.cyclo
+
         return self._build_output(
             context_type="file",
             target=target_file,
