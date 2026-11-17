@@ -41,6 +41,38 @@ class CognitiveTracer(ITracer):
             "data": data or {},
         })
 
+    def has_skill_load(
+        self,
+        chain_dir: str,
+        task_id: str = "",
+        session_id: str = "",
+        skills: set[str] | list[str] | None = None,
+        since: str = "",
+    ) -> bool:
+        """True si hay un evento `skill_loaded` de uno de `skills`.
+
+        `since` (ISO) acota a lo cargado después de entrar al sub-estado: sin
+        eso, un load viejo satisfaría el gate de cualquier fase.
+        """
+        wanted = {str(s) for s in (skills or [])}
+        try:
+            events = self._service.load_traces(chain_dir)
+        except Exception:  # noqa: BLE001 — sin trace no se puede verificar
+            return False
+        for ev in events:
+            if getattr(ev, "event_type", "") != "skill_loaded":
+                continue
+            if task_id and getattr(ev, "task_id", "") and ev.task_id != task_id:
+                continue
+            data = getattr(ev, "data", None) or {}
+            name = str(data.get("skill", "")) if isinstance(data, dict) else ""
+            if wanted and name not in wanted:
+                continue
+            if since and str(getattr(ev, "timestamp", "")) < since:
+                continue
+            return True
+        return False
+
     def trace_event(self, event: Any) -> None:
         """Register a typed event (WorkflowEvent)."""
         if hasattr(event, "to_dict"):

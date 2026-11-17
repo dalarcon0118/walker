@@ -97,10 +97,38 @@ Sin skills locales que matcheen esta fase; resolvé con criterio propio y decilo
 Un silencio se lee como "aplicá cualquier cosa" o invita a que el agente invente
 un skill que usó. El no-match es información, no un fallo.
 
+## Gate de skills (`policy: required`)
+
+Un nodo puede exigir que el agente cargue un skill antes de avanzar:
+
+```json
+"skill_intent": {
+  "needs": "revisión de código, testing y checklist de calidad",
+  "tags": ["review", "testing", "quality"],
+  "policy": "required"
+}
+```
+
+`verify/QA` está así: es el gate donde el agente arma la evidencia que el
+usuario aprueba, y sin el checklist el briefing sale genérico.
+
+Reglas del gate (`OrchestrationService._check_skill_gate`):
+
+1. Solo aplica con `policy: "required"`; `advisory` (default) no bloquea.
+2. **Anti-deadlock**: si el entorno no tiene skills candidatos, el gate pasa con
+   `note` ("no aplica"). Exigir cargar algo inexistente bloquearía para siempre.
+3. La carga tiene que ser de un **candidato** y **posterior** a
+   `state.updated_at`: un `load_skill` viejo de otra fase no sirve.
+4. Sin tracer verificable (NoopTracer), el gate **no bloquea**: no se puede
+   verificar, y bloquear por falta de infraestructura sería un deadlock.
+
+`load_skill` empuja un evento `skill_loaded` al trace
+(`tool=load_skill`, `data.skill=<nombre>`) y `CognitiveTracer.has_skill_load`
+lo consulta. Verificado por MCP: tras `load_skill("frontend-design")` el trace
+del proyecto tiene el evento con el nombre y el scope.
+
 ## Límites (lo que NO hay todavía)
 
-- **Gate de skills**: `required_tools` hoy valida `kg_query`; extenderlo a
-  `load_skill` requiere la regla anti-deadlock ("sin candidatos → satisfecho").
 - **Skills como paquetes**: `install` maneja `kind: hook`; `kind: skill` no
   existe todavía, así que un skill se distribuye copiando la carpeta.
 - **Matching semántico**: es léxico (tokens + sinónimos). Si el agente reporta

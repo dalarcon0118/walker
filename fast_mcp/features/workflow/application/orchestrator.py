@@ -229,6 +229,11 @@ class OrchestrationService:
             if not gate_check.get("ok", False):
                 return gate_check
 
+        # 3b. Skill gate (skill_intent.policy == "required")
+        skill_check = self._check_skill_gate(ctx, sub_state, state)
+        if skill_check is not None and not skill_check.get("ok", False):
+            return skill_check
+
         # 4. Validate required_fields
         errors = ValidationService.check_transition_preconditions(state, graph, "")
         if errors:
@@ -365,6 +370,77 @@ class OrchestrationService:
         error = getattr(result, "error", "") or ""
         data = getattr(result, "data", None) or {}
         return {"action": action, "data": data}, ok, error
+
+    def _skill_candidates(self, ctx: ExecutionContext, intent: dict) -> list[str]:
+        """Skills del entorno que matchean la intención; [] si no hay/falla."""
+        try:
+            from fast_mcp.shared_kernel.paths import walker_root
+            from fast_mcp.shared_kernel.project_support import ProjectService
+            from fast_mcp.shared_kernel.skills import discover, search, skills_roots
+
+            project_root = ""
+            try:
+                project_root = str(ProjectService.resolve_paths(ctx.chain_dir).project_root or "")
+            except Exception:  # noqa: BLE001 — se escanea solo lo global
+                project_root = ""
+            skills = discover(skills_roots(project_root or None, walker_root()))
+            needs = str(intent.get("needs") or "")
+            tags = intent.get("tags") or ()
+            if isinstance(tags, str):
+                tags = [tags]
+            return [s.name for s in search(skills, needs, tuple(str(t) for t in tags))]
+        except Exception as e:  # noqa: BLE001 — el gate no rompe el submit
+            logger.debug("skill gate: discovery falló (%s)", e)
+            return []
+
+    def _check_skill_gate(self, ctx: ExecutionContext, sub_state: Any, state: Any) -> dict | None:
+        """Gate de skills: exige `load_skill` de un candidato (anti-deadlock).
+
+        - Solo aplica con `skill_intent.policy == "required"`.
+        - Sin candidatos en el entorno → pasa con nota: bloquear sería un
+          deadlock (el agente no puede cargar un skill que no existe).
+        - La carga tiene que ser posterior a `state.updated_at` y de un
+          candidato, para que no la satisfaga un load viejo de otra fase.
+        """
+        intent = getattr(sub_state, "skill_intent", None) or {}
+        if not isinstance(intent, dict) or intent.get("policy") != "required":
+            return None
+
+        candidates = self._skill_candidates(ctx, intent)
+        if not candidates:
+            return {
+                "ok": True,
+                "note": "sin skills candidatos en este entorno: gate de skills no aplica",
+                "skills_checked": [],
+            }
+
+        tracer = getattr(self._bundle, "tracer", None)
+        loaded = False
+        if tracer is not None and hasattr(tracer, "has_skill_load"):
+            try:
+                loaded = tracer.has_skill_load(
+                    self._bundle.chain_dir,
+                    task_id=ctx.task_id or "",
+                    skills=set(candidates),
+                    since=str(getattr(state, "updated_at", "") or ""),
+                )
+            except Exception:  # noqa: BLE001 — sin tracer verificable no se bloquea
+                loaded = True
+
+        if loaded:
+            return {"ok": True, "skills_checked": candidates}
+
+        return {
+            "ok": False,
+            "action": "gate_blocked",
+            "blocked": True,
+            "error_type": "required_skill_gate",
+            "message": (
+                "Antes de avanzar, cargá uno de los skills de esta fase con "
+                "`load_skill(<nombre>)`: " + ", ".join(candidates)
+            ),
+            "skills_checked": candidates,
+        }
 
     def _check_required_tools_gate(
         self, ctx: ExecutionContext, sub_state: Any

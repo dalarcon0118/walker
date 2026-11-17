@@ -60,6 +60,17 @@ class NoopTracer(ITracer):
     ) -> None:
         pass
 
+    def has_skill_load(
+        self,
+        chain_dir: str,
+        task_id: str = "",
+        session_id: str = "",
+        skills: set[str] | list[str] | None = None,
+        since: str = "",
+    ) -> bool:
+        """Sin tracer no se puede verificar: fail-open (no bloquear por falta)."""
+        return True
+
     def has_kg_query(
         self,
         chain_dir: str,

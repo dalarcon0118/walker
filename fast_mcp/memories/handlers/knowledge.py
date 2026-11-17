@@ -184,6 +184,24 @@ def handle_load_skill(ctx: MemoryContext, **kwargs: Any) -> dict:
             "available": sorted(skills)[:20],
         }
     body = skill.body()
+    # Traza la carga: el gate `skill_intent.policy == required` la verifica
+    # contra el trace (task + timestamp). Best-effort: sin grafo no se bloquea.
+    try:
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+        )
+
+        service = build_trace_service(ctx.chain_dir)
+        if service is not None:
+            service.push_event(ctx.chain_dir, {
+                "event_type": "skill_loaded",
+                "source": "agent",
+                "tool": "load_skill",
+                "task_id": str(kwargs.get("task_id") or ""),
+                "data": {"skill": skill.name, "scope": skill.scope},
+            })
+    except Exception as exc:  # noqa: BLE001 — la carga del skill no depende del trace
+        logger.debug("load_skill: no se pudo trazar (%s)", exc)
     return {
         "name": skill.name,
         "description": skill.description,
