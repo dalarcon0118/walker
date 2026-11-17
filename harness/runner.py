@@ -206,6 +206,80 @@ def inject_tests(repo: Path, task: dict, dest: Path, env: dict[str, str], saniti
     return None
 
 
+def _seed_knowledge(source_repo: Path, sandbox_wt: Path, env: dict[str, str]) -> int:
+    """Copia el conocimiento (índice `ckg`) del proyecto real al sandbox.
+
+    El sandbox es un `git archive` + `git init`: no tiene `.cognitive`, así
+    que `prepare` (llamado antes) crea un proyecto vacío y la sección
+    CONOCIMIENTO DEL PROYECTO del prompt llega en blanco — el agente nunca
+    ve las convenciones y no se puede medir el efecto de inyectarlas.
+
+    Solo se copia el `ckg` (conocimiento curado): el CPG es derivado del
+    código y el del proyecto real apunta a rutas que no existen en el
+    sandbox; los delta/traces son específicos del sprint. Se usa la API de
+    walker (ckg_service), no SQL directo, y se dropea el FTS para que se
+    re-backfillee al reabrir (evita drift FS-1).
+
+    Devuelve la cantidad de docs copiados (0 = nada que copiar / fallo).
+    """
+    code = f'''
+import sys
+sys.path.insert(0, {str(source_repo.parent.parent if False else "/Users/davidmartinez/develop/Active-projects/walker")!r})
+import os
+from fast_mcp.features.cognitive_knowledge import ckg_service
+from fast_mcp.shared_kernel.project_support import ProjectService
+
+src_dir = str(ProjectService.resolve_paths({str(source_repo)!r}).data_dir)
+dst_dir = str(ProjectService.resolve_paths({str(sandbox_wt)!r}).data_dir)
+src = ckg_service(src_dir)
+dst = ckg_service(dst_dir)
+if src is None or dst is None:
+    print("0"); raise SystemExit(0)
+
+src_docs = src.query({{}}) or []
+if not src_docs:
+    print("0"); raise SystemExit(0)
+
+# ckg_service.query devuelve docs sin _id: se re-keyan por el id del repo fuente
+# re-leyendo la tabla de storage. Se usa el grafo subyacente para leer los ids.
+src_graph = src._repo._cg
+dst_graph = dst._repo._cg
+docs = src_graph.get_docs("ckg") if hasattr(src_graph, "get_docs") else {{}}
+if not docs:
+    print("0"); raise SystemExit(0)
+
+dst_graph.store_many("ckg", docs)
+# FTS derivado: dropear para que ensure_fts lo re-backfillee al reabrir.
+try:
+    dst_graph._db.execute("DROP TABLE IF EXISTS ckg_fts")  # noqa: SLF001
+    dst_graph._db.execute("DELETE FROM meta WHERE `index`='ckg' AND key='fts_marker'")
+    dst_graph._db.commit()
+except Exception as e:
+    print("fts warn:", e, file=sys.stderr)
+print(len(docs))
+'''
+    import subprocess
+    proc = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        print(f"  ! seed_knowledge: {proc.stderr.strip()[:200]}", file=sys.stderr)
+        return 0
+    try:
+        return int(proc.stdout.strip().split()[-1])
+    except ValueError:
+        return 0
+        rc, content, _ = run(["git", "show", f"{task['test_from']}:{path}"], repo, env, 60)
+        if rc != 0:
+            return f"no se pudo leer {path} de {task['test_from']}"
+        if sanitize and task.get("sanitize") is not False:
+            content = sanitize_source(content)
+        target = dest / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+    return None
+
+
 def resolve_base(repo: Path, task: dict) -> str | None:
     if task.get("base_commit"):
         return str(task["base_commit"])
@@ -458,6 +532,10 @@ def main() -> int:
                 print(f"  ! {name}: prepare del sandbox falló: {exc}", file=sys.stderr)
                 walker_project_id = wt.name
                 env["EVAL_WALKER_PROJECT"] = walker_project_id
+            # Sembrar el conocimiento del proyecto real para que la sección
+            # CONOCIMIENTO DEL PROYECTO no llegue vacía.
+            seeded = _seed_knowledge(repo, wt, env)
+            print(f"  walker: conocimiento sembrado ({seeded} docs)")
 
         if args.no_mcp and not is_workflow:
             (wt / "opencode.json").write_text(json.dumps(
