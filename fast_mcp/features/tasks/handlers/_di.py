@@ -24,12 +24,16 @@ def sprint_service(chain_dir: str):
     return _SPRINT_FACTORY(chain_dir)
 
 
-def current_spec(chain_dir: str, prefer_status: tuple[str, ...] = ("in_progress",)) -> dict | None:
-    """Spec de la tarea en curso: la más reciente con el status pedido.
+def current_spec(
+    chain_dir: str,
+    task_id: str = "",
+    prefer_status: tuple[str, ...] = ("in_progress",),
+) -> dict | None:
+    """Spec de la tarea en curso.
 
-    No hay `task_id` confiable en el contexto del motor (el orquestador lo
-    rellena con el NOMBRE DE LA ACCIÓN), así que se toma la spec más reciente en
-    `in_progress` del sprint activo o, si no hay, de cualquiera.
+    Con `task_id` se busca exacta (por `task_context.task_id` o `spec_id`).
+    Sin id —el motor no siempre lo conoce— se cae a la más reciente en
+    `in_progress`, que es una heurística y así se documenta.
     """
     service = sprint_service(chain_dir)
     if service is None:
@@ -48,6 +52,14 @@ def current_spec(chain_dir: str, prefer_status: tuple[str, ...] = ("in_progress"
             continue
         seen.add(sid)
         candidates.extend(service.get_specs(sid) or [])
+
+    # Id exacto primero: `implement_task` guarda el id real en task_context.
+    if task_id:
+        for spec in candidates:
+            if str((spec.get("task_context") or {}).get("task_id", "")) == task_id:
+                return spec
+            if str(spec.get("spec_id", "")) == task_id:
+                return spec
 
     for status in prefer_status:
         matching = [s for s in candidates if str(s.get("status", "")) == status]

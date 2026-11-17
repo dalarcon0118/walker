@@ -481,13 +481,18 @@ class OrchestrationService:
         # with those attributes.
         from types import SimpleNamespace
 
+        # `task_id` NO se rellena con el nombre de la acción: una acción no es
+        # una tarea. Ese fallback hacía que `implement_task` persistiera
+        # `task-capture_baseline` como id, que `verify` no encontrara la spec y
+        # que el ancla del contexto no matcheara nunca. La acción viaja aparte.
         exec_ctx = SimpleNamespace(
             chain_dir=self._bundle.chain_dir,
-            task_id=(ctx.task_id if ctx else "") or action,
+            task_id=(ctx.task_id if ctx else "") or "",
             session_id=(ctx.session_id if ctx else "") or "mcp",
         )
         exec_data = {
-            "task_id": (ctx.task_id if ctx else "") or action,
+            "task_id": (ctx.task_id if ctx else "") or "",
+            "action": action,
             "chain_dir": self._bundle.chain_dir,
             **fields,
         }

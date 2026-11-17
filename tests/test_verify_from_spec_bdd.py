@@ -21,7 +21,7 @@ def _ctx(chain_dir="/tmp/proyecto"):
 @pytest.fixture()
 def spec(monkeypatch):
     state = {"spec": None}
-    monkeypatch.setattr(_di, "current_spec", lambda chain_dir, prefer_status=("in_progress",): state["spec"])
+    monkeypatch.setattr(_di, "current_spec", lambda chain_dir, task_id="", prefer_status=("in_progress",): state["spec"])
     return state
 
 
@@ -108,3 +108,54 @@ def test_current_spec_toma_la_mas_reciente_en_progreso(monkeypatch):
     monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda chain: _Svc())
 
     assert _di.current_spec("/tmp/x")["spec_id"] == "SPEC-003"
+
+
+def test_current_spec_por_id_exacto_gana_a_la_mas_reciente(monkeypatch):
+    class _Svc:
+        def get_active_spring(self):
+            return {"spring_id": "SPR-1"}
+
+        def list_springs(self):
+            return [{"spring_id": "SPR-1"}]
+
+        def get_specs(self, sid):
+            return [
+                {"spec_id": "SPEC-001", "status": "in_progress", "updated_at": "2026-01-01",
+                 "task_context": {"task_id": "T-101"}},
+                {"spec_id": "SPEC-002", "status": "in_progress", "updated_at": "2026-01-09",
+                 "task_context": {"task_id": "T-102"}},
+            ]
+
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda chain: _Svc())
+
+    assert _di.current_spec("/tmp/x", task_id="T-101")["spec_id"] == "SPEC-001"
+    assert _di.current_spec("/tmp/x")["spec_id"] == "SPEC-002", "sin id cae a la más reciente"
+
+
+def test_el_orquestador_no_usa_el_nombre_de_la_accion_como_task_id():
+    """Una acción no es una tarea: ese fallback rompía specs y anclas."""
+    from types import SimpleNamespace
+
+    from fast_mcp.features.workflow.application.orchestrator import OrchestrationService
+    from fast_mcp.features.workflow.domain.entities import SubState, WorkflowState
+
+    captured: dict = {}
+
+    class _Registry:
+        def has(self, action):
+            return True
+
+        def execute(self, action, ctx, data):
+            captured.update(data)
+            return SimpleNamespace(ok=True, data={}, error="")
+
+    orch = OrchestrationService.__new__(OrchestrationService)
+    orch._bundle = SimpleNamespace(chain_dir="/tmp/x", task_registry=_Registry())
+
+    sub = SubState(key="X", label="X", action="capture_baseline")
+    state = WorkflowState(current_node="N", current_sub_state="X")
+
+    orch._execute_action(SimpleNamespace(task_id="", session_id=""), sub, state, {})
+
+    assert captured["task_id"] == "", "sin tarea declarada, task_id queda vacío"
+    assert captured["action"] == "capture_baseline", "la acción viaja aparte"
