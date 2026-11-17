@@ -501,3 +501,37 @@ literal y `empty_layers: []`.
 `~/.config/opencode/command/`). Ata la sesión sin crear tareas: resuelve el
 proyecto, lee el estado del workflow y toma el snapshot del baseline. Probado:
 `tasks: []` (no ensucia el delta) y reporta la posición real.
+
+### Qué API expone realmente el runtime (medido)
+
+Sonda con un plugin mínimo (`{id, setup}`) contra OpenCode 2.3.0:
+
+```
+keys(ctx): app,location,options,agent,aisdk,command,credential,event,
+           experimental,generate,model,provider,integration,mcp,permission,
+           plugin,reference,rpc,skill,storage,tool,vcs,websearch,worktree,session,shell
+
+session:  hook, list, create, get, remove, switchAgent, switchModel, prompt,
+          generate, command, compact, synthetic, interrupt, update, move, wait,
+          context, instructions
+tool:     reload, list, transform, hook
+agent:    get, list, transform, reload
+command:  list, transform, reload
+event:    subscribe
+experimental: terminal, generate, artifact
+plugin:   list            ← sin add/remove en este runtime
+```
+
+Consecuencias:
+
+- **`experimental.chat.system.transform` no es alcanzable.** Ese hook pertenece
+  al contrato `Plugin = (input) => Hooks` de `@kilocode/plugin`, y este loader
+  **rechaza en silencio** esa forma: un plugin exportado como función no carga
+  (probado: ni `setup` ni el cuerpo de la función se ejecutaron). Solo se
+  acepta `export default {id, setup}`.
+- `ctx.session.hook`, `ctx.tool.transform`, `ctx.event.subscribe` **son** la API
+  del runtime, no un atajo: simplemente no están en los `.d.ts` publicados.
+- `setup` corre **una vez por ubicación**: un proceso con tres worktrees abiertos
+  ejecutó tres `setup`, cada uno con su `location.directory`. Por eso el plugin
+  resuelve el proyecto por directorio.
+- Sin `plugin.add/remove` no hay forma de que un plugin se recargue a sí mismo.
