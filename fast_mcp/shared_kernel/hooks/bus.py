@@ -205,6 +205,48 @@ def _with_pythonpath(env: dict[str, str], walker_root: str | Path) -> dict[str, 
     return env
 
 
+def _exec_profile(permissions: tuple[str, ...], python_exec: str) -> str:
+    """`(deny process-exec*)` salvo el intérprete y los `exec:<bin>` declarados.
+
+    Sin `exec`, el hook solo puede arrancar (sh + python); cualquier subproceso
+    propio —git, node, ast-grep— se deniega. `exec` mantiene el comportamiento
+    amplio; `exec:git` habilita solo ese binario (resuelto con `which`).
+    """
+    if "exec" in permissions:
+        return ""
+    allowed = {"/bin/sh", "/bin/bash", "/usr/bin/env", python_exec}
+    try:
+        allowed.add(str(Path(python_exec).resolve()))
+    except OSError:
+        pass
+    for permission in permissions:
+        if not permission.startswith("exec:"):
+            continue
+        name = permission.split(":", 1)[1]
+        found = shutil.which(name)
+        if found:
+            allowed.add(found)
+            try:
+                allowed.add(str(Path(found).resolve()))
+            except OSError:
+                pass
+        else:
+            logger.warning(
+                "hooks: permiso exec:%s no resuelve a ningún binario en PATH", name
+            )
+    parts = ["(deny process-exec*)"]
+    # El framework de Python en macOS re-execs `Python.app/Contents/MacOS/Python`
+    # (medido: posix_spawn "Undefined error: 0" con solo el literal). Se permite
+    # el prefijo del intérprete completo, que es código del intérprete y no del
+    # hook.
+    prefixes = {sys.prefix, getattr(sys, "base_prefix", sys.prefix)}
+    for prefix in sorted(prefixes):
+        parts.append(f'(allow process-exec (subpath "{_sblex(prefix)}"))')
+    for binary in sorted(allowed):
+        parts.append(f'(allow process-exec (literal "{_sblex(binary)}"))')
+    return "".join(parts)
+
+
 def _wrap_command(
     command: str,
     permissions: tuple[str, ...],
@@ -233,6 +275,9 @@ def _wrap_command(
     clauses: list[str] = []
     if fs_profile:
         clauses.append(fs_profile.replace("(version 1)", "", 1))
+    exec_profile = _exec_profile(permissions, str(Path(sys.executable).resolve()))
+    if exec_profile:
+        clauses.append(exec_profile)
     if "network" not in permissions:
         clauses.append("(deny network*)")
     if not clauses:

@@ -211,7 +211,14 @@ el código de walker.
 `python3 scripts/hooks_cli.py events`. Si el que necesitás no existe, hoy no hay
 forma de engancharse: el catálogo es cerrado a propósito.
 
-**2. Creá el paquete.** Un directorio con dos archivos:
+**2. Creá el paquete.** Lo más rápido es generarlo:
+
+```bash
+python3 scripts/hooks_cli.py new notify-slack --event cpg.indexed
+```
+
+Eso crea `notify-slack/` con manifiesto, `main.py` usando la API y un test que
+pasa sin instalar nada. A mano es un directorio con dos archivos:
 
 ```
 notify-slack/
@@ -230,6 +237,12 @@ notify-slack/
   "timeout_s": 15,
   "permissions": ["fs:repo"]
 }
+```
+
+`kind` es opcional y vale `hook` (default) o `module`. El manifiesto es el mismo
+para las dos extensiones (ADR-066), pero `module` todavía no se instala: el
+runtime de módulos no existe y `install` lo rechaza con un error explícito en
+vez de aceptarlo y no hacer nada.
 ```
 
 ```python
@@ -254,7 +267,8 @@ if __name__ == "__main__":
 exit code 1 con traza corta). No importes de `shared_kernel.hooks`: eso es
 implementación.
 
-**3. Probá sin instalar en el sistema.** Instalá en un scope temporal y emití:
+**3. Probá sin instalar en el sistema.** (el test generado corre con
+`python3 -m pytest notify-slack/test_main.py`; para ver el hook en acción:) Instalá en un scope temporal y emití:
 
 ```bash
 export WALKER_HOOKS_HOME=/tmp/hooks-prueba
@@ -300,6 +314,8 @@ porque abrir un repo ajeno no debe ejecutar su código.
 | no puede escribir en el repo | falta `fs:repo` |
 | `KeyError` en `data["x"]` | payload distinto del esperado → `hooks_cli.py events` |
 | `import fast_mcp` falla | corrés el entry con un Python sin walker: usá `$WALKER_PYTHON` |
+| `git` sale con `fatal: unable to access '~/.gitconfig'` | declaraste `exec:git` pero falta `fs:home` (git lee su config al arrancar) |
+| un subproceso muere con `PermissionError` | falta `exec:<bin>` (o `exec` para permitir cualquiera) |
 
 ## Lenguaje del entry
 
@@ -401,7 +417,14 @@ typo falla al instalar):
 | `fs:home` | puede leer/escribir en `$HOME` (git config, ssh, caches) |
 | `fs:any` | sin restricción de filesystem (escape hatch explícito) |
 | `network` | permite red; sin esto, en macOS se deniega |
-| `exec` | declara que lanza subprocesos (informativo: no se puede impedir) |
+| `exec` | permite lanzar cualquier subproceso |
+| `exec:<bin>` | permite solo ese binario (`exec:git`, `exec:sg`, `exec:node`) |
+
+Sin `exec`, el hook solo puede arrancar (el shell del wrapper y el intérprete de
+Python): cualquier subproceso propio se deniega. `exec` habilita cualquiera;
+`exec:<bin>` habilita uno (`exec:git`, `exec:sg`, `exec:node`). Ese permiso no
+alcanza para `git`, que lee `~/.gitconfig` al arrancar: si lo necesitás, sumá
+`fs:home`.
 
 En macOS el baseline (sin `fs:any`) es un perfil de `sandbox-exec` que:
 

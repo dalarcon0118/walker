@@ -567,3 +567,27 @@ def test_pythonpath_hereda_el_valor_del_usuario(tmp_path, monkeypatch):
 
     assert out[0] == str(walker_root)
     assert "/custom/path" in out
+
+
+# ── kind: hook | module (manifiesto unificado, ADR-066) ────────────────────
+
+def test_kind_por_defecto_es_hook(tmp_path):
+    package = read_manifest(_package(tmp_path))
+    assert package.kind == "hook"
+
+
+def test_kind_module_se_lee_pero_no_se_instala(tmp_path):
+    """El manifiesto es el mismo a propósito; el runtime de módulos no existe."""
+    source = _package(tmp_path, {**MANIFEST, "kind": "module"})
+
+    assert read_manifest(source).kind == "module"
+    with pytest.raises(HookManifestError) as exc:
+        install(source, _home(tmp_path), walker_version="3.0.0")
+    assert "ADR-066" in str(exc.value)
+    assert installed(_home(tmp_path)) == []
+
+
+def test_kind_invalido_falla_al_leer(tmp_path):
+    with pytest.raises(HookManifestError) as exc:
+        read_manifest(_package(tmp_path, {**MANIFEST, "kind": "plugin"}))
+    assert "kind inválido" in str(exc.value)

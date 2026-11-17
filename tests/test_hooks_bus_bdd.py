@@ -105,7 +105,8 @@ def test_spec_invalida_se_ignora_sin_romper(tmp_path):
 def test_emit_pasa_payload_por_stdin_y_env(tmp_path, monkeypatch):
     project = _project(tmp_path)
     bus = HookBus(
-        specs=[HookSpec(id="echo", event="commit", command="cat")],
+        specs=[HookSpec(id="echo", event="commit", command="cat",
+                        permissions=("exec:cat",))],
         project_root=project, walker_root=project,
     )
 
@@ -129,7 +130,8 @@ def test_emit_expone_el_evento_por_entorno(tmp_path):
 def test_timeout_se_reporta_y_no_lanza(tmp_path):
     project = _project(tmp_path)
     bus = HookBus(
-        specs=[HookSpec(id="lento", event="commit", command="sleep 3", timeout_s=1)],
+        specs=[HookSpec(id="lento", event="commit", command="sleep 3", timeout_s=1,
+                        permissions=("exec:sleep",))],
         project_root=project, walker_root=project,
     )
 

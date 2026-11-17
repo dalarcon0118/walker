@@ -193,7 +193,11 @@ def test_wrap_command_combina_fs_y_red(monkeypatch):
     assert "deny network*" not in red
     assert "deny file-read*" in red, "grantar red no abre el filesystem"
 
-    libre = _wrap_command("echo hola", ("network", "fs:any"))
+    # sin restricción de fs PERO con la de exec activa
+    solo_exec = _wrap_command("echo hola", ("network", "fs:any"))
+    assert "deny process-exec*" in solo_exec
+
+    libre = _wrap_command("echo hola", ("network", "fs:any", "exec"))
     assert libre == "echo hola"
 
     monkeypatch.setattr(sys, "platform", "linux")
@@ -386,3 +390,78 @@ def test_doctor_reporta_clave_revocada(tmp_path, trust, monkeypatch):
 
     assert any("REVOCADA" in issue for issue in report["issues"])
     assert report["global"][0]["signed"] is False
+
+
+# ── exec: subprocesos permitidos uno por uno ───────────────────────────────
+
+def test_exec_profile_bloquea_por_defecto(monkeypatch):
+    from fast_mcp.shared_kernel.hooks.bus import _exec_profile
+
+    perfil = _exec_profile((), "/python3")
+    assert "deny process-exec*" in perfil
+    assert "(subpath" in perfil, "el prefijo del intérprete debe permitirse"
+
+    assert _exec_profile(("exec",), "/python3") == "", "exec = sin restricción"
+
+
+def test_exec_profile_resuelve_binarios_declarados():
+    import shutil
+
+    from fast_mcp.shared_kernel.hooks.bus import _exec_profile
+
+    git = shutil.which("git")
+    if not git:
+        pytest.skip("git no está en PATH")
+    perfil = _exec_profile(("exec:git",), "/python3")
+    assert f'(allow process-exec (literal "{git}"))' in perfil
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec es de macOS")
+def test_hook_no_puede_lanzar_subprocesos_sin_exec(tmp_path, monkeypatch):
+    out = tmp_path / "exec.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all", "fs:repo"]})
+    (source / "main.py").write_text(
+        "import os, subprocess\n"
+        "try:\n"
+        "    r = subprocess.run(['/bin/echo', 'hola'], capture_output=True, timeout=5)\n"
+        "    result = f'rc={r.returncode}'\n"
+        "except Exception as exc:\n"
+        "    result = 'blocked:' + type(exc).__name__\n"
+        "open(os.environ['HOOK_OUT'], 'w').write(result)\n"
+    )
+
+    bus = HookBus(specs=[HookSpec(
+        id="h", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+        event="commit", permissions=("env:all", "fs:repo"),
+    )], project_root=tmp_path, walker_root=tmp_path)
+    bus.emit("commit", {})
+
+    assert out.read_text().startswith("blocked:")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec es de macOS")
+def test_hook_puede_lanzar_el_binario_declarado(tmp_path, monkeypatch):
+    # /bin/echo y no git: git lee ~/.gitconfig al arrancar y sin fs:home muere
+    # con rc=128 aunque exec:git esté permitido.
+    out = tmp_path / "exec-ok.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
+    perms = ("env:all", "fs:repo", "exec:echo")
+    source = _package(tmp_path, {**MANIFEST, "permissions": list(perms)})
+    (source / "main.py").write_text(
+        "import os, subprocess\n"
+        "try:\n"
+        "    r = subprocess.run(['/bin/echo', 'hola'], capture_output=True, timeout=5)\n"
+        "    result = f'rc={r.returncode}:{r.stdout.decode().strip()}'\n"
+        "except Exception as exc:\n"
+        "    result = 'blocked:' + type(exc).__name__\n"
+        "open(os.environ['HOOK_OUT'], 'w').write(result)\n"
+    )
+
+    bus = HookBus(specs=[HookSpec(
+        id="h", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+        event="commit", permissions=perms,
+    )], project_root=tmp_path, walker_root=tmp_path)
+    bus.emit("commit", {})
+
+    assert out.read_text() == "rc=0:hola"

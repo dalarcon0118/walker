@@ -45,13 +45,20 @@ PERMISSIONS: dict[str, str] = {
     "fs:tmp": "leer/escribir en el directorio temporal",
     "fs:home": "leer/escribir en $HOME (git config, ssh, etc.)",
     "fs:any": "sin restricción de filesystem (escape hatch)",
-    "exec": "lanzar subprocesos (informativo, no aplicable)",
+    "exec": "lanzar cualquier subproceso (amplio)",
+    "exec:<bin>": "permitir solo ese binario (ej: exec:git, exec:sg)",
     "network": "acceso a red",
     "env:all": "heredar TODO el entorno (incluye secretos)",
 }
 HOOKS_HOME_ENV = "WALKER_HOOKS_HOME"
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+_EXEC_PERM_RE = re.compile(r"^exec:[A-Za-z0-9._+/-]+$")
+
+
+def validate_id(hook_id: str) -> bool:
+    """True si el id es instalable (minúsculas, números, '.', '_' o '-')."""
+    return bool(_ID_RE.match(str(hook_id)))
 
 
 class HookManifestError(ValueError):
@@ -75,6 +82,7 @@ class HookPackage:
     installed_at: str = ""
     permissions: tuple[str, ...] = ()
     signature: str = ""  # key_id que firmó, "" si no está firmado
+    kind: str = "hook"
 
     def command(self) -> str:
         target = self.path / self.entry
@@ -165,9 +173,14 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
         raise HookManifestError(f"{directory}: falta {MANIFEST_NAME} o no es JSON válido")
 
     hook_id = str(manifest.get("id", "")).strip()
-    if not _ID_RE.match(hook_id):
+    if not validate_id(hook_id):
         raise HookManifestError(
             f"id inválido {hook_id!r}: minúsculas, números, '.', '_' o '-' (2-64)"
+        )
+    kind = str(manifest.get("kind", "hook")).strip().lower()
+    if kind not in KINDS:
+        raise HookManifestError(
+            f"kind inválido {kind!r} · válidos: {', '.join(sorted(KINDS))}"
         )
     version = str(manifest.get("version", "")).strip()
     if not version:
@@ -212,7 +225,10 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
     permissions = manifest.get("permissions") or []
     if not isinstance(permissions, list):
         raise HookManifestError("'permissions' debe ser una lista")
-    unknown_perms = [str(p) for p in permissions if str(p) not in PERMISSIONS]
+    unknown_perms = [
+        str(p) for p in permissions
+        if str(p) not in PERMISSIONS and not _EXEC_PERM_RE.match(str(p))
+    ]
     if unknown_perms:
         raise HookManifestError(
             f"permisos desconocidos: {', '.join(unknown_perms)} · válidos: "
@@ -231,6 +247,7 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
         description=str(manifest.get("description", "")),
         scope=scope,
         permissions=tuple(str(p) for p in permissions),
+        kind=kind,
     )
 
 
@@ -268,6 +285,10 @@ def save_registry(scope_root: str | Path, data: dict) -> None:
 _IGNORE_PARTS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 _IGNORE_SUFFIX = (".pyc", ".pyo")
 DIGEST_ALGO = "tree-v1"
+# Un solo manifiesto para dos tipos de extensión (ADR-066). `module` todavía no
+# se instala: el runtime de módulos no existe, así que se rechaza con un error
+# accionable en vez de aceptarlo y no hacer nada.
+KINDS = {"hook", "module"}
 
 
 def tree_digest(directory: str | Path) -> str:
@@ -377,6 +398,12 @@ def install(
                 raise HookManifestError(f"no es un directorio: {source_dir}")
 
         package = read_manifest(source_dir, scope=scope)
+        if package.kind != "hook":
+            raise HookManifestError(
+                f"{package.id}: kind={package.kind!r}. Los módulos (ADR-066) "
+                "todavía no tienen runtime de instalación; hoy solo se instalan "
+                "hooks. El manifiesto es el mismo a propósito."
+            )
         incompatible = check_compat(package, walker_version)
         if incompatible:
             raise HookManifestError(f"{package.id}: {incompatible}")
@@ -451,6 +478,7 @@ def install(
             "sha256": source_digest,
             "digest": DIGEST_ALGO,
             "signature": signature_key,
+            "kind": installed_pkg.kind,
             "permissions": list(installed_pkg.permissions),
             "enabled": True,
             "installed_at": datetime.now(timezone.utc).isoformat(),
@@ -495,6 +523,12 @@ def update(
         commit = fetch_git(spec, tmpdir)
         source_dir = (tmpdir / entry.get("subdir", "")) if entry.get("subdir") else tmpdir
         package = read_manifest(source_dir, scope=scope)
+        if package.kind != "hook":
+            raise HookManifestError(
+                f"{package.id}: kind={package.kind!r}. Los módulos (ADR-066) "
+                "todavía no tienen runtime de instalación; hoy solo se instalan "
+                "hooks. El manifiesto es el mismo a propósito."
+            )
         incompatible = check_compat(package, walker_version)
         if incompatible:
             raise HookManifestError(f"{hook_id}: {incompatible}")

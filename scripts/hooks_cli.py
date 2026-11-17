@@ -52,6 +52,7 @@ from fast_mcp.shared_kernel.hooks.package import (  # noqa: E402
     remove,
     set_enabled,
     update,
+    validate_id,
 )
 
 
@@ -226,6 +227,83 @@ def _cmd_sign(args) -> int:
     return 0
 
 
+_TEMPLATE_MAIN = '''# Hook {hook_id} — escucha `{event}`.
+from fast_mcp.hooks import event, payload, run
+
+EVENT = "{event}"
+
+
+def main(data: dict) -> int:
+    # Si el bus te llama por otro evento, salí sin hacer nada.
+    if event() != EVENT:
+        return 0
+    print(f"{{EVENT}}: {{data}}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(main))
+'''
+
+_TEMPLATE_TEST = '''# Test mínimo del hook {hook_id} (sin instalar nada).
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from main import main as hook_main  # noqa: E402
+
+
+def test_main_acepta_payload_vacio(monkeypatch):
+    monkeypatch.setenv("WALKER_EVENT", "{event}")
+    assert hook_main({{}}) == 0
+'''
+
+
+def _cmd_new(args) -> int:
+    from fast_mcp.shared_kernel.hooks.events import is_known, known_events
+
+    if not validate_id(args.id):
+        print(f"error: id inválido {args.id!r} (minúsculas, números, '.', '_' o '-')",
+              file=sys.stderr)
+        return 2
+    if not is_known(args.event):
+        print(f"error: evento desconocido {args.event!r} · válidos: "
+              f"{', '.join(known_events())}", file=sys.stderr)
+        return 2
+
+    root = Path(args.dir).expanduser().resolve()
+    target = root / args.id
+    if target.exists() and not args.force:
+        print(f"error: {target} ya existe (usá --force para sobrescribir)",
+              file=sys.stderr)
+        return 2
+    target.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "id": args.id,
+        "kind": "hook",
+        "version": "0.1.0",
+        "description": f"Hook {args.id}",
+        "walker": ">=3.0,<4",
+        "events": [args.event],
+        "entry": "main.py",
+        "timeout_s": 10,
+        "permissions": ["fs:repo"],
+    }
+    (target / "hook.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (target / "main.py").write_text(_TEMPLATE_MAIN.format(hook_id=args.id, event=args.event))
+    (target / "test_main.py").write_text(_TEMPLATE_TEST.format(hook_id=args.id, event=args.event))
+
+    print(f"creado {target}")
+    print("  hook.json · main.py · test_main.py")
+    print("\npróximos pasos:")
+    print(f"  pytest {target}/test_main.py")
+    print(f"  WALKER_HOOKS_HOME=/tmp/hooks-prueba python3 scripts/hooks_cli.py install {target}")
+    print(f"  WALKER_HOOKS_HOME=/tmp/hooks-prueba python3 scripts/hooks_runner.py {args.event}")
+    return 0
+
+
 def _cmd_digest(args) -> int:
     spec = parse_source(args.source, args.ref)
     tmp = None
@@ -356,6 +434,13 @@ def main() -> int:
     p_sign.add_argument("--key", required=True, help="PEM de la clave privada")
     p_sign.add_argument("--id", required=True, help="id de la clave (el de keys add)")
 
+    p_new = sub.add_parser("new", help="genera el esqueleto de un hook")
+    p_new.add_argument("id")
+    p_new.add_argument("--dir", default=".", help="directorio donde crear <id>/")
+    p_new.add_argument("--event", default="commit",
+                       help="evento al que se engancha (ver 'events')")
+    p_new.add_argument("--force", action="store_true")
+
     p_digest = sub.add_parser("digest", help="calcula el sha256 de un paquete")
     p_digest.add_argument("source")
     p_digest.add_argument("--ref", default=None)
@@ -369,6 +454,7 @@ def main() -> int:
         "list": _cmd_list,
         "install": _cmd_install,
         "update": _cmd_update,
+        "new": _cmd_new,
         "digest": _cmd_digest,
         "keys": _cmd_keys,
         "sign": _cmd_sign,

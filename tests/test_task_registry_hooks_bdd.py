@@ -85,7 +85,7 @@ def test_emit_task_after_resuelve_el_repo_desde_el_layout(tmp_path):
         "id": "task-after", "event": "task.after",
         "command": f'printf "%s " "$WALKER_EVENT" >> {out}; cat >> {out}',
         "timeout_s": 10,
-        "permissions": ["fs:repo"],
+        "permissions": ["fs:repo", "exec"],
     }]}))
 
     ctx = ExecutionContext.create(chain_dir=str(layout), task_id="T-1")
