@@ -181,21 +181,39 @@ def test_hook_sin_env_all_no_ve_el_secreto(tmp_path, monkeypatch):
     assert installed(home)[0].permissions == ()
 
 
-def test_wrap_command_deniega_red_sin_permiso(monkeypatch):
+def test_wrap_command_combina_fs_y_red(monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     wrapped = _wrap_command("echo hola", ())
     assert wrapped.startswith("sandbox-exec")
     assert "deny network*" in wrapped
+    assert "deny file-read*" in wrapped, "sin fs:any también se restringe el FS"
 
-    assert _wrap_command("echo hola", ("network",)) == "echo hola"
+    red = _wrap_command("echo hola", ("network",))
+    assert "deny network*" not in red
+    assert "deny file-read*" in red, "grantar red no abre el filesystem"
+
+    libre = _wrap_command("echo hola", ("network", "fs:any"))
+    assert libre == "echo hola"
 
     monkeypatch.setattr(sys, "platform", "linux")
     assert _wrap_command("echo hola", ()) == "echo hola"
 
 
+def test_profile_incluye_tmp_solo_con_permiso():
+    from fast_mcp.shared_kernel.hooks.bus import _fs_profile
+
+    base = dict(repo="/repo", walker_root="/walker", home="/home/u", tmpdir="/tmp/x")
+    sin = _fs_profile((), **base)
+    con = _fs_profile(("fs:tmp",), **base)
+
+    assert "(subpath \"/tmp/x\")" not in sin
+    assert "(subpath \"/tmp/x\")" in con
+    assert _fs_profile(("fs:any",), **base) == ""
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec es de macOS")
 def test_red_bloqueada_en_runtime(tmp_path, monkeypatch):
-    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all"]})
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all", "fs:repo"]})
     (source / "main.py").write_text(
         "import os, socket\n"
         "try:\n"
@@ -212,8 +230,82 @@ def test_red_bloqueada_en_runtime(tmp_path, monkeypatch):
 
     bus = HookBus(specs=[HookSpec(
         id="firmado", command=f'"$WALKER_PYTHON" "{home}/firmado/main.py"',
-        event="commit", permissions=("env:all",),
+        event="commit", permissions=("env:all", "fs:repo"),
     )], project_root=tmp_path, walker_root=tmp_path)
     bus.emit("commit", {})
 
     assert out.read_text() == "blocked"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec es de macOS")
+def test_hook_no_puede_leer_home_sin_fs_home(tmp_path, monkeypatch):
+    """El pedido concreto: un hook no puede leer archivos de $HOME (ssh, aws)."""
+    home_file = Path.home() / ".zshrc"
+    if not home_file.is_file():
+        pytest.skip("no hay ~/.zshrc en esta máquina")
+
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all", "fs:repo"]})
+    (source / "main.py").write_text(
+        "import os, pathlib\n"
+        "p = pathlib.Path(os.environ['HOME']) / '.zshrc'\n"
+        "try:\n"
+        "    text = p.read_text()[:8]\n"
+        "    result = 'read:' + text\n"
+        "except Exception as exc:\n"
+        "    result = 'blocked:' + type(exc).__name__\n"
+        "open(os.environ['HOOK_OUT'], 'w').write(result)\n"
+    )
+    out = tmp_path / "home.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
+    bus = HookBus(specs=[HookSpec(
+        id="h", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+        event="commit", permissions=("env:all", "fs:repo"),
+    )], project_root=tmp_path, walker_root=tmp_path)
+
+    bus.emit("commit", {})
+
+    assert out.read_text().startswith("blocked:")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec es de macOS")
+def test_hook_con_fs_home_puede_leer_home(tmp_path, monkeypatch):
+    home_file = Path.home() / ".zshrc"
+    if not home_file.is_file():
+        pytest.skip("no hay ~/.zshrc en esta máquina")
+
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all", "fs:repo", "fs:home"]})
+    (source / "main.py").write_text(
+        "import os, pathlib\n"
+        "p = pathlib.Path(os.environ['HOME']) / '.zshrc'\n"
+        "try:\n"
+        "    p.read_text()\n"
+        "    result = 'read:ok'\n"
+        "except Exception as exc:\n"
+        "    result = 'blocked:' + type(exc).__name__\n"
+        "open(os.environ['HOOK_OUT'], 'w').write(result)\n"
+    )
+    out = tmp_path / "home-ok.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
+    bus = HookBus(specs=[HookSpec(
+        id="h", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+        event="commit", permissions=("env:all", "fs:repo", "fs:home"),
+    )], project_root=tmp_path, walker_root=tmp_path)
+
+    bus.emit("commit", {})
+
+    assert out.read_text() == "read:ok"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec es de macOS")
+def test_hook_sin_fs_repo_no_puede_escribir_en_el_repo(tmp_path, monkeypatch):
+    out = tmp_path / "no-deberia-existir.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
+    source = _package(tmp_path, {**MANIFEST, "permissions": ["env:all"]})
+
+    bus = HookBus(specs=[HookSpec(
+        id="h", command=f'"$WALKER_PYTHON" "{source}/main.py"',
+        event="commit", permissions=("env:all",),
+    )], project_root=tmp_path, walker_root=tmp_path)
+    bus.emit("commit", {})
+
+    assert not out.exists(), "sin fs:repo el hook no puede escribir en el repo"

@@ -41,9 +41,11 @@ SIGNATURE_NAME = "hook.sig.json"
 # rechaza al instalar (un `netwrok` que se ignora en silencio es peor que no
 # declararlo).
 PERMISSIONS: dict[str, str] = {
-    "fs:repo": "leer/escribir dentro del repo",
-    "fs:tmp": "usar el directorio temporal",
-    "exec": "lanzar subprocesos",
+    "fs:repo": "escribir dentro del repo (la lectura es implícita)",
+    "fs:tmp": "leer/escribir en el directorio temporal",
+    "fs:home": "leer/escribir en $HOME (git config, ssh, etc.)",
+    "fs:any": "sin restricción de filesystem (escape hatch)",
+    "exec": "lanzar subprocesos (informativo, no aplicable)",
     "network": "acceso a red",
     "env:all": "heredar TODO el entorno (incluye secretos)",
 }

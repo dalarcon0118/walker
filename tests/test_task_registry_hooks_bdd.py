@@ -79,12 +79,13 @@ def test_emit_task_after_resuelve_el_repo_desde_el_layout(tmp_path):
     (layout / "data").mkdir(parents=True)
     (repo / "project.json").write_text(json.dumps({"project_id": "demo", "repo_path": str(repo)}))
     (repo / ".cognitive" / "config.json").write_text(json.dumps({"hooks": {"trusted": True}}))
-    out = tmp_path / "hook.log"
+    out = repo / "hook.log"
     (repo / ".cognitive" / "hooks").mkdir()
     (repo / ".cognitive" / "hooks" / "hooks.json").write_text(json.dumps({"hooks": [{
         "id": "task-after", "event": "task.after",
         "command": f'printf "%s " "$WALKER_EVENT" >> {out}; cat >> {out}',
         "timeout_s": 10,
+        "permissions": ["fs:repo"],
     }]}))
 
     ctx = ExecutionContext.create(chain_dir=str(layout), task_id="T-1")

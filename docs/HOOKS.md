@@ -241,14 +241,27 @@ typo falla al instalar):
 | Permiso | Efecto |
 |---|---|
 | `env:all` | hereda TODO el entorno; sin esto, el hook corre con PATH/HOME/LANG/TMPDIR/WALKER_* |
-| `network` | permite red; sin esto, en macOS `sandbox-exec` la deniega |
+| `fs:repo` | puede **escribir** en el repo (leerlo es implícito: sin esto no puede reindexar nada) |
+| `fs:tmp` | puede leer/escribir en el temporal del sistema |
+| `fs:home` | puede leer/escribir en `$HOME` (git config, ssh, caches) |
+| `fs:any` | sin restricción de filesystem (escape hatch explícito) |
+| `network` | permite red; sin esto, en macOS se deniega |
 | `exec` | declara que lanza subprocesos (informativo: no se puede impedir) |
-| `fs:repo`, `fs:tmp` | declara alcance de archivos (informativo) |
 
-El entorno mínimo es la parte con enforcement real y multiplataforma: un hook no
-ve `AWS_SECRET_ACCESS_KEY` ni `GITHUB_TOKEN` salvo que pida `env:all`. En macOS
-la red se deniega con `sandbox-exec` (verificado en test); en Linux/Windows no
-hay mecanismo sin privilegios, así que el permiso queda como intención declarada
-y `doctor` no lo marca como garantizado. Esto no es una jaula: un hook es código
-que corre con tu usuario. La decisión de instalar (y firmar) sigue siendo el
-límite de seguridad.
+En macOS el baseline (sin `fs:any`) es un perfil de `sandbox-exec` que:
+
+1. **deniega leer `$HOME`**, salvo los subárboles que el hook necesita para
+   arrancar: el repo, `<walker>`, `~/.walker/hooks` y los prefijos de Python;
+2. **deniega escribir** salvo `/dev/null` y lo que habiliten `fs:repo`,
+   `fs:tmp` o `fs:home`.
+
+Verificado en test: un hook sin `fs:home` no puede leer `~/.zshrc` (mismo camino
+que `~/.ssh/id_rsa`), y uno sin `fs:repo` no puede escribir en el repo. El
+entorno mínimo es la parte multiplataforma: un hook no ve
+`AWS_SECRET_ACCESS_KEY` ni `GITHUB_TOKEN` salvo `env:all`. En Linux/Windows no
+hay sandbox sin privilegios: filesystem y red quedan como intención declarada.
+
+Límite honesto: esto frena accidentes y código malicioso oportunista, no a un
+atacante con control del binario y de la clave de firma. `exec` no se puede
+impedir porque el hook **es** un proceso; el límite de seguridad sigue siendo
+instalar (y firmar).

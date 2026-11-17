@@ -140,24 +140,94 @@ def _scrub_env(env: dict[str, str], permissions: tuple[str, ...]) -> dict[str, s
     }
 
 
-def _wrap_command(command: str, permissions: tuple[str, ...]) -> str:
-    """Sin `network`, se niega la red con sandbox-exec (macOS), best-effort.
+def _sblex(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
 
-    En Linux/Windows no hay un mecanismo sin privilegios disponible: se corre
-    sin aislamiento y `doctor` lo informa. El permiso es una intención
-    declarada, no una jaula garantizada.
+
+def _fs_profile(
+    permissions: tuple[str, ...],
+    *,
+    repo: str,
+    walker_root: str,
+    home: str | None = None,
+    tmpdir: str | None = None,
+    python_prefixes: tuple[str, ...] = (),
+) -> str:
+    """Perfil SBPL: lectura acotada a repo/walker/hooks/python, escritura opt-in.
+
+    Sin `fs:any`, `$HOME` queda denegado salvo los subárboles que el hook
+    necesita para arrancar (repo, walker, hooks instalados, prefijos de Python).
+    Escribir requiere `fs:repo`, `fs:tmp` o `fs:home`: un hook sin permisos
+    puede leer el repo pero no modificarlo.
     """
-    if "network" in permissions or sys.platform != "darwin":
+    if "fs:any" in permissions:
+        return ""
+    import tempfile
+
+    home_path = Path(home or Path.home())
+    tmp = Path(tmpdir or tempfile.gettempdir())
+    read_allow = [repo, walker_root, str(Path.home() / ".walker"), *python_prefixes]
+    parts = ["(version 1)", "(allow default)"]
+    if "fs:home" not in permissions:
+        parts.append(f'(deny file-read* (subpath "{_sblex(home_path)}"))')
+        parts.append("(allow file-read-metadata)")
+        for path in read_allow:
+            if path:
+                parts.append(f'(allow file-read* (subpath "{_sblex(path)}"))')
+    parts.append("(deny file-write*)")
+    if "fs:repo" in permissions:
+        parts.append(f'(allow file-write* (subpath "{_sblex(repo)}"))')
+    if "fs:tmp" in permissions:
+        parts.append(f'(allow file-write* (subpath "{_sblex(tmp)}"))')
+        parts.append(f'(allow file-read* (subpath "{_sblex(tmp)}"))')
+    if "fs:home" in permissions:
+        parts.append(f'(allow file-write* (subpath "{_sblex(home_path)}"))')
+        parts.append(f'(allow file-read* (subpath "{_sblex(home_path)}"))')
+    parts.append('(allow file-write* (literal "/dev/null"))')
+    parts.append('(allow file-write* (literal "/dev/tty"))')
+    return "".join(parts)
+
+
+def _wrap_command(
+    command: str,
+    permissions: tuple[str, ...],
+    *,
+    repo: str | Path = ".",
+    walker_root: str | Path = ".",
+    home: str | None = None,
+) -> str:
+    """Aplica el sandbox (macOS) según permisos. Sin mecanismo → comando tal cual.
+
+    Un solo `sandbox-exec` con un perfil que combina filesystem y red: dos
+    invocaciones anidadas no se componen bien (la interna pierde reglas).
+    """
+    if sys.platform != "darwin" or not shutil.which("sandbox-exec"):
         return command
-    if not shutil.which("sandbox-exec"):
+
+    prefixes = [sys.prefix, getattr(sys, "base_prefix", sys.prefix),
+                str(Path(sys.executable).resolve().parent)]
+    fs_profile = _fs_profile(
+        permissions,
+        repo=str(repo),
+        walker_root=str(walker_root),
+        home=home,
+        python_prefixes=tuple(dict.fromkeys(prefixes)),
+    )
+    clauses: list[str] = []
+    if fs_profile:
+        clauses.append(fs_profile.replace("(version 1)", "", 1))
+    if "network" not in permissions:
+        clauses.append("(deny network*)")
+    if not clauses:
         return command
-    # `sh -c` adentro: sin esto, sandbox-exec ejecuta el primer token como
-    # binario y se pierden builtins, redirecciones y pipes del comando original.
+
     import shlex
 
+    profile = "(version 1)" + "".join(clauses)
+    # `sh -c` adentro: sandbox-exec ejecuta el primer token como binario; sin
+    # esto se pierden builtins, redirecciones y pipes del comando original.
     return (
-        "sandbox-exec -p '(version 1)(allow default)(deny network*)' sh -c "
-        + shlex.quote(command)
+        f"sandbox-exec -p {shlex.quote(profile)} sh -c " + shlex.quote(command)
     )
 
 
@@ -345,7 +415,8 @@ class HookBus:
         started = time.time()
         try:
             proc = subprocess.run(
-                _wrap_command(spec.command, spec.permissions),
+                _wrap_command(spec.command, spec.permissions,
+                              repo=self.project_root, walker_root=self.walker_root),
                 shell=True,
                 cwd=str(self.project_root),
                 input=stdin_body,

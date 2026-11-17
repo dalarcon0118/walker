@@ -37,8 +37,8 @@ MANIFEST = {
     "entry": "main.py",
     "timeout_s": 10,
     "description": "hook de prueba",
-    # el hook de prueba escribe en $HOOK_OUT: necesita el entorno completo
-    "permissions": ["env:all"],
+    # escribe en $HOOK_OUT (dentro del repo) y necesita el entorno completo
+    "permissions": ["env:all", "fs:repo"],
 }
 
 
@@ -165,10 +165,11 @@ def test_enable_disable(tmp_path):
 def test_el_bus_ejecuta_un_paquete_en_sus_eventos(tmp_path, monkeypatch):
     home = _home(tmp_path)
     install(_package(tmp_path), home, walker_version="3.0.0")
-    out = tmp_path / "out.log"
-    monkeypatch.setenv("HOOK_OUT", str(out))
     project = tmp_path / "repo"
     project.mkdir()
+    # dentro del repo: sin fs:repo, escribir acá también se deniega
+    out = project / "out.log"
+    monkeypatch.setenv("HOOK_OUT", str(out))
 
     bus = HookBus.load(project, walker_root=_walker_root(tmp_path), hooks_home=home)
     spec = bus.hooks_for("commit")[0]
