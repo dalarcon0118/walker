@@ -134,8 +134,19 @@ def _cyclo_by_line(path: str) -> dict[int, int]:
     out: dict[int, int] = {}
 
     def measure(node: ast.AST) -> int:
+        """Complejidad del cuerpo de UNA función.
+
+        No desciende en funciones/clases anidadas: sus ramas son de ellas, no
+        del contenedor. Con `ast.walk` el padre acumulaba las ramas de sus
+        closures (runner.main medía 122 por sus `def process(...)` internos).
+        """
         value = 1
-        for child in ast.walk(node):
+        stack = list(ast.iter_child_nodes(node))
+        while stack:
+            child = stack.pop()
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.Lambda, ast.ClassDef)):
+                continue  # otro scope
             if isinstance(child, (ast.If, ast.For, ast.AsyncFor, ast.While,
                                   ast.ExceptHandler, ast.IfExp, ast.Assert)):
                 value += 1
@@ -143,6 +154,7 @@ def _cyclo_by_line(path: str) -> dict[int, int]:
                 value += max(0, len(child.values) - 1)
             elif isinstance(child, ast.comprehension):
                 value += 1 + len(child.ifs)
+            stack.extend(ast.iter_child_nodes(child))
         return value
 
     for node in ast.walk(tree):
