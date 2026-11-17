@@ -1,0 +1,11 @@
+[
+  {
+    "id": "implement-workflow",
+    "mode": "workflow",
+    "base_commit": "HEAD~1",
+    "test_from": "HEAD",
+    "test_files": ["tests/incident/test_writes.py"],
+    "test": "tests.incident.test_writes",
+    "workflow_prompt": "Proyecto walker: {project_id}. Corré `walker {project_id}/status` para ver el sub-estado actual, luego ejecutá el paso que te indica (lee la plantilla que te devuelve el status, no archivos a ciegas). Cuando implementes, seguí las convenciones de la sección CONOCIMIENTO DEL PROYECTO. Hacé `walker {project_id}/submit` con el resultado y deja el código implementado. No repitas tests después de un cambio trivial."
+  }
+]

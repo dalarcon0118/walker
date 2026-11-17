@@ -437,7 +437,29 @@ def main() -> int:
         if err:
             print(f"  ! {name}: {err}", file=sys.stderr)
 
-        if args.no_mcp:
+        # ── Modo workflow (opt-in): el agente camina el workflow de walker ──
+        # El eval directo usa --no-mcp (los índices apuntan al repo real), así
+        # que no puede medir plantillas. El modo workflow habilita MCP y
+        # registra el sandbox como proyecto, para que el agente pueda llamar a
+        # `walker <id>/status` y ejecutar el sub-estado actual.
+        is_workflow = task.get("mode") == "workflow"
+        walker_project_id: str | None = None
+        if is_workflow:
+            if args.no_mcp:
+                print(f"  ! {name}: modo workflow requiere MCP; --no-mcp se ignora", file=sys.stderr)
+            try:
+                from walker_client import WalkerClient
+                with WalkerClient() as wc:
+                    prep = wc.call("prepare", {"path": str(wt)})
+                    walker_project_id = prep.get("project_id") or wt.name
+                    env["EVAL_WALKER_PROJECT"] = walker_project_id
+                    print(f"  walker: sandbox registrado como '{walker_project_id}'")
+            except Exception as exc:
+                print(f"  ! {name}: prepare del sandbox falló: {exc}", file=sys.stderr)
+                walker_project_id = wt.name
+                env["EVAL_WALKER_PROJECT"] = walker_project_id
+
+        if args.no_mcp and not is_workflow:
             (wt / "opencode.json").write_text(json.dumps(
                 {"mcp": {srv: {"enabled": False} for srv in MCP_SERVERS}}, indent=2))
 
@@ -467,7 +489,14 @@ def main() -> int:
                "--agent", args.agent]
         if args.model:
             cmd += ["--model", args.model]
-        cmd += [task["prompt"]]
+        if is_workflow:
+            prompt = task.get("workflow_prompt") or task.get("prompt", "")
+            prompt = prompt.replace("{project_id}", walker_project_id or wt.name)
+            if "{project_id}" not in (task.get("workflow_prompt") or task.get("prompt", "")):
+                prompt = f"Proyecto walker: {walker_project_id}\n\n" + prompt
+        else:
+            prompt = task["prompt"]
+        cmd += [prompt]
 
         code, output, took = run(cmd, wt, env, args.timeout)
         (outdir / f"{name}.jsonl").write_text(output)
