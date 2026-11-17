@@ -171,4 +171,5 @@ def test_los_skills_empaquetados_cubren_el_gate_de_qa(tmp_path, monkeypatch):
     )
 
     assert qa["verdict"] == "bloquearía_sin_carga"
-    assert qa["candidates"][0] == "code-review-checklist"
+    assert "code-review-checklist" in qa["candidates"]
+    assert "ponytail-review" in qa["candidates"]

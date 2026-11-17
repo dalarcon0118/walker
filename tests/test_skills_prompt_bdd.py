@@ -141,3 +141,8 @@ def test_nodos_y_templates_declaran_la_intencion():
     qa = next(s for s in verify["sub_states"] if s["key"] == "QA")
     assert qa["skill_intent"]["tags"]
     assert "{{skills_catalog}}" in (templates / "verify" / "qa.prompt.json").read_text()
+
+    refine = json.loads((nodes / "refine.node.json").read_text())
+    diagnose = next(s for s in refine["sub_states"] if s["key"] == "DIAGNOSE")
+    assert "over-engineering" in diagnose["skill_intent"]["tags"]
+    assert "{{skills_catalog}}" in (templates / "refine" / "diagnose.prompt.json").read_text()

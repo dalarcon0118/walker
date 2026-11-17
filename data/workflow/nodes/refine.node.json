@@ -23,23 +23,23 @@
               "VERIFY"
             ],
             "readOnly": true,
-            "description": "\ud83d\udd12 Node that triggered refine. Injected by engine. Do not send."
+            "description": "🔒 Node that triggered refine. Injected by engine. Do not send."
           },
           "attempt": {
             "type": "integer",
             "minimum": 1,
             "readOnly": true,
-            "description": "\ud83d\udd12 Refine attempt number. Injected by engine. Do not send."
+            "description": "🔒 Refine attempt number. Injected by engine. Do not send."
           },
           "error_context": {
             "type": "string",
             "readOnly": true,
-            "description": "\ud83d\udd12 Failure context that triggered refine. Injected by engine. Do not send."
+            "description": "🔒 Failure context that triggered refine. Injected by engine. Do not send."
           },
           "task_id": {
             "type": "string",
             "readOnly": true,
-            "description": "\ud83d\udd12 Task ID being refined. Injected by engine. Do not send."
+            "description": "🔒 Task ID being refined. Injected by engine. Do not send."
           },
           "target": {
             "type": "string",
@@ -171,7 +171,7 @@
             "Check CKG for relevant past patterns or decisions",
             "Check DELTA for similar issues in previous sprints"
           ],
-          "context_priority": "project \u2192 trace \u2192 task \u2192 cpg \u2192 state \u2192 ckg \u2192 delta"
+          "context_priority": "project → trace → task → cpg → state → ckg → delta"
         },
         "budget": {
           "max_tokens": 80000,
@@ -181,6 +181,15 @@
       },
       "audit": {
         "level": "normal"
+      },
+      "skill_intent": {
+        "needs": "diagnóstico de fallo por sobre-ingeniería o complejidad: qué sobra y qué lo reemplaza",
+        "tags": [
+          "review",
+          "over-engineering",
+          "simplify"
+        ],
+        "policy": "advisory"
       }
     },
     {
@@ -193,7 +202,7 @@
           "task_id": {
             "type": "string",
             "readOnly": true,
-            "description": "\ud83d\udd12 Task ID. Injected by engine."
+            "description": "🔒 Task ID. Injected by engine."
           },
           "lecciones": {
             "type": "array",
@@ -399,7 +408,7 @@
             "Refer to TRACE for the diagnosis history that led here",
             "Capture lessons, rules, decisions, and warnings based on the diagnosis"
           ],
-          "context_priority": "project \u2192 task \u2192 state \u2192 ckg \u2192 trace"
+          "context_priority": "project → task → state → ckg → trace"
         },
         "budget": {
           "max_tokens": 80000,
@@ -478,7 +487,7 @@
             "Show task details from TASK layer",
             "Ask user to approve, modify, or cancel"
           ],
-          "context_priority": "project \u2192 task \u2192 trace \u2192 state"
+          "context_priority": "project → task → trace → state"
         },
         "budget": {
           "max_tokens": 80000,

@@ -1,0 +1,7 @@
+{
+  "id": "ponytail-review",
+  "kind": "skill",
+  "version": "1.0.0",
+  "description": "Review de calidad y sobre-ingeniería: qué sobra y qué lo reemplaza.",
+  "walker": ">=3.0,<4"
+}

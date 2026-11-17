@@ -193,6 +193,19 @@ done
 `testing-patterns` declara `requires: [code-review-checklist]`, así que `doctor`
 detecta si falta la dependencia.
 
+También se vendorizan `ponytail` y `ponytail-review` (MIT, ver
+`skills-src/ponytail/LICENSE`). Upstream mide −15% de código y −10,3% de costo
+en mediana, **pero el skill común se auto-activa 0 de 10 sesiones**: si se
+quiere el efecto hay que declararlo `policy: required` o inyectarlo. Por eso
+`ponytail-review` entra como candidato en `REFINE.DIAGNOSE` (tag
+`over-engineering`) y aparece en `VERIFY.QA` por el tag `review`; `ponytail`
+queda disponible pero no se fuerza en `IMPLEMENT` porque su minimalismo choca
+con las reglas DDD/hexagonal del repo.
+
+Estado del entorno tras instalarlos: 8 skills, `VERIFY.QA` con
+`ponytail-review(11)` y `code-review-checklist(6)`, `REFINE.DIAGNOSE` con
+`ponytail-review(10)` y `ponytail(6)`.
+
 El orquestador emite un evento `skill_gate` en cada submit
 (`outcome`: `blocked` / `passed` / `no_candidates`, con node/sub_state y
 skills), así que la serie histórica sale del trace: cuántas veces bloqueó, en

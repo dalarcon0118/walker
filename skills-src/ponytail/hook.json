@@ -1,0 +1,7 @@
+{
+  "id": "ponytail",
+  "kind": "skill",
+  "version": "1.0.0",
+  "description": "Lazy senior dev mode: el cambio mínimo que resuelve la tarea.",
+  "walker": ">=3.0,<4"
+}

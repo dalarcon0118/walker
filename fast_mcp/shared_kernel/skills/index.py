@@ -76,7 +76,11 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
         return {}, text
     header, body = match.group(1), match.group(2)
     data: dict[str, object] = {}
-    for line in header.splitlines():
+    lines = header.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        index += 1
         if not line.strip() or line.lstrip().startswith("#") or line.startswith((" ", "\t")):
             continue
         key, sep, rest = line.partition(":")
@@ -84,6 +88,16 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
             continue
         key = key.strip().lower()
         rest = rest.strip()
+        # YAML block scalar: `description: >` seguido de líneas indentadas.
+        # Sin esto, el catálogo mostraba ">" como descripción (ponytail).
+        if rest in (">", "|", ">-", "|-"):
+            chunks: list[str] = []
+            while index < len(lines) and (lines[index].startswith((" ", "\t")) or not lines[index].strip()):
+                chunks.append(lines[index].strip())
+                index += 1
+            joiner = " " if rest.startswith(">") else "\n"
+            data[key] = joiner.join(c for c in chunks if c).strip()
+            continue
         if rest.startswith("[") and rest.endswith("]"):
             items = [_parse_scalar(v) for v in rest[1:-1].split(",") if v.strip()]
             data[key] = [i for i in items if i]

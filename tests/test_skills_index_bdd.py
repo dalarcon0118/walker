@@ -136,3 +136,38 @@ def test_match_bilingue_espanol_ingles(tmp_path):
 
     assert search(skills, "criterio de diseño para la pantalla")
     assert search(skills, "", ("diseno",)), "tag sin tilde también matchea"
+
+
+def test_parsea_block_scalar_de_yaml(tmp_path):
+    """`description: >` (ponytail) dejaba el catálogo con ">" como descripción."""
+    directory = tmp_path / "pony"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        "---\n"
+        "name: pony\n"
+        "description: >\n"
+        "  Lazy senior dev mode: el cambio mínimo\n"
+        "  que resuelve la tarea.\n"
+        "tags: [yagni]\n"
+        "---\n"
+        "cuerpo\n",
+        encoding="utf-8",
+    )
+
+    skill = read_skill(directory)
+
+    assert ">" != skill.description
+    assert "Lazy senior dev mode" in skill.description
+    assert "resuelve la tarea" in skill.description
+    assert skill.tags == ("yagni",)
+
+
+def test_skills_vendoreados_de_ponytail_tienen_descripcion_real():
+    from fast_mcp.shared_kernel.skills import read_skill
+
+    base = Path(__file__).resolve().parents[1] / "skills-src"
+    for name in ("ponytail", "ponytail-review"):
+        skill = read_skill(base / name)
+        assert skill is not None
+        assert len(skill.description) > 40, f"{name}: descripción vacía o truncada"
+        assert "over-engineering" in " ".join(skill.tags) or name == "ponytail"
