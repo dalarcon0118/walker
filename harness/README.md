@@ -130,6 +130,20 @@ no en la memoria. La superficie se recorta en `tools/list`
 (`WALKER_MCP_PROFILE`), no por permisos, así que el agente nunca ve las tools de
 afuera.
 
+### Cuidado con el config del sandbox (OpenCode v2)
+
+OpenCode v2 **ignora `mcp` escrito en el `opencode.json` del directorio**: el
+sandbox sigue viendo los servidores globales. Medido 2026-11-17 con
+`opencode 2.3.0`, en las dos formas (`{"mcp":{"walker":{"enabled":false}}}` y
+`{"mcp":{"walker":{"disabled":true}}}`): la tool respondía 200 igual. Por eso:
+
+- `--no-mcp` apunta `XDG_CONFIG_HOME` a un config mínimo (verificado: el agente
+  reporta `NO_EXISTE` y el modelo sigue autenticado).
+- `--tool-profile` viaja por `WALKER_MCP_PROFILE` en el entorno, que el server
+  MCP hereda al ser lanzado por stdio.
+
+Cualquier brazo "sin MCP" que se haya corrido antes de este fix tenía MCP.
+
 Toggles para experimentos propios: `WALKER_PROMPT_KNOWLEDGE=0`,
 `WALKER_PROMPT_SKILLS=0`, `WALKER_FLIGHT_CONTROL=0` (los evals ya corren con
 este último apagado).
