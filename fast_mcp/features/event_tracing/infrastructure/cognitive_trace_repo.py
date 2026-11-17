@@ -98,7 +98,11 @@ class CognitiveTraceRepository(TraceRepository):
     def _load_from_cg(self) -> list[TraceEvent]:
         """Load events from the trace index in CognitiveGraph."""
         try:
-            result = self._cg.search(self.INDEX, {})
+            # `size` explícito: el default de search es 50, así que con más
+            # eventos el trace "perdía" los viejos y los gates/auditorías
+            # evaluaban sobre una ventana arbitraria (medido: 884 docs en la DB,
+            # 50 visibles).
+            result = self._cg.search(self.INDEX, {"size": 100_000})
             events: list[TraceEvent] = []
             for h in result.get("hits", {}).get("hits", []):
                 source = dict(h.get("_source", {}))

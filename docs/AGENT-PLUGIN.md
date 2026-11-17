@@ -1,8 +1,19 @@
 # Plugin del agente (OpenCode) ↔ walker
 
-El plugin vive en `.opencode/plugins/walker-session.js` y es la capa que hace que
-el agente **use** walker sin que se lo pidan. No es el harness: el harness mide,
-el plugin entrega.
+El plugin vive en `.opencode/plugins/walker-flight-control.js` y es la capa que
+hace que el agente **use** walker sin que se lo pidan. No es el harness: el
+harness mide, el plugin entrega.
+
+**El plugin anterior no cargaba.** `walker-session.js` (V1) exportaba
+`WalkerHooks` como named export; OpenCode V2 exige
+`export default { id, setup }` y lo rechazaba al cargar:
+
+    failed to load plugin / walker-session.js
+    Plugin must export a default definition with an id and an effect or setup function
+
+O sea que, desde V2, todos sus guards, trazas e inyecciones eran código muerto.
+El archivo quedó en `.opencode/legacy/walker-session.v1.js` como referencia (los
+guards de `.cognitive/` todavía no están portados).
 
 ## Contrato CLI (ADR-WALKER-016)
 
@@ -23,21 +34,32 @@ server; con stdin vacío salía `rc=0` sin imprimir nada. Todas las llamadas del
 plugin (trace, gates, CKG, contexto CPG) eran no-ops silenciosos. El agente
 nunca veía walker aunque el plugin "funcionara".
 
-## Qué hace hoy
+## Qué hace hoy (V2)
 
-- **Binding de sesión**: al primer mensaje/tool pide `workflow_state` (en
-  background, throttle 60 s) y guarda posición, tipo de ejecución, campos
-  requeridos y salidas disponibles.
-- **Inyección por turno**: agrega un bloque `[WALKER] Workflow: …` al último
-  mensaje del usuario, una vez por mensaje. No bloquea nada.
-- **Trazas**: `session_start`, `agent_message`, `workflow_state_injected`,
-  `workflow_suggestion_ignored` (si después de inyectar no hubo
-  `submit`/`transition`), `session_end`. `trace_push` conserva `session_id` y
-  `agent_id` en `metadata`.
-- **Guards locales** (ya existían): bloquea `edit`/`write`/`read` sobre
-  `.cognitive/`, `python3 -c` inline y bash destructivo sobre `.cognitive/`.
+- **Binding**: pide `workflow_state` al CLI (cache 60 s) y guarda posición,
+  tipo de ejecución, campos requeridos y salidas disponibles.
+- **Inyección**: en `ctx.session.hook("context")` agrega un bloque
+  `[WALKER] Workflow: …` a las instrucciones del sistema de cada llamada al
+  modelo. No bloquea nada.
+- **Métrica**: al recibir `session.execution.succeeded/failed` traza
+  `workflow_state_injected` (con `injections`, `followed`) y
+  `workflow_suggestion_ignored` si no hubo `submit`/`transition`.
+- **Followed**: envuelve el `execute` de `walker_submit`/`walker_transition` con
+  `ctx.tool.transform` (verificado que el transform existe; falta ejercitarlo
+  con un submit real).
 
-Escape hatch: `WALKER_WORKFLOW_INJECT=0` desactiva binding e inyección.
+Escape hatch: `WALKER_FLIGHT_CONTROL=0`.
+
+## Medir cumplimiento
+
+```bash
+python3 scripts/workflow_injection_audit.py            # tasa actual
+python3 scripts/workflow_injection_audit.py --json     # para agentes
+```
+
+Foto al 2026-11-17: **3 sesiones, 3 inyecciones, 100% ignoradas**, todas
+triviales (smoke/`opencode run` de prueba). El script exige `--min-sample 20`
+antes de recomendar un gate duro: con n=3 no hay base para bloquear.
 
 ## Qué falta (fase 3)
 

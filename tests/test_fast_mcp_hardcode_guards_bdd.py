@@ -18,7 +18,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = REPO_ROOT / "fast_mcp" / "features" / "workflow"
-PLUGIN = REPO_ROOT / ".opencode" / "plugins" / "walker-session.js"
+PLUGIN_FILES = sorted((REPO_ROOT / ".opencode" / "plugins").glob("*.js")) + sorted(
+    (REPO_ROOT / ".opencode" / "legacy").glob("*.js")
+)
 
 EXECUTION_VALUES = {"bootstrap", "auto", "llm_task", "user_input", "manual"}
 
@@ -76,15 +78,18 @@ class TestExecutionTypeLiteralsGuard:
 class TestPluginToolsGuard:
 
     def test_plugin_has_no_phantom_tools(self):
-        text = PLUGIN.read_text()
-        found = {tool for tool in PHANTOM_TOOLS if tool in text}
+        assert PLUGIN_FILES, "no hay plugins que validar"
+        found = set()
+        for plugin in PLUGIN_FILES:
+            found |= {tool for tool in PHANTOM_TOOLS if tool in plugin.read_text()}
         assert not found, f"Tools fantasma en el hook (no existen en fast_mcp): {found}"
 
     def test_plugin_references_only_real_tools(self):
         """Todo walker_* citado por el hook debe existir en el catálogo real
         (fases 1-3 de fast_mcp) o ser el prefijo del CLI (bin/walker)."""
-        text = PLUGIN.read_text()
-        referenced = set(re.findall(r"walker_[a-z_]+", text))
+        referenced = set()
+        for plugin in PLUGIN_FILES:
+            referenced |= set(re.findall(r"walker_[a-z_]+", plugin.read_text()))
         real = {f"walker_{name}" for name in _real_tool_names()}
         # Nombres legítimos NO registrados como tools MCP (CLI/infraestructura)
         legit = {"walker_session", "walker_mcp", "walker3", "walker_label"}
@@ -98,3 +103,20 @@ class TestPluginToolsGuard:
         """Sanity del SSOT: las 3 fases declaran tools."""
         names = _real_tool_names()
         assert {"submit", "transition", "status", "build_code_index"} <= names
+
+
+def test_plugins_export_default_definition():
+    """OpenCode V2 descarta plugins sin `export default { id, setup }`.
+
+    Regresión medida 2026-11-17: el plugin exportaba `WalkerHooks` como named
+    export y V2 lo rechazaba con "Plugin must export a default definition with
+    an id and an effect or setup function" — el plugin nunca cargaba y todas sus
+    llamadas a walker eran código muerto.
+    """
+    plugins = sorted((REPO_ROOT / ".opencode" / "plugins").glob("*.js"))
+    assert plugins, "no hay plugins que validar"
+    for plugin in plugins:
+        text = plugin.read_text()
+        assert "export default" in text, f"{plugin.name} no exporta default"
+        assert re.search(r"\bid:\s*[\"']", text), f"{plugin.name} no declara id"
+        assert "setup" in text, f"{plugin.name} no declara setup"
