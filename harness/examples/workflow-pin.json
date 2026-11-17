@@ -1,0 +1,13 @@
+[
+  {
+    "id": "pin-dos-convenciones",
+    "mode": "workflow",
+    "fix_commit": "5ddcc46",
+    "test_from": "5ddcc46",
+    "test_files": [
+      "tests/authentication/test_password_schemes.py"
+    ],
+    "test": "tests.authentication.test_password_schemes",
+    "workflow_prompt": "Proyecto walker: {project_id}. Corré `walker {project_id}/status` para ver el sub-estado actual y ejecutá el paso que te indica (leé la plantilla que te devuelve el status, no archivos a ciegas). Seguí las convenciones de la sección CONOCIMIENTO DEL PROYECTO que viene en el prompt. Usá ÚNICAMENTE el proyecto {project_id}; no toques backend-microservices ni ningún otro proyecto. Hacé `walker {project_id}/submit` con el resultado cuando termines y dejá el código implementado. Corré solo el test del módulo afectado y no repitas el test después de un cambio trivial."
+  }
+]
