@@ -27,6 +27,104 @@ from returns.result import safe
 
 logger = logging.getLogger(__name__)
 
+# ── Vocabulario de conocimiento (fix 2026-11-16) ───────────────────────────
+# Los collectors pedían `type: "quality"` (no existe en el schema) y los tags
+# "global"/"architecture", que NINGÚN proyecto usa: medido sobre las 7 memorias
+# registradas, los types reales son decision/design-decision/implementation*/
+# verification/fix y los tags son de dominio (win-win, ssot, adr-042...). El
+# contexto que el workflow inyectaba en cada prompt llegaba vacío.
+#
+# Se consulta por `type` (vocabulario del schema, estable) y por `tag` (libre,
+# específico del proyecto) y se UNEN los resultados sin duplicar.
+KNOWLEDGE_QUERIES: dict[str, tuple[dict[str, str], ...]] = {
+    "architecture": (
+        {"type": "design-decision"},
+        {"type": "pattern"},
+        {"tag": "architecture"},
+    ),
+    "pattern": (
+        {"type": "pattern"},
+        {"type": "component"},
+        {"tag": "pattern"},
+    ),
+    "quality": (
+        {"type": "rule"},
+        {"type": "convention"},
+        {"tag": "quality"},
+    ),
+    "global": (
+        {"type": "convention"},
+        {"type": "rule"},
+        {"tag": "global"},
+    ),
+}
+
+# Nodo del workflow → tipo de conocimiento que lo alimenta.
+TASK_TYPE_ALIASES: dict[str, str] = {
+    "implement": "implementation",
+    "verify": "verification",
+    "analyze": "analysis",
+}
+
+
+def _search_hits(ckg_searcher: Any, query: dict[str, str]) -> list[dict]:
+    """Hits de una consulta, tolerando las dos interfaces del searcher.
+
+    `CodeKnowledgeGraph.search_many` devuelve {responses: {ckg: {hits...}}};
+    `CodeKnowledgeGraph.search` devuelve una LISTA de docs; el searcher legacy
+    (ES-like) devuelve {hits: {hits: [...]}}. El collector se escribió contra
+    la tercera, así que con las otras dos lanzaba AttributeError y el contexto
+    llegaba vacío (medido 2026-11-16).
+    """
+    if hasattr(ckg_searcher, "search_many"):
+        out = ckg_searcher.search_many({"ckg": dict(query)}) or {}
+        body = (out.get("responses") or {}).get("ckg") or {}
+        return (body.get("hits") or {}).get("hits") or []
+    result = ckg_searcher.search("ckg", dict(query))
+    if isinstance(result, list):
+        return [{"_source": doc} for doc in result]
+    if isinstance(result, dict):
+        return (result.get("hits") or {}).get("hits") or []
+    return []
+
+
+def _union_search(ckg_searcher: Any, queries: tuple[dict[str, str], ...]) -> list[dict]:
+    """Une los hits de varias consultas, sin duplicar por `_id`.
+
+    Cada consulta degrada por separado: un fallo en una no deja sin contexto a
+    las demás (el collector es best-effort por contrato).
+    """
+    hits: list[dict] = []
+    seen: set[str] = set()
+    for query in queries:
+        try:
+            found = _search_hits(ckg_searcher, query)
+        except Exception as e:  # noqa: BLE001 — best-effort, se loguea abajo
+            logger.debug("_union_search(%s): %s", query, e)
+            continue
+        for hit in found:
+            key = str(hit.get("_id") or "")
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            hits.append(hit)
+    return hits
+
+
+def _statements(hits: list[dict], limit: int | None = None) -> list[str]:
+    out = [
+        str(h.get("_source", {}).get("statement", ""))
+        for h in hits
+        if h.get("_source", {}).get("statement")
+    ]
+    return out[:limit] if limit else out
+
+
+def _sources(hits: list[dict]) -> list[dict]:
+    """Mantiene el contrato histórico de `collect_knowledge` (lista de _source)."""
+    return [h.get("_source", {}) for h in hits if h.get("_source")]
+
 
 def collect_activity(
     chain_dir: str,
@@ -42,10 +140,10 @@ def collect_activity(
     activity: dict[str, str] = {"id": node_id or "unknown", "description": ""}
     if node_id and ckg_searcher is not None:
         try:
-            r = ckg_searcher.search("ckg", {"tag": node_id.lower()})
-            if r.get("hits", {}).get("total", 0) > 0:
-                activity["description"] = (
-                    r["hits"]["hits"][0].get("_source", {}).get("statement", "")
+            hits = _search_hits(ckg_searcher, {"tag": node_id.lower()})
+            if hits:
+                activity["description"] = str(
+                    hits[0].get("_source", {}).get("statement", "")
                 )
         except Exception as e:
             logger.debug("collect_activity(%s): %s", node_id, e)
@@ -62,21 +160,17 @@ def collect_project_info(chain_dir: str, ckg_searcher: Any = None) -> dict:
     if ckg_searcher is None:
         return info
     try:
-        r = ckg_searcher.search("ckg", {"tag": "architecture"})
-        if r.get("hits", {}).get("total", 0) > 0:
-            info["architecture"] = (
-                r["hits"]["hits"][0].get("_source", {}).get("statement", "")
+        architecture = _union_search(ckg_searcher, KNOWLEDGE_QUERIES["architecture"])
+        if architecture:
+            info["architecture"] = str(
+                architecture[0].get("_source", {}).get("statement", "")
             )
-        r = ckg_searcher.search("ckg", {"type": "pattern"})
-        info["patterns"] = [
-            h.get("_source", {}).get("statement", "")
-            for h in r.get("hits", {}).get("hits", [])[:5]
-        ]
-        r = ckg_searcher.search("ckg", {"type": "quality"})
-        info["quality_gates"] = [
-            h.get("_source", {}).get("statement", "")
-            for h in r.get("hits", {}).get("hits", [])[:5]
-        ]
+        info["patterns"] = _statements(
+            _union_search(ckg_searcher, KNOWLEDGE_QUERIES["pattern"]), limit=5
+        )
+        info["quality_gates"] = _statements(
+            _union_search(ckg_searcher, KNOWLEDGE_QUERIES["quality"]), limit=5
+        )
     except Exception as e:
         logger.debug("collect_project_info: %s", e)
     return info
@@ -120,27 +214,25 @@ def collect_knowledge(
     if ckg_searcher is None:
         return {"global": [], "relevant": [], "architecture": []}
     try:
-        global_knowledge = ckg_searcher.search("ckg", {"tag": "global"})
-        task_type = ctx.get("task_type", ctx.get("node_id", ""))
-        relevant = (
-            ckg_searcher.search("ckg", {"tag": task_type})
-            if task_type
-            else {"hits": {"hits": []}}
-        )
-        architecture = ckg_searcher.search("ckg", {"tag": "architecture"})
+        task_type = str(ctx.get("task_type", ctx.get("node_id", "")) or "").lower()
+        relevant_queries: tuple[dict[str, str], ...] = ()
+        if task_type:
+            alias = TASK_TYPE_ALIASES.get(task_type, task_type)
+            relevant_queries = (
+                {"tag": task_type},
+                {"type": alias},
+                {"type": f"{alias}_state"},
+            )
         return {
-            "global": [
-                h.get("_source", {})
-                for h in global_knowledge.get("hits", {}).get("hits", [])
-            ],
-            "relevant": [
-                h.get("_source", {})
-                for h in relevant.get("hits", {}).get("hits", [])
-            ],
-            "architecture": [
-                h.get("_source", {})
-                for h in architecture.get("hits", {}).get("hits", [])
-            ],
+            "global": _sources(
+                _union_search(ckg_searcher, KNOWLEDGE_QUERIES["global"])
+            ),
+            "relevant": _sources(
+                _union_search(ckg_searcher, relevant_queries) if relevant_queries else []
+            ),
+            "architecture": _sources(
+                _union_search(ckg_searcher, KNOWLEDGE_QUERIES["architecture"])
+            ),
         }
     except Exception as e:
         logger.debug("collect_knowledge: %s", e)
