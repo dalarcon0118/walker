@@ -109,6 +109,48 @@ def _run_outline_core(paths: list[str]) -> list[dict]:
     return json.loads(r.stdout)
 
 
+def _cyclo_by_line(path: str) -> dict[int, int]:
+    """Complejidad ciclomática por línea de definición (solo Python).
+
+    McCabe: 1 + puntos de decisión del cuerpo (if, for, while, except, if-exp,
+    operadores booleanos y `if` de comprehensions). `cyclo` existía como campo
+    del nodo y se indexaba en None en TODOS los nodos (medido 2026-11-17: 769
+    funciones con cyclo=0), así que `metrics` reportaba complejidad 0 y el gate
+    de complejidad nunca podía dispararse.
+
+    Devuelve `{}` para lenguajes sin parser: mejor "no disponible" que un cero
+    que parece un dato.
+    """
+    if not path.endswith(".py"):
+        return {}
+    try:
+        import ast
+
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            tree = ast.parse(fh.read())
+    except (OSError, SyntaxError, ValueError):
+        return {}
+
+    out: dict[int, int] = {}
+
+    def measure(node: ast.AST) -> int:
+        value = 1
+        for child in ast.walk(node):
+            if isinstance(child, (ast.If, ast.For, ast.AsyncFor, ast.While,
+                                  ast.ExceptHandler, ast.IfExp, ast.Assert)):
+                value += 1
+            elif isinstance(child, ast.BoolOp):
+                value += max(0, len(child.values) - 1)
+            elif isinstance(child, ast.comprehension):
+                value += 1 + len(child.ifs)
+        return value
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out[node.lineno] = measure(node)
+    return out
+
+
 def parse_outline(results: list[dict]) -> Graph:
     """Parsea output de ast-grep outline en un Graph con nodos y edges.
 
@@ -156,6 +198,7 @@ def _parse_outline_core(results: list[dict]) -> Graph:
         items = file_result.get("items", [])
         if not file_path:
             continue
+        cyclo_map = _cyclo_by_line(file_path)
 
         parts = PurePath(file_path).parts
         if any(ign in parts for ign in IGNORED_DIRS):
@@ -179,16 +222,21 @@ def _parse_outline_core(results: list[dict]) -> Graph:
             is_import = item.get("isImport", False)
             node_id = _nid()
 
+            start_line = item.get("range", {}).get("start", {}).get("line", 0) + 1
             node_data = {
                 "id": node_id,
                 "type": node_type,
                 "name": name,
                 "path": file_path,
-                "line": item.get("range", {}).get("start", {}).get("line", 0) + 1,
+                "line": start_line,
                 "kind": kind,
                 "signature": item.get("signature", ""),
                 "is_import": is_import,
             }
+            if node_type in ("function", "method") and cyclo_map:
+                cyclo = cyclo_map.get(start_line)
+                if cyclo is not None:
+                    node_data["cyclo"] = cyclo
 
             # Members (para clases con métodos)
             members_raw = item.get("members")
@@ -199,12 +247,14 @@ def _parse_outline_core(results: list[dict]) -> Graph:
                         mid = _nid()
                         mname = m.get("name", "")
                         member_ids.append(mid)
+                        m_start = m.get("range", {}).get("start", {}).get("line", 0) + 1
                         nodes[mid] = Node(
                             id=mid, type="method", name=mname,
                             path=file_path,
-                            line=m.get("range", {}).get("start", {}).get("line", 0) + 1,
+                            line=m_start,
                             kind=m.get("symbolType", "method").lower(),
                             signature=m.get("signature", ""),
+                            cyclo=cyclo_map.get(m_start) if cyclo_map else None,
                         )
                         edges.append(Edge(from_id=node_id, to_id=mid, type="CONTAINS"))
                 if member_ids:

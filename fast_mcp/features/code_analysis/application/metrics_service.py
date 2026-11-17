@@ -122,6 +122,8 @@ def compute_cpg_metrics(
     by_type: dict[str, int] = {}
     per_func_file: dict[str, int] = {}
     file_node_paths: list[str] = []
+    cyclo_values: list[int] = []
+    func_count = 0
 
     for node in getattr(graph, "nodes", {}).values():
         npath = (getattr(node, "path", "") or "").replace(os.sep, "/")
@@ -132,14 +134,24 @@ def compute_cpg_metrics(
         if ntype == "file" and npath:
             file_node_paths.append(npath)
         if ntype in FUNCTION_TYPES:
+            # Los stubs de callee externos (`kind=external_call`, p. ej. `range`)
+            # no son funciones del proyecto: inflaban el conteo.
+            if (getattr(node, "kind", "") or "") == "external_call":
+                continue
+            func_count += 1
             per_func_file[npath] = per_func_file.get(npath, 0) + 1
+            # `cyclo` se llena al indexar (solo lenguajes con parser). Antes se
+            # reportaba 0.0 fijo y el gate de complejidad no podía dispararse.
+            cyclo = getattr(node, "cyclo", None)
+            if isinstance(cyclo, int) and cyclo > 0:
+                cyclo_values.append(cyclo)
 
     scoped_files = [
         p for p in file_node_paths if not scope_rel or p.startswith(scope_rel)
     ]
     fs_files, loc = _count_loc(repo_path, scope_rel, scoped_files)
 
-    total_functions = sum(c for t, c in by_type.items() if t in FUNCTION_TYPES)
+    total_functions = func_count
     files_in_cpg = by_type.get("file", 0)
 
     # LOC del disco manda si el walk cubrió más que el índice de files
@@ -158,8 +170,8 @@ def compute_cpg_metrics(
         total_functions=total_functions,
         total_classes=sum(c for t, c in by_type.items() if t in CLASS_TYPES),
         total_imports=by_type.get("module", 0) + by_type.get("constant", 0),
-        cyclo_avg=0.0,
-        cyclo_max=0,
+        cyclo_avg=round(sum(cyclo_values) / len(cyclo_values), 2) if cyclo_values else 0.0,
+        cyclo_max=max(cyclo_values) if cyclo_values else 0,
         dead_code_count=by_type.get("dead", 0),
         security_findings=0,
         files=per_file,
@@ -167,10 +179,14 @@ def compute_cpg_metrics(
 
     report = MetricsReport(
         metrics=metrics,
-        warnings=[
-            "cyclomatic complexity no disponible en modo CPG-native "
-            "(requeriría análisis AST profundo); gates de complejidad omitidos"
-        ]
+        warnings=(
+            []
+            if cyclo_values
+            else [
+                "complejidad no disponible: ningún nodo del scope trae `cyclo` "
+                "(solo se calcula para lenguajes con parser; corré build_code_index)"
+            ]
+        )
         + warnings,
     )
     return Success(report)
