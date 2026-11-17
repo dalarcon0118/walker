@@ -558,3 +558,21 @@ cli falló: trace_push      | EACCES: permission denied
 ```
 
 En el camino normal no aparece ningún `plugin_degraded`.
+
+### Preflight en el primer turno (no en la primera lectura)
+
+El intake nació enganchado a `read`, y eso falla con agentes que leen por Code
+Mode (`execute`): el hook de lectura nunca dispara (medido: una sesión respondió
+sobre un archivo sin emitir `intake_baseline`).
+
+Ahora, si hay tarea declarada (`workflow_state.task_id`), el **primer turno**
+hace el preflight completo de sus archivos y lo inyecta:
+
+```
+intake_preflight  {"task_id":"T-PF","files":["b.py","pkg/logic.py"]}
+```
+
+El bloque trae, por archivo, símbolos, llamadores, llamadas y las funciones más
+pesadas; el scope del baseline (archivos, funciones, cyclo max); los tests que lo
+cubren; y `sin verificar` cuando algo no se pudo derivar. El hook de `read` queda
+como fallback para cuando no hay tarea.

@@ -150,6 +150,32 @@ function baselineBlock(r, file) {
   return parts.join("\n")
 }
 
+function preflightBlock(pf) {
+  if (!pf || pf.error) return ""
+  const lines = ["[WALKER] PREFLIGHT — antes de escribir"]
+  const base = pf.baseline || {}
+  const cx = base.complexity || {}
+  if (base.structure) {
+    lines.push(
+      `  scope ${base.scope || "(proyecto)"}: ${base.structure.files || "?"} archivos · ` +
+        `${base.structure.functions || "?"} funciones · cyclo max ${cx.max ?? "?"}`
+    )
+  }
+  for (const f of (pf.files || []).slice(0, 5)) {
+    const heavy = (f.heaviest || []).map((h) => `${h.name}(${h.cyclo})`).join(", ")
+    lines.push(
+      `  ${f.file}: ${f.symbols ?? "?"} símbolos · ${f.callers ?? "?"} llamadores · ` +
+        `${f.calls ?? "?"} llamadas${heavy ? ` · pesado: ${heavy}` : ""}`
+    )
+    if ((f.top_callers || []).length) lines.push(`    lo usan: ${f.top_callers.join(", ")}`)
+  }
+  if ((pf.tests || []).length) lines.push(`  tests que lo cubren: ${pf.tests.slice(0, 4).join(", ")}`)
+  if ((pf.unmapped || []).length) {
+    lines.push(`  sin verificar: ${pf.unmapped.map((u) => u.criterion || u.reason).join("; ")}`)
+  }
+  return lines.join("\n")
+}
+
 function bootstrapBlock() {
   // Se manda UNA vez por sesión y se apaga. Sin esto el plugin queda mudo para
   // siempre (la inyección normal exige tarea declarada) y nadie declara nada.
@@ -248,6 +274,7 @@ async function runSetup(ctx) {
         required: Array.isArray(data.required_fields) ? data.required_fields : [],
         satisfied: data.step_satisfied !== false,
         gates: Array.isArray(data.available_gates) ? data.available_gates : [],
+        taskId: String(data.task_id || ""),
         revision: data.revision ?? 0,
       }
     }
@@ -286,6 +313,28 @@ async function runSetup(ctx) {
         const sid = event.sessionID || event.sessionId || ""
         const entry = sessionOf(sid)
         if (!sessionGoal) sessionGoal = firstUserText(event)
+        // Preflight en el PRIMER turno si ya hay tarea declarada: no depende de
+        // que el agente use `read` (puede leer con `execute`, y entonces el
+        // hook de lectura nunca dispara — medido).
+        if (!baselineDone && projectId && state.data?.taskId) {
+          baselineDone = true
+          const taskCtx = runTool("agent_context", { task_id: state.data.taskId })
+          const files = (taskCtx?.anchor?.files || []).filter(Boolean)
+          if (files.length) {
+            const pf = runTool("preflight", { files })
+            const text = preflightBlock(pf)
+            if (text) {
+              pendingBaseline = text
+              runTool("trace_push", {
+                event_type: "intake_preflight",
+                source: "agent_hook",
+                session_id: sid,
+                files,
+                data: { task_id: state.data.taskId, files },
+              })
+            }
+          }
+        }
         if (pendingBaseline) {
           event.system.push({ type: "text", text: pendingBaseline })
           pendingBaseline = null
@@ -468,15 +517,33 @@ async function runSetup(ctx) {
               const file = relPath(input?.path || input?.filePath || "")
               if (!baselineDone && file && projectId) {
                 baselineDone = true
-                const ctxData = runTool("agent_context", { file })
-                if (ctxData) {
-                  pendingBaseline = baselineBlock(ctxData, file)
+                const sid = String(callCtx?.sessionID || "")
+                // Preferir los archivos QUE DECLARÓ LA TAREA (contexto de todos,
+                // no del primero que se abre). Si no hay tarea, cae al archivo.
+                let block = ""
+                let source = "file"
+                const tid = state.data?.taskId || ""
+                if (tid) {
+                  const taskCtx = runTool("agent_context", { task_id: tid })
+                  const files = (taskCtx?.anchor?.files || []).filter(Boolean)
+                  if (files.length) {
+                    const pf = runTool("preflight", { files })
+                    block = preflightBlock(pf)
+                    if (block) source = "task"
+                  }
+                }
+                if (!block) {
+                  const ctxData = runTool("agent_context", { file })
+                  if (ctxData) block = baselineBlock(ctxData, file)
+                }
+                if (block) {
+                  pendingBaseline = block
                   runTool("trace_push", {
                     event_type: "intake_baseline",
                     source: "agent_hook",
-                    session_id: String(callCtx?.sessionID || ""),
+                    session_id: sid,
                     files: file ? [file] : [],
-                    data: { file, callers: (ctxData.cpg?.relations?.called_by_total) ?? 0 },
+                    data: { file, task_id: tid, from: source },
                   })
                 }
               }
