@@ -312,11 +312,31 @@ def workflow_tool_runner(name: str, root: Path | None = None):
             except Exception as exc:
                 logger.debug("No se pudo construir ckg_searcher para prompts (%s)", exc)
 
+        # Tracer REAL para el motor: sin esto `has_kg_query`/`has_skill_load`
+        # devuelven False siempre y los gates que dependen de la traza son
+        # insatisfacibles (medido 2026-11-17: el gate `required_tools` de
+        # IMPLEMENT.WORK bloqueaba para siempre).
+        workflow_tracer = None
+        if chain_dir:
+            try:
+                from fast_mcp.features.event_tracing.application.services.trace_factory import (
+                    build_trace_service,
+                )
+                from fast_mcp.features.event_tracing.infrastructure.cognitive_tracer import (
+                    CognitiveTracer,
+                )
+
+                service = build_trace_service(chain_dir)
+                workflow_tracer = CognitiveTracer(service) if service else None
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("tracer del workflow no disponible (%s: %s)", type(exc).__name__, exc)
+
         ctx = WorkflowContext.resolve(
             chain_dir,
             task_registry=task_registry,
             cpg_adapter=cpg_adapter,
             ckg_searcher=ckg_searcher,
+            tracer=workflow_tracer,
         )
         if ctx is None:
             return {"error": f"Could not resolve workflow for '{chain_dir}'"}

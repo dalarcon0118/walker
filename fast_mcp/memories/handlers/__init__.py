@@ -95,9 +95,73 @@ def dispatch(tool_name: str, ctx: MemoryContext, **kwargs) -> dict[str, Any]:
         return {"error": f"Unknown memory tool: {tool_name}"}
 
     try:
-        return handler(ctx, **kwargs)
+        result = handler(ctx, **kwargs)
     except Exception as e:
         logger.warning(
             "handler '%s' failed (%s: %s)", tool_name, type(e).__name__, e,
         )
         return {"error": str(e), "tool": tool_name}
+
+    _emit_kg_query(ctx, tool_name, result, kwargs)
+    return result
+
+
+# ── Evidencia de consulta (`kg_query`) ────────────────────────────────────
+#
+# `required_tools` del workflow exige un evento `kg_query` en la traza para
+# probar que el agente consultó el CKG/CPG antes de implementar. El tipo estaba
+# declarado en event_tracing/domain/values.py y NADIE lo emitía, así que el gate
+# era insatisfacible y por eso nada obligaba a usar la memoria (medido
+# 2026-11-17: `submit` en IMPLEMENT.WORK quedaba bloqueado para siempre).
+#
+# Se emite desde el dispatch — único punto por donde pasan todas las tools de
+# memoria — y no desde cada handler (SRP: los handlers responden, no trazan).
+
+_KG_QUERY_LAYERS: dict[str, tuple[str, ...]] = {
+    "recall_knowledge": ("ckg",),
+    "search_memories": ("ckg", "cpg", "delta", "trace"),
+    "agent_context": ("ckg", "cpg", "delta", "trace"),
+    "code_search": ("cpg",),
+    "code_context": ("cpg",),
+    "inspect_codebase": ("cpg",),
+}
+
+# `knowledge_query` hace reads y writes con el mismo nombre de tool.
+_KNOWLEDGE_QUERY_READ_ACTIONS = frozenset({"search", "active"})
+
+
+def _is_kg_query(tool_name: str, kwargs: dict) -> bool:
+    if tool_name not in _KG_QUERY_LAYERS:
+        if tool_name == "knowledge_query":
+            return str(kwargs.get("action", "search")) in _KNOWLEDGE_QUERY_READ_ACTIONS
+        return False
+    return True
+
+
+def _emit_kg_query(ctx: MemoryContext, tool_name: str, result: Any, kwargs: dict) -> None:
+    """Registra que el agente consultó memoria (evidencia para `required_tools`)."""
+    if not _is_kg_query(tool_name, kwargs):
+        return
+    if isinstance(result, dict) and result.get("error"):
+        return  # una consulta fallida no es evidencia de nada
+    try:
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+        )
+
+        service = build_trace_service(ctx.chain_dir)
+        if service is None:
+            return
+        layers = _KG_QUERY_LAYERS.get(tool_name, ("ckg",))
+        service.push_event(ctx.chain_dir, {
+            "event_type": "kg_query",
+            "source": "memory_tool",
+            "data": {
+                "tool": tool_name,
+                "layers": list(layers),
+                "index": str(kwargs.get("index", "")),
+                "action": str(kwargs.get("action", "")),
+            },
+        })
+    except Exception as exc:  # noqa: BLE001 — trazar no puede romper una lectura
+        logger.warning("kg_query trace failed (%s: %s)", type(exc).__name__, exc)

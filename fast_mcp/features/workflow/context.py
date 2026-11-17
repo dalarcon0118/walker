@@ -40,6 +40,7 @@ class WorkflowContext:
         prompt_manager: Any = None,
         cpg_adapter: Any = None,
         ckg_searcher: Any = None,
+        tracer: Any = None,
     ) -> WorkflowContext | None:
         """Resolve workflow context from chain_dir.
 
@@ -92,7 +93,11 @@ class WorkflowContext:
             state_repo = StateRepository(graph_repository=graph_repo)
             store = WorkflowStoreAdapter(graph_repo, state_repo)
 
-            tracer = NoopTracer()
+            # El tracer REAL lo inyecta el composition root: esta feature no
+            # puede importar event_tracing (R1). Sin inyección, Noop — pero eso
+            # deja ciegos los gates que leen la traza (`required_tools` busca
+            # `kg_query`, `skill_gate` busca `skill_loaded`).
+            tracer = tracer or NoopTracer()
             side_effects = NoOpSideEffectEngine()
             workflow_io = DefaultWorkflowIO()
 

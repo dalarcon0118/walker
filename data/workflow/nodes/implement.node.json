@@ -383,7 +383,10 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
-      }
+      },
+      "required_fields": [
+        "loop_verification"
+      ]
     },
     {
       "key": "CODE_REVIEW_SCAN",
