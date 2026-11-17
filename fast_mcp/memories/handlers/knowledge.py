@@ -86,14 +86,30 @@ def handle_recall_knowledge(ctx: MemoryContext, **kwargs: Any) -> dict:
 
     payload = dict(kwargs)
     payload.pop("action", None)
-    payload.pop("_project_id", None)
     index = payload.pop("_index", payload.pop("index", "ckg"))
 
-    query = {k: v for k, v in payload.items() if k not in ("text", "query")}
+    # Los args de PLOMERÍA (project_id, paginación, controles `_`) no son
+    # filtros de datos: si llegan a `query`, el router los trata como filtro
+    # estructurado y cae al path eager → 0 hits con cualquier texto. Medido
+    # 2026-11-16: `recall_knowledge {query: "AppProviders"}` devolvía 0 mientras
+    # `search_memories {ckg: {text: ...}}` devolvía 2, por el `project_id`
+    # colado en los filtros.
+    _CONTROL = {
+        "_project_id", "project_id", "project", "max_results", "size",
+        "max_events", "_from", "from", "query", "text", "text_fields",
+    }
+    query = {
+        k: v
+        for k, v in payload.items()
+        if k not in _CONTROL and not k.startswith("_")
+    }
     if "query" in payload and "text" not in payload:
         query["text"] = payload["query"]
     elif "text" in payload:
         query["text"] = payload["text"]
+    for meta in ("max_results", "size", "max_events", "_from", "from"):
+        if meta in payload:
+            query[meta] = payload[meta]
 
     try:
         return ckg.schema(index) if not query else ckg.search_many({index: query})
