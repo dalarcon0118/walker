@@ -52,6 +52,10 @@ Thumbs.db
 # trackean, cada commit deja el árbol sucio (medido: analysis_results.json se
 # modificaba tras cada actualización del grafo).
 .cognitive/projects/*/data/analysis_results.json
+.cognitive/projects/*/data/dfg.json
+# Baseline del workflow (foto del estado por scope; se regenera con `snapshot`)
+.cognitive/projects/*/data/baselines/
+
 
 # Canónica sqlite: UNA sola ubicación (ADR-063). Estas reglas están ancladas
 # a la raíz para que las copias parásitas en root/ y data/ no reaparezcan.

@@ -34,6 +34,8 @@ _HANDLER_IMPORTS: dict[str, tuple[str, str]] = {
     "code_context": ("fast_mcp.memories.handlers.code_analysis", "handle_code_context"),
     "inspect_codebase": ("fast_mcp.memories.handlers.code_analysis", "handle_inspect_codebase"),
     "build_code_index": ("fast_mcp.memories.handlers.code_analysis", "handle_build_code_index"),
+    "snapshot": ("fast_mcp.memories.handlers.code_analysis", "handle_snapshot"),
+    "baseline_diff": ("fast_mcp.memories.handlers.code_analysis", "handle_baseline_diff"),
     "update_incremental_code": ("fast_mcp.memories.handlers.code_analysis", "handle_update_incremental_code"),
     # Knowledge
     "knowledge_query": ("fast_mcp.memories.handlers.knowledge", "handle_knowledge_query"),

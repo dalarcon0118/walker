@@ -47,12 +47,29 @@ _FASE2_TOOLS = (
     # Análisis de código
     "code_context",
     "inspect_codebase",
+    "snapshot",
+    "baseline_diff",
     "read_code",
     "code_search",
 )
 
 # SSOT local del inputSchema (contrato legacy, declarativo — no inferido).
 _INPUT_SCHEMAS: dict[str, dict] = {
+    "snapshot": {
+        "type": "object",
+        "properties": {
+            "scope": {"type": "string", "description": "Prefijo de path (ej. 'promotion/')"},
+            "label": {"type": "string", "description": "Nombre para persistir la foto"},
+        },
+    },
+    "baseline_diff": {
+        "type": "object",
+        "properties": {
+            "base": {"type": "string", "description": "Label del snapshot guardado"},
+            "scope": {"type": "string", "description": "Prefijo de path (opcional)"},
+        },
+        "required": ["base"],
+    },
     "build_code_index": {
         "type": "object",
         "properties": {
@@ -214,6 +231,8 @@ _INPUT_SCHEMAS: dict[str, dict] = {
 }
 
 _DESCRIPTIONS = {
+    "snapshot": "Captura el estado del scope (punto A): estructura, relaciones, firmas, complejidad, archivos, convenciones y defectos.",
+    "baseline_diff": "Compara un snapshot guardado contra el estado actual (punto B).",
     "build_code_index": "Full CPG rebuild from scratch. Use for initial setup or when index is corrupted.",
     "index_repo": "Index an external repo as reference in CKG.",
     "update_incremental_code": "Incremental CPG update via watcher: re-indexes only changed files.",

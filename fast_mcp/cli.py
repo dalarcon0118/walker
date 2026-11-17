@@ -73,6 +73,27 @@ def run_task(argv: list[str]) -> int:
     if runner is None:
         return _error(f"tool desconocida: {tool!r}")
 
+    # Fail-fast: un project_id que no está en el registro hacía que
+    # `resolve_paths` cayera al repo de walker, así que un typo leía/escribía
+    # estado y baselines DEL PROYECTO EQUIVOCADO (medido 2026-11-17: un
+    # snapshot de 'cyclo-probe' se guardó en walker). `_` es el comodín que usa
+    # el plugin para las tools que no necesitan proyecto.
+    if project_id != "_":
+        # Un id desconocido hacía que `resolve_paths` cayera al repo de walker,
+        # así que un typo leía/escribía estado y baselines DEL PROYECTO
+        # EQUIVOCADO (medido: un snapshot de 'cyclo-probe' se guardó en walker).
+        # Se detecta comparando el id resuelto con el pedido.
+        try:
+            from fast_mcp.shared_kernel.project_support import ProjectService
+
+            resolved = getattr(ProjectService.resolve_paths(project_id), "project_id", "")
+            if resolved and resolved != project_id:
+                return _error(
+                    f"proyecto no registrado: {project_id!r} (se resolvía a {resolved!r})"
+                )
+        except Exception:
+            pass  # sin contexto de proyecto no se bloquea la tool
+
     # El project_id de la spec es el SSOT; cualquier project_id en el payload se
     # ignora para que el plugin no pueda apuntar a otro proyecto por accidente.
     payload.pop("project_id", None)

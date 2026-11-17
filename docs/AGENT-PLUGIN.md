@@ -326,3 +326,51 @@ Lo que **no** está probado: que el agente use el baseline. La respuesta fue
 correcta y no citó el impacto. El baseline es el punto A; la estrategia (punto
 B + plan) sigue siendo el nodo ANALYZE del workflow, que requiere que alguien
 entre.
+
+---
+
+## Baseline por scope: `snapshot` y `baseline_diff`
+
+El punto A del workflow, en las dimensiones que el CPG conoce, y su comparación
+contra el presente.
+
+```bash
+walker3 <proyecto>/snapshot '{"scope":"harness/","label":"antes"}'
+walker3 <proyecto>/baseline_diff '{"base":"antes"}'
+```
+
+`snapshot` devuelve estructura (nodos, archivos, funciones, clases, firmas),
+relaciones (CALLS/IMPORTS del scope), complejidad (avg, max, cuántas >10 y el
+top-10 con archivo), mapa de archivos (ruta → size:mtime) y dos dimensiones que
+hoy no se pueden computar:
+
+- `conventions`: `unavailable` con el motivo (el CKG no se inyecta).
+- `defects`: `partial` — `find_bugs` ignora `bug_type` y `dead_code` suele dar 0.
+
+Eso es deliberado: una dimensión que no se puede medir se declara, no se
+devuelve como cero.
+
+Con `label` la foto se persiste en `<data_dir>/baselines/<label>.json` (git
+ignored); sin label solo se devuelve. La respuesta es liviana (~3 KB): el mapa
+completo de archivos queda en el archivo.
+
+`baseline_diff` compara ese archivo contra el estado actual del mismo scope:
+archivos agregados/quitados/modificados (por size:mtime), delta de estructura y
+relaciones, delta de complejidad y `new_hotspots` —clave (nombre, archivo),
+porque hay varias funciones `main` en el proyecto—.
+
+Medido sobre walker, agregando un archivo temporal en `harness/`:
+
+```
+summary: 5 cambio(s) en el scope
+added:   ["harness/_baseline_probe.py"]
+structure: nodes 168→170 · files 10→11 · functions 114→115 · signatures 87→88
+complexity: avg 6.80 → 6.77
+```
+
+Dos defectos encontrados usándolo: el conjunto de archivos salía de
+`.file_snapshot.json`, que NO se refresca en cada build (un archivo nuevo
+existía en el CPG y no en el mapa), así que ahora se unen los nodos `file` del
+grafo con rutas relativas normalizadas; y el CLI caía al repo de walker con un
+`project_id` desconocido —un typo leía y escribía el proyecto equivocado—, ahora
+compara el id resuelto y falla ruidosamente.

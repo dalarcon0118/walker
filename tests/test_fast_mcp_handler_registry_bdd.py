@@ -28,6 +28,7 @@ def test_all_handlers_registered():
         "recall_knowledge", "documenting_knowledge", "search_memories",
         "agent_context", "index_repo",
         "search_skills", "load_skill",
+        "snapshot", "baseline_diff",
     }
     assert HANDLER_NAMES == expected, f"Missing: {expected - HANDLER_NAMES}; Extra: {HANDLER_NAMES - expected}"
 

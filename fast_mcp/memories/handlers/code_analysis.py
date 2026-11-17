@@ -140,3 +140,32 @@ def handle_update_incremental_code(ctx: MemoryContext, **kwargs: Any) -> dict:
     # Fail-fast honesto: un update abortado NO se reporta como exitoso.
     updated = bool(result.get("ok", True)) if isinstance(result, dict) else True
     return {"updated": updated, "project_root": ctx.project_root, "result": result}
+
+
+def handle_snapshot(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Captura el estado del scope (punto A): estructura, relaciones, firmas,
+    complejidad, snapshot de archivos, convenciones y defectos.
+
+    Con `label` se persiste en `<data_dir>/baselines/<label>.json`; sin label
+    solo se devuelve. Las dimensiones que no se pueden computar se marcan
+    `unavailable` con el motivo — nunca un cero que parece un dato.
+    """
+    from fast_mcp.features.code_analysis.application.baseline_service import BaselineService
+
+    body = kwargs.get("_payload", kwargs) or {}
+    service = BaselineService(ctx.chain_dir)
+    return service.capture(
+        scope=str(body.get("scope", "") or ""),
+        label=str(body.get("label", "") or ""),
+    )
+
+
+def handle_baseline_diff(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Compara un baseline guardado contra el estado actual del mismo scope."""
+    from fast_mcp.features.code_analysis.application.baseline_service import BaselineService
+
+    body = kwargs.get("_payload", kwargs) or {}
+    label = str(body.get("base", body.get("label", "")) or "")
+    if not label:
+        return {"error": "falta 'base' (label del snapshot)", "available": BaselineService(ctx.chain_dir).list_labels()}
+    return BaselineService(ctx.chain_dir).diff(label=label, scope=str(body.get("scope", "") or ""))
