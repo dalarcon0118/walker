@@ -12,15 +12,13 @@ from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
 
-# R1: tasks no importa delta_tracking. El composition root inyecta una factory
-# `chain_dir -> SprintService`. Sin ella `implement_task` no persiste la spec y
-# el ancla de tarea del contexto no puede existir.
-_SPRINT_FACTORY = None
+# R1: tasks no importa delta_tracking. El composition root inyecta la factory
+# en `handlers._di` (la comparten implement y verify).
+from fast_mcp.features.tasks.handlers import _di
 
 
 def configure(sprint_factory) -> None:
-    global _SPRINT_FACTORY
-    _SPRINT_FACTORY = sprint_factory
+    _di.configure_sprint(sprint_factory)
 from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspect_codebase
 
 
@@ -28,9 +26,9 @@ def _persist_spec(
     ctx: ExecutionContext, task_id: str, objective: str, files: list[str], data: dict
 ) -> dict | None:
     """Crea o actualiza la spec de la tarea en el delta."""
-    if _SPRINT_FACTORY is None or not ctx.chain_dir:
+    if not ctx.chain_dir:
         return None
-    service = _SPRINT_FACTORY(ctx.chain_dir)
+    service = _di.sprint_service(ctx.chain_dir)
     if service is None:
         return None
 

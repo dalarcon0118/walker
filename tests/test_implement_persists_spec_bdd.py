@@ -68,7 +68,9 @@ class _SprintService:
 @pytest.fixture()
 def servicio(monkeypatch):
     svc = _SprintService()
-    monkeypatch.setattr(implement, "_SPRINT_FACTORY", lambda chain_dir: svc)
+    from fast_mcp.features.tasks.handlers import _di
+
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda chain_dir: svc)
     return svc
 
 
@@ -105,7 +107,9 @@ def test_no_duplica_la_spec_si_se_declara_dos_veces(servicio):
 
 
 def test_sin_factory_no_rompe_la_tool(monkeypatch):
-    monkeypatch.setattr(implement, "_SPRINT_FACTORY", None)
+    from fast_mcp.features.tasks.handlers import _di
+
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", None)
 
     out = implement.implement_task(_ctx(), {"task_id": "T-1", "objective": "x", "files": []})
 

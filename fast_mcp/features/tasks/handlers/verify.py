@@ -41,12 +41,36 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
             "verify_predicates: no project_root/chain_dir — cannot verify"
         )
 
+    # Sin predicados del caller, se leen de la SPEC de la tarea en curso: el
+    # workflow ya los derivó (`spec.predicates.items`) y nadie los estaba
+    # usando. El gate era fail-loud con razón, pero el dato existía.
+    predicates_source = "caller" if predicates else ""
+    unmapped: list[dict] = []
+    if not predicates:
+        try:
+            from fast_mcp.features.tasks.handlers import _di
+
+            spec = _di.current_spec(ctx.chain_dir or "")
+            if spec:
+                bundle = spec.get("predicates") or {}
+                predicates = [p for p in (bundle.get("items") or []) if isinstance(p, dict)]
+                unmapped = list(bundle.get("unmapped") or [])
+                if predicates:
+                    predicates_source = f"spec:{spec.get('spec_id')}"
+        except Exception as exc:  # noqa: BLE001 — sin spec se sigue al fail-loud
+            unmapped = [{"reason": f"no se pudo leer la spec ({type(exc).__name__})"}]
+
     # G-W6: empty predicates = no verification criteria = failure
     if not predicates:
+        detalle = ""
+        if unmapped:
+            detalle = " La spec derivó criterios pero ninguno es ejecutable: " + "; ".join(
+                str(u.get("reason", "")) for u in unmapped[:3]
+            )
         return TaskResult.failure(
             "verify_predicates: predicates vacíos — "
             "el gate no puede validar nada. Inyecta task.validation.predicates "
-            "desde la spec (DeltaGraph) o define predicates en la spec."
+            "desde la spec (DeltaGraph) o define predicates en la spec." + detalle
         )
 
     results = verify_predicates_batch(predicates, project_root)
@@ -70,6 +94,10 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         "failed_count": failed,
         "passed_count": len(detailed) - failed,
         "total": len(detailed),
+        # De dónde salieron los predicados y qué criterios quedaron sin chequeo
+        # automático: sin esto el gate parece completo cuando no lo está.
+        "predicates_source": predicates_source or "caller",
+        "unmapped": unmapped,
     }
 
     inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)

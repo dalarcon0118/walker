@@ -91,8 +91,10 @@ def test_implement_task_persiste_los_criterios(monkeypatch):
             spec.update(updates)
             return spec
 
+    from fast_mcp.features.tasks.handlers import _di
+
     svc = _Svc()
-    monkeypatch.setattr(implement, "_SPRINT_FACTORY", lambda chain: svc)
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda chain: svc)
 
     out = implement.implement_task(
         SimpleNamespace(chain_dir="/tmp/x", task_id="", session_id="s", cpg_adapter=None),
