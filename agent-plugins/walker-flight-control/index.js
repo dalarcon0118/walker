@@ -17,6 +17,7 @@
  * Escape hatch: WALKER_FLIGHT_CONTROL=0.
  */
 import { execFileSync } from "node:child_process"
+import { appendFileSync } from "node:fs"
 
 const WALKER_ROOT = "/Users/davidmartinez/develop/Active-projects/walker"
 const CLI = `${WALKER_ROOT}/bin/walker3`
@@ -58,8 +59,43 @@ function runTool(tool, payload = {}, project = projectId) {
       }
     )
     return JSON.parse(stdout)
-  } catch {
-    return null // fail-open: el agente sigue aunque walker no responda
+  } catch (err) {
+    // Fail-open (el agente sigue) pero visible: sin traza, un CLI roto parece
+    // "walker no tenía nada que decir" en vez de "walker no respondió".
+    degrade(`cli falló: ${tool}`, err)
+    return null
+  }
+}
+
+// Degradación observable: si una parte del plugin no puede engancharse, no se
+// rompe la sesión (ya pasó una vez con `state.data` nulo) pero tampoco se
+// calla: se acumula y se traza cuando el proyecto está resuelto.
+const _degraded = new Set()
+let _pendingDegrades = []
+
+function degrade(what, err) {
+  const detail = String((err && err.message) || err || "").slice(0, 200)
+  const key = `${what}|${detail}`
+  if (_degraded.has(key)) return
+  _degraded.add(key)
+  _pendingDegrades.push({ what, detail })
+  // Si el CLI es lo que falla, no hay proyecto donde trazar: queda un archivo
+  // como última evidencia (bajo demanda, una línea por tipo de fallo).
+  try {
+    appendFileSync("/tmp/walker-plugin-degraded.log", `${new Date().toISOString()} ${key}\n`)
+  } catch {}
+}
+
+function flushDegrades() {
+  if (!_pendingDegrades.length || !projectId) return
+  const batch = _pendingDegrades
+  _pendingDegrades = []
+  for (const d of batch) {
+    runTool("trace_push", {
+      event_type: "plugin_degraded",
+      source: "agent_hook",
+      data: d,
+    })
   }
 }
 
@@ -152,9 +188,20 @@ export default {
   id: "walker-flight-control",
 
   async setup(ctx) {
+    try {
+      await runSetup(ctx)
+    } catch (err) {
+      // Última red: cualquier error inesperado del plugin se traza y se corta.
+      degrade("setup crashed", err)
+      flushDegrades()
+    }
+  },
+}
+
+async function runSetup(ctx) {
     if (!ENABLED) return
 
-    projectDir = ctx.location?.directory || ""
+    projectDir = ctx?.location?.directory || ctx?.directory || ""
     if (!projectId && projectDir) {
       const found = runTool("project_for_path", { path: projectDir }, "_")
       if (found?.ok && found.project_id) projectId = found.project_id
@@ -168,7 +215,11 @@ export default {
       data: { project_id: projectId, directory: projectDir },
     })
 
-    if (!projectId) return // sin proyecto registrado no se inyecta nada
+    if (!projectId) {
+      // Sin proyecto no hay dónde trazar; se calla a propósito (no es un fallo).
+      return
+    }
+    flushDegrades()
 
     const state = { data: null, fetchedAt: 0 }
     const sessions = new Map()
@@ -224,7 +275,9 @@ export default {
     }
 
     try {
-      await ctx.session.hook("context", (event) => {
+      if (!ctx?.session?.hook) {
+        degrade("session.hook missing", "el runtime no expone el hook de contexto")
+      } else await ctx.session.hook("context", (event) => {
         // El motor se conduce igual (los `auto` corren sin tokens), pero el
         // texto solo se inyecta cuando hay una TAREA declarada. Medido: la
         // inyección en sesiones ad-hoc hacía que el agente caminara el
@@ -245,16 +298,21 @@ export default {
           entry.bootstrapped = true
         }
         if (!block) return
+        if (!Array.isArray(event?.system)) {
+          degrade("event.system no es array", typeof event?.system)
+          return
+        }
         event.system.push({ type: "text", text: block })
         entry.injections += 1
         entry.position = state.data?.position || ""
       })
-    } catch {
-      // Sin el hook tipado no se inyecta; el plugin no debe romper la sesión.
+    } catch (err) {
+      degrade("hook de contexto falló", err)
     }
 
     void (async () => {
       try {
+        if (!ctx?.event?.subscribe) throw new Error("event.subscribe no disponible")
         for await (const event of ctx.event.subscribe({
           types: [
             "session.execution.succeeded",
@@ -293,12 +351,13 @@ export default {
           }
           sessions.delete(sid || "global")
         }
-      } catch {
-        // stream cerrado al descargar el plugin
+      } catch (err) {
+        degrade("event.subscribe falló", err)
       }
     })()
 
     try {
+      if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
         if (!DENY) return
         for (const name of MUTATING_TOOLS) {
@@ -346,11 +405,12 @@ export default {
           })
         }
       })
-    } catch {
-      // sin transform no hay gate
+    } catch (err) {
+      degrade("tool.transform: gate de negación", err)
     }
 
     try {
+      if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
         // Auto-declarar la tarea en la primera ESCRITURA de la sesión: el delta
         // solo se llenaba cuando alguien llamaba `implement_task`, y el agente
@@ -392,11 +452,12 @@ export default {
           })
         }
       })
-    } catch {
-      // sin transform no hay auto-declaración
+    } catch (err) {
+      degrade("tool.transform: auto-declaración", err)
     }
 
     try {
+      if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
         const readTool = editor.get("read")
         if (readTool && typeof readTool.execute === "function") {
@@ -424,11 +485,12 @@ export default {
           })
         }
       })
-    } catch {
-      // sin transform no hay baseline automático
+    } catch (err) {
+      degrade("tool.transform: baseline", err)
     }
 
     try {
+      if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
         const taskTool = editor.get("implement_task")
         if (taskTool && typeof taskTool.execute === "function") {
@@ -445,11 +507,12 @@ export default {
           })
         }
       })
-    } catch {
-      // sin transform, el gate no se acota por tarea
+    } catch (err) {
+      degrade("tool.transform: tarea activa", err)
     }
 
     try {
+      if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
         for (const name of ["walker_submit", "walker_transition", "submit", "transition"]) {
           const tool = editor.get(name)
@@ -468,10 +531,9 @@ export default {
           })
         }
       })
-    } catch {
-      // Si el transform no está disponible, se mide solo la inyección.
+    } catch (err) {
+      degrade("tool.transform: seguimiento de submit", err)
     }
 
     return () => controller.abort()
-  },
 }

@@ -535,3 +535,26 @@ Consecuencias:
   ejecutó tres `setup`, cada uno con su `location.directory`. Por eso el plugin
   resuelve el proyecto por directorio.
 - Sin `plugin.add/remove` no hay forma de que un plugin se recargue a sí mismo.
+
+### Degradación observable
+
+El plugin no puede tumbar la sesión, pero tampoco callarse cuando no puede
+hacer su trabajo. Reglas:
+
+- `setup` está envuelto: cualquier error inesperado se registra y se corta.
+- Cada hook comprueba la API antes de usarla (`session.hook`,
+  `tool.transform`, `event.subscribe`, `event.system` como array).
+- Un fallo se acumula y se traza como `plugin_degraded` (una vez por tipo, con
+  el detalle) cuando el proyecto ya está resuelto.
+- Si lo que falla es el propio CLI, no hay proyecto donde trazar: queda una
+  línea en `/tmp/walker-plugin-degraded.log` como última evidencia.
+
+Verificado rompiendo el CLI a propósito (`chmod -x bin/walker3`): la sesión
+terminó la tarea y el plugin dejó
+
+```
+cli falló: project_for_path | EACCES: permission denied
+cli falló: trace_push      | EACCES: permission denied
+```
+
+En el camino normal no aparece ningún `plugin_degraded`.
