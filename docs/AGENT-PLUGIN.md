@@ -479,3 +479,25 @@ Si la conversación no trae texto de usuario (sesión sin prompt), cae a
 De paso, el hook crashaba con `state.data` nulo (`null is not an object
 (evaluating 'state.data.position')`) y se llevaba la sesión entera: ahora lee
 `state.data?.position`.
+
+---
+
+## Cuando el plugin no carga en una sesión abierta
+
+El plugin se enlaza al crear la sesión: una conversación abierta no recibe los
+hooks nuevos aunque se reinicie el servidor (verificado: `flight_control_active`
+no aparece y `task_autodeclared` no se emite). Además usa una superficie no
+documentada (`ctx.session.hook`, `ctx.tool.transform`, `ctx.event.subscribe`),
+que no está en `@opencode-ai/plugin` v1 ni v2.
+
+Dos caminos que **no** dependen de eso:
+
+**Skill de intake** (`skills-src/session-intake`), instalable con
+`python3 scripts/hooks_cli.py install skills-src/session-intake`. El agente la
+descubre y la carga; probado en sesión nueva: declaró la tarea con el pedido
+literal y `empty_layers: []`.
+
+**Comando `/walker-bind`** (`agent-commands/walker-bind.md`, copiar a
+`~/.config/opencode/command/`). Ata la sesión sin crear tareas: resuelve el
+proyecto, lee el estado del workflow y toma el snapshot del baseline. Probado:
+`tasks: []` (no ensucia el delta) y reporta la posición real.
