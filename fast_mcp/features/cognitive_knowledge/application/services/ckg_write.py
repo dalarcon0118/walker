@@ -17,6 +17,7 @@ from fast_mcp.features.cognitive_knowledge.application.services.ckg_common impor
     _resolve_ckg,
     build_ckg_node,
     is_empty_payload,
+    normalize_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,8 @@ class CkgWriteService:
                     item.setdefault("metadata", {})
                     item["metadata"].setdefault("task_id", task_id)
                     item["metadata"].setdefault("source", f"session:{session_id}")
+                    # Estandarización (fix 2026-11-16): type canónico al guardar.
+                    item["type"] = normalize_type(item.get("type", "decision"))
             result = ckg.save_nodes(nodes)
             return {
                 "ok": True,

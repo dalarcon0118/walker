@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from fast_mcp.features.workflow.application.prompts.collector import (
     KNOWLEDGE_QUERIES,
+    TASK_TYPE_ALIASES,
     collect_knowledge,
     collect_project_info,
 )
@@ -51,17 +52,30 @@ class _SearcherLista:
         return self.docs
 
 
-def test_vocabulario_no_pide_types_ni_tags_inexistentes():
+def test_types_canonicos_no_incluyen_valores_inexistentes():
+    """El vocabulario del collector debe cubrir los types que los proyectos
+    realmente guardan (medido: decision/design-decision/implementation*/
+    verification/fix)."""
     tipos = {
         q["type"] for qs in KNOWLEDGE_QUERIES.values() for q in qs if "type" in q
     }
-    assert "quality" not in tipos, "`type: quality` no existe en el schema"
-    for requerido in ("pattern", "rule", "convention", "design-decision"):
-        assert requerido in tipos
-    # El tag sí puede ser libre (fallback del proyecto); lo que se prohíbe es
-    # pedir un TYPE que el schema no declara.
-    tags = {q["tag"] for qs in KNOWLEDGE_QUERIES.values() for q in qs if "tag" in q}
-    assert {"global", "architecture", "quality"} <= tags
+    for real in ("decision", "design-decision", "pattern", "component",
+                 "convention", "rule", "verification"):
+        assert real in tipos, f"el collector no cubre el type real {real!r}"
+    # `quality` como type no existe en ningún proyecto: no debe pedirse.
+    assert "quality" not in tipos
+
+
+def test_normalize_type_canonicaliza_aliases():
+    from fast_mcp.features.cognitive_knowledge.application.services.ckg_common import (
+        normalize_type,
+    )
+
+    assert normalize_type("Design Decision") == "design-decision"
+    assert normalize_type("Implementation State") == "implementation_state"
+    assert normalize_type("  Decision  ") == "decision"
+    assert normalize_type(42) == "decision"
+    assert normalize_type("") == "decision"
 
 
 def test_union_dedupe_y_respeta_el_contrato_de_salida():

@@ -39,22 +39,26 @@ logger = logging.getLogger(__name__)
 KNOWLEDGE_QUERIES: dict[str, tuple[dict[str, str], ...]] = {
     "architecture": (
         {"type": "design-decision"},
-        {"type": "pattern"},
+        {"type": "decision"},
+        {"type": "component"},
         {"tag": "architecture"},
     ),
     "pattern": (
         {"type": "pattern"},
         {"type": "component"},
+        {"type": "design-decision"},
         {"tag": "pattern"},
     ),
     "quality": (
         {"type": "rule"},
         {"type": "convention"},
+        {"type": "verification"},
         {"tag": "quality"},
     ),
     "global": (
         {"type": "convention"},
         {"type": "rule"},
+        {"type": "decision"},
         {"tag": "global"},
     ),
 }
