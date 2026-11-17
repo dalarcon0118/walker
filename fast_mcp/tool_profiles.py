@@ -46,6 +46,11 @@ AGENT: frozenset[str] = frozenset({
     # skills: descubrir y cargar bajo demanda
     "search_skills",
     "load_skill",
+    # intake y cierre: sin estas dos, la skill y el comando no pueden declarar
+    # la tarea ni documentar lo decidido (se detectó al aplicar el perfil en la
+    # config real: `implement_task` había quedado fuera).
+    "implement_task",
+    "documenting_knowledge",
     # verificación
     "run_tests",
     "verify_predicates",

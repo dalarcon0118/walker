@@ -53,7 +53,7 @@ def test_perfil_agent_no_expone_telemetria_ni_mantenimiento(monkeypatch):
 
     for name in ("trace_push", "trace_message", "build_code_index",
                  "update_incremental_code", "index_repo", "memory_schema",
-                 "documenting_knowledge", "extract_knowledge"):
+                 "extract_knowledge"):
         assert name not in tools, f"{name} es plumbing, no superficie de agente"
 
 
@@ -74,11 +74,22 @@ def test_perfil_agent_conserva_el_ciclo_de_trabajo(monkeypatch):
     assert {"run_tests", "verify_predicates", "capture"} <= set(tools)
 
 
-def test_perfil_agent_baja_la_superficie_al_menos_70_por_ciento(monkeypatch):
+def test_perfil_agent_baja_la_superficie_al_menos_60_por_ciento(monkeypatch):
+    """38 → 16 tools. El 75% original se perdió al sumar preflight/snapshot/
+    baseline_diff/session_context y las dos de intake; sigue siendo la mitad."""
     full = _surface_chars(_tools(monkeypatch, "full"))
     agent = _surface_chars(_tools(monkeypatch, "agent"))
 
-    assert agent < full * 0.30, f"agent={agent} chars vs full={full}"
+    assert agent < full * 0.40, f"agent={agent} chars vs full={full}"
+
+
+def test_perfil_agent_conserva_intake_y_cierre(monkeypatch):
+    """Aplicar el perfil en la config real dejó `implement_task` fuera y con eso
+    la skill de intake no podía declarar la tarea."""
+    tools = _tools(monkeypatch, "agent")
+
+    assert "implement_task" in tools
+    assert "documenting_knowledge" in tools
 
 
 def test_perfil_admin_es_superconjunto_de_agent(monkeypatch):
