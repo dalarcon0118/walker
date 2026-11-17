@@ -277,10 +277,25 @@ def workflow_tool_runner(name: str, root: Path | None = None):
             except Exception as exc:
                 logger.debug("No se pudo construir cpg_adapter para task handlers (%s)", exc)
 
+        # Enriquecimiento de prompts con el conocimiento del proyecto: el
+        # searcher CKG se construye AQUÍ (composition root) y se inyecta; la
+        # feature workflow no importa cognitive_knowledge (R1).
+        ckg_searcher = None
+        if chain_dir:
+            try:
+                from fast_mcp.features.cognitive_knowledge import ckg_service
+                from fast_mcp.shared_kernel.project_support import ProjectService
+
+                paths = ProjectService.resolve_paths(chain_dir)
+                ckg_searcher = ckg_service(str(paths.data_dir))
+            except Exception as exc:
+                logger.debug("No se pudo construir ckg_searcher para prompts (%s)", exc)
+
         ctx = WorkflowContext.resolve(
             chain_dir,
             task_registry=task_registry,
             cpg_adapter=cpg_adapter,
+            ckg_searcher=ckg_searcher,
         )
         if ctx is None:
             return {"error": f"Could not resolve workflow for '{chain_dir}'"}

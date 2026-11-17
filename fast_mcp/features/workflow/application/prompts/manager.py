@@ -35,14 +35,28 @@ logger = logging.getLogger(__name__)
 # SSOT del valor de ejecución LLM: ExecutionType (domain.enums) — sin duplicar literales.
 _EXECUTION_LLM_TASK = ExecutionType.LLM_TASK.value
 
+# Tope del conocimiento inyectable en un prompt (medido: sin tope, un proyecto
+# aporta ~18k chars ≈ 4.5k tokens por prompt y el agente no gana precisión).
+MAX_KNOWLEDGE_ITEMS = 5
+MAX_KNOWLEDGE_CHARS = 1200
+
 
 class PromptManager(IPromptManager):
     """Implementación del servicio de prompts (loader + renderer + compose)."""
 
-    def __init__(self, chain_dir: str, project_dir: str | None = None):
+    def __init__(
+        self,
+        chain_dir: str,
+        project_dir: str | None = None,
+        ckg_searcher: Any = None,
+    ):
         self._chain_dir = chain_dir
         self._loader = TemplateLoader(chain_dir, project_dir)
         self._renderer = TemplateRenderer()
+        # Enriquecimiento con conocimiento del proyecto (opt-in). Lo inyecta el
+        # composition root: el manager NO importa la feature cognitive_knowledge
+        # (R1) — recibe un searcher ya construido.
+        self._ckg_searcher = ckg_searcher
 
     # ── IPromptManager ────────────────────────────
 
@@ -196,12 +210,48 @@ class PromptManager(IPromptManager):
                 return meta["prompt"]
         return str(meta)
 
-    @staticmethod
-    def _build_data(context: dict | None, extra_data: dict | None) -> dict:
+    def _build_data(self, context: dict | None, extra_data: dict | None) -> dict:
         data = dict(context or {})
         if extra_data:
             data.update(extra_data)
+        # Enriquecimiento CKG: solo si el composition root inyectó el searcher.
+        # Las claves explícitas del caller SIEMPRE ganan (setdefault).
+        for key, value in self._knowledge_data(data).items():
+            data.setdefault(key, value)
         return data
+
+    def _knowledge_data(self, data: dict) -> dict:
+        """Conocimiento del proyecto como texto listo para templates.
+
+        Claves: `knowledge_global`, `knowledge_relevant`,
+        `knowledge_architecture`, `project_architecture`, `project_patterns`,
+        `project_quality_gates`.
+
+        Es opt-in a nivel de plantilla: el renderer deja vacío un placeholder
+        sin dato, y las plantillas que no usan estas claves no cambian. Así el
+        cableado no altera ningún prompt existente (verificado por test).
+        """
+        if self._ckg_searcher is None:
+            return {}
+        from .collector import collect_knowledge, collect_project_info
+
+        node_id = str(data.get("node_id") or data.get("task_type") or "")
+        try:
+            knowledge = collect_knowledge(
+                self._chain_dir, {"node_id": node_id}, ckg_searcher=self._ckg_searcher
+            )
+            info = collect_project_info(self._chain_dir, ckg_searcher=self._ckg_searcher)
+        except Exception as e:  # noqa: BLE001 — el prompt nunca depende del CKG
+            logger.debug("PromptManager: enriquecimiento CKG falló (%s)", e)
+            return {}
+        return {
+            "knowledge_global": _bullets(knowledge.get("global")),
+            "knowledge_relevant": _bullets(knowledge.get("relevant")),
+            "knowledge_architecture": _bullets(knowledge.get("architecture")),
+            "project_architecture": info.get("architecture", ""),
+            "project_patterns": _bullets(info.get("patterns")),
+            "project_quality_gates": _bullets(info.get("quality_gates")),
+        }
 
 
 def _ctx_to_dict(ctx: Any) -> dict:
@@ -221,3 +271,33 @@ def _ctx_to_dict(ctx: Any) -> dict:
     if hasattr(ctx, "__dict__"):
         return dict(ctx.__dict__)
     return {}
+
+
+def _bullets(
+    items: Any,
+    limit: int = MAX_KNOWLEDGE_ITEMS,
+    max_chars: int = MAX_KNOWLEDGE_CHARS,
+) -> str:
+    """Lista de conocimiento → texto con viñetas para templates.
+
+    Acepta `_source` dicts (CKG) o strings (patterns/quality_gates).
+
+    Se recorta por dos motivos medidos: `knowledge_relevant` de
+    react-native-frontend son 9.294 chars (52 docs de tipo implementation) y
+    `knowledge_architecture` 6.212. Inyectar eso en cada prompt cuesta ~4.500
+    tokens sin que el agente gane precisión; con el tope queda en ~300.
+    """
+    lines: list[str] = []
+    for item in list(items or [])[:limit]:
+        text = (
+            str(item.get("statement", ""))
+            if isinstance(item, dict)
+            else str(item)
+        ).strip()
+        if text:
+            lines.append(f"- {text}")
+    out = "\n".join(lines)
+    if len(out) > max_chars:
+        # -1 para que el carácter de elipsis también quepa en el tope.
+        out = out[: max_chars - 1].rstrip() + "…"
+    return out

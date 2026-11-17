@@ -39,6 +39,7 @@ class WorkflowContext:
         task_registry: Any = None,
         prompt_manager: Any = None,
         cpg_adapter: Any = None,
+        ckg_searcher: Any = None,
     ) -> WorkflowContext | None:
         """Resolve workflow context from chain_dir.
 
@@ -83,7 +84,9 @@ class WorkflowContext:
             if prompt_manager is None:
                 from .application.prompts.manager import PromptManager
 
-                prompt_manager = PromptManager(chain_dir=chain_dir)
+                prompt_manager = PromptManager(
+                    chain_dir=chain_dir, ckg_searcher=ckg_searcher
+                )
 
             graph_repo = GraphRepository(workflow_path)
             state_repo = StateRepository(graph_repository=graph_repo)
