@@ -76,6 +76,42 @@ sinónimos español→inglés (`diseño`→`design`, `código`→`code`, `revisi
 Sin ese puente, `criterio de diseño` no matchea `frontend design` y el catálogo
 sale vacío siempre.
 
+## Instalar un skill
+
+Los skills comparten manifiesto con los hooks (`kind: skill`), así que
+`install`/`doctor`/firma/digest sirven igual. Lo propio de un skill:
+
+```json
+{
+  "id": "ui-review",
+  "kind": "skill",
+  "version": "1.0.0",
+  "walker": ">=3.0,<4",
+  "requires": ["frontend-design"]
+}
+```
+
+```bash
+# global: ~/.walker/skills  (lo escanea el índice con scope "walker")
+python3 scripts/hooks_cli.py install ./ui-review
+
+# de proyecto: <repo>/.cognitive/skills
+python3 scripts/hooks_cli.py --project <repo> install ./ui-review
+
+python3 scripts/hooks_cli.py list      # hooks + skills instalados
+python3 scripts/hooks_cli.py doctor    # compat y `requires` faltantes
+```
+
+- El `entry` por defecto es `SKILL.md`; no se exigen shebang ni bit de
+  ejecución (no se ejecuta).
+- `requires` son ids de otros skills; si falta alguno, `doctor` lo reporta
+  como issue (no bloquea la instalación: la dependencia puede llegar después).
+- Los skills escritos a mano ganan sobre los instalados (precedencia del
+  índice), así que un override local no lo pisa el instalador.
+- Precedencia completa: `<repo>/.agents/skills` → `<repo>/.opencode/skills` →
+  `<repo>/.cognitive/skills` → `~/.config/opencode/skills` → `~/.walker/skills`
+  → `<walker>/skills`.
+
 ## Herramientas
 
 | Tool | Qué hace |

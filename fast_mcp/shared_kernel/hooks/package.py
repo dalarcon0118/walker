@@ -83,6 +83,7 @@ class HookPackage:
     permissions: tuple[str, ...] = ()
     signature: str = ""  # key_id que firmó, "" si no está firmado
     kind: str = "hook"
+    requires: tuple[str, ...] = ()  # ids de otros skills de los que depende
 
     def command(self) -> str:
         target = self.path / self.entry
@@ -189,14 +190,17 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
     if not walker:
         raise HookManifestError("falta 'walker' (rango de compatibilidad, ej: '>=3.0,<4')")
     events = manifest.get("events") or []
-    if not isinstance(events, list) or not events:
-        raise HookManifestError("'events' debe ser una lista no vacía")
+    if not isinstance(events, list):
+        raise HookManifestError("'events' debe ser una lista")
+    if kind == "hook" and not events:
+        raise HookManifestError("'events' debe ser una lista no vacía para kind=hook")
     unknown = validate_events([str(e) for e in events])
     if unknown:
         raise HookManifestError(
             f"eventos desconocidos: {', '.join(unknown)} · válidos: {', '.join(known_events())}"
         )
-    entry = str(manifest.get("entry", "")).strip()
+    default_entry = "SKILL.md" if kind == "skill" else ""
+    entry = str(manifest.get("entry") or default_entry).strip()
     if not entry:
         raise HookManifestError("falta 'entry' (script a ejecutar)")
     entry_path = directory / entry
@@ -205,7 +209,7 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
     # Un entry que no es Python se ejecuta DIRECTO: sin shebang/+x falla en
     # runtime con rc=126 y el error aparece lejos del manifiesto (medido). Se
     # valida acá para que falle al instalar.
-    if not entry.endswith(".py") and os.name != "nt":
+    if kind == "hook" and not entry.endswith(".py") and os.name != "nt":
         if not os.access(entry_path, os.X_OK):
             raise HookManifestError(
                 f"entry {entry} no es ejecutable (falta el bit +x). "
@@ -222,6 +226,9 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
                 "Sin intérprete declarado el shell no sabe cómo ejecutarlo; "
                 "o usá un entry .py"
             )
+    requires = manifest.get("requires") or []
+    if not isinstance(requires, list):
+        raise HookManifestError("'requires' debe ser una lista de ids de skills")
     permissions = manifest.get("permissions") or []
     if not isinstance(permissions, list):
         raise HookManifestError("'permissions' debe ser una lista")
@@ -248,6 +255,7 @@ def read_manifest(package_dir: str | Path, *, scope: str = "global") -> HookPack
         scope=scope,
         permissions=tuple(str(p) for p in permissions),
         kind=kind,
+        requires=tuple(str(r) for r in requires),
     )
 
 
@@ -288,7 +296,7 @@ DIGEST_ALGO = "tree-v1"
 # Un solo manifiesto para dos tipos de extensión (ADR-066). `module` todavía no
 # se instala: el runtime de módulos no existe, así que se rechaza con un error
 # accionable en vez de aceptarlo y no hacer nada.
-KINDS = {"hook", "module"}
+KINDS = {"hook", "module", "skill"}
 
 
 def tree_digest(directory: str | Path) -> str:
@@ -398,11 +406,11 @@ def install(
                 raise HookManifestError(f"no es un directorio: {source_dir}")
 
         package = read_manifest(source_dir, scope=scope)
-        if package.kind != "hook":
+        if package.kind == "module":
             raise HookManifestError(
-                f"{package.id}: kind={package.kind!r}. Los módulos (ADR-066) "
-                "todavía no tienen runtime de instalación; hoy solo se instalan "
-                "hooks. El manifiesto es el mismo a propósito."
+                f"{package.id}: kind='module'. Los módulos (ADR-066) todavía no "
+                "tienen runtime de instalación; hoy se instalan hooks y skills. "
+                "El manifiesto es el mismo a propósito."
             )
         incompatible = check_compat(package, walker_version)
         if incompatible:
@@ -479,6 +487,7 @@ def install(
             "digest": DIGEST_ALGO,
             "signature": signature_key,
             "kind": installed_pkg.kind,
+            "requires": list(installed_pkg.requires),
             "permissions": list(installed_pkg.permissions),
             "enabled": True,
             "installed_at": datetime.now(timezone.utc).isoformat(),
@@ -523,11 +532,11 @@ def update(
         commit = fetch_git(spec, tmpdir)
         source_dir = (tmpdir / entry.get("subdir", "")) if entry.get("subdir") else tmpdir
         package = read_manifest(source_dir, scope=scope)
-        if package.kind != "hook":
+        if package.kind == "module":
             raise HookManifestError(
-                f"{package.id}: kind={package.kind!r}. Los módulos (ADR-066) "
-                "todavía no tienen runtime de instalación; hoy solo se instalan "
-                "hooks. El manifiesto es el mismo a propósito."
+                f"{package.id}: kind='module'. Los módulos (ADR-066) todavía no "
+                "tienen runtime de instalación; hoy se instalan hooks y skills. "
+                "El manifiesto es el mismo a propósito."
             )
         incompatible = check_compat(package, walker_version)
         if incompatible:
@@ -625,6 +634,7 @@ def doctor_report(
 ) -> dict:
     """Estado de salud: catálogo, paquetes por scope, compatibilidad y huérfanos."""
     from fast_mcp.shared_kernel.hooks.bus import HookBus
+    from fast_mcp.shared_kernel.skills import discover, skills_home, skills_roots
 
     home = Path(hooks_home_dir) if hooks_home_dir else hooks_home()
     report: dict = {"walker_version": walker_version, "events": known_events(),
@@ -660,6 +670,27 @@ def doctor_report(
                 report["issues"].append(
                     f"{scope}/{package.id}: modificado en disco "
                     f"({drifted[package.id]['actual']} != {drifted[package.id]['expected']})"
+                )
+
+    # Skills instalados: compat + dependencias faltantes.
+    skill_scopes = [("skills-global", skills_home()),
+                    ("skills-project", Path(project_root or ".") / ".cognitive" / "skills")]
+    available = set(discover(skills_roots(project_root, Path(__file__).resolve().parents[3])))
+    report["skills"] = []
+    for scope, root in skill_scopes:
+        for package in installed(root, scope=scope):
+            problem = check_compat(package, walker_version)
+            missing = [r for r in package.requires if r not in available]
+            report["skills"].append({
+                "id": package.id, "version": package.version,
+                "requires": list(package.requires), "missing_requires": missing,
+                "problem": problem,
+            })
+            if problem:
+                report["issues"].append(f"{scope}/{package.id}: {problem}")
+            for dep in missing:
+                report["issues"].append(
+                    f"{scope}/{package.id}: requiere '{dep}', que no está instalado"
                 )
 
     bus = HookBus.load(project_root or ".", hooks_home=hooks_home_dir)

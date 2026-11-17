@@ -10,6 +10,7 @@ from fast_mcp.shared_kernel.skills.index import (
     read_skill,
     score,
     search,
+    skills_home,
     skills_roots,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "read_skill",
     "score",
     "search",
+    "skills_home",
     "skills_roots",
 ]

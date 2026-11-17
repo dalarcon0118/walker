@@ -36,6 +36,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 SKILL_FILES = ("SKILL.md", "SKILL.MD", "skill.md")
+SKILLS_HOME_ENV = "WALKER_SKILLS_HOME"
 MAX_DESCRIPTION = 220
 MAX_CATALOG_ITEMS = 6
 MAX_CATALOG_CHARS = 900
@@ -136,14 +137,26 @@ def read_skill(directory: str | Path, scope: str = "global") -> Skill | None:
     )
 
 
+def skills_home() -> Path:
+    """Dónde instala walker los skills globales (los de `hooks install`)."""
+    override = os.environ.get(SKILLS_HOME_ENV)
+    return Path(override) if override else Path.home() / ".walker" / "skills"
+
+
 def skills_roots(project_root: str | Path | None, walker_root: str | Path | None = None) -> list[tuple[Path, str]]:
-    """Directorios a escanear, en orden de precedencia (primero gana)."""
+    """Directorios a escanear, en orden de precedencia (primero gana).
+
+    Los skills escritos a mano (proyecto y global del agente) ganan sobre los
+    instalados por walker, para que un override local no lo pise el instalador.
+    """
     roots: list[tuple[Path, str]] = []
     if project_root:
         base = Path(project_root)
         roots.append((base / ".agents" / "skills", "project"))
         roots.append((base / ".opencode" / "skills", "project"))
+        roots.append((base / ".cognitive" / "skills", "project"))
     roots.append((Path.home() / ".config" / "opencode" / "skills", "global"))
+    roots.append((skills_home(), "walker"))
     if walker_root:
         roots.append((Path(walker_root) / "skills", "walker"))
     return roots

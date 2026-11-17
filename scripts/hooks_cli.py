@@ -54,10 +54,17 @@ from fast_mcp.shared_kernel.hooks.package import (  # noqa: E402
     update,
     validate_id,
 )
+from fast_mcp.shared_kernel.skills import skills_home  # noqa: E402
 
 
 def _scope(args) -> Path:
     return project_scope(args.project) if args.project else hooks_home()
+
+
+def _skills_scope(args) -> Path:
+    if args.project:
+        return Path(args.project).resolve() / ".cognitive" / "skills"
+    return skills_home()
 
 
 def _cmd_list(args) -> int:
@@ -81,11 +88,39 @@ def _cmd_list(args) -> int:
             print(f"  {spec.id:<28} [{spec.source}] {','.join(spec.subscribed_events())}")
     for issue in bus.unknown_events:
         print(f"  ! evento desconocido → {issue}")
+
+    skill_root = _skills_scope(args)
+    skills = installed(skill_root, scope="project" if args.project else "walker")
+    print(f"\nskills instalados: {skill_root}")
+    if not skills:
+        print("  (sin skills instalados por walker)")
+    for pkg in skills:
+        problem = check_compat(pkg, WALKER_VERSION)
+        requires = f" · requiere {', '.join(pkg.requires)}" if pkg.requires else ""
+        extra = f" · {problem}" if problem else ""
+        print(f"  [on ] {pkg.id} v{pkg.version}{requires}{extra}")
     return 0
 
 
 def _cmd_install(args) -> int:
-    root = _scope(args)
+    from fast_mcp.shared_kernel.hooks.package import read_manifest
+
+    kind = args.kind
+    if kind == "auto":
+        candidate = Path(args.path).expanduser()
+        if candidate.is_dir():
+            try:
+                kind = read_manifest(candidate).kind
+            except HookManifestError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+        else:
+            # fuente git: no se puede leer el manifiesto sin clonar
+            kind = "hook"
+            print("  (fuente remota sin --kind: se asume hook; usá --kind skill "
+                  "para un skill)", file=sys.stderr)
+
+    root = _skills_scope(args) if kind == "skill" else _scope(args)
     try:
         pkg = install(
             args.path,
@@ -101,8 +136,11 @@ def _cmd_install(args) -> int:
     except HookManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(f"instalado {pkg.id} v{pkg.version} en {pkg.path}")
-    print(f"  eventos: {', '.join(pkg.events)}")
+    print(f"instalado {pkg.id} v{pkg.version} ({pkg.kind}) en {pkg.path}")
+    if pkg.kind == "hook":
+        print(f"  eventos: {', '.join(pkg.events)}")
+    if pkg.requires:
+        print(f"  requiere: {', '.join(pkg.requires)}")
     if args.project:
         print("  (recordá marcar el proyecto como confiable: "
               '.cognitive/config.json → {"hooks": {"trusted": true}})')
@@ -336,9 +374,13 @@ def _cmd_digest(args) -> int:
 
 
 def _cmd_remove(args) -> int:
-    outcome = remove(args.id, _scope(args))
-    print(f"{'removido' if outcome['removed'] else 'no estaba instalado'}: {args.id}")
-    return 0 if outcome["removed"] else 1
+    for scope, label in ((_scope(args), "hooks"), (_skills_scope(args), "skills")):
+        outcome = remove(args.id, scope)
+        if outcome["removed"]:
+            print(f"removido ({label}): {args.id}")
+            return 0
+    print(f"no estaba instalado: {args.id}")
+    return 1
 
 
 def _cmd_toggle(args) -> int:
@@ -381,6 +423,14 @@ def _cmd_doctor(args) -> int:
             perms = item.get("permissions") or []
             print(f"        permisos: {','.join(perms) if perms else '(mínimos)'} · "
                   f"{item.get('signature', 'sin firma')}")
+    skills = report.get("skills") or []
+    print("\nskills instalados por walker:")
+    if not skills:
+        print("  (ninguno)")
+    for item in skills:
+        req = f" · requiere {','.join(item['requires'])}" if item["requires"] else ""
+        print(f"  {item['id']} v{item['version']}{req}")
+
     print("\nissues:" if report["issues"] else "\nissues: ninguno")
     for issue in report["issues"]:
         print(f"  ! {issue}")
@@ -399,6 +449,8 @@ def main() -> int:
     p_install.add_argument("path", help="directorio con hook.json")
     p_install.add_argument("--force", action="store_true",
                            help="reemplaza una versión ya instalada")
+    p_install.add_argument("--kind", choices=["auto", "hook", "skill"], default="auto",
+                           help="tipo de paquete (auto lo lee del manifiesto local)")
     p_install.add_argument("--ref", default=None,
                            help="tag/branch/sha para fuentes git (se registra pinneado)")
     p_install.add_argument("--subdir", default="",
