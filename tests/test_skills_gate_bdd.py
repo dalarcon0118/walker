@@ -253,3 +253,56 @@ def test_reporte_clasifica_con_el_mismo_umbral():
     assert verdicts <= {"advisory", "bloquearía_sin_carga", "pasa_sin_candidatos"}
     for row in report["rows"]:
         assert len(row["candidates"]) == len(row["scores"])
+
+
+def test_gate_e2e_con_trace_real(tmp_path):
+    """Blocked → load_skill → passed, contra el trace real (CognitiveGraph)."""
+    import json
+
+    from fast_mcp.features.event_tracing.application.services.trace_factory import (
+        build_trace_service,
+    )
+    from fast_mcp.features.event_tracing.infrastructure.cognitive_tracer import (
+        CognitiveTracer,
+    )
+    from fast_mcp.memories.context import MemoryContext
+    from fast_mcp.memories.handlers.knowledge import handle_load_skill
+    from scripts.skills_gate_audit import audit
+
+    root = tmp_path / "repo"
+    (root / ".cognitive" / "projects" / "demo" / "data").mkdir(parents=True)
+    (root / "project.json").write_text(
+        json.dumps({"project_id": "demo", "repo_path": str(root)})
+    )
+    service = build_trace_service(str(root))
+    assert service is not None
+    tracer = CognitiveTracer(service)
+
+    orch = object.__new__(OrchestrationService)
+    orch._bundle = SimpleNamespace(chain_dir=str(root), tracer=tracer)
+    sub = SimpleNamespace(skill_intent={
+        "needs": "revisión de código, testing y checklist de calidad",
+        "tags": ["review", "testing", "quality"],
+        "policy": "required",
+    })
+    state = SimpleNamespace(updated_at="2020-01-01T00:00:00+00:00",
+                            current_node="VERIFY", current_sub_state="QA")
+    ctx = SimpleNamespace(chain_dir=str(root), task_id="T-E2E", session_id="s")
+
+    blocked = orch._check_skill_gate(ctx, sub, state)
+    assert blocked["ok"] is False
+    candidate = blocked["skills_checked"][0]
+
+    memory_ctx = MemoryContext(chain_dir=str(root), project_root=str(root),
+                               project_id="demo", data_dir="")
+    loaded = handle_load_skill(memory_ctx, name=candidate)
+    assert loaded.get("name") == candidate
+
+    passed = orch._check_skill_gate(ctx, sub, state)
+    assert passed["ok"] is True, "la carga debe verse aunque la cache esté tibia"
+
+    report = audit(str(root))
+    assert report["by_outcome"] == {"blocked": 1, "passed": 1}
+    assert report["loaded_total"] == 1
+    assert report["loaded_skills"][candidate] == 1
+    assert "VERIFY.QA" in report["by_node"]

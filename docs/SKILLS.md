@@ -198,6 +198,29 @@ El orquestador emite un evento `skill_gate` en cada submit
 skills), así que la serie histórica sale del trace: cuántas veces bloqueó, en
 qué nodo, y cuántas pasó por falta de candidatos.
 
+```bash
+python3 scripts/skills_gate_audit.py            # serie histórica del proyecto
+python3 scripts/skills_gate_audit.py --json     # para agentes
+```
+
+Corrida de referencia (proyecto temporal, gate real contra CognitiveGraph):
+
+```
+submit sin skill      → False (blocked)
+load_skill(...)       → 1 evento skill_loaded
+submit tras cargar    → True  (passed)
+
+audit: gates_total=2 · {'blocked': 1, 'passed': 1}
+       by_node={'VERIFY.QA': {'blocked': 1, 'passed': 1}}
+       loaded_skills={'code-review-checklist': 1}
+```
+
+Para que eso funcione, todos los writers de trace del proceso comparten UN
+CognitiveGraph por proyecto (`trace_factory` cachea el service). Sin eso, el
+tracer del workflow y el handler que empuja (`load_skill`) abren instancias
+distintas sobre el mismo sqlite y la guarda de generación rechaza el segundo
+write: el evento `passed` se perdía en silencio.
+
 ## Límites (lo que NO hay todavía)
 
 - **Skills como paquetes**: `install` maneja `kind: hook`; `kind: skill` no

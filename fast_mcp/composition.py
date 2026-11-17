@@ -346,41 +346,16 @@ def trace_tool_runner(name: str, root: Path | None = None):
         if not chain_dir:
             return _no_project_context_error()
 
-        # Lazy-import TraceService to avoid circular deps
-        from fast_mcp.features.event_tracing.infrastructure.cognitive_trace_repo import (
-            CognitiveTraceRepository,
+        # Wiring único en trace_factory (cacheado por proyecto): el tracer del
+        # workflow y este runner deben compartir el mismo CognitiveGraph, si no
+        # la guarda de generación rechaza writes cruzados y se pierden eventos.
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
         )
-        from fast_mcp.features.event_tracing.application.services.trace_service import (
-            TraceService,
-        )
 
-        # Build CG for the project and ensure trace index is registered.
-        # INV-016 (regla 3): resolver el data_dir canónico del proyecto
-        # (no el repo root) — mismo contrato que _build_delta_repo.
-        try:
-            from fast_mcp.shared_kernel.cognitive_graph.config import (
-                load_memory_connection,
-            )
-            from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
-            from fast_mcp.shared_kernel.cognitive_graph.schemas import (
-                PRODUCTION_INDEX_SCHEMAS,
-            )
-            from fast_mcp.shared_kernel.project_support import ProjectService
-
-            paths = ProjectService.resolve_paths(chain_dir)
-            conn = load_memory_connection(paths.data_dir)
-            cg = build_cognitive_graph(paths.data_dir, conn=conn)
-            # Register trace index if not already present (schema del SSOT —
-            # T-10/M-6: quirk event_type→'keyword' definido UNA vez).
-            try:
-                cg.register_index("trace", PRODUCTION_INDEX_SCHEMAS["trace"])
-            except Exception:
-                pass  # already registered
-        except Exception as exc:
-            return {"error": f"Could not initialize CognitiveGraph: {exc}"}
-
-        repo = CognitiveTraceRepository(cg)
-        trace_svc = TraceService(repo)
+        trace_svc = build_trace_service(chain_dir)
+        if trace_svc is None:
+            return {"error": "Could not initialize CognitiveGraph"}
         ctx = {"trace_service": trace_svc, "chain_dir": chain_dir}
 
         return dispatch_trace(name, ctx, **kwargs)

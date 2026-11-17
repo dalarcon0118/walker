@@ -53,7 +53,12 @@ class CognitiveTraceRepository(TraceRepository):
         return events
 
     def push_event(self, chain_dir: str, data: dict) -> dict:
-        _CACHE.pop((chain_dir, id(self._cg)), None)
+        # Invalida TODAS las entradas del chain_dir, no solo la de este `cg`:
+        # el tracer del workflow y el handler que empuja (load_skill) construyen
+        # instancias distintas del grafo, así que mirar `id(self._cg)` dejaba la
+        # cache del tracer con 5s de datos viejos y el gate no veía la carga.
+        for key in [k for k in _CACHE if k[0] == chain_dir]:
+            _CACHE.pop(key, None)
         try:
             event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             ts = datetime.now(timezone.utc).isoformat()
