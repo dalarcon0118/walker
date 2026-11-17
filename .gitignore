@@ -77,4 +77,3 @@ Thumbs.db
 # lock sin toolchain que lo consuma aparenta reproducibilidad que no hay.
 # Si el proyecto adopta uv, quitar esta línea y commitearlo.
 uv.lock
-# prueba del hook

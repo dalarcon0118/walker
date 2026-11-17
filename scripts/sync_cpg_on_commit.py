@@ -80,6 +80,24 @@ def resolve_project(root: str) -> dict | None:
         return None
 
 
+def read_stats(root: str) -> dict:
+    """Stats reales del CPG (misma fuente que `sync_project_cpg.stats_before`).
+
+    `update()` puede devolver {"ok": True, "files_updated": N} sin stats, y el
+    log quedaba en "None nodos / None edges" aunque el sync hubiera tocado el
+    grafo. Se lee el estado final en vez de adivinarlo.
+    """
+    try:
+        from fast_mcp.features.code_analysis.application.services.cpg_service import (
+            CpgService,
+        )
+
+        return CpgService.from_chain_dir(root).stats() or {}
+    except Exception as exc:  # noqa: BLE001 — solo es logging
+        logger.debug("no se pudieron leer stats de %s: %s", root, exc)
+        return {}
+
+
 def run_sync(root: str, sync=None) -> dict:
     """Sincroniza el CPG del proyecto dueño de `root`.
 
@@ -116,10 +134,25 @@ def run_sync(root: str, sync=None) -> dict:
     try:
         payload = sync(root) or {}
         result = (payload.get("result") if isinstance(payload, dict) else {}) or {}
+        # `update()` devuelve {"ok": False, "error": "...", "scope": "task"} cuando
+        # los archivos cambiados no son código (p. ej. un commit que solo toca
+        # .gitignore o docs): no es un fallo, es un no-op. Antes se logueaba como
+        # "ok · None nodos", que parece un sync roto.
+        if isinstance(result, dict) and result.get("ok") is False:
+            return {
+                "status": "noop",
+                "project_id": project_id,
+                "reason": result.get("error") or "sin nodos que indexar",
+            }
         # `build()` devuelve {"stats": {...}}; `update()` devuelve el grafo
         # cargado ({"nodes": {...}, "edges": [...]}). Sin el fallback, el log
         # decía "None nodos / None edges" aunque el sync hubiera funcionado.
-        stats = result.get("stats") or {}
+        stats = (
+            result.get("stats")
+            or read_stats(root)
+            or (payload.get("stats_before") if isinstance(payload, dict) else {})
+            or {}
+        )
         nodes = stats.get("total_nodes")
         if nodes is None and isinstance(result.get("nodes"), dict):
             nodes = len(result["nodes"])

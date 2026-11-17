@@ -107,3 +107,43 @@ def test_run_sync_cuenta_nodos_del_grafo_cargado(tmp_path, monkeypatch):
     outcome = hook.run_sync(str(tmp_path), sync=fake_update)
     assert outcome["nodes"] == 2
     assert outcome["edges"] == 3
+
+
+def test_run_sync_noop_cuando_los_cambios_no_son_codigo(tmp_path, monkeypatch):
+    """Un commit que solo toca .gitignore/docs no rompe ni finge un sync.
+
+    Medido: `update()` devuelve {"ok": False, "error": "scan_files no produjo
+    nodos"} y el hook logueaba "ok · None nodos / None edges", que se lee como
+    sync roto.
+    """
+    monkeypatch.setattr(hook, "resolve_project", lambda root: {"project_id": "demo"})
+
+    def fake_update(root):
+        return {"mode": "incremental", "result": {
+            "ok": False, "files_updated": 0, "scope": "task",
+            "error": "scan_files no produjo nodos — CPG NO modificado",
+        }}
+
+    outcome = hook.run_sync(str(tmp_path), sync=fake_update)
+
+    assert outcome["status"] == "noop"
+    assert "scan_files no produjo nodos" in outcome["reason"]
+
+
+def test_run_sync_lee_stats_del_grafo_si_el_resultado_no_los_trae(tmp_path, monkeypatch):
+    """`index_task_files` devuelve {"ok": True, "files_updated": N} sin stats:
+    el log tiene que leer el estado final, no imprimir None."""
+    monkeypatch.setattr(hook, "resolve_project", lambda root: {"project_id": "demo"})
+    monkeypatch.setattr(hook, "read_stats", lambda root: {
+        "total_nodes": 6198, "total_edges": 13937, "files_scanned": 458,
+    })
+
+    outcome = hook.run_sync(
+        str(tmp_path),
+        sync=lambda root: {"mode": "incremental",
+                           "result": {"ok": True, "files_updated": 3}},
+    )
+
+    assert outcome["status"] == "ok"
+    assert outcome["nodes"] == 6198
+    assert outcome["edges"] == 13937
