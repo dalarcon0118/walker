@@ -55,8 +55,22 @@ class SubStateData:
     completed_at: str | None = None
 
     def is_field_complete(self, field: str) -> bool:
+        """¿El campo está declarado y tiene contenido?
+
+        Un contenedor vacío NO cuenta. Antes `[] != ""` daba True, así que
+        `required_fields: ["preconditions"]` se satisfacía con una lista vacía:
+        el gate existía y no bloqueaba nada (medido 2026-11-17, ningún sub-estado
+        usaba `required_fields`, pero al declararlos el agujero habría anulado el
+        gate).
+        """
+        if field not in self.fields:
+            return False
         val = self.fields.get(field)
-        return val is not None and val != ""
+        if val is None or val == "":
+            return False
+        if isinstance(val, (list, tuple, set, dict)) and len(val) == 0:
+            return False
+        return True
 
     def all_required_complete(self, required: list[str]) -> bool:
         return all(self.is_field_complete(f) for f in required)
