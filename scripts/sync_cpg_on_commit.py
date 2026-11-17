@@ -115,14 +115,23 @@ def run_sync(root: str, sync=None) -> dict:
     started = time.time()
     try:
         payload = sync(root) or {}
-        result = payload.get("result") if isinstance(payload, dict) else {}
-        stats = (result or {}).get("stats") or {}
+        result = (payload.get("result") if isinstance(payload, dict) else {}) or {}
+        # `build()` devuelve {"stats": {...}}; `update()` devuelve el grafo
+        # cargado ({"nodes": {...}, "edges": [...]}). Sin el fallback, el log
+        # decía "None nodos / None edges" aunque el sync hubiera funcionado.
+        stats = result.get("stats") or {}
+        nodes = stats.get("total_nodes")
+        if nodes is None and isinstance(result.get("nodes"), dict):
+            nodes = len(result["nodes"])
+        edges = stats.get("total_edges")
+        if edges is None and isinstance(result.get("edges"), list):
+            edges = len(result["edges"])
         return {
             "status": "ok",
             "project_id": project_id,
             "mode": (payload or {}).get("mode") if isinstance(payload, dict) else None,
-            "nodes": stats.get("total_nodes"),
-            "edges": stats.get("total_edges"),
+            "nodes": nodes,
+            "edges": edges,
             "files": stats.get("files_scanned"),
             "seconds": round(time.time() - started, 1),
         }

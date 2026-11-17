@@ -93,3 +93,17 @@ def test_run_sync_con_lock_tomado_se_salta(tmp_path, monkeypatch):
     assert outcome["status"] == "skipped"
     assert outcome["reason"] == "otro sync en curso"
     assert Path(lock).exists(), "no debe borrar el lock de otro proceso"
+
+
+def test_run_sync_cuenta_nodos_del_grafo_cargado(tmp_path, monkeypatch):
+    """`update()` devuelve el grafo, `build()` devuelve stats: el log no debe
+    decir "None nodos" cuando el sync funcionó (visto en el primer hook real)."""
+    monkeypatch.setattr(hook, "resolve_project", lambda root: {"project_id": "demo"})
+
+    def fake_update(root):
+        return {"mode": "incremental",
+                "result": {"nodes": {"a": {}, "b": {}}, "edges": [1, 2, 3]}}
+
+    outcome = hook.run_sync(str(tmp_path), sync=fake_update)
+    assert outcome["nodes"] == 2
+    assert outcome["edges"] == 3
