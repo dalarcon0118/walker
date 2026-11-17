@@ -65,6 +65,8 @@ def session_tool_runner(name: str, root: Path | None = None):
             return _handle_help(kwargs)
         if name == "list_projects":
             return _handle_list_projects(kwargs)
+        if name == "project_for_path":
+            return _handle_project_for_path(kwargs)
         return {"error": f"Unknown session tool: {name}"}
 
     return runner
@@ -89,6 +91,25 @@ def _handle_help(kwargs: dict) -> dict:
         return {"tools": tools, "count": len(tools)}
     except Exception as e:
         return {"error": f"Could not list tools: {e}"}
+
+
+def _handle_project_for_path(kwargs: dict) -> dict:
+    """Resuelve {project_id, repo_path} desde un path (git-like).
+
+    Lo usa el plugin global para saber en qué proyecto está corriendo la sesión;
+    sin esto tendría que adivinar por nombre de directorio.
+    """
+    from fast_mcp.shared_kernel.project_support import ProjectService
+
+    path = kwargs.get("path") or kwargs.get("directory") or "."
+    try:
+        found = ProjectService.resolve_from_registry(str(path))
+    except Exception as exc:  # noqa: BLE001 — se reporta, no se rompe
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if not found:
+        return {"ok": False, "error": f"sin proyecto registrado para {path}"}
+    return {"ok": True, "project_id": found.get("project_id", ""),
+            "repo_path": found.get("repo_path", "")}
 
 
 def _handle_list_projects(kwargs: dict) -> dict:

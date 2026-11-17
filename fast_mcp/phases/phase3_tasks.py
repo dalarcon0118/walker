@@ -46,6 +46,7 @@ _FASE3_TOOLS = (
     "sprint_planning",
     "resolve_project_sprint",
     "workflow_state",
+    "project_for_path",
     "trace_push",
     "trace_message",
     "implement_task",
@@ -163,6 +164,12 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "project_id": {"type": "string", "description": "Project identifier"},
         },
     },
+    "project_for_path": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Directorio de la sesión"},
+        },
+    },
     "workflow_state": {
         "type": "object",
         "properties": {
@@ -193,6 +200,7 @@ _DESCRIPTIONS = {
     "run_tests": "Run test suite via pytest (fail-loud if 0 tests).",
     "verify_predicates": "Verify that predicates are satisfied (file_exists, test_passes).",
     "workflow_state": "Current workflow position, allowed gates and required fields (read-only).",
+    "project_for_path": "Resolve {project_id, repo_path} from a directory (registry lookup).",
     "capture": "Capture evidence and artifacts for a task.",
 }
 
@@ -220,7 +228,7 @@ def install(server: FastMCP) -> None:
 
 def _build_runner(name: str):
     """Build a tool runner via session, workflow, delta, trace, or task runner."""
-    _SESSION_TOOLS = {"help", "list_projects"}
+    _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
     _TASK_TOOLS = {"implement_task", "run_tests", "verify_predicates", "capture"}

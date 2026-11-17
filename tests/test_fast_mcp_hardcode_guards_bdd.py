@@ -18,8 +18,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = REPO_ROOT / "fast_mcp" / "features" / "workflow"
-PLUGIN_FILES = sorted((REPO_ROOT / ".opencode" / "plugins").glob("*.js")) + sorted(
-    (REPO_ROOT / ".opencode" / "legacy").glob("*.js")
+PLUGIN_FILES = (
+    sorted((REPO_ROOT / ".opencode" / "plugins").glob("*.js"))
+    + sorted((REPO_ROOT / ".opencode" / "legacy").glob("*.js"))
+    + sorted((REPO_ROOT / "agent-plugins").glob("*/index.js"))
 )
 
 EXECUTION_VALUES = {"bootstrap", "auto", "llm_task", "user_input", "manual"}
@@ -113,7 +115,9 @@ def test_plugins_export_default_definition():
     an id and an effect or setup function" — el plugin nunca cargaba y todas sus
     llamadas a walker eran código muerto.
     """
-    plugins = sorted((REPO_ROOT / ".opencode" / "plugins").glob("*.js"))
+    plugins = sorted((REPO_ROOT / ".opencode" / "plugins").glob("*.js")) + sorted(
+        (REPO_ROOT / "agent-plugins").glob("*/index.js")
+    )
     assert plugins, "no hay plugins que validar"
     for plugin in plugins:
         text = plugin.read_text()

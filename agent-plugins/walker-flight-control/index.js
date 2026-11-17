@@ -1,40 +1,46 @@
 /**
- * walker flight-control (OpenCode V2) — binding + estado del workflow inyectado.
+ * walker flight-control (OpenCode V2, global) — binding + estado del workflow.
  *
- * Por qué V2: el plugin anterior (`legacy/walker-session.v1.js`) exportaba
- * `WalkerHooks` como named export; OpenCode V2 exige `export default { id,
- * setup }` ("Plugin must export a default definition with an id and an effect or
- * setup function") y lo descartaba al cargar. Todas las llamadas del plugin a
- * walker eran, en la práctica, código muerto.
+ * Instalado globalmente: corre en CUALQUIER sesión y resuelve el proyecto por
+ * la ubicación de la sesión (`project_for_path` sobre el registro de walker).
+ * Antes estaba solo en `.opencode/plugins/` de walker, así que una sesión en
+ * otro repo (p. ej. game_reset) no recibía nada.
  *
  * Qué hace (fase 1+2, sin bloquear):
- *   - al iniciar, resuelve el estado del workflow con el CLI de walker;
- *   - en cada llamada al modelo inyecta un bloque `[WALKER] Workflow: …` en las
+ *   - resuelve {project_id, repo_path} desde `ctx.location.directory`;
+ *   - traza `flight_control_active` al cargar (señal de que el hook vive);
+ *   - en cada llamada al modelo inyecta `[WALKER] Workflow: …` en las
  *     instrucciones del sistema (`session.hook("context")`);
- *   - al terminar la sesión traza cuántas inyecciones hubo y si hubo
- *     `submit`/`transition` (para medir cumplimiento antes de gatear).
+ *   - al terminar la ejecución traza `workflow_state_injected` /
+ *     `workflow_suggestion_ignored` en el trace DEL PROYECTO de la sesión.
  *
- * Escape hatch: WALKER_FLIGHT_CONTROL=0 desactiva todo.
+ * Escape hatch: WALKER_FLIGHT_CONTROL=0.
  */
 import { execFileSync } from "node:child_process"
 
 const WALKER_ROOT = "/Users/davidmartinez/develop/Active-projects/walker"
 const CLI = `${WALKER_ROOT}/bin/walker3`
-const PROJECT_ID = process.env.WALKER_PROJECT_ID || "walker"
 const ENABLED = process.env.WALKER_FLIGHT_CONTROL !== "0"
 const REFRESH_MS = 60_000
 
-function runTool(tool, payload = {}) {
+let projectId = process.env.WALKER_PROJECT_ID || ""
+let projectDir = ""
+
+function runTool(tool, payload = {}, project = projectId) {
   try {
-    const stdout = execFileSync(CLI, [`${PROJECT_ID}/${tool}`, JSON.stringify(payload)], {
-      cwd: WALKER_ROOT,
-      encoding: "utf8",
-      timeout: 30_000,
-      maxBuffer: 8 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
+    const stdout = execFileSync(
+      CLI,
+      [`${project || "_"}/${tool}`, JSON.stringify(payload)],
+      {
+        cwd: WALKER_ROOT,
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 8 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    )
     return JSON.parse(stdout)
-  } catch (e) {
+  } catch {
     return null // fail-open: el agente sigue aunque walker no responda
   }
 }
@@ -56,14 +62,35 @@ export default {
   async setup(ctx) {
     if (!ENABLED) return
 
+    projectDir = ctx.location?.directory || ""
+    if (!projectId && projectDir) {
+      const found = runTool("project_for_path", { path: projectDir }, "_")
+      if (found?.ok && found.project_id) projectId = found.project_id
+    }
+
+    // Señal de vida: sin esto no se distingue "el hook no cargó" de "no había
+    // estado de workflow que inyectar".
+    runTool("trace_push", {
+      event_type: "flight_control_active",
+      source: "agent_hook",
+      metadata: { project_id: projectId, directory: projectDir },
+    })
+
+    if (!projectId) return // sin proyecto registrado no se inyecta nada
+
     const state = { data: null, fetchedAt: 0 }
-    const sessions = new Map() // sessionID -> {injections, followed, position}
+    const sessions = new Map()
     const controller = new AbortController()
 
     const sessionOf = (sessionID) => {
       const key = sessionID || "global"
       if (!sessions.has(key)) {
-        sessions.set(key, { injections: 0, followed: false, position: "", sessionID: sessionID || "" })
+        sessions.set(key, {
+          injections: 0,
+          followed: false,
+          position: "",
+          sessionID: sessionID || "",
+        })
       }
       return sessions.get(key)
     }
@@ -84,7 +111,6 @@ export default {
       return state.data
     }
 
-    // Inyección de estado en las instrucciones del sistema, por llamada al modelo.
     try {
       await ctx.session.hook("context", (event) => {
         const block = workflowBlock(refresh())
@@ -99,11 +125,14 @@ export default {
       // Sin el hook tipado no se inyecta; el plugin no debe romper la sesión.
     }
 
-    // Al terminar la ejecución, trazar el resultado de la sesión (métrica).
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({
-          types: ["session.execution.succeeded", "session.execution.failed"],
+          types: [
+            "session.execution.succeeded",
+            "session.execution.failed",
+            "session.execution.interrupted",
+          ],
           signal: controller.signal,
         })) {
           const sid =
@@ -141,8 +170,6 @@ export default {
       }
     })()
 
-    // `submit`/`transition` marcan la sugerencia como seguida. En V2 se envuelve
-    // el execute de la tool MCP con un transform.
     try {
       await ctx.tool.transform((editor) => {
         for (const name of ["walker_submit", "walker_transition", "submit", "transition"]) {

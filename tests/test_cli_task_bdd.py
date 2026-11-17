@@ -122,3 +122,23 @@ def test_trace_push_conserva_session_id_en_metadata():
     )]
     assert rows, "el session_id debe quedar persistido"
     invalidate_trace_service("walker")
+
+
+def test_project_for_path_resuelve_por_registro(capsys):
+    code = run_task(["_/project_for_path", json.dumps({
+        "path": str(Path("/Users/davidmartinez/develop/Active-projects/game_reset")),
+    })])
+
+    data = json.loads(capsys.readouterr().out)
+    if code != 0:
+        pytest.skip("game_reset no está registrado en esta máquina")
+    assert data["project_id"] == "game_reset"
+    assert data["ok"] is True
+
+
+def test_project_for_path_sin_registro_falla_suave(capsys):
+    code = run_task(["_/project_for_path", json.dumps({"path": "/tmp/no-registrado-xyz"})])
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is False
+    assert "sin proyecto registrado" in data["error"]
