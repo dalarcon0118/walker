@@ -636,11 +636,20 @@ class SqliteIndex(Index):
         for _mc in _META_QUERY_KEYS:
             filters.pop(_mc, None)
         if raw_text is not None:
-            if filters or self._fts_fields is None:
-                # combinado → base (materializa); texto puro sin FTS → base
-                reason = ("query combinada text+filtros" if filters
-                          else "texto sin FTS activo")
-                return self._fallback_eager(query, reason)
+            if self._fts_fields is None:
+                # Índice sin fulltext (hoy: `trace`): el path eager devolvía
+                # 0 hits SIN error, indistinguible de "no hay nada". Un índice
+                # que no soporta texto debe decirlo: el caller tiene filtros
+                # estructurados (event_type/task_id/source) que sí resuelven.
+                raise StorageContractError(
+                    f"search('{self.name}'): se pidió `text` pero el índice no "
+                    f"declara fulltext (schema.search.fields). Usá filtros "
+                    f"estructurados o agregá fulltext al schema y re-backfilleá "
+                    f"(drop_fts + reabrir). IV-6: fallo ruidoso, no 0 silencioso."
+                )
+            if filters:
+                # combinado → base (materializa)
+                return self._fallback_eager(query, "query combinada text+filtros")
             return self._search_text_only(raw_text, query)
         clauses = structured_mod.resolve_filters(self.schema, filters)
         if clauses is None:
