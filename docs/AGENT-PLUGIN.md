@@ -254,3 +254,25 @@ Con n=1 y varianza conocida de 0,71x–2,20x no se puede concluir que "con tarea
 sea más barato que "sin tarea"; lo que sí se concluye es que el acotamiento del
 gate funciona (0 denegaciones cuando no corresponde) y que **el próximo lever es
 la inyección**, no la negación.
+
+### La inyección también va acotada (y es el lever real)
+
+El motor se sigue conduciendo siempre (los `auto` corren server-side, sin
+tokens), pero el texto solo se inyecta si hay tarea declarada. Tabla completa de
+la misma tarea trivial (n=1, `DENY=1`, estado en `ANALYZE.ANALYZE`):
+
+| corrida | pasos | tokens_in |
+|---|---|---|
+| sin gate (el agente ignora) | 4 | 9.735 |
+| inyección siempre, sin tarea | 15 | 49.997 |
+| inyección siempre, con tarea | 16 | 22.213 |
+| **inyección acotada, sin tarea** | **4** | **9.582** |
+| **inyección acotada, con tarea** | **9** | **11.872** |
+
+Ad-hoc vuelve al baseline (4 pasos, −81% tokens vs inyectar siempre), y cuando
+hay tarea el workflow cuesta +22% sobre el baseline: un precio defendible.
+
+Hueco conocido: **bootstrap**. Si la inyección solo aparece con tarea declarada,
+nada le sugiere al agente declarar una. En la corrida "con tarea" el prompt lo
+pedía explícitamente. Falta un aviso de una sola vez por sesión ("si esto es una
+implementación, declarala con `implement_task`") que se apague después.

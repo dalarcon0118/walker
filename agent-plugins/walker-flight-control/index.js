@@ -154,7 +154,12 @@ export default {
 
     try {
       await ctx.session.hook("context", (event) => {
-        const block = workflowBlock(refresh())
+        // El motor se conduce igual (los `auto` corren sin tokens), pero el
+        // texto solo se inyecta cuando hay una TAREA declarada. Medido: la
+        // inyección en sesiones ad-hoc hacía que el agente caminara el
+        // workflow por su cuenta (4 → 15 pasos sin que nada lo exigiera).
+        refresh()
+        const block = activeTask ? workflowBlock(state.data) : ""
         if (!block) return
         const sid = event.sessionID || event.sessionId || ""
         event.system.push({ type: "text", text: block })
