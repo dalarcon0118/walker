@@ -57,12 +57,36 @@ python ../walker/harness/runner.py --repo . --tasks eval/tasks.json --k 2 --no-m
 # publicar cada resultado en el TraceGraph de walker (por API MCP, sin tocar archivos)
 python ../walker/harness/runner.py --repo . --tasks eval/tasks.json \
   --jobs 4 --no-mcp --walker-project backend-microservices
+
+# publicar además el resumen de la sesión como conocimiento del proyecto
+python ../walker/harness/runner.py --repo . --tasks eval/tasks.json \
+  --summary ~/.cognitive/chat-summaries/summary-mi-sesion-20261117.md
 ```
 
+**Detección de proyecto.** Sin `--walker-project`, el runner resuelve el
+proyecto desde `--repo` con `ProjectService.resolve_from_registry` (manifest del
+layout cognitivo o registro global por `repo_path`) y lo imprime. Si no hay
+proyecto registrado, la corrida sigue pero no publica nada, avisando el motivo.
+`--walker-project` sigue existiendo como override.
+
+**Qué se publica.** Tres destinos distintos, que antes se confundían:
+
+| Destino | Tool | Qué guarda |
+|---|---|---|
+TraceGraph | `trace_push` (`eval.result`) | historial completo, un evento por corrida |
+Workflow | `capture` + `submit` | evidencia y estado del sprint |
+CKG | `documenting_knowledge` | **último** resultado por tarea (`eval-<task>-k<k>`, `eval-suite-latest`) y la sesión (`--summary`) |
+
+Los ids de conocimiento son determinísticos: re-correr actualiza el nodo en vez
+de duplicarlo (el historial vive en trace). `--summary` publica un nodo por
+decisión (`design-decision`), uno de estado de la sesión
+(`implementation_state`) y uno de próximos pasos.
+
 La ingesta usa `harness/walker_client.py`: levanta el MCP de walker por stdio,
-hace `initialize` y una llamada `trace_push` por resultado
-(`event_type: "eval.result"`). Si la ingesta falla, la corrida no se rompe: se
-avisa por stderr y el CSV queda igual.
+hace `initialize` y una llamada por resultado (`event_type: "eval.result"`). Si
+la ingesta falla, la corrida no se rompe: se avisa por stderr y el CSV queda
+igual. Sin filas (por ejemplo, todas las tareas deshabilitadas) `--summary`
+igual se publica.
 
 `--keepdb` se pasa al grader automáticamente: la base de tests se reutiliza entre
 corridas dentro del sandbox. Los prompts de las tareas piden correr solo el test

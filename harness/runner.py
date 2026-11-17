@@ -328,6 +328,204 @@ def summarize(rows: list[dict], stamp: str, wall_s: float) -> dict:
     }
 
 
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
+
+
+def detect_project(repo: Path) -> dict | None:
+    """Resuelve {project_id, repo_path} del repo vía el registro de walker.
+
+    Git-like: manifest del layout cognitivo más cercano o, si no, el registro
+    global comparando `repo_path`. La capacidad existe en
+    `ProjectService.resolve_from_registry`; el harness no la usaba, así que
+    había que pasar `--walker-project` a mano (y sin flag no se publicaba nada,
+    en silencio).
+
+    Se corre en subproceso para no atar el harness al venv/imports de walker.
+    """
+    walker_root = Path(__file__).resolve().parent.parent
+    snippet = (
+        "import json;"
+        "from fast_mcp.shared_kernel.project_support import ProjectService;"
+        f"print(json.dumps(ProjectService.resolve_from_registry({str(repo)!r})))"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", snippet],
+            cwd=str(walker_root),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env={**os.environ, "PYTHONPATH": str(walker_root)},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def eval_knowledge_nodes(rows: list[dict], stamp: str) -> list[dict]:
+    """Nodos de conocimiento con el ÚLTIMO resultado de cada tarea.
+
+    Antes el harness publicaba solo al TraceGraph, así que el CKG del proyecto
+    no sabía nada de las corridas: `documenting_knowledge` no se llamaba nunca.
+    El id es determinístico (`eval-<task>-k<k>`) → re-correr actualiza en vez de
+    duplicar; el historial completo sigue viviendo en trace (`eval.result`).
+    """
+    nodes: list[dict] = []
+    for row in rows:
+        passed = bool(row.get("pass"))
+        gate = row.get("walker_gate")
+        gate_txt = "n/a" if gate is None else ("ok" if gate else "fail")
+        nodes.append(
+            {
+                "id": f"eval-{_slug(row['task'])}-k{row['k']}",
+                "label": (
+                    f"Eval {row['task']} k{row['k']}: "
+                    f"{'PASS' if passed else 'FAIL'} — gate {gate_txt}"
+                ),
+                "description": (
+                    f"Última corrida del harness ({stamp}) sobre {row['task']}. "
+                    f"base={str(row.get('base'))[:8]} · modelo={row.get('model') or '?'} · "
+                    f"duración={row.get('duration_s')}s · tokens_in={row.get('tokens_in')} · "
+                    f"test_rc={row.get('test_rc')}. Cambió respecto de la corrida anterior "
+                    f"si este statement cambió (id determinístico)."
+                ),
+                "type": "verification",
+                "tags": ["verification", "eval",
+                         "result:pass" if passed else "result:fail"],
+                "metadata": {
+                    "run": stamp,
+                    "task": row["task"],
+                    "k": row["k"],
+                    "base": row.get("base"),
+                    "model": row.get("model"),
+                    "duration_s": row.get("duration_s"),
+                    "tokens_in": row.get("tokens_in"),
+                    "tokens_out": row.get("tokens_out"),
+                    "test_rc": row.get("test_rc"),
+                    "walker_gate": gate,
+                    "source": "harness",
+                },
+            }
+        )
+    if rows:
+        ok = sum(1 for r in rows if r.get("pass"))
+        nodes.append(
+            {
+                "id": "eval-suite-latest",
+                "label": f"Suite de eval: {ok}/{len(rows)} pass (run {stamp})",
+                "description": (
+                    "Estado de la última corrida completa del harness. "
+                    f"{len(rows)} resultado(s) en {len({r['task'] for r in rows})} tarea(s); "
+                    f"modelos={sorted({r.get('model') for r in rows if r.get('model')})}."
+                ),
+                "type": "verification",
+                "tags": ["verification", "eval", "suite"],
+                "metadata": {"run": stamp, "tasks": len(rows), "pass": ok,
+                             "source": "harness"},
+            }
+        )
+    return nodes
+
+
+def _md_section(text: str, name: str) -> str:
+    """Cuerpo de una sección `## name` (hasta el próximo `## `)."""
+    pattern = re.compile(
+        rf"^##\s+{re.escape(name)}\s*$([\s\S]*?)(?=^##\s|\Z)", re.MULTILINE | re.IGNORECASE
+    )
+    match = pattern.search(text)
+    return match.group(1).strip() if match else ""
+
+
+def _numbered_items(block: str, limit: int = 12) -> list[str]:
+    """Items de una lista numerada, con sus líneas de continuación."""
+    items: list[str] = []
+    current = ""
+    for line in block.splitlines():
+        stripped = line.strip()
+        if re.match(r"^\d+\.\s+", stripped):
+            if current:
+                items.append(current)
+            current = re.sub(r"^\d+\.\s+", "", stripped)
+        elif current and stripped and not stripped.startswith(("#", "|", "-", "*")):
+            current += " " + stripped
+        elif current and not stripped:
+            items.append(current)
+            current = ""
+        if len(items) >= limit:
+            break
+    if current and len(items) < limit:
+        items.append(current)
+    return [re.sub(r"\s+", " ", i).strip() for i in items if i.strip()][:limit]
+
+
+def summary_knowledge_nodes(path: Path) -> list[dict]:
+    """Convierte un summary de sesión (markdown) en nodos de conocimiento.
+
+    El runner solo ve task/pass/tokens/duración: las DECISIONES de una sesión
+    viven en la conversación, no en sus datos. Sin este paso el CKG nunca se
+    entera de por qué se tomó un camino (medido: 42 ADRs ingeridos, 0 nodos de
+    sesión).
+    """
+    text = path.read_text(encoding="utf-8")
+    slug = _slug(re.sub(r"^summary-", "", path.stem))
+    goal = re.sub(r"\s+", " ", _md_section(text, "Goal")).strip()
+    constraints = _md_section(text, "Constraints & Preferences")
+    next_steps = _numbered_items(_md_section(text, "Next Steps"))
+    decisions = _numbered_items(_md_section(text, "Key Decisions"))
+    blocked = _md_section(text, "Blocked")
+
+    nodes: list[dict] = []
+    if goal:
+        nodes.append(
+            {
+                "id": f"session-{slug}",
+                "label": f"Sesión {slug}: {goal[:200]}",
+                "description": (
+                    f"{goal[:900]} "
+                    f"[resumen: {path.name}; "
+                    f"{len(decisions)} decisión(es), {len(next_steps)} próximo(s) paso(s)]"
+                ),
+                "type": "implementation_state",
+                "tags": ["session", "summary"],
+                "metadata": {"source": str(path), "date": path.stem[-8:],
+                             "decisions": len(decisions),
+                             "blocked": bool(blocked)},
+            }
+        )
+    for idx, decision in enumerate(decisions, 1):
+        nodes.append(
+            {
+                "id": f"session-{slug}-decision-{idx:02d}",
+                "label": decision[:240],
+                "description": (
+                    f"Decisión {idx} registrada en el resumen de sesión {path.name}."
+                ),
+                "type": "design-decision",
+                "tags": ["decision", "session"],
+                "metadata": {"source": str(path), "session": slug, "order": idx},
+            }
+        )
+    if next_steps:
+        nodes.append(
+            {
+                "id": f"session-{slug}-next",
+                "label": f"Próximos pasos de la sesión {slug}",
+                "description": " · ".join(f"{i}) {s}" for i, s in enumerate(next_steps, 1))[:900],
+                "type": "implementation_state",
+                "tags": ["session", "next-steps"],
+                "metadata": {"source": str(path), "count": len(next_steps),
+                             "constraints": constraints[:300]},
+            }
+        )
+    return nodes
+
+
 def print_summary(summary: dict) -> None:
     """Imprime el agregado; distingue wall (paralelo) de la suma por tarea."""
     def fmt(value: float | None, unit: str = "") -> str:
@@ -386,6 +584,9 @@ def main() -> int:
                     help="dónde dejar resultados (default ~/.local/share/walker/harness-runs)")
     ap.add_argument("--walker-project", default=None,
                     help="si se pasa, publica cada resultado en el TraceGraph vía API MCP")
+    ap.add_argument("--summary", default=None,
+                    help="markdown de resumen de sesión: sus decisiones y próximos "
+                         "pasos se publican como conocimiento en el CKG del proyecto")
     ap.add_argument("--walker-gate", action="store_true",
                     help="además de pytest, pide el veredicto a walker.verify_predicates (project_root=sandbox)")
     ap.add_argument("--walker-strict", action="store_true",
@@ -394,6 +595,20 @@ def main() -> int:
     args = ap.parse_args()
 
     repo = Path(args.repo).resolve()
+    if not args.walker_project and not args.check_tasks and not args.dry_run:
+        detected = detect_project(repo)
+        if detected and detected.get("project_id"):
+            args.walker_project = detected["project_id"]
+            origen = (
+                "manifest"
+                if Path(str(detected.get("repo_path", ""))).resolve() == repo
+                else "registro"
+            )
+            print(f"  walker: proyecto detectado = {args.walker_project} "
+                  f"({origen}: {detected.get('repo_path')})")
+        else:
+            print(f"  walker: sin proyecto registrado para {repo} — la corrida no "
+                  f"publicará nada (usá --walker-project para forzarlo)")
     tasks = json.loads(Path(args.tasks).read_text())
     if args.filter:
         tasks = [t for t in tasks if args.filter in t["id"]]
@@ -655,6 +870,21 @@ def main() -> int:
 
     rows.sort(key=lambda r: (r["task"], r["k"]))
     if not rows:
+        # Sin corridas, pero con --summary: el resumen igual es conocimiento.
+        if args.walker_project and args.summary:
+            try:
+                from walker_client import WalkerClient
+
+                nodes = summary_knowledge_nodes(Path(args.summary).expanduser())
+                if nodes:
+                    with WalkerClient() as walker:
+                        walker.call("documenting_knowledge",
+                                    {"project_id": args.walker_project, "nodes": nodes})
+                    print(f"  walker: {len(nodes)} nodo(s) de sesión publicados "
+                          f"(sin corridas)")
+            except Exception as exc:
+                print(f"  ! walker: no se pudo publicar el summary: {exc}",
+                      file=sys.stderr)
         return 0
 
     csv_path = outdir / "results.csv"
@@ -663,7 +893,7 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(rows)
 
-    if args.walker_project and rows:
+    if args.walker_project:
         try:
             from walker_client import WalkerClient
 
@@ -697,6 +927,30 @@ def main() -> int:
                         walker.call(tool, payload)
                     except Exception as exc:
                         print(f"  ! walker: {tool} falló: {exc}", file=sys.stderr)
+
+                # Conocimiento (CKG): antes el harness SOLO publicaba trace, así
+                # que el CKG del proyecto no sabía nada de las corridas.
+                knowledge = eval_knowledge_nodes(rows, stamp)
+                sesion = 0
+                if args.summary:
+                    summary_path = Path(args.summary).expanduser().resolve()
+                    if summary_path.exists():
+                        extra = summary_knowledge_nodes(summary_path)
+                        sesion = len(extra)
+                        knowledge += extra
+                    else:
+                        print(f"  ! walker: summary no encontrado: {summary_path}",
+                              file=sys.stderr)
+                if knowledge:
+                    try:
+                        walker.call("documenting_knowledge",
+                                    {"project_id": args.walker_project, "nodes": knowledge})
+                        print(f"  walker: {len(knowledge)} nodo(s) de conocimiento "
+                              f"publicados ({len(knowledge) - sesion} de eval"
+                              f"{f', {sesion} de sesión' if sesion else ''})")
+                    except Exception as exc:
+                        print(f"  ! walker: documenting_knowledge falló: {exc}",
+                              file=sys.stderr)
             print(f"  walker: {publicado}/{len(rows)} resultado(s) publicados · {resumen}")
         except Exception as exc:  # nunca romper la medición por la ingesta
             print(f"  ! walker: no se pudieron publicar los resultados: {exc}", file=sys.stderr)

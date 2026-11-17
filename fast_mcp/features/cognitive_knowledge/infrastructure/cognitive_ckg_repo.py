@@ -45,6 +45,8 @@ _FACT_FIELDS = {
     "metadata", "supersedes", "subject", "statement",
     "context", "query_hints", "location", "api", "status",
     "author", "source", "confidence",
+    # `id`/`_id` los consume el repo para el upsert, no son metadata del fact.
+    "id", "_id",
 }
 
 
@@ -104,8 +106,16 @@ class CognitiveCkgRepository(CkgRepository):
             if not label or not str(label).strip():
                 continue
             t = item.get("type", "node")
-            batch_counters[t] = batch_counters.get(t, 0) + 1
-            doc_id = self.next_id(t, offset=batch_counters[t])
+            # ID explícito = upsert idempotente. Lo usan la ingesta de ADRs y
+            # la publicación del harness: re-correr el mismo proceso debe
+            # ACTUALIZAR el nodo, no crear un duplicado con id autoincremental
+            # (medido: dos corridas del ingest dejaban 84 nodos para 42 ADRs).
+            explicit_id = item.get("id") or item.get("_id")
+            if explicit_id:
+                doc_id = str(explicit_id).strip()
+            else:
+                batch_counters[t] = batch_counters.get(t, 0) + 1
+                doc_id = self.next_id(t, offset=batch_counters[t])
 
             # Resolve supersedes (match by statement against index)
             supersedes = list(item.get("supersedes", []) or [])

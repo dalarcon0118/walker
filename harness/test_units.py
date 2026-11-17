@@ -10,7 +10,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from runner import model_label, session_usage  # noqa: E402
+from runner import (  # noqa: E402
+    detect_project,
+    eval_knowledge_nodes,
+    model_label,
+    session_usage,
+    summary_knowledge_nodes,
+)
 
 
 def test_model_label_normaliza_provider_y_id():
@@ -115,3 +121,99 @@ def test_summarize_con_gate_cuenta_los_veredictos():
     ]
     s = summarize(rows, "run-w", wall_s=6.0)
     assert (s["gate_requested"], s["gate"]) == (True, 1)
+
+
+# ── Publicación de conocimiento (2026-11-17) ───────────────────────────────
+# Medido: 42 ADRs ingeridos y 0 nodos del harness en el CKG de walker. El
+# runner solo llamaba trace_push/capture/submit; `documenting_knowledge` no
+# aparecía en ningún lado. Además `--walker-project` era manual: sin flag no
+# se publicaba nada, sin aviso.
+
+_SUMMARY = """## Goal
+Hacer que el harness publique conocimiento.
+
+## Constraints & Preferences
+- no romper la medición
+
+## Progress
+### Done
+- algo hecho
+
+## Key Decisions
+1. Ids determinísticos para que re-correr actualice.
+2. Cortar la publicación si walker no responde,
+   sin abortar la corrida.
+
+## Next Steps
+1. Verificar el CKG del proyecto.
+2. Cerrar el sprint.
+
+## Critical Context
+- sin bloqueos
+"""
+
+
+def test_summary_knowledge_nodes_ids_deterministicos(tmp_path):
+    path = tmp_path / "summary-demo-20261117.md"
+    path.write_text(_SUMMARY)
+
+    nodes = summary_knowledge_nodes(path)
+    ids = [n["id"] for n in nodes]
+
+    assert ids[0] == "session-demo-20261117"
+    assert "session-demo-20261117-decision-01" in ids
+    assert "session-demo-20261117-decision-02" in ids
+    assert ids[-1] == "session-demo-20261117-next"
+    assert [n["id"] for n in summary_knowledge_nodes(path)] == ids, (
+        "el mismo resumen debe producir los mismos ids (upsert, no duplicado)"
+    )
+
+
+def test_summary_knowledge_nodes_tipos_y_continuacion(tmp_path):
+    path = tmp_path / "summary-demo-20261117.md"
+    path.write_text(_SUMMARY)
+
+    nodes = {n["id"]: n for n in summary_knowledge_nodes(path)}
+    decision = nodes["session-demo-20261117-decision-02"]
+
+    assert nodes["session-demo-20261117"]["type"] == "implementation_state"
+    assert decision["type"] == "design-decision"
+    assert "sin abortar la corrida" in decision["label"], (
+        "la línea de continuación del item numerado debe unirse"
+    )
+    assert "2)" in nodes["session-demo-20261117-next"]["description"]
+
+
+def test_summary_sin_goal_no_inventa_nodos(tmp_path):
+    path = tmp_path / "summary-vacio-20261117.md"
+    path.write_text("## Goal\n\n## Key Decisions\n")
+    assert summary_knowledge_nodes(path) == []
+
+
+def test_eval_knowledge_nodes_un_nodo_por_fila_mas_la_suite():
+    rows = [
+        {"task": "incident-1", "k": 1, "pass": True, "walker_gate": None,
+         "base": "abcdef123", "model": "m/x", "duration_s": 12.5,
+         "tokens_in": 100, "tokens_out": 10, "test_rc": 0},
+        {"task": "draw-2", "k": 1, "pass": False, "walker_gate": 0,
+         "base": "abcdef123", "model": "m/x", "duration_s": 30.0,
+         "tokens_in": 200, "tokens_out": 20, "test_rc": 1},
+    ]
+    nodes = eval_knowledge_nodes(rows, "20261117T101010")
+
+    assert [n["id"] for n in nodes] == [
+        "eval-incident-1-k1", "eval-draw-2-k1", "eval-suite-latest",
+    ]
+    assert nodes[0]["type"] == "verification"
+    assert "result:pass" in nodes[0]["tags"]
+    assert "result:fail" in nodes[1]["tags"]
+    assert "1/2 pass" in nodes[-1]["label"]
+
+
+def test_eval_knowledge_nodes_sin_filas_no_publica_nada():
+    assert eval_knowledge_nodes([], "20261117T101010") == []
+
+
+def test_detect_project_sin_registro_devuelve_none(tmp_path):
+    """Sin proyecto registrado debe devolver None (no adivinar)."""
+    assert detect_project(tmp_path) is None

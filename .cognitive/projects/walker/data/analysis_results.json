@@ -3,8 +3,8 @@
   "missing_returns": [],
   "infinite_loops": [],
   "cfg_cache": {
-    "cached_files": 627,
-    "hits": 480
+    "cached_files": 873,
+    "hits": 0
   },
-  "cfg_cache_hits": 480
+  "cfg_cache_hits": 0
 }
