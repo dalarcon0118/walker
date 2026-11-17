@@ -407,3 +407,35 @@ explícito.
 
 `R1`: la feature `tasks` no puede importar `code_analysis`, así que el
 composition root inyecta la factory con `handlers.baseline.configure(...)`.
+
+### Ancla del contexto: delta → archivo → texto
+
+`agent_context` resuelve el ancla en cascada y **siempre la declara**:
+
+```json
+"anchor": {"type": "task", "value": "SPEC-001", "resolved": true,
+           "files": ["pkg/logic.py"]}
+```
+
+- `task`: la spec del delta (sprint activo o en `planning`), de la que salen
+  `objective`, `acceptance_criteria`, `preconditions`, `predicates` y los
+  archivos. El primer archivo se usa como scope del CPG.
+- `file`: cuando no hay tarea pero el agente ya nombró un archivo. Lleva
+  `reason` explicando por qué no se usó la tarea.
+- `text`: búsqueda por texto.
+- `none`: sin ancla posible, con `reason`. Un contexto vacío sin explicación se
+  lee como «no hay nada que saber», que no es lo mismo.
+
+Dos cosas que estaban rotas y que la cascada destapó:
+
+- `SprintService.from_chain_dir` exige un `path_resolver` inyectado; sin él
+  devuelve `None`, así que **todo `task_id` parecía inexistente**. Ahora el
+  composition root expone `build_sprint_service(chain_dir)`.
+- `get_active_spring()` devuelve `None` cuando el sprint está en `planning`, así
+  que una tarea recién creada nunca se encontraba. Se busca en el activo y, si
+  no hay, en todos los springs.
+
+Estado real medido (2026-11-17): el índice `delta` está **vacío en walker,
+backend-microservices y game_reset**, y solo el 0,4% de los eventos de traza
+llevan `task_id` (4 de 955). La cascada es correcta, pero hoy el ancla es el
+archivo casi siempre, no la tarea.

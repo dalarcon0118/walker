@@ -457,6 +457,16 @@ def _build_sprint_service(chain_dir: str):
     return SprintService(project_root=chain_dir, repo=_build_delta_repo(chain_dir))
 
 
+def build_sprint_service(chain_dir: str):
+    """API pública del composition root para leer el delta desde otra capa.
+
+    `SprintService.from_chain_dir` exige un `path_resolver` inyectado; sin él
+    devuelve None y todo `task_id` parecía no existir. Este helper arma el
+    servicio con su repo, igual que el runner de delta.
+    """
+    return _build_sprint_service(chain_dir)
+
+
 def _emit_task_after(name, ctx, result) -> None:
     """Notifica `task.after` al bus de hooks del proyecto del task.
 

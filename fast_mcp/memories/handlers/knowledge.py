@@ -227,6 +227,80 @@ def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
     return {"error": "Invalid queries format"}
 
 
+def _resolve_anchor(
+    ctx: MemoryContext, task_id: str, target_file: str, query: str
+) -> tuple[dict, list[str], dict | None]:
+    """Decide el ancla del contexto: delta (tarea) → archivo → texto.
+
+    Devuelve (anchor, files_de_la_tarea, spec). `anchor["reason"]` explica el
+    fallback para que el agente sepa qué NO se pudo consultar.
+    """
+    if task_id:
+        spec = _find_task_spec(ctx.chain_dir, task_id)
+        if spec:
+            files = [f for f in (spec.get("files") or []) if isinstance(f, str)]
+            return (
+                {"type": "task", "value": task_id, "resolved": True,
+                 "files": files[:10]},
+                files,
+                {k: spec.get(k) for k in (
+                    "spec_id", "objective", "status", "description",
+                    "acceptance_criteria", "preconditions", "predicates",
+                )},
+            )
+        reason = "task_id no está en el delta (sin sprint/spec con ese id)"
+        if target_file:
+            return {"type": "file", "value": target_file, "resolved": True, "reason": reason}, [], None
+        if query:
+            return {"type": "text", "value": query, "resolved": True, "reason": reason}, [], None
+        return {"type": "none", "value": "", "resolved": False, "reason": reason}, [], None
+
+    if target_file:
+        return {"type": "file", "value": target_file, "resolved": True}, [], None
+    if query:
+        return {"type": "text", "value": query, "resolved": True}, [], None
+    return {
+        "type": "none", "value": "", "resolved": False,
+        "reason": "sin task_id, file ni text: no hay ancla para el contexto",
+    }, [], None
+
+
+def _find_task_spec(chain_dir: str, task_id: str) -> dict | None:
+    """Busca la spec de la tarea en el delta. None si no hay sprint o no está."""
+    try:
+        # `SprintService.from_chain_dir` requiere un resolver inyectado y sin
+        # él devolvía None: TODO task_id parecía inexistente. El composition
+        # root expone el builder con su repo.
+        from fast_mcp.composition import build_sprint_service
+
+        service = build_sprint_service(chain_dir)
+        if service is None:
+            return None
+        # `get_active_spring` devuelve None si el sprint está en `planning`
+        # (no "active"), así que una tarea recién creada nunca se encontraba.
+        # Se busca en el sprint activo y, si no hay, en todos.
+        springs = []
+        active = service.get_active_spring()
+        if active:
+            springs.append(active)
+        springs.extend(service.list_springs() or [])
+        seen: set[str] = set()
+        for spring in springs:
+            spring_id = str(spring.get("spring_id") or spring.get("id") or "")
+            if not spring_id or spring_id in seen:
+                continue
+            seen.add(spring_id)
+            for spec in service.get_specs(spring_id) or []:
+                if task_id in (str(spec.get("spec_id", "")), str(spec.get("objective", ""))):
+                    return spec
+            found = service.get_spec(spring_id, task_id)
+            if found:
+                return found
+        return None
+    except Exception:  # noqa: BLE001 — sin delta el ancla cae al archivo
+        return None
+
+
 def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Contexto consolidado: CKG + CPG (impacto) + TRACE.
 
@@ -242,10 +316,22 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     ckg_q = body.get("ckg", {}) or {}
     query = ckg_q.get("text", ckg_q.get("query", "")) or body.get("text", "") or ""
     target_file = body.get("file", "") or kwargs.get("file", "")
+    task_id = str(body.get("task_id", "") or kwargs.get("task_id", "") or "")
+
+    # ANCLA en cascada: la tarea (delta) manda porque es lo que el agente está
+    # trabajando; si no hay tarea registrada se cae al archivo y después al
+    # texto. La respuesta dice SIEMPRE en qué se ancló: un contexto vacío sin
+    # explicación se lee como "no hay nada que saber" y no es lo mismo que
+    # "no encontré el ancla".
+    anchor, anchor_files, task_spec = _resolve_anchor(ctx, task_id, target_file, query)
+    if not target_file and anchor_files:
+        target_file = anchor_files[0]
 
     out: dict[str, Any] = {
         "type": "agent_context",
         "project_id": kwargs.get("_project_id", ctx.project_id),
+        "anchor": anchor,
+        "task": task_spec,
         "file": target_file,
         "text": query,
     }
@@ -255,6 +341,7 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     out["ckg"] = {"results": result.value_or([]) if is_successful(result) else []}
 
     # CPG: qué toca este archivo/símbolo (llamadas, llamadores, imports).
+    # Si el ancla fue una tarea, se usa su primer archivo declarado.
     if target_file or query:
         try:
             cpg = ctx.code_context_service().execute(
@@ -280,7 +367,11 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
 
         service = build_trace_service(ctx.chain_dir)
         if service is not None:
-            events = service.load_traces(ctx.chain_dir)[-8:]
+            events = service.load_traces(ctx.chain_dir)
+            if task_id:
+                filtered = [e for e in events if task_id in str(e.task_id or "")]
+                events = filtered or events
+            events = events[-8:]
             out["trace"] = [
                 {"event": e.event_type, "at": (e.timestamp or "")[:19], "data": e.data}
                 for e in events
