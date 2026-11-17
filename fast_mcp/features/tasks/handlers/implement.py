@@ -44,15 +44,20 @@ def _persist_spec(
     if not spring_id:
         return None
 
-    from fast_mcp.features.tasks.handlers.spec_derive import derive
+    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates, derive
 
     derived = derive(objective or "")
+    mapped = criteria_to_predicates(derived["acceptance_criteria"], ctx.chain_dir)
     base = {
         "objective": objective or task_id or "tarea sin objetivo",
         "files": files,
         "status": "in_progress",
         "acceptance_criteria": derived["acceptance_criteria"],
         "preconditions": derived["preconditions"],
+        "predicates": {
+            "items": mapped["predicates"],
+            "unmapped": mapped["unmapped"],
+        },
         "task_context": {
             "task_id": task_id,
             "session_id": ctx.session_id or "",
@@ -80,6 +85,7 @@ def _persist_spec(
             service, spring_id, task_id, ctx.session_id, files, objective,
             criteria=base["acceptance_criteria"],
             preconditions=base["preconditions"],
+            predicates=base["predicates"],
             derived=derived["source"],
         )
     return _attach_task_context(service, spring_id, task_id, ctx.session_id, files, objective)
@@ -89,6 +95,7 @@ def _attach_task_context(
     service, spring_id, task_id, session_id, files, objective,
     criteria: list[str] | None = None,
     preconditions: list[str] | None = None,
+    predicates: dict | None = None,
     derived: str = "empty",
 ) -> dict | None:
     """`add_spec` no acepta `task_context` ni criterios: se completan con un update."""
@@ -102,6 +109,7 @@ def _attach_task_context(
         "files": files,
         "acceptance_criteria": criteria or [],
         "preconditions": preconditions or [],
+        "predicates": predicates or {},
     }
     for spec in reversed(specs):
         if str(spec.get("objective", "")) == (objective or task_id or "tarea sin objetivo"):

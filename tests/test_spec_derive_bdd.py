@@ -103,3 +103,71 @@ def test_implement_task_persiste_los_criterios(monkeypatch):
     spec = svc.specs["SPR-1"][0]
     assert spec["acceptance_criteria"] == ["sin romper los tests"]
     assert spec["task_context"]["derived"] == "heuristic"
+
+
+# ── criterios → predicados ejecutables ──────────────────────────────────
+
+
+def test_criterio_de_tests_se_convierte_en_comando(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates
+
+    (tmp_path / "tests").mkdir()
+
+    out = criteria_to_predicates(["sin romper los tests existentes"], str(tmp_path))
+
+    assert out["test_command"] == "python -m pytest -q"
+    assert out["predicates"][0]["type"] == "command_exit"
+    assert out["predicates"][0]["command"] == "python -m pytest -q"
+    assert out["unmapped"] == []
+
+
+def test_no_tocar_tests_usa_git_diff_y_se_marca_fragil(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates
+
+    out = criteria_to_predicates(["no modifiques los tests"], str(tmp_path))
+
+    pred = out["predicates"][0]
+    assert pred["command"].startswith("git diff --quiet")
+    assert pred["fragile"] is True, "depende de no haber commiteado: hay que decirlo"
+
+
+def test_detecta_django_y_node(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates
+
+    (tmp_path / "manage.py").write_text("")
+    assert criteria_to_predicates(["los tests pasan"], str(tmp_path))["test_command"].startswith(
+        "python manage.py test"
+    )
+
+    (tmp_path / "manage.py").unlink()
+    (tmp_path / "package.json").write_text("{}")
+    assert criteria_to_predicates(["tests pass"], str(tmp_path))["test_command"].startswith("npm test")
+
+
+def test_sin_comando_inferible_queda_unmapped(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates
+
+    out = criteria_to_predicates(["que los tests pasen"], str(tmp_path))
+
+    assert out["predicates"] == []
+    assert "comando de tests" in out["unmapped"][0]["reason"]
+
+
+def test_criterio_no_ejecutable_se_declara(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates
+
+    out = criteria_to_predicates(["no cambies la API pública"], str(tmp_path))
+
+    assert out["predicates"] == []
+    assert out["unmapped"][0]["criterion"] == "no cambies la API pública"
+
+
+def test_no_duplica_el_mismo_comando(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates
+
+    (tmp_path / "tests").mkdir()
+    out = criteria_to_predicates(
+        ["sin romper los tests", "los tests deben pasar"], str(tmp_path)
+    )
+
+    assert len(out["predicates"]) == 1

@@ -97,3 +97,87 @@ def derive(objective: str) -> dict:
         "preconditions": preconditions,
         "source": "heuristic" if (criteria or preconditions) else "empty",
     }
+
+
+# ── De criterio a predicado ejecutable ────────────────────────────────────
+#
+# VERIFY necesita predicados que el motor pueda correr, no prosa. Sólo algunas
+# familias de criterio son ejecutables sin escribir un test nuevo: correr la
+# suite y no haber tocado los tests. El resto se devuelve como `unmapped` con
+# el motivo — un predicado inventado que siempre pasa es peor que ninguno.
+
+_TEST_CRITERIA = ("tests", "test", "pytest", "suite")
+_NO_TOUCH_TESTS = ("no modifiques los tests", "no modificar los tests",
+                   "no toques los tests", "sin tocar los tests",
+                   "sin cambiar los tests", "no cambies los tests")
+
+
+def _test_command(project_root: str) -> str:
+    """Comando de tests del proyecto, o '' si no se puede inferir."""
+    import os
+
+    if not project_root or not os.path.isdir(project_root):
+        return ""
+    if os.path.isfile(os.path.join(project_root, "manage.py")):
+        return "python manage.py test --keepdb"
+    if (
+        os.path.isfile(os.path.join(project_root, "pyproject.toml"))
+        or os.path.isfile(os.path.join(project_root, "pytest.ini"))
+        or os.path.isdir(os.path.join(project_root, "tests"))
+    ):
+        return "python -m pytest -q"
+    if os.path.isfile(os.path.join(project_root, "package.json")):
+        return "npm test --silent"
+    return ""
+
+
+def criteria_to_predicates(criteria: list[str], project_root: str) -> dict:
+    """Traduce criterios a predicados del `verify_engine`.
+
+    Returns:
+        {"predicates": [...], "unmapped": [{criterion, reason}], "test_command": str}
+    """
+    predicates: list[dict] = []
+    unmapped: list[dict] = []
+    test_cmd = _test_command(project_root)
+    seen: set[str] = set()
+
+    for criterion in criteria or []:
+        low = (criterion or "").lower()
+        if not low.strip():
+            continue
+
+        if any(m in low for m in _NO_TOUCH_TESTS):
+            key = "git-diff-tests"
+            if key not in seen:
+                seen.add(key)
+                predicates.append({
+                    "type": "command_exit",
+                    "command": "git diff --quiet -- tests",
+                    "description": criterion,
+                    "fragile": True,
+                    "note": "pasa si no hay cambios sin commitear en tests/",
+                })
+            continue
+
+        if any(m in low for m in _TEST_CRITERIA):
+            if not test_cmd:
+                unmapped.append({"criterion": criterion,
+                                 "reason": "no se pudo inferir el comando de tests"})
+                continue
+            key = f"run:{test_cmd}"
+            if key not in seen:
+                seen.add(key)
+                predicates.append({
+                    "type": "command_exit",
+                    "command": test_cmd,
+                    "description": criterion,
+                })
+            continue
+
+        unmapped.append({
+            "criterion": criterion,
+            "reason": "no ejecutable sin un test nuevo (queda para revisión manual)",
+        })
+
+    return {"predicates": predicates, "unmapped": unmapped, "test_command": test_cmd}
