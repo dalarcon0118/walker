@@ -40,6 +40,14 @@ class TrustedKey:
     id: str
     ed25519: str  # public key raw en base64
     added_at: str = ""
+    revoked_at: str = ""
+    revoked_reason: str = ""
+    rotated_at: str = ""
+    rotated_from: str = ""  # fingerprint corto de la clave anterior
+
+    @property
+    def revoked(self) -> bool:
+        return bool(self.revoked_at)
 
 
 def keys_path() -> Path:
@@ -63,6 +71,10 @@ def load_keys(path: str | Path | None = None) -> dict[str, TrustedKey]:
             id=str(raw["id"]),
             ed25519=str(raw["ed25519"]),
             added_at=str(raw.get("added_at", "")),
+            revoked_at=str(raw.get("revoked_at", "")),
+            revoked_reason=str(raw.get("revoked_reason", "")),
+            rotated_at=str(raw.get("rotated_at", "")),
+            rotated_from=str(raw.get("rotated_from", "")),
         )
     return keys
 
@@ -72,7 +84,15 @@ def save_keys(keys: dict[str, TrustedKey], path: str | Path | None = None) -> Pa
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "keys": [
-            {"id": key.id, "ed25519": key.ed25519, "added_at": key.added_at}
+            {
+                "id": key.id,
+                "ed25519": key.ed25519,
+                "added_at": key.added_at,
+                "revoked_at": key.revoked_at,
+                "revoked_reason": key.revoked_reason,
+                "rotated_at": key.rotated_at,
+                "rotated_from": key.rotated_from,
+            }
             for key in keys.values()
         ]
     }
@@ -140,6 +160,55 @@ def generate_keypair(directory: str | Path, key_id: str) -> tuple[Path, Path]:
     return priv_path, pub_path
 
 
+def revoke_key(
+    key_id: str, reason: str = "", path: str | Path | None = None
+) -> TrustedKey:
+    """Marca una clave como revocada (deja de verificar firmas nuevas)."""
+    keys = load_keys(path)
+    key = keys.get(key_id)
+    if key is None:
+        raise SignatureError(f"no existe la clave '{key_id}'")
+    updated = TrustedKey(
+        id=key.id,
+        ed25519=key.ed25519,
+        added_at=key.added_at,
+        revoked_at=datetime.now(timezone.utc).isoformat(),
+        revoked_reason=reason,
+        rotated_at=key.rotated_at,
+        rotated_from=key.rotated_from,
+    )
+    keys[key_id] = updated
+    save_keys(keys, path)
+    return updated
+
+
+def rotate_key(
+    key_id: str, new_public_b64: str, path: str | Path | None = None
+) -> TrustedKey:
+    """Reemplaza el material de una clave conservando el id.
+
+    La clave anterior deja de validar: las firmas viejas fallan (esperado) y hay
+    que firmar de nuevo con la privada nueva. Se registra `rotated_from` para
+    auditar el cambio.
+    """
+    keys = load_keys(path)
+    key = keys.get(key_id)
+    if key is None:
+        raise SignatureError(f"no existe la clave '{key_id}'")
+    updated = TrustedKey(
+        id=key.id,
+        ed25519=new_public_b64,
+        added_at=key.added_at,
+        revoked_at=key.revoked_at,
+        revoked_reason=key.revoked_reason,
+        rotated_at=datetime.now(timezone.utc).isoformat(),
+        rotated_from=key.ed25519[:16],
+    )
+    keys[key_id] = updated
+    save_keys(keys, path)
+    return updated
+
+
 def sign_digest(digest_hex: str, private_key_path: str | Path, key_id: str) -> dict:
     private = load_private_key(private_key_path)
     signature = private.sign(digest_hex.encode("utf-8"))
@@ -189,6 +258,13 @@ def verify_package(
         raise SignatureError(
             f"firmado por '{key_id}', que NO está en las claves confiables "
             f"({keys_path()}). Si confiás en esa clave: walker hooks keys add"
+        )
+    if key.revoked:
+        motivo = f" — {key.revoked_reason}" if key.revoked_reason else ""
+        raise SignatureError(
+            f"firmado por '{key_id}', clave REVOCADA el {key.revoked_at[:10]}"
+            f"{motivo}. Un paquete firmado con una clave revocada no se instala: "
+            "pedile al autor que firme con la clave nueva"
         )
     if str(payload.get("sha256", "")).lower() != tree_digest(directory):
         raise SignatureError(

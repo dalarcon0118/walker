@@ -23,6 +23,7 @@ import pytest
 from fast_mcp.shared_kernel.hooks.bus import HookBus, HookSpec, _scrub_env, _wrap_command
 from fast_mcp.shared_kernel.hooks.package import (
     HookManifestError,
+    doctor_report,
     install,
     installed,
     read_manifest,
@@ -309,3 +310,79 @@ def test_hook_sin_fs_repo_no_puede_escribir_en_el_repo(tmp_path, monkeypatch):
     bus.emit("commit", {})
 
     assert not out.exists(), "sin fs:repo el hook no puede escribir en el repo"
+
+
+# ── Revocación y rotación de claves ────────────────────────────────────────
+
+def test_clave_revocada_no_verifica(tmp_path, trust):
+    from fast_mcp.shared_kernel.hooks.signature import revoke_key
+
+    source = _package(tmp_path)
+    private, public = generate_keypair(tmp_path / "keys", "david")
+    write_signature(source, private, "david")
+    _trust_key(trust, "david", public.read_text().strip())
+    assert verify_package(source)[0] is True
+
+    revoke_key("david", "privada filtrada")
+
+    with pytest.raises(SignatureError) as exc:
+        verify_package(source)
+    message = str(exc.value)
+    assert "REVOCADA" in message
+    assert "privada filtrada" in message
+
+
+def test_install_rechaza_paquete_firmado_con_clave_revocada(tmp_path, trust):
+    from fast_mcp.shared_kernel.hooks.signature import revoke_key
+
+    source = _package(tmp_path)
+    private, public = generate_keypair(tmp_path / "keys", "david")
+    write_signature(source, private, "david")
+    _trust_key(trust, "david", public.read_text().strip())
+    revoke_key("david")
+
+    with pytest.raises(HookManifestError) as exc:
+        install(source, tmp_path / "home", walker_version="3.0.0",
+                require_signature=True)
+    assert "REVOCADA" in str(exc.value)
+    assert installed(tmp_path / "home") == []
+
+
+def test_rotacion_invalida_firmas_viejas_y_acepta_las_nuevas(tmp_path, trust):
+    from fast_mcp.shared_kernel.hooks.signature import rotate_key
+
+    source = _package(tmp_path)
+    old_private, old_public = generate_keypair(tmp_path / "keys", "david")
+    new_private, new_public = generate_keypair(tmp_path / "keys2", "david")
+    write_signature(source, old_private, "david")
+    _trust_key(trust, "david", old_public.read_text().strip())
+    assert verify_package(source)[0] is True
+
+    rotate_key("david", new_public.read_text().strip())
+
+    with pytest.raises(SignatureError) as exc:
+        verify_package(source)
+    assert "firma inválida" in str(exc.value), (
+        "la firma vieja no puede validar con el material nuevo"
+    )
+
+    write_signature(source, new_private, "david")
+    assert verify_package(source)[0] is True
+
+
+def test_doctor_reporta_clave_revocada(tmp_path, trust, monkeypatch):
+    from fast_mcp.shared_kernel.hooks.signature import revoke_key
+
+    home = tmp_path / "home"
+    source = _package(tmp_path)
+    private, public = generate_keypair(tmp_path / "keys", "david")
+    write_signature(source, private, "david")
+    _trust_key(trust, "david", public.read_text().strip())
+    install(source, home, walker_version="3.0.0")
+    revoke_key("david", "rotación")
+    monkeypatch.setenv("WALKER_HOOKS_HOME", str(home))
+
+    report = doctor_report(tmp_path, walker_version="3.0.0", hooks_home_dir=str(home))
+
+    assert any("REVOCADA" in issue for issue in report["issues"])
+    assert report["global"][0]["signed"] is False

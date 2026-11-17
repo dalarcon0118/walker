@@ -233,6 +233,26 @@ Límites: la firma prueba que el contenido lo firmó esa clave; no prueba que la
 clave sea de quien dice ser (eso es gestión de claves, fuera de alcance), ni
 protege si la clave privada se filtra.
 
+#### Revocación y rotación
+
+```bash
+python3 scripts/hooks_cli.py keys revoke david --reason "privada filtrada"
+python3 scripts/hooks_cli.py keys list
+python3 scripts/hooks_cli.py keys rotate david --public-key david-nueva.pub
+```
+
+- `revoke` marca la clave con fecha y motivo. Una firma de una clave revocada
+  **no instala ni actualiza**: el error dice cuándo se revocó y por qué. Los
+  paquetes ya instalados aparecen en `doctor` como `firma inválida: … REVOCADA`.
+- `rotate` cambia el material conservando el id y registra `rotated_from`
+  (fingerprint corto del anterior). Las firmas viejas dejan de validar, que es
+  el punto; hay que re-firmar con la privada nueva.
+- Rotar **no** limpia una revocación: si la clave se revocó por compromiso,
+  `rotate` la deja revocada y avisa. Para volver a confiar hay que
+  `keys remove` + `keys add` con la clave nueva, que es una decisión explícita.
+- Un id ya existente no se puede `add` de nuevo (para no revivir una clave
+  revocada sin querer): el CLI pide `rotate` o `remove`.
+
 ### Permisos
 
 El manifiesto declara lo que el hook necesita; el vocabulario es cerrado (un

@@ -32,8 +32,9 @@ from fast_mcp.shared_kernel.hooks.signature import (  # noqa: E402
     TrustedKey,
     keys_path,
     load_keys,
+    revoke_key,
+    rotate_key,
     save_keys,
-    sign_digest,
     write_signature,
 )
 from fast_mcp.shared_kernel.hooks.package import (  # noqa: E402
@@ -139,7 +140,42 @@ def _cmd_keys(args) -> int:
         if not keys:
             print(f"sin claves confiables ({keys_path()})")
         for key in keys.values():
-            print(f"  {key.id:<20} {key.ed25519[:16]}…  {key.added_at}")
+            extra = ""
+            if key.revoked:
+                extra = f" · REVOCADA {key.revoked_at[:10]}"
+                if key.revoked_reason:
+                    extra += f" ({key.revoked_reason})"
+            elif key.rotated_at:
+                extra = f" · rotada {key.rotated_at[:10]} (antes {key.rotated_from}…)"
+            print(f"  {key.id:<20} {key.ed25519[:16]}…  {key.added_at}{extra}")
+        return 0
+    if args.action in ("revoke", "rotate"):
+        if not args.id:
+            print(f"error: keys {args.action} requiere un id", file=sys.stderr)
+            return 2
+        try:
+            if args.action == "revoke":
+                key = revoke_key(args.id, args.reason or "")
+                print(f"clave '{key.id}' revocada ({key.revoked_at[:10]})")
+            else:
+                raw = (args.public_key or "").strip()
+                from pathlib import Path as _P
+
+                if _P(raw).is_file():
+                    raw = _P(raw).read_text().strip()
+                if not raw:
+                    print("error: rotate requiere --public-key", file=sys.stderr)
+                    return 2
+                key = rotate_key(args.id, raw)
+                print(f"clave '{key.id}' rotada (antes {key.rotated_from}…)")
+                if key.revoked:
+                    print(
+                        f"  ! la clave sigue REVOCADA ({key.revoked_at[:10]}): rotar "
+                        "no restaura la confianza. Para volver a confiar, remove + add."
+                    )
+        except SignatureError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         return 0
     if args.action == "add":
         raw = args.public_key.strip()
@@ -149,6 +185,13 @@ def _cmd_keys(args) -> int:
             raw = _P(raw).read_text().strip()
         if not raw:
             print("error: --public-key vacío", file=sys.stderr)
+            return 2
+        if args.id in keys:
+            print(
+                f"error: la clave '{args.id}' ya existe; usá 'keys rotate' para "
+                "cambiar el material o 'keys remove' para borrarla",
+                file=sys.stderr,
+            )
             return 2
         from datetime import datetime, timezone
 
@@ -302,10 +345,11 @@ def main() -> int:
         p.add_argument("id")
 
     p_keys = sub.add_parser("keys", help="claves ed25519 confiables")
-    p_keys.add_argument("action", choices=["list", "add", "remove"])
+    p_keys.add_argument("action", choices=["list", "add", "remove", "revoke", "rotate"])
     p_keys.add_argument("id", nargs="?")
     p_keys.add_argument("--public-key", default=None,
                         help="base64 de la clave pública o path a un .pub")
+    p_keys.add_argument("--reason", default="", help="motivo de la revocación")
 
     p_sign = sub.add_parser("sign", help="firma un paquete con una clave privada")
     p_sign.add_argument("path")
