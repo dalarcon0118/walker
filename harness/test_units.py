@@ -55,3 +55,63 @@ def test_agent_default_model_lee_frontmatter_y_json(tmp_path):
     (tmp_path / "sinmodelo.md").write_text("---\ntools: {}\n---\n")
     assert agent_default_model("sinmodelo", tmp_path) is None
     assert agent_default_model("no-existe", tmp_path) is None
+
+
+def test_summarize_agrega_e_ignora_none():
+    """El resumen es la señal: totales y mediana, sin que un None rompa nada."""
+    from runner import summarize
+
+    rows = [
+        {"pass": 1, "walker_gate": 1, "tokens_in": 100, "tokens_out": 10,
+         "duration_s": 10.0, "model": "m"},
+        {"pass": 1, "walker_gate": 1, "tokens_in": 300, "tokens_out": 30,
+         "duration_s": 30.0, "model": "m"},
+        {"pass": 0, "walker_gate": 0, "tokens_in": None, "tokens_out": None,
+         "duration_s": 20.0, "model": "m"},
+    ]
+    s = summarize(rows, "run-x", wall_s=99.0)
+
+    assert s["tokens_in"] == {"total": 400.0, "median": 200.0, "min": 100.0, "max": 300.0}
+    assert s["duration_s"]["median"] == 20.0
+    assert (s["pass"], s["gate"], s["tasks"]) == (2, 2, 3)
+    assert s["model_comparable"] is True
+    assert s["wall_s"] == 99.0
+
+
+def test_summarize_marca_modelos_mezclados():
+    """Si la corrida mezcla modelos, el resumen lo grita (tokens no comparables)."""
+    from runner import summarize
+
+    rows = [
+        {"pass": 1, "walker_gate": 1, "tokens_in": 1, "tokens_out": 1,
+         "duration_s": 1.0, "model": "a/x"},
+        {"pass": 1, "walker_gate": 1, "tokens_in": 2, "tokens_out": 2,
+         "duration_s": 2.0, "model": "b/y"},
+    ]
+    s = summarize(rows, "run-y", wall_s=3.0)
+    assert s["model_comparable"] is False
+    assert s["models"] == ["a/x", "b/y"]
+
+
+def test_summarize_sin_gate_no_reporta_fallos():
+    """Sin --walker-gate los rows traen walker_gate=None: eso es 'n/a', no '0/1'."""
+    from runner import summarize
+
+    rows = [{"pass": 1, "walker_gate": None, "tokens_in": 10, "tokens_out": 1,
+             "duration_s": 5.0, "model": "m"}]
+    s = summarize(rows, "run-z", wall_s=6.0)
+    assert s["gate_requested"] is False
+    assert s["gate"] == 0
+
+
+def test_summarize_con_gate_cuenta_los_veredictos():
+    from runner import summarize
+
+    rows = [
+        {"pass": 1, "walker_gate": 1, "tokens_in": 10, "tokens_out": 1,
+         "duration_s": 5.0, "model": "m"},
+        {"pass": 1, "walker_gate": 0, "tokens_in": 10, "tokens_out": 1,
+         "duration_s": 5.0, "model": "m"},
+    ]
+    s = summarize(rows, "run-w", wall_s=6.0)
+    assert (s["gate_requested"], s["gate"]) == (True, 1)

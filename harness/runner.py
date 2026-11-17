@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import sqlite3
+import statistics
 import subprocess
 import sys
 import threading
@@ -213,6 +214,77 @@ def resolve_base(repo: Path, task: dict) -> str | None:
         return None
     rc, out, _ = run(["git", "rev-parse", "--verify", f"{fix}^"], repo, os.environ.copy(), 30)
     return out.strip() if rc == 0 else None
+
+
+def _stats(values: list) -> dict:
+    """total/mediana/min/max de una métrica, ignorando None (DB sin sesión)."""
+    clean = [float(v) for v in values if v is not None]
+    if not clean:
+        return {"total": None, "median": None, "min": None, "max": None}
+    return {
+        "total": round(sum(clean), 1),
+        "median": round(statistics.median(clean), 1),
+        "min": round(min(clean), 1),
+        "max": round(max(clean), 1),
+    }
+
+
+def summarize(rows: list[dict], stamp: str, wall_s: float) -> dict:
+    """Agregado por corrida: la señal está en total/mediana, NO por tarea.
+
+    Medido 2026-11-16 con el modelo pinneado: la misma tarea contra el mismo
+    commit base varió 0,71x–2,20x en tokens_in entre dos corridas. Leer una
+    fila aislada del CSV lleva a conclusiones falsas sobre el código.
+    """
+    models = sorted({str(r.get("model")) for r in rows if r.get("model")})
+    gates = [r.get("walker_gate") for r in rows]
+    return {
+        "run": stamp,
+        "tasks": len(rows),
+        "pass": sum(int(r["pass"]) for r in rows),
+        "gate": sum(1 for g in gates if g == 1),
+        # None = no se pidió gate (--walker-gate ausente); no es un fallo.
+        "gate_requested": any(g is not None for g in gates),
+        "models": models,
+        "model_comparable": len(models) <= 1,
+        "wall_s": round(wall_s, 1),
+        "tokens_in": _stats([r.get("tokens_in") for r in rows]),
+        "tokens_out": _stats([r.get("tokens_out") for r in rows]),
+        "duration_s": _stats([r.get("duration_s") for r in rows]),
+    }
+
+
+def print_summary(summary: dict) -> None:
+    """Imprime el agregado; distingue wall (paralelo) de la suma por tarea."""
+    def fmt(value: float | None, unit: str = "") -> str:
+        if value is None:
+            return "?"
+        return f"{value:,.0f}{unit}" if float(value).is_integer() or unit else f"{value:,.1f}"
+
+    gate_txt = (
+        f"{summary['gate']}/{summary['tasks']} gate"
+        if summary.get("gate_requested", True)
+        else "gate n/a"
+    )
+    print(
+        f"\nresumen · {summary['tasks']} tarea(s) · "
+        f"{summary['pass']}/{summary['tasks']} pass · "
+        f"{gate_txt} · wall {summary['wall_s']:,.1f} s"
+    )
+    if summary["models"]:
+        print(f"  modelo: {' · '.join(summary['models'])}")
+    if not summary["model_comparable"]:
+        print("  ! modelos MEZCLADOS en la corrida: tokens no comparables")
+    for label, key in (("tokens_in ", "tokens_in"), ("tokens_out", "tokens_out")):
+        s = summary[key]
+        if s["total"] is None:
+            continue
+        print(f"  {label} total {fmt(s['total'])} · mediana {fmt(s['median'])} · "
+              f"min {fmt(s['min'])} · max {fmt(s['max'])}")
+    d = summary["duration_s"]
+    if d["median"] is not None:
+        print(f"  duración   mediana {d['median']:,.1f} s · min {d['min']:,.1f} s · "
+              f"max {d['max']:,.1f} s (suma {d['total']:,.1f} s)")
 
 
 def main() -> int:
@@ -466,9 +538,11 @@ def main() -> int:
         return 0
 
     if args.jobs > 1 and not args.check_tasks:
+        started = time.time()
         with ThreadPoolExecutor(max_workers=args.jobs) as pool:
             list(pool.map(lambda pair: process(*pair), pairs))
     else:
+        started = time.time()
         for pair in pairs:
             process(*pair)
 
@@ -523,6 +597,11 @@ def main() -> int:
     total = len(rows)
     ok = sum(r["pass"] for r in rows)
     cost = sum(r["cost_usd"] or 0 for r in rows)
+    summary = summarize(rows, stamp, time.time() - started)
+    (outdir / "summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n"
+    )
+    print_summary(summary)
     print(f"\n{ok}/{total} PASS ({100 * ok / total:.0f}%) · costo registrado ${cost:.2f} · {csv_path}")
     return 0 if ok == total else 1
 
