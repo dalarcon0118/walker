@@ -44,13 +44,19 @@ def _persist_spec(
     if not spring_id:
         return None
 
+    from fast_mcp.features.tasks.handlers.spec_derive import derive
+
+    derived = derive(objective or "")
     base = {
         "objective": objective or task_id or "tarea sin objetivo",
         "files": files,
         "status": "in_progress",
+        "acceptance_criteria": derived["acceptance_criteria"],
+        "preconditions": derived["preconditions"],
         "task_context": {
             "task_id": task_id,
             "session_id": ctx.session_id or "",
+            "derived": derived["source"],
         },
     }
 
@@ -61,25 +67,45 @@ def _persist_spec(
             updated = service.update_spec(spring_id, str(spec.get("spec_id")), base)
             return updated or spec
 
-    return service.add_spec(
+    created = service.add_spec(
         spring_id,
         objective=base["objective"],
         files=files,
         spec_type=str(data.get("spec_type", "fix") or "fix"),
         status="in_progress",
         description=str(data.get("description", "") or ""),
-    ) and _attach_task_context(service, spring_id, task_id, ctx.session_id, files, objective)
+    )
+    if created:
+        return _attach_task_context(
+            service, spring_id, task_id, ctx.session_id, files, objective,
+            criteria=base["acceptance_criteria"],
+            preconditions=base["preconditions"],
+            derived=derived["source"],
+        )
+    return _attach_task_context(service, spring_id, task_id, ctx.session_id, files, objective)
 
 
-def _attach_task_context(service, spring_id, task_id, session_id, files, objective) -> dict | None:
-    """`add_spec` no acepta `task_context`: se completa con un update."""
+def _attach_task_context(
+    service, spring_id, task_id, session_id, files, objective,
+    criteria: list[str] | None = None,
+    preconditions: list[str] | None = None,
+    derived: str = "empty",
+) -> dict | None:
+    """`add_spec` no acepta `task_context` ni criterios: se completan con un update."""
     specs = service.get_specs(spring_id) or []
+    updates = {
+        "task_context": {
+            "task_id": task_id,
+            "session_id": session_id or "",
+            "derived": derived,
+        },
+        "files": files,
+        "acceptance_criteria": criteria or [],
+        "preconditions": preconditions or [],
+    }
     for spec in reversed(specs):
         if str(spec.get("objective", "")) == (objective or task_id or "tarea sin objetivo"):
-            return service.update_spec(spring_id, str(spec.get("spec_id")), {
-                "task_context": {"task_id": task_id, "session_id": session_id or ""},
-                "files": files,
-            }) or spec
+            return service.update_spec(spring_id, str(spec.get("spec_id")), updates) or spec
     return specs[-1] if specs else None
 
 
