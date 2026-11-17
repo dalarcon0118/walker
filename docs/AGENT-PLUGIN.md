@@ -186,3 +186,34 @@ inyección sin costo (queda como `workflow_suggestion_ignored` en el trace). El
 único límite duro hoy es del lado del server: `submit`/`advance` rechazan si
 faltan campos requeridos y `transition` rechaza si las precondiciones no se
 cumplen.
+
+---
+
+## Gate de negación (opt-in): medido, no adoptado
+
+`WALKER_FLIGHT_CONTROL_DENY=1` hace que el hook niegue herramientas mientras el
+paso actual sea `llm_task` con `step_satisfied: false`. Es **opt-in** porque el
+costo medido es alto.
+
+Dos variantes, misma tarea trivial ("agregá una línea a a.txt") en un proyecto
+con `ANALYZE.ANALYZE` pendiente (`required_fields: ["preconditions"]`):
+
+| gate | resultado | pasos | tokens_in | tokens_out |
+|---|---|---|---|---|
+| `edit`, `write` | **bypass por `shell`** (`echo >>`) | 5 | 4.965 | 370 |
+| `edit`, `write`, `shell` | cumplió: submit + transition | 24 | 69.576 | 3.483 |
+
+Lecciones:
+
+- **Bloquear `edit`/`write` no contiene nada**: el agente escribe con `shell`.
+  Cualquier gate de herramientas tiene que incluir el intérprete o es decorativo.
+- **Con `shell` bloqueado sí cumple**, y no se traba: completa el paso, avanza y
+  después edita. Pero la tarea trivial pasa de 5 a 24 pasos (~14x tokens) porque
+  el agente primero inspecciona el bloqueo (leyó el fuente del plugin) antes de
+  obedecer.
+- **Hueco conocido**: los pasos `user_input` no se bloquean (el gate solo mira
+  `llm_task`), así que el agente puede atravesar un gate humano sin preguntar.
+
+Conclusión provisional: el gate funciona pero no debería ser default. Sirve para
+forzar el workflow en tareas donde el costo importa poco, no como política
+general.

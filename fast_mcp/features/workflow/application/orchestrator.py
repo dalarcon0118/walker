@@ -899,11 +899,19 @@ class OrchestrationService:
         # Execution type guidance
         exec_type = sub_state_def.execution.value if sub_state_def else "unknown"
 
+        # ¿El paso actual ya quedó satisfecho? Lo consulta el plugin para saber
+        # si corresponde negar escrituras (`edit`/`write`) hasta que el agente
+        # registre el paso. Se calcula sobre los campos del sub-estado actual,
+        # no sobre todo el nodo: un requerido viejo ya no bloquea.
+        sub_data = state.get_sub_state_data(state.current_sub_state)
+        step_satisfied = sub_data.all_required_complete(required_fields)
+
         return {
             "ok": True,
             "current_position": f"{state.current_node}.{state.current_sub_state}",
             "execution_type": exec_type,
             "required_fields": required_fields,
+            "step_satisfied": step_satisfied,
             "available_gates": [g["name"] for g in available_gates],
             "gates_detail": available_gates,
             "history": list(state.history[-5:]),

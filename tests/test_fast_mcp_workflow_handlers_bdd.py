@@ -387,6 +387,22 @@ class TestHandleHelp:
         assert result["ok"] is True
         assert "current_position" in result
 
+    def test_expone_si_el_paso_esta_satisfecho(self):
+        """El plugin decide con esto si niega escrituras."""
+        state = WorkflowState(current_node="WORK", current_sub_state="EXEC", sub_state_index=0)
+        ctx = _make_ctx(graph=_make_graph(), state=state)
+
+        assert handle_help(ctx)["step_satisfied"] is False
+
+        state = state.record_submit("EXEC", {"data": "presente"})
+        assert _make_ctx(graph=_make_graph(), state=state) and handle_help(
+            _make_ctx(graph=_make_graph(), state=state)
+        )["step_satisfied"] is True
+
+    def test_sin_requeridos_el_paso_esta_satisfecho(self):
+        ctx = _make_ctx()  # START.INIT no declara required_fields
+        assert handle_help(ctx)["step_satisfied"] is True
+
 
 # ── _extract_fields tests ────────────────────────────────────────────────
 

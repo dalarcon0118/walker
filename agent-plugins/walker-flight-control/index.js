@@ -23,6 +23,13 @@ const CLI = `${WALKER_ROOT}/bin/walker3`
 const ENABLED = process.env.WALKER_FLIGHT_CONTROL !== "0"
 const REFRESH_MS = 60_000
 const MAX_AUTO_STEPS = 3
+// Negación de escrituras: OPT-IN. Con el flag apagado el plugin solo avisa.
+// Se enciende para medir cuánto traba, no como default (una sesión en un
+// proyecto registrado no podría editar hasta completar el paso pendiente).
+const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
+// `shell` incluido: sin él el agente escribe con `echo >> archivo` y el gate
+// de `edit`/`write` no contiene nada (medido: 1/1 bypass por shell).
+const MUTATING_TOOLS = ["edit", "write", "shell"]
 
 let projectId = process.env.WALKER_PROJECT_ID || ""
 let projectDir = ""
@@ -113,6 +120,7 @@ export default {
         position: data.current_position || "",
         execType: data.execution_type || "",
         required: Array.isArray(data.required_fields) ? data.required_fields : [],
+        satisfied: data.step_satisfied !== false,
         gates: Array.isArray(data.available_gates) ? data.available_gates : [],
         revision: data.revision ?? 0,
       }
@@ -198,6 +206,40 @@ export default {
         // stream cerrado al descargar el plugin
       }
     })()
+
+    try {
+      await ctx.tool.transform((editor) => {
+        if (!DENY) return
+        for (const name of MUTATING_TOOLS) {
+          const tool = editor.get(name)
+          if (!tool || typeof tool.execute !== "function") continue
+          editor.update(name, (draft) => {
+            const original = draft.execute
+            draft.execute = async (input, callCtx) => {
+              const cur = state.data
+              if (!cur || cur.execType !== "llm_task" || cur.satisfied) {
+                return original(input, callCtx)
+              }
+              const fields = cur.required.length
+                ? cur.required.map((f) => `"${f}":"..."`).join(",")
+                : ""
+              runTool("trace_push", {
+                event_type: "flight_control_denied",
+                source: "agent_hook",
+                data: { tool: name, position: cur.position, required: cur.required },
+              })
+              throw new Error(
+                `[WALKER] Paso pendiente: ${cur.position}. Completalo antes de ` +
+                  `escribir código: ${CLI} ${projectId}/${"submit"} '{${fields}}'. ` +
+                  `Después avanzá con: ${CLI} ${projectId}/transition '{"gate":"${(cur.gates || [])[0] || ""}"}'.`
+              )
+            }
+          })
+        }
+      })
+    } catch {
+      // sin transform no hay gate
+    }
 
     try {
       await ctx.tool.transform((editor) => {
