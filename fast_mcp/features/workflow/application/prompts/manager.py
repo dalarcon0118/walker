@@ -248,6 +248,8 @@ class PromptManager(IPromptManager):
         con `load_skill`. Sin match, lo dice explícitamente (un silencio se lee
         como "aplicá cualquier cosa").
         """
+        if os.environ.get("WALKER_PROMPT_SKILLS") == "0":
+            return {}
         intent = (fields or {}).get("skill_intent") or {}
         if not isinstance(intent, dict) or not intent:
             return {}
@@ -279,7 +281,7 @@ class PromptManager(IPromptManager):
         sin dato, y las plantillas que no usan estas claves no cambian. Así el
         cableado no altera ningún prompt existente (verificado por test).
         """
-        if self._ckg_searcher is None:
+        if self._ckg_searcher is None or os.environ.get("WALKER_PROMPT_KNOWLEDGE") == "0":
             return {}
         from .collector import collect_knowledge, collect_project_info
 

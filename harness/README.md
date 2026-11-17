@@ -97,6 +97,39 @@ cambiarlo): `results.csv`, un `.jsonl` por corrida, `.diff`, `.status` y el
 resumen de la suite. Los árboles de trabajo viven en `$TMPDIR` y se borran salvo
 `--keep`.
 
+## Benchmark no saturado + ablación
+
+Con la suite pasando 8/8, cualquier mejora es invisible. Para tener un número
+que se pueda mover:
+
+```bash
+# 1. proponer tareas desde el historial (commits que tocan test + fuente)
+python3 scripts/derive_eval_tasks.py --repo <repo> --since 2026-08-01 \
+  --limit 40 --out /tmp/tasks.json
+
+# 2. validarlas: el test TIENE que fallar en el base
+python3 harness/runner.py --repo <repo> --tasks /tmp/tasks.json --check-tasks
+
+# 3. ablación: mismo benchmark, una capa a la vez
+python3 scripts/ablation.py --repo <repo> --tasks /tmp/tasks.json --k 3
+```
+
+La ablación corre tres brazos:
+
+| brazo | MCP de walker | inyección de CKG/skills |
+|---|---|---|
+| `baseline` | no | no |
+| `tools` | sí (el agente puede llamarlas) | no |
+| `full` | sí | sí |
+
+Toggles para experimentos propios: `WALKER_PROMPT_KNOWLEDGE=0`,
+`WALKER_PROMPT_SKILLS=0`, `WALKER_FLIGHT_CONTROL=0` (los evals ya corren con
+este último apagado).
+
+Derivación medida (2026-11-17): backend 40 candidatas, react-native 40, sobre
+333 y 839 commits respectivamente. Son **propuestas**: cuántas sobreviven a
+`--check-tasks` es el número real de benchmark.
+
 ## Validar tareas antes de gastar tokens
 
 ```bash
