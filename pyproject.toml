@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["mcp", "."]
+pythonpath = ["."]
 markers = [
     "contrato: escenarios que validan el contrato result pattern del CPG",
     "ssot: escenarios de Single Source of Truth (registry vs MCP)",
@@ -80,8 +80,8 @@ filterwarnings = [
 Documentation = "https://github.com/davidmartinez/walker3"
 
 [project.scripts]
-walker3 = "protocols.cli.cli_interface:main"
-walker = "protocols.cli.cli_interface:main"
+walker3 = "fast_mcp.main:main"
+walker = "fast_mcp.main:main"
 
 [tool.setuptools.packages.find]
-include = ["features*", "shared*", "core*", "orchestration*", "libs*"]
+include = ["fast_mcp*", "features*", "shared*", "core*", "orchestration*", "libs*"]
