@@ -34,6 +34,22 @@ def _with_compact_defaults(queries: dict) -> dict:
     return out
 
 
+def _normalize_node(node: dict) -> dict:
+    """Homogeneiza la lectura: `_id` → `id` y `label` con contenido.
+
+    El storage devuelve `_id` y no devuelve `label` (es la clave con la que se
+    guardó). Cualquier consumidor que mire `node["id"]` recibía None — pasó con
+    `session_context` y con la verificación de escrituras.
+    """
+    if not isinstance(node, dict):
+        return node
+    if not node.get("id"):
+        node["id"] = node.get("_id") or ""
+    if not node.get("label"):
+        node["label"] = node.get("statement") or node.get("subject") or node.get("id") or ""
+    return node
+
+
 class CkgReadService:
     """Read operations for the CKG."""
 
@@ -48,7 +64,7 @@ class CkgReadService:
         query: dict = {"include_superseded": False}
         if type_name:
             query["type"] = type_name
-        return ckg.query(query) or []
+        return [_normalize_node(n) for n in (ckg.query(query) or [])]
 
     @staticmethod
     def query_by_files(chain_dir: str, files: list[str]) -> list[dict]:
@@ -59,7 +75,7 @@ class CkgReadService:
         results = []
         for f in files:
             nodes = ckg.query({"file": f}) or []
-            results.extend(nodes)
+            results.extend(_normalize_node(n) for n in nodes)
         return results
 
     @staticmethod
@@ -68,7 +84,7 @@ class CkgReadService:
         ckg, _ = _resolve_ckg(chain_dir)
         if not ckg:
             return []
-        return ckg.query({"size": 100000}) or []
+        return [_normalize_node(n) for n in (ckg.query({"size": 100000}) or [])]
 
     @staticmethod
     def gather_context(

@@ -58,6 +58,10 @@ class CkgWriteService:
                 item.setdefault("metadata", {})
                 item["metadata"].setdefault("task_id", task_id)
                 if session_id:
+                    # El join se hace por `metadata.session_id`; antes solo se
+                    # guardaba `source: session:<id>`, así que el filtro no lo
+                    # encontraba (el nodo se guardaba, pero invisible al join).
+                    item["metadata"].setdefault("session_id", session_id)
                     item["metadata"].setdefault("source", f"session:{session_id}")
                 # Estandarización (fix 2026-11-16): type canónico al guardar.
                 item["type"] = normalize_type(item.get("type", "decision"))

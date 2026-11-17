@@ -223,3 +223,66 @@ def test_capture_knowledge_sin_nada_que_documentar_falla(monkeypatch):
     )
 
     assert not out.ok
+
+
+# ── Escrituras del agente: ni perdidas ni invisibles al join ────────────
+
+
+def test_save_nodes_guarda_session_id_en_metadata(monkeypatch):
+    """El join filtra por metadata.session_id; con solo `source` no aparecía."""
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_write
+
+    captured = {}
+
+    class _Ckg:
+        def save_nodes(self, nodes):
+            captured["nodes"] = nodes
+            return {"nodes_created": len(nodes), "node_ids": [n.get("id") for n in nodes]}
+
+    monkeypatch.setattr(ckg_write, "_resolve_ckg", lambda chain: (_Ckg(), None))
+
+    ckg_write.CkgWriteService.save_nodes(
+        "/tmp/x", [{"id": "d1", "statement": "algo"}], task_id="T-1", session_id="ses-7"
+    )
+
+    meta = captured["nodes"][0]["metadata"]
+    assert meta["session_id"] == "ses-7"
+    assert meta["source"] == "session:ses-7"
+
+
+def test_query_all_normaliza_id_y_label(monkeypatch):
+    """El storage devuelve `_id` y sin `label`: `node["id"]` era None."""
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_read
+
+    class _Ckg:
+        def query(self, q):
+            return [{"_id": "d1", "statement": "una decisión", "type": "decision"}]
+
+    monkeypatch.setattr(ckg_read, "_resolve_ckg", lambda chain: (_Ckg(), None))
+
+    node = ckg_read.CkgReadService.query_all("/tmp/x")[0]
+
+    assert node["id"] == "d1"
+    assert node["label"] == "una decisión"
+
+
+def test_una_decision_del_agente_aparece_en_su_sesion(monkeypatch):
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_read
+
+    class _Ckg:
+        def query(self, q):
+            return [
+                {"_id": "d1", "statement": "decisión de la sesión",
+                 "metadata": {"session_id": "ses-1"}},
+                {"_id": "d2", "statement": "de otra sesión",
+                 "metadata": {"session_id": "ses-2"}},
+            ]
+
+    monkeypatch.setattr(ckg_read, "_resolve_ckg", lambda chain: (_Ckg(), None))
+
+    nodes = [
+        n for n in ckg_read.CkgReadService.query_all("/tmp/x")
+        if (n.get("metadata") or {}).get("session_id") == "ses-1"
+    ]
+
+    assert [n["id"] for n in nodes] == ["d1"]
