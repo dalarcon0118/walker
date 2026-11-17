@@ -58,3 +58,40 @@ def test_compact_result_ckg_sin_hits_no_falla(tmp_path):
         "ckg", {"hits": {"total": 0, "hits": []}}, top_k=5, max_chars=200
     )
     assert out["hits"] == {"total": 0, "hits": []}
+
+
+def test_factory_inyecta_compact_y_severity(tmp_path):
+    """build_cognitive_graph debe inyectar los valores canónicos (schemas.py).
+
+    Antes nadie los pasaba: compact_fields/severity_order quedaban vacíos y el
+    ranking por severidad era inerte (`get(..., 9)` siempre 9).
+    """
+    from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+    from fast_mcp.shared_kernel.cognitive_graph.schemas import (
+        COMPACT_FIELDS,
+        SEVERITY_ORDER,
+    )
+
+    cg = build_cognitive_graph(chain_dir=str(tmp_path))
+    assert cg.compact_fields == COMPACT_FIELDS
+    assert cg.severity_order == SEVERITY_ORDER
+    assert cg.compact_fields["ckg"], "ckg debe tener whitelist de campos"
+    assert cg.severity_order["critical"] < cg.severity_order["low"]
+
+
+def test_ranking_funciona_con_severity_presente(tmp_path):
+    """Con severity_order inyectado por el factory, critical va antes que low."""
+    from fast_mcp.shared_kernel.cognitive_graph import build_cognitive_graph
+
+    cg = build_cognitive_graph(chain_dir=str(tmp_path))
+    result = {
+        "hits": {
+            "total": 2,
+            "hits": [
+                {"_id": "a", "_source": {"statement": "leve", "severity": "low"}},
+                {"_id": "b", "_source": {"statement": "grave", "severity": "critical"}},
+            ],
+        }
+    }
+    out = cg._compact_result("ckg", result, top_k=5, max_chars=200)  # noqa: SLF001
+    assert [h["_id"] for h in out["hits"]["hits"]] == ["b", "a"]

@@ -72,3 +72,29 @@ PRODUCTION_INDEX_SCHEMAS: dict[str, dict] = {
         "search": {"type": "fulltext", "fields": ["statement", "rationale"]},
     },
 }
+# ─── Proyección y ranking de respuestas (fix 2026-11-16) ────────────────────
+# Antes nadie inyectaba estos valores: `build_cognitive_graph` no los aceptaba y
+# `CognitiveGraph` los inicializaba vacíos, así que `_compact_result` no
+# proyectaba campos (devolvía el doc completo) y el ranking por severidad era
+# inerte (`self.severity_order.get(..., 9)` siempre devolvía 9).
+#
+# Son negocio del walker (qué campos importan en una respuesta compacta y qué
+# severidad va primero), no del storage genérico. Se definen acá (SSOT de
+# schemas) y el factory `build_cognitive_graph` los inyecta por defecto.
+
+COMPACT_FIELDS: dict[str, list[str]] = {
+    "ckg": ["statement", "type", "tags", "scope", "severity"],
+    "delta": ["objective", "title", "type", "spec_id", "spring_id", "domain"],
+    "trace": ["event_type", "tool", "node", "task_id", "timestamp"],
+    "cpg": ["name", "path", "type", "kind", "line"],
+}
+
+# Menor número = mayor prioridad. `_compact_result` ordena ascendente, así que
+# critical (0) va antes que low (8). Desconocido → 9 (al final).
+SEVERITY_ORDER: dict[str, int] = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+}

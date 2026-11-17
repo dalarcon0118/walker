@@ -398,6 +398,8 @@ def build_cognitive_graph(
     conn: MemoryConnection | None = None,
     backend: StorageBackend | None = None,
     register_defaults: Callable | None = None,
+    compact_fields: dict | None = None,
+    severity_order: dict | None = None,
 ) -> CognitiveGraph:
     """Canonical CognitiveGraph construction for fast_mcp.
 
@@ -438,9 +440,18 @@ def build_cognitive_graph(
                 "resuelve el data_dir del proyecto."
             )
         backend = resolve_storage_backend(conn)
+    # Proyección/ranking: el factory inyecta los valores canónicos del walker
+    # (schemas.py). Antes nadie los pasaba y el ranking por severidad era inerte.
+    from fast_mcp.shared_kernel.cognitive_graph.schemas import (
+        COMPACT_FIELDS,
+        SEVERITY_ORDER,
+    )
+
     return CognitiveGraph(
         chain_dir,
         backend=backend,
         conn=conn,
         register_defaults=register_defaults,
+        compact_fields=compact_fields if compact_fields is not None else COMPACT_FIELDS,
+        severity_order=severity_order if severity_order is not None else SEVERITY_ORDER,
     )
