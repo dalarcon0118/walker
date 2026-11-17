@@ -218,15 +218,50 @@ def save_registry(scope_root: str | Path, data: dict) -> None:
     )
 
 
-def _sha256_dir(directory: Path, entry: str) -> str:
+_IGNORE_PARTS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+_IGNORE_SUFFIX = (".pyc", ".pyo")
+DIGEST_ALGO = "tree-v1"
+
+
+def tree_digest(directory: str | Path) -> str:
+    """sha256 determinístico del ÁRBOL completo del paquete (hex de 64).
+
+    El digest anterior cubría solo manifiesto+entry: un `helper.py` importado
+    por el entry, o una dependencia maliciosa, quedaba fuera de la verificación.
+    Este recorre todos los archivos, ordenados por path relativo, con el nombre
+    adentro del hash (renombrar cambia el digest). Se excluyen VCS, caches y
+    symlinks (ver `_reject_symlinks`).
+    """
+    root = Path(directory)
     digest = hashlib.sha256()
-    files = [Path(MANIFEST_NAME), Path(entry)]
-    for rel in files:
-        path = directory / rel
-        if path.is_file():
-            digest.update(str(rel).encode())
-            digest.update(path.read_bytes())
-    return digest.hexdigest()[:16]
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if any(part in _IGNORE_PARTS for part in Path(rel).parts):
+            continue
+        if rel.endswith(_IGNORE_SUFFIX) or rel == ".DS_Store":
+            continue
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _reject_symlinks(directory: Path) -> None:
+    """Un paquete con symlinks puede leer fuera del repo al instalarse."""
+    links = [p for p in directory.rglob("*") if p.is_symlink()]
+    if links:
+        raise HookManifestError(
+            "el paquete contiene symlinks (no permitidos): "
+            + ", ".join(str(p.relative_to(directory)) for p in links[:5])
+        )
+
+
+def _sha256_dir(directory: Path, entry: str) -> str:
+    """Compat: digest del árbol (el `entry` ya no define el alcance)."""
+    return tree_digest(directory)
 
 
 def installed(scope_root: str | Path, *, scope: str = "global") -> list[HookPackage]:
@@ -267,6 +302,7 @@ def install(
     scope: str = "global",
     ref: str | None = None,
     subdir: str = "",
+    expect_sha256: str | None = None,
 ) -> HookPackage:
     """Instala un paquete local o desde git (ref opcional, pinneado al commit).
 
@@ -295,6 +331,19 @@ def install(
         if incompatible:
             raise HookManifestError(f"{package.id}: {incompatible}")
 
+        _reject_symlinks(source_dir)
+        source_digest = tree_digest(source_dir)
+        if expect_sha256:
+            expected = expect_sha256.strip().lower()
+            if expected != source_digest:
+                raise HookManifestError(
+                    f"{package.id}: el digest del paquete no coincide.\n"
+                    f"  esperado: {expected}\n"
+                    f"  obtenido: {source_digest}\n"
+                    "  (si el código es legítimo, publicá el digest nuevo; "
+                    "si no, NO instales)"
+                )
+
         root = Path(scope_root)
         root.mkdir(parents=True, exist_ok=True)
         registry = load_registry(root)
@@ -315,6 +364,13 @@ def install(
         )
 
         installed_pkg = read_manifest(target, scope=scope)
+        copied_digest = tree_digest(target)
+        if copied_digest != source_digest:
+            shutil.rmtree(target, ignore_errors=True)
+            raise HookManifestError(
+                f"{package.id}: la copia al scope no coincide con el origen "
+                f"({copied_digest} != {source_digest}); instalación abortada"
+            )
         entry = {
             "id": installed_pkg.id,
             "version": installed_pkg.version,
@@ -325,7 +381,8 @@ def install(
             "ref": spec.ref or (commit[:12] if commit else ""),
             "commit": commit,
             "subdir": subdir,
-            "sha256": _sha256_dir(target, installed_pkg.entry),
+            "sha256": source_digest,
+            "digest": DIGEST_ALGO,
             "enabled": True,
             "installed_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -349,6 +406,7 @@ def update(
     walker_version: str,
     scope: str = "global",
     check: bool = False,
+    expect_sha256: str | None = None,
 ) -> dict:
     """Actualiza un paquete git al ref registrado. `check=True` solo reporta."""
     root = Path(scope_root)
@@ -372,13 +430,22 @@ def update(
         if incompatible:
             raise HookManifestError(f"{hook_id}: {incompatible}")
 
-        new_sha = _sha256_dir(source_dir, package.entry)
+        _reject_symlinks(source_dir)
+        new_sha = tree_digest(source_dir)
+        if expect_sha256:
+            expected = expect_sha256.strip().lower()
+            if expected != new_sha:
+                raise HookManifestError(
+                    f"{hook_id}: digest disponible {new_sha} != esperado {expected}"
+                )
         changes = {
             "id": hook_id,
             "current_version": entry.get("version"),
             "available_version": package.version,
             "current_commit": entry.get("commit", ""),
             "available_commit": commit,
+            "current_sha256": entry.get("sha256", ""),
+            "available_sha256": new_sha,
             "changed": (package.version != entry.get("version")
                         or new_sha != entry.get("sha256")
                         or commit != entry.get("commit", "")),
@@ -394,6 +461,7 @@ def update(
             force=True,
             scope=scope,
             subdir=entry.get("subdir", ""),
+            expect_sha256=new_sha,
         )
         changes["installed"] = True
         return changes

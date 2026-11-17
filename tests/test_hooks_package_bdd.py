@@ -363,3 +363,89 @@ def test_verify_installed_detecta_modificacion_en_disco(tmp_path):
     drift = verify_installed(home)
     assert drift and drift[0]["id"] == "demo-hook"
     assert drift[0]["actual"] != drift[0]["expected"]
+
+
+# ── Integridad: digest del árbol + verificación contra un hash publicado ────
+
+def test_tree_digest_cubre_archivos_auxiliares(tmp_path):
+    """El digest viejo (manifiesto+entry) no veía un helper malicioso."""
+    from fast_mcp.shared_kernel.hooks.package import tree_digest
+
+    source = _package(tmp_path)
+    helper = source / "helper.py"
+    helper.write_text("X = 1\n")
+    before = tree_digest(source)
+
+    helper.write_text("X = 2\n")
+
+    assert tree_digest(source) != before
+
+
+def test_tree_digest_es_deterministico_y_ignora_caches(tmp_path):
+    from fast_mcp.shared_kernel.hooks.package import tree_digest
+
+    source = _package(tmp_path)
+    first = tree_digest(source)
+
+    (source / "__pycache__").mkdir()
+    (source / "__pycache__" / "x.pyc").write_text("basura")
+    (source / ".git").mkdir()
+    (source / ".git" / "HEAD").write_text("ref: refs/heads/main")
+
+    assert tree_digest(source) == first
+
+
+def test_install_con_sha256_incorrecto_no_instala(tmp_path):
+    home = _home(tmp_path)
+    source = _package(tmp_path)
+
+    with pytest.raises(HookManifestError) as exc:
+        install(source, home, walker_version="3.0.0", expect_sha256="0" * 64)
+
+    assert "no coincide" in str(exc.value)
+    assert "obtenido" in str(exc.value)
+    assert installed(home) == []
+    assert not (home / "demo-hook").exists()
+
+
+def test_install_con_sha256_correcto_registra_el_digest(tmp_path):
+    from fast_mcp.shared_kernel.hooks.package import tree_digest
+
+    home = _home(tmp_path)
+    source = _package(tmp_path)
+    digest = tree_digest(source)
+
+    install(source, home, walker_version="3.0.0", expect_sha256=digest)
+
+    entry = json.loads((home / "registry.json").read_text())["hooks"][0]
+    assert entry["sha256"] == digest
+    assert entry["digest"] == "tree-v1"
+
+
+def test_paquete_con_symlinks_se_rechaza(tmp_path):
+    source = _package(tmp_path)
+    (source / "link").symlink_to("/etc/hosts")
+
+    with pytest.raises(HookManifestError) as exc:
+        install(source, _home(tmp_path), walker_version="3.0.0")
+    assert "symlink" in str(exc.value)
+
+
+def test_update_verifica_el_digest_de_la_version_nueva(tmp_path):
+    from fast_mcp.shared_kernel.hooks.package import tree_digest
+
+    repo = _upstream(tmp_path)
+    home = _home(tmp_path)
+    install(f"git+file://{repo}#main", home, walker_version="3.0.0")
+    _bump(repo, "1.1.0")
+    new_digest = tree_digest(repo)
+
+    with pytest.raises(HookManifestError) as exc:
+        update("demo-hook", home, walker_version="3.0.0", expect_sha256="f" * 64)
+    assert "digest disponible" in str(exc.value)
+    entry = json.loads((home / "registry.json").read_text())["hooks"][0]
+    assert entry["version"] == "1.0.0", "un digest que no coincide no actualiza"
+
+    outcome = update("demo-hook", home, walker_version="3.0.0", expect_sha256=new_digest)
+    assert outcome["installed"] is True
+    assert outcome["current_sha256"] != outcome["available_sha256"]

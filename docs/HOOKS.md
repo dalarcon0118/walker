@@ -154,10 +154,14 @@ Registro: `<scope>/registry.json` con `id`, `version`, `source`, `source_type`,
   (`install --force --ref v1.3.0`).
 - Si el `ref` es una **rama**, `update` trae el commit nuevo y muestra el diff
   (`v1.0.0 → v1.1.0 · 91a2320 → f2cb0bd`); `--check` sólo informa.
-- `sha256` es de manifiesto+entry. `doctor` lo recomputa contra el disco: si un
-  archivo cambió después de instalar, lo reporta como
-  `modificado en disco (c7395fa… != 7d4b678…)` y sale con rc=1. No es una
-  firma criptográfica: detecta cambios, no autentica autor.
+- `sha256` es el digest del **árbol completo** (`tree-v1`): todos los archivos,
+  ordenados por path relativo, con el nombre adentro del hash. El digest
+  anterior cubría solo manifiesto+entry, así que un `helper.py` importado por el
+  entry —o una dependencia maliciosa— no se verificaba. Se excluyen `.git`,
+  caches y symlinks (un paquete con symlinks se rechaza al instalar).
+- `doctor` recomputa el digest contra el disco: si cualquier archivo cambió
+  después de instalar, lo reporta como `modificado en disco (dcb9488… !=
+  02d2638…)` y sale con rc=1.
 
 ### Por qué no en `data/projects.json`
 
@@ -166,6 +170,26 @@ y es de la máquina. Meter hooks ahí mezcla dos dominios, obliga a que el
 registro preserve configuración ajena en cada alta, y rompe el modelo de
 confianza: un hook de proyecto exige que el repo se declare confiable, mientras
 que un hook en el registro de walker correría en todos los proyectos sin opt-in.
+
+### Integridad: verificar contra un hash publicado
+
+```bash
+# el autor publica el digest (o lo calculás vos sobre el código ya revisado)
+python3 scripts/hooks_cli.py digest github:user/notify-slack#v1.2.0
+
+# instalar exigiendo ese contenido exacto
+python3 scripts/hooks_cli.py install github:user/notify-slack#v1.2.0 \
+  --sha256 02d2638de8adf97ae265e9db7c02f99cf3a02a8d97575f21751d697ad6b356b0
+
+# actualizar exigiendo el digest de la versión nueva
+python3 scripts/hooks_cli.py update notify-slack --sha256 <hex>
+```
+
+Si el digest no coincide, `install` aborta **antes de copiar** y muestra ambos
+hashes. Qué garantiza y qué no: garantiza que el código instalado es exactamente
+el que corresponde a ese hash; **no** garantiza autoría (no hay firma), así que
+el hash tiene que venir por un canal distinto del repo del plugin (release notes,
+un mensaje del autor, un `sha256sum` publicado). Es integridad, no autenticación.
 
 ## Catálogo de eventos
 

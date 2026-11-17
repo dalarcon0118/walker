@@ -29,6 +29,10 @@ from fast_mcp.shared_kernel.hooks.bus import HookBus  # noqa: E402
 from fast_mcp.shared_kernel.hooks.events import describe, known_events  # noqa: E402
 from fast_mcp.shared_kernel.hooks.package import (  # noqa: E402
     HookManifestError,
+    fetch_git,
+    parse_source,
+    read_manifest,
+    tree_digest,
     check_compat,
     doctor_report,
     hooks_home,
@@ -80,6 +84,7 @@ def _cmd_install(args) -> int:
             scope="project" if args.project else "global",
             ref=args.ref,
             subdir=args.subdir,
+            expect_sha256=args.sha256,
         )
     except HookManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -100,6 +105,7 @@ def _cmd_update(args) -> int:
             walker_version=WALKER_VERSION,
             scope="project" if args.project else "global",
             check=args.check,
+            expect_sha256=args.sha256,
         )
     except HookManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -114,6 +120,37 @@ def _cmd_update(args) -> int:
         return 0
     print("  actualizado" if outcome["installed"] else "  sin cambios")
     return 0
+
+
+def _cmd_digest(args) -> int:
+    spec = parse_source(args.source, args.ref)
+    tmp = None
+    try:
+        if spec.kind == "git":
+            import tempfile
+            from pathlib import Path as _P
+
+            tmp = _P(tempfile.mkdtemp(prefix="walker-hook-"))
+            commit = fetch_git(spec, tmp)
+            source_dir = (tmp / args.subdir) if args.subdir else tmp
+            print(f"origen: {spec.location}#{spec.ref or commit[:12]} · commit {commit}")
+        else:
+            from pathlib import Path as _P
+
+            source_dir = _P(spec.location).resolve()
+        package = read_manifest(source_dir)
+        print(f"paquete: {package.id} v{package.version} · eventos: {','.join(package.events)}")
+        print(f"sha256: {tree_digest(source_dir)}")
+        print("\npublicá ese sha256 y verificá con: install <origen> --sha256 <hex>")
+        return 0
+    except HookManifestError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        if tmp is not None:
+            import shutil as _sh
+
+            _sh.rmtree(tmp, ignore_errors=True)
 
 
 def _cmd_remove(args) -> int:
@@ -181,6 +218,8 @@ def main() -> int:
                            help="tag/branch/sha para fuentes git (se registra pinneado)")
     p_install.add_argument("--subdir", default="",
                            help="subdirectorio del repo donde vive hook.json")
+    p_install.add_argument("--sha256", default=None,
+                           help="digest esperado del árbol (aborta si no coincide)")
 
     p_remove = sub.add_parser("remove", help="desinstala un paquete")
     p_remove.add_argument("id")
@@ -189,10 +228,17 @@ def main() -> int:
     p_update.add_argument("id")
     p_update.add_argument("--check", action="store_true",
                           help="solo informa, no instala")
+    p_update.add_argument("--sha256", default=None,
+                          help="digest esperado de la versión nueva")
 
     for name in ("enable", "disable"):
         p = sub.add_parser(name, help=f"{name} un paquete instalado")
         p.add_argument("id")
+
+    p_digest = sub.add_parser("digest", help="calcula el sha256 de un paquete")
+    p_digest.add_argument("source")
+    p_digest.add_argument("--ref", default=None)
+    p_digest.add_argument("--subdir", default="")
 
     sub.add_parser("events", help="catálogo de eventos y suscriptores")
     sub.add_parser("doctor", help="salud: compatibilidad, eventos desconocidos")
@@ -202,6 +248,7 @@ def main() -> int:
         "list": _cmd_list,
         "install": _cmd_install,
         "update": _cmd_update,
+        "digest": _cmd_digest,
         "remove": _cmd_remove,
         "enable": _cmd_toggle,
         "disable": _cmd_toggle,
