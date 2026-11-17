@@ -14,7 +14,10 @@ from typing import Any, Callable
 
 from fast_mcp.features.delta_tracking.application.ports.delta_repository import DeltaRepository
 from fast_mcp.features.delta_tracking.domain.entities import Spring, Spec
-from fast_mcp.features.delta_tracking.domain.values import spring_id_from_chain_dir
+from fast_mcp.features.delta_tracking.domain.values import (
+    spec_id_from_index,
+    spring_id_from_chain_dir,
+)
 from fast_mcp.features.delta_tracking.domain.spec_service import (
     SpecValidator,
     SpecStatusUpdater,
@@ -156,10 +159,18 @@ class SprintService:
         description: str = "",
     ) -> dict:
         """Add a spec to a spring."""
-        # Auto-assign spec_index if not provided
+        # Auto-assign spec_index if not provided.
+        # `len(existing)` colisiona después de borrar: con 17 specs (SPEC-008..024)
+        # el índice 17 genera SPEC-018, que YA existe, y save_spec lo sobreescribe
+        # en silencio (pasó con la spec de `snapshot-diff`). Se usa el máximo + 1
+        # y se verifica que el id resultante esté libre.
         if spec_index is None and self._repo:
             existing = self._repo.get_specs(spring_id)
-            spec_index = len(existing)
+            used = [s.spec_index for s in existing]
+            taken = {s.spec_id for s in existing}
+            spec_index = (max(used) + 1) if used else 0
+            while spec_id_from_index(spec_index) in taken:
+                spec_index += 1
 
         spec = Spec(
             spring_id=spring_id,

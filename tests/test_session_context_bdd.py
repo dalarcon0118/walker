@@ -286,3 +286,54 @@ def test_una_decision_del_agente_aparece_en_su_sesion(monkeypatch):
     ]
 
     assert [n["id"] for n in nodes] == ["d1"]
+
+
+# ── Preflight: qué se toca, a quién afecta y qué lo verifica ────────────
+
+
+def test_preflight_devuelve_impacto_tests_y_baseline(monkeypatch):
+    from fast_mcp.memories.handlers import knowledge as k
+
+    class _Ctx:
+        chain_dir = "/tmp/proyecto"
+
+        def code_context_service(self):
+            return SimpleNamespace(execute=lambda target_file, query: {
+                "symbols": [{"name": "f", "cyclo": 9}, {"name": "g", "cyclo": 2}],
+                "relations": {"calls": [{"name": "x"}], "called_by": [{"name": "user"}],
+                              "called_by_total": 26, "calls_total": 42, "imports": [1]},
+            })
+
+    monkeypatch.setattr(k, "tests_for_files", lambda files, root: ["tests/test_f.py"], raising=False)
+    # tests_for_files se importa dentro del handler desde spec_derive
+    from fast_mcp.features.tasks.handlers import spec_derive
+    monkeypatch.setattr(spec_derive, "tests_for_files", lambda files, root: ["tests/test_f.py"])
+
+    from fast_mcp.features.code_analysis.application import baseline_service
+    class _BS:
+        def __init__(self, chain): pass
+        def capture(self, scope="", light=True):
+            return {"structure": {"nodes": 10}, "complexity": {"avg": 3.0},
+                    "dimensions": {"structure": "ok"}}
+    monkeypatch.setattr(baseline_service, "BaselineService", _BS)
+
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_read
+    from returns.result import Success
+    monkeypatch.setattr(ckg_read.CkgReadService, "gather_context",
+                        classmethod(lambda cls, chain, query="": Success([])))
+
+    out = k.handle_preflight(_Ctx(), files=["pkg/a.py"])
+
+    assert out["answerable"] is True
+    assert out["files"][0]["callers"] == 26
+    assert out["files"][0]["heaviest"][0]["name"] == "f"
+    assert out["tests"] == ["tests/test_f.py"]
+    assert out["baseline"]["structure"] == {"nodes": 10}
+
+
+def test_preflight_sin_archivos_falla_claro():
+    from fast_mcp.memories.handlers import knowledge as k
+
+    out = k.handle_preflight(SimpleNamespace(chain_dir="/tmp/x"), files=[])
+
+    assert "files requerido" in out["error"]

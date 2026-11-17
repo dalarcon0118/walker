@@ -39,6 +39,7 @@ AGENT: frozenset[str] = frozenset({
     "transition",
     # contexto del proyecto (un lector, no cuatro)
     "agent_context",
+    "preflight",
     # punto A y su diff: el pre-flight del workflow
     "snapshot",
     "baseline_diff",

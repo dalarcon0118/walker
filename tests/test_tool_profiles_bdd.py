@@ -39,7 +39,7 @@ def _surface_chars(tools: dict) -> int:
 def test_sin_var_de_entorno_no_se_recorta_nada(monkeypatch):
     tools = _tools(monkeypatch, None)
 
-    assert len(tools) == 37, "el default debe ser el contrato histórico"
+    assert len(tools) == 38, "el default debe ser el contrato histórico"
 
 
 def test_perfil_agent_expone_las_tools_del_perfil(monkeypatch):
@@ -93,7 +93,7 @@ def test_perfil_desconocido_cae_a_full(monkeypatch):
     monkeypatch.setenv("WALKER_MCP_PROFILE", "inexistente")
 
     assert tool_profiles.active_profile() == "full"
-    assert len(_tools(monkeypatch, "inexistente")) == 37
+    assert len(_tools(monkeypatch, "inexistente")) == 38
 
 
 def test_perfil_con_nombre_inexistente_avisa_pero_no_rompe(monkeypatch, caplog):

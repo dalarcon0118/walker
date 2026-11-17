@@ -536,6 +536,97 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     return out
 
 
+def handle_preflight(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Preflight real: qué se toca, a quién afecta y qué lo verifica.
+
+    Corre ANTES de escribir. Para cada archivo declarado devuelve impacto
+    (llamadores, llamadas, imports, complejidad), los tests que lo mencionan y
+    las decisiones del CKG; y una foto del baseline del scope. Las partes que no
+    se pueden derivar se declaran en `unmapped`.
+    """
+    body = kwargs.get("_payload", kwargs) or {}
+    files = [str(f) for f in (body.get("files") or kwargs.get("files") or []) if f]
+    if not files:
+        return {"error": "files requerido: el preflight es por archivos", "type": "preflight"}
+
+    out: dict[str, Any] = {"type": "preflight", "files": [], "unmapped": []}
+
+    # 1. Impacto por archivo
+    for f in files[:10]:
+        entry: dict[str, Any] = {"file": f}
+        try:
+            code = ctx.code_context_service().execute(target_file=f, query="")
+            rel = code.get("relations") or {}
+            syms = [s for s in (code.get("symbols") or []) if s.get("cyclo")]
+            syms.sort(key=lambda s: -(s.get("cyclo") or 0))
+            entry.update({
+                "symbols": len(code.get("symbols") or []),
+                "callers": rel.get("called_by_total", len(rel.get("called_by") or [])),
+                "calls": rel.get("calls_total", len(rel.get("calls") or [])),
+                "imports": len(rel.get("imports") or []),
+                "heaviest": [{"name": s.get("name"), "cyclo": s.get("cyclo")} for s in syms[:3]],
+                "top_callers": [c.get("name") for c in (rel.get("called_by") or [])[:5]],
+            })
+        except Exception as exc:  # noqa: BLE001
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+        out["files"].append(entry)
+
+    # 2. Tests que cubren esos archivos (heuristic, se declara)
+    try:
+        from fast_mcp.features.tasks.handlers.spec_derive import tests_for_files
+
+        tests = tests_for_files(files, ctx.chain_dir)
+        out["tests"] = tests
+        out["tests_source"] = "nombre + contenido (heurística)"
+        if not tests:
+            out["unmapped"].append({
+                "criterion": "los tests del área tocada pasan",
+                "reason": "no se encontraron tests asociados a los archivos",
+            })
+    except Exception as exc:  # noqa: BLE001
+        out["unmapped"].append({"criterion": "tests", "reason": f"{type(exc).__name__}: {exc}"})
+
+    # 3. Baseline del scope común (o del primero si no comparten prefijo)
+    try:
+        import os
+
+        from fast_mcp.features.code_analysis.application.baseline_service import (
+            BaselineService,
+        )
+
+        dirs = {os.path.dirname(f) for f in files}
+        scope = next(iter(dirs)) + "/" if len(dirs) == 1 else ""
+        snap = BaselineService(ctx.chain_dir).capture(scope=scope, light=True)
+        out["baseline"] = {
+            "scope": scope,
+            "structure": snap.get("structure"),
+            "complexity": {k: v for k, v in (snap.get("complexity") or {}).items() if k != "top"},
+            "dimensions": snap.get("dimensions"),
+        }
+    except Exception as exc:  # noqa: BLE001
+        out["unmapped"].append({"criterion": "baseline", "reason": f"{type(exc).__name__}: {exc}"})
+
+    # 4. Decisiones del CKG del scope
+    try:
+        from returns.pipeline import is_successful
+
+        from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import (
+            CkgReadService,
+        )
+
+        query = " ".join(f.split("/")[-1].replace(".py", "") for f in files[:3])
+        res = CkgReadService.gather_context(ctx.chain_dir, query=query)
+        hits = res.value_or([]) if is_successful(res) else []
+        out["ckg"] = {"hits": len(hits), "statements": [
+            str(h.get("statement") or h.get("label") or "")[:120] for h in hits[:5]
+        ]}
+    except Exception as exc:  # noqa: BLE001
+        out["ckg"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    out["answerable"] = all("error" not in f for f in out["files"])
+    return out
+
+
 def handle_index_repo(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Index an external repo as reference in CKG."""
     from returns.pipeline import is_successful

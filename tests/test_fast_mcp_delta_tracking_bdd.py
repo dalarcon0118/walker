@@ -522,3 +522,46 @@ class TestSpecValidatorAlineado:
         assert report["total"] >= 30
         assert report["filled"] < report["total"]
         assert "objective" not in report["missing"]
+
+
+class TestAddSpecSinColision:
+    """`len(existing)` generaba ids ya usados y sobreescribía specs."""
+
+    def _svc(self, specs):
+        from fast_mcp.features.delta_tracking.application.services.sprint_service import (
+            SprintService,
+        )
+
+        class _Repo:
+            def __init__(self):
+                self.specs = list(specs)
+
+            def get_specs(self, spring_id):
+                return list(self.specs)
+
+            def save_spec(self, spec):
+                self.specs.append(spec)
+
+        repo = _Repo()
+        return SprintService(project_root="/tmp/x", repo=repo), repo
+
+    def test_usa_maximo_mas_uno_no_la_cantidad(self):
+        from fast_mcp.features.delta_tracking.domain.entities import Spec
+
+        specs = [Spec(spring_id="SPR-1", objective=f"t{i}", spec_index=i) for i in range(7, 24)]
+        svc, repo = self._svc(specs)
+
+        created = svc.add_spec("SPR-1", objective="nueva")
+
+        assert created["spec_id"] == "SPEC-025", "no debe reusar SPEC-018"
+
+    def test_salta_ids_ocupados(self):
+        from fast_mcp.features.delta_tracking.domain.entities import Spec
+
+        specs = [Spec(spring_id="SPR-1", objective="t", spec_index=0)]
+        svc, repo = self._svc(specs)
+
+        created = svc.add_spec("SPR-1", objective="nueva")
+
+        assert created["spec_id"] == "SPEC-002"
+        assert len(repo.specs) == 2

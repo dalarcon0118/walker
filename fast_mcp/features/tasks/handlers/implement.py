@@ -109,6 +109,7 @@ def _persist_spec(
             criteria=base["acceptance_criteria"],
             preconditions=base["preconditions"],
             predicates=base["predicates"],
+            validation=base["task_context"]["validation"],
             derived=derived["source"],
         )
     return _attach_task_context(service, spring_id, task_id, ctx.session_id, files, objective)
@@ -119,6 +120,7 @@ def _attach_task_context(
     criteria: list[str] | None = None,
     preconditions: list[str] | None = None,
     predicates: dict | None = None,
+    validation: dict | None = None,
     derived: str = "empty",
 ) -> dict | None:
     """`add_spec` no acepta `task_context` ni criterios: se completan con un update."""
@@ -128,7 +130,7 @@ def _attach_task_context(
             "task_id": task_id,
             "session_id": session_id or "",
             "derived": derived,
-            "validation": (predicates or {}).get("validation") or {},
+            "validation": validation or {},
         },
         "files": files,
         "acceptance_criteria": criteria or [],

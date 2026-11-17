@@ -26,7 +26,7 @@ def test_all_handlers_registered():
         "build_code_index", "update_incremental_code",
         "knowledge_query", "extract_knowledge", "memory_schema",
         "recall_knowledge", "documenting_knowledge", "search_memories",
-        "agent_context", "session_context", "index_repo",
+        "agent_context", "session_context", "preflight", "index_repo",
         "search_skills", "load_skill",
         "snapshot", "baseline_diff",
     }
