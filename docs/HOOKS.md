@@ -37,13 +37,24 @@ ignoran y queda un aviso en el log — nunca se ejecutan a ciegas.
 
 ## Eventos
 
-| Evento | Cuándo | Emisor |
-|---|---|---|
-| `commit` | después de un commit de git | `post-commit` (instalado por `scripts/install_git_hooks.py`) |
-| `cpg.indexed` | después de un sync del CPG | `scripts/sync_cpg_on_commit.py` |
-| `task.after` | después de cada task del workflow | `TaskRegistry.execute` (hook inyectado por composition) |
+Estos son los eventos que existen hoy. Un hook solo corre si declara uno de
+estos nombres (un typo se rechaza al instalar y `doctor` lo marca).
 
-Agregar eventos es barato: `HookBus.load(repo).emit("<evento>", {...})`.
+| Evento | Cuándo se emite | Emisor | Payload (ejemplo) |
+|---|---|---|---|
+| `commit` | después de un commit de git | `post-commit` de `install_git_hooks.py` | `{"repo": "/ruta/al/repo"}` |
+| `cpg.indexed` | al terminar un sync del CPG OK (no en noop/error) | `scripts/sync_cpg_on_commit.py` | `{"project_id": "walker", "mode": "incremental", "nodes": 6420, "edges": 14091, "files": 458}` |
+| `task.after` | después de cada task del workflow (también si falló) | `TaskRegistry.execute` (hook inyectado por composition) | `{"task": "capture", "task_id": "T-1", "session_id": "mcp", "ok": true, "error": "", "chain_dir": "…"}` |
+
+La fuente de verdad es `fast_mcp/shared_kernel/hooks/events.py`, y la vista
+operativa es:
+
+```bash
+python3 scripts/hooks_cli.py events    # catálogo + quién escucha cada evento
+```
+
+Agregar un evento = agregarlo al catálogo (`EVENTS`) + emitirlo desde quien lo
+produce. `HookBus.load(repo).emit("<evento>", {...})`.
 
 ## Contrato de ejecución
 
@@ -191,6 +202,105 @@ el que corresponde a ese hash; **no** garantiza autoría (no hay firma), así qu
 el hash tiene que venir por un canal distinto del repo del plugin (release notes,
 un mensaje del autor, un `sha256sum` publicado). Es integridad, no autenticación.
 
+## Crear un hook (paso a paso)
+
+Ejemplo completo: avisar cuando el CPG se reindexó. Nada de esto requiere tocar
+el código de walker.
+
+**1. Elegí el evento.** Mirá la tabla de arriba o corré
+`python3 scripts/hooks_cli.py events`. Si el que necesitás no existe, hoy no hay
+forma de engancharse: el catálogo es cerrado a propósito.
+
+**2. Creá el paquete.** Un directorio con dos archivos:
+
+```
+notify-slack/
+├── hook.json
+└── main.py
+```
+
+```json
+{
+  "id": "notify-slack",
+  "version": "1.0.0",
+  "description": "Avisa cuando el CPG se reindexó",
+  "walker": ">=3.0,<4",
+  "events": ["cpg.indexed"],
+  "entry": "main.py",
+  "timeout_s": 15,
+  "permissions": ["fs:repo"]
+}
+```
+
+```python
+from fast_mcp.hooks import event, payload, run, warn
+
+def main(data: dict) -> int:
+    if event() != "cpg.indexed":
+        return 0
+    if not data.get("nodes"):
+        warn("evento sin nodos: nada que avisar")
+        return 0
+    print(f"CPG: {data['nodes']} nodos / {data['edges']} edges")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(run(main))
+```
+
+`fast_mcp/hooks.py` es el contrato público: `payload()` (stdin, cacheado),
+`event()`, `project_id()`, `repo_path()`, `walker_root()`, `python()`,
+`known_events()`, `warn()`, `fail()` y `run(main)` (convierte excepciones en
+exit code 1 con traza corta). No importes de `shared_kernel.hooks`: eso es
+implementación.
+
+**3. Probá sin instalar en el sistema.** Instalá en un scope temporal y emití:
+
+```bash
+export WALKER_HOOKS_HOME=/tmp/hooks-prueba
+python3 scripts/hooks_cli.py install ./notify-slack
+python3 scripts/hooks_runner.py cpg.indexed --payload '{"nodes": 10, "edges": 20}'
+```
+
+Se ve el stdout del hook y el rc. Si el hook no aparece, `hooks_cli.py events`
+dice si el evento existe y quién está suscrito. Ojo: el sandbox de macOS deniega
+`$HOME` y la escritura fuera del repo; si tu hook necesita más, declará
+`fs:tmp`, `fs:home` o `fs:network` según corresponda (`permissions`).
+
+**4. Firmá (si vas a distribuirlo).**
+
+```bash
+python3 -c "from fast_mcp.shared_kernel.hooks.signature import generate_keypair; generate_keypair('.', 'mi-clave')"
+python3 scripts/hooks_cli.py sign ./notify-slack --key mi-clave.pem --id mi-clave
+```
+
+**5. Instalá de verdad.**
+
+```bash
+python3 scripts/hooks_cli.py install ./notify-slack                       # global
+python3 scripts/hooks_cli.py --project <repo> install ./notify-slack      # sólo ese repo
+python3 scripts/hooks_cli.py doctor
+```
+
+Si el hook es de proyecto, marcá el repo como confiable
+(`.cognitive/config.json` → `{"hooks": {"trusted": true}}`); sin eso no corre,
+porque abrir un repo ajeno no debe ejecutar su código.
+
+**6. Iterá.** `update` (si viene de git), `disable`/`enable`, `remove`,
+`events` y `doctor`. Los errores de ejecución quedan en el log del runner
+(`~/.walker-backups/walker-sync.log` para el hook de commit).
+
+### Errores típicos
+
+| Síntoma | Causa |
+|---|---|
+| el hook nunca corre | evento inexistente o mal escrito → `doctor` |
+| `rc=126` | entry no-`.py` sin `+x` (hoy se valida al instalar) |
+| `PermissionError` al leer `~/.ssh` | sandbox: falta `fs:home` |
+| no puede escribir en el repo | falta `fs:repo` |
+| `KeyError` en `data["x"]` | payload distinto del esperado → `hooks_cli.py events` |
+| `import fast_mcp` falla | corrés el entry con un Python sin walker: usá `$WALKER_PYTHON` |
+
 ## Lenguaje del entry
 
 Un hook es un **comando**, no un import: el bus ejecuta un subproceso. Eso
@@ -219,19 +329,16 @@ los hooks que no son Python. Los módulos hermanos del paquete (`import helper`)
 funcionan sin configuración porque Python agrega el directorio del script a
 `sys.path`.
 
-## Catálogo de eventos
+## Catálogo de eventos (reglas)
 
-Los eventos son un catálogo explícito (`shared_kernel/hooks/events.py`), no
-strings libres. `emit` con un evento desconocido falla con la lista de válidos,
-y un hook inline que declara uno inexistente aparece en `doctor`.
+La tabla de arriba es el catálogo; esto es lo que lo hace valioso:
 
-| Evento | Emisor | Payload |
-|---|---|---|
-| `commit` | `post-commit` instalado por `install_git_hooks.py` | `repo` |
-| `cpg.indexed` | `scripts/sync_cpg_on_commit.py` | `project_id, mode, nodes, edges, files` |
-| `task.after` | `TaskRegistry` (hook inyectado por composition) | `task, task_id, session_id, ok, error, chain_dir` |
-
-Agregar un evento = agregarlo al catálogo + emitirlo desde quien lo produce.
+- `emit` con un evento desconocido **falla con la lista de válidos** (rc=2 en
+  `hooks_runner`), en vez de responder "sin suscriptores" y dejarte pensando.
+- Un manifiesto que declara un evento inexistente se **rechaza al instalar**.
+- Un hook inline con un evento inexistente queda en `bus.unknown_events` y
+  `doctor` lo reporta como huérfano (no desaparece en silencio).
+- `events` muestra, por evento, quién está suscrito y de qué scope.
 
 ### Firmas: integridad y autoría
 
