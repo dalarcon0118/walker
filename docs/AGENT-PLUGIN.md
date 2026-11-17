@@ -439,3 +439,23 @@ Estado real medido (2026-11-17): el índice `delta` está **vacío en walker,
 backend-microservices y game_reset**, y solo el 0,4% de los eventos de traza
 llevan `task_id` (4 de 955). La cascada es correcta, pero hoy el ancla es el
 archivo casi siempre, no la tarea.
+
+### Auto-declaración de la tarea en la primera escritura
+
+El delta solo se llenaba cuando alguien llamaba `implement_task`, y el agente no
+lo hace. Ahora el hook lo declara solo en la primera `edit`/`write` de la sesión:
+
+```
+task_autodeclared  {"task_id":"auto-AwcG2vv55O","file":"b.py"}
+agent_context({"task_id":"auto-AwcG2vv55O"})
+  anchor {"type":"task","resolved":true,"files":["b.py"]}
+  task   {"spec_id":"SPEC-004","objective":"cambios sobre b.py","status":"in_progress"}
+```
+
+Detalles que importan: el objetivo se deriva del archivo (no hay prompt
+disponible en el hook); la ruta se pasa RELATIVA al proyecto, porque el delta y
+el CPG no conocen `/private/tmp`; y las tareas automáticas quedan marcadas con
+prefijo `auto-` para poder distinguirlas de las declaradas a mano.
+
+Efecto colateral esperado: al existir `activeTask`, la inyección del workflow y
+el gate de negación (si está encendido) empiezan a aplicar desde esa escritura.

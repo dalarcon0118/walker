@@ -62,6 +62,21 @@ function runTool(tool, payload = {}, project = projectId) {
   }
 }
 
+function relPath(file) {
+  // El delta y el CPG trabajan con rutas relativas al proyecto; el tool recibe
+  // la ruta absoluta de la sesión (y en macOS /tmp vs /private/tmp difiere).
+  const p = String(file || "")
+  if (!p) return ""
+  const base = String(projectDir || "").replace(/\/+$/, "")
+  if (base && p.startsWith(base + "/")) return p.slice(base.length + 1)
+  return p
+}
+
+function taskIdFor(sessionID) {
+  const clean = String(sessionID || "ses").replace(/[^a-zA-Z0-9]/g, "")
+  return `auto-${clean.slice(-10) || Date.now()}`
+}
+
 function baselineBlock(r, file) {
   const cpg = r?.cpg || {}
   const rel = cpg.relations || {}
@@ -316,6 +331,48 @@ export default {
       })
     } catch {
       // sin transform no hay gate
+    }
+
+    try {
+      await ctx.tool.transform((editor) => {
+        // Auto-declarar la tarea en la primera ESCRITURA de la sesión: el delta
+        // solo se llenaba cuando alguien llamaba `implement_task`, y el agente
+        // no lo hace. Sin esto el ancla de tarea del contexto nunca existe.
+        for (const name of ["edit", "write"]) {
+          const tool = editor.get(name)
+          if (!tool || typeof tool.execute !== "function") continue
+          editor.update(name, (draft) => {
+            const original = draft.execute
+            draft.execute = async (input, callCtx) => {
+              if (!activeTask && projectId) {
+                const file = relPath(input?.path || input?.filePath || "")
+                const taskId = taskIdFor(callCtx?.sessionID)
+                const res = runTool("implement_task", {
+                  task_id: taskId,
+                  objective: `cambios sobre ${file || "el proyecto"}`,
+                  files: file ? [file] : [],
+                })
+                if (res && res.ok !== false) {
+                  activeTask = { taskId, files: file ? [file] : [], auto: true }
+                  runTool("trace_push", {
+                    event_type: "task_autodeclared",
+                    source: "agent_hook",
+                    data: { task_id: taskId, file },
+                  })
+                }
+              } else if (activeTask && input?.path && !activeTask.auto) {
+                // tarea ya declarada a mano: no tocamos
+              } else if (activeTask && activeTask.auto && input?.path) {
+                const f = relPath(input.path)
+                if (!activeTask.files.includes(f)) activeTask.files.push(f)
+              }
+              return original(input, callCtx)
+            }
+          })
+        }
+      })
+    } catch {
+      // sin transform no hay auto-declaración
     }
 
     try {
