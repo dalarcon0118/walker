@@ -206,6 +206,35 @@ Estado del entorno tras instalarlos: 8 skills, `VERIFY.QA` con
 `ponytail-review(11)` y `code-review-checklist(6)`, `REFINE.DIAGNOSE` con
 `ponytail-review(10)` y `ponytail(6)`.
 
+### Medición de efecto (ponytail, n=1 por brazo)
+
+Tarea de UI con trampa de sobre-construcción: `renderDateInput(name, value)`
+devolviendo un `<input type="date">`, gradeada con `node --test`. Dos brazos con
+el mismo modelo pinneado (`opencode-go/deepseek-v4.1-flash`), `--no-mcp`, sin
+proyecto registrado (no publica):
+
+| Brazo | LOC (`src/date-input.js`) | tokens in | tokens out | pass |
+|---|---|---|---|---|
+| sin ponytail | +21 | 11.069 | 1.181 | ✅ |
+| con ponytail (ruleset en el prompt) | **+6** | 12.800 | **620** | ✅ |
+
+−71% de líneas y −47% de tokens de salida, a cambio de +1.731 tokens de entrada
+(el ruleset son 3.788 chars). Ambos pasan, así que con n=1 no hay diferencia de
+calidad detectable — y es una sola tarea.
+
+Honestidad sobre dos cosas. El brazo "con ponytail" recibió el **ruleset
+inyectado en el prompt**, no el `load_skill` bajo demanda: es lo que upstream
+mide como única configuración efectiva (0/10 auto-activación como skill común).
+Y la diferencia acá no fue "no construyó el feature" sino "no construyó helpers
+de más": el brazo base agregó una tabla de escapes y un `todayISO()`, el otro lo
+resolvió en dos líneas. El −71% es real pero de una tarea elegida por tener
+trampa; los 80 pares de upstream dan −15% de mediana.
+
+Reproducir: el harness acepta `test_cmd` (no-Django), así que cualquier repo
+TS/JS se gradea con su propio comando. Los evals corren con
+`WALKER_FLIGHT_CONTROL=0` para que el plugin global no instrumente sesiones
+sintéticas.
+
 El orquestador emite un evento `skill_gate` en cada submit
 (`outcome`: `blocked` / `passed` / `no_candidates`, con node/sub_state y
 skills), así que la serie histórica sale del trace: cuántas veces bloqueó, en

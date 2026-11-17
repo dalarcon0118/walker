@@ -16,6 +16,7 @@ from runner import (  # noqa: E402
     model_label,
     session_usage,
     summary_knowledge_nodes,
+    test_command as build_test_command,
 )
 
 
@@ -217,3 +218,21 @@ def test_eval_knowledge_nodes_sin_filas_no_publica_nada():
 def test_detect_project_sin_registro_devuelve_none(tmp_path):
     """Sin proyecto registrado debe devolver None (no adivinar)."""
     assert detect_project(tmp_path) is None
+
+
+def test_test_command_django_por_defecto():
+    task = {"test": "tests.incident"}
+    cmd = build_test_command(task, Path("/repo"), ".venv/bin/python", keepdb=True)
+
+    assert cmd == ["/repo/.venv/bin/python", "manage.py", "test", "tests.incident", "--keepdb"]
+    assert "--keepdb" not in build_test_command(
+        task, Path("/repo"), ".venv/bin/python", keepdb=False
+    )
+
+
+def test_test_command_explicito_para_no_django():
+    task = {"test_cmd": ["node", "--test", "{python}"]}
+    cmd = build_test_command(task, Path("/repo"), ".venv/bin/python")
+
+    assert cmd == ["node", "--test", "/repo/.venv/bin/python"], "sustituye {python}"
+    assert "--keepdb" not in cmd

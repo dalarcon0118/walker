@@ -559,6 +559,24 @@ def print_summary(summary: dict) -> None:
               f"max {d['max']:,.1f} s (suma {d['total']:,.1f} s)")
 
 
+def test_command(task: dict, repo: Path, venv_python: str,
+                 keepdb: bool = True) -> list[str]:
+    """Comando de grading: explícito (`test_cmd`) o Django por defecto.
+
+    `test_cmd` permite proyectos no-Django (TS/JS, Go…). `{python}` se
+    sustituye por el intérprete del repo. Para Django se agrega `--keepdb`.
+    """
+    if task.get("test_cmd"):
+        return [
+            str(part).replace("{python}", str(repo / venv_python))
+            for part in task["test_cmd"]
+        ]
+    cmd = [str(repo / venv_python), "manage.py", "test", task.get("test", "tests")]
+    if keepdb:
+        cmd.append("--keepdb")
+    return cmd
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tasks", required=True)
@@ -626,6 +644,9 @@ def main() -> int:
 
     env = os.environ.copy()
     env["PREFLIGHT_OFF"] = "1"  # el gate propio no debe contaminar la medición
+    # El plugin global de flight-control no debe correr dentro de un eval: cada
+    # hook lanza un CLI y trazaría sesiones sintéticas como si fueran trabajo.
+    env["WALKER_FLIGHT_CONTROL"] = "0"
     env.pop("OPENCODE_CLI_RUN_MODE", None)
     venv_bin = (repo / args.venv_python).parent
     env["PATH"] = f"{venv_bin}:{env.get('PATH', '')}"  # `python` = el del venv
@@ -761,9 +782,8 @@ def main() -> int:
         run(["git", "-c", "user.email=eval@local", "-c", "user.name=eval",
              "commit", "-qm", "base"], wt, env, 120)
 
-        test_cmd = [str(repo / args.venv_python), "manage.py", "test", task.get("test", "tests")]
-        if not args.check_tasks:
-            test_cmd.append("--keepdb")
+        test_cmd = test_command(task, repo, args.venv_python,
+                                keepdb=not args.check_tasks)
 
         if args.check_tasks:
             test_rc, test_out, test_took = run(test_cmd, wt, env, args.timeout)
