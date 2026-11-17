@@ -64,3 +64,14 @@ Thumbs.db
 .cognitive/projects/*/data/spring/
 .cognitive/projects/*/data/data/
 .cognitive/docs/
+
+# ── Artefactos locales que no forman parte del repo ─────────────────
+# Estado del motor de workflow: SSOT runtime, se escribe en el root del
+# proyecto al correr un sprint/task. No es configuración.
+.workflow-state.json
+
+# Lock de uv generado localmente (2026-09-09). El repo no usa uv en CI ni
+# declara [tool.uv]; las deps viven en pyproject y se instalan con pip. Un
+# lock sin toolchain que lo consuma aparenta una reproducibilidad que no hay.
+# Si el proyecto adopta uv, quitar esta línea y commitearlo.
+uv.lock
