@@ -200,6 +200,19 @@ class SprintService:
         self._repo.save_spec(merged)
         return _spec_to_dict(merged)
 
+    def delete_spec(self, spring_id: str, spec_id: str) -> bool:
+        """Borra una spec del delta. False si no existía o no hay repo.
+
+        El repo ya tenía `delete_spec`; el servicio no lo exponía, así que la
+        única forma de limpiar specs basura era tocar infraestructura.
+        """
+        if not self._repo:
+            return False
+        if not self._repo.get_spec(spring_id, spec_id):
+            return False
+        self._repo.delete_spec(spring_id, spec_id)
+        return True
+
     def update_spec_status(self, spring_id: str, spec_id: str, status: str) -> dict | None:
         """Update spec status."""
         if not self._repo:

@@ -456,3 +456,37 @@ class TestSprintService:
         assert svc.list_springs() == []
         assert svc.get_specs("x") == []
         assert svc.load_tasks("/x") == []
+
+
+def test_sprint_service_elimina_specs():
+    """El repo tenía `delete_spec`; el servicio no lo exponía (limpieza imposible)."""
+    from fast_mcp.features.delta_tracking.application.services.sprint_service import (
+        SprintService,
+    )
+
+    class _Repo:
+        def __init__(self):
+            self.specs = {"SPEC-001": {"spec_id": "SPEC-001"}}
+            self.deleted = []
+
+        def get_spec(self, spring_id, spec_id):
+            return self.specs.get(spec_id)
+
+        def delete_spec(self, spring_id, spec_id):
+            self.deleted.append((spring_id, spec_id))
+            self.specs.pop(spec_id, None)
+
+    repo = _Repo()
+    service = SprintService(project_root="/tmp/x", repo=repo)
+
+    assert service.delete_spec("SPR-1", "SPEC-001") is True
+    assert repo.deleted == [("SPR-1", "SPEC-001")]
+    assert service.delete_spec("SPR-1", "SPEC-001") is False, "no existe → False"
+
+
+def test_sprint_service_sin_repo_no_rompe():
+    from fast_mcp.features.delta_tracking.application.services.sprint_service import (
+        SprintService,
+    )
+
+    assert SprintService().delete_spec("SPR-1", "SPEC-1") is False
