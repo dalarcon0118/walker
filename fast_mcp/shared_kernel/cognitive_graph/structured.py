@@ -85,6 +85,17 @@ _COLUMN_INDEX: dict[str, str] = {
     for spec in DOC_COLUMN_SPECS.values()
 }
 
+# Campos de tipo ARRAY (rfield → path JSON). No hay columna generada escalar
+# posible (`tags` es lista), así que se resuelven con EXISTS + json_each. Sin
+# esto, `{"tag": "global"}` —que usa el collector en cada armado de prompt—
+# caía al fallback eager y materializaba el índice completo (medido: 293 docs
+# por consulta, 5 veces por prompt en ckg).
+DOC_ARRAY_SPECS: dict[str, str] = {
+    "tags": "$.tags",
+    "files": "$.files",
+    "depends_on": "$.depends_on",
+}
+
 EDGES_DST_INDEX = "idx_edges_dst"
 
 
@@ -161,12 +172,20 @@ def resolve_filters(
             continue
         spec = DOC_COLUMN_SPECS.get(rfield)
         if spec is None:
-            return None  # campo sin columna generada → path base
+            path = DOC_ARRAY_SPECS.get(rfield)
+            if path is None:
+                return None  # campo sin representación SQL → path base
+            clauses.append((
+                f"EXISTS (SELECT 1 FROM json_each(docs.data, '{path}') "
+                f"WHERE json_each.value = ?)",
+                qvalue,
+            ))
+            continue
         col, _expr, mode = spec
         if mode == "exact":
-            clauses.append((col, qvalue))
+            clauses.append((f"{col} = ?", qvalue))
         else:
-            clauses.append((col, qvalue.lower()))
+            clauses.append((f"{col} = ?", qvalue.lower()))
     return clauses
 
 
@@ -186,9 +205,18 @@ def search_structured(
     _validate_ident(index)
     where = ["`index` = ?"]
     params: list[Any] = [index]
-    for col, value in clauses:
-        _validate_ident(col)
-        where.append(f"{col} = ?")
+    for fragment, value in clauses:
+        # Los fragmentos se construyen SOLO en resolve_filters a partir de
+        # constantes del módulo (columna generada o EXISTS/json_each); el
+        # validador se conserva como red de seguridad (L2).
+        if not (
+            _SAFE_IDENT.match(fragment.split(" = ")[0])
+            or fragment.startswith("EXISTS (SELECT 1 FROM json_each(docs.data, '")
+        ):
+            raise StorageStateError(
+                f"cláusula SQL no reconocida en search_structured: {fragment!r}"
+            )
+        where.append(fragment)
         params.append(value)
     where_sql = " AND ".join(where)
     total = int(conn.execute(

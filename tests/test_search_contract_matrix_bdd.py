@@ -100,3 +100,31 @@ def test_search_many_propaga_el_aviso(tmp_path):
     cg, _ = _graph(tmp_path)
     out = cg.search_many({"ckg": {"no_such_field": "x"}})
     assert "note" in out["responses"]["ckg"]
+
+
+def test_filtro_por_tag_es_array_y_resuelve_por_sql(tmp_path):
+    """`tag` (lista `tags`) no tiene columna escalar: se resuelve con
+    json_each y NO debe caer al fallback eager.
+
+    El collector del workflow lo usa 5 veces por prompt; cada caída al eager
+    materializaba el índice completo (medido: 293 docs por consulta).
+    """
+    conn = MemoryConnection(backend="sqlite", uri=f"sqlite://{tmp_path}")
+    backend = resolve_storage_backend(conn)
+    backend.register_index("ckg", PRODUCTION_INDEX_SCHEMAS["ckg"])
+    backend.store_many(
+        "ckg",
+        {
+            "c:1": {"statement": "a", "type": "pattern", "tags": ["global", "arch"]},
+            "c:2": {"statement": "b", "type": "pattern", "tags": ["arch"]},
+            "c:3": {"statement": "c", "type": "pattern"},
+        },
+    )
+
+    result = backend.search("ckg", {"tag": "global"})
+    assert result["hits"]["total"] == 1
+    assert "note" not in result, "tag debe resolverse por SQL, no por eager"
+    assert result["hits"]["hits"][0]["_id"] == "c:1"
+
+    # la intersección de dos tags no matchea: el filtro es por pertenencia
+    assert backend.search("ckg", {"tag": "nope"})["hits"]["total"] == 0
