@@ -593,6 +593,10 @@ def main() -> int:
                     help="no llama al agente: verifica que la suite FALLE en el commit base")
     ap.add_argument("--no-mcp", action="store_true",
                     help="desactiva los MCP por config: sus índices apuntan al repo real")
+    ap.add_argument("--tool-profile", default=os.environ.get("WALKER_MCP_PROFILE"),
+                    help="perfil de tools del MCP de walker: full (33) | agent (10) | "
+                         "admin. Se inyecta en el opencode.json del sandbox para que "
+                         "el server recorte `tools/list` (ver fast_mcp/tool_profiles.py)")
     ap.add_argument("--no-sanitize", action="store_true",
                     help="no quita docstrings/comentarios del test inyectado")
     ap.add_argument("--keep", action="store_true", help="no borra los directorios de trabajo")
@@ -776,6 +780,13 @@ def main() -> int:
         if args.no_mcp and not is_workflow:
             (wt / "opencode.json").write_text(json.dumps(
                 {"mcp": {srv: {"enabled": False} for srv in MCP_SERVERS}}, indent=2))
+        elif args.tool_profile:
+            # El perfil viaja por el entorno del server MCP: el recorte ocurre
+            # al construir `tools/list`, así que el agente NUNCA ve las tools
+            # extra (no es un filtro de permisos, es superficie).
+            (wt / "opencode.json").write_text(json.dumps(
+                {"mcp": {"walker": {"environment": {"WALKER_MCP_PROFILE": args.tool_profile}}}},
+                indent=2))
 
         run(["git", "init", "-q", "-b", "main"], wt, env, 30)
         run(["git", "add", "-A"], wt, env, 120)

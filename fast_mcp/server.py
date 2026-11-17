@@ -34,7 +34,12 @@ def build_server() -> FastMCP:
     (sin importar mcp/).
     """
     from fast_mcp.phases import install as install_phases
+    from fast_mcp.tool_profiles import apply_profile
 
     server = FastMCP(_SERVER_NAME)
     install_phases(server)
+    # WALKER_MCP_PROFILE recorta la superficie ANTES de que el agente la vea
+    # (`tools/list`). Cada tool extra se paga en tokens y en atención en TODOS
+    # los turnos; ver fast_mcp/tool_profiles.py.
+    apply_profile(server)
     return server

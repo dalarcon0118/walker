@@ -117,3 +117,37 @@ bin/walker3 walker/workflow_state '{}'
 # smoke del plugin sin OpenCode (fake del shell de Bun)
 node /tmp/plugin_smoke.mjs   # inyecta [WALKER] Workflow: … y traza los eventos
 ```
+
+---
+
+## Superficie de tools (`WALKER_MCP_PROFILE`)
+
+El server registra 33 tools (~3.500 tokens de descripción+esquema que el agente
+paga en cada turno y entre las que tiene que elegir). Un perfil es la lista
+blanca que se sirve en `tools/list`:
+
+| perfil | tools | ~tokens | para qué |
+|---|---|---|---|
+| `full` (default) | 33 | 3.499 | contrato histórico, compatibilidad |
+| `agent` | 10 | 888 | resolver una tarea del workflow |
+| `admin` | 26 | 2.286 | arranque/registro de proyectos, mantenimiento de índices |
+
+```bash
+WALKER_MCP_PROFILE=agent python3 -m fast_mcp.main
+```
+
+El perfil `agent` deja solo el ciclo de trabajo (`workflow_state`, `submit`,
+`transition`, `status`), un lector de contexto (`agent_context`), skills
+(`search_skills`, `load_skill`), verificación (`run_tests`, `verify_predicates`)
+y evidencia (`capture`). Quedan fuera tres clases:
+
+- **duplicados de tools nativas**: `read_code`/`read`, `code_search`/`grep`,
+  `code_context`, `inspect_codebase` — el agente ya las tiene y elegir entre dos
+  equivalentes es ruido;
+- **telemetría**: `trace_push`, `trace_message` — las escribe el plugin, no el
+  modelo;
+- **mantenimiento**: `build_code_index`, `update_incremental_code`,
+  `index_repo`, `extract_knowledge`, `memory_schema`, `documenting_knowledge`.
+
+Un perfil que nombre tools inexistentes loggea warning y arranca igual (no
+rompe el boot por un nombre viejo).

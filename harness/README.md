@@ -116,11 +116,19 @@ python3 scripts/ablation.py --repo <repo> --tasks /tmp/tasks.json --k 3
 
 La ablación corre tres brazos:
 
-| brazo | MCP de walker | inyección de CKG/skills |
-|---|---|---|
-| `baseline` | no | no |
-| `tools` | sí (el agente puede llamarlas) | no |
-| `full` | sí | sí |
+| brazo | MCP de walker | tools | inyección de CKG/skills |
+|---|---|---|---|
+| `baseline` | no | — | no |
+| `tools` | sí | 33 (`full`) | no |
+| `lean` | sí | 10 (`agent`) | no |
+| `full` | sí | 33 | sí |
+| `full-lean` | sí | 10 | sí |
+
+`tools` vs `lean` aísla **solo la superficie de tools** (mismo MCP, misma
+ausencia de inyección): si `lean` gana, el costo estaba en las 23 tools de más,
+no en la memoria. La superficie se recorta en `tools/list`
+(`WALKER_MCP_PROFILE`), no por permisos, así que el agente nunca ve las tools de
+afuera.
 
 Toggles para experimentos propios: `WALKER_PROMPT_KNOWLEDGE=0`,
 `WALKER_PROMPT_SKILLS=0`, `WALKER_FLIGHT_CONTROL=0` (los evals ya corren con

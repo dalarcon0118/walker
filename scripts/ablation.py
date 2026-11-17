@@ -5,10 +5,12 @@ contra el baseline. Sin esto, "tengo memorias" no es evidencia: es una lista de
 features.
 
 Brazos:
-  baseline  sin MCP (sin tools de walker) y sin inyección
-  tools     MCP habilitado (el agente puede llamar a walker si quiere), sin
-            inyección automática de conocimiento ni skills
-  full      MCP + inyección de CKG y skills en los prompts del workflow
+  baseline    sin MCP (sin tools de walker) y sin inyección
+  tools       MCP completo (33 tools), sin inyección automática
+  lean        MCP con perfil `agent` (10 tools), sin inyección → aísla la
+              superficie de tools del efecto de tener MCP
+  full        MCP completo + inyección de CKG y skills
+  full-lean   MCP con perfil `agent` + inyección
 
 Uso:
     python3 scripts/ablation.py --repo <repo> --tasks <tasks.json> --k 1
@@ -30,14 +32,29 @@ RUNNER = WALKER_ROOT / "harness" / "runner.py"
 ARMS: dict[str, dict] = {
     "baseline": {
         "no_mcp": True,
+        "profile": None,
         "env": {"WALKER_PROMPT_KNOWLEDGE": "0", "WALKER_PROMPT_SKILLS": "0"},
     },
     "tools": {
         "no_mcp": False,
+        "profile": "full",
+        "env": {"WALKER_PROMPT_KNOWLEDGE": "0", "WALKER_PROMPT_SKILLS": "0"},
+    },
+    # Aísla la SUPERFICIE de tools: mismo MCP, misma ausencia de inyección,
+    # 10 tools en vez de 33.
+    "lean": {
+        "no_mcp": False,
+        "profile": "agent",
         "env": {"WALKER_PROMPT_KNOWLEDGE": "0", "WALKER_PROMPT_SKILLS": "0"},
     },
     "full": {
         "no_mcp": False,
+        "profile": "full",
+        "env": {"WALKER_PROMPT_KNOWLEDGE": "1", "WALKER_PROMPT_SKILLS": "1"},
+    },
+    "full-lean": {
+        "no_mcp": False,
+        "profile": "agent",
         "env": {"WALKER_PROMPT_KNOWLEDGE": "1", "WALKER_PROMPT_SKILLS": "1"},
     },
 }
@@ -50,6 +67,8 @@ def build_cmd(repo: str, tasks: str, arm: str, k: int, model: str | None,
            "--k", str(k), "--out", out]
     if cfg["no_mcp"]:
         cmd.append("--no-mcp")
+    if cfg.get("profile"):
+        cmd += ["--tool-profile", cfg["profile"]]
     if model:
         cmd += ["--model", model]
     return cmd
@@ -81,7 +100,7 @@ def main() -> int:
     ap.add_argument("--tasks", required=True)
     ap.add_argument("--k", type=int, default=1)
     ap.add_argument("--model", default=os.environ.get("HARNESS_MODEL"))
-    ap.add_argument("--arms", default="baseline,tools,full")
+    ap.add_argument("--arms", default="baseline,tools,lean")
     ap.add_argument("--out", default=str(Path.home() / ".local/share/walker/ablation"))
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
