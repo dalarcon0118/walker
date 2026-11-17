@@ -36,6 +36,7 @@ def _searcher() -> _SearcherFalso:
             "rule": [{"_id": "k2", "statement": "Gate de complejidad"}],
             "design-decision": [{"_id": "k3", "statement": "Capas estrictas"}],
             "implementation": [{"_id": "k4", "statement": "Implementación previa"}],
+            "pattern": [{"_id": "k5", "statement": "Patrón de capas"}],
         }
     )
 
@@ -52,7 +53,7 @@ def test_con_searcher_agrega_conocimiento_como_texto(tmp_path):
     data = m._build_data({"node_id": "implement"}, None)  # noqa: SLF001
 
     assert data["knowledge_global"] == "- Convención global\n- Gate de complejidad"
-    assert data["knowledge_architecture"] == "- Capas estrictas"
+    assert data["knowledge_architecture"] == "- Capas estrictas\n- Patrón de capas"
     assert data["knowledge_relevant"] == "- Implementación previa"
     assert all(isinstance(data[k], str) for k in data if k.startswith("knowledge_"))
 
@@ -95,3 +96,25 @@ def test_el_conocimiento_se_recorta_para_no_inflar_el_prompt(tmp_path):
     assert out.count("- ") <= MAX_KNOWLEDGE_ITEMS
     assert len(out) <= MAX_KNOWLEDGE_CHARS
     assert out.endswith("…")
+
+
+def test_plantilla_implement_work_usa_el_conocimiento(tmp_path):
+    """Primera plantilla opt-in: la seccion CONOCIMIENTO DEL PROYECTO.
+
+    Medido con datos reales: react-native-frontend +2.993 chars (~748 tokens),
+    backend-microservices +1.200, game-reset-page +0 (sin conocimiento).
+    """
+    con = PromptManager(chain_dir=str(tmp_path), ckg_searcher=_searcher()).resolve(
+        "implement/work", context={"node_id": "implement"}
+    )
+    assert "CONOCIMIENTO DEL PROYECTO" in con
+    assert "Convención global" in con
+    assert "Patrón de capas" in con, "project_patterns debe renderizar el patrón"
+    assert "{knowledge_global}" not in con, "no deben quedar placeholders crudos"
+
+    sin = PromptManager(chain_dir=str(tmp_path)).resolve(
+        "implement/work", context={"node_id": "implement"}
+    )
+    assert "CONOCIMIENTO DEL PROYECTO" in sin
+    assert "{knowledge_relevant}" not in sin, "sin searcher el hueco queda vacío"
+    assert len(sin) < len(con)
