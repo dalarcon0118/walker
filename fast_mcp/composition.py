@@ -525,6 +525,21 @@ def _build_task_registry(sprint_service=None):
         # `implement_task` persiste la spec en el delta: sin esta factory el
         # delta queda vacío y el ancla de tarea del contexto no existe.
         implement_handlers.configure(build_sprint_service)
+
+        from fast_mcp.features.tasks.handlers import _di as tasks_di
+        from fast_mcp.features.workflow.context import WorkflowContext
+        from fast_mcp.features.workflow.domain.execution import ExecutionContext
+
+        def _record_task_id(chain_dir: str, task_id: str) -> bool:
+            wctx = WorkflowContext.resolve(chain_dir)
+            if wctx is None:
+                return False
+            return wctx.orchestrator.remember_task(
+                ExecutionContext(session_id="mcp", trace_id="", span_id="", chain_dir=chain_dir),
+                task_id,
+            )
+
+        tasks_di.configure_task_recorder(_record_task_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("baseline handler no configurado (%s: %s)", type(exc).__name__, exc)
 
@@ -542,6 +557,22 @@ def _build_side_effect_registry():
     registry = SideEffectRegistry()
     register_all_side_effects(registry)
     return registry
+
+
+def _workflow_task_id(chain_dir: str) -> str:
+    """`task_id` recordado en el estado del workflow, o ""."""
+    if not chain_dir:
+        return ""
+    try:
+        from fast_mcp.features.workflow.context import WorkflowContext
+
+        wctx = WorkflowContext.resolve(chain_dir)
+        if wctx is None:
+            return ""
+        state = wctx.orchestrator._load_state()
+        return str(((state.context if state else {}) or {}).get("task_id", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def task_tool_runner(name: str, root: Path | None = None):
@@ -565,6 +596,14 @@ def task_tool_runner(name: str, root: Path | None = None):
 
         project_id = kwargs.get("project_id", "") or kwargs.get("_project_id", "")
         task_data = {k: v for k, v in kwargs.items() if k not in ("project_id",)}
+
+        # La tarea declarada vive en el estado del workflow. Si el llamador no
+        # repite el id, se toma de ahí: es lo que permite que `verify` y
+        # `run_tests` operen sobre LA tarea en curso y no sobre una heurística.
+        if not task_data.get("task_id"):
+            current = _workflow_task_id(chain_dir)
+            if current:
+                task_data["task_id"] = current
 
         return execute_public_task(
             name=name,

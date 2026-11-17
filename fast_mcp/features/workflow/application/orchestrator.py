@@ -304,6 +304,9 @@ class OrchestrationService:
             task_result=task_result,
         )
 
+        # 6c. Recordar la tarea declarada (si la acción la devolvió)
+        state = self._remember_task_id(state, task_result)
+
         # 7. Save state (repository handles CAS + revision bump)
         if not self._save_state(state):
             return {"ok": False, "error": "Failed to persist state"}
@@ -318,6 +321,38 @@ class OrchestrationService:
             "revision": state.revision,
             "data": fields,
         }
+
+    def remember_task(self, ctx: ExecutionContext, task_id: str) -> bool:
+        """Persiste el `task_id` de la tarea declarada en el estado del workflow.
+
+        `implement_task` se llama como TOOL, no como acción de un nodo, así que
+        el motor no se entera de la tarea salvo que alguien se lo diga. Esto es
+        ese puente: a partir de acá, toda acción recibe el id sin que el
+        llamador lo repita.
+        """
+        task_id = str(task_id or "").strip()
+        if not task_id:
+            return False
+        state = self._load_state()
+        if state is None:
+            return False
+        if (state.context or {}).get("task_id") == task_id:
+            return True
+        state = state.with_context("task_id", task_id)
+        return bool(self._save_state(state))
+
+    @staticmethod
+    def _remember_task_id(state: WorkflowState, task_result: Any) -> WorkflowState:
+        """Guarda el `task_id` que devolvió una acción (p. ej. implement_task).
+
+        Sin esto el id vivía solo en la respuesta: la siguiente acción de la
+        tarea no lo conocía y `verify` caía a la heurística de «la más reciente».
+        """
+        data = (task_result or {}).get("data") if isinstance(task_result, dict) else None
+        tid = str((data or {}).get("task_id", "") or "").strip()
+        if tid and tid != (state.context or {}).get("task_id"):
+            return state.with_context("task_id", tid)
+        return state
 
     def advance(
         self,
@@ -418,6 +453,7 @@ class OrchestrationService:
             task_ok=True,
             task_result=task_result,
         )
+        new_state = self._remember_task_id(new_state, task_result)
         if not self._save_state(new_state):
             return {"ok": False, "error": "Failed to persist state"}
         self._trace_submit(ctx, new_state, fields)
@@ -485,13 +521,17 @@ class OrchestrationService:
         # una tarea. Ese fallback hacía que `implement_task` persistiera
         # `task-capture_baseline` como id, que `verify` no encontrara la spec y
         # que el ancla del contexto no matcheara nunca. La acción viaja aparte.
+        # El id puede venir del caller o estar ya recordado en el estado: una
+        # vez que `implement_task` declara la tarea, CADA acción posterior la
+        # conoce sin que el llamador tenga que repetirla.
+        task_id = (ctx.task_id if ctx else "") or str((state.context or {}).get("task_id", "") or "")
         exec_ctx = SimpleNamespace(
             chain_dir=self._bundle.chain_dir,
-            task_id=(ctx.task_id if ctx else "") or "",
+            task_id=task_id,
             session_id=(ctx.session_id if ctx else "") or "mcp",
         )
         exec_data = {
-            "task_id": (ctx.task_id if ctx else "") or "",
+            "task_id": task_id,
             "action": action,
             "chain_dir": self._bundle.chain_dir,
             **fields,
@@ -925,5 +965,6 @@ class OrchestrationService:
             "history": list(state.history[-5:]),
             "blocked": bool(state.blocked_at),
             "revision": state.revision,
+            "task_id": str((state.context or {}).get("task_id", "") or ""),
             "prompt": self._resolve_current_prompt(state, graph, ctx),
         }

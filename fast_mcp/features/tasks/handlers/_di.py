@@ -10,11 +10,27 @@ from __future__ import annotations
 from typing import Any, Callable
 
 _SPRINT_FACTORY: Callable[[str], Any] | None = None
+_TASK_RECORDER: Callable[[str, str], bool] | None = None
 
 
 def configure_sprint(factory: Callable[[str], Any] | None) -> None:
     global _SPRINT_FACTORY
     _SPRINT_FACTORY = factory
+
+
+def configure_task_recorder(recorder: Callable[[str, str], bool] | None) -> None:
+    """Inyecta `(chain_dir, task_id) -> bool`: guarda la tarea en el workflow."""
+    global _TASK_RECORDER
+    _TASK_RECORDER = recorder
+
+
+def record_task(chain_dir: str, task_id: str) -> bool:
+    if _TASK_RECORDER is None or not chain_dir or not task_id:
+        return False
+    try:
+        return bool(_TASK_RECORDER(chain_dir, task_id))
+    except Exception:  # noqa: BLE001 — recordar la tarea no puede romper la tool
+        return False
 
 
 def sprint_service(chain_dir: str):

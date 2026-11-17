@@ -138,6 +138,9 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # sólo devolvía un dict y el delta quedaba vacío para siempre.
     try:
         spec = _persist_spec(ctx, task_id, objective, files, data)
+        if task_id:
+            # Puente al workflow: a partir de acá toda acción recibe el id.
+            _di.record_task(ctx.chain_dir, task_id)
         if spec:
             result["spec"] = {"spec_id": spec.get("spec_id"), "status": spec.get("status")}
     except Exception as exc:  # noqa: BLE001 — fail-loud en el dato, no en la tool
