@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path, PurePath
 from typing import Any
@@ -25,7 +26,34 @@ from fast_mcp.shared_kernel.dependency_checker import ensure_tools
 logger = logging.getLogger(__name__)
 
 
-AST_GREP_BIN = os.environ.get("AST_GREP_BIN") or "ast-grep"
+def _resolve_ast_grep() -> str:
+    """Resuelve el binario REAL de ast-grep.
+
+    En macOS hay dos `ast-grep`: el paquete npm 0.1.0 (no soporta
+    `outline --json`) y el binario `sg` 0.44.x. Elegir por nombre hacía que
+    el CPG escaneara 0 archivos en silencio. Detectamos por identidad:
+    `sg --version` imprime "ast-grep X.Y.Z"; el wrapper npm imprime solo el
+    número.
+    """
+    explicit = os.environ.get("AST_GREP_BIN")
+    if explicit:
+        return explicit
+    for candidate in ("sg", "ast-grep"):
+        binary = shutil.which(candidate)
+        if not binary:
+            continue
+        try:
+            version = subprocess.run(
+                [binary, "--version"], capture_output=True, text=True, timeout=10
+            ).stdout.lower()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if "ast-grep" in version:
+            return candidate
+    return "ast-grep"
+
+
+AST_GREP_BIN = _resolve_ast_grep()
 IGNORED_DIRS = {
     "node_modules", ".git", "__pycache__", "venv", ".venv",
     ".env", "dist", "build", ".next", ".cognitive",

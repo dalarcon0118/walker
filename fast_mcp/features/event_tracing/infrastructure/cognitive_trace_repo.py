@@ -58,6 +58,7 @@ class CognitiveTraceRepository(TraceRepository):
             event_id = f"ev-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             ts = datetime.now(timezone.utc).isoformat()
             event = {
+                "type": data.get("event_type", "event"),
                 "event_type": data.get("event_type", "event"),
                 "source": data.get("source", "walker_task"),
                 "sprint_id": data.get("sprint_id", ""),

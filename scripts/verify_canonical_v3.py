@@ -101,24 +101,25 @@ if top_type:
 else:
     print("[delta.structured] SKIP — delta sin docs con tipo")
 
-# 4) Structured TRACE — quirk pre-existente del schema (event_type → 'keyword',
-#    tipo ES, no campo): resolve_filters devuelve None → fallback al path base.
-#    Resultado esperado: 0 hits en índice LIGERO sin materializar — mismo
-#    comportamiento que pre-F2 (el path base Python tampoco indexa event_type:
-#    data['keyword'] no existe). El router NO inventa resultados (M-08 paridad).
+# 4) Structured TRACE — el schema v2 mapea event_type a SU columna
+#    (fix 2026-11-16: antes todos los campos caían en 'keyword', que no es
+#    columna → resolve_filters devolvía None y TODO filtro daba 0 hits, también
+#    con datos presentes). Ahora el router resuelve por SQL sin materializar
+#    (M-09) y discrimina entre valor presente y ausente.
 t3 = b3._indexes["trace"]  # noqa: SLF001
 assert t3._loaded is False
 res = b3.search("trace", {"event_type": "ToolRegistered"})
 total = res["hits"]["total"] if isinstance(res.get("hits"), dict) else None
-print(f"[trace.structured] event_type → fallback base (quirk schema): total={total} "
-      f"(esperado 0; indexación de event_type rota pre-existente)")
-assert total == 0, "trace structured con hits — inesperado (schema mapea a 'keyword')"
-# El fallback base es el path LEGACY eager (Index.search filtra en RAM) —
-# materializa por diseño: los filtros no resolubles por SQL son búsquedas
-# full-graph honestas. M-09 rige las rutas ENRUTADAS (text/structured SQL),
-# que ya se verificaron sin materializar arriba (delta fulltext + structured).
-print("  (nota: fallback base = path legacy eager por diseño; filtros no-SQL "
-      "requieren read model materializado, igual que pre-F3)")
+print(f"[trace.structured] event_type=ToolRegistered → {total} hits (esperado 1)")
+assert total == 1, (
+    "trace structured no resuelve event_type por columna — regresión del "
+    "mapeo a 'keyword' (fix 2026-11-16)"
+)
+res = b3.search("trace", {"event_type": "NoExiste"})
+total_absent = res["hits"]["total"] if isinstance(res.get("hits"), dict) else None
+print(f"[trace.structured] event_type=NoExiste → {total_absent} hits (esperado 0)")
+assert total_absent == 0, "trace structured inventa hits para un valor inexistente"
+assert t3._loaded is False, "filtro estructurado de trace materializó el índice"
 b3._db.close()  # noqa: SLF001
 
 print("\nSMOKE OK — idempotencia, fulltext delta y router structured verificados en v3.")

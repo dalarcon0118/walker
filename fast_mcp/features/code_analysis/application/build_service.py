@@ -43,6 +43,44 @@ def _load_ignore_core(root: str) -> Any | None:
     from fast_mcp.shared_kernel.project_support import IgnoreRules
 
     return IgnoreRules(str(root)) if root else None
+
+
+def _rekey_scanned(nodes: dict, edges: list) -> tuple[dict, list]:
+    """Re-keya los ids secuenciales del scan a ids únicos de proyecto.
+
+    ast-grep asigna ids desde `cpg-0001` en CADA scan. Mergear eso contra un
+    CPG existente pisa nodos de OTROS archivos (bug medido 2026-11-16: el
+    update incremental borró `core/dispatcher.py` del CPG de backend y dejó el
+    grafo en 15.010 nodos cuando tenía 17.849 — los primeros 19 ids del scan
+    sobrescribieron a dispatcher, que no estaba en el change set).
+
+    Se prefija con un nonce y se remapean las aristas para que apunten a los
+    ids nuevos (las aristas hacia archivos no re-escaneados conservan su id).
+    """
+    from uuid import uuid4
+
+    nonce = uuid4().hex[:8]
+    remap: dict[str, str] = {}
+    rekeyed: dict[str, dict] = {}
+    for index, (old_id, node) in enumerate(nodes.items()):
+        new_id = f"cpg-{nonce}-{index:05d}"
+        remap[str(old_id)] = new_id
+        rekeyed[new_id] = {**node, "id": new_id} if isinstance(node, dict) else node
+
+    fixed_edges: list[dict] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        fixed_edges.append(
+            {
+                **edge,
+                "from": remap.get(edge.get("from"), edge.get("from")),
+                "to": remap.get(edge.get("to"), edge.get("to")),
+            }
+        )
+    return rekeyed, fixed_edges
+
+
 def _walk_code_files(
     raw_paths: list[str],
     ignore: Any | None,
@@ -64,6 +102,18 @@ def _walk_code_files(
         _to_rel,
         IGNORED_DIRS,
     )
+
+    # Guard de tipo (bug medido 2026-11-16): pasar un `str` en vez de una
+    # secuencia hace que `for p in raw_paths` itere CARACTERES; "/" es `isdir`
+    # → el walk se va al filesystem entero y el server queda colgado (>240s,
+    # sin error). Fallar ruidoso es infinitamente más barato que eso.
+    if isinstance(raw_paths, (str, bytes)):
+        raise TypeError(
+            "raw_paths debe ser una SECUENCIA de rutas (p.ej. [repo_root]), "
+            "no un string: un str se itera carácter a carácter y '/' es un "
+            f"directorio → el walk recorrería el filesystem completo. "
+            f"Recibido: {raw_paths!r}"
+        )
 
     ignore_root = _resolve_ignore_root(ignore, raw_paths)
     all_files: list[str] = []
@@ -656,13 +706,22 @@ class BuildGraphUseCase:
 
         return data
 
-    def update(self, refresh: bool = False) -> dict:
+    def update(self, refresh: bool = False, bug_proposals: bool = False) -> dict:
         """Incremental via watcher: solo archivos cambiados desde el ultimo scan.
 
         Si el watcher detecta que no hay cambios y el CPG ya es espejo
         del codigo (fingerprint coincide), retorna los datos cacheados
         sin re-scan. Si hay cambios, usa index_task_files() con solo
         los archivos modificados.
+
+        Args:
+            refresh: fuerza un rebuild completo (build()).
+            bug_proposals: corre el análisis de bugs sobre TODO el grafo.
+                Es el 95% del costo medido de un incremental (111s de 117s
+                para UN archivo en backend-microservices) y no aporta nada
+                nuevo si el cambio es de un solo archivo: por defecto se
+                omite y el reporte persistido queda con su `generated_at`
+                visible. El build completo lo corre siempre.
 
         Para rebuild forzado: usar build() o refresh=True.
         """
@@ -713,7 +772,7 @@ class BuildGraphUseCase:
         if not changed and status.get("cpg_status") == "up_to_date":
             return self._repo.load(self.project_id)
 
-        result = self.index_task_files(changed)
+        result = self.index_task_files(changed, bug_proposals=bug_proposals)
         try:
             watcher.mark_indexed("cpg")
         except Exception as e:
@@ -722,12 +781,17 @@ class BuildGraphUseCase:
             )
         return result
 
-    def index_task_files(self, task_files: list[str]) -> dict:
+    def index_task_files(self, task_files: list[str], bug_proposals: bool = False) -> dict:
         """Re-indexa solo los archivos cambiados o eliminados.
 
         - Archivos existentes: re-scan con ast-grep (nuevos nodos + edges)
         - Archivos eliminados: remueve sus nodos viejos del CPG
         - Merge con el resto del CPG (sin re-scan completo)
+
+        `bug_proposals=False` (default): NO corre el análisis de bugs sobre todo
+        el grafo. Medido: 111s de los 117s de un incremental de UN archivo en
+        backend-microservices (17.8K nodos); el reporte persistido conserva su
+        `generated_at` y el build completo lo refresca.
 
         PRINCIPIO: escritura SEGURA. Primero se escanea y parsea TODO;
         si el scan falla o no produce nodos, NO se toca el CPG en disco.
@@ -763,6 +827,9 @@ class BuildGraphUseCase:
                     "scope": "task",
                     "error": "scan_files no produjo nodos — CPG NO modificado",
                 }
+            # Los ids del scan son secuenciales (cpg-0001...): sin re-keyar,
+            # el merge pisa nodos de archivos que NO se re-escanearon.
+            new_nodes, new_edges = _rekey_scanned(new_nodes, new_edges)
 
         # ── 2. Solo AHORA remover viejos y mergear ──
         old_data = self._repo.load(self.project_id)
@@ -792,21 +859,26 @@ class BuildGraphUseCase:
         data["source_fingerprint"] = self._watcher_fingerprint()
 
         self._repo.save(data)
-        # Sync incremental: solo nodos nuevos/cambiados, no los 5396
-        cpg_docs = {}
-        for nid, node_data in new_nodes.items():
-            cpg_docs[nid] = {
-                "name": node_data.get("name", ""),
-                "type": node_data.get("type", ""),
-                "file": node_data.get("path", ""),
-                "line": node_data.get("line", 0),
-            }
-        _sync_core_delta(self._cg, add_or_update=cpg_docs,
+        # Sync incremental a la memoria: se mandan los nodos COMPLETOS.
+        # Antes se enviaba un resumen {name,type,file,line}: `file` no es la
+        # clave que usa el CPG (`path`), así que el nodo quedaba con un payload
+        # reducido y sin path — el siguiente update no lo podía remover por
+        # path y code_search no lo encontraba (bug medido 2026-11-16: 34 nodos
+        # huérfanos sin `path` en backend-microservices).
+        _sync_core_delta(self._cg, add_or_update=dict(new_nodes),
                          remove=paths_to_remove)
         # Quality report sobre los archivos re-indexados
         qr = self._persist_quality_report(existing)
-        # Post-index bug proposals (para status)
-        bp = self._persist_bug_proposals()
+        # Post-index bug proposals (para status) — opt-in: es el 95% del costo
+        # de un incremental y no cambia si el change set es acotado.
+        bp = (
+            self._persist_bug_proposals()
+            if bug_proposals
+            else {
+                "skipped": True,
+                "reason": "bug_proposals corre en build() o con bug_proposals=True",
+            }
+        )
         return {
             "ok": True,
             "files_updated": len(existing),

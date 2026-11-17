@@ -108,6 +108,64 @@ def test_walk_code_files_prune_ignored_dirs_inline(tmp_path):
     assert not any(".git" in r for r in rels)
 
 
+def test_ignore_rules_directorio_matchea_descendientes(tmp_path):
+    """`patron/` ignora el directorio Y todo lo que cuelga, a cualquier nivel.
+
+    Regresión medida 2026-11-16: con `docs/` en el .walkerignore,
+    `is_ignored("docs/spec.md")` daba False; solo el podado de directorios
+    del walk salvaba el caso, así que un consumidor que filtre por archivo
+    indexaba el directorio ignorado sin avisar.
+    """
+    from fast_mcp.shared_kernel.project_support.watcher import IgnoreRules
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / ".walkerignore").write_text(
+        "docs/\nbuild/\n*.pyc\nnode_modules/\n"
+    )
+    ignore = IgnoreRules(str(root))
+
+    # patrón de directorio: a sí mismo, a sus hijos y a cualquier profundidad
+    assert ignore.is_ignored("docs/") is True
+    assert ignore.is_ignored("docs/spec.md") is True
+    assert ignore.is_ignored("docs/a/b/c.md") is True
+    assert ignore.is_ignored("sub/build/out.js") is True
+    assert ignore.is_ignored("node_modules/react/index.js") is True
+
+    # patrón sin barra: vale en la raíz y a cualquier profundidad
+    assert ignore.is_ignored("cache.pyc") is True
+    assert ignore.is_ignored("pkg/deep/cache.pyc") is True
+
+    # código real no se toca (ni por prefijo ni por basename)
+    assert ignore.is_ignored("experimental/src/auth/config.py") is False
+    assert ignore.is_ignored("scripts/start.sh") is False
+    assert ignore.is_ignored("docs_oldish/readme.md") is False
+
+
+def test_walk_code_files_rejects_str_path(tmp_path):
+    """Un `str` en raw_paths debe fallar ruidoso, no recorrer el filesystem.
+    los caracteres de la ruta; "/" es `isdir` → el walk se iba al filesystem
+    entero y la tool colgaba >240s sin error (solo salía por timeout externo).
+    """
+    import pytest
+
+    from fast_mcp.features.code_analysis.application.build_service import (
+        _walk_code_files,
+    )
+
+    root = tmp_path / "proj"
+    (root).mkdir()
+    (root / "main.py").write_text("print(1)")
+
+    with pytest.raises(TypeError, match="SECUENCIA de rutas"):
+        _walk_code_files(str(root), None)
+
+    # La forma correcta (lista) sigue funcionando.
+    assert any(
+        f.endswith("main.py") for f in _walk_code_files([str(root)], None)
+    )
+
+
 # ── 2. TokenIndex: dedup O(1) vía _keys ─────────────────────────────
 
 
@@ -214,8 +272,105 @@ def test_puerto_storage_backend_incluye_get_metadata_only():
         )
 
 
-# ── 4. FIX D: update() fail-fast, sin fallback a build() (INV-016) ──
+# ── FIX F: el sync incremental guarda el nodo COMPLETO (con path) ────
 
+
+def test_index_task_files_sincroniza_payload_completo_con_path(tmp_path, monkeypatch):
+    """El sync incremental a la memoria manda los nodos completos.
+
+    Bug medido 2026-11-16: `index_task_files` enviaba a `store_many` un resumen
+    {name, type, file, line}. `file` no es la clave del CPG (`path`), así que
+    el nodo quedaba sin path: el siguiente update no lo podía remover por path
+    y `code_search` no lo encontraba (34 nodos huérfanos en backend).
+    """
+    from fast_mcp.features.code_analysis.application.build_service import (
+        BuildGraphUseCase,
+    )
+
+    class _RepoEnMemoria:
+        def __init__(self):
+            self.data = {"nodes": {}, "edges": [], "stats": {}}
+
+        def load(self, project_id):
+            return self.data
+
+        def save(self, data):
+            self.data = data
+
+        def get_stats(self, project_id):
+            return {}
+
+    class _CgFalso:
+        def __init__(self):
+            self.stored: dict[str, dict] = {}
+
+        def store_many(self, index, docs):
+            self.stored.update(docs)
+            return {"stored": len(docs)}
+
+        def delete(self, index, node_id):
+            return {"deleted": True}
+
+    (tmp_path / "b.py").write_text("def nueva():\n    return 1\n")
+    cg = _CgFalso()
+    uc = BuildGraphUseCase(
+        project_id="demo",
+        data_dir=str(tmp_path / "data"),
+        code_root=str(tmp_path),
+        repo_path=str(tmp_path),
+        repo=_RepoEnMemoria(),
+        graph=cg,
+    )
+    # El reporte de calidad no aporta al caso y toca el grafo real.
+    monkeypatch.setattr(uc, "_persist_quality_report", lambda *a, **k: {})
+
+    uc.index_task_files(["b.py"])
+
+    assert cg.stored, "el incremental no sincronizó ningún nodo a la memoria"
+    for node_id, doc in cg.stored.items():
+        assert doc.get("path"), f"nodo {node_id} sincronizado sin 'path': {doc}"
+        assert "file" not in doc, f"nodo {node_id} usa 'file' en vez de 'path'"
+
+
+def test_rekey_scanned_no_colisiona_con_ids_existentes():
+    """Los ids del scan (cpg-0001...) se re-keyan a ids únicos de proyecto.
+
+    Bug medido 2026-11-16 en backend-microservices: `update()` dejó el CPG en
+    15.010 nodos (tenía 17.849) y borró `core/dispatcher.py`. El scan de los
+    archivos cambiados re-emitía ids desde `cpg-0001`, y el merge pisó los
+    primeros nodos del grafo, que eran de dispatcher (no estaba en el change
+    set, así que nadie los volvió a escribir).
+    """
+    from fast_mcp.features.code_analysis.application.build_service import (
+        _rekey_scanned,
+    )
+
+    scanned = {
+        "cpg-0001": {"id": "cpg-0001", "type": "file", "path": "/x/b.py"},
+        "cpg-0002": {"id": "cpg-0002", "type": "function", "path": "/x/b.py"},
+    }
+    edges = [
+        {"from": "cpg-0001", "to": "cpg-0002", "type": "CONTAINS"},
+        {"from": "cpg-0002", "to": "cpg-9999", "type": "CALLS"},  # externo
+    ]
+
+    nodes, fixed = _rekey_scanned(scanned, edges)
+
+    assert len(nodes) == 2
+    assert not ({"cpg-0001", "cpg-0002"} & set(nodes)), (
+        "los ids del scan NO deben conservarse: colisionan con el CPG existente"
+    )
+    assert all(k == v["id"] for k, v in nodes.items()), "clave e id deben coincidir"
+    assert len({v["id"] for v in nodes.values()}) == 2
+    # Aristas internas remapeadas al id nuevo…
+    internal = [e for e in fixed if e["type"] == "CONTAINS"][0]
+    assert internal["from"] in nodes and internal["to"] in nodes
+    # …y las que apuntan fuera del scan conservan su destino.
+    external = [e for e in fixed if e["type"] == "CALLS"][0]
+    assert external["to"] == "cpg-9999"
+
+
+# ── 4. FIX D: update() fail-fast, sin fallback a build() (INV-016) ──
 
 def test_update_fail_fast_sin_fallback_build(monkeypatch, tmp_path):
     """update() con watcher roto NO cae a build() completo (INV-016).

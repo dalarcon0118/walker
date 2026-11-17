@@ -42,13 +42,13 @@ class CpgService:
         """Full rebuild del CPG."""
         return self._inner.build(scan_paths)
 
-    def update(self, refresh: bool = False) -> dict:
+    def update(self, refresh: bool = False, bug_proposals: bool = False) -> dict:
         """Incremental via watcher (solo archivos cambiados)."""
-        return self._inner.update(refresh)
+        return self._inner.update(refresh, bug_proposals=bug_proposals)
 
-    def index_task_files(self, task_files: list[str]) -> dict:
+    def index_task_files(self, task_files: list[str], bug_proposals: bool = False) -> dict:
         """Re-indexa solo archivos especificos."""
-        return self._inner.index_task_files(task_files)
+        return self._inner.index_task_files(task_files, bug_proposals=bug_proposals)
 
     # ── Search ──
 

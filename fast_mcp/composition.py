@@ -428,11 +428,18 @@ def _build_sprint_service(chain_dir: str):
 
 def _build_task_registry(sprint_service=None):
     """Build and populate a TaskRegistry with all registered handlers."""
+    from fast_mcp.features.code_analysis.application.use_cases.sync_cpg import (
+        sync_project_cpg,
+    )
     from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
     from fast_mcp.features.tasks.handlers import register_all_tasks
 
     registry = TaskRegistry()
-    register_all_tasks(registry, sprint_service=sprint_service)
+    # cpg_sync: composition es el único que puede cruzar features (R1); el
+    # handler de tasks la recibe inyectada en vez de importar code_analysis.
+    register_all_tasks(
+        registry, sprint_service=sprint_service, cpg_sync=sync_project_cpg
+    )
     return registry
 
 

@@ -50,8 +50,35 @@ class IgnoreRules:
                     self._patterns.append(line)
 
     def is_ignored(self, rel_path: str) -> bool:
+        """True si el path relativo cae bajo algún patrón del .walkerignore.
+
+        Semántica gitignore (corregida 2026-11-16). ANTES había dos agujeros:
+
+        - `patron/` (directorio) solo matcheaba la cadena EXACTA con barra
+          final: `is_ignored("docs/spec.md")` era False aunque `docs/`
+          estuviera en el archivo. Solo el podado de directorios del walk
+          evitaba indexar el contenido, así que cualquier consumidor que
+          filtre por ARCHIVO se tragaba el directorio ignorado en silencio.
+        - Un patrón sin barra (`*.pyc`, `.env*`) solo matcheaba en la raíz,
+          no a cualquier profundidad.
+
+        Un patrón de directorio aplica al directorio y a TODA su descendencia,
+        a cualquier nivel (igual que el podado, que evalúa por basename).
+        """
+        rel = str(rel_path).replace(os.sep, "/")
+        if rel.startswith("./"):
+            rel = rel[2:]
+        segments = [s for s in rel.split("/") if s]
         for pattern in self._patterns:
-            if fnmatch.fnmatch(rel_path, pattern):
+            pattern = pattern.replace(os.sep, "/")
+            if pattern.endswith("/"):
+                base = pattern.rstrip("/")
+                if base and any(fnmatch.fnmatch(seg, base) for seg in segments):
+                    return True
+                continue
+            if fnmatch.fnmatch(rel, pattern):
+                return True
+            if "/" not in pattern and segments and fnmatch.fnmatch(segments[-1], pattern):
                 return True
         return False
 

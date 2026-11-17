@@ -123,14 +123,26 @@ def prepare_use_case(
     # 0. Idempotencia (mismo guard que el legacy).
     project_json = Path(path) / ".cognitive" / "projects" / pid / "data" / "project.json"
     if project_json.exists():
+        # El guard de idempotencia NO debe dejar proyectos huérfanos: si el
+        # layout existe pero el registro global no (prepare interrumpido, o
+        # memoria copiada de otra máquina), `list`/`status`/`memory_schema`
+        # no lo encuentran y el proyecto queda inaccesible por API. Se
+        # reconcilia SOLO el registro — el project.json curado no se toca.
+        registered = pid in (ctx.store.read().get("projects") or {})
+        registered_in = ""
+        if not registered:
+            registered_in = str(ctx.store.register(pid, name, path))
         return {
             "type": "already_exists",
             "status_code": 200,
             "project_id": pid,
             "path": path,
+            "registered": not registered,
+            "registered_in": registered_in,
             "message": (
                 f"Project '{pid}' is already prepared at {path}. "
                 "Initialization skipped — existing configuration was NOT overwritten."
+                + ("" if registered else " Global registry reconciled.")
             ),
             "next_steps": [f"walker {pid}/status"],
         }

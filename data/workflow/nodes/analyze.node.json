@@ -9,6 +9,7 @@
       "key": "GATHER",
       "label": "Update code index before analysis",
       "execution": "auto",
+      "action": "sync_code_index",
       "input_schema": {},
       "output_schema": {},
       "on_success": "OBSERVE",

@@ -235,6 +235,10 @@ class TestTaskRegistryCompleteness:
             "state_construction",
             "info_acquisition",
             "monitoring",
+            # START.LIST (el nodo declaraba action=list_projects sin handler)
+            "list_projects",
+            # CPG bootstrap idempotente: project_init.SCAN_CODE / analyze.GATHER
+            "sync_code_index",
         }
         actual = set(registry.list_tasks().keys())
         missing = expected - actual

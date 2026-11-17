@@ -25,6 +25,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
+from . import fts
 from .file_io import read_blob
 from .sqlite_backend import SqliteBackend
 from .storage_errors import (
@@ -83,19 +84,30 @@ def import_json_gz_to_sqlite(
             f"'{index_name}' — sin import (nunca en silencio)."
         )
 
-    # docs: formato histórico [{"_id": ..., ...}] o variante legacy {"nodes": [...]}
+    # docs: formato histórico [{"_id": ...}] o variante legacy {"nodes": [...]}.
+    # CPG v1 guarda `nodes` como MAPA {id: nodo} y el identificador vive en
+    # el propio nodo ("id"), no en "_id": sin normalizar, todo blob de CPG
+    # fallaba la migración con "estructura no reconocida" (bug medido).
     raw_docs = payload.get("docs", payload.get("nodes", []))
+    if isinstance(raw_docs, dict):
+        raw_docs = [
+            ({**doc, "_id": key} if isinstance(doc, dict) and "_id" not in doc else doc)
+            for key, doc in raw_docs.items()
+        ]
     if not isinstance(raw_docs, list):
         raise StorageMigrationError(
             f"blob sin 'docs[]'/'nodes[]' (estructura no reconocida): {blob_path}."
         )
     docs: dict[str, dict] = {}
     for item in raw_docs:
-        if not isinstance(item, dict) or "_id" not in item:
+        doc_id = None
+        if isinstance(item, dict):
+            doc_id = item.get("_id", item.get("id"))
+        if doc_id is None:
             raise StorageMigrationError(
                 f"doc sin '_id' en {blob_path} — blob histórico corrupto (FS-6)."
             )
-        doc_id = str(item["_id"])
+        doc_id = str(doc_id)
         docs[doc_id] = {k: v for k, v in item.items() if k != "_id"}
 
     edges: list[tuple[str, str, dict]] = []
@@ -171,6 +183,12 @@ def import_json_gz_to_sqlite(
             f"import transaccional a sqlite falló ({type(e).__name__}: {e}) — "
             f"rollback completo del índice '{index_name}'."
         ) from e
+
+    # FTS es DERIVADO: el import escribe `docs` directo, sin postings. Dejarlo
+    # así hace que la próxima apertura falle con "drift FTS (FS-1)" y el índice
+    # quede inaccesible. Se dropea el FTS del índice (los DOCS no se tocan) para
+    # que `ensure_fts` lo re-backfille al reabrir — remediación documentada.
+    fts.drop_fts(db, index_name)
 
     return {
         "index": index_name,

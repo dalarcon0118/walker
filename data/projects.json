@@ -37,7 +37,23 @@
       "active": true,
       "registered_at": "2026-07-30T19:15:43.719208+00:00",
       "last_accessed": "2026-07-30T19:15:43.719208+00:00"
+    },
+    "client-chat": {
+      "project_id": "client-chat",
+      "name": "client-chat",
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/client-chat",
+      "active": true,
+      "registered_at": "2026-11-01T15:57:46.029156+00:00",
+      "last_accessed": "2026-11-01T15:57:46.029156+00:00"
+    },
+    "game-reset-page": {
+      "project_id": "game-reset-page",
+      "name": "game-reset-page",
+      "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/game-reset-page",
+      "active": true,
+      "registered_at": "2026-11-16T22:58:06.358140+00:00",
+      "last_accessed": "2026-11-16T22:58:06.358140+00:00"
     }
   },
-  "updated_at": "2026-08-14T15:28:06.269889+00:00"
+  "updated_at": "2026-11-16T22:58:06.358140+00:00"
 }

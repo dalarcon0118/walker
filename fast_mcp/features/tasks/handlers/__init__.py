@@ -47,34 +47,43 @@ _HANDLER_MODULES = [
     "state_construction",
     "info_acquisition",
     "monitoring",
+    "list_projects",
+    "sync_code_index",
 ]
 
 
 @safe
-def _register_module_core(name: str, registry, sprint_service: Any = None) -> None:
+def _register_module_core(name: str, registry, sprint_service: Any = None, cpg_sync: Any = None) -> None:
     """Import a handler module and call its register()."""
     module = importlib.import_module(f"fast_mcp.features.tasks.handlers.{name}")
     register_fn = getattr(module, "register", None)
     if not register_fn:
         return
-    # Only sprint_planning consumes sprint_service; other handlers keep the
-    # plain registry-only signature (R1: no cross-feature import).
+    # Only sprint_planning consumes sprint_service; sync_code_index consumes
+    # cpg_sync (la función la provee code_analysis vía composition). El resto
+    # conserva la firma registry-only (R1: no cross-feature import).
     if name == "sprint_planning" and sprint_service is not None:
         register_fn(registry, sprint_service=sprint_service)
+    elif name == "sync_code_index" and cpg_sync is not None:
+        register_fn(registry, cpg_sync=cpg_sync)
     else:
         register_fn(registry)
 
 
-def register_all_tasks(registry, sprint_service: Any = None) -> None:
+def register_all_tasks(registry, sprint_service: Any = None, cpg_sync: Any = None) -> None:
     """Discover and register all task handlers into a TaskRegistry.
 
     Args:
         registry: TaskRegistry to populate.
         sprint_service: SprintService-like object (injected by composition
             root) forwarded to sprint_planning handlers.
+        cpg_sync: `sync_project_cpg(chain_dir) -> dict` (inyectado por el
+            composition root) para el bootstrap idempotente del CPG.
     """
     for name in _HANDLER_MODULES:
-        outcome = _register_module_core(name, registry, sprint_service=sprint_service)
+        outcome = _register_module_core(
+            name, registry, sprint_service=sprint_service, cpg_sync=cpg_sync
+        )
         if not is_successful(outcome):
             error = outcome.failure()
             logger.warning(

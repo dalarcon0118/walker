@@ -76,13 +76,17 @@ class CognitiveCkgRepository(CkgRepository):
         self._data_dir = os.path.abspath(data_dir)
         conn = load_memory_connection(self._data_dir)
         self._cg = graph_factory(conn)
-        if "ckg" not in self._cg.list_indexes():
-            # Schema del SSOT ÚNICO (T-10/M-6: schemas.py) — jamás copia literal.
-            from fast_mcp.shared_kernel.cognitive_graph.schemas import (
-                PRODUCTION_INDEX_SCHEMAS,
-            )
+        # El código es la fuente de verdad del schema. Re-registrar es
+        # idempotente (INSERT OR REPLACE) y evita que un catálogo persistido
+        # con un mapeo viejo gobierne las queries — bug medido: `trace`
+        # mapeaba todos los campos a la columna "keyword" y todo filtro
+        # devolvía 0 hits.
+        from fast_mcp.shared_kernel.cognitive_graph.schemas import (
+            PRODUCTION_INDEX_SCHEMAS,
+        )
 
-            self._cg.register_index("ckg", PRODUCTION_INDEX_SCHEMAS["ckg"])
+        for _index in ("ckg", "trace"):
+            self._cg.register_index(_index, PRODUCTION_INDEX_SCHEMAS[_index])
 
     def save_nodes(self, nodes_data: list[dict]) -> dict:
         """Batch persist with full domain logic (supersedes, metadata)."""

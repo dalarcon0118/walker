@@ -37,13 +37,15 @@ PRODUCTION_INDEX_SCHEMAS: dict[str, dict] = {
     },
     "trace": {
         "fields": {
-            "event_type": "keyword",
-            "source": "keyword",
-            "task_id": "keyword",
-            "sprint_id": "keyword",
-            "node": "keyword",
-            "tool": "keyword",
+            "type": "type",
+            "event_type": "event_type",
+            "source": "source",
+            "task_id": "task_id",
+            "sprint_id": "sprint_id",
+            "node": "node",
+            "tool": "tool",
         },
+        "description": "TraceGraph: eventos de ejecución (consulta por task_id/event_type)",
     },
     "cpg": {
         "fields": {"function": "name", "file": "path", "type": "type"},
