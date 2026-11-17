@@ -10,6 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "networkx",
     "returns",
+    # Comparación de constraints de plugins (hooks/módulos): ">=3.0,<4".
+    "packaging",
 ]
 
 [project.optional-dependencies]

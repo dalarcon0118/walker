@@ -91,3 +91,73 @@ echo '{"sha": "abc"}' | python3 scripts/hooks_runner.py commit --repo ../otro-re
 - **Idempotencia del lado del hook.** Un hook que escribe estado (como
   `cpg-sync`) debe poder correr N veces sin efectos raros; el bus no lo
   garantiza por él.
+
+## Paquetes instalables (plugins)
+
+Un hook inline declara la suscripción en el `hooks.json` del que lo instala. Un
+**paquete** se declara a sí mismo y el registro solo lo enlaza:
+
+```
+<paquete>/hook.json     ← manifiesto
+<paquete>/main.py       ← entry
+```
+
+```json
+{
+  "id": "notify-slack",
+  "version": "1.2.0",
+  "description": "Avisa a un webhook cuando el CPG se reindexó",
+  "walker": ">=3.0,<4",
+  "events": ["cpg.indexed"],
+  "entry": "main.py",
+  "timeout_s": 15,
+  "blocking": false
+}
+```
+
+Cada campo tiene consecuencia: `events` se valida contra el catálogo (un typo
+falla al instalar, no en runtime), `walker` se compara con
+`fast_mcp.__version__` (un paquete incompatible se saltea con aviso, nunca rompe
+el host) y `entry` tiene que existir.
+
+### Instalar
+
+```bash
+# global: ~/.walker/hooks  (aplica a todos los proyectos)
+python3 scripts/hooks_cli.py install ./notify-slack
+
+# por proyecto: <repo>/.cognitive/hooks  (viaja con el repo; requiere trust)
+python3 scripts/hooks_cli.py --project <repo> install ./notify-slack
+
+python3 scripts/hooks_cli.py list           # instalados + hooks activos
+python3 scripts/hooks_cli.py enable|disable <id>
+python3 scripts/hooks_cli.py remove <id>
+python3 scripts/hooks_cli.py events         # catálogo + suscriptores
+python3 scripts/hooks_cli.py doctor         # compatibilidad + eventos huérfanos
+```
+
+Registro: `<scope>/registry.json` con `id`, `version`, `source`, `sha256`,
+`enabled`, `installed_at`. El `sha256` es de manifiesto+entry: sirve para
+responder "¿qué código corre?", no como firma.
+
+### Por qué no en `data/projects.json`
+
+El manifiesto de proyectos es id → `repo_path`, lo reescribe `walker prepare`
+y es de la máquina. Meter hooks ahí mezcla dos dominios, obliga a que el
+registro preserve configuración ajena en cada alta, y rompe el modelo de
+confianza: un hook de proyecto exige que el repo se declare confiable, mientras
+que un hook en el registro de walker correría en todos los proyectos sin opt-in.
+
+## Catálogo de eventos
+
+Los eventos son un catálogo explícito (`shared_kernel/hooks/events.py`), no
+strings libres. `emit` con un evento desconocido falla con la lista de válidos,
+y un hook inline que declara uno inexistente aparece en `doctor`.
+
+| Evento | Emisor | Payload |
+|---|---|---|
+| `commit` | `post-commit` instalado por `install_git_hooks.py` | `repo` |
+| `cpg.indexed` | `scripts/sync_cpg_on_commit.py` | `project_id, mode, nodes, edges, files` |
+| `task.after` | `TaskRegistry` (hook inyectado por composition) | `task, task_id, session_id, ok, error, chain_dir` |
+
+Agregar un evento = agregarlo al catálogo + emitirlo desde quien lo produce.

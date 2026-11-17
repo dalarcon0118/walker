@@ -34,9 +34,20 @@ def main() -> int:
     args = ap.parse_args()
 
     from fast_mcp.shared_kernel.hooks import HookBus
+    from fast_mcp.shared_kernel.hooks.events import is_known, known_events
+
+    if not is_known(args.event):
+        print(
+            f"error: evento desconocido {args.event!r} · válidos: "
+            f"{', '.join(known_events())}",
+            file=sys.stderr,
+        )
+        return 2
 
     repo = Path(args.repo or Path.cwd()).resolve()
     bus = HookBus.load(repo, WALKER_ROOT)
+    for issue in bus.unknown_events + bus.incompatible:
+        print(f"  ! {issue}", file=sys.stderr)
 
     payload: dict = {}
     raw = args.payload
@@ -66,6 +77,9 @@ def main() -> int:
             state = "ok" if res.ok else ("TIMEOUT" if res.timed_out else "falló")
             detail = "" if res.ok else f" · {(res.error or res.stderr).strip()[:160]}"
             print(f"  {res.hook_id:<28} {state} rc={res.rc} {res.duration_s}s{detail}")
+            if res.ok and res.stdout.strip():
+                for line in res.stdout.strip().splitlines()[:5]:
+                    print(f"      {line[:200]}")
     return 1 if bus.blocked(results) else 0
 
 

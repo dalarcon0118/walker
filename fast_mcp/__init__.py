@@ -19,3 +19,9 @@ superficie sirviendo el dominio.
 """
 
 from __future__ import annotations
+
+# Versión del paquete. Los plugins (hooks/módulos) declaran con qué rango de
+# walker son compatibles (`"walker": ">=3.0,<4"`); comparar contra esto y no
+# contra la metadata instalada permite correr desde el repo sin `pip install`.
+# Debe coincidir con `[project].version` de pyproject.toml (hay test).
+__version__ = "3.0.0"

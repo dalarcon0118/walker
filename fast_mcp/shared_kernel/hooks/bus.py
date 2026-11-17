@@ -44,6 +44,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from fast_mcp.shared_kernel.hooks.events import (
+    is_known,
+    known_events,
+)
+
 logger = logging.getLogger(__name__)
 
 GLOBAL_HOOKS_REL = Path("config") / "hooks" / "hooks.json"
@@ -55,11 +60,19 @@ MAX_OUTPUT = 500
 @dataclass(frozen=True)
 class HookSpec:
     id: str
-    event: str
     command: str
+    event: str = ""                     # hooks inline (un solo evento)
+    events: tuple[str, ...] = ()        # paquetes instalados (varios eventos)
     timeout_s: int = 10
     blocking: bool = False
-    source: str = "global"  # global | project
+    source: str = "global"              # global | project | package:global | package:project
+    version: str = ""                   # versión del paquete (si aplica)
+
+    def matches(self, event: str) -> bool:
+        return event in (self.events or (self.event,))
+
+    def subscribed_events(self) -> tuple[str, ...]:
+        return self.events or (self.event,)
 
 
 @dataclass
@@ -116,6 +129,11 @@ def _parse_specs(data: dict[str, Any], source: str) -> list[HookSpec]:
             logger.warning("hooks: spec inválida en %s (falta event/command): %s",
                            source, raw)
             continue
+        if not is_known(event):
+            logger.warning(
+                "hooks: %s declara el evento desconocido %r — nunca se va a "
+                "disparar (válidos: %s)", hook_id, event, ", ".join(known_events()),
+            )
         specs.append(HookSpec(
             id=hook_id,
             event=event,
@@ -143,22 +161,46 @@ class HookBus:
     project_root: Path = Path(".")
     walker_root: Path = Path(".")
     skipped_project_hooks: int = 0
+    # Diagnóstico: hooks que nunca van a correr y por qué (los usa `doctor`).
+    unknown_events: list[str] = field(default_factory=list)
+    incompatible: list[str] = field(default_factory=list)
 
     # ── Discovery ────────────────────────────────────────────────────
 
     @classmethod
-    def load(cls, project_root: str | Path, walker_root: str | Path | None = None) -> "HookBus":
+    def load(
+        cls,
+        project_root: str | Path,
+        walker_root: str | Path | None = None,
+        hooks_home: str | Path | None = None,
+    ) -> "HookBus":
+        """Fusiona hooks inline (global y proyecto) + paquetes instalados.
+
+        Precedencia por `id`: global → proyecto → paquetes, y el proyecto puede
+        apagar cualquiera con `"disabled"`. Un paquete incompatible con esta
+        versión de walker NO corre (se saltea con aviso, nunca rompe el host).
+        """
+        from fast_mcp import __version__ as walker_version
+        from fast_mcp.shared_kernel.hooks.package import (
+            check_compat,
+            hooks_home as default_hooks_home,
+            installed,
+            project_scope,
+        )
+
         project = Path(project_root).resolve()
         walker = Path(walker_root).resolve() if walker_root else _walker_root()
+        home = Path(hooks_home) if hooks_home else default_hooks_home()
         global_data = _read_json(walker / GLOBAL_HOOKS_REL)
         project_data = _read_json(project / PROJECT_HOOKS_REL)
+        trusted = _project_trusted(project)
 
         merged: dict[str, HookSpec] = {
             spec.id: spec for spec in _parse_specs(global_data, "global")
         }
         skipped = 0
         if project_data:
-            if _project_trusted(project):
+            if trusted:
                 for spec in _parse_specs(project_data, "project"):
                     merged[spec.id] = spec
             else:
@@ -169,16 +211,62 @@ class HookBus:
                         "marcado como confiable (hooks.trusted en .cognitive/config.json)",
                         skipped, project,
                     )
+
+        # Paquetes instalados (globales y del proyecto). Un paquete del
+        # proyecto sin trust no se ejecuta: misma regla que el hooks.json.
+        incompatible: list[str] = []
+        scopes = [("global", home)]
+        if trusted:
+            scopes.append(("project", project_scope(project)))
+        elif installed(project_scope(project)):
+            skipped += len(installed(project_scope(project)))
+            logger.info(
+                "hooks: paquetes de %s ignorados — el proyecto no está marcado "
+                "como confiable", project,
+            )
+
+        for scope, root in scopes:
+            for pkg in installed(root, scope=scope):
+                problem = check_compat(pkg, walker_version)
+                if problem:
+                    incompatible.append(f"{scope}/{pkg.id} v{pkg.version}: {problem}")
+                    logger.warning("hooks: %s/%s no corre: %s", scope, pkg.id, problem)
+                    continue
+                if not pkg.enabled:
+                    logger.info("hooks: %s/%s está deshabilitado", scope, pkg.id)
+                    continue
+                merged[pkg.id] = HookSpec(
+                    id=pkg.id,
+                    command=pkg.command(),
+                    events=pkg.events,
+                    timeout_s=pkg.timeout_s,
+                    blocking=pkg.blocking,
+                    source=f"package:{scope}",
+                    version=pkg.version,
+                )
+
         for hook_id in project_data.get("disabled") or []:
             merged.pop(str(hook_id), None)
 
-        return cls(specs=list(merged.values()), project_root=project,
-                   walker_root=walker, skipped_project_hooks=skipped)
+        unknown: list[str] = []
+        for spec in merged.values():
+            for event in spec.subscribed_events():
+                if not is_known(event):
+                    unknown.append(f"{spec.source}/{spec.id}: {event}")
+
+        return cls(
+            specs=list(merged.values()),
+            project_root=project,
+            walker_root=walker,
+            skipped_project_hooks=skipped,
+            unknown_events=unknown,
+            incompatible=incompatible,
+        )
 
     # ── Execution ────────────────────────────────────────────────────
 
     def hooks_for(self, event: str) -> list[HookSpec]:
-        return [s for s in self.specs if s.event == event]
+        return [s for s in self.specs if s.matches(event)]
 
     def emit(self, event: str, payload: dict[str, Any] | None = None) -> list[HookResult]:
         """Corre los hooks del evento. Nunca lanza; devuelve un resultado por hook."""

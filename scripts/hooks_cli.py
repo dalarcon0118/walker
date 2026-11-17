@@ -1,0 +1,178 @@
+"""scripts/hooks_cli.py — gestión de hooks: inline + paquetes instalables.
+
+    python3 scripts/hooks_cli.py list [--project PATH]
+    python3 scripts/hooks_cli.py install <path> [--project PATH] [--force]
+    python3 scripts/hooks_cli.py remove <id> [--project PATH]
+    python3 scripts/hooks_cli.py enable|disable <id> [--project PATH]
+    python3 scripts/hooks_cli.py events
+    python3 scripts/hooks_cli.py doctor [--project PATH]
+
+Scope: sin `--project` opera sobre `~/.walker/hooks` (global, aplica a todos los
+proyectos); con `--project` opera sobre `<repo>/.cognitive/hooks` (viaja con el
+repo). `install` valida manifiesto, eventos y compatibilidad de versión antes
+de copiar nada.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+WALKER_ROOT = Path(__file__).resolve().parent.parent
+if str(WALKER_ROOT) not in sys.path:
+    sys.path.insert(0, str(WALKER_ROOT))
+
+from fast_mcp import __version__ as WALKER_VERSION  # noqa: E402
+from fast_mcp.shared_kernel.hooks.bus import HookBus  # noqa: E402
+from fast_mcp.shared_kernel.hooks.events import describe, known_events  # noqa: E402
+from fast_mcp.shared_kernel.hooks.package import (  # noqa: E402
+    HookManifestError,
+    check_compat,
+    doctor_report,
+    hooks_home,
+    install,
+    installed,
+    project_scope,
+    remove,
+    set_enabled,
+)
+
+
+def _scope(args) -> Path:
+    return project_scope(args.project) if args.project else hooks_home()
+
+
+def _cmd_list(args) -> int:
+    root = _scope(args)
+    packages = installed(root, scope="project" if args.project else "global")
+    print(f"scope: {root}  (walker {WALKER_VERSION})")
+    if not packages:
+        print("  (sin paquetes instalados)")
+    for pkg in packages:
+        problem = check_compat(pkg, WALKER_VERSION)
+        state = "on " if pkg.enabled else "off"
+        extra = f" · {problem}" if problem else ""
+        print(f"  [{state}] {pkg.id} v{pkg.version} · {','.join(pkg.events)}{extra}")
+        if pkg.source:
+            print(f"        origen: {pkg.source}")
+
+    bus = HookBus.load(args.project or ".")
+    if bus.specs:
+        print("\nhooks inline + paquetes activos:")
+        for spec in bus.specs:
+            print(f"  {spec.id:<28} [{spec.source}] {','.join(spec.subscribed_events())}")
+    for issue in bus.unknown_events:
+        print(f"  ! evento desconocido → {issue}")
+    return 0
+
+
+def _cmd_install(args) -> int:
+    root = _scope(args)
+    try:
+        pkg = install(
+            args.path,
+            root,
+            walker_version=WALKER_VERSION,
+            force=args.force,
+            scope="project" if args.project else "global",
+        )
+    except HookManifestError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"instalado {pkg.id} v{pkg.version} en {pkg.path}")
+    print(f"  eventos: {', '.join(pkg.events)}")
+    if args.project:
+        print("  (recordá marcar el proyecto como confiable: "
+              '.cognitive/config.json → {"hooks": {"trusted": true}})')
+    return 0
+
+
+def _cmd_remove(args) -> int:
+    outcome = remove(args.id, _scope(args))
+    print(f"{'removido' if outcome['removed'] else 'no estaba instalado'}: {args.id}")
+    return 0 if outcome["removed"] else 1
+
+
+def _cmd_toggle(args) -> int:
+    enabled = args.command == "enable"
+    found = set_enabled(args.id, _scope(args), enabled)
+    print(f"{'habilitado' if enabled else 'deshabilitado'}: {args.id}" if found
+          else f"no instalado: {args.id}")
+    return 0 if found else 1
+
+
+def _cmd_events(args) -> int:
+    bus = HookBus.load(args.project or ".")
+    by_event: dict[str, list[str]] = {}
+    for spec in bus.specs:
+        for event in spec.subscribed_events():
+            by_event.setdefault(event, []).append(f"{spec.id} [{spec.source}]")
+    for spec in describe():
+        print(f"  {spec['name']:<16} {spec['description']}")
+        print(f"      payload: {', '.join(spec['payload'])}")
+        subs = by_event.get(spec["name"], [])
+        print(f"      suscriptores: {', '.join(subs) if subs else '(ninguno)'}")
+    unknown = [e for e in by_event if e not in known_events()]
+    for event in unknown:
+        print(f"  ! {event}: declarado pero NO existe (nunca se dispara) → "
+              f"{', '.join(by_event[event])}")
+    return 0
+
+
+def _cmd_doctor(args) -> int:
+    report = doctor_report(args.project or ".", walker_version=WALKER_VERSION)
+    print(f"walker {report['walker_version']} · eventos conocidos: {', '.join(report['events'])}")
+    for scope in ("global", "project"):
+        print(f"\n{scope}:")
+        if not report[scope]:
+            print("  (sin paquetes)")
+        for item in report[scope]:
+            state = "on " if item["enabled"] else "off"
+            print(f"  [{state}] {item['id']} v{item['version']} · "
+                  f"{','.join(item['events'])}")
+    print("\nissues:" if report["issues"] else "\nissues: ninguno")
+    for issue in report["issues"]:
+        print(f"  ! {issue}")
+    return 1 if report["issues"] else 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="walker hooks")
+    ap.add_argument("--project", default=None,
+                    help="opera sobre <repo>/.cognitive/hooks en vez del global")
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("list", help="paquetes instalados y hooks activos")
+
+    p_install = sub.add_parser("install", help="instala un paquete de hook")
+    p_install.add_argument("path", help="directorio con hook.json")
+    p_install.add_argument("--force", action="store_true",
+                           help="reemplaza una versión ya instalada")
+
+    p_remove = sub.add_parser("remove", help="desinstala un paquete")
+    p_remove.add_argument("id")
+
+    for name in ("enable", "disable"):
+        p = sub.add_parser(name, help=f"{name} un paquete instalado")
+        p.add_argument("id")
+
+    sub.add_parser("events", help="catálogo de eventos y suscriptores")
+    sub.add_parser("doctor", help="salud: compatibilidad, eventos desconocidos")
+
+    args = ap.parse_args()
+    handlers = {
+        "list": _cmd_list,
+        "install": _cmd_install,
+        "remove": _cmd_remove,
+        "enable": _cmd_toggle,
+        "disable": _cmd_toggle,
+        "events": _cmd_events,
+        "doctor": _cmd_doctor,
+    }
+    return handlers[args.command](args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
