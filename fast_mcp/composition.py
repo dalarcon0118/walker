@@ -569,6 +569,12 @@ def _build_task_registry(sprint_service=None):
             ]
 
         tasks_di.configure_trace_reader(_session_events)
+
+        from fast_mcp.features.delta_tracking.domain.spec_service import SpecValidator
+
+        tasks_di.configure_spec_validator(
+            lambda spec: SpecValidator.validate_spec(spec)
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("baseline handler no configurado (%s: %s)", type(exc).__name__, exc)
 

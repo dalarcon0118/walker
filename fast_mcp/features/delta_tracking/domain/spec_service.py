@@ -18,15 +18,18 @@ from fast_mcp.features.delta_tracking.domain.entities import Spec, _now
 
 # ── SSOT: specification field definitions ──────────────────────────────────
 
+# Campos SIN los cuales una spec no es verificable. Alineados al modelo real
+# (`Spec` tiene 39 campos y NO tiene `task_description`: la lista anterior pedía
+# un campo inexistente y `validate_spec` leía `validation.predicates` /
+# `impacted_artifacts.files`, rutas que nada escribe). Como nadie llamaba al
+# validador, la desalineación no se notó.
 SPEC_REQUIRED_FIELDS = [
-    "result_state",
-    "task_description",
-    "predicates",
+    "objective",
     "files",
-    "preconditions",
-    "acceptance_criteria",
-    "quality_gates",
 ]
+
+# Lo que además hace falta para poder VERIFICAR (una de las dos).
+SPEC_VERIFICATION_FIELDS = ["acceptance_criteria", "predicates"]
 
 SPEC_STATUS_FLOW = ["draft", "specified", "approved", "in_progress", "in_review", "completed"]
 SPRINT_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
@@ -35,40 +38,70 @@ SPRINT_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
 # ── SpecValidator ─────────────────────────────────────────────────────────
 
 class SpecValidator:
+    """Valida una spec contra el modelo REAL (`Spec`), no contra un esquema viejo."""
+
     @staticmethod
     def validate_fields(data: dict) -> list[str]:
+        """Chequeo mínimo sobre un payload de creación."""
         errors: list[str] = []
         for field in SPEC_REQUIRED_FIELDS:
-            val = _parse_field(data, field)
-            if not val:
+            val = data.get(field)
+            if not val or (isinstance(val, (list, tuple, dict)) and len(val) == 0):
                 errors.append(f"{field}: is required and cannot be empty")
-            elif isinstance(val, (list, tuple)) and len(val) == 0:
-                errors.append(f"{field}: must have at least one element")
+        if not SpecValidator._has_verification(data):
+            errors.append(
+                "verification: hace falta acceptance_criteria o predicates con items"
+            )
         return errors
 
     @staticmethod
-    def validate_spec(spec: dict) -> list[str]:
-        errors: list[str] = []
+    def _predicate_items(spec: dict) -> list:
+        preds = spec.get("predicates")
+        if isinstance(preds, dict):
+            return [p for p in (preds.get("items") or []) if p]
+        if isinstance(preds, list):
+            return [p for p in preds if p]
+        return []
+
+    @staticmethod
+    def _has_verification(spec: dict) -> bool:
+        return bool(spec.get("acceptance_criteria")) or bool(SpecValidator._predicate_items(spec))
+
+    @staticmethod
+    def validate_spec(spec: dict, require_status: str = "") -> list[str]:
+        """Errores que impiden considerar la spec completa.
+
+        `require_status` es opcional: el escritor pone `in_progress`, así que
+        exigir `specified` a secas rechazaba specs válidas.
+        """
         sid = spec.get("spec_id", spec.get("task_id", "?"))
+        errors: list[str] = []
         for field in SPEC_REQUIRED_FIELDS:
-            if field == "predicates":
-                val = spec.get("validation", {}).get("predicates", [])
-            elif field == "files":
-                val = spec.get("impacted_artifacts", {}).get("files", [])
-            else:
-                val = spec.get(field, "")
-            if not val:
+            val = spec.get(field)
+            if not val or (isinstance(val, (list, tuple, dict)) and len(val) == 0):
                 errors.append(f"{sid}: {field} is empty")
-            elif isinstance(val, (list, tuple)) and len(val) == 0:
-                errors.append(f"{sid}: {field} must have at least one element")
-        if spec.get("status", "") != "specified":
-            errors.append(f"{sid}: status is '{spec.get('status', '')}' must be 'specified'")
-        if not spec.get("objective"):
-            errors.append(f"{sid}: objective (title) is empty")
+        if not SpecValidator._has_verification(spec):
+            errors.append(f"{sid}: sin criterios de aceptación ni predicados ejecutables")
+        if require_status and spec.get("status", "") != require_status:
+            errors.append(f"{sid}: status is '{spec.get('status', '')}' must be '{require_status}'")
         return errors
 
+    @staticmethod
+    def completeness(spec: dict, model_fields: list[str] | None = None) -> dict:
+        """Cuántos campos del modelo están llenos, y cuáles faltan."""
+        from dataclasses import fields as _fields
 
-# ── SpecStatusUpdater ────────────────────────────────────────────────────
+        names = model_fields or [f.name for f in _fields(Spec)]
+        missing = [
+            name for name in names
+            if spec.get(name) in (None, "", [], {})
+        ]
+        return {
+            "filled": len(names) - len(missing),
+            "total": len(names),
+            "missing": missing,
+        }
+
 
 class SpecStatusUpdater:
     @staticmethod

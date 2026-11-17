@@ -173,3 +173,77 @@ def test_no_duplica_el_mismo_comando(tmp_path):
     )
 
     assert len(out["predicates"]) == 1
+
+
+# ── Predicados desde los archivos ───────────────────────────────────────
+
+
+def _proyecto(tmp_path):
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "tool_profiles.py").write_text("def f():\n    return 1\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_tool_profiles_bdd.py").write_text(
+        "from pkg.tool_profiles import f\n\ndef test_f():\n    assert f() == 1\n"
+    )
+    return str(tmp_path)
+
+
+def test_deriva_el_test_que_menciona_el_modulo(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import (
+        predicates_from_files,
+        tests_for_files,
+    )
+
+    root = _proyecto(tmp_path)
+    tests = tests_for_files(["pkg/tool_profiles.py"], root)
+
+    assert tests == ["tests/test_tool_profiles_bdd.py"]
+    item = predicates_from_files(["pkg/tool_profiles.py"], root)["predicates"][0]
+    assert item["type"] == "command_exit"
+    assert "pytest" in item["command"] and "test_tool_profiles_bdd.py" in item["command"]
+    assert item["heuristic"] is True, "no es cobertura real: hay que decirlo"
+
+
+def test_no_matchea_por_nombre_sin_mencionar_el_modulo(tmp_path):
+    """`runner.py` no debe ganar `test_runner.py` de otro paquete."""
+    from fast_mcp.features.tasks.handlers.spec_derive import tests_for_files
+
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "runner.py").write_text("x = 1\n")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "test_runner.py").write_text("def test_nada():\n    pass\n")
+
+    assert tests_for_files(["pkg/runner.py"], str(tmp_path)) == []
+
+
+def test_stem_corto_no_matchea_por_casualidad(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import tests_for_files
+
+    (tmp_path / "x.py").write_text("x = 1\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x_bdd.py").write_text("x = 1\n")
+
+    assert tests_for_files(["x.py"], str(tmp_path)) == []
+
+
+def test_sin_tests_queda_unmapped_con_motivo(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import predicates_from_files
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guia.md").write_text("# guía\n")
+
+    out = predicates_from_files(["docs/guia.md"], str(tmp_path))
+
+    assert out["predicates"] == []
+    assert "no se encontraron tests" in out["unmapped"][0]["reason"]
+
+
+def test_vendorizados_no_cuentan(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import tests_for_files
+
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "runner.py").write_text("x = 1\n")
+    (tmp_path / "skills-src").mkdir()
+    (tmp_path / "skills-src" / "test_runner.py").write_text("import pkg.runner\n")
+
+    assert tests_for_files(["pkg/runner.py"], str(tmp_path)) == []

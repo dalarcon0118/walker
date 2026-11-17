@@ -47,10 +47,29 @@ def _persist_spec(
     if not spring_id:
         return None
 
-    from fast_mcp.features.tasks.handlers.spec_derive import criteria_to_predicates, derive
+    from fast_mcp.features.tasks.handlers.spec_derive import (
+        criteria_to_predicates,
+        derive,
+        predicates_from_files,
+    )
 
     derived = derive(objective or "")
     mapped = criteria_to_predicates(derived["acceptance_criteria"], ctx.chain_dir)
+    if not mapped["predicates"]:
+        # Sin criterios en el texto (títulos descriptivos), los ARCHIVOS dicen
+        # cómo verificar: correr los tests del área tocada.
+        mapped = predicates_from_files(files, ctx.chain_dir)
+    # Validación VISIBLE: no bloquea (una tarea sin criterios es un estado real),
+    # pero queda registrada en la spec para que el hueco no sea silencioso.
+    spec_errors = _di.validate_spec({
+        "spec_id": task_id or "?",
+        "objective": objective or task_id,
+        "files": files,
+        "predicates": {"items": mapped["predicates"]},
+        "acceptance_criteria": derived["acceptance_criteria"],
+        "status": "in_progress",
+    })
+
     base = {
         "objective": objective or task_id or "tarea sin objetivo",
         "files": files,
@@ -65,6 +84,7 @@ def _persist_spec(
             "task_id": task_id,
             "session_id": session_override or ctx.session_id or "",
             "derived": derived["source"],
+            "validation": {"ok": not spec_errors, "errors": spec_errors},
         },
     }
 
@@ -108,6 +128,7 @@ def _attach_task_context(
             "task_id": task_id,
             "session_id": session_id or "",
             "derived": derived,
+            "validation": (predicates or {}).get("validation") or {},
         },
         "files": files,
         "acceptance_criteria": criteria or [],

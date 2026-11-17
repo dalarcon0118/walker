@@ -13,6 +13,7 @@ _SPRINT_FACTORY: Callable[[str], Any] | None = None
 _TASK_RECORDER: Callable[[str, str], bool] | None = None
 _KNOWLEDGE_WRITER: Callable[..., Any] | None = None
 _TRACE_READER: Callable[[str, str], list] | None = None
+_SPEC_VALIDATOR: Callable[[dict], list] | None = None
 
 
 def configure_sprint(factory: Callable[[str], Any] | None) -> None:
@@ -30,6 +31,21 @@ def configure_knowledge_writer(writer: Callable[..., Any] | None) -> None:
     """Inyecta `(chain_dir, nodes, task_id, session_id) -> resultado` para el CKG."""
     global _KNOWLEDGE_WRITER
     _KNOWLEDGE_WRITER = writer
+
+
+def configure_spec_validator(validator: Callable[[dict], list] | None) -> None:
+    """Inyecta `spec -> [errores]` (R1: tasks no importa delta_tracking)."""
+    global _SPEC_VALIDATOR
+    _SPEC_VALIDATOR = validator
+
+
+def validate_spec(spec: dict) -> list[str]:
+    if _SPEC_VALIDATOR is None:
+        return []
+    try:
+        return list(_SPEC_VALIDATOR(spec) or [])
+    except Exception as exc:  # noqa: BLE001
+        return [f"validador falló: {type(exc).__name__}: {exc}"]
 
 
 def configure_trace_reader(reader: Callable[[str, str], list] | None) -> None:

@@ -32,6 +32,7 @@ from fast_mcp.features.delta_tracking.domain.events import (
 )
 from fast_mcp.features.delta_tracking.domain.conflict import Conflict, ResolutionStrategy
 from fast_mcp.features.delta_tracking.domain.spec_service import (
+    SPEC_REQUIRED_FIELDS,
     SpecValidator,
     SpecStatusUpdater,
     SprintStatusUpdater,
@@ -270,39 +271,38 @@ class TestConflict:
 # ── Domain: SpecService ───────────────────────────────────────────
 
 class TestSpecValidator:
+    """Contrato alineado al modelo REAL (`Spec`), no al esquema viejo."""
+
     def test_validate_fields_valid(self):
         data = {
-            "result_state": "implemented",
-            "task_description": "Build login",
-            "predicates": ["login works"],
+            "objective": "Build login",
             "files": ["src/auth.py"],
-            "preconditions": ["auth available"],
             "acceptance_criteria": ["user can login"],
-            "quality_gates": ["tests pass"],
         }
-        errors = SpecValidator.validate_fields(data)
-        assert errors == []
+        assert SpecValidator.validate_fields(data) == []
 
     def test_validate_fields_missing(self):
-        data = {}
-        errors = SpecValidator.validate_fields(data)
-        assert len(errors) == 7  # All required fields missing
+        errors = SpecValidator.validate_fields({})
+        assert len(errors) == 3, "objective + files + verificación"
 
     def test_validate_spec_valid(self):
         spec = {
             "spec_id": "SPEC-001",
             "objective": "Test",
-            "status": "specified",
-            "result_state": "implemented",
-            "task_description": "Build",
-            "validation": {"predicates": ["works"]},
-            "impacted_artifacts": {"files": ["src/a.py"]},
-            "preconditions": ["ok"],
-            "acceptance_criteria": ["done"],
-            "quality_gates": ["pass"],
+            "status": "in_progress",
+            "files": ["src/a.py"],
+            "predicates": {"items": [{"type": "command_exit", "command": "true"}]},
         }
-        errors = SpecValidator.validate_spec(spec)
-        assert errors == []
+        assert SpecValidator.validate_spec(spec) == []
+
+    def test_no_exige_task_description_que_no_existe(self):
+        from dataclasses import fields
+
+        from fast_mcp.features.delta_tracking.domain.entities import Spec
+
+        nombres = {f.name for f in fields(Spec)}
+        assert "task_description" not in nombres
+        assert "task_description" not in SPEC_REQUIRED_FIELDS
 
 
 class TestSpecStatusUpdater:
@@ -490,3 +490,35 @@ def test_sprint_service_sin_repo_no_rompe():
     )
 
     assert SprintService().delete_spec("SPR-1", "SPEC-1") is False
+
+
+class TestSpecValidatorAlineado:
+    """El validador pedía `task_description`, que NO existe en `Spec`."""
+
+    def test_acepta_una_spec_verificable(self):
+        spec = {
+            "spec_id": "SPEC-1", "objective": "arreglar X", "files": ["a.py"],
+            "predicates": {"items": [{"type": "command_exit", "command": "true"}]},
+        }
+        assert SpecValidator.validate_spec(spec) == []
+
+    def test_rechaza_sin_verificacion(self):
+        spec = {"spec_id": "SPEC-1", "objective": "x", "files": ["a.py"]}
+        errors = SpecValidator.validate_spec(spec)
+        assert any("criterios" in e or "predicados" in e for e in errors)
+
+    def test_status_es_opcional_porque_el_escritor_pone_in_progress(self):
+        spec = {
+            "spec_id": "SPEC-1", "objective": "x", "files": ["a.py"],
+            "status": "in_progress",
+            "acceptance_criteria": ["algo"],
+        }
+        assert SpecValidator.validate_spec(spec) == []
+        assert SpecValidator.validate_spec(spec, require_status="specified")
+
+    def test_completeness_cuenta_los_campos_del_modelo(self):
+        spec = {"objective": "x", "files": ["a.py"]}
+        report = SpecValidator.completeness(spec)
+        assert report["total"] >= 30
+        assert report["filled"] < report["total"]
+        assert "objective" not in report["missing"]

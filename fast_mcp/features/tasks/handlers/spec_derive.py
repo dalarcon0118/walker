@@ -181,3 +181,131 @@ def criteria_to_predicates(criteria: list[str], project_root: str) -> dict:
         })
 
     return {"predicates": predicates, "unmapped": unmapped, "test_command": test_cmd}
+
+
+# ── Predicados desde los archivos (no desde la redacción) ────────────────
+#
+# Los títulos descriptivos ("Benchmark no derivado del historial") no tienen
+# marcas de obligación, así que el derivador por texto devuelve vacío. Pero los
+# archivos tocados sí dicen cómo verificar: si toqué el módulo X, los tests que
+# mencionan X son el chequeo mínimo.
+
+_TEST_GLOBS = ("test_*.py", "*_test.py", "*.test.ts", "*.test.tsx", "*.spec.ts")
+
+
+def _test_files(project_root: str, limit: int = 4000) -> list[str]:
+    import fnmatch
+    import os
+
+    found: list[str] = []
+    if not project_root or not os.path.isdir(project_root):
+        return found
+    for root, dirs, files in os.walk(project_root):
+        # `skills-src` y `examples` traen tests de paquetes vendorizados: matchean
+        # por nombre y dan un chequeo que no prueba nada del proyecto.
+        dirs[:] = [d for d in dirs if d not in (
+            ".git", ".venv", "node_modules", "__pycache__", ".cognitive", "dist",
+            "build", "skills-src", "examples", "vendor",
+        )]
+        for name in files:
+            if any(fnmatch.fnmatch(name, pattern) for pattern in _TEST_GLOBS):
+                found.append(os.path.relpath(os.path.join(root, name), project_root))
+                if len(found) >= limit:
+                    return found
+    return found
+
+
+def _mentions(rel_path: str, project_root: str, needle: str) -> bool:
+    """El test menciona al módulo (import, string, nombre de clase).
+
+    Sin esto, `runner.py` matcheaba `test_runner.py` de otro paquete y el
+    predicado corría tests que no prueban nada del archivo tocado: verificación
+    falsa, que es peor que ninguna.
+    """
+    import os
+
+    try:
+        with open(os.path.join(project_root, rel_path), encoding="utf-8", errors="replace") as fh:
+            return needle in fh.read()
+    except OSError:
+        return False
+
+
+def tests_for_files(files: list[str], project_root: str, limit_tests: int = 5) -> list[str]:
+    """Tests que cubren los archivos tocados.
+
+    - Si el archivo ya es un test, entra tal cual.
+    - Si es un módulo, se buscan tests cuyo NOMBRE contenga el stem
+      (`tool_profiles` → `test_tool_profiles_bdd.py`).
+    - Sin coincidencias, lista vacía (no se inventa).
+    """
+    import os
+
+    candidates = _test_files(project_root)
+    out: list[str] = []
+    for raw in files or []:
+        rel = str(raw).replace("\\", "/").lstrip("./")
+        base = os.path.basename(rel)
+        stem = os.path.splitext(base)[0]
+        if "test" in stem or "/tests/" in f"/{rel}":
+            if rel not in out:
+                out.append(rel)
+            continue
+        # `stem` corto (x.py, io.py) matchea cualquier nombre por casualidad.
+        # Se prueba el stem completo y, si no hay, su primer token largo
+        # (`baseline_service` → `baseline` → test_baseline_*.py).
+        needles = [stem] if len(stem) >= 4 else []
+        first = stem.split("_")[0]
+        if first and first != stem and len(first) >= 5:
+            needles.append(first)
+        for needle in needles:
+            matched = False
+            for cand in candidates:
+                cbase = os.path.basename(cand)
+                if needle in cbase and cand not in out and _mentions(cand, project_root, needle):
+                    out.append(cand)
+                    matched = True
+                    if len(out) >= limit_tests:
+                        return out
+            if matched:
+                break
+    return out[:limit_tests]
+
+
+def predicates_from_files(files: list[str], project_root: str) -> dict:
+    """Predicado ejecutable derivado de los archivos: correr sus tests."""
+    tests = tests_for_files(files, project_root)
+    if not tests:
+        return {
+            "predicates": [],
+            "unmapped": [{
+                "criterion": "los tests del área tocada pasan",
+                "reason": "no se encontraron tests asociados a los archivos de la tarea",
+            }],
+        }
+    command = _test_command(project_root)
+    if not command:
+        return {
+            "predicates": [],
+            "unmapped": [{
+                "criterion": "los tests del área tocada pasan",
+                "reason": "no se pudo inferir el comando de tests del proyecto",
+            }],
+        }
+    # pytest acepta archivos; para node/django el prefijo ya viene en el comando.
+    if "pytest" in command:
+        command = f"{command} " + " ".join(tests)
+    return {
+        "predicates": [{
+            "type": "command_exit",
+            "command": command,
+            "description": "los tests del área tocada pasan",
+            "tests": tests,
+            # Heurística por nombre/contenido: NO es cobertura real. Correr estos
+            # tests detecta roturas de import/sintaxis cerca del cambio, no que
+            # el comportamiento nuevo funcione.
+            "heuristic": True,
+            "chosen_because": "nombre del test menciona el módulo tocado",
+        }],
+        "unmapped": [],
+    }
