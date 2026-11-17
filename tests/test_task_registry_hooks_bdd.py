@@ -61,3 +61,35 @@ def test_observador_roto_no_cambia_el_resultado():
     result = reg.execute("ok_task", _ctx(), {})
 
     assert result.ok is True and result.data == {"n": 2}
+
+
+def test_emit_task_after_resuelve_el_repo_desde_el_layout(tmp_path):
+    """`ctx.chain_dir` es el layout cognitivo, no la raíz del repo.
+
+    Los hooks viven en `<repo>/.cognitive/hooks/` y el trust en
+    `<repo>/.cognitive/config.json`; si se carga el bus con el layout, no se
+    encuentra ninguno y el evento se pierde en silencio (medido con `capture`).
+    """
+    import json
+
+    from fast_mcp.composition import _emit_task_after
+
+    repo = tmp_path / "repo"
+    layout = repo / ".cognitive" / "projects" / "demo"
+    (layout / "data").mkdir(parents=True)
+    (repo / "project.json").write_text(json.dumps({"project_id": "demo", "repo_path": str(repo)}))
+    (repo / ".cognitive" / "config.json").write_text(json.dumps({"hooks": {"trusted": True}}))
+    out = tmp_path / "hook.log"
+    (repo / ".cognitive" / "hooks").mkdir()
+    (repo / ".cognitive" / "hooks" / "hooks.json").write_text(json.dumps({"hooks": [{
+        "id": "task-after", "event": "task.after",
+        "command": f'printf "%s " "$WALKER_EVENT" >> {out}; cat >> {out}',
+        "timeout_s": 10,
+    }]}))
+
+    ctx = ExecutionContext.create(chain_dir=str(layout), task_id="T-1")
+    _emit_task_after("capture", ctx, TaskResult.success({"captured": True}))
+
+    content = out.read_text()
+    assert content.startswith("task.after ")
+    assert '"task": "capture"' in content

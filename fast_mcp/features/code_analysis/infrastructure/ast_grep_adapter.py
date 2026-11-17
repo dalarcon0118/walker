@@ -172,8 +172,6 @@ def _parse_outline_core(results: list[dict]) -> Graph:
         if not items:
             continue
 
-        file_imports: list[str] = []
-
         for item in items:
             kind = item.get("symbolType", "unknown").lower()
             name = item.get("name", "")
@@ -215,16 +213,14 @@ def _parse_outline_core(results: list[dict]) -> Graph:
             nodes[node_id] = Node.from_dict(node_data)
 
             edge_type = "IMPORTS" if is_import else "CONTAINS"
-            if is_import:
-                file_imports.append(name)
             edges.append(Edge(from_id=file_id, to_id=node_id, type=edge_type))
 
-        # CALLS edges a nivel archivo: si A importa B, A CALLS B
-        for imp_name in file_imports:
-            for other_id, other_node in nodes.items():
-                if other_node.name == imp_name and other_node.type in ("module", "file"):
-                    edges.append(Edge(from_id=file_id, to_id=other_id, type="CALLS"))
-                    break
+        # NOTA (2026-11-17): acá había un bloque que agregaba `file -> módulo`
+        # como CALLS ("si A importa B, A CALLS B") además del IMPORTS. El
+        # storage deduplica aristas por (from, to) ignorando el type, así que
+        # una de las dos se perdía: con ids estables la pérdida era siempre el
+        # IMPORTS y cada sync borraba ~4 aristas por archivo. Un import no es
+        # una llamada: la relación ya está en IMPORTS.
 
     return Graph(nodes, edges)
 

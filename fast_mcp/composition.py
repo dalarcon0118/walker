@@ -452,8 +452,18 @@ def _emit_task_after(name, ctx, result) -> None:
         return
     try:
         from fast_mcp.shared_kernel.hooks import HookBus
+        from fast_mcp.shared_kernel.project_support import ProjectService
 
-        HookBus.load(chain_dir).emit("task.after", {
+        # `ctx.chain_dir` puede ser el layout cognitivo
+        # (<repo>/.cognitive/projects/<pid>), no la raíz del repo: los hooks se
+        # declaran en <repo>/.cognitive/hooks y el trust en <repo>/.cognitive/
+        # config.json, así que hay que resolver el project_root.
+        try:
+            project_root = str(ProjectService.resolve_paths(chain_dir).project_root or chain_dir)
+        except Exception:  # noqa: BLE001 — sin layout, se usa chain_dir tal cual
+            project_root = chain_dir
+
+        HookBus.load(project_root).emit("task.after", {
             "task": name,
             "task_id": getattr(ctx, "task_id", ""),
             "session_id": getattr(ctx, "session_id", ""),

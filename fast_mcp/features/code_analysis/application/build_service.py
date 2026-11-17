@@ -45,69 +45,129 @@ def _load_ignore_core(root: str) -> Any | None:
     return IgnoreRules(str(root)) if root else None
 
 
-def _rekey_scanned(nodes: dict, edges: list) -> tuple[dict, list]:
-    """Re-keya los ids secuenciales del scan a ids únicos de proyecto.
+def _stable_id_for(path: str, type_: str, name: str, base: str) -> str:
+    """Id determinístico de UN nodo (misma clave que `_stable_ids`)."""
+    import hashlib
 
-    ast-grep asigna ids desde `cpg-0001` en CADA scan. Mergear eso contra un
-    CPG existente pisa nodos de OTROS archivos (bug medido 2026-11-16: el
-    update incremental borró `core/dispatcher.py` del CPG de backend y dejó el
-    grafo en 15.010 nodos cuando tenía 17.849 — los primeros 19 ids del scan
-    sobrescribieron a dispatcher, que no estaba en el change set).
+    rel = os.path.relpath(path, base) if base and path.startswith(base) else path
+    digest = hashlib.sha1(f"{rel}|{type_}|{name}".encode("utf-8")).hexdigest()[:12]
+    return f"cpg-{digest}"
 
-    Se prefija con un nonce y se remapean las aristas para que apunten a los
-    ids nuevos (las aristas hacia archivos no re-escaneados conservan su id).
+
+def _stable_ids(
+    nodes: dict, edges: list, base: str
+) -> tuple[dict, list]:
+    """Re-keya nodos a ids determinísticos por (path relativo, type, name).
+
+    Antes los ids eran un nonce por corrida (`_rekey_scanned`), así que
+    re-escanear un archivo cambiaba TODOS sus ids: el merge tenía que descartar
+    las aristas entrantes y no las regeneraba (medido 2026-11-17: 14.825 →
+    12.823 aristas, CALLS 10.329 → 8.346 en un solo sync).
+
+    Con ids estables, re-escanear un archivo conserva los ids de los símbolos
+    que siguen existiendo, así que las aristas de archivos no re-escaneados
+    sobreviven. La línea NO entra en la clave: mover código no debe cambiar el
+    id. Los duplicados del mismo (path, type, name) —97 casos medidos: métodos
+    homónimos en clases distintas del mismo archivo— se desambiguan por orden
+    de aparición con sufijo `-2`, `-3`, ...
     """
-    from uuid import uuid4
+    import hashlib
 
-    nonce = uuid4().hex[:8]
     remap: dict[str, str] = {}
     rekeyed: dict[str, dict] = {}
-    for index, (old_id, node) in enumerate(nodes.items()):
-        new_id = f"cpg-{nonce}-{index:05d}"
+    seen: dict[str, int] = {}
+
+    def _order(item: tuple[str, dict]) -> tuple[str, int]:
+        node = item[1] if isinstance(item[1], dict) else {}
+        return (str(node.get("path", "")), int(node.get("line") or 0))
+
+    for old_id, node in sorted(nodes.items(), key=_order):
+        if not isinstance(node, dict):
+            continue
+        path = str(node.get("path", ""))
+        rel = os.path.relpath(path, base) if base and path.startswith(base) else path
+        key = f"{rel}|{node.get('type', '')}|{node.get('name', '')}"
+        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+        new_id = f"cpg-{digest}"
+        count = seen.get(key, 0) + 1
+        seen[key] = count
+        if count > 1:
+            new_id = f"{new_id}-{count}"
+        rekeyed[new_id] = {**node, "id": new_id}
         remap[str(old_id)] = new_id
-        rekeyed[new_id] = {**node, "id": new_id} if isinstance(node, dict) else node
 
     fixed_edges: list[dict] = []
+    seen_edges: set[tuple] = set()
     for edge in edges:
         if not isinstance(edge, dict):
             continue
-        fixed_edges.append(
-            {
-                **edge,
-                "from": remap.get(edge.get("from"), edge.get("from")),
-                "to": remap.get(edge.get("to"), edge.get("to")),
-            }
-        )
+        fixed = {
+            **edge,
+            "from": remap.get(edge.get("from"), edge.get("from")),
+            "to": remap.get(edge.get("to"), edge.get("to")),
+        }
+        key = (fixed.get("from"), fixed.get("to"), fixed.get("type"))
+        if key in seen_edges:
+            continue
+        seen_edges.add(key)
+        fixed_edges.append(fixed)
     return rekeyed, fixed_edges
 
 
-def _counts(data: Any) -> tuple[int, int]:
-    """(nodos, aristas) tolerando tres formas: stats planos, {"stats": ...} o grafo."""
-    if not isinstance(data, dict):
-        return 0, 0
-    stats = data.get("stats") or {}
-    nodes = stats.get("total_nodes", data.get("total_nodes"))
-    if nodes is None and isinstance(data.get("nodes"), dict):
-        nodes = len(data["nodes"])
-    edges = stats.get("total_edges", data.get("total_edges"))
-    if edges is None and isinstance(data.get("edges"), list):
-        edges = len(data["edges"])
-    return int(nodes or 0), int(edges or 0)
+def _merge_scanned(
+    old_data: dict,
+    new_nodes: dict,
+    new_edges: list,
+    rescanned_ids: set[str],
+    removed_ids: set[str],
+) -> dict:
+    """Merge del CPG preservando ids estables.
 
+    - Nodos: se quitan los que desaparecieron (`removed_ids`); el resto se
+      actualiza por id (mismo path/type/name ⇒ mismo id).
+    - Aristas: se reconstruyen las que SALEN de archivos re-escaneados
+      (`rescanned_ids`) y se conservan las entrantes a símbolos que siguen
+      existiendo. Antes se tiraban también las entrantes → erosión.
+    """
+    old_nodes = old_data.get("nodes", {}) or {}
+    old_edges = old_data.get("edges", []) or []
 
-# Tolerancia de la guarda anti-erosión: por debajo de esto se asume que el
-# incremental perdió aristas (ids inestables) y se rehace el CPG completo.
-EDGE_REGRESSION_TOLERANCE = 0.98
+    nodes = {nid: n for nid, n in old_nodes.items() if nid not in removed_ids}
+    nodes.update(new_nodes)
 
+    edges: list[dict] = []
+    seen: set[tuple] = set()
 
-def _edge_regression(before: Any, after: Any,
-                     tolerance: float = EDGE_REGRESSION_TOLERANCE) -> bool:
-    """True si el merge dejó menos aristas que antes de forma significativa."""
-    _, edges_before = _counts(before)
-    _, edges_after = _counts(after)
-    if edges_before <= 0 or edges_after <= 0:
-        return False
-    return edges_after < edges_before * tolerance
+    def _add(edge: dict) -> None:
+        key = (edge.get("from"), edge.get("to"), edge.get("type"))
+        if key in seen:
+            return
+        seen.add(key)
+        edges.append(edge)
+
+    # 1) Aristas viejas: se conservan si NO salen de un archivo re-escaneado
+    #    (esas se regeneran) y no tocan un nodo que desapareció.
+    for edge in old_edges:
+        if not isinstance(edge, dict):
+            continue
+        if edge.get("from") in rescanned_ids or edge.get("from") in removed_ids:
+            continue
+        if edge.get("to") in removed_ids:
+            continue
+        _add(edge)
+
+    # 2) Aristas nuevas del scan.
+    for edge in new_edges:
+        if not isinstance(edge, dict):
+            continue
+        if edge.get("from") in removed_ids or edge.get("to") in removed_ids:
+            continue
+        _add(edge)
+
+    merged = dict(old_data)
+    merged["nodes"] = nodes
+    merged["edges"] = edges
+    return merged
 
 
 def _walk_code_files(
@@ -694,8 +754,15 @@ class BuildGraphUseCase:
 
         graph = scan_files(paths, ignore=self._ignore)
 
-        # 2. Guardar base CPG (para que scan_cfg pueda cargarlo)
+        # 2. Guardar base CPG (para que scan_cfg pueda cargarlo).
+        # Ids estables por (path, type, name): re-escanear un archivo no cambia
+        # los ids de sus símbolos, así que las aristas entrantes sobreviven al
+        # update incremental (antes eran un nonce y se perdían).
         data = graph.to_dict()
+        data["nodes"], data["edges"] = _stable_ids(
+            data.get("nodes", {}) or {}, data.get("edges", []) or [],
+            self.repo_path or self.code_root,
+        )
         now = _now()
         data.update(
             {
@@ -818,26 +885,7 @@ class BuildGraphUseCase:
         if not changed and status.get("cpg_status") == "up_to_date":
             return self._repo.load(self.project_id)
 
-        before_stats = self._repo.get_stats(self.project_id)
         result = self.index_task_files(changed, bug_proposals=bug_proposals)
-
-        # ── Guard anti-erosión (2026-11-17) ──────────────────────────────
-        # Los ids del scan son un nonce por corrida (`_rekey_scanned`), así que
-        # al re-escanear un archivo sus nodos CAMBIAN de id. El merge descarta
-        # las aristas cuyo `to` está en un archivo re-escaneado (si no quedarían
-        # colgando), y esas aristas entrantes desde archivos NO re-escaneados
-        # no se regeneran: cada incremental pierde CALLS/IMPORTS de forma
-        # silenciosa. Medido en walker: 14.825 → 12.823 aristas tras un sync
-        # (CALLS 10.329 → 8.346), y el fingerprint decía "up_to_date".
-        # Mientras los ids no sean estables por (path,type,name,line), si el
-        # merge encoge el grafo más de la tolerancia se rehace completo.
-        if _edge_regression(before_stats, result):
-            logger.warning(
-                "update incremental perdió aristas (%s → %s); se rehace el CPG "
-                "completo para no degradar el grafo en cada sync",
-                before_stats.get("total_edges"), _counts(result)[1],
-            )
-            result = self.build()
 
         try:
             watcher.mark_indexed("cpg")
@@ -893,9 +941,11 @@ class BuildGraphUseCase:
                     "scope": "task",
                     "error": "scan_files no produjo nodos — CPG NO modificado",
                 }
-            # Los ids del scan son secuenciales (cpg-0001...): sin re-keyar,
-            # el merge pisa nodos de archivos que NO se re-escanearon.
-            new_nodes, new_edges = _rekey_scanned(new_nodes, new_edges)
+            # Ids determinísticos por (path, type, name): re-escanear un
+            # archivo conserva los ids de sus símbolos vivos, así que las
+            # aristas entrantes desde archivos no re-escaneados sobreviven
+            # (antes eran un nonce y el merge las tiraba → erosión).
+            new_nodes, new_edges = _stable_ids(new_nodes, new_edges, base)
 
         # ── 2. Solo AHORA remover viejos y mergear ──
         old_data = self._repo.load(self.project_id)
@@ -903,28 +953,37 @@ class BuildGraphUseCase:
         old_edges = old_data.get("edges", [])
 
         changed_paths = set(all_abs)
-        paths_to_remove = {
+        rescanned_ids = {
             nid
             for nid, n in old_nodes.items()
             if isinstance(n, dict) and n.get("path") in changed_paths
         }
+        # Símbolos que ya no existen (renombrados/borrados). Con ids estables
+        # el resto conserva su id, así que NO hay que tirar sus aristas.
+        removed_ids = rescanned_ids - set(new_nodes)
 
-        data = dict(old_data)
-        data["nodes"] = {
-            nid: n for nid, n in old_nodes.items() if nid not in paths_to_remove
-        }
-        data["nodes"].update(new_nodes)
-        data["edges"] = [
-            e
-            for e in old_edges
-            if e["from"] not in paths_to_remove and e["to"] not in paths_to_remove
-        ] + new_edges
+        data = _merge_scanned(old_data, new_nodes, new_edges,
+                              rescanned_ids, removed_ids)
         data["updated_at"] = _now()
         data["update_count"] = data.get("update_count", 0) + 1
         # Recompute fingerprint (watcher-compatible) over all source paths after merge
         data["source_fingerprint"] = self._watcher_fingerprint()
 
         self._repo.save(data)
+
+        # Regenerar CALLS de los archivos re-escaneados. El scan de outline
+        # solo produce CONTAINS/IMPORTS, así que el merge borró las CALLS
+        # salientes del change set y nadie las recreaba: esa era la otra mitad
+        # de la erosión medida (CALLS 10.329 → 8.346 tras un sync).
+        try:
+            self.scan_cfg(existing)
+            data = self._repo.load(self.project_id)
+        except Exception as exc:  # noqa: BLE001 — no dejar el CPG a medias
+            logger.error(
+                "scan_cfg incremental falló (%s: %s); las CALLS del change set "
+                "quedan incompletas", type(exc).__name__, exc,
+            )
+
         # Sync incremental a la memoria: se mandan los nodos COMPLETOS.
         # Antes se enviaba un resumen {name,type,file,line}: `file` no es la
         # clave que usa el CPG (`path`), así que el nodo quedaba con un payload
@@ -932,9 +991,9 @@ class BuildGraphUseCase:
         # path y code_search no lo encontraba (bug medido 2026-11-16: 34 nodos
         # huérfanos sin `path` en backend-microservices).
         _sync_core_delta(self._cg, add_or_update=dict(new_nodes),
-                         remove=paths_to_remove)
-        # Quality report sobre los archivos re-indexados
-        qr = self._persist_quality_report(existing)
+                         remove=removed_ids)
+        # Quality report: scan_cfg ya lo persistió para los archivos escaneados
+        qr = data.get("quality_report") or {}
         # Post-index bug proposals (para status) — opt-in: es el 95% del costo
         # de un incremental y no cambia si el change set es acotado.
         bp = (
@@ -949,7 +1008,7 @@ class BuildGraphUseCase:
             "ok": True,
             "files_updated": len(existing),
             "nodes_added": len(new_nodes),
-            "nodes_removed": len(paths_to_remove),
+            "nodes_removed": len(removed_ids),
             "total_nodes": len(data["nodes"]),
             "total_edges": len(data["edges"]),
             "scope": "task",
@@ -1011,7 +1070,7 @@ class BuildGraphUseCase:
                 # Caller node: lookup O(1) por (name, path)
                 caller_nid = nodes_by_name_path.get((caller, fp))
                 if not caller_nid:
-                    caller_nid = _cpg_nid()
+                    caller_nid = _cpg_nid(fp, caller)
                     cpg_nodes[caller_nid] = {
                         "id": caller_nid,
                         "type": "function",
@@ -1057,7 +1116,7 @@ class BuildGraphUseCase:
                 if cands:
                     callee_nid = cands[0]
         if not callee_nid:
-            callee_nid = _cpg_nid()
+            callee_nid = _cpg_nid(fp, callee)
             cpg_nodes[callee_nid] = {
                 "id": callee_nid,
                 "type": "function",
@@ -1099,11 +1158,16 @@ class BuildGraphUseCase:
             },
         )
 
-        nid_counter = [len(cpg_nodes) + 1]
+        base_path = self.repo_path or self.code_root
 
-        def _cpg_nid() -> str:
-            nid_counter[0] += 1
-            return f"cpg-{nid_counter[0]:04d}"
+        def _cpg_nid(path: str, name: str) -> str:
+            """Id estable para nodos sintéticos (callers/callees externos).
+
+            Antes era secuencial (`cpg-0001...`), así que cada build creaba
+            nodos con ids distintos y las aristas hacia ellos no sobrevivían a
+            un re-escaneo.
+            """
+            return _stable_id_for(path, "function", name, base_path)
 
         # 3. Obtener definiciones de funciones desde el CPG
         #    (poblado por ast-grep outline en build())

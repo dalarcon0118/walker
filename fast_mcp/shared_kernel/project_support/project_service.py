@@ -163,6 +163,8 @@ class ProjectService:
         """
         if not project_id:
             raise ProjectResolutionError("project_id vacio — no se puede resolver paths")
+        from fast_mcp.shared_kernel.paths import project_data_dir
+
         repo_path = ProjectService.get_repo_path(project_id, root=root)
         data_dir = ProjectService.compose_project_layout(repo_path, project_id)
         if not os.path.isdir(data_dir):

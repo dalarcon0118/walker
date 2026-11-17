@@ -332,46 +332,6 @@ def test_index_task_files_sincroniza_payload_completo_con_path(tmp_path, monkeyp
         assert "file" not in doc, f"nodo {node_id} usa 'file' en vez de 'path'"
 
 
-def test_rekey_scanned_no_colisiona_con_ids_existentes():
-    """Los ids del scan (cpg-0001...) se re-keyan a ids únicos de proyecto.
-
-    Bug medido 2026-11-16 en backend-microservices: `update()` dejó el CPG en
-    15.010 nodos (tenía 17.849) y borró `core/dispatcher.py`. El scan de los
-    archivos cambiados re-emitía ids desde `cpg-0001`, y el merge pisó los
-    primeros nodos del grafo, que eran de dispatcher (no estaba en el change
-    set, así que nadie los volvió a escribir).
-    """
-    from fast_mcp.features.code_analysis.application.build_service import (
-        _rekey_scanned,
-    )
-
-    scanned = {
-        "cpg-0001": {"id": "cpg-0001", "type": "file", "path": "/x/b.py"},
-        "cpg-0002": {"id": "cpg-0002", "type": "function", "path": "/x/b.py"},
-    }
-    edges = [
-        {"from": "cpg-0001", "to": "cpg-0002", "type": "CONTAINS"},
-        {"from": "cpg-0002", "to": "cpg-9999", "type": "CALLS"},  # externo
-    ]
-
-    nodes, fixed = _rekey_scanned(scanned, edges)
-
-    assert len(nodes) == 2
-    assert not ({"cpg-0001", "cpg-0002"} & set(nodes)), (
-        "los ids del scan NO deben conservarse: colisionan con el CPG existente"
-    )
-    assert all(k == v["id"] for k, v in nodes.items()), "clave e id deben coincidir"
-    assert len({v["id"] for v in nodes.values()}) == 2
-    # Aristas internas remapeadas al id nuevo…
-    internal = [e for e in fixed if e["type"] == "CONTAINS"][0]
-    assert internal["from"] in nodes and internal["to"] in nodes
-    # …y las que apuntan fuera del scan conservan su destino.
-    external = [e for e in fixed if e["type"] == "CALLS"][0]
-    assert external["to"] == "cpg-9999"
-
-
-# ── 4. FIX D: update() fail-fast, sin fallback a build() (INV-016) ──
-
 def test_update_fail_fast_sin_fallback_build(monkeypatch, tmp_path):
     """update() con watcher roto NO cae a build() completo (INV-016).
 
