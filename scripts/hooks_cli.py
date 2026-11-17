@@ -37,6 +37,7 @@ from fast_mcp.shared_kernel.hooks.package import (  # noqa: E402
     project_scope,
     remove,
     set_enabled,
+    update,
 )
 
 
@@ -77,6 +78,8 @@ def _cmd_install(args) -> int:
             walker_version=WALKER_VERSION,
             force=args.force,
             scope="project" if args.project else "global",
+            ref=args.ref,
+            subdir=args.subdir,
         )
     except HookManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -86,6 +89,30 @@ def _cmd_install(args) -> int:
     if args.project:
         print("  (recordá marcar el proyecto como confiable: "
               '.cognitive/config.json → {"hooks": {"trusted": true}})')
+    return 0
+
+
+def _cmd_update(args) -> int:
+    try:
+        outcome = update(
+            args.id,
+            _scope(args),
+            walker_version=WALKER_VERSION,
+            scope="project" if args.project else "global",
+            check=args.check,
+        )
+    except HookManifestError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not outcome["changed"]:
+        print(f"{args.id} al día (v{outcome['current_version']} · {outcome['current_commit'][:12]})")
+        return 0
+    print(f"{args.id}: v{outcome['current_version']} → v{outcome['available_version']} "
+          f"· {outcome['current_commit'][:12] or '?'} → {outcome['available_commit'][:12]}")
+    if args.check:
+        print("  (check-only: no se instaló)")
+        return 0
+    print("  actualizado" if outcome["installed"] else "  sin cambios")
     return 0
 
 
@@ -150,9 +177,18 @@ def main() -> int:
     p_install.add_argument("path", help="directorio con hook.json")
     p_install.add_argument("--force", action="store_true",
                            help="reemplaza una versión ya instalada")
+    p_install.add_argument("--ref", default=None,
+                           help="tag/branch/sha para fuentes git (se registra pinneado)")
+    p_install.add_argument("--subdir", default="",
+                           help="subdirectorio del repo donde vive hook.json")
 
     p_remove = sub.add_parser("remove", help="desinstala un paquete")
     p_remove.add_argument("id")
+
+    p_update = sub.add_parser("update", help="actualiza un paquete git al ref registrado")
+    p_update.add_argument("id")
+    p_update.add_argument("--check", action="store_true",
+                          help="solo informa, no instala")
 
     for name in ("enable", "disable"):
         p = sub.add_parser(name, help=f"{name} un paquete instalado")
@@ -165,6 +201,7 @@ def main() -> int:
     handlers = {
         "list": _cmd_list,
         "install": _cmd_install,
+        "update": _cmd_update,
         "remove": _cmd_remove,
         "enable": _cmd_toggle,
         "disable": _cmd_toggle,

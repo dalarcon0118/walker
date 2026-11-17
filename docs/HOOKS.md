@@ -125,9 +125,15 @@ el host) y `entry` tiene que existir.
 ```bash
 # global: ~/.walker/hooks  (aplica a todos los proyectos)
 python3 scripts/hooks_cli.py install ./notify-slack
+python3 scripts/hooks_cli.py install github:user/notify-slack#v1.2.0
+python3 scripts/hooks_cli.py install "git+https://git.example/x.git#main" --ref v1.2.0
 
 # por proyecto: <repo>/.cognitive/hooks  (viaja con el repo; requiere trust)
 python3 scripts/hooks_cli.py --project <repo> install ./notify-slack
+
+# actualizar / sólo ver qué cambió
+python3 scripts/hooks_cli.py update notify-slack --check
+python3 scripts/hooks_cli.py update notify-slack
 
 python3 scripts/hooks_cli.py list           # instalados + hooks activos
 python3 scripts/hooks_cli.py enable|disable <id>
@@ -136,9 +142,22 @@ python3 scripts/hooks_cli.py events         # catálogo + suscriptores
 python3 scripts/hooks_cli.py doctor         # compatibilidad + eventos huérfanos
 ```
 
-Registro: `<scope>/registry.json` con `id`, `version`, `source`, `sha256`,
-`enabled`, `installed_at`. El `sha256` es de manifiesto+entry: sirve para
-responder "¿qué código corre?", no como firma.
+Registro: `<scope>/registry.json` con `id`, `version`, `source`, `source_type`,
+`ref`, `commit`, `sha256`, `enabled`, `installed_at`.
+
+### Pinning, update y hash
+
+- Fuente git: se clona **shallow** en un temporal, se resuelve el commit
+  (`rev-parse HEAD`) y recién ahí se copia. El registro guarda `ref` y `commit`.
+- Si el `ref` es un **tag o un sha**, `update` no mueve el paquete: queda
+  pinneado. Para subir de versión se instala con el ref nuevo
+  (`install --force --ref v1.3.0`).
+- Si el `ref` es una **rama**, `update` trae el commit nuevo y muestra el diff
+  (`v1.0.0 → v1.1.0 · 91a2320 → f2cb0bd`); `--check` sólo informa.
+- `sha256` es de manifiesto+entry. `doctor` lo recomputa contra el disco: si un
+  archivo cambió después de instalar, lo reporta como
+  `modificado en disco (c7395fa… != 7d4b678…)` y sale con rc=1. No es una
+  firma criptográfica: detecta cambios, no autentica autor.
 
 ### Por qué no en `data/projects.json`
 

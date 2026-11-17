@@ -23,6 +23,8 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +37,7 @@ MANIFEST_NAME = "hook.json"
 REGISTRY_NAME = "registry.json"
 HOOKS_HOME_ENV = "WALKER_HOOKS_HOME"
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
+_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 
 class HookManifestError(ValueError):
@@ -62,6 +65,60 @@ class HookPackage:
         if self.entry.endswith((".py", ".sh")):
             return f'"$WALKER_PYTHON" "{target}"' if self.entry.endswith(".py") else f'"{target}"'
         return f'"{target}"'
+
+
+@dataclass(frozen=True)
+class SourceSpec:
+    """Origen de un paquete: path local o repo git con ref opcional."""
+
+    kind: str  # local | git
+    location: str
+    ref: str = ""
+
+
+def parse_source(source: str, ref: str | None = None) -> SourceSpec:
+    """`github:user/repo#v1`, `git+https://…#sha`, `/path` → SourceSpec."""
+    raw = source.strip()
+    explicit_ref = (ref or "").strip()
+    if raw.startswith("github:"):
+        rest = raw[len("github:"):]
+        repo, _, tail = rest.partition("#")
+        return SourceSpec("git", f"https://github.com/{repo}.git", explicit_ref or tail)
+    if raw.startswith("git+"):
+        rest = raw[len("git+"):]
+        location, _, tail = rest.partition("#")
+        return SourceSpec("git", location, explicit_ref or tail)
+    if "://" in raw or raw.startswith("git@"):
+        location, _, tail = raw.partition("#")
+        return SourceSpec("git", location, explicit_ref or tail)
+    return SourceSpec("local", raw, "")
+
+
+def _git(args: list[str], cwd: Path) -> str:
+    proc = subprocess.run(
+        ["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=120
+    )
+    if proc.returncode != 0:
+        raise HookManifestError(
+            f"git {' '.join(args)} falló: {(proc.stderr or proc.stdout).strip()[:200]}"
+        )
+    return proc.stdout.strip()
+
+
+def fetch_git(spec: SourceSpec, dest: Path) -> str:
+    """Clona shallow en `dest` y devuelve el commit resuelto (HEAD pineado)."""
+    dest.mkdir(parents=True, exist_ok=True)
+    _git(["init", "-q"], dest)
+    _git(["remote", "add", "origin", spec.location], dest)
+    target = spec.ref or "HEAD"
+    _git(["fetch", "-q", "--depth", "1", "origin", target], dest)
+    _git(["checkout", "-q", "FETCH_HEAD"], dest)
+    commit = _git(["rev-parse", "HEAD"], dest)
+    if _SHA_RE.match(target) and not commit.startswith(target):
+        raise HookManifestError(
+            f"el ref {target} no coincide con el commit clonado ({commit[:12]})"
+        )
+    return commit
 
 
 def hooks_home() -> Path:
@@ -208,53 +265,156 @@ def install(
     walker_version: str,
     force: bool = False,
     scope: str = "global",
+    ref: str | None = None,
+    subdir: str = "",
 ) -> HookPackage:
-    """Copia el paquete al scope y lo registra. Lanza HookManifestError."""
-    source_dir = Path(source).resolve()
-    if not source_dir.is_dir():
-        raise HookManifestError(f"no es un directorio: {source_dir}")
+    """Instala un paquete local o desde git (ref opcional, pinneado al commit).
 
-    package = read_manifest(source_dir, scope=scope)
-    incompatible = check_compat(package, walker_version)
-    if incompatible:
-        raise HookManifestError(f"{package.id}: {incompatible}")
+    Git: clona shallow en un temporal, resuelve el commit (HEAD), valida el
+    manifiesto y recién ahí copia. El registro guarda `source`, `ref`, `commit`
+    y `sha256`, que es lo que permite responder qué código corre y detectar
+    modificaciones en disco.
+    """
+    spec = parse_source(str(source), ref)
+    tmpdir: Path | None = None
+    source_label = str(source)
+    commit = ""
+    try:
+        if spec.kind == "git":
+            tmpdir = Path(tempfile.mkdtemp(prefix="walker-hook-"))
+            commit = fetch_git(spec, tmpdir)
+            source_dir = (tmpdir / subdir) if subdir else tmpdir
+            source_label = f"{spec.location}#{spec.ref or commit[:12]}"
+        else:
+            source_dir = Path(spec.location).resolve()
+            if not source_dir.is_dir():
+                raise HookManifestError(f"no es un directorio: {source_dir}")
 
-    root = Path(scope_root)
-    root.mkdir(parents=True, exist_ok=True)
-    registry = load_registry(root)
-    existing = next((h for h in registry["hooks"] if h.get("id") == package.id), None)
-    target = root / package.id
-    if existing and not force:
-        raise HookManifestError(
-            f"{package.id} v{existing.get('version')} ya está instalado en {root} "
-            f"(usá --force para reemplazarlo)"
+        package = read_manifest(source_dir, scope=scope)
+        incompatible = check_compat(package, walker_version)
+        if incompatible:
+            raise HookManifestError(f"{package.id}: {incompatible}")
+
+        root = Path(scope_root)
+        root.mkdir(parents=True, exist_ok=True)
+        registry = load_registry(root)
+        existing = next((h for h in registry["hooks"] if h.get("id") == package.id), None)
+        target = root / package.id
+        if existing and not force:
+            raise HookManifestError(
+                f"{package.id} v{existing.get('version')} ya está instalado en {root} "
+                f"(usá --force para reemplazarlo)"
+            )
+
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(
+            source_dir,
+            target,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"),
         )
 
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(
-        source_dir,
-        target,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"),
-    )
+        installed_pkg = read_manifest(target, scope=scope)
+        entry = {
+            "id": installed_pkg.id,
+            "version": installed_pkg.version,
+            "walker": installed_pkg.walker,
+            "events": list(installed_pkg.events),
+            "source": source_label,
+            "source_type": spec.kind,
+            "ref": spec.ref or (commit[:12] if commit else ""),
+            "commit": commit,
+            "subdir": subdir,
+            "sha256": _sha256_dir(target, installed_pkg.entry),
+            "enabled": True,
+            "installed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        registry["hooks"] = [h for h in registry["hooks"] if h.get("id") != package.id]
+        registry["hooks"].append(entry)
+        save_registry(root, registry)
+        logger.info("hook %s v%s instalado en %s (%s)",
+                    installed_pkg.id, installed_pkg.version, target, source_label)
+        return HookPackage(**{**installed_pkg.__dict__, "enabled": True,
+                              "source": source_label,
+                              "installed_at": entry["installed_at"]})
+    finally:
+        if tmpdir is not None:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
-    installed_pkg = read_manifest(target, scope=scope)
-    entry = {
-        "id": installed_pkg.id,
-        "version": installed_pkg.version,
-        "walker": installed_pkg.walker,
-        "events": list(installed_pkg.events),
-        "source": str(source_dir),
-        "sha256": _sha256_dir(target, installed_pkg.entry),
-        "enabled": True,
-        "installed_at": datetime.now(timezone.utc).isoformat(),
-    }
-    registry["hooks"] = [h for h in registry["hooks"] if h.get("id") != package.id]
-    registry["hooks"].append(entry)
-    save_registry(root, registry)
-    logger.info("hook %s v%s instalado en %s", installed_pkg.id, installed_pkg.version, target)
-    return HookPackage(**{**installed_pkg.__dict__, "enabled": True,
-                          "source": entry["source"], "installed_at": entry["installed_at"]})
+
+def update(
+    hook_id: str,
+    scope_root: str | Path,
+    *,
+    walker_version: str,
+    scope: str = "global",
+    check: bool = False,
+) -> dict:
+    """Actualiza un paquete git al ref registrado. `check=True` solo reporta."""
+    root = Path(scope_root)
+    registry = load_registry(root)
+    entry = next((h for h in registry["hooks"] if h.get("id") == hook_id), None)
+    if entry is None:
+        raise HookManifestError(f"{hook_id} no está instalado en {root}")
+    if entry.get("source_type") != "git":
+        raise HookManifestError(
+            f"{hook_id} se instaló desde un path local ({entry.get('source')}); "
+            "reinstalá con install --force"
+        )
+
+    spec = parse_source(str(entry.get("source", "")), entry.get("ref"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="walker-hook-"))
+    try:
+        commit = fetch_git(spec, tmpdir)
+        source_dir = (tmpdir / entry.get("subdir", "")) if entry.get("subdir") else tmpdir
+        package = read_manifest(source_dir, scope=scope)
+        incompatible = check_compat(package, walker_version)
+        if incompatible:
+            raise HookManifestError(f"{hook_id}: {incompatible}")
+
+        new_sha = _sha256_dir(source_dir, package.entry)
+        changes = {
+            "id": hook_id,
+            "current_version": entry.get("version"),
+            "available_version": package.version,
+            "current_commit": entry.get("commit", ""),
+            "available_commit": commit,
+            "changed": (package.version != entry.get("version")
+                        or new_sha != entry.get("sha256")
+                        or commit != entry.get("commit", "")),
+            "installed": False,
+        }
+        if check or not changes["changed"]:
+            return changes
+
+        install(
+            f"git+{spec.location}#{spec.ref or commit}",
+            root,
+            walker_version=walker_version,
+            force=True,
+            scope=scope,
+            subdir=entry.get("subdir", ""),
+        )
+        changes["installed"] = True
+        return changes
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def verify_installed(scope_root: str | Path) -> list[dict]:
+    """Compara `sha256` del disco contra el registro (detecta modificaciones)."""
+    root = Path(scope_root)
+    registry = {item.get("id"): item for item in load_registry(root).get("hooks", [])}
+    drift: list[dict] = []
+    for package in installed(root):
+        meta = registry.get(package.id, {})
+        expected = meta.get("sha256", "")
+        if not expected:
+            continue
+        actual = _sha256_dir(root / package.id, package.entry)
+        if actual != expected:
+            drift.append({"id": package.id, "expected": expected, "actual": actual})
+    return drift
 
 
 def remove(hook_id: str, scope_root: str | Path) -> dict:
@@ -300,6 +460,7 @@ def doctor_report(
                     "global": [], "project": [], "issues": []}
 
     for scope, root in (("global", home), ("project", project_scope(project_root or "."))):
+        drifted = {item["id"]: item for item in verify_installed(root)}
         for package in installed(root, scope=scope):
             problem = check_compat(package, walker_version)
             report[scope].append({
@@ -311,6 +472,11 @@ def doctor_report(
                 report["issues"].append(f"{scope}/{package.id}: {problem}")
             if not package.enabled:
                 report["issues"].append(f"{scope}/{package.id}: deshabilitado")
+            if package.id in drifted:
+                report["issues"].append(
+                    f"{scope}/{package.id}: modificado en disco "
+                    f"({drifted[package.id]['actual']} != {drifted[package.id]['expected']})"
+                )
 
     bus = HookBus.load(project_root or ".", hooks_home=hooks_home_dir)
     for spec in bus.specs:

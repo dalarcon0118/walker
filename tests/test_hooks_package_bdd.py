@@ -22,9 +22,11 @@ from fast_mcp.shared_kernel.hooks.package import (
     doctor_report,
     install,
     installed,
+    parse_source,
     read_manifest,
     remove,
     set_enabled,
+    update,
 )
 
 MANIFEST = {
@@ -247,3 +249,117 @@ def test_version_del_paquete_coincide_con_pyproject():
     pyproject = Path(pkg_mod.__file__).resolve().parents[3] / "pyproject.toml"
     declared = tomllib.loads(pyproject.read_text())["project"]["version"]
     assert __version__ == declared
+
+
+# ── Instalación desde git: pin, update y verificación de hash ───────────────
+
+import subprocess
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=str(repo), capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _upstream(tmp_path: Path, version: str = "1.0.0") -> Path:
+    repo = tmp_path / "upstream"
+    repo.mkdir()
+    (repo / "hook.json").write_text(json.dumps({**MANIFEST, "version": version}))
+    (repo / "main.py").write_text("print('v" + version + "')\n")
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", f"v{version}")
+    _git(repo, "branch", "-M", "main")
+    return repo
+
+
+def _bump(repo: Path, version: str) -> None:
+    (repo / "hook.json").write_text(json.dumps({**MANIFEST, "version": version}))
+    (repo / "main.py").write_text("print('v" + version + "')\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", f"v{version}")
+
+
+def test_parse_source_formatos():
+    from fast_mcp.shared_kernel.hooks.package import parse_source
+
+    gh = parse_source("github:user/repo#v1")
+    assert (gh.kind, gh.location, gh.ref) == ("git", "https://github.com/user/repo.git", "v1")
+
+    url = parse_source("git+https://x/y.git#abc")
+    assert (url.kind, url.ref) == ("git", "abc")
+
+    assert parse_source("./local/dir").kind == "local"
+    assert parse_source("./local", ref="v2").kind == "local"
+
+
+def test_install_desde_git_registra_commit_y_ref(tmp_path):
+    repo = _upstream(tmp_path)
+    _git(repo, "tag", "v1")
+    head = _git(repo, "rev-parse", "HEAD")
+    home = _home(tmp_path)
+
+    install(f"git+file://{repo}#v1", home, walker_version="3.0.0")
+
+    entry = json.loads((home / "registry.json").read_text())["hooks"][0]
+    assert entry["source_type"] == "git"
+    assert entry["ref"] == "v1"
+    assert entry["commit"] == head
+    assert entry["sha256"]
+    assert f"#v1" in entry["source"]
+
+
+def test_update_sigue_la_rama_y_reporta_version_nueva(tmp_path):
+    repo = _upstream(tmp_path)
+    home = _home(tmp_path)
+    install(f"git+file://{repo}#main", home, walker_version="3.0.0")
+
+    _bump(repo, "1.1.0")
+    check = update("demo-hook", home, walker_version="3.0.0", check=True)
+    assert check["changed"] is True
+    assert check["available_version"] == "1.1.0"
+    assert check["installed"] is False
+
+    applied = update("demo-hook", home, walker_version="3.0.0")
+    assert applied["installed"] is True
+    entry = json.loads((home / "registry.json").read_text())["hooks"][0]
+    assert entry["version"] == "1.1.0"
+    assert entry["commit"] == _git(repo, "rev-parse", "HEAD")
+
+
+def test_update_respeta_un_pin_inmutable(tmp_path):
+    repo = _upstream(tmp_path)
+    _git(repo, "tag", "v1")
+    home = _home(tmp_path)
+    install(f"git+file://{repo}#v1", home, walker_version="3.0.0")
+    _bump(repo, "1.1.0")
+
+    outcome = update("demo-hook", home, walker_version="3.0.0", check=True)
+
+    assert outcome["changed"] is False, "un tag no se mueve: queda pinneado"
+
+
+def test_update_de_paquete_local_pide_reinstall(tmp_path):
+    home = _home(tmp_path)
+    install(_package(tmp_path), home, walker_version="3.0.0")
+
+    with pytest.raises(HookManifestError) as exc:
+        update("demo-hook", home, walker_version="3.0.0")
+    assert "path local" in str(exc.value)
+
+
+def test_verify_installed_detecta_modificacion_en_disco(tmp_path):
+    from fast_mcp.shared_kernel.hooks.package import verify_installed
+
+    home = _home(tmp_path)
+    install(_package(tmp_path), home, walker_version="3.0.0")
+    assert verify_installed(home) == []
+
+    (home / "demo-hook" / "main.py").write_text("print('modificado')\n")
+
+    drift = verify_installed(home)
+    assert drift and drift[0]["id"] == "demo-hook"
+    assert drift[0]["actual"] != drift[0]["expected"]
