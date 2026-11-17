@@ -200,8 +200,18 @@ con `ANALYZE.ANALYZE` pendiente (`required_fields: ["preconditions"]`):
 
 | gate | resultado | pasos | tokens_in | tokens_out |
 |---|---|---|---|---|
+| sin gate | editó directo | 4 | 9.735 | 271 |
 | `edit`, `write` | **bypass por `shell`** (`echo >>`) | 5 | 4.965 | 370 |
 | `edit`, `write`, `shell` | cumplió: submit + transition | 24 | 69.576 | 3.483 |
+| idem + mensaje autosuficiente | cumplió | 37 | 88.189 | 5.100 |
+| idem + invalidar cache tras submit | cumplió | 20 | 71.473 | 4.121 |
+
+El mensaje más claro y la invalidación de cache **no bajan el piso**: el costo
+está en otra parte. Con el gate, un cambio de una línea obliga a recorrer
+`ANALYZE → IMPLEMENT.USER_GATE → WORK` completando los campos de cada paso.
+El cache aporta (37→20 pasos) porque había denegaciones después de submitear
+—el plugin seguía viendo `satisfied: false` por `REFRESH_MS`—, pero el piso
+estructural es ~7x tokens sobre la misma tarea.
 
 Lecciones:
 
@@ -214,6 +224,9 @@ Lecciones:
 - **Hueco conocido**: los pasos `user_input` no se bloquean (el gate solo mira
   `llm_task`), así que el agente puede atravesar un gate humano sin preguntar.
 
-Conclusión provisional: el gate funciona pero no debería ser default. Sirve para
-forzar el workflow en tareas donde el costo importa poco, no como política
-general.
+Conclusión: el gate funciona y el costo es estructural, no de mensajería.
+Sirve para forzar el workflow en trabajo donde registrar el proceso vale ~7x
+tokens; es absurdo para un cambio de una línea. Opt-in es la posición correcta
+mientras no exista una forma de atar el gate a la tarea que el agente está
+haciendo (hoy niega cualquier escritura, aunque el paso pendiente sea de otra
+tarea).

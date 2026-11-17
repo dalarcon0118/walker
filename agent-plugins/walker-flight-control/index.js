@@ -223,15 +223,26 @@ export default {
               const fields = cur.required.length
                 ? cur.required.map((f) => `"${f}":"..."`).join(",")
                 : ""
+              const gate = (cur.gates || [])[0] || ""
               runTool("trace_push", {
                 event_type: "flight_control_denied",
                 source: "agent_hook",
                 data: { tool: name, position: cur.position, required: cur.required },
               })
+              // El mensaje tiene que ser AUTOSUFICIENTE: en el probe anterior el
+              // agente gastó 19 de 24 pasos leyendo el fuente del plugin para
+              // entender el bloqueo. Todo lo que necesita va acá.
               throw new Error(
-                `[WALKER] Paso pendiente: ${cur.position}. Completalo antes de ` +
-                  `escribir código: ${CLI} ${projectId}/${"submit"} '{${fields}}'. ` +
-                  `Después avanzá con: ${CLI} ${projectId}/transition '{"gate":"${(cur.gates || [])[0] || ""}"}'.`
+                `[WALKER] Escritura bloqueada. El workflow del proyecto está en ` +
+                  `${cur.position} y falta registrar: ${cur.required.join(", ") || "(sin campos)"}.\n` +
+                  `Es una regla del proyecto, no un bug: no hace falta leer el código del gate.\n` +
+                  `Para desbloquear, en DOS llamadas:\n` +
+                  `  1) ${CLI} ${projectId}/submit '{${fields}}'\n` +
+                  `  2) ${CLI} ${projectId}/transition '{"gate":"${gate}"}'\n` +
+                  `Qué poner en cada campo: el contenido real que exige el paso ` +
+                  `(para \`preconditions\`, premisas verificables: comando => resultado; ` +
+                  `para \`loop_verification\`, comando => salida).\n` +
+                  `Después repetí exactamente la herramienta que querías usar y seguirá normal.`
               )
             }
           })
@@ -250,7 +261,12 @@ export default {
           editor.update(name, (draft) => {
             draft.execute = async (input, callCtx) => {
               sessionOf(callCtx?.sessionID || "").followed = true
-              return original(input, callCtx)
+              const result = await original(input, callCtx)
+              // El estado cambió: sin invalidar, el gate sigue negando con el
+              // `satisfied: false` cacheado hasta REFRESH_MS y el agente reintenta
+              // a ciegas (medido: 4 denegaciones seguidas después de submitear).
+              state.fetchedAt = 0
+              return result
             }
           })
         }
