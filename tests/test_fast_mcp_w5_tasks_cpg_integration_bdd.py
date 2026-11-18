@@ -258,6 +258,15 @@ class TestTaskRegistryCompleteness:
             "gather_context",
             "documenting_knowledge",
             "review_code",
+            # REFINE / PROJECT_INIT / ADD_TASKS
+            "refine_diagnose",
+            "route_to_target",
+            "escalate_refine",
+            "detect_project_context",
+            "build_project_config",
+            "initialize_knowledge_base",
+            "create_first_sprint",
+            "add_tasks",
         }
         actual = set(registry.list_tasks().keys())
         missing = expected - actual

@@ -56,6 +56,9 @@ _HANDLER_MODULES = [
     # Acciones del grafo de diseño/ejecución. Cada módulo registra las suyas.
     "design",
     "review",
+    "refine",
+    "project_init",
+    "add_tasks",
 ]
 
 

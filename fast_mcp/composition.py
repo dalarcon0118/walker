@@ -193,12 +193,23 @@ def _no_project_context_error() -> dict:
 
 
 def _resolve_chain_dir(kwargs: dict) -> str:
-    """Resolve chain_dir from kwargs (project_id or _project_id).
+    """Resolve chain_dir from kwargs (project_id, _project_id o chain_dir).
 
     Returns the REPO ROOT (where the actual code lives), not the layout dir
     (.cognitive/projects/<pid>). This is what handlers need to resolve file paths.
+
+    `chain_dir` es el camino que usan las acciones del workflow
+    (`ExecutionContext.chain_dir`). Ignorarlo hacía que TODA tool de memoria
+    invocada desde una acción devolviera "No project context" — un fallo
+    silencioso: `gather_context` y `documenting_knowledge` de DESIGN corrían
+    con `warnings` y el CKG nunca se escribía (medido 2026-11-18).
+    ``MemoryContext.resolve`` ya valida el proyecto a partir del path.
     """
     from fast_mcp.shared_kernel.paths import get_project_dir
+
+    chain_dir_arg = str(kwargs.get("chain_dir") or "")
+    if chain_dir_arg and os.path.isdir(chain_dir_arg):
+        return chain_dir_arg
 
     project_id = kwargs.get("project_id") or kwargs.get("_project_id") or ""
     if not project_id:
@@ -477,6 +488,64 @@ def build_sprint_service(chain_dir: str):
     servicio con su repo, igual que el runner de delta.
     """
     return _build_sprint_service(chain_dir)
+
+
+def ckg_for(chain_dir: str):
+    """CKG del proyecto resuelto por path (query/lectura).
+
+    R1: los efectos laterales de tasks no pueden importar cognitive_knowledge;
+    piden el gráfico al composition root.
+    """
+    if not chain_dir:
+        return None
+    from fast_mcp.features.cognitive_knowledge import ckg_service
+    from fast_mcp.memories.context import MemoryContext
+
+    ctx = MemoryContext.resolve(chain_dir)
+    if ctx is None or not ctx.data_dir:
+        return None
+    return ckg_service(ctx.data_dir)
+
+
+def ckg_save_nodes(
+    chain_dir: str,
+    nodes: list[dict],
+    task_id: str = "",
+    session_id: str = "",
+) -> dict:
+    """Persiste nodos de conocimiento y devuelve un dict plano.
+
+    Traduce el `Result` del servicio a `{ok, node_ids, ...}` para que un efecto
+    no dependa de `returns` ni de la clase del feature.
+    """
+    if not chain_dir:
+        return {"ok": False, "error": "chain_dir no disponible"}
+    from fast_mcp.features.cognitive_knowledge.application.services.ckg_write import (
+        CkgWriteService,
+    )
+    from returns.pipeline import is_successful
+
+    result = CkgWriteService.save_nodes(
+        chain_dir, nodes, task_id=task_id, session_id=session_id
+    )
+    if not is_successful(result):
+        return {"ok": False, "error": str(result.failure())}
+    body = dict(result.value_or({}) or {})
+    if body.get("error"):
+        return {"ok": False, "error": str(body["error"])}
+    body["ok"] = True
+    return body
+
+
+def ckg_delete_by_metadata(chain_dir: str, key: str, value: str) -> dict:
+    """Compensación: borra nodos del CKG por metadata key=value."""
+    if not chain_dir:
+        return {"ok": False, "error": "chain_dir no disponible"}
+    from fast_mcp.features.cognitive_knowledge.application.services.ckg_write import (
+        CkgWriteService,
+    )
+
+    return CkgWriteService.delete_by_metadata(chain_dir, key, value)
 
 
 def _emit_task_after(name, ctx, result) -> None:
