@@ -470,3 +470,50 @@ def test_status_no_manda_prompt_en_paso_bootstrap():
     payload = orch.status(ctx=SimpleNamespace(task_id="", session_id="s"), view="light")
 
     assert payload["prompt"] is None
+
+
+# ── pasos automáticos: el que produce los campos es el motor ───────────
+# Medido 2026-11-18: VERIFY.PREDICATE_CHECK (auto) pedía `submit` con
+# `all_passed` pendiente. El agente tenía que escribir a mano el resultado que
+# la acción `verify_predicates` iba a calcular al avanzar.
+
+def test_next_action_en_paso_auto_es_advance_aunque_el_output_sea_requerido():
+    sub = _sub(
+        "S",
+        execution=ExecutionType.AUTO,
+        output_schema={"type": "object", "required": ["all_passed", "results"]},
+    )
+
+    action = next_action_for(_state("S"), _graph(sub))
+
+    assert action["tool"] == "advance", action
+
+
+def test_paso_auto_no_declara_required_fields_ni_pide_submit():
+    node = WorkflowNode(
+        node_id="N",
+        sub_states=[
+            _sub(
+                "S",
+                execution=ExecutionType.AUTO,
+                output_schema={"type": "object", "required": ["all_passed"]},
+            )
+        ],
+    )
+    graph = WorkflowGraph(nodes={"N": node}, initial_state="N")
+    state = WorkflowState(current_node="N", current_sub_state="S", sub_state_index=0)
+    orch = OrchestrationService(
+        bundle=EngineBundle(
+            workflow_store=None, workflow_io=None, tracer=None, side_effects=None, chain_dir="/tmp/x"
+        )
+    )
+    orch._load_graph = lambda: graph
+    orch._load_state = lambda: state
+
+    for payload in (
+        orch.help(ctx=None, view="light"),
+        orch.status(ctx=SimpleNamespace(task_id="", session_id="s"), view="light"),
+    ):
+        assert payload["required_fields"] == [], payload
+        assert payload["next_action"]["tool"] == "advance", payload
+        assert payload.get("step_satisfied", True) is True, payload

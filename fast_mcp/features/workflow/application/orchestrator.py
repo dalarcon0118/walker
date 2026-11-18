@@ -109,15 +109,21 @@ def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any
     if sub_state is None:
         return None
 
-    missing = missing_declared_fields(state, sub_state)
-    if missing:
-        return {
-            "tool": "submit",
-            "reason": "missing_fields",
-            "missing": missing,
-            "payload": {field: f"<{field}>" for field in missing},
-            "detail": "Registrá los campos con submit; sin ellos el paso no avanza.",
-        }
+    # En un paso automático el que produce los campos es el MOTOR al ejecutar
+    # la acción, no el agente. Preguntar por `required_fields` acá mandaba a
+    # `submit` en VERIFY.PREDICATE_CHECK (auto) con `all_passed` pendiente: el
+    # protocolo pedía escribir a mano lo que el paso iba a calcular.
+    auto_step = sub_state.is_auto()
+    if not auto_step:
+        missing = missing_declared_fields(state, sub_state)
+        if missing:
+            return {
+                "tool": "submit",
+                "reason": "missing_fields",
+                "missing": missing,
+                "payload": {field: f"<{field}>" for field in missing},
+                "detail": "Registrá los campos con submit; sin ellos el paso no avanza.",
+            }
 
     last = state.sub_state_index >= len(node.sub_states) - 1
     if last:
@@ -130,7 +136,11 @@ def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any
             }
     return {
         "tool": "advance",
-        "detail": "El paso está satisfecho: avanzá para ejecutar/continuar.",
+        "detail": (
+            "Paso automático: avanzá y el motor ejecuta la acción."
+            if auto_step
+            else "El paso está satisfecho: avanzá para ejecutar/continuar."
+        ),
     }
 
 
@@ -1375,9 +1385,10 @@ class OrchestrationService:
             else "unknown",
             # Una sola fuente: lo que el paso exige de verdad (no el atributo
             # `required_fields`, que solía venir vacío aunque el esquema pidiera).
-            "required_fields": declared_required_fields(sub_state_def)
-            if sub_state_def
-            else [],
+            # En un paso automático no hay nada que el agente deba enviar.
+            "required_fields": []
+            if auto_step
+            else (declared_required_fields(sub_state_def) if sub_state_def else []),
             "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
             "next_action": next_action_for(state, graph),
             "decision_map": decision_map_for(gates_now),
@@ -1446,7 +1457,10 @@ class OrchestrationService:
 
         # Required fields for current sub-state: una sola fuente derivada
         # (attribute + input_schema + output_schema), la misma que usa `advance`.
-        required_fields = declared_required_fields(sub_state_def) if sub_state_def else []
+        auto_step = bool(sub_state_def and sub_state_def.is_auto())
+        required_fields = (
+            [] if auto_step else (declared_required_fields(sub_state_def) if sub_state_def else [])
+        )
 
         # Execution type guidance
         exec_type = sub_state_def.execution.value if sub_state_def else "unknown"
@@ -1456,7 +1470,9 @@ class OrchestrationService:
         # registre el paso. Se calcula sobre los campos del sub-estado actual,
         # no sobre todo el nodo: un requerido viejo ya no bloquea.
         sub_data = state.get_sub_state_data(state.current_sub_state)
-        step_satisfied = sub_data.all_required_complete(required_fields)
+        step_satisfied = (
+            True if auto_step else sub_data.all_required_complete(required_fields)
+        )
 
         from fast_mcp.shared_kernel.build_info import build_info
 
@@ -1465,7 +1481,6 @@ class OrchestrationService:
         # plantillas por encima de 800 chars que el agente nunca usa).
         # La regla es del DOMINIO (`SubState.is_auto` cubre auto y bootstrap),
         # no una lista de strings que se desincroniza.
-        auto_step = bool(sub_state_def and sub_state_def.is_auto())
         prompt = (
             None if auto_step else self._resolve_current_prompt(state, graph, ctx)
         )
