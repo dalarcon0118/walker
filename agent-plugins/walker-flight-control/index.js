@@ -862,7 +862,7 @@ async function runSetup(ctx) {
             event.type === "session.execution.succeeded" &&
             entry.opened &&
             entry.wrote &&
-            !entry.verified &&
+            (!entry.verified || entry.verifyFailed) &&
             !entry.closeNudged &&
             entry.sessionID
           ) {
@@ -881,7 +881,11 @@ async function runSetup(ctx) {
               event_type: "close_blocked",
               source: "agent_hook",
               session_id: entry.sessionID,
-              data: { reason: "sin verificación", wrote: true },
+              data: {
+              reason: entry.verifyFailed ? "verificación falló" : "sin verificación",
+              wrote: true,
+              verify_failed: Boolean(entry.verifyFailed),
+            },
             })
           }
 
@@ -1020,9 +1024,17 @@ async function runSetup(ctx) {
             // una prueba: si el comando lanzó, no se marca.
             if (/\b(pytest|run_tests|verify_predicates)\b/.test(cmd)) {
               const e = sessionOf(key)
-              e.verified = true
-              if (e.verifyLevel !== "tools") e.verifyLevel = "shell"
-              e.verifiedBy = e.verifiedBy || "shell"
+              const plan = planFor(key) || {}
+              const hasAcceptance =
+                Array.isArray(plan.acceptance) && plan.acceptance.length > 0
+              // Con acceptance declarada, el shell no certifica: solo una tool
+              // de verificación (run_tests/verify_predicates) puede hacerlo.
+              // Antes `echo pytest` cerraba una tarea con criterios sin probar.
+              if (!hasAcceptance) {
+                e.verified = true
+                if (e.verifyLevel !== "tools") e.verifyLevel = "shell"
+                e.verifiedBy = e.verifiedBy || "shell"
+              }
             }
 
             // El plan cambió (o la tarea): la caché de 10s ya no vale.
@@ -1447,10 +1459,12 @@ async function runSetup(ctx) {
                 (String(name).includes("run_tests") ? payload.passed !== false : true)
               if (green) {
                 entry.verified = true
+                entry.verifyFailed = false
                 entry.verifyLevel = "tools"
                 entry.verifiedBy = name
               } else {
                 entry.verifyFailed = true
+                entry.verified = false
                 entry.verifiedBy = name
               }
               return result

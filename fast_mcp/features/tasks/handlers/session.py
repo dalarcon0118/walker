@@ -127,7 +127,21 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.failure("session_bind: sprint service no disponible para este proyecto")
 
     springs = service.list_springs() or []
-    mine = next((s for s in springs if _owns(s, session_id)), None)
+    # El registro de la sesión es la fuente O(1). `list_springs` tiene tope
+    # (medido: 50) y un sprint recién creado queda fuera, así que `mine`
+    # salía None y `session_bind` decía "no tiene sprint" (rompía el harness
+    # y cualquier proyecto con muchos sprints).
+    mine = None
+    if hasattr(service, "get_session"):
+        try:
+            record = service.get_session(session_id) or {}
+            own_spring = str(record.get("spring_id") or "")
+            if own_spring and hasattr(service, "get_spring"):
+                mine = service.get_spring(own_spring)
+        except Exception:  # noqa: BLE001 — fallback a la lista
+            mine = None
+    if mine is None:
+        mine = next((s for s in springs if _owns(s, session_id)), None)
     active = next((s for s in springs if str(s.get("status") or "") == "active"), None)
     if active is None and springs:
         active = springs[-1]

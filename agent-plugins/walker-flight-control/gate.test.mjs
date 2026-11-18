@@ -82,7 +82,11 @@ process.stdout.write(out)
   process.env.WALKER_CLI = proxy
 }
 
-if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind" && mode !== "noproject" && !TAPPED.has(mode)) {
+// Todos los modos que usan el CLI real o el proxy verifican contra el mismo
+// proyecto con el que invocan (`game_reset`). Sin esto, `normal`/`shellmut`/
+// `persist` dejaban `rt.projectId` vacío y el plugin chequeaba el cwd (walker):
+// `isBound` daba falso y bloqueaba escrituras legítimas.
+if (mode !== "missing" && !mode.startsWith("inject") && mode !== "bind" && mode !== "noproject") {
   process.env.WALKER_PROJECT_ID = "game_reset"
 }
 
@@ -142,6 +146,12 @@ tools.set("shell", {
     return { ok: true, output }
   },
 })
+// Verificación por TOOLS (no shell): simula verde/rojo para el gate de cierre
+// sin correr pytest real.
+tools.set("run_tests", {
+  name: "run_tests",
+  execute: async () => ({ ok: true, data: { passed: mode !== "closefail" } }),
+})
 
 const makeEditor = () => ({
   get: (n) => tools.get(n),
@@ -179,7 +189,12 @@ const eventIterator = {
           }),
   }),
 }
-const closeMode = mode === "closegate" || mode === "closeok" || mode === "gateoff"
+const closeMode =
+  mode === "closegate" ||
+  mode === "closeok" ||
+  mode === "closefail" ||
+  mode === "closeshell" ||
+  mode === "gateoff"
 const ctx = {
   location: { directory: dir },
   tool: { transform: async (cb) => { cb(makeEditor()); return { dispose: async () => {} } } },
@@ -198,7 +213,8 @@ const call = async (name, input) => {
   try {
     await tools.get(name).execute(input, { sessionID: SID })
     return "PERMITE"
-  } catch {
+  } catch (e) {
+    if (process.env.HARNESS_DEBUG) console.error("[DENY]", name, e.message)
     return "BLOQUEA"
   }
 }
@@ -278,7 +294,11 @@ if (closeMode) {
     }),
   })
   await call("edit", { path: "x.txt" })
-  if (mode === "closeok") {
+  if (mode === "closeok" || mode === "closefail") {
+    await call("run_tests", {})
+  }
+  if (mode === "closeshell") {
+    // Con acceptance declarada, el shell NO debe certificar: se espera nudge.
     await call("shell", { command: "echo pytest" })
   }
   // El evento de fin se empuja DESPUÉS de los pasos: si llega antes del edit,

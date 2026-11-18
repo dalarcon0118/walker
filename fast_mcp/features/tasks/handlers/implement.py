@@ -228,6 +228,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # Persistir la tarea en el delta: es la ÚNICA forma de que el contexto del
     # agente pueda anclarse en la tarea (delta → archivos → CPG → CKG). Antes
     # sólo devolvía un dict y el delta quedaba vacío para siempre.
+    spec = None
     try:
         spec = _persist_spec(ctx, task_id, objective, files, data, session_override, spring=chosen)
         if task_id:
@@ -244,7 +245,15 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         try:
             service.update_session_plan(
                 session_override,
-                {"task": task_id, "scope": files, "next": "implementar y verificar"},
+                {
+                    "task": task_id,
+                    "scope": files,
+                    # El gate de cierre mira `acceptance` para decidir si el
+                    # shell puede certificar. Sin esto el plan viajaba sin
+                    # criterios y `echo pytest` cerraba una tarea con DoD.
+                    "acceptance": list((spec or {}).get("acceptance_criteria") or []),
+                    "next": "implementar y verificar",
+                },
             )
         except Exception as exc:  # noqa: BLE001
             result["plan_error"] = f"{type(exc).__name__}: {exc}"
