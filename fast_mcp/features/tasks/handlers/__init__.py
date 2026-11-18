@@ -53,6 +53,9 @@ _HANDLER_MODULES = [
     "sync_code_index",
     "baseline",
     "knowledge",
+    # Acciones del grafo de diseño/ejecución. Cada módulo registra las suyas.
+    "design",
+    "review",
 ]
 
 

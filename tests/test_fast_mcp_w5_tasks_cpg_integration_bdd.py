@@ -254,6 +254,10 @@ class TestTaskRegistryCompleteness:
             "capture_baseline",
             "diff_baseline",
             "capture_knowledge",
+            # DESIGN / IMPLEMENT: acciones que el grafo declaraba sin handler
+            "gather_context",
+            "documenting_knowledge",
+            "review_code",
         }
         actual = set(registry.list_tasks().keys())
         missing = expected - actual
