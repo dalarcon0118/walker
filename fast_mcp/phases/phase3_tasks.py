@@ -56,6 +56,7 @@ _FASE3_TOOLS = (
     "session_close",
     "session_list",
     "session_plan",
+    "spec_start",
     "sprint_status",
     "run_tests",
     "verify_predicates",
@@ -226,6 +227,21 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         },
         "required": ["session_id"],
     },
+    "spec_start": {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session identifier"},
+            "spring_id": {"type": "string", "description": "Sprint de la spec (o se resuelve por sesión)"},
+            "spec_id": {"type": "string", "description": "Spec a iniciar (ej. SPEC-001)"},
+            "task_id": {"type": "string", "description": "Task id (default: spec_id)"},
+            "files": {
+                "type": "array",
+                "description": "Alcance (default: files de la spec)",
+                "items": {"type": "string"},
+            },
+        },
+        "required": ["spec_id"],
+    },
     "sprint_status": {
         "type": "object",
         "properties": {
@@ -311,6 +327,7 @@ _DESCRIPTIONS = {
     "session_close": "Close a chat session.",
     "session_list": "List chat sessions with lifecycle and hierarchy.",
     "session_plan": "Get/set the session flight plan (goal, acceptance, task, scope, next).",
+    "spec_start": "Start an existing spec: status in_progress + session/task link + plan.",
     "sprint_status": "Transition a sprint status (paused is reversible: active<->paused).",
     "trace_push": "Push an event to the execution trace index.",
     "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
@@ -349,7 +366,7 @@ def _build_runner(name: str):
     _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
-    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "sprint_status", "run_tests", "verify_predicates", "capture"}
+    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "sprint_status", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner
         return session_tool_runner(name)

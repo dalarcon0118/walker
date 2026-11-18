@@ -570,10 +570,22 @@ async function runSetup(ctx) {
 
     const keyFor = (sessionID) => String(sessionID || rt.sessionId || "global")
 
+    const MAX_SESSIONS = Number(process.env.WALKER_FLIGHT_CONTROL_MAX_SESSIONS || 200)
     const sessionOf = (sessionID) => {
       const key = keyFor(sessionID)
       if (!sessions.has(key)) {
+        // Evicción (SPEC-001): con muchas sesiones y recargas el Map crecía sin
+        // cota. Se liberan las CERRADAS más viejas; la actual nunca se toca.
+        if (sessions.size >= MAX_SESSIONS) {
+          const closed = [...sessions.entries()].filter(([k, v]) => v.closed && k !== key)
+          closed.sort((a, b) => (a[1].at || 0) - (b[1].at || 0))
+          for (const [k] of closed) {
+            if (sessions.size < Math.floor(MAX_SESSIONS * 0.75)) break
+            sessions.delete(k)
+          }
+        }
         sessions.set(key, {
+          at: Date.now(),
           injections: 0,
           followed: false,
           position: "",
@@ -597,6 +609,8 @@ async function runSetup(ctx) {
           baselineFiles: [],
           firstMutation: null,
         })
+      } else {
+        sessions.get(key).at = Date.now() // actividad = recencia para la evicción
       }
       return sessions.get(key)
     }

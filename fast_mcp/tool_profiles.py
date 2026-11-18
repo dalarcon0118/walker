@@ -55,6 +55,7 @@ AGENT: frozenset[str] = frozenset({
     # `session_close` NO: son ciclo de vida del plugin, no superficie del agente.
     "session_bind",
     "session_plan",
+    "spec_start",
     "session_list",
     "sprint_status",
     # verificación

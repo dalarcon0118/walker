@@ -412,6 +412,73 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     return TaskResult.success({"plan": plan})
 
 
+def spec_start(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    """Toma una spec existente (p. ej. del sprint del roadmap) y la inicia.
+
+    Resuelve el sprint por `spring_id` o por la sesión, marca la spec
+    `in_progress`, le une el `task_context` (task_id/session_id) y actualiza el
+    plan de la sesión con la tarea y el alcance de la spec.
+    """
+    session_id = str(data.get("session_id") or ctx.session_id or "").strip()
+    spec_id = str(data.get("spec_id") or "").strip()
+    spring_id = str(data.get("spring_id") or "").strip()
+    if not spec_id:
+        return TaskResult.failure("spec_start: spec_id requerido (ej. SPEC-001)")
+
+    service = _di.sprint_service(ctx.chain_dir)
+    if service is None:
+        return TaskResult.failure("spec_start: sprint service no disponible")
+
+    if not spring_id and session_id and hasattr(service, "get_session"):
+        record = service.get_session(session_id) or {}
+        spring_id = str(record.get("spring_id") or "")
+    if not spring_id:
+        return TaskResult.failure("spec_start: spring_id o sesión con sprint ligado")
+
+    try:
+        spec = service.get_spec(spring_id, spec_id)
+    except Exception as exc:  # noqa: BLE001
+        return TaskResult.failure(f"spec_start: {type(exc).__name__}: {exc}")
+    if spec is None:
+        return TaskResult.failure(f"spec_start: spec desconocida {spec_id!r} en {spring_id}")
+
+    # La spec ES la tarea: se ignora el `task_id` que inyecta el runner desde el
+    # workflow (medido: `snapshot-diff` pisaba el id de la spec).
+    task_id = spec_id
+    files = data.get("files") if isinstance(data.get("files"), list) else (spec.get("files") or [])
+    files = [str(f) for f in (files or [])]
+    updates = {
+        "status": "in_progress",
+        "task_context": {
+            **(spec.get("task_context") or {}),
+            "task_id": task_id,
+            "session_id": session_id or "",
+        },
+    }
+    if files:
+        updates["files"] = files
+    try:
+        updated = service.update_spec(spring_id, spec_id, updates)
+    except Exception as exc:  # noqa: BLE001
+        return TaskResult.failure(f"spec_start: {type(exc).__name__}: {exc}")
+
+    if session_id and hasattr(service, "update_session_plan"):
+        service.update_session_plan(
+            session_id,
+            {"task": task_id, "scope": files, "next": "implementar y verificar"},
+        )
+    return TaskResult.success(
+        {
+            "ok": True,
+            "spring_id": spring_id,
+            "spec_id": spec_id,
+            "task_id": task_id,
+            "files": files,
+            "spec": updated,
+        }
+    )
+
+
 def register(registry) -> None:
     registry.register(
         "session_open",
@@ -432,6 +499,11 @@ def register(registry) -> None:
         "session_plan",
         session_plan,
         metadata={"description": "Get/set the session flight plan", "tags": ["session", "focus"], "scope": "internal"},
+    )
+    registry.register(
+        "spec_start",
+        spec_start,
+        metadata={"description": "Start an existing spec (status + session link)", "tags": ["session", "spec"], "scope": "internal"},
     )
     registry.register(
         "session_bind",

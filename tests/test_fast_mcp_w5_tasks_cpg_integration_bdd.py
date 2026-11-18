@@ -233,6 +233,8 @@ class TestTaskRegistryCompleteness:
             "sprint_status",
             # ADR-WALKER-080: plan de vuelo de la sesión
             "session_plan",
+            # Detalle: iniciar una spec existente (roadmap)
+            "spec_start",
             "run_tests",
             "verify_predicates",
             "capture",

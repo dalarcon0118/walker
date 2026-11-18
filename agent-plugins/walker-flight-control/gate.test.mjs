@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 
 const dir = process.argv[2] || process.cwd()
 const mode = process.argv[3] || "normal"
-const TAPPED = new Set(["persist", "shellmut", "idem"])
+const TAPPED = new Set(["persist", "shellmut", "idem", "evict"])
 const SID =
   process.env.HARNESS_SESSION ||
   (mode === "normal"
@@ -55,6 +55,7 @@ if (mode === "baddeclare") {
     "esac",
   ])
 }
+if (mode === "evict") process.env.WALKER_FLIGHT_CONTROL_MAX_SESSIONS = "3"
 const tapDir = `/tmp/wfc-tap-${process.pid}`
 const tapFile = `${tapDir}/trace.jsonl`
 if (TAPPED.has(mode)) {
@@ -333,14 +334,43 @@ if (mode === "scope") {
 
 if (TAPPED.has(mode)) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-  const hook = async () => {
+  const hookSid = async (sid) => {
     const ev = {
-      sessionID: SID,
+      sessionID: sid,
       system: [],
       messages: [{ role: "user", content: [{ type: "text", text: "tarea" }] }],
     }
     await captured.context(ev)
     return (ev.system || []).map((b) => b.text || "").join("\n")
+  }
+  const hook = () => hookSid(SID)
+
+  if (mode === "evict") {
+    for (let i = 1; i <= 3; i++) {
+      await hookSid(`evict-${i}`)
+      pushEvent({ type: "session.execution.succeeded", sessionID: `evict-${i}` })
+      await wait(800)
+    }
+    await hookSid("evict-4")
+    pushEvent({ type: "session.execution.succeeded", sessionID: "evict-4" })
+    await wait(1500)
+    const tap = readFileSync(tapFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    const pushes = tap
+      .filter((e) => /\/trace_push$/.test(String(e.args[0] || "")))
+      .map((e) => JSON.parse(e.args[1]))
+    const inj = pushes.filter((p) => p.event_type === "workflow_state_injected" && p.session_id === "evict-4")
+    const ss = inj.length ? inj[inj.length - 1].data.sessionsState || [] : []
+    const keys = ss.map((x) => x.k)
+    // Contrato: nunca supera MAX_SESSIONS, conserva la actual y libera las
+    // cerradas más viejas (con 3 cerradas + 1 nueva, caen las dos primeras).
+    const ok =
+      ss.length <= 3 &&
+      keys.includes("evict-4") &&
+      !keys.includes("evict-1") &&
+      !keys.includes("evict-2")
+    console.log(`${ok ? "ok  " : "FAIL"}  evicción libera cerradas: ${JSON.stringify(keys)} (size=${ss.length})`)
+    if (typeof dispose === "function") dispose()
+    process.exit(ok ? 0 : 1)
   }
 
   await hook() // abre la sesión
