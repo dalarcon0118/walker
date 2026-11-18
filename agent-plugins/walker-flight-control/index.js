@@ -19,8 +19,17 @@
 import { execFileSync } from "node:child_process"
 import { appendFileSync } from "node:fs"
 
-const WALKER_ROOT = "/Users/davidmartinez/develop/Active-projects/walker"
-const CLI = `${WALKER_ROOT}/bin/walker3`
+const WALKER_ROOT = process.env.WALKER_ROOT || "/Users/davidmartinez/develop/Active-projects/walker"
+// Configurable para poder probar el camino "walker no está" sin renombrar el
+// binario real. Default: el CLI del repo.
+const CLI = process.env.WALKER_CLI || `${WALKER_ROOT}/bin/walker3`
+// Timeout corto para el camino del gate: walker es una llamada sincrónica y un
+// cuelgue acá se siente como "OpenCode no responde". Lo que no contesta en 3s
+// se trata como NO DISPONIBLE (fail-open), no como "sin declarar".
+const GATE_TIMEOUT_MS = 2_000
+// El contexto (agent_context/preflight) puede tardar en repos grandes, pero no
+// puede colgar el turno: es inyección de contexto, no un requisito.
+const HOOK_TIMEOUT_MS = 5_000
 const ENABLED = process.env.WALKER_FLIGHT_CONTROL !== "0"
 const REFRESH_MS = 60_000
 const MAX_AUTO_STEPS = 3
@@ -49,7 +58,7 @@ const MUTATING_TOOLS = ["edit", "write", "shell"]
 // una sesión en walker con "game_reset/implement_task". Todo el estado vive en
 // `rt`, creado en `runSetup`.
 
-function runTool(tool, payload = {}, project = "") {
+function runTool(tool, payload = {}, project = "", timeoutMs = 10_000) {
   try {
     const stdout = execFileSync(
       CLI,
@@ -57,7 +66,8 @@ function runTool(tool, payload = {}, project = "") {
       {
         cwd: WALKER_ROOT,
         encoding: "utf8",
-        timeout: 30_000,
+        timeout: timeoutMs,
+        killSignal: "SIGKILL",
         maxBuffer: 8 * 1024 * 1024,
         stdio: ["ignore", "pipe", "ignore"],
       }
@@ -66,6 +76,7 @@ function runTool(tool, payload = {}, project = "") {
   } catch (err) {
     // Fail-open (el agente sigue) pero visible: sin traza, un CLI roto parece
     // "walker no tenía nada que decir" en vez de "walker no respondió".
+    // Nunca se propaga: un plugin de gobierno no puede tumbar la sesión.
     degrade(null, `cli falló: ${tool}`, err)
     return null
   }
@@ -271,20 +282,28 @@ async function runSetup(ctx) {
       degraded: new Set(),
       pendingDegrades: [],
     }
-    const run = (tool, payload = {}, project = rt.projectId) => runTool(tool, payload, project)
+    const run = (tool, payload = {}, project = rt.projectId, timeoutMs) =>
+      runTool(tool, payload, project, timeoutMs)
 
     if (rt.projectDir) {
-      const found = run("project_for_path", { path: rt.projectDir }, "_")
+      // Timeout corto: esto corre en el arranque del plugin y bloquea el event
+      // loop. Un walker colgado no puede retrasar el inicio de OpenCode.
+      const found = run("project_for_path", { path: rt.projectDir }, "_", GATE_TIMEOUT_MS)
       if (found?.ok && found.project_id) rt.projectId = found.project_id
     }
 
     // Señal de vida: sin esto no se distingue "el hook no cargó" de "no había
     // estado de workflow que inyectar".
-    run("trace_push", {
-      event_type: "flight_control_active",
-      source: "agent_hook",
-      data: { project_id: rt.projectId, directory: rt.projectDir },
-    })
+    run(
+      "trace_push",
+      {
+        event_type: "flight_control_active",
+        source: "agent_hook",
+        data: { project_id: rt.projectId, directory: rt.projectDir },
+      },
+      rt.projectId,
+      GATE_TIMEOUT_MS
+    )
 
     if (!rt.projectId) {
       // Sin proyecto no hay dónde trazar; se calla a propósito (no es un fallo).
@@ -299,6 +318,10 @@ async function runSetup(ctx) {
     // como señal porque el orquestador escribe `auto-<sid>` por su cuenta
     // (medido: una declaración real quedó pisada por un auto-… en la misma sesión).
     const declared = new Map()
+    // Cortacircuito: si la declaración por CLI falla dos veces (proyecto mal
+    // registrado, JSON inválido, walker a medias), se abre el gate. Un protocolo
+    // que no se puede satisfacer no puede bloquear la sesión para siempre.
+    const declareFailures = new Map()
     const controller = new AbortController()
 
     const sessionOf = (sessionID) => {
@@ -360,21 +383,44 @@ async function runSetup(ctx) {
     // entra por la TOOL del plugin; el camino normal es el CLI (otro proceso).
     // Por eso además se consulta el estado: `task_id` deja de ser `auto-…`
     // cuando `implement_task` persiste la spec (medido antes/después).
+    let declCheckedAt = 0
+    let declValue = false
     const isDeclared = (sessionID) => {
-      const key = sessionID || "global"
-      if (declared.has(key)) return true
-      if (rt.activeTask) {
-        declared.set(key, { taskId: rt.activeTask.taskId, at: Date.now() })
+      try {
+        const key = sessionID || "global"
+        if (declared.has(key)) return true
+        if (rt.activeTask) {
+          declared.set(key, { taskId: rt.activeTask.taskId, at: Date.now() })
+          return true
+        }
+        // Cache corto: esta verificación es sincrónica y corre en cada escritura.
+        if (Date.now() - declCheckedAt < 3_000) return declValue
+        const s = run("workflow_state", {}, rt.projectId, GATE_TIMEOUT_MS)
+        // FAIL-OPEN: si walker no responde (caído, timeout, JSON inválido) no se
+        // puede verificar la declaración. Bloquear la escritura en ese caso es
+        // exactamente "el agente se rompió": el protocolo es un servicio, no un
+        // requisito de funcionamiento de OpenCode.
+        if (!s || s.ok === false) {
+          degrade(null, "workflow_state no disponible: gate abierto", "sin respuesta")
+          declCheckedAt = Date.now()
+          declValue = true
+          return true
+        }
+        const tid = String(s.task_id || "")
+        const ok = Boolean(tid) && !tid.startsWith("auto-")
+        declCheckedAt = Date.now()
+        declValue = ok
+        if (ok) {
+          declared.set(key, { taskId: tid, at: Date.now() })
+          rt.activeTask = { taskId: tid, files: [], fromState: true }
+          state.fetchedAt = 0
+        }
+        return ok
+      } catch (err) {
+        // Cualquier excepción acá también es fail-open.
+        degrade(null, "isDeclared falló: gate abierto", err)
         return true
       }
-      const tid = String(run("workflow_state", {})?.task_id || "")
-      if (tid && !tid.startsWith("auto-")) {
-        declared.set(key, { taskId: tid, at: Date.now() })
-        rt.activeTask = { taskId: tid, files: [], fromState: true }
-        state.fetchedAt = 0
-        return true
-      }
-      return false
     }
 
     try {
@@ -395,10 +441,10 @@ async function runSetup(ctx) {
         // hook de lectura nunca dispara — medido).
         if (!rt.baselineDone && rt.projectId && state.data?.taskId) {
           rt.baselineDone = true
-          const taskCtx = run("agent_context", { task_id: state.data.taskId })
+          const taskCtx = run("agent_context", { task_id: state.data.taskId }, rt.projectId, HOOK_TIMEOUT_MS)
           const files = (taskCtx?.anchor?.files || []).filter(Boolean)
           if (files.length) {
-            const pf = run("preflight", { files })
+            const pf = run("preflight", { files }, rt.projectId, HOOK_TIMEOUT_MS)
             const text = preflightBlock(pf)
             if (text) {
               rt.pendingBaseline = text
@@ -507,7 +553,17 @@ async function runSetup(ctx) {
                   cmd: cmd.slice(0, 160),
                 })
               } else {
-                degrade(rt, "declaración por CLI no verificada", tid || "(sin task_id)")
+                // No se pudo verificar: puede ser un typo o un walker a medias.
+                // Se cuenta por sesión y, al segundo intento, se abre el gate:
+                // un protocolo insatisfacible no puede dejar la sesión muerta.
+                const key = String(callCtx?.sessionID || "global")
+                const n = (declareFailures.get(key) || 0) + 1
+                declareFailures.set(key, n)
+                degrade(null, "declaración por CLI no verificada", tid || "(sin task_id)")
+                if (n >= 2) {
+                  declared.set(key, { taskId: "(fail-open tras declaraciones fallidas)", at: Date.now() })
+                  degrade(null, "gate abierto tras 2 declaraciones fallidas", key)
+                }
               }
             }
             return result
@@ -535,8 +591,13 @@ async function runSetup(ctx) {
               // sesión quedaría muerta: se permite SOLO la invocación del CLI.
               // El resto de shell sigue cubierto porque `echo >> archivo` es la
               // escritura que el gate de edit/write no ve (medido: 1/1 bypass).
+              // Allowlist ESTRECHA: el comando tiene que EMPEZAR por el CLI de
+              // walker (con `cd` opcional). Un `rm -rf x # walker3` no pasa.
               const isWalkerCli =
-                name === "shell" && /walker3|\/walker\/bin\//.test(String(input?.command || ""))
+                name === "shell" &&
+                /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(
+                  String(input?.command || "")
+                )
               if (DENY_INTAKE && rt.projectId && !isWalkerCli && !isDeclared(callCtx?.sessionID)) {
                 const path = relPath(input?.path || input?.filePath || "", rt)
                 const slug = String(rt.sessionGoal || path || "tarea")
@@ -677,16 +738,16 @@ async function runSetup(ctx) {
                 let source = "file"
                 const tid = state.data?.taskId || ""
                 if (tid) {
-                  const taskCtx = run("agent_context", { task_id: tid })
+                  const taskCtx = run("agent_context", { task_id: tid }, rt.projectId, HOOK_TIMEOUT_MS)
                   const files = (taskCtx?.anchor?.files || []).filter(Boolean)
                   if (files.length) {
-                    const pf = run("preflight", { files })
+                    const pf = run("preflight", { files }, rt.projectId, HOOK_TIMEOUT_MS)
                     block = preflightBlock(pf)
                     if (block) source = "task"
                   }
                 }
                 if (!block) {
-                  const ctxData = run("agent_context", { file })
+                  const ctxData = run("agent_context", { file }, rt.projectId, HOOK_TIMEOUT_MS)
                   if (ctxData) block = baselineBlock(ctxData, file, rt)
                 }
                 if (block) {
