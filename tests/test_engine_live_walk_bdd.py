@@ -116,6 +116,13 @@ def test_live_walk_start_to_analyze_with_gollwitzer_phases(project):
     )
 
     # ── 3. Re-plan → start_task → DESIGN → design_approved → ANALYZE ──
+    # El re-plan real (PLANNING → PLAN_APPROVAL → TASK_SPEC → TASK_REVIEW →
+    # ACTIVE) se cubre en test_workflow_graph_ordering_bdd. Acá el foco son
+    # las fases de diseño/análisis, así que se reposiciona a ACTIVE: desde
+    # PLANNING `start_task` ya no está permitido (source_sub_state).
+    state = orch._load_state().with_node("SPRINT", "ACTIVE", 4)
+    assert orch._save_state(state)
+
     result = orch.transition(xctx, "start_task")
     assert result["ok"], result
     assert result["to_node"] == "DESIGN"
@@ -196,6 +203,9 @@ def test_live_walk_goal_invalidation_then_replan_keeps_state_coherent(project):
 
     status = orch.status(xctx)
     assert (status["node"], status["sub_state"]) == ("SPRINT", "PLANNING")
-    # Desde PLANNING el ciclo deliberativo continúa (plan_approval gates)
+    # Desde PLANNING el ciclo deliberativo continúa por `advance` hasta
+    # PLAN_APPROVAL, no por un gate directo. Lo que NO puede es saltar a
+    # DESIGN: `start_task` exige source_sub_state=ACTIVE.
     gate_names = [g["name"] for g in status["available_gates"]]
-    assert "plan_approval_approved" in gate_names or "start_task" in gate_names
+    assert "start_task" not in gate_names
+    assert "back_to_active" in gate_names

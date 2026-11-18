@@ -74,6 +74,7 @@
   "from": "SPRINT",
   "to": "SPRINT",
   "gate": "refine_task",
+  "source_sub_state": "TASK_REVIEW",
   "sub_state_gate": "TASK_SPEC",
   "description": "Re-specify current task (from TASK_REVIEW)."
  },
@@ -81,6 +82,7 @@
   "from": "SPRINT",
   "to": "SPRINT",
   "gate": "next_task",
+  "source_sub_state": "TASK_REVIEW",
   "sub_state_gate": "TASK_SPEC",
   "description": "Next task specification (from TASK_REVIEW)."
  },
@@ -88,6 +90,7 @@
   "from": "SPRINT",
   "to": "SPRINT",
   "gate": "all_done",
+  "source_sub_state": "TASK_REVIEW",
   "sub_state_gate": "ACTIVE",
   "description": "All tasks specified, go to sprint dashboard."
  },
@@ -95,6 +98,7 @@
   "from": "SPRINT",
   "to": "DESIGN",
   "gate": "start_task",
+  "source_sub_state": "ACTIVE",
   "sub_state_gate": "DESIGN_GATHER",
   "description": "Start task: design phase first (from ACTIVE)."
  },
@@ -102,6 +106,7 @@
   "from": "SPRINT",
   "to": "SPRINT",
   "gate": "edit_plan",
+  "source_sub_state": "ACTIVE",
   "sub_state_gate": "PLANNING",
   "description": "Return to sprint planning to adjust backlog (from ACTIVE)."
  },
@@ -117,6 +122,7 @@
   "from": "SPRINT",
   "to": "SPRINT",
   "gate": "start_review",
+  "source_sub_state": "ACTIVE",
   "sub_state_gate": "REVIEW",
   "description": "Start sprint review (from ACTIVE)."
  },
@@ -131,6 +137,7 @@
   "from": "SPRINT",
   "to": "SPRINT",
   "gate": "close_sprint",
+  "source_sub_state": "ACTIVE",
   "sub_state_gate": "CLOSE",
   "description": "Close sprint directly (from ACTIVE)."
  },
@@ -309,6 +316,7 @@
   "from": "SPRINT",
   "to": "PROJECT_INIT",
   "gate": "init_project",
+  "source_sub_state": "ACTIVE",
   "sub_state_gate": "DETECT",
   "description": "Initialize a new project from scratch (from ACTIVE)."
  },

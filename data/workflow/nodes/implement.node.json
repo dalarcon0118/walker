@@ -766,7 +766,7 @@
         {
           "type": "transform_spec",
           "params": {
-            "status": "completed",
+            "status": "in_review",
             "fields": {
               "commit_hash": "NODE.REPORT_GATE.output.commit_hash",
               "commit_url": "NODE.REPORT_GATE.output.commit_url",
@@ -774,7 +774,7 @@
             }
           },
           "optional": false,
-          "description": "Transform Spec to completed with commit information"
+          "description": "Transform Spec to in_review with commit information (completed happens at PO_ACCEPT)"
         }
       ],
       "timeout_ms": 600000,

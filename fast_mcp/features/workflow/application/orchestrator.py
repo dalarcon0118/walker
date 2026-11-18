@@ -799,6 +799,24 @@ class OrchestrationService:
                 "action": "invalid_source",
             }
 
+        # 3b. Validate source sub-state. Un gate de flujo principal solo se
+        # dispara desde su sub-estado declarado; sin esto, `all_done` desde
+        # PLANNING y `start_task` desde TASK_REVIEW pasaban (medido 2026-11-18).
+        if (
+            getattr(gate_obj, "source_sub_state", "")
+            and gate_obj.source_sub_state != state.current_sub_state
+        ):
+            return {
+                "ok": False,
+                "error": (
+                    f"Gate '{gate}' can only be used from "
+                    f"'{state.current_node}.{gate_obj.source_sub_state}', "
+                    f"current sub-state is "
+                    f"'{state.current_node}.{state.current_sub_state}'"
+                ),
+                "action": "invalid_source_sub_state",
+            }
+
         # 4. Check preconditions (unless skipped)
         if not skip_preconditions:
             pre_errors = ValidationService.check_transition_preconditions(

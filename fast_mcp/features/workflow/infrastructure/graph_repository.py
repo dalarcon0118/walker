@@ -133,7 +133,14 @@ class GraphRepository:
                 source_node=source,
                 target_node=e_raw.get("to", ""),
                 target_sub_state=e_raw.get("sub_state_gate", e_raw.get("to_sub")),
-                source_sub_state=e_raw.get("from_sub", e_raw.get("sub_state_source")),
+                # El JSON del grafo usa `source_sub_state`; el loader solo leía
+                # `from_sub`/`sub_state_source`, que nunca aparecen. Todos los
+                # edges quedaban globales (medido 2026-11-18: `all_done` desde
+                # PLANNING pasaba). Se aceptan las tres formas.
+                source_sub_state=e_raw.get(
+                    "source_sub_state",
+                    e_raw.get("from_sub", e_raw.get("sub_state_source")),
+                ),
                 description=e_raw.get("description", ""),
                 contract=e_raw.get("contract"),
                 transform=dict(transform_raw) if transform_raw else None,

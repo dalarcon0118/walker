@@ -383,6 +383,20 @@
         {
           "type": "capture_decision",
           "params": {}
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "completed",
+            "fields": {
+              "review_verdict": "NODE.QA.output.decision",
+              "evidence": "NODE.PO_ACCEPT.output.evidence",
+              "completed_at": "NODE.REPORT_GATE.output.completed_at",
+              "commit_hash": "NODE.REPORT_GATE.output.commit_hash"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to completed after PO acceptance (evidence + QA verdict)"
         }
       ],
       "timeout_ms": 600000,
