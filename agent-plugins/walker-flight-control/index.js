@@ -64,7 +64,7 @@ const MUTATING_TOOLS = ["edit", "write", "shell"]
 // una sesión en walker con "game_reset/implement_task". Todo el estado vive en
 // `rt`, creado en `runSetup`.
 
-function runTool(tool, payload = {}, project = "", timeoutMs = 10_000) {
+function runTool(tool, payload = {}, project = "", timeoutMs = 4_000) {
   try {
     const stdout = execFileSync(
       CLI,
@@ -250,7 +250,9 @@ export default {
 
   async setup(ctx) {
     try {
-      await runSetup(ctx)
+      // El cleanup aborta el subscribe; si no se devuelve, cada reload deja un
+      // subscriber vivo y duplica trazas (auditoría fail-open, hallazgo #2).
+      return await runSetup(ctx)
     } catch (err) {
       // Última red: cualquier error inesperado del plugin se registra y se corta.
       // `rt` vive dentro de runSetup y no está disponible aquí; degrade lo acepta
@@ -598,7 +600,7 @@ async function runSetup(ctx) {
     }
 
     const readState = () => {
-      const data = run("workflow_state", {})
+      const data = run("workflow_state", {}, rt.projectId, GATE_TIMEOUT_MS)
       if (!data || data.ok === false) return null
       return {
         position: data.current_position || "",
@@ -624,7 +626,7 @@ async function runSetup(ctx) {
       let cur = current
       for (let i = 0; i < MAX_AUTO_STEPS; i++) {
         if (!cur || (cur.execType !== "auto" && cur.execType !== "bootstrap")) break
-        const res = run("advance", {})
+        const res = run("advance", {}, rt.projectId, GATE_TIMEOUT_MS)
         if (!res || res.ok === false) break
         cur = readState() || cur
       }
@@ -1061,7 +1063,7 @@ async function runSetup(ctx) {
               // walker (con `cd` opcional). Un `rm -rf x # walker3` no pasa.
               const isWalkerCli =
                 name === "shell" &&
-                /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(
+                /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s+\S+(?:\s+'[^']*')?\s*$/.test(
                   String(input?.command || "")
                 )
               // En algunos caminos (p. ej. server standalone) el tool no trae
