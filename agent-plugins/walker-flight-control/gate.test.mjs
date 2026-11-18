@@ -3,12 +3,18 @@
 //
 // El gate tiene DOS fases: (1) sesión ligada a un sprint (session_bind), y
 // (2) tarea declarada (implement_task). Cada modo falla una pieza distinta.
-import { chmodSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 
 const dir = process.argv[2] || process.cwd()
 const mode = process.argv[3] || "normal"
+const TAPPED = new Set(["persist", "shellmut", "idem"])
 const SID =
-  process.env.HARNESS_SESSION || (mode === "normal" ? `harness-normal-${Date.now()}` : "harness-1")
+  process.env.HARNESS_SESSION ||
+  (mode === "normal"
+    ? `harness-normal-${Date.now()}`
+    : TAPPED.has(mode)
+      ? `harness-${mode}-${Date.now()}`
+      : "harness-1")
 const WALKER = "/Users/davidmartinez/develop/Active-projects/walker"
 const REAL_CLI = `${WALKER}/bin/walker3`
 
@@ -49,7 +55,33 @@ if (mode === "baddeclare") {
     "esac",
   ])
 }
-if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind" && mode !== "noproject") {
+const tapDir = `/tmp/wfc-tap-${process.pid}`
+const tapFile = `${tapDir}/trace.jsonl`
+if (TAPPED.has(mode)) {
+  mkdirSync(tapDir, { recursive: true })
+  const proxy = `${tapDir}/walker3-tap`
+  writeFileSync(
+    proxy,
+    `#!/usr/bin/env node
+const { execFileSync } = require("node:child_process")
+const { appendFileSync } = require("node:fs")
+const args = process.argv.slice(2)
+let out = ""
+try {
+  out = execFileSync(${JSON.stringify(REAL_CLI)}, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+} catch (e) {
+  out = String(e.stdout || "")
+  process.exitCode = e.status || 1
+}
+appendFileSync(${JSON.stringify(tapFile)}, JSON.stringify({ args, out: out.slice(0, 3000) }) + String.fromCharCode(10))
+process.stdout.write(out)
+`
+  )
+  chmodSync(proxy, 0o755)
+  process.env.WALKER_CLI = proxy
+}
+
+if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind" && mode !== "noproject" && !TAPPED.has(mode)) {
   process.env.WALKER_PROJECT_ID = "game_reset"
 }
 
@@ -127,6 +159,25 @@ const makeEditor = () => ({
 
 const captured = {}
 const nudges = []
+const eventQueue = []
+let eventWaiter = null
+const pushEvent = (e) => {
+  if (eventWaiter) {
+    const w = eventWaiter
+    eventWaiter = null
+    w({ value: e, done: false })
+  } else eventQueue.push(e)
+}
+const eventIterator = {
+  [Symbol.asyncIterator]: () => ({
+    next: () =>
+      eventQueue.length
+        ? Promise.resolve({ value: eventQueue.shift(), done: false })
+        : new Promise((resolve) => {
+            eventWaiter = resolve
+          }),
+  }),
+}
 const closeMode = mode === "closegate" || mode === "closeok" || mode === "gateoff"
 const ctx = {
   location: { directory: dir },
@@ -135,22 +186,7 @@ const ctx = {
     hook: async (name, cb) => { captured[name] = cb; return { dispose: async () => {} } },
     synthetic: async ({ sessionID, text }) => { nudges.push({ sessionID, text }); return {} },
   },
-  event: {
-    subscribe: () => ({
-      [Symbol.asyncIterator]: () => {
-        let served = false
-        return {
-          next: async () => {
-            if (served || !closeMode) return new Promise(() => {})
-            served = true
-            // Se emite DESPUÉS de que el test prepare el estado de la sesión.
-            await new Promise((r) => setTimeout(r, 2000))
-            return { value: { type: "session.execution.succeeded", sessionID: SID }, done: false }
-          },
-        }
-      },
-    }),
-  },
+  event: { subscribe: () => eventIterator },
 }
 
 const t0 = Date.now()
@@ -244,8 +280,10 @@ if (closeMode) {
   if (mode === "closeok") {
     await call("shell", { command: "echo pytest" })
   }
-  // Esperar el evento de fin de ejecución (2s) + margen.
-  await new Promise((r) => setTimeout(r, 3200))
+  // El evento de fin se empuja DESPUÉS de los pasos: si llega antes del edit,
+  // el gate de cierre no ve `wrote` y no avisa.
+  pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+  await new Promise((r) => setTimeout(r, 1500))
   const nudged = nudges.length
   const okText = nudged > 0 && /No cierres/.test(nudges[0].text)
   const expectedNudge = mode !== "closeok"
@@ -289,6 +327,92 @@ if (mode === "scope") {
     console.log(`${ok ? "ok  " : "FAIL"}  ${k.padEnd(20)} -> ${v} (esperado ${expected[k]})`)
   }
   console.log(`mode=scope fail=${failed}`)
+  if (typeof dispose === "function") dispose()
+  process.exit(failed ? 1 : 0)
+}
+
+if (TAPPED.has(mode)) {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+  const hook = async () => {
+    const ev = {
+      sessionID: SID,
+      system: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "tarea" }] }],
+    }
+    await captured.context(ev)
+    return (ev.system || []).map((b) => b.text || "").join("\n")
+  }
+
+  await hook() // abre la sesión
+  await call("shell", { command: cli("session_bind", { mode: "new", objective: `${mode} test.` }) })
+
+  let planInjections = []
+  if (mode === "idem") {
+    planInjections = [await hook(), await hook()]
+  } else {
+    await call("shell", {
+      command: cli("implement_task", {
+        task_id: `${mode}-task`,
+        objective: "Tarea persistente. Sin romper los tests.",
+        files: mode === "shellmut" ? ["out.txt"] : ["a.txt", "b.txt"],
+      }),
+    })
+    await hook()
+    if (mode === "shellmut") {
+      await call("shell", { command: "printf x >> /tmp/wfc-h-out" })
+      pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+      await wait(1500)
+    } else {
+      await call("edit", { path: "a.txt" })
+      pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+      await wait(1500)
+      await hook()
+      await call("edit", { path: "b.txt" })
+      pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+      await wait(1500)
+    }
+  }
+  if (mode === "idem") {
+    pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+    await wait(1500)
+    pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+    await wait(1500)
+  }
+
+  const tap = readFileSync(tapFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
+  const pushes = tap
+    .filter((e) => /\/trace_push$/.test(String(e.args[0] || "")))
+    .map((e) => JSON.parse(e.args[1]))
+  const metrics = pushes.filter((p) => p.event_type === "session_metrics")
+  const opens = tap.filter((e) => /\/session_open$/.test(String(e.args[0] || ""))).length
+  const closes = tap.filter((e) => /\/session_close$/.test(String(e.args[0] || ""))).length
+  const last = metrics.length ? metrics[metrics.length - 1].data : null
+
+  const checks = []
+  checks.push(["session_open una vez", opens === 1])
+  checks.push(["session_close una vez", closes === 1])
+  if (mode === "persist") {
+    checks.push(["metrics emitidas", metrics.length >= 2])
+    checks.push(["writes acumuladas", last && last.writes === 2])
+    checks.push(["primera mutación = a.txt", last && String(last.first_mutation?.file || "").endsWith("a.txt")])
+    checks.push(["touched a.txt+b.txt", last && ["a.txt", "b.txt"].every((f) => (last.touched || []).some((t) => String(t).endsWith(f)))])
+  } else if (mode === "shellmut") {
+    checks.push(["writes=1 por shell", last && last.writes === 1])
+    checks.push(["firstMutation via shell", last && last.first_mutation?.via === "shell"])
+    checks.push(["file del redirect", last && String(last.first_mutation?.file || "").endsWith("wfc-h-out")])
+  } else {
+    checks.push(["plan inyectado 1 vez", planInjections.filter((t) => /\[WALKER\] Plan:/.test(t)).length === 1])
+    checks.push(["sin mutaciones", last && last.writes === 0])
+  }
+
+  let failed = 0
+  for (const [name, ok] of checks) {
+    if (!ok) failed++
+    console.log(`${ok ? "ok  " : "FAIL"}  ${name}`)
+  }
+  if (last) console.log("last metrics:", JSON.stringify({ writes: last.writes, firstMutation: last.first_mutation, touched: last.touched }).slice(0, 220))
+  console.log(`mode=${mode} fail=${failed}`)
+  try { if (mode === "shellmut") (await import("node:fs")).rmSync("/tmp/wfc-h-out", { force: true }) } catch {}
   if (typeof dispose === "function") dispose()
   process.exit(failed ? 1 : 0)
 }
