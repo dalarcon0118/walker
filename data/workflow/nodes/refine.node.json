@@ -424,7 +424,9 @@
       "key": "CONFIRM_GATE",
       "label": "Confirm refinement route",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "required": []
+      },
       "output_schema": {
         "type": "object",
         "properties": {
@@ -442,9 +444,7 @@
             "description": "User feedback. If modify, specify what to change."
           }
         },
-        "required": [
-          "decision"
-        ],
+        "required": [],
         "description": "Refinement route confirmed. approve->ROUTE, modify->DIAGNOSE, cancel->SPRINT.ACTIVE."
       },
       "on_success": "ROUTE",
@@ -499,7 +499,8 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
-      }
+      },
+      "decision_field": ""
     },
     {
       "key": "ROUTE",

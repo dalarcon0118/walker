@@ -366,7 +366,7 @@
             "Base your design analysis on CKG patterns + CPG code structure",
             "Consider domain, application, and infrastructure layers when assessing impact"
           ],
-          "context_priority": "project \u2192 task \u2192 ckg \u2192 cpg \u2192 state"
+          "context_priority": "project → task → ckg → cpg → state"
         },
         "budget": {
           "max_tokens": 80000,
@@ -439,7 +439,7 @@
           }
         ],
         "focus": {
-          "role": "reviewing architectural design for task {task_id} \u2014 build an ADR-lite decision report",
+          "role": "reviewing architectural design for task {task_id} — build an ADR-lite decision report",
           "constraints": [
             "Construir INFORME DE DECISION (ADR-lite): contexto, decision propuesta, alternativas, consecuencias, recomendacion",
             "Citar el analisis 6->3 del STATE layer (q1-a1, q2-a2, q3-a3) como evidencia",
@@ -448,7 +448,7 @@
             "Evaluar impacto en capas y dependencias del TASK layer",
             "Ask user to approve, reject, or refine"
           ],
-          "context_priority": "project \u2192 task \u2192 ckg \u2192 state"
+          "context_priority": "project → task → ckg → state"
         },
         "budget": {
           "max_tokens": 80000,
@@ -460,6 +460,11 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "approve": "design_approved",
+        "reject": "design_needs_refine",
+        "refine": "design_needs_refine"
       }
     },
     {

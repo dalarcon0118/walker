@@ -18,7 +18,7 @@
           "goal": {
             "type": "string",
             "minLength": 10,
-            "description": "Sprint goal \u2014 why this sprint matters",
+            "description": "Sprint goal — why this sprint matters",
             "examples": [
               "Implement user authentication module"
             ]
@@ -27,7 +27,7 @@
             "type": "array",
             "minItems": 1,
             "maxItems": 10,
-            "description": "Descriptive task titles (2-3 lines) \u2014 full specification happens per task",
+            "description": "Descriptive task titles (2-3 lines) — full specification happens per task",
             "items": {
               "type": "object",
               "properties": {
@@ -62,7 +62,7 @@
                 "type",
                 "domain"
               ],
-              "description": "Task titles only (2-3 line descriptions) \u2014 full specification happens per task in TASK_SPEC"
+              "description": "Task titles only (2-3 line descriptions) — full specification happens per task in TASK_SPEC"
             }
           }
         },
@@ -148,12 +148,12 @@
           }
         ],
         "focus": {
-          "role": "sprint planning \u2014 define goal and task TITLES only",
+          "role": "sprint planning — define goal and task TITLES only",
           "constraints": [
             "Define the sprint goal and break it into 1-10 task TITLES",
-            "Do NOT specify full task details \u2014 that happens per-task later"
+            "Do NOT specify full task details — that happens per-task later"
           ],
-          "context_priority": "project \u2192 delta \u2192 ckg \u2192 state \u2192 trace \u2192 cpg"
+          "context_priority": "project → delta → ckg → state → trace → cpg"
         },
         "budget": {
           "max_tokens": 80000,
@@ -249,7 +249,7 @@
             "Show project conventions from PROJECT layer",
             "Ask user to approve or revise"
           ],
-          "context_priority": "project \u2192 state"
+          "context_priority": "project → state"
         },
         "budget": {
           "max_tokens": 80000,
@@ -261,6 +261,10 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "approve": "plan_approval_approved",
+        "revise": "plan_approval_revised"
       }
     },
     {
@@ -495,7 +499,7 @@
             "Use DELTA for similar previous work",
             "Formulate questions for the user to fill all required fields"
           ],
-          "context_priority": "cpg \u2192 ckg \u2192 delta \u2192 state \u2192 trace \u2192 project"
+          "context_priority": "cpg → ckg → delta → state → trace → project"
         },
         "budget": {
           "max_tokens": 80000,
@@ -674,18 +678,18 @@
           }
         ],
         "focus": {
-          "role": "reviewing task specification \u2014 build a DEEP decision report",
+          "role": "reviewing task specification — build a DEEP decision report",
           "constraints": [
             "Investigar con CPG/CKG/DELTA: citar archivo:linea reales, no inventar",
             "Identificar elementos a REUTILIZAR (componentes existentes con archivo:linea)",
             "Evaluar impacto en tests existentes",
             "Dar recomendacion approve/refine/all_done CON justificacion",
             "Show the current task specification to the user",
-            "If approve and more tasks remain \u2192 approve (advances to next task)",
-            "If approve and all tasks done \u2192 all_done (transition to ACTIVE)",
-            "If refine \u2192 refine (re-specify current task)"
+            "If approve and more tasks remain → approve (advances to next task)",
+            "If approve and all tasks done → all_done (transition to ACTIVE)",
+            "If refine → refine (re-specify current task)"
           ],
-          "context_priority": "cpg \u2192 ckg \u2192 delta \u2192 state \u2192 project"
+          "context_priority": "cpg → ckg → delta → state → project"
         },
         "budget": {
           "max_tokens": 80000,
@@ -696,6 +700,11 @@
       "audit": {
         "capture_decision": true,
         "level": "full"
+      },
+      "decision_map": {
+        "approve": "next_task",
+        "refine": "refine_task",
+        "all_done": "all_done"
       }
     },
     {
@@ -705,27 +714,7 @@
       "action": "",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "intent": {
-            "type": "string",
-            "enum": [
-              "start_task",
-              "start_review",
-              "close_sprint",
-              "edit_plan",
-              "back_to_active",
-              "refine_task",
-              "next_task",
-              "all_done",
-              "back_to_start",
-              "init_project"
-            ],
-            "description": "Decision del agente: que arista del XOR-split disparar"
-          }
-        },
-        "required": [
-          "intent"
-        ]
+        "properties": {}
       },
       "output_schema": {
         "type": "object",
@@ -751,7 +740,7 @@
             "description": "Completed tasks"
           }
         },
-        "description": "Active sprint dashboard. Does not auto-advance \u2014 waits for user transition."
+        "description": "Active sprint dashboard. Does not auto-advance — waits for user transition."
       },
       "on_success": "",
       "on_failure": "",
@@ -769,7 +758,8 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
-      }
+      },
+      "decision_field": ""
     },
     {
       "key": "REVIEW",
@@ -856,7 +846,7 @@
             "Show project conventions from PROJECT layer",
             "Ask user to accept or mark as needs_work"
           ],
-          "context_priority": "project \u2192 state \u2192 delta"
+          "context_priority": "project → state → delta"
         },
         "budget": {
           "max_tokens": 80000,
@@ -868,6 +858,10 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "accept": "review_accepted",
+        "needs_work": "review_needs_work"
       }
     },
     {
@@ -1070,7 +1064,7 @@
             "Cross-reference CPG for code changes and quality metrics",
             "Cross-reference all layers to produce meaningful retrospective items"
           ],
-          "context_priority": "project \u2192 delta \u2192 state \u2192 ckg \u2192 trace \u2192 cpg"
+          "context_priority": "project → delta → state → ckg → trace → cpg"
         },
         "budget": {
           "max_tokens": 80000,
@@ -1138,7 +1132,7 @@
             "Show project conventions from PROJECT layer",
             "Ask user to close or cancel (return to active)"
           ],
-          "context_priority": "project \u2192 state"
+          "context_priority": "project → state"
         },
         "budget": {
           "max_tokens": 80000,
@@ -1150,6 +1144,10 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "close": "close_confirmed",
+        "cancel": "close_cancelled"
       }
     },
     {

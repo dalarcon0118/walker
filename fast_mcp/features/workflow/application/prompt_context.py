@@ -19,6 +19,7 @@ mantiene su placeholder vacío en vez de inventar contenido.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -344,6 +345,93 @@ def sprint_extra(specs: list[dict], spring: dict, task_id: str) -> dict[str, Any
     return extra
 
 
+def project_briefing_context(state: Any, chain_dir: str) -> dict[str, Any]:
+    """Datos del proyecto para los gates de START y PROJECT_INIT.
+
+    Medido 2026-11-18: `PROJECT_INIT.REVIEW` renderizaba `Name:`, `Language:`,
+    `Framework:` y los conteos de CPG/CKG en blanco; `START.LIST` perdía
+    `{count}`. Nadie proveía esos placeholders, así que el usuario aprobaba un
+    proyecto que no veía. Se calculan solo para esos dos nodos: materializar el
+    CKG en cada prompt sería caro.
+    """
+    node = str(getattr(state, "current_node", "") or "").upper()
+    if node not in ("START", "PROJECT_INIT"):
+        return {}
+
+    out: dict[str, Any] = {}
+    context = getattr(state, "context", {}) or {}
+    project_id = str(context.get("project_id") or "") if isinstance(context, dict) else ""
+
+    # Registro de proyectos: count + nombre.
+    try:
+        from fast_mcp.shared_kernel.registry_store import RegistryStore
+
+        registry = RegistryStore().read()
+        projects = registry.get("projects", {}) or {}
+        out["count"] = len(projects)
+        if not project_id:
+            for pid, record in projects.items():
+                if str(record.get("repo_path") or "") == str(chain_dir):
+                    project_id = str(pid)
+                    break
+        record = projects.get(project_id) or {}
+        out["project_name"] = str(record.get("name") or Path(chain_dir).name)
+    except Exception as exc:  # noqa: BLE001 — el briefing no depende del registry
+        logger.debug("prompt_context: registry no disponible (%s)", exc)
+        out.setdefault("count", 0)
+        out.setdefault("project_name", Path(chain_dir).name)
+
+    # Lenguaje/framework por marcadores (heurística barata, sin importar tasks).
+    root = Path(chain_dir)
+    language, framework = "unknown", "no detectado"
+    try:
+        if (root / "pyproject.toml").is_file():
+            language = "python"
+            text = (root / "pyproject.toml").read_text(errors="ignore").lower()
+            for candidate in ("fastapi", "django", "flask", "pytest"):
+                if candidate in text:
+                    framework = candidate
+                    break
+        elif (root / "package.json").is_file():
+            language = "javascript"
+            import json as _json
+
+            pkg = _json.loads((root / "package.json").read_text(errors="ignore") or "{}")
+            deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})}
+            for candidate in ("next", "react", "vue", "svelte", "express"):
+                if candidate in deps:
+                    framework = candidate
+                    break
+        elif (root / "go.mod").is_file():
+            language = "go"
+        elif (root / "Cargo.toml").is_file():
+            language = "rust"
+    except Exception as exc:  # noqa: BLE001 — la detección no bloquea el gate
+        logger.debug("prompt_context: detección de lenguaje falló (%s)", exc)
+    out["language"] = language
+    out["framework"] = framework
+
+    # Estado del CPG/CKG (lo que el usuario necesita para aprobar).
+    try:
+        from fast_mcp.memories.context import MemoryContext
+
+        mem = MemoryContext.resolve(chain_dir)
+        if mem is not None:
+            cpg = mem.cpg()
+            stats = cpg.stats() if cpg is not None else {}
+            out["cpg_nodes"] = int(stats.get("total_nodes") or 0)
+            out["cpg_edges"] = int(stats.get("total_edges") or 0)
+            ckg = mem.ckg()
+            out["ckg_nodes"] = len(ckg.query({})) if ckg is not None else 0
+    except Exception as exc:  # noqa: BLE001 — los conteos no bloquean el gate
+        logger.debug("prompt_context: conteos CPG/CKG no disponibles (%s)", exc)
+        out.setdefault("cpg_nodes", 0)
+        out.setdefault("cpg_edges", 0)
+        out.setdefault("ckg_nodes", 0)
+
+    return out
+
+
 def submitted_context(state: Any) -> dict[str, Any]:
     """Campos que el agente YA envió en sub-estados del nodo actual.
 
@@ -388,6 +476,7 @@ def build_prompt_extra(state: Any, chain_dir: str, session_id: str) -> dict[str,
     """Todo el `extra_data` que los templates pueden usar, sin inventar nada."""
     extra: dict[str, Any] = {}
     extra.update(quality_context(state))
+    extra.update(project_briefing_context(state, chain_dir))
     happened = last_step_summary(state)
     if happened:
         extra["what_happened"] = happened

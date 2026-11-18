@@ -182,7 +182,7 @@
             "Use the PROJECT layer if available (project already initialized) or the STATE layer for detection results",
             "Ask targeted questions about project specs based on available context"
           ],
-          "context_priority": "project \u2192 state"
+          "context_priority": "project → state"
         },
         "budget": {
           "max_tokens": 80000,
@@ -318,21 +318,11 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "decision": {
-            "type": "string",
-            "enum": [
-              "approve",
-              "revise"
-            ],
-            "description": "approve: create sprint and start working. revise: go back to GATHER_SPECS."
-          },
           "feedback": {
             "type": "string"
           }
         },
-        "required": [
-          "decision"
-        ]
+        "required": []
       },
       "on_success": "FIRST_SPRINT",
       "on_failure": "GATHER_SPECS",
@@ -350,6 +340,12 @@
           "reserve_for_response": 10000,
           "strategy": "truncate"
         }
+      },
+      "decision_field": "intent",
+      "decision_map": {
+        "project_ready": "project_ready",
+        "revise_specs": "revise_specs",
+        "back_to_start": "back_to_start"
       }
     },
     {

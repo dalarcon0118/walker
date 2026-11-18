@@ -46,10 +46,6 @@ class SubState:
     timeout_ms: int = 0
     interrupting: bool = True
     on_timeout: str = ""
-    wait_for: list[str] = field(default_factory=list)
-    emits: list[str] = field(default_factory=list)
-    waits_for: list[str] = field(default_factory=list)
-    on_signal: str = ""
     required_fields: list[str] = field(default_factory=list)
     auto_complete_script: str = ""
     provides: list[str] = field(default_factory=list)
@@ -57,6 +53,11 @@ class SubState:
     prompt: str = ""
     options: list[SelectOption] = field(default_factory=list)
     prompt_id: str = ""
+    # Decisión del usuario: qué campo la lleva y a qué gate mapea cada valor.
+    # Sin esto el router deducía el gate del NOMBRE (`needs_refine` → refine) y
+    # las decisiones cuyo gate no contiene el token quedaban inertes.
+    decision_field: str = "decision"
+    decision_map: dict[str, str] = field(default_factory=dict)
     on_entry_message: str = ""
     context: dict | None = None
     """Context Composer config: {sources: [...], focus: {...}}"""
@@ -116,15 +117,13 @@ class SubState:
             timeout_ms=int(data.get("timeout_ms", 0)),
             interrupting=bool(data.get("interrupting", True)),
             on_timeout=str(data.get("on_timeout", "")),
-            wait_for=list(data.get("wait_for", [])),
-            emits=list(data.get("emits", [])),
-            waits_for=list(data.get("waits_for", [])),
-            on_signal=str(data.get("on_signal", "")),
             required_fields=list(data.get("required_fields", data.get("required", []))),
             auto_complete_script=str(data.get("auto_complete", "")),
             prompt=str(data.get("prompt", "")),
             options=options,
             prompt_id=str(data.get("prompt_id", "")),
+            decision_field=str(data.get("decision_field", "decision")),
+            decision_map=dict(data.get("decision_map") or {}),
             on_entry_message=str(data.get("on_entry_message", "")),
             context=data.get("context"),
             required_tools=list(data.get("required_tools", [])),
@@ -146,6 +145,8 @@ class Gate:
     target_node: str
     target_sub_state: str | None = None
     source_sub_state: str | None = None
+    # Sub-estados desde los que el gate es válido. Vacío = legacy (cualquiera).
+    available_from: list[str] = field(default_factory=list)
     description: str = ""
     gate_validation_script: str | None = None
     gate_valid_exit_codes: list[int] = field(default_factory=lambda: [0])
@@ -238,6 +239,7 @@ class WorkflowGraph:
         # Invariant 5: intra-node routing (on_success/on_failure targets exist)
         for node_id, node in self.nodes.items():
             sub_keys = {ss.key for ss in node.sub_states}
+            gates = {g.name for g in self.edges_by_source.get(node_id, [])}
             for ss in node.sub_states:
                 for field_name, target in (("on_success", ss.on_success), ("on_failure", ss.on_failure)):
                     if target and target not in sub_keys:
@@ -245,6 +247,34 @@ class WorkflowGraph:
                             f"Node '{node_id}' sub '{ss.key}': {field_name} "
                             f"points to non-existent '{target}'"
                         )
+                # Invariant 6: decision_map apunta a gates del mismo nodo
+                for value, gate_name in (ss.decision_map or {}).items():
+                    if gate_name not in gates:
+                        errors.append(
+                            f"Node '{node_id}' sub '{ss.key}': decision_map['{value}'] "
+                            f"points to non-existent gate '{gate_name}'"
+                        )
+
+        # Invariant 7: `available_from` referencia sub-estados del nodo origen
+        for gate in self.edges:
+            source = self.nodes.get(gate.source_node)
+            if source is None or not gate.available_from:
+                continue
+            sub_keys = {ss.key for ss in source.sub_states}
+            for key in gate.available_from:
+                if key not in sub_keys:
+                    errors.append(
+                        f"Gate '{gate.name}' from '{gate.source_node}': "
+                        f"available_from '{key}' is not a sub-state"
+                    )
+
+        # Invariant 8: workflow.on no se ejecuta. Antes se cargaba en
+        # `on_events` y nadie lo leía: 8 handlers declarados que nunca corrían.
+        if self.on_events:
+            errors.append(
+                "workflow.on no está implementado: usá on_success/on_failure y "
+                "gates. Declararlo acá simula un ruteo que el motor no ejecuta."
+            )
 
         return errors
 
@@ -273,8 +303,6 @@ class WorkflowState:
     block_since: str = ""
     pending_events: list[str] = field(default_factory=list)
     block_timeout_ms: int = 0
-    pending_signals: list[str] = field(default_factory=list)
-    signal_history: list[dict] = field(default_factory=list)
     process_data: dict[str, Any] = field(default_factory=dict)
 
     def reconcile_index(self, graph: WorkflowGraph) -> tuple["WorkflowState", list[str]]:
@@ -379,8 +407,6 @@ class WorkflowState:
             "block_since": self.block_since,
             "pending_events": list(self.pending_events),
             "block_timeout_ms": self.block_timeout_ms,
-            "pending_signals": list(self.pending_signals),
-            "signal_history": [dict(s) for s in self.signal_history],
             "process_data": dict(self.process_data),
             "conflicts": [dict(c) for c in self.conflicts],
         }
@@ -413,8 +439,8 @@ class WorkflowState:
             block_since=data.get("block_since", ""),
             pending_events=list(data.get("pending_events", [])),
             block_timeout_ms=int(data.get("block_timeout_ms", 0) or 0),
-            pending_signals=list(data.get("pending_signals", [])),
-            signal_history=[dict(s) for s in data.get("signal_history", [])],
+            # `pending_signals`/`signal_history` se ignoran: el motor nunca los
+            # procesó. Se aceptan estados viejos sin romper la carga.
             process_data=dict(data.get("process_data", {})),
             conflicts=[dict(c) for c in data.get("conflicts", [])],
         )

@@ -94,19 +94,6 @@ class TimeoutConfig:
         return self.timeout_ms > 0
 
 
-@dataclass(frozen=True)
-class SignalEvents:
-    """Signal events for a sub-state."""
-    wait_for: list[str] = field(default_factory=list)
-    emits: list[str] = field(default_factory=list)
-    waits_for: list[str] = field(default_factory=list)
-    on_signal: str = ""  # auto_advance | skip | force | escalate
-
-    @property
-    def has_events(self) -> bool:
-        return bool(self.wait_for or self.waits_for or self.emits)
-
-
 __all__ = [
     "RetryPolicy",
     "SideEffectDef",
@@ -114,5 +101,4 @@ __all__ = [
     "SubStateKey",
     "SubStateData",
     "TimeoutConfig",
-    "SignalEvents",
 ]

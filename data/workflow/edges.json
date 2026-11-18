@@ -17,35 +17,58 @@
     "SELECT.fields"
    ],
    "output": "context.sprint_resolution"
-  }
+  },
+  "available_from": [
+   "SELECT"
+  ]
  },
  {
   "from": "START",
   "to": "PROJECT_INIT",
   "gate": "create_project",
   "sub_state_gate": "DETECT",
-  "description": "Create new project. Delegates to PROJECT_INIT (sibling node)."
+  "description": "Create new project. Delegates to PROJECT_INIT (sibling node).",
+  "available_from": [
+   "SELECT"
+  ]
  },
  {
   "from": "START",
   "to": "START",
   "gate": "refresh",
   "sub_state_gate": "LIST",
-  "description": "Refresh project list."
+  "description": "Refresh project list.",
+  "available_from": [
+   "SELECT"
+  ]
  },
  {
   "from": "SPRINT",
   "to": "START",
   "gate": "back_to_start",
   "sub_state_gate": "LIST",
-  "description": "Return to start to switch projects."
+  "description": "Return to start to switch projects.",
+  "available_from": [
+   "PLANNING",
+   "PLAN_APPROVAL",
+   "TASK_REVIEW",
+   "ACTIVE",
+   "REVIEW",
+   "RETRO",
+   "CLOSE_CONFIRM",
+   "CLOSE"
+  ]
  },
  {
   "from": "PROJECT_INIT",
   "to": "START",
   "gate": "back_to_start",
   "sub_state_gate": "LIST",
-  "description": "Return to start from PROJECT_INIT (cancel creation)."
+  "description": "Return to start from PROJECT_INIT (cancel creation).",
+  "available_from": [
+   "REVIEW",
+   "FIRST_SPRINT"
+  ]
  },
  {
   "from": "SPRINT",
@@ -131,7 +154,17 @@
   "to": "SPRINT",
   "gate": "back_to_active",
   "sub_state_gate": "ACTIVE",
-  "description": "Return to sprint dashboard."
+  "description": "Return to sprint dashboard.",
+  "available_from": [
+   "PLANNING",
+   "PLAN_APPROVAL",
+   "TASK_REVIEW",
+   "ACTIVE",
+   "REVIEW",
+   "RETRO",
+   "CLOSE_CONFIRM",
+   "CLOSE"
+  ]
  },
  {
   "from": "SPRINT",
@@ -168,7 +201,11 @@
   "description": "Design needs refinement.",
   "contract": {
    "pre": "ckg_has_decision('refine')"
-  }
+  },
+  "available_from": [
+   "DESIGN_REVIEW",
+   "CKG_SAVE"
+  ]
  },
  {
   "from": "ANALYZE",
@@ -204,14 +241,21 @@
     "ANALYZE.KNOWLEDGE_CAPTURE.*"
    ],
    "output": "IMPLEMENT.context.briefing"
-  }
+  },
+  "available_from": [
+   "REVIEW",
+   "KNOWLEDGE_CAPTURE"
+  ]
  },
  {
   "from": "ANALYZE",
   "to": "REFINE",
   "gate": "needs_refine",
   "sub_state_gate": "DIAGNOSE",
-  "description": "Analysis needs refinement."
+  "description": "Analysis needs refinement.",
+  "available_from": [
+   "REVIEW"
+  ]
  },
  {
   "from": "IMPLEMENT",
@@ -233,21 +277,35 @@
     "IMPLEMENT.CODE_REVIEW_SCAN.findings"
    ],
    "output": "VERIFY.context"
-  }
+  },
+  "available_from": [
+   "USER_GATE",
+   "REPORT_GATE"
+  ]
  },
  {
   "from": "IMPLEMENT",
   "to": "REFINE",
   "gate": "needs_refine",
   "sub_state_gate": "DIAGNOSE",
-  "description": "Implementation needs refinement."
+  "description": "Implementation needs refinement.",
+  "available_from": [
+   "USER_GATE",
+   "CODE_REVIEW_RESULT",
+   "REPORT_GATE"
+  ]
  },
  {
   "from": "IMPLEMENT",
   "to": "SPRINT",
   "gate": "cancel",
   "sub_state_gate": "ACTIVE",
-  "description": "Task cancelled. Return to sprint dashboard."
+  "description": "Task cancelled. Return to sprint dashboard.",
+  "available_from": [
+   "USER_GATE",
+   "CODE_REVIEW_RESULT",
+   "REPORT_GATE"
+  ]
  },
  {
   "from": "VERIFY",
@@ -262,56 +320,87 @@
     "Task marked complete in sprint-state",
     "CKG.status == up_to_date"
    ]
-  }
+  },
+  "available_from": [
+   "PO_ACCEPT"
+  ]
  },
  {
   "from": "VERIFY",
   "to": "REFINE",
   "gate": "needs_refine",
   "sub_state_gate": "DIAGNOSE",
-  "description": "Verification needs refinement."
+  "description": "Verification needs refinement.",
+  "available_from": [
+   "QA",
+   "PO_ACCEPT"
+  ]
  },
  {
   "from": "REFINE",
   "to": "DESIGN",
   "gate": "reroute_design",
   "sub_state_gate": "DESIGN_GATHER",
-  "description": "Refine from design phase."
+  "description": "Refine from design phase.",
+  "available_from": [
+   "CONFIRM_GATE",
+   "ESCALATION"
+  ]
  },
  {
   "from": "REFINE",
   "to": "ANALYZE",
   "gate": "reroute_analyze",
   "sub_state_gate": "GATHER",
-  "description": "Refine from analysis phase."
+  "description": "Refine from analysis phase.",
+  "available_from": [
+   "CONFIRM_GATE",
+   "ESCALATION"
+  ]
  },
  {
   "from": "REFINE",
   "to": "IMPLEMENT",
   "gate": "reroute_implement",
   "sub_state_gate": "WORK",
-  "description": "Refine from implementation phase."
+  "description": "Refine from implementation phase.",
+  "available_from": [
+   "CONFIRM_GATE",
+   "ESCALATION"
+  ]
  },
  {
   "from": "REFINE",
   "to": "VERIFY",
   "gate": "reroute_verify",
   "sub_state_gate": "QA_RUN",
-  "description": "Refine from verification phase."
+  "description": "Refine from verification phase.",
+  "available_from": [
+   "CONFIRM_GATE",
+   "ESCALATION"
+  ]
  },
  {
   "from": "REFINE",
   "to": "SPRINT",
   "gate": "reroute_sprint",
   "sub_state_gate": "ACTIVE",
-  "description": "Return to sprint (task not refinable)."
+  "description": "Return to sprint (task not refinable).",
+  "available_from": [
+   "CONFIRM_GATE",
+   "ESCALATION"
+  ]
  },
  {
   "from": "REFINE",
   "to": "SPRINT",
   "gate": "escalation",
   "sub_state_gate": "ACTIVE",
-  "description": "Refinement limit reached (3 attempts). Escalate to sprint for manual review."
+  "description": "Refinement limit reached (3 attempts). Escalate to sprint for manual review.",
+  "available_from": [
+   "CONFIRM_GATE",
+   "ESCALATION"
+  ]
  },
  {
   "from": "SPRINT",
@@ -326,13 +415,52 @@
   "to": "SPRINT",
   "gate": "project_ready",
   "sub_state_gate": "ACTIVE",
-  "description": "Project initialized, return to sprint dashboard."
+  "description": "Project initialized, return to sprint dashboard.",
+  "available_from": [
+   "REVIEW",
+   "FIRST_SPRINT"
+  ]
  },
  {
   "from": "PROJECT_INIT",
   "to": "PROJECT_INIT",
   "gate": "revise_specs",
   "sub_state_gate": "GATHER_SPECS",
-  "description": "Revise project specifications."
+  "description": "Revise project specifications.",
+  "available_from": [
+   "REVIEW"
+  ]
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "review_accepted",
+  "source_sub_state": "REVIEW",
+  "sub_state_gate": "RETRO",
+  "description": "Sprint review accepted: continue to retrospective."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "review_needs_work",
+  "source_sub_state": "REVIEW",
+  "sub_state_gate": "ACTIVE",
+  "description": "Sprint review needs work: return to dashboard."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "close_confirmed",
+  "source_sub_state": "CLOSE_CONFIRM",
+  "sub_state_gate": "CLOSE",
+  "description": "PO confirmed sprint close: run CLOSE."
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "close_cancelled",
+  "source_sub_state": "CLOSE_CONFIRM",
+  "sub_state_gate": "ACTIVE",
+  "description": "PO cancelled sprint close: return to dashboard."
  }
 ]

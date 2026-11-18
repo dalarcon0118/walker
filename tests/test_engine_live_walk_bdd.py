@@ -198,6 +198,14 @@ def test_live_walk_start_to_analyze_with_gollwitzer_phases(project):
     prompt = status.get("prompt") or {}
     text = prompt.get("template") or prompt.get("prompt") or ""
     assert "6->3 Task Analysis" in text
+    # El gate de aprobación vive en ANALYZE.REVIEW, no en ANALYZE: los gates
+    # globales permitían cruzar la aprobación antes de que el análisis cerrara.
+    gate_names = [g["name"] for g in status["available_gates"]]
+    assert "analysis_approved" not in gate_names
+
+    _host_advance(project)  # ANALYZE -> REVIEW
+    status = orch.status(xctx)
+    assert status["sub_state"] == "REVIEW"
     gate_names = [g["name"] for g in status["available_gates"]]
     assert "analysis_approved" in gate_names
 

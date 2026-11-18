@@ -588,6 +588,10 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "approve": "analysis_approved",
+        "reject": "needs_refine"
       }
     },
     {

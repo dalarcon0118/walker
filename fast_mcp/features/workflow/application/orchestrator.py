@@ -99,8 +99,16 @@ def expected_payload(sub_state: Any) -> dict[str, Any]:
 def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any] | None:
     """La llamada exacta que desbloquea el paso actual.
 
-    Es lo que evita adivinar el protocolo: sin esto el agente descubre que
-    existe `transition` cuando `advance` ya falló con "node complete".
+    Reglas, en orden:
+      1. Si faltan campos del paso, `submit`.
+      2. Paso automático: `advance` (el motor ejecuta la acción), salvo que sea
+         el último y haya gates → `transition`.
+      3. Gate de usuario con `decision_map`: si la decisión actual mapea a un
+         gate DISPONIBLE, `transition`; si mapea a un gate que vive en un
+         sub-estado posterior, `advance` (hay que llegar hasta él); si la
+         decisión no mapea, el camino por defecto es `advance`.
+      4. Gate de usuario sin `decision_map` pero con gates disponibles: es un
+         hub (`SPRINT.ACTIVE`, `REFINE.CONFIRM_GATE`) → `transition`.
     """
     node = graph.get_node(state.current_node)
     if node is None:
@@ -109,10 +117,6 @@ def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any
     if sub_state is None:
         return None
 
-    # En un paso automático el que produce los campos es el MOTOR al ejecutar
-    # la acción, no el agente. Preguntar por `required_fields` acá mandaba a
-    # `submit` en VERIFY.PREDICATE_CHECK (auto) con `all_passed` pendiente: el
-    # protocolo pedía escribir a mano lo que el paso iba a calcular.
     auto_step = sub_state.is_auto()
     if not auto_step:
         missing = missing_declared_fields(state, sub_state)
@@ -125,37 +129,84 @@ def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any
                 "detail": "Registrá los campos con submit; sin ellos el paso no avanza.",
             }
 
+    gates = ValidationService.get_available_gates(state, graph)
+    gate_names = [g.name for g in gates]
     last = state.sub_state_index >= len(node.sub_states) - 1
-    if last:
-        gates = [g.name for g in ValidationService.get_available_gates(state, graph)]
-        if gates:
+
+    if auto_step:
+        if last and gate_names:
             return {
                 "tool": "transition",
-                "gates": gates,
+                "gates": gate_names,
                 "detail": "El nodo está completo: elegí un gate para seguir.",
             }
+        return {
+            "tool": "advance",
+            "detail": "Paso automático: avanzá y el motor ejecuta la acción.",
+        }
+
+    decision_field = str(getattr(sub_state, "decision_field", "") or "decision")
+    decision = ""
+    if decision_field:
+        sub_data = state.get_sub_state_data(state.current_sub_state)
+        if sub_data.is_field_complete(decision_field):
+            decision = str((sub_data.fields or {}).get(decision_field) or "")
+
+    explicit = dict(getattr(sub_state, "decision_map", None) or {})
+    if decision and explicit:
+        target = explicit.get(decision)
+        if target and target in gate_names:
+            return {
+                "tool": "transition",
+                "gates": [target],
+                "detail": f"La decisión '{decision}' cruza el gate '{target}'.",
+            }
+        # La decisión no tiene gate en ESTE sub-estado: el camino por defecto
+        # sigue lineal (p. ej. DESIGN_REVIEW approve → CKG_SAVE, donde vive
+        # `design_approved`).
+        return {
+            "tool": "advance",
+            "detail": "La decisión quedó registrada; avanzá al siguiente sub-estado.",
+        }
+
+    if gate_names:
+        return {
+            "tool": "transition",
+            "gates": gate_names,
+            "detail": "Elegí un gate para continuar.",
+        }
+
     return {
         "tool": "advance",
-        "detail": (
-            "Paso automático: avanzá y el motor ejecuta la acción."
-            if auto_step
-            else "El paso está satisfecho: avanzá para ejecutar/continuar."
-        ),
+        "detail": "El paso está satisfecho: avanzá para ejecutar/continuar.",
     }
 
 
 _DECISION_TOKENS = ("refine", "cancel", "reject", "approve", "accept", "proceed")
 
 
-def decision_map_for(gates: list[Any]) -> dict[str, str]:
-    """De cada decisión al gate que dispara, derivado del grafo.
+def decision_map_for(
+    gates: list[Any], sub_state: Any | None = None
+) -> dict[str, str]:
+    """De cada decisión al gate que dispara.
 
-    Fuente primaria: `contract.pre` del gate (`ckg_has_decision('approve')`).
-    Fallback: el nombre del gate (`needs_refine` → `refine`). Se expone para
-    que `submit` cierre el gate solo y el agente deje de encadenar
-    submit → advance → transition.
+    Fuente primaria: `decision_map` explícito del sub-estado (el contrato que
+    el autor del grafo declara). Se filtra por los gates DISPONIBLES: una
+    decisión no puede cruzar un gate que vive en otro sub-estado.
+
+    Fallback (grafos viejos): `contract.pre` del gate
+    (`ckg_has_decision('approve')`) y el nombre (`needs_refine` → `refine`).
     """
     import re as _re
+
+    available = {str(getattr(g, "name", "") or "") for g in gates}
+    explicit = dict(getattr(sub_state, "decision_map", None) or {}) if sub_state else {}
+    if explicit:
+        return {
+            value: gate
+            for value, gate in explicit.items()
+            if str(gate) in available
+        }
 
     out: dict[str, str] = {}
     for gate in gates:
@@ -552,12 +603,11 @@ class OrchestrationService:
         # 9b. Si la decisión mapea a un gate y el nodo terminó acá, se cruza en
         # la MISMA llamada. Antes eran tres (submit → advance → transition) y
         # el protocolo se descubría por error (medido 2026-11-18).
-        decision = str((fields or {}).get("decision") or "")
-        node_now = graph.get_node(state.current_node)
-        at_last = bool(node_now) and state.sub_state_index >= len(node_now.sub_states) - 1
-        if decision and at_last:
+        decision_field = str(getattr(sub_state, "decision_field", "") or "decision")
+        decision = str((fields or {}).get(decision_field) or "")
+        if decision:
             gate_name = decision_map_for(
-                ValidationService.get_available_gates(state, graph)
+                ValidationService.get_available_gates(state, graph), sub_state
             ).get(decision)
             if gate_name:
                 moved = self.transition(ctx, gate_name, reason=f"submit:{decision}")
@@ -706,28 +756,58 @@ class OrchestrationService:
                 ctx, sub_state, candidate, action_fields
             )
             if task_result is not None and not task_ok:
+                error = task_field or f"Action '{sub_state.action}' failed"
+                routed_to = ""
+                failure_target = str(getattr(sub_state, "on_failure", "") or "")
+                if failure_target and node.find_sub_state(failure_target):
+                    routed_to = failure_target
+                    routed = AdvanceService.jump_to_sub_state(
+                        candidate, graph, failure_target
+                    )
+                    if routed is not None:
+                        routed = routed.record_node_execution(
+                            node=state.current_node,
+                            sub_state=state.current_sub_state,
+                            execution_type=sub_state.execution.value,
+                            action=sub_state.action,
+                            submitted_fields=action_fields,
+                            task_ok=False,
+                            task_result=task_result,
+                            error=error,
+                        )
+                        routed = self._remember_task_id(routed, task_result)
+                        self._save_state(routed)
                 return {
                     "ok": False,
                     "action": "task_failed",
-                    "error": task_field or f"Action '{sub_state.action}' failed",
+                    "error": error,
                     "task_action": sub_state.action,
+                    "routed_to": routed_to,
                 }
 
-        # 3. Mover el índice dentro del nodo.
-        next_index = state.sub_state_index + 1
-        if next_index >= len(node.sub_states):
-            return {
-                "ok": False,
-                "action": "node_complete",
-                "error": f"Node '{state.current_node}' complete: transition with a gate",
-                "available_gates": [
-                    g.name for g in ValidationService.get_available_gates(state, graph)
-                ],
-            }
+        # 3. Ruteo intra-nodo: `on_success` manda si el sub-estado lo declara;
+        #    si no, el siguiente lineal. Antes este campo se validaba pero el
+        #    motor nunca lo leía: `AdvanceService.jump_to_sub_state` existía y
+        #    estaba importado sin uso.
+        success_target = str(getattr(sub_state, "on_success", "") or "")
+        routed = None
+        if success_target and node.find_sub_state(success_target):
+            routed = AdvanceService.jump_to_sub_state(candidate, graph, success_target)
+        if routed is None:
+            next_index = state.sub_state_index + 1
+            if next_index >= len(node.sub_states):
+                return {
+                    "ok": False,
+                    "action": "node_complete",
+                    "error": f"Node '{state.current_node}' complete: transition with a gate",
+                    "available_gates": [
+                        g.name for g in ValidationService.get_available_gates(state, graph)
+                    ],
+                }
+            next_sub = node.sub_states[next_index]
+            routed = candidate.with_node(state.current_node, next_sub.key, next_index)
 
-        next_sub = node.sub_states[next_index]
-        new_state = candidate.with_node(state.current_node, next_sub.key, next_index)
-        new_state = new_state.record_node_execution(
+        new_state = routed.record_node_execution(
             node=state.current_node,
             sub_state=state.current_sub_state,
             execution_type=sub_state.execution.value,
@@ -1391,7 +1471,7 @@ class OrchestrationService:
             else (declared_required_fields(sub_state_def) if sub_state_def else []),
             "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
             "next_action": next_action_for(state, graph),
-            "decision_map": decision_map_for(gates_now),
+            "decision_map": decision_map_for(gates_now, sub_state_def),
             "user_message": extract_user_message(
                 (prompt or {}).get("template") or "",
                 f"{state.current_node}.{state.current_sub_state}",
@@ -1491,7 +1571,7 @@ class OrchestrationService:
             "required_fields": required_fields,
             "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
             "next_action": next_action_for(state, graph),
-            "decision_map": decision_map_for(gates),
+            "decision_map": decision_map_for(gates, sub_state_def),
             "user_message": extract_user_message(
                 (prompt or {}).get("template") or "",
                 f"{state.current_node}.{state.current_sub_state}",

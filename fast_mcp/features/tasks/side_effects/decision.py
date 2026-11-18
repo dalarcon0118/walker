@@ -24,7 +24,15 @@ def capture_decision(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> d
         fields = {}
     state = kwargs.get("state")
 
-    decision = params.get("decision") or fields.get("decision") or ""
+    # PROJECT_INIT.REVIEW usa `intent` como campo de decisión (project_ready |
+    # revise_specs | back_to_start). Sin este fallback el efecto no opcional
+    # bloqueaba el gate con "no decision provided".
+    decision = (
+        params.get("decision")
+        or fields.get("decision")
+        or fields.get("intent")
+        or ""
+    )
     rationale = (
         params.get("feedback")
         or params.get("evidence")
@@ -49,12 +57,14 @@ def capture_decision(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> d
                 fields_i = getattr(entry, "fields", None) or (
                     entry if isinstance(entry, dict) else {}
                 ) or {}
-                if isinstance(fields_i, dict) and fields_i.get("decision"):
+                if isinstance(fields_i, dict) and (
+                    fields_i.get("decision") or fields_i.get("intent")
+                ):
                     recorded = fields_i
                     sub_state = str(key)
                     break
     if not decision and isinstance(recorded, dict):
-        decision = str(recorded.get("decision") or "")
+        decision = str(recorded.get("decision") or recorded.get("intent") or "")
     if not rationale and isinstance(recorded, dict):
         rationale = str(recorded.get("evidence") or recorded.get("feedback") or "")
     ctx = getattr(state, "context", {}) or {}

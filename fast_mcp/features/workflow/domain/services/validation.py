@@ -48,8 +48,28 @@ class ValidationService:
 
     @staticmethod
     def get_available_gates(state: WorkflowState, graph: WorkflowGraph) -> list[Gate]:
+        """Gates válidos desde el sub-estado actual.
+
+        `available_from` es la fuente explícita (lista de sub-estados); si no
+        está, cae a `source_sub_state` (legacy) y, si tampoco, el gate queda
+        global. Los gates globales permitían saltarse el trabajo: `task_complete`
+        desde `QA_RUN`, `implementation_done` desde `OBSERVE`. El grafo canónico
+        ya declara `available_from` en todos; el invariante 7 lo vigila.
+        """
         edges = graph.edges_by_source.get(state.current_node, [])
-        return [g for g in edges if not g.source_sub_state or g.source_sub_state == state.current_sub_state]
+        out: list[Gate] = []
+        for gate in edges:
+            allowed = list(getattr(gate, "available_from", None) or [])
+            if allowed:
+                if state.current_sub_state in allowed:
+                    out.append(gate)
+                continue
+            if getattr(gate, "source_sub_state", ""):
+                if gate.source_sub_state == state.current_sub_state:
+                    out.append(gate)
+                continue
+            out.append(gate)
+        return out
 
     @staticmethod
     def resolve_xor_by_intent(state: WorkflowState, graph: WorkflowGraph, intent: str) -> Gate | None:

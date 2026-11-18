@@ -162,13 +162,12 @@ class TestWorkflowState:
             "sub_state_data": {"PLANNING": {"fields": {"specs": []}, "completed_at": None}},
             "history": ["START.INIT"],
             "context": {},
-            # Missing: blocked_at, pending_signals, process_data, conflicts
+            # Missing: blocked_at, process_data, conflicts
         }
         s = WorkflowState.from_dict(legacy)
         assert s.version == "4.0"
         assert s.current_node == "SPRINT"
         assert s.blocked_at == ""
-        assert s.pending_signals == []
         assert s.process_data == {}
         assert s.conflicts == []
 

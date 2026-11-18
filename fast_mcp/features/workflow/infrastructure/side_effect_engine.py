@@ -197,16 +197,27 @@ def _resolve_value(value: Any, state: Any, sub_state: Any, fields: Any) -> Any:
     return value
 
 
-def _resolve_params(params: dict[str, Any], state: Any, sub_state: Any, fields: Any) -> dict[str, Any]:
+def _resolve_params(
+    params: dict[str, Any], state: Any, sub_state: Any, fields: Any
+) -> tuple[dict[str, Any], list[str]]:
+    """Resuelve params y devuelve también las referencias NODE.X no resueltas.
+
+    Antes las referencias rotas se omitían con `continue`: el `transform_spec`
+    se ejecutaba sin ese campo y nadie se enteraba. Medido 2026-11-18:
+    `NODE.WORK.output.task_context` nunca existió y el `task_context` de la
+    spec quedaba a cargo de otro efecto, sin traza del faltante.
+    """
     resolved: dict[str, Any] = {}
+    unresolved: list[str] = []
     for k, v in (params or {}).items():
         rv = _resolve_value(v, state, sub_state, fields)
         if rv is _UNRESOLVED:
             if isinstance(v, str) and _NODE_RE.match(v.strip()):
+                unresolved.append(str(v).strip())
                 continue
             rv = None
         resolved[k] = rv
-    return resolved
+    return resolved, unresolved
 
 
 class SideEffectEngine(ISideEffectEngine):
@@ -277,7 +288,13 @@ class SideEffectEngine(ISideEffectEngine):
                 continue
 
             params = dict(se["params"] or {})
-            resolved_params = _resolve_params(params, state, sub_state, fields)
+            resolved_params, unresolved = _resolve_params(
+                params, state, sub_state, fields
+            )
+            if unresolved:
+                logger.warning(
+                    "SideEffectEngine: '%s' no resolvió %s", type_, unresolved
+                )
 
             if not self._is_registered(type_):
                 results.append({"ok": True, "skipped": True, "type": type_})
@@ -296,6 +313,8 @@ class SideEffectEngine(ISideEffectEngine):
                 raw = {"ok": True, "data": raw}
             entry = dict(raw)
             entry.setdefault("type", type_)
+            if unresolved:
+                entry["unresolved"] = unresolved
             results.append(entry)
             self._applied.add(ident)
 
@@ -304,4 +323,12 @@ class SideEffectEngine(ISideEffectEngine):
                 error_msg = entry.get("error", "side effect failed")
                 return {"ok": False, "results": results, "error": str(error_msg)}
 
-        return {"ok": True, "results": results, "error": ""}
+        unresolved_all = [
+            ref for entry in results for ref in (entry.get("unresolved") or [])
+        ]
+        out: dict[str, Any] = {"ok": True, "results": results, "error": ""}
+        # Solo aparece si hubo algo que reportar: no cambia el contrato de las
+        # llamadas que no usan referencias NODE.X.
+        if unresolved_all:
+            out["unresolved"] = unresolved_all
+        return out

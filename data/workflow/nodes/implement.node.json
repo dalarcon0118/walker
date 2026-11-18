@@ -276,6 +276,10 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "refine": "needs_refine",
+        "cancel": "cancel"
       }
     },
     {
@@ -326,9 +330,7 @@
           "type": "transform_spec",
           "params": {
             "status": "in_progress",
-            "fields": {
-              "task_context": "NODE.WORK.output.task_context"
-            }
+            "fields": {}
           },
           "optional": false,
           "description": "Transform Spec to in_progress with enriched task_context"
@@ -504,6 +506,14 @@
           "evidence": {
             "type": "string",
             "description": "User evidence or reason for the decision"
+          },
+          "review_conventions": {
+            "type": "array",
+            "description": "CKG conventions checked by the reviewer"
+          },
+          "review_architecture": {
+            "type": "array",
+            "description": "Architecture decisions checked by the reviewer"
           }
         },
         "required": [
@@ -585,6 +595,11 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "refine": "needs_refine",
+        "analyze": "needs_refine",
+        "cancel": "cancel"
       }
     },
     {
@@ -833,6 +848,11 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "proceed": "implementation_done",
+        "refine": "needs_refine",
+        "cancel": "cancel"
       }
     }
   ]

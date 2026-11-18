@@ -332,6 +332,9 @@
           "quality"
         ],
         "policy": "required"
+      },
+      "decision_map": {
+        "reject": "needs_refine"
       }
     },
     {
@@ -438,6 +441,10 @@
         "capture_decision": true,
         "capture_evidence": true,
         "level": "full"
+      },
+      "decision_map": {
+        "accept": "task_complete",
+        "reject": "needs_refine"
       }
     }
   ]
