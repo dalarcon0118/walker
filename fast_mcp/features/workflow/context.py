@@ -41,6 +41,7 @@ class WorkflowContext:
         cpg_adapter: Any = None,
         ckg_searcher: Any = None,
         tracer: Any = None,
+        side_effects: Any = None,
     ) -> WorkflowContext | None:
         """Resolve workflow context from chain_dir.
 
@@ -78,6 +79,10 @@ class WorkflowContext:
             from .infrastructure.workflow_store_adapter import WorkflowStoreAdapter
             from .infrastructure.noop_tracer import NoopTracer
             from .infrastructure.noop_side_effects import NoOpSideEffectEngine
+            try:
+                from .infrastructure.side_effect_engine import SideEffectEngine as _SideEffectEngine
+            except Exception:  # pragma: no cover - fail-open
+                _SideEffectEngine = None
             from .infrastructure.default_workflow_io import DefaultWorkflowIO
             from .application.bundle import EngineBundle
             from .application.orchestrator import OrchestrationService
@@ -98,7 +103,8 @@ class WorkflowContext:
             # deja ciegos los gates que leen la traza (`required_tools` busca
             # `kg_query`, `skill_gate` busca `skill_loaded`).
             tracer = tracer or NoopTracer()
-            side_effects = NoOpSideEffectEngine()
+            if side_effects is None:
+                side_effects = NoOpSideEffectEngine()
             workflow_io = DefaultWorkflowIO()
 
             bundle = EngineBundle(

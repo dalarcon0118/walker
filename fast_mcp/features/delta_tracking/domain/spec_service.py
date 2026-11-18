@@ -38,6 +38,25 @@ SPEC_VERIFICATION_FIELDS = ["acceptance_criteria", "predicates"]
 SPEC_STATUS_FLOW = ["draft", "specified", "approved", "in_progress", "in_review", "completed"]
 
 
+def _completion_missing(spec: dict) -> list[str]:
+    """Campos que faltan para poder cerrar una spec como `completed`.
+
+    REPORT_GATE aporta commit_hash/commit_url/completed_at;
+    VERIFY/QA aporta review_verdict y evidence.
+    """
+    missing: list[str] = []
+    if not spec.get("completed_at"):
+        missing.append("completed_at (REPORT_GATE)")
+    if not spec.get("commit_hash"):
+        missing.append("commit_hash (REPORT_GATE)")
+    if not spec.get("review_verdict"):
+        missing.append("review_verdict (VERIFY/QA)")
+    ev = spec.get("evidence")
+    if not ev or (isinstance(ev, (list, tuple, dict)) and len(ev) == 0):
+        missing.append("evidence (VERIFY/QA, at least one item)")
+    return missing
+
+
 # ── SpecValidator ─────────────────────────────────────────────────────────
 
 class SpecValidator:
@@ -87,6 +106,10 @@ class SpecValidator:
             errors.append(f"{sid}: sin criterios de aceptación ni predicados ejecutables")
         if require_status and spec.get("status", "") != require_status:
             errors.append(f"{sid}: status is '{spec.get('status', '')}' must be '{require_status}'")
+        # Invariante de cierre: una spec `completed` exige artefactos.
+        if spec.get("status") == "completed" or require_status == "completed":
+            for missing in _completion_missing(spec):
+                errors.append(f"{sid}: {missing}")
         return errors
 
     @staticmethod
@@ -112,13 +135,45 @@ class SpecStatusUpdater:
         if new_status not in SPEC_STATUS_FLOW:
             raise ValueError(f"Invalid status '{new_status}'. Valid: {SPEC_STATUS_FLOW}")
         current = spec.get("status", "draft")
+        if current not in SPEC_STATUS_FLOW:
+            current = "draft"
         current_idx = SPEC_STATUS_FLOW.index(current)
         new_idx = SPEC_STATUS_FLOW.index(new_status)
         if new_idx < current_idx:
             raise ValueError(f"Cannot move status back from '{current}' to '{new_status}'")
+        # Invariante de cierre: `completed` exige artefactos.
+        if new_status == "completed":
+            missing = _completion_missing(spec)
+            if missing:
+                raise ValueError(
+                    "Cannot mark spec as completed: missing required artifacts: "
+                    + ", ".join(missing)
+                )
         spec = dict(spec)
         spec["status"] = new_status
         return spec
+
+    @staticmethod
+    def reopen(spec: dict, reason: str = "") -> dict:
+        """Vuelve a `specified` de forma explícita, registrando el motivo.
+
+        El flujo normal prohíbe retroceder; esta es la vía explícita.
+        """
+        from datetime import datetime, timezone
+
+        data = dict(spec or {})
+        data["status"] = "specified"
+        now = datetime.now(timezone.utc).isoformat()
+        tc = dict(data.get("task_context") or {})
+        tc["reopen_reason"] = reason
+        tc["reopened_at"] = now
+        data["task_context"] = tc
+        data["reopen_reason"] = reason
+        data["reopened_at"] = now
+        return data
+
+    # Alias para compatibilidad con nombres esperados por callers.
+    reopen_spec = reopen
 
 
 # ── SprintStatusUpdater ──────────────────────────────────────────────────
@@ -156,7 +211,45 @@ class SpecService:
         data.update({k: v for k, v in updates.items() if v is not None})
         if "status" in updates and updates["status"] is not None:
             data["status"] = updates["status"]
-        return Spec.from_dict(data)
+        # Invariante de cierre: `completed` exige artefactos.
+        if data.get("status") == "completed":
+            missing = _completion_missing(data)
+            if missing:
+                raise ValueError(
+                    "Cannot mark spec as completed: missing required artifacts: "
+                    + ", ".join(missing)
+                )
+        merged = Spec.from_dict(data)
+        # Preservar metadata de reopen si venía en updates.
+        if isinstance(updates, dict) and "reopen_reason" in updates:
+            try:
+                merged.reopen_reason = updates.get("reopen_reason")
+            except Exception:
+                pass
+        return merged
+
+    @staticmethod
+    def reopen(spec, reason: str = "") -> Spec:
+        """Vuelve a `specified` de forma explícita, registrando el motivo."""
+        from datetime import datetime, timezone
+
+        data = spec.to_dict() if hasattr(spec, "to_dict") else dict(spec or {})
+        data["status"] = "specified"
+        now = datetime.now(timezone.utc).isoformat()
+        tc = dict(data.get("task_context") or {})
+        tc["reopen_reason"] = reason
+        tc["reopened_at"] = now
+        data["task_context"] = tc
+        merged = Spec.from_dict(data)
+        try:
+            merged.reopen_reason = reason
+            merged.reopened_at = now
+        except Exception:
+            pass
+        return merged
+
+    # Alias para compatibilidad con nombres esperados por callers.
+    reopen_spec = reopen
 
     @staticmethod
     def refine(existing: Spec, data: dict) -> Spec:

@@ -32,6 +32,19 @@ logger = logging.getLogger(__name__)
 def _spec_to_dict(spec: Spec) -> dict:
     d = spec.to_dict()
     d["_id"] = spec.doc_id
+    # Promover metadata de reopen (almacenada en task_context) a top-level
+    # para que callers/tests la vean sin romper el schema.
+    tc = d.get("task_context") or {}
+    if isinstance(tc, dict):
+        if "reopen_reason" in tc:
+            d["reopen_reason"] = tc["reopen_reason"]
+        if "reopened_at" in tc:
+            d["reopened_at"] = tc["reopened_at"]
+    # Atributos dinámicos (si los hubiera).
+    for attr in ("reopen_reason", "reopened_at"):
+        val = getattr(spec, attr, None)
+        if val not in (None, "") and attr not in d:
+            d[attr] = val
     return d
 
 
@@ -427,6 +440,20 @@ class SprintService:
         merged = Spec.from_dict(updated)
         self._repo.save_spec(merged)
         return _spec_to_dict(merged)
+
+    def reopen_spec(self, spring_id: str, spec_id: str, reason: str = "") -> dict | None:
+        """Reabre una spec volviendo a `specified`, registrando el motivo.
+
+        Vía explícita que bypassa la prohibición de retroceso del flujo normal.
+        """
+        if not self._repo:
+            return None
+        spec = self._repo.get_spec(spring_id, spec_id)
+        if not spec:
+            return None
+        reopened = SpecService.reopen(spec, reason)
+        self._repo.save_spec(reopened)
+        return _spec_to_dict(reopened)
 
     # ── Engine integration ──
 

@@ -307,6 +307,23 @@ class OrchestrationService:
         # 6c. Recordar la tarea declarada (si la acción la devolvió)
         state = self._remember_task_id(state, task_result)
 
+        # 6d. Side effects (contrato con SideEffectEngine). Defensivo: sin
+        # `apply_side_effects` es no-op; nunca propaga; si falla un efecto no
+        # opcional se devuelve failure sin guardar estado.
+        try:
+            engine = getattr(self._bundle, "side_effects", None)
+            apply_fn = getattr(engine, "apply_side_effects", None)
+            if callable(apply_fn):
+                eff = apply_fn(sub_state, state, self._bundle.chain_dir, ctx=ctx, fields=fields)
+                if isinstance(eff, dict) and eff.get("ok") is False:
+                    return {
+                        "ok": False,
+                        "action": "side_effect_failed",
+                        "error": eff.get("error"),
+                    }
+        except Exception as e:  # noqa: BLE001 — fail-open
+            logger.warning("side_effect failed (fail-open): %s", e)
+
         # 7. Save state (repository handles CAS + revision bump)
         if not self._save_state(state):
             return {"ok": False, "error": "Failed to persist state"}
@@ -454,6 +471,22 @@ class OrchestrationService:
             task_result=task_result,
         )
         new_state = self._remember_task_id(new_state, task_result)
+
+        # Side effects (contrato con SideEffectEngine) al completar el sub-estado.
+        try:
+            engine = getattr(self._bundle, "side_effects", None)
+            apply_fn = getattr(engine, "apply_side_effects", None)
+            if callable(apply_fn):
+                eff = apply_fn(sub_state, new_state, self._bundle.chain_dir, ctx=ctx, fields=fields)
+                if isinstance(eff, dict) and eff.get("ok") is False:
+                    return {
+                        "ok": False,
+                        "action": "side_effect_failed",
+                        "error": eff.get("error"),
+                    }
+        except Exception as e:  # noqa: BLE001 — fail-open
+            logger.warning("side_effect failed (fail-open): %s", e)
+
         if not self._save_state(new_state):
             return {"ok": False, "error": "Failed to persist state"}
         self._trace_submit(ctx, new_state, fields)
@@ -782,13 +815,88 @@ class OrchestrationService:
         # 5. Capture from_node for tracing
         from_node = f"{state.current_node}.{state.current_sub_state}"
 
+        # 6. Apply transition. Para `project_selected` hacia SPRINT, resolver el
+        # sub-estado destino según el estado real del sprint del proyecto:
+        # active -> ACTIVE, planning -> PLANNING. Fail-open: si no se puede
+        # resolver, se deja el declarado (nunca rompe la transición).
+        target_node = gate_obj.target_node
+        target_sub_state = gate_obj.target_sub_state
+        if gate == "project_selected" and target_node == "SPRINT":
+            try:
+                from fast_mcp.composition import _build_sprint_service
+
+                svc = _build_sprint_service(self._bundle.chain_dir)
+                sprint_status = None
+                resolved = False
+                session_id = getattr(ctx, "session_id", "") or ""
+                if svc is not None:
+                    # 1. Sprint de la sesión.
+                    get_session = getattr(svc, "get_session", None)
+                    get_spring = getattr(svc, "get_spring", None)
+                    if session_id and callable(get_session) and callable(get_spring):
+                        try:
+                            sess = get_session(session_id)
+                            sid = (sess or {}).get("spring_id") if isinstance(sess, dict) else None
+                            if sid:
+                                sp = get_spring(sid)
+                                if sp is not None:
+                                    sprint_status = str(
+                                        (sp.get("status") if isinstance(sp, dict) else getattr(sp, "status", ""))
+                                        or ""
+                                    ).lower()
+                                    resolved = True
+                        except Exception:  # noqa: BLE001
+                            sprint_status = None
+                            resolved = False
+                    # 2. Sprint activo del proyecto.
+                    if not resolved:
+                        get_active = getattr(svc, "get_active_spring", None)
+                        if callable(get_active):
+                            try:
+                                active = get_active()
+                                if active is not None:
+                                    sprint_status = str(
+                                        (active.get("status") if isinstance(active, dict) else getattr(active, "status", ""))
+                                        or ""
+                                    ).lower()
+                                    resolved = True
+                            except Exception:  # noqa: BLE001
+                                sprint_status = None
+                                resolved = False
+                    # 3. Planning determinista.
+                    if not resolved:
+                        list_springs = getattr(svc, "list_springs", None)
+                        if callable(list_springs):
+                            try:
+                                plannings = list_springs(status="planning") or []
+                                if plannings:
+                                    ordered = sorted(
+                                        plannings,
+                                        key=lambda s: (
+                                            ((s.get("updated_at") if isinstance(s, dict) else getattr(s, "updated_at", "")) or ""),
+                                            ((s.get("spring_id") if isinstance(s, dict) else getattr(s, "spring_id", "")) or ""),
+                                        ),
+                                        reverse=True,
+                                    )
+                                    sprint_status = "planning"
+                                    resolved = True
+                            except Exception:  # noqa: BLE001
+                                sprint_status = None
+                                resolved = False
+                if sprint_status == "active":
+                    target_sub_state = "ACTIVE"
+                elif sprint_status == "planning":
+                    target_sub_state = "PLANNING"
+            except Exception:  # noqa: BLE001 — fail-open, nunca romper
+                logger.debug("resolve sprint sub-state failed (fail-open)")
+
         # 6. Apply transition
         try:
             state = TransitionService.apply(
                 state,
                 graph,
-                gate_obj.target_node,
-                gate_obj.target_sub_state,
+                target_node,
+                target_sub_state,
             )
         except NodeNotFoundError as e:
             return {"ok": False, "error": str(e), "action": "target_not_found"}

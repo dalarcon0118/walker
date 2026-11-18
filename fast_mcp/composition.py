@@ -340,12 +340,15 @@ def workflow_tool_runner(name: str, root: Path | None = None):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("tracer del workflow no disponible (%s: %s)", type(exc).__name__, exc)
 
+        from fast_mcp.features.workflow.infrastructure.side_effect_engine import SideEffectEngine
+
         ctx = WorkflowContext.resolve(
             chain_dir,
             task_registry=task_registry,
             cpg_adapter=cpg_adapter,
             ckg_searcher=ckg_searcher,
             tracer=workflow_tracer,
+            side_effects=SideEffectEngine(_build_side_effect_registry()),
         )
         if ctx is None:
             return {"error": f"Could not resolve workflow for '{chain_dir}'"}
@@ -540,7 +543,11 @@ def _build_task_registry(sprint_service=None):
         from fast_mcp.features.workflow.domain.execution import ExecutionContext
 
         def _record_task_id(chain_dir: str, task_id: str) -> bool:
-            wctx = WorkflowContext.resolve(chain_dir)
+            from fast_mcp.features.workflow.infrastructure.side_effect_engine import SideEffectEngine
+
+            wctx = WorkflowContext.resolve(
+                chain_dir, side_effects=SideEffectEngine(_build_side_effect_registry())
+            )
             if wctx is None:
                 return False
             return wctx.orchestrator.remember_task(
@@ -610,7 +617,11 @@ def _workflow_task_id(chain_dir: str) -> str:
     try:
         from fast_mcp.features.workflow.context import WorkflowContext
 
-        wctx = WorkflowContext.resolve(chain_dir)
+        from fast_mcp.features.workflow.infrastructure.side_effect_engine import SideEffectEngine
+
+        wctx = WorkflowContext.resolve(
+            chain_dir, side_effects=SideEffectEngine(_build_side_effect_registry())
+        )
         if wctx is None:
             return ""
         state = wctx.orchestrator._load_state()

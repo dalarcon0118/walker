@@ -101,6 +101,7 @@ def handle_resolve_project_sprint(args: dict) -> dict[str, Any]:
     """
     project_id = args.get("project_id", "") or args.get("_project_id", "")
     chain_dir = args.get("chain_dir", "")
+    session_id = args.get("session_id", "") or args.get("session", "") or ""
 
     # DI first (composition root injects the repo-backed service via
     # delta_tool_runner); the local resolver is a read-only fallback for
@@ -111,8 +112,60 @@ def handle_resolve_project_sprint(args: dict) -> dict[str, Any]:
     if svc is None:
         return {"ok": False, "error": f"Cannot resolve sprint service for project {project_id}"}
 
-    # Try to find active spring
-    spring = svc.get_active_spring()
+    resolved_by = None
+    spring = None
+
+    # 1. Sprint de la sesión (si hay session_id y existe).
+    if session_id:
+        get_session = getattr(svc, "get_session", None)
+        get_spring = getattr(svc, "get_spring", None)
+        if callable(get_session) and callable(get_spring):
+            try:
+                sess = get_session(session_id)
+                sid = (sess or {}).get("spring_id") if isinstance(sess, dict) else None
+                if sid:
+                    sp = get_spring(sid)
+                    if sp is not None:
+                        spring = sp
+                        resolved_by = "session"
+            except Exception:  # noqa: BLE001 — defensivo
+                spring = None
+                resolved_by = None
+
+    # 2. Sprint activo del proyecto.
+    if spring is None:
+        get_active = getattr(svc, "get_active_spring", None)
+        if callable(get_active):
+            try:
+                active = get_active()
+                if active is not None:
+                    spring = active
+                    resolved_by = "active"
+            except Exception:  # noqa: BLE001
+                spring = None
+                resolved_by = None
+
+    # 3. Planning determinista (updated_at desc, fallback spring_id).
+    if spring is None:
+        list_springs = getattr(svc, "list_springs", None)
+        if callable(list_springs):
+            try:
+                plannings = list_springs(status="planning") or []
+                if plannings:
+                    ordered = sorted(
+                        plannings,
+                        key=lambda s: (
+                            (s.get("updated_at") if isinstance(s, dict) else getattr(s, "updated_at", "")) or "",
+                            (s.get("spring_id") if isinstance(s, dict) else getattr(s, "spring_id", "")) or "",
+                        ),
+                        reverse=True,
+                    )
+                    spring = ordered[0]
+                    resolved_by = "planning"
+            except Exception:  # noqa: BLE001
+                spring = None
+                resolved_by = None
+
     if not spring:
         return {
             "ok": True,
@@ -122,18 +175,21 @@ def handle_resolve_project_sprint(args: dict) -> dict[str, Any]:
             "specs": [],
         }
 
-    spring_id = spring["spring_id"]
+    spring_id = spring["spring_id"] if isinstance(spring, dict) else spring.spring_id
     specs = svc.get_specs(spring_id)
 
-    return {
+    payload = {
         "ok": True,
         "found": True,
         "spring_id": spring_id,
-        "goal": spring.get("goal", ""),
-        "status": spring.get("status", ""),
+        "goal": spring.get("goal", "") if isinstance(spring, dict) else getattr(spring, "goal", ""),
+        "status": spring.get("status", "") if isinstance(spring, dict) else getattr(spring, "status", ""),
         "spec_count": len(specs),
         "specs": specs,
     }
+    if resolved_by is not None:
+        payload["resolved_by"] = resolved_by
+    return payload
 
 
 def _resolve_sprint_service(project_id: str, chain_dir: str = "") -> SprintService | None:

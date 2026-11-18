@@ -119,6 +119,10 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "project_id": {"type": "string", "description": "Project identifier"},
+            "session_id": {
+                "type": "string",
+                "description": "Session whose sprint to resolve first (then active, then planning)",
+            },
             "chain_dir": {"type": "string", "description": "Optional chain_dir override"},
         },
     },
@@ -321,7 +325,7 @@ _DESCRIPTIONS = {
     "help": "Get help: available tools and current workflow state.",
     "list_projects": "List projects managed by walker.",
     "sprint_planning": "Create a sprint with specs from task list.",
-    "resolve_project_sprint": "Find the active sprint for a project.",
+    "resolve_project_sprint": "Resolve the sprint for a project/session: session > active > planning.",
     "session_bind": "Bind a chat session to a sprint (delta-sprint): auto|new|continue.",
     "session_open": "Register/open a chat session (idempotente).",
     "session_close": "Close a chat session.",

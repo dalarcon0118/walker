@@ -29,6 +29,26 @@ def _short_hash(text: str) -> str:
     return hashlib.sha1((text or "session").encode("utf-8")).hexdigest()[:8]
 
 
+def _spec_id(spec: dict) -> str:
+    return str(spec.get("spec_id") or spec.get("_id") or spec.get("task_id") or "?")
+
+
+def _predicates_empty(spec: dict) -> bool:
+    preds = spec.get("predicates")
+    if isinstance(preds, dict):
+        items = preds.get("items")
+        if items is not None:
+            return not bool(items)
+        return not bool(preds)
+    if isinstance(preds, list):
+        return not bool(preds)
+    return not bool(preds)
+
+
+def _acceptance_empty(spec: dict) -> bool:
+    return not bool(spec.get("acceptance_criteria"))
+
+
 def _build_handlers(sprint_service: Any):
     def _resolve_spring_id(data: dict[str, Any]) -> tuple[str, str]:
         """(spring_id, resolved_by): explícito > sesión (registro) > ''.
@@ -50,16 +70,8 @@ def _build_handlers(sprint_service: Any):
                 return sid, "session"
         return "", ""
 
-    """Return the four sprint-planning handlers bound to `sprint_service`.
-
-    `sprint_service` is a SprintService-like object (from delta_tracking)
-    injected by the composition root. It must implement:
-      create_spring, add_spec, get_specs, set_spring_status,
-      get_active_spring  (and optionally get_spring).
-    """
-
     def plan_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-        """Create a sprint plan: creates spring + specs from goal/tasks."""
+        """Create or update a sprint plan: creates/updates spring + specs."""
         if sprint_service is None:
             return TaskResult.failure("plan_sprint: sprint_service not configured")
 
@@ -70,24 +82,71 @@ def _build_handlers(sprint_service: Any):
             return TaskResult.failure("plan_sprint: goal es requerido")
 
         session_id = str(data.get("session_id") or "").strip()
-        # BUG corregido: antes `project_id or ctx.session_id` metía el id de la
-        # SESIÓN como project_id del sprint (dato corrupto y no atribuible).
         spring_id = data.get("spring_id") or (
             f"SPR-S{_short_hash(session_id)}" if session_id else f"sprint-{project_id or 'workflow'}"
         )
+
+        # Detect existing sprint (create-or-update, never overwrite).
+        existing = None
+        if hasattr(sprint_service, "get_spring"):
+            try:
+                existing = sprint_service.get_spring(spring_id)
+            except Exception:  # noqa: BLE001
+                existing = None
+
         try:
-            sprint_service.create_spring(
-                spring_id=spring_id,
-                goal=goal,
-                status="planning",
-                project_id=project_id,
-                session_id=session_id,
-                context={"session_ids": [session_id]} if session_id else None,
-            )
-            if session_id and hasattr(sprint_service, "open_session"):
-                sprint_service.open_session(
-                    session_id, project_id=project_id, spring_id=spring_id, goal=goal
+            if existing:
+                # Update ONLY provided fields; preserve status and context.
+                update_payload: dict[str, Any] = {}
+                update_payload["goal"] = goal
+                if project_id:
+                    update_payload["project_id"] = project_id
+                if session_id:
+                    update_payload["session_id"] = session_id
+
+                # Merge context: union of session_ids, preserve the rest.
+                existing_context = (existing.get("context") if isinstance(existing, dict) else None) or {}
+                merged_context = dict(existing_context)
+                existing_ids = list(merged_context.get("session_ids") or [])
+                session_ids_set = set(existing_ids)
+                if session_id:
+                    session_ids_set.add(session_id)
+                if session_ids_set:
+                    merged_context["session_ids"] = sorted(session_ids_set)
+                # Never delete context: keep merged (even if empty) when existing had it.
+                if existing_context or session_id:
+                    update_payload["context"] = merged_context
+
+                if hasattr(sprint_service, "update_spring"):
+                    sprint_service.update_spring(spring_id, update_payload)
+                else:
+                    # Fallback: create_spring with merged dict, preserving status.
+                    existing_status = existing.get("status") if isinstance(existing, dict) else "planning"
+                    sprint_service.create_spring(
+                        spring_id=spring_id,
+                        goal=goal,
+                        status=existing_status or "planning",
+                        project_id=project_id or (existing.get("project_id", "") if isinstance(existing, dict) else ""),
+                        session_id=session_id or (existing.get("session_id", "") if isinstance(existing, dict) else ""),
+                        context=merged_context,
+                    )
+                if session_id and hasattr(sprint_service, "open_session"):
+                    sprint_service.open_session(
+                        session_id, project_id=project_id, spring_id=spring_id, goal=goal
+                    )
+            else:
+                sprint_service.create_spring(
+                    spring_id=spring_id,
+                    goal=goal,
+                    status="planning",
+                    project_id=project_id,
+                    session_id=session_id,
+                    context={"session_ids": [session_id]} if session_id else None,
                 )
+                if session_id and hasattr(sprint_service, "open_session"):
+                    sprint_service.open_session(
+                        session_id, project_id=project_id, spring_id=spring_id, goal=goal
+                    )
         except Exception as exc:  # noqa: BLE001
             return TaskResult.failure(f"plan_sprint: {type(exc).__name__}: {exc}")
 
@@ -126,12 +185,34 @@ def _build_handlers(sprint_service: Any):
                 specs = sprint_service.get_specs(spring_id, status="draft") or sprint_service.get_specs(spring_id)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("validate_plan: get_specs falló (%s)", exc)
+                try:
+                    specs = sprint_service.get_specs(spring_id)
+                except Exception:  # noqa: BLE001
+                    specs = []
 
-        missing = [s for s in specs if not s.get("objective")]
+        missing_specs = [s for s in specs if not s.get("objective")]
+        acceptance_missing_specs = [
+            s for s in specs
+            if _acceptance_empty(s) and _predicates_empty(s)
+        ]
+
+        errors = []
+        for s in missing_specs:
+            errors.append(f"spec {_spec_id(s)}: objective requerido")
+        for s in acceptance_missing_specs:
+            errors.append(
+                f"spec {_spec_id(s)}: acceptance_criteria o predicates requeridos"
+            )
+
+        missing_ids = [_spec_id(s) for s in missing_specs]
+        acceptance_missing_ids = [_spec_id(s) for s in acceptance_missing_specs]
+
         return TaskResult.success(data={
-            "valid": not missing,
-            "errors": [f"spec {s.get('_id', '?')}: objective requerido" for s in missing],
+            "valid": not missing_specs and not acceptance_missing_specs,
+            "errors": errors,
             "spec_count": len(specs),
+            "missing": missing_ids,
+            "acceptance_missing": acceptance_missing_ids,
         })
 
     def spec_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -141,7 +222,78 @@ def _build_handlers(sprint_service: Any):
 
         spring_id, _ = _resolve_spring_id(data)
         objective = data.get("objective", "") or data.get("title", "")
-        if not spring_id or not objective:
+        spec_id = str(data.get("spec_id") or "").strip()
+
+        if not spring_id:
+            return TaskResult.failure(
+                "spec_task: spec incompleta (objective requerido; spring_id explícito o sesión con sprint ligado)"
+            )
+
+        # Refinement mode.
+        if spec_id:
+            if not hasattr(sprint_service, "get_spec"):
+                return TaskResult.failure("spec_task: sprint_service no soporta get_spec")
+            # Normalizar: aceptar tanto "SPEC-002" como doc_id "SPR-1:SPEC-002".
+            lookup_id = spec_id
+            try:
+                existing = sprint_service.get_spec(spring_id, lookup_id)
+            except Exception as exc:  # noqa: BLE001
+                return TaskResult.failure(f"spec_task: {type(exc).__name__}: {exc}")
+            if existing is None and ":" in lookup_id:
+                lookup_id = lookup_id.split(":", 1)[-1]
+                try:
+                    existing = sprint_service.get_spec(spring_id, lookup_id)
+                except Exception as exc:  # noqa: BLE001
+                    return TaskResult.failure(f"spec_task: {type(exc).__name__}: {exc}")
+            spec_id = lookup_id
+            if not existing:
+                return TaskResult.failure(
+                    f"spec_task: spec inexistente: {spec_id}"
+                )
+
+            # Solo claves provistas.
+            updates: dict[str, Any] = {}
+            if "objective" in data:
+                updates["objective"] = data.get("objective")
+            if "title" in data and "objective" not in data:
+                updates["objective"] = data.get("title")
+            if "domain" in data:
+                updates["domain"] = data.get("domain")
+            if "files" in data:
+                updates["files"] = data.get("files")
+            if "acceptance_criteria" in data:
+                updates["acceptance_criteria"] = data.get("acceptance_criteria")
+            if "predicates" in data:
+                updates["predicates"] = data.get("predicates")
+            if "status" in data:
+                updates["status"] = data.get("status")
+            if "result_state" in data:
+                updates["result_state"] = data.get("result_state")
+
+            # Remove None values to avoid merge overwriting? Requirement: solo claves provistas.
+            # Keep provided empty lists if explicitly given; but drop None.
+            updates = {k: v for k, v in updates.items() if v is not None}
+
+            if not hasattr(sprint_service, "update_spec"):
+                return TaskResult.failure("spec_task: sprint_service no soporta update_spec")
+            try:
+                updated_spec = sprint_service.update_spec(spring_id, spec_id, updates)
+            except Exception as exc:  # noqa: BLE001
+                return TaskResult.failure(f"spec_task: {type(exc).__name__}: {exc}")
+            if not updated_spec:
+                return TaskResult.failure(f"spec_task: no se pudo actualizar {spec_id}")
+
+            return TaskResult.success(data={
+                "spec_id": spec_id,
+                "valid": True,
+                "objective": updated_spec.get("objective", objective),
+                "status": updated_spec.get("status", "draft"),
+                "task_id": data.get("task_id") or spec_id,
+                "updated": True,
+            })
+
+        # Create mode (no spec_id).
+        if not objective:
             return TaskResult.failure(
                 "spec_task: spec incompleta (objective requerido; spring_id explícito o sesión con sprint ligado)"
             )
@@ -160,13 +312,34 @@ def _build_handlers(sprint_service: Any):
         except Exception as exc:  # noqa: BLE001
             return TaskResult.failure(f"spec_task: {type(exc).__name__}: {exc}")
 
-        spec_id = spec.get("_id", "")
+        spec_id = (spec.get("spec_id") if isinstance(spec, dict) else "") or (spec.get("_id", "") if isinstance(spec, dict) else "")
+        # Apply acceptance_criteria/predicates afterwards (add_spec doesn't accept them).
+        if spec_id and (data.get("acceptance_criteria") is not None or data.get("predicates") is not None):
+            updates = {}
+            if "acceptance_criteria" in data:
+                updates["acceptance_criteria"] = data.get("acceptance_criteria")
+            if "predicates" in data:
+                updates["predicates"] = data.get("predicates")
+            updates = {k: v for k, v in updates.items() if v is not None}
+            if updates and hasattr(sprint_service, "update_spec"):
+                try:
+                    sprint_service.update_spec(spring_id, spec_id, updates)
+                    refreshed = None
+                    if hasattr(sprint_service, "get_spec"):
+                        refreshed = sprint_service.get_spec(spring_id, spec_id)
+                    if refreshed:
+                        spec = refreshed
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("spec_task: update_spec falló (%s)", exc)
+
+        spec_id = (spec.get("spec_id") if isinstance(spec, dict) else "") or (spec.get("_id", "") if isinstance(spec, dict) else "") or spec_id
         return TaskResult.success(data={
             "spec_id": spec_id,
             "valid": True,
-            "objective": objective,
-            "status": spec.get("status", "draft"),
+            "objective": spec.get("objective", objective) if isinstance(spec, dict) else objective,
+            "status": spec.get("status", "draft") if isinstance(spec, dict) else data.get("status", "draft"),
             "task_id": data.get("task_id") or spec_id,
+            "updated": False,
         })
 
     def close_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

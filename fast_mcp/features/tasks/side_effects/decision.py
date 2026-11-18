@@ -11,11 +11,30 @@ logger = logging.getLogger(__name__)
 
 
 def capture_decision(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-    """Capture a decision from the workflow."""
-    decision = params.get("decision", "")
-    rationale = params.get("feedback", "") or params.get("evidence", "")
-    sub_state = params.get("sub_state", "?")
-    task_id = params.get("task_id", "")
+    """Capture a decision from the workflow.
+
+    Los gates `user_input` envían la decisión en `fields`, no en `params` (el
+    nodo declara `params: {}`). Leer solo `params` hacía fallar TODO submit de
+    un gate de decisión y, como el efecto es no opcional, bloqueaba el cierre
+    de la aprobación (medido 2026-11-18: PLAN_APPROVAL devolvía
+    "no decision provided").
+    """
+    fields = kwargs.get("fields") or {}
+    if not isinstance(fields, dict):
+        fields = {}
+    state = kwargs.get("state")
+
+    decision = params.get("decision") or fields.get("decision") or ""
+    rationale = (
+        params.get("feedback")
+        or params.get("evidence")
+        or fields.get("feedback")
+        or fields.get("evidence")
+        or ""
+    )
+    sub_state = params.get("sub_state") or getattr(state, "current_sub_state", "") or "?"
+    ctx = getattr(state, "context", {}) or {}
+    task_id = params.get("task_id") or (ctx.get("task_id") if isinstance(ctx, dict) else "") or ""
 
     if not decision:
         return {"ok": False, "error": "no decision provided"}

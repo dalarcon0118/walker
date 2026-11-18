@@ -10,6 +10,12 @@ import pkgutil
 
 from fast_mcp.features.tasks.domain.side_effect_registry import SideEffectRegistry
 
+# Ensure the spec side effect is importable alongside the others.
+try:
+    from . import spec as _spec  # noqa: F401
+except Exception:  # pragma: no cover
+    pass
+
 logger = logging.getLogger(__name__)
 
 
