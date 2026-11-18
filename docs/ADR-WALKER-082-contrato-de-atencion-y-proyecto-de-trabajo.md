@@ -48,6 +48,17 @@ confundiendo con el de ubicación.
   **pregunta una vez** al usuario, con las opciones resueltas, y la respuesta se
   persiste en el plan/sprint. No se pregunta si el sprint o el plan ya lo dicen.
 
+### L3 — decisión del CKG (Fase 2)
+
+- Se consulta `agent_context(file=<archivo del scope>)` y se toma la **primera**
+  decisión cuyo id matchee `adr-NNN` (máximo una por bloque).
+- **Convención:** una decisión aplica a un archivo si su `statement` incluye la
+  cláusula `aplica a: <path>` (y opcionalmente `metadata.files`). Sin esa
+  cláusula no se cita: preferimos omitir antes que mostrar una decisión que no
+  corresponde.
+- Se cachea 60s y se omite si no hay coincidencia. Un fallo de la consulta no
+  agrega ni quita nada (fail-open).
+
 ## Invariantes
 
 - **INV-1:** un solo bloque de contexto por turno; sin duplicación.

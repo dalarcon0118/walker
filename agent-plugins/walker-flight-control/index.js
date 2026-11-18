@@ -31,6 +31,8 @@ const GATE_TIMEOUT_MS = 2_000
 // El contexto (agent_context/preflight) puede tardar en repos grandes, pero no
 // puede colgar el turno: es inyección de contexto, no un requisito.
 const HOOK_TIMEOUT_MS = 5_000
+// El baseline hace preflight + CKG: 2s no alcanza y un fallo cambiaba la firma.
+const BASELINE_TIMEOUT_MS = 6_000
 const ENABLED = process.env.WALKER_FLIGHT_CONTROL !== "0"
 const REFRESH_MS = 60_000
 const MAX_AUTO_STEPS = 3
@@ -369,6 +371,29 @@ async function runSetup(ctx) {
       return first || rt.projectId
     }
 
+    const decisionCache = new Map()
+    // L3: UNA decisión que aplique al archivo. El CKG la devuelve si su
+    // statement menciona el path (convención "aplica a: <archivo>"); se filtra
+    // por id `adr-NNN` para no citar nodos de sesión ni probes.
+    const decisionFor = (proj, files) => {
+      if (!proj || !files.length) return ""
+      const key = `${proj}|${files.join(",")}`
+      const hit = decisionCache.get(key)
+      if (hit && Date.now() - hit.at < 60_000) return hit.value
+      let found = ""
+      for (const f of files.slice(0, 2)) {
+        const res = run("agent_context", { project_id: proj, file: f }, proj, BASELINE_TIMEOUT_MS)
+        const results = (res && res.ckg && res.ckg.results) || []
+        const adr = results.find((r) => /^adr-\d+$/.test(String((r && r._id) || "")))
+        if (adr) {
+          found = String(adr._id)
+          break
+        }
+      }
+      decisionCache.set(key, { at: Date.now(), value: found })
+      return found
+    }
+
     const preflightCache = new Map()
     const baselineLine = (scope) => {
       const groups = scopeProjects(scope)
@@ -383,7 +408,7 @@ async function runSetup(ctx) {
             "preflight",
             { project_id: proj, files: items.map((i) => i.sc).slice(0, 4) },
             proj,
-            GATE_TIMEOUT_MS
+            BASELINE_TIMEOUT_MS
           )
           preflightCache.set(key, { at: Date.now(), value: pf || null })
         }
@@ -405,7 +430,10 @@ async function runSetup(ctx) {
         return `${r.name} ${parts.join(" · ")}`
       })
       if (!top.length) return ""
-      return `Baseline: ${top.join("; ")}`.slice(0, 140)
+      const dominant = Object.keys(groups)[0]
+      const decision = decisionFor(dominant, (groups[dominant] || []).map((i) => i.sc))
+      const line = `Baseline: ${top.join("; ")}${decision ? " · " + decision : ""}`
+      return line.slice(0, 140)
     }
 
     const inScope = (file, scope) => {
@@ -428,9 +456,11 @@ async function runSetup(ctx) {
       const plan = planFor(sid)
       if (!plan || !plan.goal) return ""
       const scope = Array.isArray(plan.scope) ? plan.scope : []
-      const baseline = baselineLine(scope)
-      const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance, baseline])
+      // La firma NO incluye el baseline: si preflight falla o tarda, el bloque
+      // no cambia entre llamadas (medido: fallaba y se reinyectaba).
+      const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
       if (entry.planSig === sig) return "" // idéntico al anterior: no se inyecta
+      const baseline = baselineLine(scope)
       entry.planSig = sig
       entry.planTask = plan.task || ""
       const goal = String(plan.goal).replace(/\s+/g, " ").slice(0, 90)

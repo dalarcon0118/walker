@@ -55,6 +55,25 @@ if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind" && mode !
 
 if (mode === "gateoff") process.env.WALKER_FLIGHT_CONTROL_INTAKE = "0"
 
+if (mode === "inject") {
+  // Decisión ligada al archivo (convención "aplica a: <path>") para que L3 sea
+  // determinista y no dependa del CKG vivo del proyecto.
+  const { execSync } = await import("node:child_process")
+  try {
+    execSync(
+      `${REAL_CLI} walker/documenting_knowledge '${JSON.stringify({
+        nodes: [{
+          id: "adr-999",
+          type: "adr",
+          subject: "seed de test",
+          statement: "Seed del harness: aplica a: agent-plugins/walker-flight-control/index.js.",
+        }],
+      })}'`,
+      { cwd: WALKER, stdio: ["ignore", "ignore", "ignore"] }
+    )
+  } catch {}
+}
+
 if (mode === "normal") {
   // Estado "sin declarar" para que el gate evalúe las dos fases. Se hace acá y
   // no por el shell de OpenCode, que estaría bloqueado por el propio gate.
@@ -159,6 +178,7 @@ if (mode === "inject") {
   const okTask = /Tarea:/.test(text) && /Próximo:/.test(text)
   const noTemplate = !/Sprint Monitoring|PHASE 12/.test(text)
   const okBaseline = /Baseline:/.test(text) && /llamadores/.test(text)
+  const okDecision = /·\s*adr-\d+/.test(text)
   const okCap = text.length <= 400
   const event2 = {
     sessionID: SID,
@@ -171,11 +191,12 @@ if (mode === "inject") {
   console.log(`tarea y proximo paso         -> ${okTask}`)
   console.log(`sin template del nodo        -> ${noTemplate}`)
   console.log(`baseline desde walker        -> ${okBaseline}`)
+  console.log(`decision del CKG (L3)        -> ${okDecision}`)
   console.log(`tope 400 chars               -> ${okCap} (${text.length})`)
   console.log(`estable sin repetir          -> ${stable}`)
   console.log(text.split("\n").slice(0, 4).join(" | "))
   if (typeof dispose === "function") dispose()
-  process.exit(okPlan && okTask && noTemplate && okBaseline && okCap && stable ? 0 : 1)
+  process.exit(okPlan && okTask && noTemplate && okBaseline && okDecision && okCap && stable ? 0 : 1)
 }
 
 if (mode === "bind") {
