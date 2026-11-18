@@ -42,8 +42,10 @@ def test_lee_la_decision_registrada_en_el_estado():
     """
     from fast_mcp.features.workflow.domain.entities import SubStateData
 
+    # En `advance` el estado ya está movido al sub-estado siguiente
+    # (CKG_SAVE); la decisión quedó registrada en DESIGN_REVIEW.
     state = SimpleNamespace(
-        current_sub_state="DESIGN_REVIEW",
+        current_sub_state="CKG_SAVE",
         sub_state_data={
             "DESIGN_REVIEW": SubStateData(
                 fields={"decision": "approve", "evidence": "ADR-lite ok"}
