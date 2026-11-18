@@ -45,6 +45,9 @@ const MAX_AUTO_STEPS = 3
 // y la spec queda vacía (el auto-declare la rellenaba con el primer mensaje del
 // usuario, sin criterios). Escape hatch: WALKER_FLIGHT_CONTROL_INTAKE=0.
 const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE !== "0"
+// Gate de DESVÍO (ADR-WALKER-081): una escritura fuera del `scope` del plan se
+// rechaza con el comando exacto para ampliarlo. Escape: ..._SCOPE=0.
+const SCOPE_GATE = process.env.WALKER_FLIGHT_CONTROL_SCOPE !== "0"
 // Gate de PASOS: además exige completar el sub-estado del workflow. Cuesta ~7x
 // en tareas triviales, así que queda opt-in.
 const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
@@ -273,20 +276,36 @@ async function runSetup(ctx) {
     // `auto` es read-only: no crea nada. Si walker no responde, se cae al
     // bootstrap viejo (el agente igual puede trabajar).
     const planCache = new Map()
+    // Lectura única del plan (bloque y gate de desvío comparten la caché).
+    const planFor = (sid) => {
+      if (!rt.projectId || !sid) return {}
+      const hit = planCache.get(sid)
+      if (hit && Date.now() - hit.at < 10_000) return hit.plan || {}
+      const res = run("session_plan", { session_id: sid, mode: "get" }, rt.projectId, HOOK_TIMEOUT_MS)
+      const data = res?.data || res
+      const plan = (data && data.plan) || {}
+      planCache.set(sid, { at: Date.now(), plan })
+      return plan
+    }
+
+    const inScope = (file, scope) => {
+      const f = String(file)
+      return scope.some((raw) => {
+        const sc = String(raw || "")
+        if (!sc) return false
+        if (f === sc) return true
+        if (f.endsWith("/" + sc)) return true
+        if (sc.endsWith("/") && (f.startsWith(sc) || f.includes("/" + sc))) return true
+        // Directorio declarado sin extensión: prefijo con límite de path.
+        if (!sc.includes(".") && (f.startsWith(sc + "/") || f.includes("/" + sc + "/"))) return true
+        return false
+      })
+    }
+
     // Bloque CORTO y estable: destino, tarea, próximo paso y desvío. Se emite
     // solo cuando cambia la firma del plan (no rompe el caché ni repite ruido).
     const planBlock = (sid, entry) => {
-      if (!rt.projectId || !sid) return ""
-      const hit = planCache.get(sid)
-      let plan
-      if (hit && Date.now() - hit.at < 10_000) {
-        plan = hit.plan
-      } else {
-        const res = run("session_plan", { session_id: sid, mode: "get" }, rt.projectId, HOOK_TIMEOUT_MS)
-        const data = res?.data || res
-        plan = (data && data.plan) || {}
-        planCache.set(sid, { at: Date.now(), plan })
-      }
+      const plan = planFor(sid)
       if (!plan || !plan.goal) return ""
       const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
       if (entry.planSig === sig) return "" // idéntico al anterior: no se inyecta
@@ -751,6 +770,11 @@ async function runSetup(ctx) {
               sessionOf(key).verifiedBy = "shell"
             }
 
+            // El plan cambió (o la tarea): la caché de 10s ya no vale.
+            if (/\b(session_plan|implement_task|session_bind)\b/.test(cmd)) {
+              planCache.delete(key)
+            }
+
             if (isCli && /\bsession_bind\b/.test(cmd)) {
               // El binding corre en otro proceso: se verifica contra el estado y
               // se invalida la caché para que el gate abra en la próxima llamada
@@ -901,6 +925,34 @@ async function runSetup(ctx) {
                   )
                 }
               }
+              // ── Gate de DESVÍO: escritura fuera del `scope` del plan ──
+              if (SCOPE_GATE && (name === "edit" || name === "write")) {
+                const target = relPath(input?.path || input?.filePath || "", rt)
+                const scope = (planFor(sid).scope || []).map(String).filter(Boolean)
+                if (scope.length && target && !inScope(target, scope)) {
+                  run("trace_push", {
+                    event_type: "flight_control_denied",
+                    source: "agent_hook",
+                    session_id: sid,
+                    data: { tool: name, gate: "scope", file: target, scope },
+                  })
+                  const newScope = Array.from(new Set([...scope, target]))
+                  throw new Error(
+                    `[WALKER] Escritura fuera de alcance: ${target}
+` +
+                      `Alcance declarado: ${scope.slice(0, 5).join(", ")}${scope.length > 5 ? " …" : ""}.
+` +
+                      `Es una regla del plan de vuelo, no un bug. Si el archivo corresponde, ampliá el alcance y repetí:
+` +
+                      `  ${CLI} ${rt.projectId}/session_plan '${JSON.stringify({
+                        session_id: sid,
+                        mode: "set",
+                        scope: newScope,
+                      })}'`
+                  )
+                }
+              }
+
               // `wrote` es "la sesión modificó archivos", independiente de qué
               // gate lo haya permitido. Incluye `shell` con redirección: es el
               // bypass real (medido: tras bloquear `write`, el agente usó

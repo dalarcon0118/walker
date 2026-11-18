@@ -224,6 +224,43 @@ if (closeMode) {
   process.exit(ok ? 0 : 1)
 }
 
+if (mode === "scope") {
+  const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "arreglar" }] }] }
+  await captured.context(event)
+  await call("shell", {
+    command: cli("session_bind", { mode: "new", objective: "Probar el gate de desvío. Debe acotar el alcance." }),
+  })
+  await call("shell", {
+    command: cli("implement_task", {
+      task_id: "scope-task",
+      objective: "Tarea con alcance acotado. Debe permitir solo allowed.py. Sin romper los tests.",
+      files: ["allowed.py"],
+    }),
+  })
+  const out = {}
+  out["edit en alcance"] = await call("edit", { path: "allowed.py" })
+  out["edit fuera"] = await call("edit", { path: "otro/x.txt" })
+  out["ampliar alcance"] = await call("shell", {
+    command: cli("session_plan", { mode: "set", scope: ["allowed.py", "otro/x.txt"] }),
+  })
+  out["edit tras ampliar"] = await call("edit", { path: "otro/x.txt" })
+  const expected = {
+    "edit en alcance": "PERMITE",
+    "edit fuera": "BLOQUEA",
+    "ampliar alcance": "PERMITE",
+    "edit tras ampliar": "PERMITE",
+  }
+  let failed = 0
+  for (const [k, v] of Object.entries(out)) {
+    const ok = v === expected[k]
+    if (!ok) failed++
+    console.log(`${ok ? "ok  " : "FAIL"}  ${k.padEnd(20)} -> ${v} (esperado ${expected[k]})`)
+  }
+  console.log(`mode=scope fail=${failed}`)
+  if (typeof dispose === "function") dispose()
+  process.exit(failed ? 1 : 0)
+}
+
 const res = {}
 const bindCmd = cli("session_bind", { mode: "new", objective: "Probar el binding en el harness. Debe ligar la sesion al sprint." })
 const taskCmd = cli("implement_task", {
