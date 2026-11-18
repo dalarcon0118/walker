@@ -120,6 +120,7 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     objective = str(data.get("objective") or "").strip()
     parent = str(data.get("parent_session_id") or "").strip()
     project_id = str(data.get("project_id") or "").strip()
+    explicit_spring = str(data.get("spring_id") or "").strip()
 
     service = _di.sprint_service(ctx.chain_dir)
     if service is None:
@@ -131,13 +132,63 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if active is None and springs:
         active = springs[-1]
 
-    base = {
-        "mode": mode,
-        "session_id": session_id,
-        "project_id": project_id,
-    }
+    explicit = service.get_spring(explicit_spring) if explicit_spring else None
+    if explicit_spring and explicit is None:
+        return TaskResult.failure(f"session_bind: sprint desconocido {explicit_spring!r}")
+
+    base = {"mode": mode, "session_id": session_id, "project_id": project_id}
+    if explicit_spring:
+        base["requested_spring_id"] = explicit_spring
+
+    def _join(target: dict) -> dict:
+        """Suma la sesión a un sprint existente (del proyecto o de la sesión)."""
+        spring_id = str(target.get("spring_id") or target.get("id") or "")
+        context = dict(target.get("context") or {})
+        sessions = _owned_sessions(target)
+        if session_id not in sessions:
+            sessions.append(session_id)
+        context["session_ids"] = sessions
+        if not context.get("parent_session_id"):
+            previous = str(target.get("session_id") or "") or (sessions[0] if sessions else "")
+            if previous and previous != session_id:
+                context["parent_session_id"] = previous
+        service.update_spring(spring_id, {"context": context})
+        updated = service.get_spring(spring_id) or target
+        summary = _summary(service, updated)
+        service.open_session(
+            session_id,
+            project_id=project_id,
+            parent_session_id=context.get("parent_session_id") or "",
+            spring_id=spring_id,
+            goal=summary.get("goal") or "",
+            context={"bound_by": "session_bind/join"},
+        )
+        # Plan inicial si la sesión no tenía uno (p. ej. sprint del roadmap).
+        if hasattr(service, "get_session_plan") and not service.get_session_plan(session_id):
+            service.update_session_plan(
+                session_id,
+                {
+                    "goal": summary.get("goal") or "",
+                    "acceptance": [],
+                    "task": "",
+                    "scope": [],
+                    "next": "elegir una spec del sprint y declararla con implement_task",
+                },
+            )
+        return summary
 
     if mode == "auto":
+        if explicit is not None:
+            summary = _summary(service, explicit)
+            if _owns(explicit, session_id):
+                return TaskResult.success(
+                    {**base, "decision": "bound", "bound": summary,
+                     "suggestion": _suggestion(summary, "bound")}
+                )
+            return TaskResult.success(
+                {**base, "decision": "resume_available", "previous": summary,
+                 "suggestion": _suggestion(summary, "resume_available")}
+            )
         if mine is not None:
             summary = _summary(service, mine)
             return TaskResult.success(
@@ -174,11 +225,7 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                 }
             )
         return TaskResult.success(
-            {
-                **base,
-                "decision": "no_work",
-                "suggestion": _suggestion({}, "no_work"),
-            }
+            {**base, "decision": "no_work", "suggestion": _suggestion({}, "no_work")}
         )
 
     if mode == "new":
@@ -187,6 +234,13 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             return TaskResult.success(
                 {**base, "decision": "bound", "created": False, "bound": summary,
                  "suggestion": _suggestion(summary, "bound")}
+            )
+        if explicit is not None:
+            # Unirse a un sprint existente (roadmap) en vez de crear/pisarlo.
+            summary = _join(explicit)
+            return TaskResult.success(
+                {**base, "decision": "bound", "created": False, "continued": True, "bound": summary,
+                 "suggestion": f"Esta sesión se sumó a {summary.get('spring_id')} (goal: {summary.get('goal') or ''})."},
             )
         spring_id = f"SPR-S{_short_hash(session_id)}"
         goal = objective or f"sesión {session_id}"
@@ -233,35 +287,15 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
 
     # mode == "continue"
-    target = mine or active
+    target = explicit or mine or active
     if target is None:
         return TaskResult.failure(
             "session_bind: no hay sprint para continuar; usá mode=new para crear uno"
         )
-    spring_id = str(target.get("spring_id") or target.get("id") or "")
-    context = dict(target.get("context") or {})
-    sessions = _owned_sessions(target)
-    if session_id not in sessions:
-        sessions.append(session_id)
-    context["session_ids"] = sessions
-    if not context.get("parent_session_id"):
-        previous = str(target.get("session_id") or "") or (sessions[0] if sessions else "")
-        if previous and previous != session_id:
-            context["parent_session_id"] = previous
-    service.update_spring(spring_id, {"context": context})
-    updated = service.get_spring(spring_id) or target
-    summary = _summary(service, updated)
-    service.open_session(
-        session_id,
-        project_id=project_id,
-        parent_session_id=context.get("parent_session_id") or "",
-        spring_id=spring_id,
-        goal=summary.get("goal") or "",
-        context={"bound_by": "session_bind/continue"},
-    )
+    summary = _join(target)
     return TaskResult.success(
         {**base, "decision": "bound", "created": False, "continued": True, "bound": summary,
-         "suggestion": f"Esta sesión se sumó a {spring_id} (goal: {summary.get('goal') or ''})."},
+         "suggestion": f"Esta sesión se sumó a {summary.get('spring_id')} (goal: {summary.get('goal') or ''})."},
     )
 
 

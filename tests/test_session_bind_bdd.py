@@ -158,3 +158,32 @@ def test_new_inicializa_el_plan_de_vuelo(svc):
     assert plan["acceptance"]
     assert plan["task"] == ""
     assert plan["next"]
+
+
+def test_continue_con_spring_explicito_se_une_al_sprint(svc):
+    svc.create_spring("SPR-INTEG", goal="roadmap del proyecto", status="planning", project_id="p")
+
+    out = _data(session_bind(_ctx(), {"session_id": "s1", "spring_id": "SPR-INTEG", "mode": "continue"}))
+
+    assert out["decision"] == "bound" and out["continued"] is True
+    assert out["bound"]["spring_id"] == "SPR-INTEG"
+    spring = svc.get_spring("SPR-INTEG")
+    assert "s1" in spring["context"]["session_ids"]
+    assert svc.get_session_plan("s1")["goal"] == "roadmap del proyecto"
+
+
+def test_new_con_spring_existente_no_lo_pisa(svc):
+    svc.create_spring("SPR-INTEG", goal="roadmap del proyecto", status="planning", project_id="p")
+
+    out = _data(session_bind(_ctx(), {"session_id": "s1", "spring_id": "SPR-INTEG", "mode": "new"}))
+
+    assert out["created"] is False and out["continued"] is True
+    assert svc.get_spring("SPR-INTEG")["goal"] == "roadmap del proyecto"
+    assert len(svc.springs) == 1
+
+
+def test_spring_explicito_desconocido_falla(svc):
+    out = session_bind(_ctx(), {"session_id": "s1", "spring_id": "NO-EXISTE", "mode": "continue"})
+
+    assert out.ok is False
+    assert "desconocido" in out.error

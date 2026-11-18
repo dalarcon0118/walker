@@ -130,7 +130,8 @@ T0.9 y T3.3 con datos.
 - El sprint es el artefacto de **ejecución**; el nodo CKG `roadmap-001` y este
   doc son la **referencia**. Nace en `planning` a propósito: un roadmap no es un
   sprint activo (ADR-077).
-- **Gap detectado:** una sesión no puede unirse a este sprint todavía.
-  `session_bind continue` usa el sprint previo de la sesión, y `mode=new` crea
-  uno nuevo; falta aceptar `spring_id` explícito para ejecutar una spec del
-  roadmap dentro de su sprint.
+- **Resuelto:** una sesión sí puede unirse a este sprint. `session_bind` acepta
+  `spring_id` explícito (`mode=continue|new`): suma la sesión al sprint, no lo
+  crea ni lo pisa, y le arma el plan inicial con el goal del sprint.
+  Verificado: `roadmap-session-1` se unió a `SPR-INTEG-20261118`; `auto`
+  devuelve `bound` con 25 tareas y el plan inicial apunta a elegir una spec.

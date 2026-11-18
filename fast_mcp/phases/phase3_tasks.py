@@ -164,6 +164,10 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             },
             "objective": {"type": "string", "description": "Primer pedido de la sesión (goal del sprint)"},
             "parent_session_id": {"type": "string", "description": "Sesión previa si esta continúa un goal"},
+            "spring_id": {
+                "type": "string",
+                "description": "Sprint existente al que unirse (p. ej. el sprint del roadmap). Default: el de la sesión o el activo",
+            },
             "project_id": {"type": "string", "description": "Project identifier"},
         },
         "required": ["session_id"],
