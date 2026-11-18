@@ -28,12 +28,14 @@ const MAX_AUTO_STEPS = 3
 // Se enciende para medir cuánto traba, no como default (una sesión en un
 // proyecto registrado no podría editar hasta completar el paso pendiente).
 // Lo único que movió la aguja fue negar; queda opt-in por costo. Se puede apagar con WALKER_FLIGHT_CONTROL_INTAKE=0.
-// Gate de INTAKE: niega escribir hasta que la tarea esté declarada. Es barato
+// Gate de INTAKE: niega ESCRITURAS hasta que la tarea esté declarada. Es barato
 // (una llamada y se abre). `setup` corre una vez por LOCATION: el estado vive en
 // `rt` (por setup), no en globales — se midió una sesión en walker bloqueada con
 // "game_reset/implement_task" porque el projectId era compartido.
-// Sigue opt-in hasta tener tests del bindeo multi-location.
-const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE === "1"
+// ON por defecto: con el gate apagado el agente escribe primero y declara nunca,
+// y la spec queda vacía (el auto-declare la rellenaba con el primer mensaje del
+// usuario, sin criterios). Escape hatch: WALKER_FLIGHT_CONTROL_INTAKE=0.
+const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE !== "0"
 // Gate de PASOS: además exige completar el sub-estado del workflow. Cuesta ~7x
 // en tareas triviales, así que queda opt-in.
 const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
@@ -200,8 +202,24 @@ function bootstrapBlock(rt) {
 
 function workflowBlock(state, rt) {
   if (!state?.position) return ""
-  const parts = [`[WALKER] Workflow: ${state.position} (${state.execType || ""}).`]
+  // START es el asistente de alta de proyecto (elegir/crear). Cuando la sesión
+  // ya tiene una tarea declarada, ese paso no gobierna la implementación:
+  // inyectarlo es ruido que el agente descarta (medido: 2/2 ignoradas).
+  if (/^START\b/.test(state.position)) return ""
   const proj = rt?.projectId || "<proyecto>"
+  const tpl = state.prompt?.template
+  if (tpl) {
+    // Renderizar el prompt REAL del nodo (con su checklist y su RULE) en vez de
+    // inventar "complete el paso". Es la diferencia entre guiar y molestar.
+    const head = `[WALKER] Paso actual: ${state.position}` +
+      (state.prompt?.template_id ? ` (${state.prompt.template_id})` : "") + "."
+    const body = String(tpl).trim().slice(0, 1200)
+    const tail = state.gates?.length
+      ? `\nAl terminar: ${CLI} ${proj}/transition '{"gate":"${state.gates[0]}"}'.`
+      : ""
+    return `${head}\n${body}${tail}`
+  }
+  const parts = [`[WALKER] Workflow: ${state.position} (${state.execType || ""}).`]
   if (state.required.length) {
     parts.push(`Campos requeridos: ${state.required.join(", ")}.`)
     const example = state.required.map((f) => `"${f}":"..."`).join(",")
@@ -276,6 +294,11 @@ async function runSetup(ctx) {
 
     const state = { data: null, fetchedAt: 0 }
     const sessions = new Map()
+    // Declaraciones de tarea observadas EN PROCESO, por sesión. `implement_task`
+    // corre en otro proceso (CLI) o como tool: el estado del workflow no alcanza
+    // como señal porque el orquestador escribe `auto-<sid>` por su cuenta
+    // (medido: una declaración real quedó pisada por un auto-… en la misma sesión).
+    const declared = new Map()
     const controller = new AbortController()
 
     const sessionOf = (sessionID) => {
@@ -303,6 +326,11 @@ async function runSetup(ctx) {
         gates: Array.isArray(data.available_gates) ? data.available_gates : [],
         taskId: String(data.task_id || ""),
         revision: data.revision ?? 0,
+        // El nodo ya trae su propio prompt (template_id + template). El plugin
+        // lo descartaba y armaba "complete el paso con submit", que no coincide
+        // con lo que el nodo pide: el agente recibía una instrucción falsa y la
+        // ignoraba (medido: workflow_suggestion_ignored 2/2, followed=false).
+        prompt: data.prompt && typeof data.prompt === "object" ? data.prompt : null,
       }
     }
 
@@ -326,6 +354,27 @@ async function runSetup(ctx) {
       state.data = driveAuto(readState())
       state.fetchedAt = Date.now()
       return state.data
+    }
+
+    // ¿Hay tarea declarada? `rt.activeTask` solo se entera si la declaración
+    // entra por la TOOL del plugin; el camino normal es el CLI (otro proceso).
+    // Por eso además se consulta el estado: `task_id` deja de ser `auto-…`
+    // cuando `implement_task` persiste la spec (medido antes/después).
+    const isDeclared = (sessionID) => {
+      const key = sessionID || "global"
+      if (declared.has(key)) return true
+      if (rt.activeTask) {
+        declared.set(key, { taskId: rt.activeTask.taskId, at: Date.now() })
+        return true
+      }
+      const tid = String(run("workflow_state", {})?.task_id || "")
+      if (tid && !tid.startsWith("auto-")) {
+        declared.set(key, { taskId: tid, at: Date.now() })
+        rt.activeTask = { taskId: tid, files: [], fromState: true }
+        state.fetchedAt = 0
+        return true
+      }
+      return false
     }
 
     try {
@@ -433,6 +482,42 @@ async function runSetup(ctx) {
       }
     })()
 
+    // La declaración por CLI ocurre en OTRO proceso: se detecta observando el
+    // comando y se registra por sesión. Sin esto, `isDeclared` no se entera y el
+    // gate deja la sesión bloqueada justo después de que el agente obedeció.
+    try {
+      if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
+      await ctx.tool.transform((editor) => {
+        const shell = editor.get("shell")
+        if (!shell || typeof shell.execute !== "function") return
+        editor.update("shell", (draft) => {
+          const original = draft.execute
+          draft.execute = async (input, callCtx) => {
+            const cmd = String(input?.command || "")
+            const result = await original(input, callCtx)
+            if (/walker3|\/walker\/bin\//.test(cmd) && /\bimplement_task\b/.test(cmd)) {
+              // No alcanza con que el comando "parezca" la declaración: se
+              // verifica contra el estado. Un typo en el JSON del CLI devuelve
+              // error y la sesión quedaría marcada como declarada sin serlo.
+              const tid = String(run("workflow_state", {})?.task_id || "")
+              if (tid && !tid.startsWith("auto-")) {
+                declared.set(String(callCtx?.sessionID || "global"), {
+                  taskId: tid,
+                  at: Date.now(),
+                  cmd: cmd.slice(0, 160),
+                })
+              } else {
+                degrade(rt, "declaración por CLI no verificada", tid || "(sin task_id)")
+              }
+            }
+            return result
+          }
+        })
+      })
+    } catch (err) {
+      degrade(rt, "tool.transform: declaración por CLI", err)
+    }
+
     try {
       if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
@@ -445,7 +530,14 @@ async function runSetup(ctx) {
             draft.execute = async (input, callCtx) => {
               const cur = state.data
               // ── Gate de INTAKE: sin tarea declarada no se escribe ──
-              if (DENY_INTAKE && !rt.activeTask && rt.projectId) {
+              // El desbloqueo se hace por `shell` (CLI de walker). Si el gate
+              // bloqueara `shell`, no habría forma de declarar la tarea y la
+              // sesión quedaría muerta: se permite SOLO la invocación del CLI.
+              // El resto de shell sigue cubierto porque `echo >> archivo` es la
+              // escritura que el gate de edit/write no ve (medido: 1/1 bypass).
+              const isWalkerCli =
+                name === "shell" && /walker3|\/walker\/bin\//.test(String(input?.command || ""))
+              if (DENY_INTAKE && rt.projectId && !isWalkerCli && !isDeclared(callCtx?.sessionID)) {
                 const path = relPath(input?.path || input?.filePath || "", rt)
                 const slug = String(rt.sessionGoal || path || "tarea")
                   .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "tarea"
@@ -456,16 +548,21 @@ async function runSetup(ctx) {
                   data: { tool: name, gate: "intake", file: path },
                 })
                 throw new Error(
-                  `[WALKER] Escritura bloqueada: esta sesión todavía no declaró su tarea.
+                  `[WALKER] Escritura bloqueada: la sesión no declaró su tarea.
 ` +
-                    `No es un bug ni falta leer código: es el protocolo del proyecto.
+                    `No es un bug: es el protocolo del proyecto y se abre con UNA llamada.
 ` +
-                    `Declarala UNA vez y seguí:
+                    `  ${CLI} ${rt.projectId}/implement_task '${JSON.stringify({
+                      task_id: slug,
+                      session_id: String(callCtx?.sessionID || ""),
+                      objective:
+                        "<síntoma y reproducción>. Asumiendo <hipótesis>. Debe <criterio observable>. Sin romper los tests de <área>",
+                      files: path ? [path] : [],
+                    })}'
 ` +
-                    `  ${CLI} ${rt.projectId}/implement_task '{"task_id":"${slug}","session_id":"${String(callCtx?.sessionID || "")}",` +
-                    `"objective":"${(rt.sessionGoal || "cambios sobre " + (path || "el proyecto")).replace(/"/g, "'")}","files":["${path || "..."}"]}'
+                    `El objective NO es un título: walker deriva de ahí los criterios de aceptación ("debe…", "sin romper…") y las precondiciones ("asumiendo…"). Sin criterios no hay verificación posible, y el cierre no se puede validar.
 ` +
-                    `Después repetí exactamente la herramienta que querías usar: el bloqueo se libera solo.`
+                    `Después repetí exactamente la misma herramienta: el bloqueo se libera solo.`
                 )
               }
               if (!DENY || !cur || cur.execType !== "llm_task" || cur.satisfied || !rt.activeTask) {
@@ -522,7 +619,11 @@ async function runSetup(ctx) {
           editor.update(name, (draft) => {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
-              if (!rt.activeTask && rt.projectId) {
+              // Con el gate ON, auto-declarar lo volvería decorativo: la tarea se
+              // crearía con el primer mensaje del usuario como objective, sin
+              // criterios ni hipótesis (medido: spec truncada a 160 chars). El
+              // auto-declare queda solo para el modo escape (gate apagado).
+              if (!DENY_INTAKE && !rt.activeTask && rt.projectId) {
                 const file = relPath(input?.path || input?.filePath || "", rt)
                 const taskId = taskIdFor(callCtx?.sessionID)
                 const res = run("implement_task", {
@@ -611,9 +712,13 @@ async function runSetup(ctx) {
     try {
       if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
-        const taskTool = editor.get("implement_task")
-        if (taskTool && typeof taskTool.execute === "function") {
-          editor.update("implement_task", (draft) => {
+        // El nombre efectivo de la tool MCP lleva namespace (`walker_…`): buscar
+        // solo `implement_task` no enganchaba nunca y `rt.activeTask` quedaba
+        // nulo aunque la tarea estuviera declarada.
+        for (const name of ["implement_task", "walker_implement_task"]) {
+          const taskTool = editor.get(name)
+          if (!taskTool || typeof taskTool.execute !== "function") continue
+          editor.update(name, (draft) => {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
@@ -621,6 +726,11 @@ async function runSetup(ctx) {
                 taskId: String(input?.task_id || ""),
                 files: Array.isArray(input?.files) ? input.files.map(String) : [],
               }
+              declared.set(String(callCtx?.sessionID || "global"), {
+                taskId: rt.activeTask.taskId,
+                at: Date.now(),
+              })
+              state.fetchedAt = 0
               return result
             }
           })
