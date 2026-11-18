@@ -576,3 +576,29 @@ El bloque trae, por archivo, símbolos, llamadores, llamadas y las funciones má
 pesadas; el scope del baseline (archivos, funciones, cyclo max); los tests que lo
 cubren; y `sin verificar` cuando algo no se pudo derivar. El hook de `read` queda
 como fallback para cuando no hay tarea.
+
+### Estado por ubicación (bug que bloqueó sesiones)
+
+`setup` corre **una vez por location** en el mismo proceso. El estado
+(`projectId`, `activeTask`, `sessionGoal`, `pendingBaseline`…) era
+module-global, así que la sesión de un proyecto heredaba el `projectId` de otra
+location que se hubiera inicializado antes.
+
+Se manifestó al encender el gate de intake: una sesión en `walker` quedó
+bloqueada con
+
+```
+walker3 game_reset/implement_task '…'
+```
+
+—el proyecto equivocado— y el mensaje arrastraba como objetivo el bloque de
+contexto de la conversación, no el pedido del usuario.
+
+Ahora todo el estado vive en un objeto `rt` creado dentro de `runSetup` y los
+helpers lo reciben por parámetro (`relPath(file, rt)`, `workflowBlock(state, rt)`,
+`degrade(rt, …)`). El gate de intake queda **opt-in**
+(`WALKER_FLIGHT_CONTROL_INTAKE=1`) hasta tener tests del bindeo multi-location.
+
+Lección: un plugin que corre N veces en un proceso no puede tener estado
+mutable en el módulo. Es el mismo patrón que el `NoopTracer` y los `catch {}`:
+algo que parece global y no lo es.

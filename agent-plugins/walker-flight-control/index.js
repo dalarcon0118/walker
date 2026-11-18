@@ -27,25 +27,28 @@ const MAX_AUTO_STEPS = 3
 // Negación de escrituras: OPT-IN. Con el flag apagado el plugin solo avisa.
 // Se enciende para medir cuánto traba, no como default (una sesión en un
 // proyecto registrado no podría editar hasta completar el paso pendiente).
+// Lo único que movió la aguja fue negar; queda opt-in por costo. Se puede apagar con WALKER_FLIGHT_CONTROL_INTAKE=0.
+// Gate de INTAKE: niega escribir hasta que la tarea esté declarada. Es barato
+// (una llamada y se abre). `setup` corre una vez por LOCATION: el estado vive en
+// `rt` (por setup), no en globales — se midió una sesión en walker bloqueada con
+// "game_reset/implement_task" porque el projectId era compartido.
+// Sigue opt-in hasta tener tests del bindeo multi-location.
+const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE === "1"
+const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE === "1"
+// Gate de PASOS: además exige completar el sub-estado del workflow. Cuesta ~7x
+// en tareas triviales, así que queda opt-in.
 const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
 // `shell` incluido: sin él el agente escribe con `echo >> archivo` y el gate
 // de `edit`/`write` no contiene nada (medido: 1/1 bypass por shell).
 const MUTATING_TOOLS = ["edit", "write", "shell"]
 
-let projectId = process.env.WALKER_PROJECT_ID || ""
-// Tarea en curso (la declara `implement_task`). El gate solo aplica acá: sin
-// tarea declarada, una sesión ad-hoc no se bloquea (medido: bloquear todo
-// costaba ~7x tokens en un cambio de una línea).
-let activeTask = null
-// Baseline calculado en la primera lectura de archivo de la sesión. Se inyecta
-// en el siguiente turno: el agente lo recibe justo cuando empieza a mirar
-// código, sin tener que acordarse de pedirlo.
-let sessionGoal = ""
-let pendingBaseline = null
-let baselineDone = false
-let projectDir = ""
+// OJO: NO hay estado module-global. `setup` corre UNA VEZ POR UBICACIÓN en el
+// mismo proceso (medido: tres setups para tres worktrees), así que una variable
+// global hacía que la sesión de un proyecto usara el projectId de otro — bloqueó
+// una sesión en walker con "game_reset/implement_task". Todo el estado vive en
+// `rt`, creado en `runSetup`.
 
-function runTool(tool, payload = {}, project = projectId) {
+function runTool(tool, payload = {}, project = "") {
   try {
     const stdout = execFileSync(
       CLI,
@@ -62,7 +65,7 @@ function runTool(tool, payload = {}, project = projectId) {
   } catch (err) {
     // Fail-open (el agente sigue) pero visible: sin traza, un CLI roto parece
     // "walker no tenía nada que decir" en vez de "walker no respondió".
-    degrade(`cli falló: ${tool}`, err)
+    degrade(null, `cli falló: ${tool}`, err)
     return null
   }
 }
@@ -70,15 +73,13 @@ function runTool(tool, payload = {}, project = projectId) {
 // Degradación observable: si una parte del plugin no puede engancharse, no se
 // rompe la sesión (ya pasó una vez con `state.data` nulo) pero tampoco se
 // calla: se acumula y se traza cuando el proyecto está resuelto.
-const _degraded = new Set()
-let _pendingDegrades = []
-
-function degrade(what, err) {
+function degrade(rt, what, err) {
+  if (!rt) return
   const detail = String((err && err.message) || err || "").slice(0, 200)
   const key = `${what}|${detail}`
-  if (_degraded.has(key)) return
-  _degraded.add(key)
-  _pendingDegrades.push({ what, detail })
+  if (rt.degraded.has(key)) return
+  rt.degraded.add(key)
+  rt.pendingDegrades.push({ what, detail })
   // Si el CLI es lo que falla, no hay proyecto donde trazar: queda un archivo
   // como última evidencia (bajo demanda, una línea por tipo de fallo).
   try {
@@ -86,25 +87,26 @@ function degrade(what, err) {
   } catch {}
 }
 
-function flushDegrades() {
-  if (!_pendingDegrades.length || !projectId) return
-  const batch = _pendingDegrades
-  _pendingDegrades = []
+function flushDegrades(rt) {
+  if (!rt || !rt.pendingDegrades.length || !rt.projectId) return
+  const batch = rt.pendingDegrades
+  rt.pendingDegrades = []
   for (const d of batch) {
     runTool("trace_push", {
       event_type: "plugin_degraded",
       source: "agent_hook",
+      session_id: rt.sessionId || "",
       data: d,
-    })
+    }, rt.projectId)
   }
 }
 
-function relPath(file) {
+function relPath(file, rt) {
   // El delta y el CPG trabajan con rutas relativas al proyecto; el tool recibe
   // la ruta absoluta de la sesión (y en macOS /tmp vs /private/tmp difiere).
   const p = String(file || "")
   if (!p) return ""
-  const base = String(projectDir || "").replace(/\/+$/, "")
+  const base = String(rt?.projectDir || "").replace(/\/+$/, "")
   if (base && p.startsWith(base + "/")) return p.slice(base.length + 1)
   return p
 }
@@ -128,7 +130,7 @@ function taskIdFor(sessionID) {
   return `auto-${clean.slice(-10) || Date.now()}`
 }
 
-function baselineBlock(r, file) {
+function baselineBlock(r, file, rt) {
   const cpg = r?.cpg || {}
   const rel = cpg.relations || {}
   const syms = (cpg.symbols || []).filter((s) => s.cyclo)
@@ -146,7 +148,7 @@ function baselineBlock(r, file) {
   if (callers.length) parts.push(`  quién lo usa: ${callers.join(", ")}`)
   const ckg = (r?.ckg?.results || []).length
   if (ckg) parts.push(`  CKG: ${ckg} decisión(es)/convención(es) del scope`)
-  parts.push(`  detalle: ${CLI} ${projectId || "<proyecto>"}/agent_context '{"file":"${file}"}'`)
+  parts.push(`  detalle: ${CLI} ${rt?.projectId || "<proyecto>"}/agent_context '{"file":"${file}"}'`)
   return parts.join("\n")
 }
 
@@ -176,12 +178,12 @@ function preflightBlock(pf) {
   return lines.join("\n")
 }
 
-function bootstrapBlock() {
+function bootstrapBlock(rt) {
   // Se manda UNA vez por sesión y se apaga. Sin esto el plugin queda mudo para
   // siempre (la inyección normal exige tarea declarada) y nadie declara nada.
   // Da permiso explícito a ignorarlo: si no, el aviso empuja al agente a
   // caminar el workflow en una consulta o un cambio ad-hoc.
-  const proj = projectId || "<proyecto>"
+  const proj = rt?.projectId || "<proyecto>"
   return (
     `[WALKER] Si esta sesión es una IMPLEMENTACIÓN de código, declarala una vez: ` +
     `${CLI} ${proj}/implement_task '{"task_id":"...","objective":"...","files":["..."]}'. ` +
@@ -189,10 +191,10 @@ function bootstrapBlock() {
   )
 }
 
-function workflowBlock(state) {
+function workflowBlock(state, rt) {
   if (!state?.position) return ""
-  const parts = [`[WALKER] Workflow: ${state.position} (${state.execType}).`]
-  const proj = projectId || "<proyecto>"
+  const parts = [`[WALKER] Workflow: ${state.position} (${state.execType || ""}).`]
+  const proj = rt?.projectId || "<proyecto>"
   if (state.required.length) {
     parts.push(`Campos requeridos: ${state.required.join(", ")}.`)
     const example = state.required.map((f) => `"${f}":"..."`).join(",")
@@ -218,8 +220,10 @@ export default {
       await runSetup(ctx)
     } catch (err) {
       // Última red: cualquier error inesperado del plugin se traza y se corta.
-      degrade("setup crashed", err)
-      flushDegrades()
+      // `rt` vive dentro de runSetup y no está disponible aquí; se pasa null
+      // para no romper la firma (rt.degraded) — el fallo queda en consola.
+      degrade(null, "setup crashed", err)
+      flushDegrades(null)
     }
   },
 }
@@ -227,25 +231,40 @@ export default {
 async function runSetup(ctx) {
     if (!ENABLED) return
 
-    projectDir = ctx?.location?.directory || ctx?.directory || ""
-    if (!projectId && projectDir) {
-      const found = runTool("project_for_path", { path: projectDir }, "_")
-      if (found?.ok && found.project_id) projectId = found.project_id
+    // Estado POR UBICACIÓN. `setup` corre una vez por location en el mismo
+    // proceso; compartir esto entre ubicaciones fue el bug que hizo que una
+    // sesión en walker bloqueara con el rt.projectId de game_reset.
+    const rt = {
+      projectId: process.env.WALKER_PROJECT_ID || "",
+      projectDir: ctx?.location?.directory || ctx?.directory || "",
+      sessionId: "",
+      activeTask: null,
+      sessionGoal: "",
+      pendingBaseline: null,
+      baselineDone: false,
+      degraded: new Set(),
+      pendingDegrades: [],
+    }
+    const run = (tool, payload = {}, project = rt.projectId) => runTool(tool, payload, project)
+
+    if (rt.projectDir) {
+      const found = run("project_for_path", { path: rt.projectDir }, "_")
+      if (found?.ok && found.project_id) rt.projectId = found.project_id
     }
 
     // Señal de vida: sin esto no se distingue "el hook no cargó" de "no había
     // estado de workflow que inyectar".
-    runTool("trace_push", {
+    run("trace_push", {
       event_type: "flight_control_active",
       source: "agent_hook",
-      data: { project_id: projectId, directory: projectDir },
+      data: { project_id: rt.projectId, directory: rt.projectDir },
     })
 
-    if (!projectId) {
+    if (!rt.projectId) {
       // Sin proyecto no hay dónde trazar; se calla a propósito (no es un fallo).
       return
     }
-    flushDegrades()
+    flushDegrades(rt)
 
     const state = { data: null, fetchedAt: 0 }
     const sessions = new Map()
@@ -266,7 +285,7 @@ async function runSetup(ctx) {
     }
 
     const readState = () => {
-      const data = runTool("workflow_state", {})
+      const data = run("workflow_state", {})
       if (!data || data.ok === false) return null
       return {
         position: data.current_position || "",
@@ -287,7 +306,7 @@ async function runSetup(ctx) {
       let cur = current
       for (let i = 0; i < MAX_AUTO_STEPS; i++) {
         if (!cur || (cur.execType !== "auto" && cur.execType !== "bootstrap")) break
-        const res = runTool("advance", {})
+        const res = run("advance", {})
         if (!res || res.ok === false) break
         cur = readState() || cur
       }
@@ -303,7 +322,7 @@ async function runSetup(ctx) {
 
     try {
       if (!ctx?.session?.hook) {
-        degrade("session.hook missing", "el runtime no expone el hook de contexto")
+        degrade(rt, "session.hook missing", "el runtime no expone el hook de contexto")
       } else await ctx.session.hook("context", (event) => {
         // El motor se conduce igual (los `auto` corren sin tokens), pero el
         // texto solo se inyecta cuando hay una TAREA declarada. Medido: la
@@ -311,21 +330,22 @@ async function runSetup(ctx) {
         // workflow por su cuenta (4 → 15 pasos sin que nada lo exigiera).
         refresh()
         const sid = event.sessionID || event.sessionId || ""
+        rt.sessionId = rt.sessionId || sid
         const entry = sessionOf(sid)
-        if (!sessionGoal) sessionGoal = firstUserText(event)
+        if (!rt.sessionGoal) rt.sessionGoal = firstUserText(event)
         // Preflight en el PRIMER turno si ya hay tarea declarada: no depende de
         // que el agente use `read` (puede leer con `execute`, y entonces el
         // hook de lectura nunca dispara — medido).
-        if (!baselineDone && projectId && state.data?.taskId) {
-          baselineDone = true
-          const taskCtx = runTool("agent_context", { task_id: state.data.taskId })
+        if (!rt.baselineDone && rt.projectId && state.data?.taskId) {
+          rt.baselineDone = true
+          const taskCtx = run("agent_context", { task_id: state.data.taskId })
           const files = (taskCtx?.anchor?.files || []).filter(Boolean)
           if (files.length) {
-            const pf = runTool("preflight", { files })
+            const pf = run("preflight", { files })
             const text = preflightBlock(pf)
             if (text) {
-              pendingBaseline = text
-              runTool("trace_push", {
+              rt.pendingBaseline = text
+              run("trace_push", {
                 event_type: "intake_preflight",
                 source: "agent_hook",
                 session_id: sid,
@@ -335,20 +355,20 @@ async function runSetup(ctx) {
             }
           }
         }
-        if (pendingBaseline) {
-          event.system.push({ type: "text", text: pendingBaseline })
-          pendingBaseline = null
+        if (rt.pendingBaseline) {
+          event.system.push({ type: "text", text: rt.pendingBaseline })
+          rt.pendingBaseline = null
         }
         let block = ""
-        if (activeTask) {
-          block = workflowBlock(state.data)
+        if (rt.activeTask) {
+          block = workflowBlock(state.data, rt)
         } else if (!entry.bootstrapped) {
-          block = bootstrapBlock()
+          block = bootstrapBlock(rt)
           entry.bootstrapped = true
         }
         if (!block) return
         if (!Array.isArray(event?.system)) {
-          degrade("event.system no es array", typeof event?.system)
+          degrade(rt, "event.system no es array", typeof event?.system)
           return
         }
         event.system.push({ type: "text", text: block })
@@ -356,7 +376,7 @@ async function runSetup(ctx) {
         entry.position = state.data?.position || ""
       })
     } catch (err) {
-      degrade("hook de contexto falló", err)
+      degrade(rt, "hook de contexto falló", err)
     }
 
     void (async () => {
@@ -379,7 +399,7 @@ async function runSetup(ctx) {
             ""
           const entry = sessionOf(sid)
           if (entry.injections === 0) continue
-          runTool("trace_push", {
+          run("trace_push", {
             event_type: "workflow_state_injected",
             source: "agent_hook",
             session_id: entry.sessionID,
@@ -391,7 +411,7 @@ async function runSetup(ctx) {
             },
           })
           if (!entry.followed) {
-            runTool("trace_push", {
+            run("trace_push", {
               event_type: "workflow_suggestion_ignored",
               source: "agent_hook",
               session_id: entry.sessionID,
@@ -401,14 +421,14 @@ async function runSetup(ctx) {
           sessions.delete(sid || "global")
         }
       } catch (err) {
-        degrade("event.subscribe falló", err)
+        degrade(rt, "event.subscribe falló", err)
       }
     })()
 
     try {
       if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
-        if (!DENY) return
+        if (!DENY && !DENY_INTAKE) return
         for (const name of MUTATING_TOOLS) {
           const tool = editor.get(name)
           if (!tool || typeof tool.execute !== "function") continue
@@ -416,35 +436,59 @@ async function runSetup(ctx) {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const cur = state.data
-              if (!cur || cur.execType !== "llm_task" || cur.satisfied || !activeTask) {
+              // ── Gate de INTAKE: sin tarea declarada no se escribe ──
+              if (DENY_INTAKE && !rt.activeTask && rt.projectId) {
+                const path = relPath(input?.path || input?.filePath || "", rt)
+                const slug = String(rt.sessionGoal || path || "tarea")
+                  .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "tarea"
+                run("trace_push", {
+                  event_type: "flight_control_denied",
+                  source: "agent_hook",
+                  session_id: String(callCtx?.sessionID || ""),
+                  data: { tool: name, gate: "intake", file: path },
+                })
+                throw new Error(
+                  `[WALKER] Escritura bloqueada: esta sesión todavía no declaró su tarea.
+` +
+                    `No es un bug ni falta leer código: es el protocolo del proyecto.
+` +
+                    `Declarala UNA vez y seguí:
+` +
+                    `  ${CLI} ${rt.projectId}/implement_task '{"task_id":"${slug}","session_id":"${String(callCtx?.sessionID || "")}",` +
+                    `"objective":"${(rt.sessionGoal || "cambios sobre " + (path || "el proyecto")).replace(/"/g, "'")}","files":["${path || "..."}"]}'
+` +
+                    `Después repetí exactamente la herramienta que querías usar: el bloqueo se libera solo.`
+                )
+              }
+              if (!DENY || !cur || cur.execType !== "llm_task" || cur.satisfied || !rt.activeTask) {
                 return original(input, callCtx)
               }
               // Si la tarea declaró archivos, el gate solo cubre esos archivos.
               const path = String(input?.path || input?.filePath || input?.file || "")
-              const files = activeTask.files || []
+              const files = rt.activeTask.files || []
               if (path && files.length && !files.some((f) => path.endsWith(f))) {
                 return original(input, callCtx)
               }
-              const fields = cur.required.length
-                ? cur.required.map((f) => `"${f}":"..."`).join(",")
+              const fields = (cur.required || []).length
+                ? (cur.required || []).map((f) => `"${f}":"..."`).join(",")
                 : ""
               const gate = (cur.gates || [])[0] || ""
-              runTool("trace_push", {
+              run("trace_push", {
                 event_type: "flight_control_denied",
                 source: "agent_hook",
                 session_id: String(callCtx?.sessionID || ""),
-                data: { tool: name, position: cur.position, required: cur.required },
+                data: { tool: name, position: cur?.position, required: cur?.required },
               })
               // El mensaje tiene que ser AUTOSUFICIENTE: en el probe anterior el
               // agente gastó 19 de 24 pasos leyendo el fuente del plugin para
               // entender el bloqueo. Todo lo que necesita va acá.
               throw new Error(
                 `[WALKER] Escritura bloqueada. El workflow del proyecto está en ` +
-                  `${cur.position} y falta registrar: ${cur.required.join(", ") || "(sin campos)"}.\n` +
+                  `${cur?.position} y falta registrar: ${(cur.required || []).join(", ") || "(sin campos)"}.\n` +
                   `Es una regla del proyecto, no un bug: no hace falta leer el código del gate.\n` +
                   `Para desbloquear, en DOS llamadas:\n` +
-                  `  1) ${CLI} ${projectId}/submit '{${fields}}'\n` +
-                  `  2) ${CLI} ${projectId}/transition '{"gate":"${gate}"}'\n` +
+                  `  1) ${CLI} ${rt.projectId}/submit '{${fields}}'\n` +
+                  `  2) ${CLI} ${rt.projectId}/transition '{"gate":"${gate}"}'\n` +
                   `Qué poner en cada campo: el contenido real que exige el paso ` +
                   `(para \`preconditions\`, premisas verificables: comando => resultado; ` +
                   `para \`loop_verification\`, comando => salida).\n` +
@@ -455,7 +499,7 @@ async function runSetup(ctx) {
         }
       })
     } catch (err) {
-      degrade("tool.transform: gate de negación", err)
+      degrade(rt, "tool.transform: gate de negación", err)
     }
 
     try {
@@ -470,18 +514,18 @@ async function runSetup(ctx) {
           editor.update(name, (draft) => {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
-              if (!activeTask && projectId) {
-                const file = relPath(input?.path || input?.filePath || "")
+              if (!rt.activeTask && rt.projectId) {
+                const file = relPath(input?.path || input?.filePath || "", rt)
                 const taskId = taskIdFor(callCtx?.sessionID)
-                const res = runTool("implement_task", {
+                const res = run("implement_task", {
                   task_id: taskId,
                   session_id: String(callCtx?.sessionID || ""),
-                  objective: sessionGoal || `cambios sobre ${file || "el proyecto"}`,
+                  objective: rt.sessionGoal || `cambios sobre ${file || "el proyecto"}`,
                   files: file ? [file] : [],
                 })
                 if (res && res.ok !== false) {
-                  activeTask = { taskId, files: file ? [file] : [], auto: true }
-                  runTool("trace_push", {
+                  rt.activeTask = { taskId, files: file ? [file] : [], auto: true }
+                  run("trace_push", {
                     event_type: "task_autodeclared",
                     source: "agent_hook",
                     session_id: String(callCtx?.sessionID || ""),
@@ -490,11 +534,11 @@ async function runSetup(ctx) {
                     data: { task_id: taskId, file },
                   })
                 }
-              } else if (activeTask && input?.path && !activeTask.auto) {
+              } else if (rt.activeTask && input?.path && !rt.activeTask.auto) {
                 // tarea ya declarada a mano: no tocamos
-              } else if (activeTask && activeTask.auto && input?.path) {
-                const f = relPath(input.path)
-                if (!activeTask.files.includes(f)) activeTask.files.push(f)
+              } else if (rt.activeTask && rt.activeTask.auto && input?.path) {
+                const f = relPath(input.path, rt)
+                if (!rt.activeTask.files.includes(f)) rt.activeTask.files.push(f)
               }
               return original(input, callCtx)
             }
@@ -502,7 +546,7 @@ async function runSetup(ctx) {
         }
       })
     } catch (err) {
-      degrade("tool.transform: auto-declaración", err)
+      degrade(rt, "tool.transform: auto-declaración", err)
     }
 
     try {
@@ -514,9 +558,9 @@ async function runSetup(ctx) {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
-              const file = relPath(input?.path || input?.filePath || "")
-              if (!baselineDone && file && projectId) {
-                baselineDone = true
+              const file = relPath(input?.path || input?.filePath || "", rt)
+              if (!rt.baselineDone && file && rt.projectId) {
+                rt.baselineDone = true
                 const sid = String(callCtx?.sessionID || "")
                 // Preferir los archivos QUE DECLARÓ LA TAREA (contexto de todos,
                 // no del primero que se abre). Si no hay tarea, cae al archivo.
@@ -524,21 +568,21 @@ async function runSetup(ctx) {
                 let source = "file"
                 const tid = state.data?.taskId || ""
                 if (tid) {
-                  const taskCtx = runTool("agent_context", { task_id: tid })
+                  const taskCtx = run("agent_context", { task_id: tid })
                   const files = (taskCtx?.anchor?.files || []).filter(Boolean)
                   if (files.length) {
-                    const pf = runTool("preflight", { files })
+                    const pf = run("preflight", { files })
                     block = preflightBlock(pf)
                     if (block) source = "task"
                   }
                 }
                 if (!block) {
-                  const ctxData = runTool("agent_context", { file })
-                  if (ctxData) block = baselineBlock(ctxData, file)
+                  const ctxData = run("agent_context", { file })
+                  if (ctxData) block = baselineBlock(ctxData, file, rt)
                 }
                 if (block) {
-                  pendingBaseline = block
-                  runTool("trace_push", {
+                  rt.pendingBaseline = block
+                  run("trace_push", {
                     event_type: "intake_baseline",
                     source: "agent_hook",
                     session_id: sid,
@@ -553,7 +597,7 @@ async function runSetup(ctx) {
         }
       })
     } catch (err) {
-      degrade("tool.transform: baseline", err)
+      degrade(rt, "tool.transform: baseline", err)
     }
 
     try {
@@ -565,7 +609,7 @@ async function runSetup(ctx) {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
-              activeTask = {
+              rt.activeTask = {
                 taskId: String(input?.task_id || ""),
                 files: Array.isArray(input?.files) ? input.files.map(String) : [],
               }
@@ -575,7 +619,7 @@ async function runSetup(ctx) {
         }
       })
     } catch (err) {
-      degrade("tool.transform: tarea activa", err)
+      degrade(rt, "tool.transform: tarea activa", err)
     }
 
     try {
@@ -599,7 +643,7 @@ async function runSetup(ctx) {
         }
       })
     } catch (err) {
-      degrade("tool.transform: seguimiento de submit", err)
+      degrade(rt, "tool.transform: seguimiento de submit", err)
     }
 
     return () => controller.abort()
