@@ -226,12 +226,21 @@ def _resolve_chain_dir(kwargs: dict) -> str:
     # Step 3: fallback — try resolve_paths directly (if already a path)
     try:
         from fast_mcp.shared_kernel.project_support import ProjectService
+
         paths = ProjectService.resolve_paths(project_id)
-        return str(paths.project_root) if paths.project_root else project_id
+        # Un id DESCONOCIDO hacía que `resolve_paths` cayera al repo de walker
+        # (mismo bug que el CLI ya corrige comparando el id resuelto). Sin este
+        # control, el camino MCP leía/escribía estado del proyecto equivocado.
+        resolved_id = getattr(paths, "project_id", "")
+        if not resolved_id or resolved_id != project_id:
+            return ""
+        return str(paths.project_root) if getattr(paths, "project_root", "") else ""
     except Exception:
         pass
 
-    return project_id
+    # Nunca devolver el id crudo: se usaría como path relativo y el handler
+    # escribiría fuera de todo proyecto. Sin contexto → error accionable.
+    return ""
 
 
 def memory_tool_runner(name: str, root: Path | None = None):
