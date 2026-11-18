@@ -34,7 +34,6 @@ const MAX_AUTO_STEPS = 3
 // "game_reset/implement_task" porque el projectId era compartido.
 // Sigue opt-in hasta tener tests del bindeo multi-location.
 const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE === "1"
-const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE === "1"
 // Gate de PASOS: además exige completar el sub-estado del workflow. Cuesta ~7x
 // en tareas triviales, así que queda opt-in.
 const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
@@ -73,13 +72,21 @@ function runTool(tool, payload = {}, project = "") {
 // Degradación observable: si una parte del plugin no puede engancharse, no se
 // rompe la sesión (ya pasó una vez con `state.data` nulo) pero tampoco se
 // calla: se acumula y se traza cuando el proyecto está resuelto.
+// `rt` puede faltar: `runTool` y el catch de `setup` no lo tienen a mano. Antes
+// se pasaba `null` y el `return` temprano se tragaba el fallo entero — sin
+// traza, sin archivo, sin consola. Un fallo sin rastro es indistinguible de
+// "no pasó nada", que es el peor estado para diagnosticar.
+// ORPHAN es solo diagnóstico: no guarda estado de proyecto, así que no reabre
+// el bug multi-location que motivó sacar los globales.
+const ORPHAN = { degraded: new Set(), pendingDegrades: [], projectId: "" }
+
 function degrade(rt, what, err) {
-  if (!rt) return
+  const target = rt || ORPHAN
   const detail = String((err && err.message) || err || "").slice(0, 200)
   const key = `${what}|${detail}`
-  if (rt.degraded.has(key)) return
-  rt.degraded.add(key)
-  rt.pendingDegrades.push({ what, detail })
+  if (target.degraded.has(key)) return
+  target.degraded.add(key)
+  target.pendingDegrades.push({ what, detail })
   // Si el CLI es lo que falla, no hay proyecto donde trazar: queda un archivo
   // como última evidencia (bajo demanda, una línea por tipo de fallo).
   try {
@@ -219,11 +226,12 @@ export default {
     try {
       await runSetup(ctx)
     } catch (err) {
-      // Última red: cualquier error inesperado del plugin se traza y se corta.
-      // `rt` vive dentro de runSetup y no está disponible aquí; se pasa null
-      // para no romper la firma (rt.degraded) — el fallo queda en consola.
+      // Última red: cualquier error inesperado del plugin se registra y se corta.
+      // `rt` vive dentro de runSetup y no está disponible aquí; degrade lo acepta
+      // nulo vía ORPHAN. Sin proyecto no hay TraceGraph donde trazar, así que
+      // además queda en consola.
       degrade(null, "setup crashed", err)
-      flushDegrades(null)
+      console.error("[walker-flight-control] setup crashed:", (err && err.stack) || err)
     }
   },
 }
