@@ -11,10 +11,11 @@ import logging
 from typing import Any
 
 from fast_mcp.features.delta_tracking.application.ports.delta_repository import DeltaRepository
-from fast_mcp.features.delta_tracking.domain.entities import Spring, Spec
+from fast_mcp.features.delta_tracking.domain.entities import Session, Spring, Spec
 from fast_mcp.features.delta_tracking.domain.values import (
     TYPE_SPRING,
     TYPE_SPEC,
+    TYPE_SESSION,
     spec_doc_id,
 )
 
@@ -140,6 +141,26 @@ class CognitiveDeltaRepository(DeltaRepository):
 
     def delete_spec(self, spring_id: str, spec_id: str) -> None:
         self._cg.delete(self.INDEX, spec_doc_id(spring_id, spec_id))
+
+    # ── Session ──
+
+    def get_session(self, session_id: str) -> Session | None:
+        doc = self._cg.get(self.INDEX, session_id)
+        if doc and doc.get("_source"):
+            return Session.from_dict(doc["_source"])
+        return None
+
+    def save_session(self, session: Session) -> None:
+        self._cg.store(self.INDEX, session.session_id, session.to_dict())
+
+    def list_sessions(self, status: str = "", project_id: str = "") -> list[Session]:
+        hits = self._search({"type": TYPE_SESSION})
+        sessions = [Session.from_dict(h["_source"]) for h in hits]
+        if status:
+            sessions = [s for s in sessions if s.status == status]
+        if project_id:
+            sessions = [s for s in sessions if s.project_id == project_id]
+        return sessions
 
     # ── Relations ──
 

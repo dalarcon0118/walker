@@ -416,6 +416,16 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
 
     out: dict[str, Any] = {"type": "session_context", "session_id": sid}
 
+    # 0. REGISTRO: ciclo de vida y jerarquía de la sesión (si existe)
+    try:
+        from fast_mcp.composition import build_sprint_service
+
+        reg = build_sprint_service(ctx.chain_dir)
+        record = reg.get_session(sid) if reg is not None else None
+        out["session"] = record or {"status": "unregistered"}
+    except Exception as exc:  # noqa: BLE001
+        out["session_error"] = f"{type(exc).__name__}: {exc}"
+
     # 1. TRACE: qué hizo el agente
     events: list = []
     try:

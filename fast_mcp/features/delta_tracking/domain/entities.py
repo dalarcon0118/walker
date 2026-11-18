@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from fast_mcp.features.delta_tracking.domain.values import (
     TYPE_SPRING,
     TYPE_SPEC,
+    TYPE_SESSION,
     is_valid_spring_status,
     is_valid_spec_status,
     spec_doc_id,
@@ -184,6 +185,71 @@ class Spec:
             related_decisions=data.get("related_decisions", []),
             transformation_map=data.get("transformation_map", {}),
             created_at=data.get("created_at", ""),
+        )
+
+
+@dataclass
+class Session:
+    """Sesión de agente dentro de un proyecto (delta-sprint registry).
+
+    Es la unidad de trabajo del AGENTE, hermana de Spring (unidad del proyecto).
+    Antes la sesión existía solo como string disperso en specs/trazas; acá tiene
+    ciclo de vida (active/closed), jerarquía (parent_session_id) y el sprint al
+    que está ligada.
+    """
+
+    session_id: str
+    project_id: str = ""
+    agent: str = ""
+    model: str = ""
+    status: str = "active"
+    goal: str = ""
+    spring_id: str = ""
+    parent_session_id: str = ""
+    started_at: str = ""
+    updated_at: str = ""
+    ended_at: str = ""
+    outcome: str = ""
+    context: dict | None = None
+
+    @property
+    def type(self) -> str:
+        return TYPE_SESSION
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.type,
+            "session_id": self.session_id,
+            "project_id": self.project_id,
+            "agent": self.agent,
+            "model": self.model,
+            "status": self.status,
+            "goal": self.goal,
+            "spring_id": self.spring_id,
+            "parent_session_id": self.parent_session_id,
+            "started_at": self.started_at or _now(),
+            "updated_at": self.updated_at or _now(),
+            "ended_at": self.ended_at,
+            "outcome": self.outcome,
+            "context": self.context or {},
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Session:
+        return cls(
+            session_id=data.get("session_id", data.get("_id", "")),
+            project_id=data.get("project_id", ""),
+            agent=data.get("agent", ""),
+            model=data.get("model", ""),
+            status=data.get("status", "active"),
+            goal=data.get("goal", ""),
+            spring_id=data.get("spring_id", ""),
+            parent_session_id=data.get("parent_session_id", ""),
+            started_at=data.get("started_at", ""),
+            updated_at=data.get("updated_at", ""),
+            ended_at=data.get("ended_at", ""),
+            outcome=data.get("outcome", ""),
+            context=data.get("context"),
         )
 
 

@@ -365,6 +365,8 @@ async function runSetup(ctx) {
           sessionID: sessionID || "",
           bootstrapped: false,
           bind: "",
+          opened: false,
+          closed: false,
         })
       }
       return sessions.get(key)
@@ -508,6 +510,21 @@ async function runSetup(ctx) {
         const sid = event.sessionID || event.sessionId || ""
         rt.sessionId = rt.sessionId || sid
         const entry = sessionOf(sid)
+        if (!entry.opened && rt.projectId && sid) {
+          entry.opened = true
+          // Registro de continuidad: ciclo de vida + jerarquía. Fail-open: si
+          // walker no responde, la sesión sigue igual.
+          run(
+            "session_open",
+            {
+              session_id: sid,
+              project_id: rt.projectId,
+              agent: String(event.agent || ""),
+            },
+            rt.projectId,
+            HOOK_TIMEOUT_MS
+          )
+        }
         if (!rt.sessionGoal) rt.sessionGoal = firstUserText(event)
         // Preflight en el PRIMER turno si ya hay tarea declarada: no depende de
         // que el agente use `read` (puede leer con `execute`, y entonces el
@@ -583,6 +600,18 @@ async function runSetup(ctx) {
             event.data?.info?.sessionID ||
             ""
           const entry = sessionOf(sid)
+          if (entry.opened && !entry.closed && entry.sessionID) {
+            entry.closed = true
+            run(
+              "session_close",
+              {
+                session_id: entry.sessionID,
+                outcome: String(event.type || "").replace("session.execution.", ""),
+              },
+              rt.projectId,
+              HOOK_TIMEOUT_MS
+            )
+          }
           if (entry.injections === 0) continue
           run("trace_push", {
             event_type: "workflow_state_injected",

@@ -21,6 +21,7 @@ class FakeSprintService:
     def __init__(self) -> None:
         self.springs: list[dict] = []
         self.specs: dict[str, list[dict]] = {}
+        self.sessions: dict[str, dict] = {}
 
     def list_springs(self, status: str = "") -> list[dict]:
         return list(self.springs)
@@ -55,6 +56,14 @@ class FakeSprintService:
 
     def get_specs(self, spring_id: str, status: str = "") -> list[dict]:
         return list(self.specs.get(spring_id, []))
+
+    def open_session(self, session_id: str, **kw) -> dict:
+        self.sessions.setdefault(session_id, {"session_id": session_id})
+        self.sessions[session_id].update({k: v for k, v in kw.items() if v})
+        return self.sessions[session_id]
+
+    def last_session(self, project_id: str = "") -> dict | None:
+        return None
 
 
 @pytest.fixture()

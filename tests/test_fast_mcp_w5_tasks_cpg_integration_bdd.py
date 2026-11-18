@@ -226,6 +226,9 @@ class TestTaskRegistryCompleteness:
             "implement_task",
             # Continuidad sesión→sprint (delta-sprint): decision auto|new|continue
             "session_bind",
+            "session_open",
+            "session_close",
+            "session_list",
             "run_tests",
             "verify_predicates",
             "capture",

@@ -147,6 +147,26 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                     "suggestion": _suggestion(summary, "resume_available"),
                 }
             )
+        last = service.last_session(project_id) if hasattr(service, "last_session") else None
+        if last and last.get("session_id") != session_id and (last.get("goal") or last.get("spring_id")):
+            summary = {
+                "spring_id": last.get("spring_id") or "",
+                "goal": last.get("goal") or "",
+                "status": last.get("status") or "",
+                "session_id": last.get("session_id") or "",
+                "sessions": [],
+                "tasks": [],
+                "tasks_count": 0,
+            }
+            return TaskResult.success(
+                {
+                    **base,
+                    "decision": "resume_available",
+                    "previous": summary,
+                    "last_session": last,
+                    "suggestion": _suggestion(summary, "resume_available"),
+                }
+            )
         return TaskResult.success(
             {
                 **base,
@@ -177,6 +197,14 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             context=context,
         )
         summary = _summary(service, spring)
+        service.open_session(
+            session_id,
+            project_id=project_id,
+            parent_session_id=inherited_parent,
+            spring_id=spring_id,
+            goal=goal,
+            context={"bound_by": "session_bind/new"},
+        )
         return TaskResult.success(
             {**base, "decision": "bound", "created": True, "bound": summary,
              "suggestion": f"Sprint {spring_id} creado para esta sesión (goal: {goal})."},
@@ -201,13 +229,95 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     service.update_spring(spring_id, {"context": context})
     updated = service.get_spring(spring_id) or target
     summary = _summary(service, updated)
+    service.open_session(
+        session_id,
+        project_id=project_id,
+        parent_session_id=context.get("parent_session_id") or "",
+        spring_id=spring_id,
+        goal=summary.get("goal") or "",
+        context={"bound_by": "session_bind/continue"},
+    )
     return TaskResult.success(
         {**base, "decision": "bound", "created": False, "continued": True, "bound": summary,
          "suggestion": f"Esta sesión se sumó a {spring_id} (goal: {summary.get('goal') or ''})."},
     )
 
 
+def session_open(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    """Alta idempotente de la sesión en el registro (ciclo de vida + jerarquía)."""
+    session_id = str(data.get("session_id") or ctx.session_id or "").strip()
+    if not session_id or session_id == "mcp":
+        return TaskResult.failure("session_open: session_id requerido")
+    service = _di.sprint_service(ctx.chain_dir)
+    if service is None:
+        return TaskResult.failure("session_open: sprint service no disponible")
+    try:
+        record = service.open_session(
+            session_id,
+            project_id=str(data.get("project_id") or ""),
+            agent=str(data.get("agent") or ""),
+            model=str(data.get("model") or ""),
+            parent_session_id=str(data.get("parent_session_id") or ""),
+            spring_id=str(data.get("spring_id") or ""),
+            goal=str(data.get("goal") or ""),
+            context=data.get("context") if isinstance(data.get("context"), dict) else None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return TaskResult.failure(f"session_open: {type(exc).__name__}: {exc}")
+    return TaskResult.success({"ok": True, "session": record})
+
+
+def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    session_id = str(data.get("session_id") or ctx.session_id or "").strip()
+    if not session_id or session_id == "mcp":
+        return TaskResult.failure("session_close: session_id requerido")
+    service = _di.sprint_service(ctx.chain_dir)
+    if service is None:
+        return TaskResult.failure("session_close: sprint service no disponible")
+    record = service.close_session(session_id, outcome=str(data.get("outcome") or ""))
+    if record is None:
+        return TaskResult.failure(f"session_close: sesión desconocida {session_id!r}")
+    return TaskResult.success({"ok": True, "session": record})
+
+
+def session_list(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    service = _di.sprint_service(ctx.chain_dir)
+    if service is None:
+        return TaskResult.failure("session_list: sprint service no disponible")
+    project_id = str(data.get("project_id") or "")
+    try:
+        limit = int(data.get("limit") or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    sessions = service.list_sessions(
+        status=str(data.get("status") or ""), project_id=project_id, limit=limit
+    )
+    return TaskResult.success(
+        {
+            "ok": True,
+            "count": len(sessions),
+            "sessions": sessions,
+            "last": service.last_session(project_id),
+        }
+    )
+
+
 def register(registry) -> None:
+    registry.register(
+        "session_open",
+        session_open,
+        metadata={"description": "Register/open a chat session", "tags": ["session"], "scope": "internal"},
+    )
+    registry.register(
+        "session_close",
+        session_close,
+        metadata={"description": "Close a chat session", "tags": ["session"], "scope": "internal"},
+    )
+    registry.register(
+        "session_list",
+        session_list,
+        metadata={"description": "List chat sessions", "tags": ["session"], "scope": "internal"},
+    )
     registry.register(
         "session_bind",
         session_bind,

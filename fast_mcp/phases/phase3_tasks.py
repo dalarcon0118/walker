@@ -52,6 +52,9 @@ _FASE3_TOOLS = (
     "trace_message",
     "implement_task",
     "session_bind",
+    "session_open",
+    "session_close",
+    "session_list",
     "run_tests",
     "verify_predicates",
     "capture",
@@ -158,6 +161,35 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         },
         "required": ["session_id"],
     },
+    "session_open": {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session identifier"},
+            "project_id": {"type": "string", "description": "Project identifier"},
+            "agent": {"type": "string", "description": "Agent name"},
+            "model": {"type": "string", "description": "Model used by the session"},
+            "parent_session_id": {"type": "string", "description": "Sesión previa (jerarquía)"},
+            "spring_id": {"type": "string", "description": "Sprint ligado"},
+            "goal": {"type": "string", "description": "Goal de la sesión"},
+        },
+        "required": ["session_id"],
+    },
+    "session_close": {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session identifier"},
+            "outcome": {"type": "string", "description": "Resultado (succeeded|failed|interrupted|...)"},
+        },
+        "required": ["session_id"],
+    },
+    "session_list": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "description": "Project identifier"},
+            "status": {"type": "string", "description": "active|closed"},
+            "limit": {"type": "integer", "description": "Máximo de sesiones"},
+        },
+    },
     "implement_task": {
         "type": "object",
         "properties": {
@@ -223,6 +255,9 @@ _DESCRIPTIONS = {
     "sprint_planning": "Create a sprint with specs from task list.",
     "resolve_project_sprint": "Find the active sprint for a project.",
     "session_bind": "Bind a chat session to a sprint (delta-sprint): auto|new|continue.",
+    "session_open": "Register/open a chat session (idempotente).",
+    "session_close": "Close a chat session.",
+    "session_list": "List chat sessions with lifecycle and hierarchy.",
     "trace_push": "Push an event to the execution trace index.",
     "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
     "implement_task": "Prepare task implementation (records objective and files).",
@@ -260,7 +295,7 @@ def _build_runner(name: str):
     _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
-    _TASK_TOOLS = {"implement_task", "session_bind", "run_tests", "verify_predicates", "capture"}
+    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner
         return session_tool_runner(name)

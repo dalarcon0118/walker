@@ -34,6 +34,7 @@ def is_valid_spec_status(status: str) -> bool:
 
 TYPE_SPRING = "spring"
 TYPE_SPEC = "spec"
+TYPE_SESSION = "session"
 
 # ── Edge types ────────────────────────────────────────────────────
 

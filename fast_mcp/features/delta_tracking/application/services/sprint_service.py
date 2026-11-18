@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from fast_mcp.features.delta_tracking.application.ports.delta_repository import DeltaRepository
-from fast_mcp.features.delta_tracking.domain.entities import Spring, Spec
+from fast_mcp.features.delta_tracking.domain.entities import Session, Spring, Spec
 from fast_mcp.features.delta_tracking.domain.values import (
     spec_id_from_index,
     spring_id_from_chain_dir,
@@ -38,6 +39,14 @@ def _spring_to_dict(spring: Spring) -> dict:
     d = spring.to_dict()
     d["_id"] = spring.spring_id
     return d
+
+
+def _session_to_dict(session: Session) -> dict:
+    return session.to_dict()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class SprintService:
@@ -143,6 +152,115 @@ class SprintService:
                 if hasattr(spring, k) and v is not None:
                     setattr(spring, k, v)
             self._repo.save_spring(spring)
+
+    # ── Sessions (registro de continuidad) ──
+    #
+    # La sesión es la unidad del AGENTE; el sprint la del proyecto. Viven en el
+    # mismo delta para que el join por session_id no dependa de archivos aparte.
+
+    def get_session(self, session_id: str) -> dict | None:
+        if not self._repo:
+            return None
+        s = self._repo.get_session(session_id)
+        return _session_to_dict(s) if s else None
+
+    def open_session(
+        self,
+        session_id: str,
+        project_id: str = "",
+        agent: str = "",
+        model: str = "",
+        parent_session_id: str = "",
+        spring_id: str = "",
+        goal: str = "",
+        context: dict | None = None,
+    ) -> dict:
+        """Alta idempotente: si existe, actualiza; no pisa `started_at`."""
+        if not self._repo:
+            raise ValueError("repo no disponible")
+        now = _now_iso()
+        existing = self._repo.get_session(session_id)
+        if existing:
+            existing.updated_at = now
+            existing.status = "active"
+            existing.ended_at = ""
+            if agent:
+                existing.agent = agent
+            if model:
+                existing.model = model
+            if parent_session_id:
+                existing.parent_session_id = parent_session_id
+            if spring_id:
+                existing.spring_id = spring_id
+            if goal:
+                existing.goal = goal
+            if project_id and not existing.project_id:
+                existing.project_id = project_id
+            if context:
+                existing.context = {**(existing.context or {}), **context}
+            session = existing
+        else:
+            session = Session(
+                session_id=session_id,
+                project_id=project_id,
+                agent=agent,
+                model=model,
+                status="active",
+                goal=goal,
+                spring_id=spring_id,
+                parent_session_id=parent_session_id,
+                started_at=now,
+                updated_at=now,
+                context=context or {},
+            )
+        self._repo.save_session(session)
+        return _session_to_dict(session)
+
+    def link_session_spring(
+        self, session_id: str, spring_id: str, goal: str = "", parent_session_id: str = ""
+    ) -> dict | None:
+        if not self._repo:
+            return None
+        session = self._repo.get_session(session_id)
+        if session is None:
+            return None
+        session.spring_id = spring_id
+        session.status = "active"
+        session.updated_at = _now_iso()
+        if goal:
+            session.goal = goal
+        if parent_session_id:
+            session.parent_session_id = parent_session_id
+        self._repo.save_session(session)
+        return _session_to_dict(session)
+
+    def close_session(self, session_id: str, outcome: str = "") -> dict | None:
+        if not self._repo:
+            return None
+        session = self._repo.get_session(session_id)
+        if session is None:
+            return None
+        now = _now_iso()
+        session.status = "closed"
+        session.ended_at = now
+        session.updated_at = now
+        if outcome:
+            session.outcome = outcome
+        self._repo.save_session(session)
+        return _session_to_dict(session)
+
+    def list_sessions(
+        self, status: str = "", project_id: str = "", limit: int = 0
+    ) -> list[dict]:
+        if not self._repo:
+            return []
+        sessions = [_session_to_dict(s) for s in self._repo.list_sessions(status, project_id)]
+        sessions.sort(key=lambda s: s.get("started_at") or "", reverse=True)
+        return sessions[:limit] if limit and limit > 0 else sessions
+
+    def last_session(self, project_id: str = "") -> dict | None:
+        sessions = self.list_sessions(project_id=project_id, limit=1)
+        return sessions[0] if sessions else None
 
     # ── Specs ──
 
