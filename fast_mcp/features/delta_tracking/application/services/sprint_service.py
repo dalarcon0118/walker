@@ -256,7 +256,44 @@ class SprintService:
             return []
         sessions = [_session_to_dict(s) for s in self._repo.list_sessions(status, project_id)]
         sessions.sort(key=lambda s: s.get("started_at") or "", reverse=True)
+        # Hijos derivados de `parent_session_id` dentro del mismo conjunto: no
+        # hay índice inverso que mantener, y una sesión huérfana no desaparece.
+        by_id = {s.get("session_id"): s for s in sessions}
+        kids: dict[str, list[str]] = {}
+        for s in sessions:
+            parent = s.get("parent_session_id") or ""
+            if parent and parent in by_id and parent != s.get("session_id"):
+                kids.setdefault(parent, []).append(s.get("session_id") or "")
+        for s in sessions:
+            s["children"] = sorted(kids.get(s.get("session_id") or "", []))
         return sessions[:limit] if limit and limit > 0 else sessions
+
+    @staticmethod
+    def build_session_tree(sessions: list[dict]) -> list[dict]:
+        """Bosque de sesiones: raíces + hijos anidados.
+
+        Una sesión cuyo `parent_session_id` no está en el conjunto se trata como
+        raíz: nunca se pierde una sesión por un padre ausente.
+        """
+        nodes = {
+            s.get("session_id"): {**s, "children": []}
+            for s in sessions
+            if s.get("session_id")
+        }
+        roots: list[dict] = []
+        for sid, node in nodes.items():
+            parent = node.get("parent_session_id") or ""
+            if parent and parent in nodes and parent != sid:
+                nodes[parent]["children"].append(node)
+            else:
+                roots.append(node)
+        roots.sort(key=lambda n: n.get("started_at") or "", reverse=True)
+        return roots
+
+    def session_tree(
+        self, status: str = "", project_id: str = ""
+    ) -> list[dict]:
+        return self.build_session_tree(self.list_sessions(status=status, project_id=project_id))
 
     def last_session(self, project_id: str = "") -> dict | None:
         sessions = self.list_sessions(project_id=project_id, limit=1)

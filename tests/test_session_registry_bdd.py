@@ -106,3 +106,41 @@ def test_jerarquia_parent_session():
     hija = svc.open_session("hija", parent_session_id="padre")
 
     assert hija["parent_session_id"] == "padre"
+
+
+def test_children_derivados_del_parent():
+    svc = _svc()
+    svc.open_session("padre")
+    svc.open_session("hija-1", parent_session_id="padre")
+    svc.open_session("hija-2", parent_session_id="padre")
+    svc.open_session("nieto", parent_session_id="hija-1")
+
+    by_id = {s["session_id"]: s for s in svc.list_sessions()}
+
+    assert by_id["padre"]["children"] == ["hija-1", "hija-2"]
+    assert by_id["hija-1"]["children"] == ["nieto"]
+    assert by_id["nieto"]["children"] == []
+
+
+def test_session_tree_anida_y_no_pierde_huerfanos():
+    svc = _svc()
+    svc.open_session("padre")
+    svc.open_session("hija", parent_session_id="padre")
+    svc.open_session("nieto", parent_session_id="hija")
+    svc.open_session("huerfana", parent_session_id="no-existe")
+
+    roots = svc.session_tree()
+    ids = {r["session_id"] for r in roots}
+
+    assert ids == {"padre", "huerfana"}
+    padre = next(r for r in roots if r["session_id"] == "padre")
+    assert [c["session_id"] for c in padre["children"]] == ["hija"]
+    assert [c["session_id"] for c in padre["children"][0]["children"]] == ["nieto"]
+
+
+def test_tree_respeta_filtro_de_proyecto():
+    svc = _svc()
+    svc.open_session("a", project_id="p1")
+    svc.open_session("b", project_id="p2")
+
+    assert [r["session_id"] for r in svc.session_tree(project_id="p1")] == ["a"]

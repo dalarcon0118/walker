@@ -289,15 +289,17 @@ def session_list(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         limit = int(data.get("limit") or 0)
     except (TypeError, ValueError):
         limit = 0
-    sessions = service.list_sessions(
-        status=str(data.get("status") or ""), project_id=project_id, limit=limit
-    )
+    status = str(data.get("status") or "")
+    sessions = service.list_sessions(status=status, project_id=project_id, limit=limit)
     return TaskResult.success(
         {
             "ok": True,
             "count": len(sessions),
             "sessions": sessions,
             "last": service.last_session(project_id),
+            # Árbol completo del proyecto (ignora `limit`): es la vista de
+            # jerarquía, no un paginado.
+            "tree": service.session_tree(status=status, project_id=project_id),
         }
     )
 
