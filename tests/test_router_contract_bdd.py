@@ -412,3 +412,61 @@ def test_status_light_no_manda_ejecuciones_ni_historial():
     assert "history" not in payload
     # `available_gates` conserva su forma (dicts con target y descripción).
     assert isinstance(payload["available_gates"], list)
+
+
+# ── pasos automáticos: sin prompt ───────────────────────────────────────
+
+def test_is_auto_cubre_auto_y_bootstrap():
+    from fast_mcp.features.workflow.domain.enums import ExecutionType as ET
+
+    assert _sub("A", execution=ET.AUTO).is_auto() is True
+    assert _sub("B", execution=ET.BOOTSTRAP).is_auto() is True
+    assert _sub("C", execution=ET.LLM_TASK).is_auto() is False
+    assert _sub("D", execution=ET.USER_INPUT).is_auto() is False
+
+
+def test_help_no_manda_prompt_en_pasos_automaticos():
+    from fast_mcp.features.workflow.domain.enums import ExecutionType as ET
+
+    for execution in (ET.AUTO, ET.BOOTSTRAP):
+        node = WorkflowNode(node_id="N", sub_states=[_sub("S", execution=execution)])
+        graph = WorkflowGraph(nodes={"N": node}, initial_state="N")
+        state = WorkflowState(
+            current_node="N", current_sub_state="S", sub_state_index=0
+        )
+        orch = OrchestrationService(
+            bundle=EngineBundle(
+                workflow_store=None,
+                workflow_io=None,
+                tracer=None,
+                side_effects=None,
+                chain_dir="/tmp/x",
+            )
+        )
+        orch._load_graph = lambda: graph
+        orch._load_state = lambda: state
+
+        payload = orch.help(ctx=None, view="light")
+
+        assert payload["prompt"] is None, execution
+        assert payload["execution_type"] == execution.value
+        assert payload["next_action"]["tool"] == "advance"
+
+
+def test_status_no_manda_prompt_en_paso_bootstrap():
+    from fast_mcp.features.workflow.domain.enums import ExecutionType as ET
+
+    node = WorkflowNode(node_id="N", sub_states=[_sub("S", execution=ET.BOOTSTRAP)])
+    graph = WorkflowGraph(nodes={"N": node}, initial_state="N")
+    state = WorkflowState(current_node="N", current_sub_state="S", sub_state_index=0)
+    orch = OrchestrationService(
+        bundle=EngineBundle(
+            workflow_store=None, workflow_io=None, tracer=None, side_effects=None, chain_dir="/tmp/x"
+        )
+    )
+    orch._load_graph = lambda: graph
+    orch._load_state = lambda: state
+
+    payload = orch.status(ctx=SimpleNamespace(task_id="", session_id="s"), view="light")
+
+    assert payload["prompt"] is None

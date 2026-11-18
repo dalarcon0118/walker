@@ -1359,7 +1359,11 @@ class OrchestrationService:
 
         from fast_mcp.shared_kernel.build_info import build_info
 
-        prompt = self._resolve_current_prompt(state, graph, ctx)
+        exec_type_now = sub_state_def.execution.value if sub_state_def else "unknown"
+        auto_step = bool(sub_state_def and sub_state_def.is_auto())
+        prompt = (
+            None if auto_step else self._resolve_current_prompt(state, graph, ctx)
+        )
         gates_now = ValidationService.get_available_gates(state, graph) if node else []
         return {
             "ok": True,
@@ -1456,7 +1460,15 @@ class OrchestrationService:
 
         from fast_mcp.shared_kernel.build_info import build_info
 
-        prompt = self._resolve_current_prompt(state, graph, ctx)
+        # En un paso automático el prompt no lo lee nadie: lo ejecuta el
+        # motor. Devolverlo es el ruido más barato de eliminar (medido: 7
+        # plantillas por encima de 800 chars que el agente nunca usa).
+        # La regla es del DOMINIO (`SubState.is_auto` cubre auto y bootstrap),
+        # no una lista de strings que se desincroniza.
+        auto_step = bool(sub_state_def and sub_state_def.is_auto())
+        prompt = (
+            None if auto_step else self._resolve_current_prompt(state, graph, ctx)
+        )
         return {
             "ok": True,
             "current_position": f"{state.current_node}.{state.current_sub_state}",

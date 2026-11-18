@@ -232,8 +232,10 @@ def decisions_context(chain_dir: str, task_id: str) -> dict[str, Any]:
                 if str((n.get("metadata") or {}).get("spec_id") or "") == task_id
             ]
             nodes = scoped or nodes
+        # 5, no 10: en un gate de decisión las primeras cinco decisiones son
+        # las que restringen; el resto es ruido que empuja la pregunta lejos.
         lines = []
-        for node in (nodes or [])[:_LIST_LIMIT]:
+        for node in (nodes or [])[:5]:
             node_id = node.get("_id") or node.get("id") or ""
             label = str(node.get("label") or node.get("statement") or "")[:100]
             lines.append(f"  - {node_id}: {label}".rstrip(": "))
@@ -371,11 +373,16 @@ def build_prompt_extra(state: Any, chain_dir: str, session_id: str) -> dict[str,
 
     if task_id:
         extra.update(decisions_context(chain_dir, task_id))
-    extra.update(
-        reflection_context(
-            chain_dir,
-            task_id,
-            failed_gates=str(extra.get("step_failed_gates") or ""),
+
+    # La reflexión del TraceGraph (source_node/attempt/error_context/hint) solo
+    # la usan los prompts de REFINE. Calcularla en cada paso costaba cargar
+    # 1.300 eventos por llamada a `workflow_state` sin que nadie la leyera.
+    if str(getattr(state, "current_node", "") or "").upper() == "REFINE":
+        extra.update(
+            reflection_context(
+                chain_dir,
+                task_id,
+                failed_gates=str(extra.get("step_failed_gates") or ""),
+            )
         )
-    )
     return extra

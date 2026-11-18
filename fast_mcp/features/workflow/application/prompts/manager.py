@@ -253,8 +253,6 @@ class PromptManager(IPromptManager):
         intent = (fields or {}).get("skill_intent") or {}
         if not isinstance(intent, dict) or not intent:
             return {}
-        from fast_mcp.shared_kernel.skills import format_catalog
-
         from .collector import collect_skills
 
         try:
@@ -262,12 +260,24 @@ class PromptManager(IPromptManager):
         except Exception as e:  # noqa: BLE001 — el prompt no depende del FS
             logger.debug("PromptManager: skills fallaron (%s)", e)
             return {}
-        catalog = format_catalog(skills)
-        if not catalog:
-            catalog = (
-                "Sin skills locales que matcheen esta fase; resolvé con criterio "
-                "propio y decilo en la salida."
-            )
+        if not skills:
+            return {
+                "skills_catalog": (
+                    "Sin skills locales que matcheen esta fase; resolvé con criterio "
+                    "propio y decilo en la salida."
+                ),
+                "skills_count": "0",
+            }
+        # Top-1, no catálogo: medido 2026-11-18, VERIFY.QA inyectaba 1.059 chars
+        # con 6 skills y el agente igual cargaba una. El escape está explícito
+        # para que no pierda la capacidad de buscar otra.
+        top = skills[0]
+        description = str(getattr(top, "description", "")).replace("\n", " ").strip()[:140]
+        catalog = (
+            f"- `{top.name}` — {description}\n\n"
+            "Cargala con `load_skill(<nombre>)` si aplica. Si necesitás otra, "
+            "usá `search_skills` (no se listan todas para no meter ruido)."
+        )
         return {"skills_catalog": catalog, "skills_count": str(len(skills))}
 
     def _knowledge_data(self, data: dict) -> dict:
@@ -294,14 +304,23 @@ class PromptManager(IPromptManager):
         except Exception as e:  # noqa: BLE001 — el prompt nunca depende del CKG
             logger.debug("PromptManager: enriquecimiento CKG falló (%s)", e)
             return {}
-        return {
-            "knowledge_global": _bullets(knowledge.get("global")),
-            "knowledge_relevant": _bullets(knowledge.get("relevant")),
-            "knowledge_architecture": _bullets(knowledge.get("architecture")),
-            "project_architecture": info.get("architecture", ""),
-            "project_patterns": _bullets(info.get("patterns")),
-            "project_quality_gates": _bullets(info.get("quality_gates")),
-        }
+        # Un hecho, una sección. Medido 2026-11-18: la misma decisión aparecía
+        # en `knowledge_global`, `knowledge_relevant` y `project_patterns` del
+        # mismo prompt; el distractor repetido es lo que Chroma mide como
+        # degradación. El orden del dict ES la prioridad.
+        return _dedupe_knowledge(
+            {
+                # El CKG manda sobre lo derivado: `knowledge_*` es conocimiento
+                # capturado; `project_*` se infiere del repo. Si el mismo hecho
+                # está en los dos, gana el capturado.
+                "knowledge_relevant": _bullets(knowledge.get("relevant")),
+                "knowledge_global": _bullets(knowledge.get("global")),
+                "knowledge_architecture": _bullets(knowledge.get("architecture")),
+                "project_patterns": _bullets(info.get("patterns")),
+                "project_architecture": info.get("architecture", ""),
+                "project_quality_gates": _bullets(info.get("quality_gates")),
+            }
+        )
 
 
 def _ctx_to_dict(ctx: Any) -> dict:
@@ -321,6 +340,26 @@ def _ctx_to_dict(ctx: Any) -> dict:
     if hasattr(ctx, "__dict__"):
         return dict(ctx.__dict__)
     return {}
+
+
+def _dedupe_knowledge(sections: dict[str, str]) -> dict[str, str]:
+    """Quita de cada sección las líneas que ya aparecieron en una anterior.
+
+    La firma ignora viñetas, mayúsculas y espacios: `- ADR-016: X` y
+    `ADR-016:  x` son el mismo hecho. El orden de `sections` es la prioridad.
+    """
+    seen: set[str] = set()
+    out: dict[str, str] = {}
+    for key, text in sections.items():
+        kept: list[str] = []
+        for line in str(text or "").splitlines():
+            signature = " ".join(line.strip().lstrip("-").strip().lower().split())
+            if not signature or signature in seen:
+                continue
+            seen.add(signature)
+            kept.append(line.rstrip())
+        out[key] = "\n".join(kept)
+    return out
 
 
 def _bullets(
