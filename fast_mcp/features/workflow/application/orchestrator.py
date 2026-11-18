@@ -156,85 +156,19 @@ class OrchestrationService:
             "required_tools": getattr(sub, "required_tools", None),
             "skill_intent": getattr(sub, "skill_intent", None) or {},
         }
-        extra: dict[str, Any] = {"revision": state.revision}
-        try:
-            from fast_mcp.composition import build_sprint_service
+        # Todo el contexto que los templates esperan (what_happened, calidad
+        # del paso, tablas de la tarea, decisiones, reflexión) se arma en una
+        # unidad aparte: el renderer solo pinta lo que recibe.
+        from .prompt_context import build_prompt_extra
 
-            service = build_sprint_service(self._bundle.chain_dir)
-            if service is not None:
-                session_id = str(getattr(ctx, "session_id", "") or "")
-                spring_id = ""
-                if session_id:
-                    record = service.get_session(session_id) or {}
-                    spring_id = str(record.get("spring_id") or "")
-                if not spring_id:
-                    spring_id = service.get_spring_id(self._bundle.chain_dir)
-                spring = service.get_spring(spring_id) if spring_id else None
-                if spring:
-                    specs = service.get_specs(spring_id) or []
-                    in_flow = ("specified", "approved")
-                    ready = [
-                        s for s in specs
-                        if str(s.get("status")) in in_flow and not s.get("depends_on")
-                    ]
-                    blocked = [
-                        s for s in specs
-                        if str(s.get("status")) in in_flow and s.get("depends_on")
-                    ]
-                    extra.update(
-                        {
-                            "sprint_goal": spring.get("goal", ""),
-                            "goal_display": f"Goal: {spring.get('goal', '')}",
-                            "task_count": len(specs),
-                            "completed_count": sum(
-                                1 for s in specs if str(s.get("status")) == "completed"
-                            ),
-                            "ready_tasks": "\n".join(
-                                f"- {s.get('spec_id')}: {str(s.get('objective', ''))[:70]}"
-                                for s in ready[:10]
-                            ) or "(ninguna)",
-                            "blocked_tasks": "\n".join(
-                                f"- {s.get('spec_id')}: depende de {s.get('depends_on')}"
-                                for s in blocked[:10]
-                            ) or "(ninguna)",
-                            "task_id": str((state.context or {}).get("task_id", "") or ""),
-                        }
-                    )
-                    task_id = str((state.context or {}).get("task_id", "") or "")
-                    spec = next(
-                        (s for s in specs if str(s.get("spec_id")) == task_id), None
-                    )
-                    if spec:
-                        extra.update(
-                            {
-                                "task_title": spec.get("objective", ""),
-                                "task_description": spec.get("problem_statement")
-                                or spec.get("objective", ""),
-                                "task_type": spec.get("spec_type", ""),
-                                "task_domain": spec.get("domain", ""),
-                                "task_status": spec.get("status", ""),
-                                "result_state": spec.get("result_state", ""),
-                                "acceptance_criteria_list": "\n".join(
-                                    f"- {x}" for x in (spec.get("acceptance_criteria") or [])
-                                ),
-                                "files_list": "\n".join(
-                                    f"- {x}" for x in (spec.get("files") or [])
-                                ),
-                                "preconditions_list": "\n".join(
-                                    f"- {x}" for x in (spec.get("preconditions") or [])
-                                ),
-                                "quality_gates_list": "\n".join(
-                                    f"- {x}" for x in (spec.get("quality_gates") or [])
-                                ),
-                                "predicates_list": "\n".join(
-                                    f"- {p.get('type')}: {p.get('path') or p.get('target') or ''}"
-                                    for p in ((spec.get("predicates") or {}).get("items") or [])
-                                    if isinstance(p, dict)
-                                ),
-                            }
-                        )
-        except Exception:  # noqa: BLE001 — el prompt no depende del sprint
-            pass
+        extra: dict[str, Any] = {
+            "revision": state.revision,
+            **build_prompt_extra(
+                state,
+                self._bundle.chain_dir,
+                str(getattr(ctx, "session_id", "") or ""),
+            ),
+        }
 
         try:
             resolved = pm.resolve_for_sub_state(
