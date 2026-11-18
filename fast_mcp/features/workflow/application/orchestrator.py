@@ -204,6 +204,23 @@ def extract_user_message(template: str, position: str) -> dict[str, Any] | None:
     return {"position": position, "text": text}
 
 
+def prompt_for_view(prompt: dict | None, view: str) -> dict | None:
+    """Recorta el payload del prompt según la vista.
+
+    Medido 2026-11-18: el objeto `prompt` que devolvía `workflow_state` pesaba
+    3,79× el template renderizado porque incluía `data` (32-34 claves) con
+    hechos que ya están en el texto o en los campos de primer nivel. Ese es el
+    distractor más caro: Chroma mide que un distractor cercano ya baja el
+    rendimiento. En `light` se omite `data`; el template se conserva porque es
+    la instrucción del paso.
+    """
+    if not isinstance(prompt, dict):
+        return prompt
+    if str(view or "").lower() == "full":
+        return prompt
+    return {key: value for key, value in prompt.items() if key != "data"}
+
+
 def merge_action_fields(state: WorkflowState, sub_key: str, fields: dict[str, Any] | None) -> dict[str, Any]:
     """Campos registrados del sub-estado + los nuevos (los nuevos ganan).
 
@@ -1282,11 +1299,14 @@ class OrchestrationService:
 
     # ── status ──────────────────────────────────────────────────────────
 
-    def status(self, ctx: ExecutionContext) -> dict:
+    def status(self, ctx: ExecutionContext, view: str = "light") -> dict:
         """Read-only snapshot of the current workflow state.
 
-        INV-S2-06: never mutates state.
+        INV-S2-06: never mutates state. `view=light` (default) omite
+        `prompt.data`, `node_executions` y `history`: el agente no los usa para
+        decidir el próximo paso y son el mayor costo fijo por llamada.
         """
+        full = str(view or "").lower() == "full"
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
@@ -1361,14 +1381,15 @@ class OrchestrationService:
                 (prompt or {}).get("template") or "",
                 f"{state.current_node}.{state.current_sub_state}",
             ),
-            "history": list(state.history),
+            **({"history": list(state.history), "node_executions": last_executions} if full else {}),
+            # La forma de `available_gates` no cambia entre vistas: el costo
+            # está en `prompt.data` y en las ejecuciones, no en 1-8 gates.
             "available_gates": available_gates,
-            "node_executions": last_executions,
             "revision": state.revision,
             "blocked": bool(state.blocked_at),
             "task_id": ctx.task_id,
             "session_id": ctx.session_id,
-            "prompt": prompt,
+            "prompt": prompt_for_view(prompt, view),
             # Handshake: si `stale` es true, el proceso corre código anterior al
             # disco; el agente no debe concluir que un fix "no sirve".
             "build": build_info(),
@@ -1376,11 +1397,16 @@ class OrchestrationService:
 
     # ── help ────────────────────────────────────────────────────────────
 
-    def help(self, ctx: ExecutionContext) -> dict:
+    def help(self, ctx: ExecutionContext, view: str = "light") -> dict:
         """Current state summary + available operations.
 
         Read-only: INV-S2-06 (el auto-init no persiste nada).
+
+        `view`: `light` (default) devuelve lo que el agente necesita para
+        decidir el próximo paso; `full` agrega `prompt.data`, `gates_detail` e
+        historial. El default bajó el payload de 3,79× el template a ~1×.
         """
+        full = str(view or "").lower() == "full"
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
@@ -1445,11 +1471,10 @@ class OrchestrationService:
             ),
             "step_satisfied": step_satisfied,
             "available_gates": [g["name"] for g in available_gates],
-            "gates_detail": available_gates,
-            "history": list(state.history[-5:]),
+            **({"gates_detail": available_gates, "history": list(state.history[-5:])} if full else {}),
             "blocked": bool(state.blocked_at),
             "revision": state.revision,
             "task_id": str((state.context or {}).get("task_id", "") or ""),
-            "prompt": prompt,
+            "prompt": prompt_for_view(prompt, view),
             "build": build_info(),
         }

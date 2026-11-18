@@ -23,6 +23,7 @@ from fast_mcp.features.workflow.application.orchestrator import (
     expected_payload,
     extract_user_message,
     missing_declared_fields,
+    prompt_for_view,
     next_action_for,
 )
 from fast_mcp.features.workflow.domain.entities import (
@@ -347,3 +348,67 @@ def test_submit_cruza_el_gate_cuando_la_decision_mapea():
     assert result.get("submitted") is True
     assert result.get("to_node") == "SPRINT", result
     assert result.get("position") == "SPRINT.ACTIVE"
+
+
+# ── vista light/full (presupuesto de atención) ─────────────────────────
+
+def test_prompt_for_view_light_quita_data():
+    prompt = {"template_id": "x", "template": "hola", "data": {"a": 1}}
+
+    assert "data" not in prompt_for_view(prompt, "light")
+    assert prompt_for_view(prompt, "full")["data"] == {"a": 1}
+    assert prompt_for_view(None, "light") is None
+
+
+def _orch_for_view():
+    node = WorkflowNode(
+        node_id="N",
+        sub_states=[_sub("S", execution=ExecutionType.USER_INPUT)],
+    )
+    graph = WorkflowGraph(nodes={"N": node}, initial_state="N")
+    state = WorkflowState(
+        current_node="N",
+        current_sub_state="S",
+        sub_state_index=0,
+        history=["A.B", "C.D"],
+        node_executions=[
+            SimpleNamespace(
+                node="N", sub_state="S", execution_type="auto", action="a", task_ok=True, gate="", error=None, duration_ms=1
+            )
+        ],
+    )
+    orch = OrchestrationService(
+        bundle=EngineBundle(
+            workflow_store=None, workflow_io=None, tracer=None, side_effects=None, chain_dir="/tmp/x"
+        )
+    )
+    orch._load_graph = lambda: graph
+    orch._load_state = lambda: state
+    return orch
+
+
+def test_help_light_no_manda_data_ni_historial():
+    orch = _orch_for_view()
+    payload = orch.help(ctx=None, view="light")
+
+    assert "history" not in payload
+    assert "gates_detail" not in payload
+    assert payload["next_action"] is not None
+
+
+def test_help_full_agrega_historial_y_gates_detail():
+    orch = _orch_for_view()
+    payload = orch.help(ctx=None, view="full")
+
+    assert "history" in payload
+    assert "gates_detail" in payload
+
+
+def test_status_light_no_manda_ejecuciones_ni_historial():
+    orch = _orch_for_view()
+    payload = orch.status(ctx=SimpleNamespace(task_id="", session_id="s"), view="light")
+
+    assert "node_executions" not in payload
+    assert "history" not in payload
+    # `available_gates` conserva su forma (dicts con target y descripción).
+    assert isinstance(payload["available_gates"], list)

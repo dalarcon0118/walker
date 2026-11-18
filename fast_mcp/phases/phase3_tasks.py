@@ -305,6 +305,11 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "project_id": {"type": "string", "description": "Project identifier"},
+            "view": {
+                "type": "string",
+                "enum": ["light", "full"],
+                "description": "light (default): contrato del paso + template sin data; full: agrega prompt.data, gates_detail e historial",
+            },
         },
     },
     "capture": {

@@ -60,15 +60,15 @@ def handle_transition(ctx: Any, **kwargs: Any) -> dict:
 
 
 def handle_status(ctx: Any, **kwargs: Any) -> dict:
-    """Get current workflow status (read-only snapshot)."""
+    """Get current workflow status (read-only; view=light|full)."""
     exec_ctx = _make_ctx(ctx.chain_dir, kwargs)
-    return ctx.orchestrator.status(exec_ctx)
+    return ctx.orchestrator.status(exec_ctx, view=str(kwargs.get("view") or "light"))
 
 
 def handle_help(ctx: Any, **kwargs: Any) -> dict:
-    """Get help: available tools + current state."""
+    """Get help: available tools + current state (view=light|full)."""
     exec_ctx = _make_ctx(ctx.chain_dir, kwargs)
-    return ctx.orchestrator.help(exec_ctx)
+    return ctx.orchestrator.help(exec_ctx, view=str(kwargs.get("view") or "light"))
 
 
 def handle_list_projects(ctx: Any, **kwargs: Any) -> dict:
