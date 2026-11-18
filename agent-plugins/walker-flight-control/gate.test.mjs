@@ -7,7 +7,8 @@ import { chmodSync, writeFileSync } from "node:fs"
 
 const dir = process.argv[2] || process.cwd()
 const mode = process.argv[3] || "normal"
-const SID = process.env.HARNESS_SESSION || "harness-1"
+const SID =
+  process.env.HARNESS_SESSION || (mode === "normal" ? `harness-normal-${Date.now()}` : "harness-1")
 const WALKER = "/Users/davidmartinez/develop/Active-projects/walker"
 const REAL_CLI = `${WALKER}/bin/walker3`
 
@@ -17,7 +18,7 @@ const fake = (path, lines) => {
   process.env.WALKER_CLI = path
 }
 
-if (mode === "missing") process.env.WALKER_CLI = "/nonexistent/walker3"
+if (mode === "missing" || mode === "noproject") process.env.WALKER_CLI = "/nonexistent/walker3"
 if (mode === "garbage") {
   fake("/tmp/fake-walker-garbage", ["#!/bin/sh", "echo esto-no-es-json"])
 }
@@ -48,7 +49,7 @@ if (mode === "baddeclare") {
     "esac",
   ])
 }
-if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind") {
+if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind" && mode !== "noproject") {
   process.env.WALKER_PROJECT_ID = "game_reset"
 }
 
@@ -104,11 +105,31 @@ const makeEditor = () => ({
 })
 
 const captured = {}
+const nudges = []
+const closeMode = mode === "closegate" || mode === "closeok"
 const ctx = {
   location: { directory: dir },
   tool: { transform: async (cb) => { cb(makeEditor()); return { dispose: async () => {} } } },
-  session: { hook: async (name, cb) => { captured[name] = cb; return { dispose: async () => {} } } },
-  event: { subscribe: () => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) }) },
+  session: {
+    hook: async (name, cb) => { captured[name] = cb; return { dispose: async () => {} } },
+    synthetic: async ({ sessionID, text }) => { nudges.push({ sessionID, text }); return {} },
+  },
+  event: {
+    subscribe: () => ({
+      [Symbol.asyncIterator]: () => {
+        let served = false
+        return {
+          next: async () => {
+            if (served || !closeMode) return new Promise(() => {})
+            served = true
+            // Se emite DESPUÉS de que el test prepare el estado de la sesión.
+            await new Promise((r) => setTimeout(r, 2000))
+            return { value: { type: "session.execution.succeeded", sessionID: SID }, done: false }
+          },
+        }
+      },
+    }),
+  },
 }
 
 const t0 = Date.now()
@@ -156,6 +177,48 @@ if (mode === "bind") {
   console.log(text.slice(0, 420))
   if (typeof dispose === "function") dispose()
   process.exit(okDecision && okPrev && okCmd ? 0 : 1)
+}
+
+if (mode === "noproject") {
+  // Sin proyecto resoluble: el plugin no debe callarse; avisa una vez.
+  const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "hola" }] }] }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n")
+  const okNotice = /Sin proyecto/.test(text) && /_\/prepare/.test(text)
+  console.log(`aviso de proyecto ausente -> ${okNotice}`)
+  console.log(text.slice(0, 300))
+  if (typeof dispose === "function") dispose()
+  process.exit(okNotice ? 0 : 1)
+}
+
+if (closeMode) {
+  // 1) abrir la sesión (hook), 2) vincular, 3) declarar, 4) escribir.
+  const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "arreglar" }] }] }
+  await captured.context(event)
+  await call("shell", {
+    command: cli("session_bind", { mode: "new", objective: "Gate de cierre: sesión de prueba." }),
+  })
+  await call("shell", {
+    command: cli("implement_task", {
+      task_id: "close-task",
+      objective: "Tarea del gate de cierre. Debe exigir verificación. Sin romper los tests.",
+      files: [],
+    }),
+  })
+  await call("edit", { path: "x.txt" })
+  if (mode === "closeok") {
+    await call("shell", { command: "echo pytest" })
+  }
+  // Esperar el evento de fin de ejecución (2s) + margen.
+  await new Promise((r) => setTimeout(r, 3200))
+  const nudged = nudges.length
+  const okText = nudged > 0 && /No cierres/.test(nudges[0].text)
+  const expectedNudge = mode === "closegate"
+  const ok = expectedNudge ? okText : nudged === 0
+  console.log(`${ok ? "ok  " : "FAIL"} nudges=${nudged} (esperado ${expectedNudge ? 1 : 0})`)
+  if (nudged) console.log(nudges[0].text.split("\n")[0])
+  if (typeof dispose === "function") dispose()
+  process.exit(ok ? 0 : 1)
 }
 
 const res = {}

@@ -211,6 +211,25 @@ function bootstrapBlock(rt) {
   )
 }
 
+function projectMissingBlock(rt) {
+  const dir = rt?.projectDir || "(sin directorio)"
+  return (
+    `[WALKER] Sin proyecto: no se pudo resolver ${dir} contra el registro.\n` +
+    `Walker queda APAGADO para esta sesión (sin workflow, gates ni trazas), o walker no responde.\n` +
+    `No inventes un project_id para las tools de walker: el proyecto es el dominio de trabajo.\n` +
+    `Si el proyecto existe, registralo con: ${CLI} _/prepare '{"path":"${dir}"}' (lo decide el usuario).`
+  )
+}
+
+function closeBlock(rt) {
+  const proj = rt?.projectId || "<proyecto>"
+  return (
+    `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación registrada.\n` +
+    `Corré los tests del área o de la tarea: ${CLI} ${proj}/run_tests '{"task_id":"<id>"}'.\n` +
+    `Si ya verificaste y pasó, ignorá este aviso.`
+  )
+}
+
 function workflowBlock(state, rt) {
   if (!state?.position) return ""
   // START es el asistente de alta de proyecto (elegir/crear). Cuando la sesión
@@ -337,7 +356,23 @@ async function runSetup(ctx) {
     )
 
     if (!rt.projectId) {
-      // Sin proyecto no hay dónde trazar; se calla a propósito (no es un fallo).
+      // Sin dominio no hay protocolo, pero el agente NO puede quedar en silencio:
+      // sin aviso sigue intentando tools de walker con un proyecto inventado.
+      try {
+        const noticed = new Set()
+        if (ctx?.session?.hook) {
+          await ctx.session.hook("context", (event) => {
+            const sid = event?.sessionID || event?.sessionId || ""
+            if (noticed.has(sid)) return
+            noticed.add(sid)
+            if (Array.isArray(event?.system)) {
+              event.system.push({ type: "text", text: projectMissingBlock(rt) })
+            }
+          })
+        }
+      } catch (err) {
+        degrade(null, "aviso de proyecto faltante", err)
+      }
       return
     }
     flushDegrades(rt)
@@ -367,6 +402,9 @@ async function runSetup(ctx) {
           bind: "",
           opened: false,
           closed: false,
+          wrote: false,
+          verified: false,
+          closeNudged: false,
         })
       }
       return sessions.get(key)
@@ -425,6 +463,8 @@ async function runSetup(ctx) {
       try {
         const key = sessionID || "global"
         if (declared.has(key)) return true
+        const mine = boundTasks.get(key) || []
+        if (mine.some((t) => String(t.session_id || "") === key)) return true
         // OJO: `rt.activeTask` NO cuenta acá. `isBound` también lo tocaba y eso
         // abría el gate de tarea con solo tener sprint (bug medido: baddeclare
         // daba PERMITE donde debía BLOQUEAR).
@@ -460,6 +500,11 @@ async function runSetup(ctx) {
     // workflow, que es del proyecto: sin esto, una sesión podía escribir porque
     // OTRA sesión ya había declarado tarea.
     const boundCache = new Map()
+    // Tareas del sprint de la sesión, tal como las devuelve `session_bind`.
+    // Es la señal session-scoped de "hay tarea declarada"; el task_id del
+    // workflow es del PROYECTO y otra sesión lo pisa (medido: mi sesión perdió
+    // la declaración cuando corrió un e2e en el mismo proyecto).
+    const boundTasks = new Map()
     const bindFailures = new Map()
     // Sesiones donde el protocolo no se puede satisfacer (walker roto para
     // bind/declaración): se abren del todo. Un protocolo insatisfacible no
@@ -486,6 +531,7 @@ async function runSetup(ctx) {
         }
         const value = data.decision === "bound"
         boundCache.set(key, { at: Date.now(), value })
+        boundTasks.set(key, (data.bound && data.bound.tasks) || [])
         if (value) {
           // Señal SEPARADA de la tarea: `rt.bound` dice "hay sprint", no
           // "hay tarea". Mezclarlas abría el gate de tarea sin tarea.
@@ -557,7 +603,12 @@ async function runSetup(ctx) {
         // Decisión POR SESIÓN: `state.data.taskId` es del proyecto y hacía que
         // una sesión nueva heredara "tarea declarada" de otra (medido en el
         // harness: el bloque de binding no aparecía nunca).
-        const hasTask = Boolean(rt.activeTask) || declared.has(sid || "global")
+        const hasTask =
+          Boolean(rt.activeTask) ||
+          declared.has(sid || "global") ||
+          (boundTasks.get(sid || "global") || []).some(
+            (t) => String(t.session_id || "") === (sid || "global")
+          )
         if (hasTask) {
           block = workflowBlock(st, rt)
         } else if (!entry.bootstrapped) {
@@ -600,6 +651,34 @@ async function runSetup(ctx) {
             event.data?.info?.sessionID ||
             ""
           const entry = sessionOf(sid)
+
+          // ── Gate de CIERRE: hubo escritura y no hay verificación ──
+          // No se puede impedir el fin de ejecución, así que se reinyecta un
+          // mensaje sintético UNA vez (sin esto el ciclo sería infinito).
+          if (
+            event.type === "session.execution.succeeded" &&
+            entry.opened &&
+            entry.wrote &&
+            !entry.verified &&
+            !entry.closeNudged &&
+            entry.sessionID
+          ) {
+            entry.closeNudged = true
+            try {
+              if (ctx?.session?.synthetic) {
+                await ctx.session.synthetic({ sessionID: entry.sessionID, text: closeBlock(rt) })
+              }
+            } catch (err) {
+              degrade(rt, "close nudge falló", err)
+            }
+            run("trace_push", {
+              event_type: "close_blocked",
+              source: "agent_hook",
+              session_id: entry.sessionID,
+              data: { reason: "sin verificación", wrote: true },
+            })
+          }
+
           if (entry.opened && !entry.closed && entry.sessionID) {
             entry.closed = true
             run(
@@ -622,6 +701,12 @@ async function runSetup(ctx) {
               position: entry.position,
               followed: entry.followed,
               bind: entry.bind || "",
+              wrote: entry.wrote,
+              verified: entry.verified,
+              verifiedBy: entry.verifiedBy || "",
+              sessionsState: Array.from(sessions.entries()).map(([k, v]) => ({
+                k, w: v.wrote, i: v.injections, v: v.verified,
+              })),
               outcome: event.type,
             },
           })
@@ -655,7 +740,20 @@ async function runSetup(ctx) {
             const isCli =
               /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(cmd)
             const result = await original(input, callCtx)
-            const key = String(callCtx?.sessionID || "global")
+            const key = String(callCtx?.sessionID || rt.sessionId || "global")
+
+            // Segunda vía de `wrote`: el wrapper de shell corre siempre, así que
+            // cubre el caso en que el agente escribe por shell en vez de `write`.
+            if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
+              sessionOf(key).wrote = true
+            }
+
+            // Evidencia de verificación (gate de cierre). Es un recordatorio, no
+            // una prueba: si el comando lanzó, no se marca.
+            if (/\b(pytest|run_tests|verify_predicates)\b/.test(cmd)) {
+              sessionOf(key).verified = true
+              sessionOf(key).verifiedBy = "shell"
+            }
 
             if (isCli && /\bsession_bind\b/.test(cmd)) {
               // El binding corre en otro proceso: se verifica contra el estado y
@@ -744,7 +842,9 @@ async function runSetup(ctx) {
                 /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(
                   String(input?.command || "")
                 )
-              const sid = String(callCtx?.sessionID || "")
+              // En algunos caminos (p. ej. server standalone) el tool no trae
+              // sessionID: sin fallback la marca de `wrote` caía en "".
+              const sid = String(callCtx?.sessionID || rt.sessionId || "")
               if (
                 DENY_INTAKE &&
                 rt.projectId &&
@@ -806,6 +906,18 @@ async function runSetup(ctx) {
                   )
                 }
               }
+              // `wrote` es "la sesión modificó archivos", independiente de qué
+              // gate lo haya permitido. Incluye `shell` con redirección: es el
+              // bypass real (medido: tras bloquear `write`, el agente usó
+              // `printf > archivo` y el gate de cierre no se enteraba).
+              if (name === "edit" || name === "write") {
+                sessionOf(sid).wrote = true
+              } else if (name === "shell") {
+                const cmd = String(input?.command || "")
+                if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
+                  sessionOf(sid).wrote = true
+                }
+              }
               if (!DENY || !cur || cur.execType !== "llm_task" || cur.satisfied || !rt.activeTask) {
                 return original(input, callCtx)
               }
@@ -847,6 +959,7 @@ async function runSetup(ctx) {
     } catch (err) {
       degrade(rt, "tool.transform: gate de negación", err)
     }
+
 
     try {
       if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
@@ -975,6 +1088,24 @@ async function runSetup(ctx) {
             }
           })
         }
+        // Evidencia de verificación por las tools (resultado ok).
+        for (const name of ["run_tests", "verify_predicates", "walker_run_tests", "walker_verify_predicates"]) {
+          const verifyTool = editor.get(name)
+          if (!verifyTool || typeof verifyTool.execute !== "function") continue
+          editor.update(name, (draft) => {
+            const original = draft.execute
+            draft.execute = async (input, callCtx) => {
+              const result = await original(input, callCtx)
+              if (!result || result.ok !== false) {
+                const entry = sessionOf(String(callCtx?.sessionID || "global"))
+                entry.verified = true
+                entry.verifiedBy = name
+              }
+              return result
+            }
+          })
+        }
+
         // El binding hecho por la TOOL (no por el CLI) también tiene que abrir
         // el gate: se invalida la caché para que el próximo chequeo relea.
         for (const name of ["session_bind", "walker_session_bind"]) {
@@ -984,7 +1115,7 @@ async function runSetup(ctx) {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
-              const key = String(callCtx?.sessionID || "global")
+              const key = String(callCtx?.sessionID || rt.sessionId || "global")
               boundCache.delete(key)
               bindFailures.delete(key)
               return result
