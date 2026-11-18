@@ -821,7 +821,6 @@ async function runSetup(ctx) {
     try {
       if (!ctx?.tool?.transform) throw new Error("tool.transform no disponible")
       await ctx.tool.transform((editor) => {
-        if (!DENY && !DENY_INTAKE) return
         for (const name of MUTATING_TOOLS) {
           const tool = editor.get(name)
           if (!tool || typeof tool.execute !== "function") continue

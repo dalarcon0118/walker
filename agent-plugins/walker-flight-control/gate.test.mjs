@@ -53,6 +53,8 @@ if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind" && mode !
   process.env.WALKER_PROJECT_ID = "game_reset"
 }
 
+if (mode === "gateoff") process.env.WALKER_FLIGHT_CONTROL_INTAKE = "0"
+
 if (mode === "normal") {
   // Estado "sin declarar" para que el gate evalúe las dos fases. Se hace acá y
   // no por el shell de OpenCode, que estaría bloqueado por el propio gate.
@@ -106,7 +108,7 @@ const makeEditor = () => ({
 
 const captured = {}
 const nudges = []
-const closeMode = mode === "closegate" || mode === "closeok"
+const closeMode = mode === "closegate" || mode === "closeok" || mode === "gateoff"
 const ctx = {
   location: { directory: dir },
   tool: { transform: async (cb) => { cb(makeEditor()); return { dispose: async () => {} } } },
@@ -213,7 +215,7 @@ if (closeMode) {
   await new Promise((r) => setTimeout(r, 3200))
   const nudged = nudges.length
   const okText = nudged > 0 && /No cierres/.test(nudges[0].text)
-  const expectedNudge = mode === "closegate"
+  const expectedNudge = mode !== "closeok"
   const ok = expectedNudge ? okText : nudged === 0
   console.log(`${ok ? "ok  " : "FAIL"} nudges=${nudged} (esperado ${expectedNudge ? 1 : 0})`)
   if (nudged) console.log(nudges[0].text.split("\n")[0])
