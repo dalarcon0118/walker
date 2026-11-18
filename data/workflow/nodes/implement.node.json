@@ -729,7 +729,24 @@
       "key": "REPORT_GATE",
       "label": "Post-implementation report",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commit_hash": {
+            "type": "string",
+            "description": "Hash del commit del tramo. El cierre (PO_ACCEPT) lo exige."
+          },
+          "commit_url": {
+            "type": "string",
+            "description": "URL del commit, si el repo la expone."
+          },
+          "completed_at": {
+            "type": "string",
+            "description": "Timestamp ISO de finalización. El cierre (PO_ACCEPT) lo exige."
+          }
+        },
+        "description": "Artefactos del reporte. `transform_spec` los escribe en la spec como `in_review` y el cierre (`SpecStatusUpdater`) NO completa sin `commit_hash` + `completed_at` (medido 2026-11-18)."
+      },
       "output_schema": {
         "type": "object",
         "properties": {
