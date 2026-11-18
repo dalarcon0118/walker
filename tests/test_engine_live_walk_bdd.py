@@ -133,6 +133,11 @@ def test_live_walk_start_to_analyze_with_gollwitzer_phases(project):
     # contrato `ckg_has_decision('approve')` sea verificable.
     state = orch._load_state().record_submit("DESIGN_REVIEW", {"decision": "approve"})
     assert orch._save_state(state)
+    # `design_approved` exige CKG_SAVE: este walk salta la captura para
+    # concentrarse en ANALYZE, así que se reposiciona. La captura y el contrato
+    # se cubren en test_workflow_graph_ordering_bdd.
+    state = orch._load_state().with_node("DESIGN", "CKG_SAVE", 4)
+    assert orch._save_state(state)
 
     result = orch.transition(xctx, "design_approved")
     assert result["ok"], result

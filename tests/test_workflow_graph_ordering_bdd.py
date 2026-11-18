@@ -142,6 +142,33 @@ def test_task_complete_exige_accept(tmp_path):
     assert out["expected"] == "accept"
 
 
+def test_design_approved_solo_despues_de_ckg_save(tmp_path):
+    review = _ctx_at(tmp_path, "DESIGN", "DESIGN_REVIEW", 3)
+    assert "design_approved" not in _gates(review)
+
+    save_dir = tmp_path / "save"
+    save_dir.mkdir()
+    save = _ctx_at(save_dir, "DESIGN", "CKG_SAVE", 4)
+    assert "design_approved" in _gates(save)
+
+
+def test_design_approved_lee_la_decision_de_design_review(tmp_path):
+    ctx = _ctx_at(tmp_path, "DESIGN", "CKG_SAVE", 4)
+    state = ctx.orchestrator._load_state().record_submit(
+        "DESIGN_REVIEW", {"decision": "approve"}
+    )
+    assert ctx.orchestrator._save_state(state)
+
+    out = ctx.orchestrator.transition(
+        ExecutionContext.create(chain_dir=str(tmp_path), session_id="test"),
+        gate="design_approved",
+    )
+
+    assert out["ok"] is True
+    assert out["to_node"] == "ANALYZE"
+    assert out["to_sub_state"] == "GATHER"
+
+
 def test_po_accept_es_el_que_cierra_con_evidencia():
     node = json.loads((ROOT / "data/workflow/nodes/verify.node.json").read_text(encoding="utf-8"))
     accept = next(ss for ss in node["sub_states"] if ss["key"] == "PO_ACCEPT")

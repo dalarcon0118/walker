@@ -145,6 +145,7 @@
   "from": "DESIGN",
   "to": "ANALYZE",
   "gate": "design_approved",
+  "source_sub_state": "CKG_SAVE",
   "sub_state_gate": "GATHER",
   "description": "Design approved, proceed to task analysis.",
   "contract": {

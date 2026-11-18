@@ -444,6 +444,10 @@ class OrchestrationService:
             required = list(getattr(sub_state, "required_fields", None) or [])
             if not required:
                 required = list((getattr(sub_state, "input_schema", {}) or {}).get("required") or [])
+            if not required:
+                # En algunos `user_input` (p. ej. DESIGN_REVIEW) la decisión
+                # está declarada en el output_schema, no en el input.
+                required = list((getattr(sub_state, "output_schema", {}) or {}).get("required") or [])
             sub_data = candidate.get_sub_state_data(state.current_sub_state)
             missing = [f for f in required if not sub_data.is_field_complete(f)]
             if missing:
@@ -859,15 +863,21 @@ class OrchestrationService:
                 # en los sub-estados del nodo actual: la decisión la registra
                 # DESIGN_REVIEW/ANALYZE.REVIEW, no el sub-estado de origen.
                 source_sub = gate_obj.source_sub_state or state.current_sub_state
+                node = graph.get_node(state.current_node)
+                node_keys = (
+                    [ss.key for ss in node.sub_states]
+                    if node
+                    else [state.current_sub_state]
+                )
                 if gate_obj.source_sub_state:
-                    candidates = [gate_obj.source_sub_state]
+                    # El source manda, pero la decisión puede vivir en otro
+                    # sub-estado del nodo: DESIGN_REVIEW aprueba y CKG_SAVE es
+                    # el source del gate después de capturar el diseño.
+                    candidates = [gate_obj.source_sub_state] + [
+                        key for key in node_keys if key != gate_obj.source_sub_state
+                    ]
                 else:
-                    node = graph.get_node(state.current_node)
-                    candidates = (
-                        [ss.key for ss in node.sub_states]
-                        if node
-                        else [state.current_sub_state]
-                    )
+                    candidates = node_keys
                 found = ""
                 for key in candidates:
                     data = state.sub_state_data.get(key)
