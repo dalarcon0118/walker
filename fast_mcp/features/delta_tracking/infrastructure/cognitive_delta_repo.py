@@ -96,12 +96,19 @@ class CognitiveDeltaRepository(DeltaRepository):
         formal = [s for s in springs if not s.informal]
         informal = [s for s in springs if s.informal]
 
-        if len(formal) > 2:
+        # ADR-WALKER-077: varios activos por proyecto son LEGÍTIMOS si cada uno
+        # pertenece a una sesión distinta (delta-sprint). La anomalía real es la
+        # falta de atribución: sin `session_id`, o con ids duplicados, no se
+        # puede decidir a qué sesión pertenece cada sprint (sprint hijacking).
+        unattributed = [s for s in formal if not (s.session_id or "").strip()]
+        session_ids = [s.session_id for s in formal if (s.session_id or "").strip()]
+        duplicated = len(session_ids) != len(set(session_ids))
+        if unattributed or duplicated:
             logger.warning(
-                "DeltaGraph: %d FORMAL active sprints (%s). "
-                "Anomaly — close unused ones.",
+                "DeltaGraph: %d FORMAL active sprints sin atribución por sesión "
+                "(%s). Anomaly — cada activo debe pertenecer a una sesión distinta.",
                 len(formal),
-                ", ".join(s.spring_id for s in formal),
+                ", ".join(f"{s.spring_id}:{s.session_id or '(sin sesión)'}" for s in formal),
             )
 
         pool = formal or informal
