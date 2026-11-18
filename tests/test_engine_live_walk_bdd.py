@@ -128,6 +128,12 @@ def test_live_walk_start_to_analyze_with_gollwitzer_phases(project):
     assert result["to_node"] == "DESIGN"
     assert result["to_sub_state"] == "DESIGN_GATHER"
 
+    # La aprobación de diseño la registra DESIGN_REVIEW; este walk salta
+    # directo a `design_approved`, así que se siembra la decisión para que el
+    # contrato `ckg_has_decision('approve')` sea verificable.
+    state = orch._load_state().record_submit("DESIGN_REVIEW", {"decision": "approve"})
+    assert orch._save_state(state)
+
     result = orch.transition(xctx, "design_approved")
     assert result["ok"], result
     assert result["to_node"] == "ANALYZE"

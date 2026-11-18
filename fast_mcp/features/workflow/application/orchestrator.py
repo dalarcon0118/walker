@@ -433,6 +433,32 @@ class OrchestrationService:
                 "action": "validation_failed",
             }
 
+        # 1b. `advance` NO puede cruzar una decisión del usuario. Sin esto,
+        # SPRINT.PLAN_APPROVAL avanzaba a TASK_SPEC sin `decision` (medido
+        # 2026-11-18) y el agente decidía por el usuario. Se leen los campos
+        # del `input_schema.required` cuando el sub-estado no declara
+        # `required_fields` propios (hoy la mayoría no los declara).
+        exec_type = getattr(sub_state, "execution", None)
+        exec_value = getattr(exec_type, "value", exec_type) or ""
+        if exec_value == ExecutionType.USER_INPUT.value:
+            required = list(getattr(sub_state, "required_fields", None) or [])
+            if not required:
+                required = list((getattr(sub_state, "input_schema", {}) or {}).get("required") or [])
+            sub_data = candidate.get_sub_state_data(state.current_sub_state)
+            missing = [f for f in required if not sub_data.is_field_complete(f)]
+            if missing:
+                return {
+                    "ok": False,
+                    "action": "user_input_required",
+                    "error": (
+                        f"{state.current_node}.{state.current_sub_state} es una decisión "
+                        f"del usuario: faltan {missing}. Mostrale la pregunta y esperá su "
+                        f"respuesta; no decidas por él."
+                    ),
+                    "required": required,
+                    "missing": missing,
+                }
+
         # 2. Ejecutar la acción del sub-estado (los `auto` corren sin el modelo).
         task_result = None
         if sub_state.action:
@@ -816,6 +842,55 @@ class OrchestrationService:
                 ),
                 "action": "invalid_source_sub_state",
             }
+
+        # 3c. Contract.pre: `ckg_has_decision('X')` se evalúa contra la decisión
+        # registrada en el sub-estado fuente. Sin esto, el gate pasaba sin
+        # decisión (medido: plan_approval_approved sin 'approve').
+        contract = getattr(gate_obj, "contract", None) or {}
+        pre = contract.get("pre", "") if isinstance(contract, dict) else ""
+        if pre and "ckg_has_decision(" in pre:
+            import re
+
+            match = re.search(r"ckg_has_decision\('([^']+)'\)", pre)
+            if match:
+                expected = match.group(1)
+                # Si el gate declara source_sub_state, la decisión vive ahí.
+                # Si no (p. ej. design_approved desde DESIGN_GATHER), se busca
+                # en los sub-estados del nodo actual: la decisión la registra
+                # DESIGN_REVIEW/ANALYZE.REVIEW, no el sub-estado de origen.
+                source_sub = gate_obj.source_sub_state or state.current_sub_state
+                if gate_obj.source_sub_state:
+                    candidates = [gate_obj.source_sub_state]
+                else:
+                    node = graph.get_node(state.current_node)
+                    candidates = (
+                        [ss.key for ss in node.sub_states]
+                        if node
+                        else [state.current_sub_state]
+                    )
+                found = ""
+                for key in candidates:
+                    data = state.sub_state_data.get(key)
+                    if data is None:
+                        continue
+                    decision = str((getattr(data, "fields", {}) or {}).get("decision", ""))
+                    if decision == expected:
+                        found = decision
+                        break
+                    if decision and not found:
+                        found = decision
+                if found != expected:
+                    return {
+                        "ok": False,
+                        "action": "contract_precondition_failed",
+                        "error": (
+                            f"Gate '{gate}' requires decision '{expected}' at "
+                            f"{state.current_node}.{source_sub}; "
+                            f"found '{found or '(none)'}'"
+                        ),
+                        "expected": expected,
+                        "found": found,
+                    }
 
         # 4. Check preconditions (unless skipped)
         if not skip_preconditions:

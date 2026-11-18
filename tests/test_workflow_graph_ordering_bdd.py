@@ -92,6 +92,56 @@ def test_report_gate_deja_la_spec_en_review():
     assert {"commit_hash", "commit_url", "completed_at"} <= set(effect["params"]["fields"])
 
 
+def test_advance_no_cruza_un_user_input(tmp_path):
+    ctx = _ctx_at(tmp_path, "SPRINT", "PLAN_APPROVAL", 1)
+
+    out = ctx.orchestrator.advance(
+        ExecutionContext.create(chain_dir=str(tmp_path), session_id="test"),
+        fields=None,
+    )
+
+    assert out["ok"] is False
+    assert out["action"] == "user_input_required"
+    assert "decision" in out["missing"]
+
+
+def test_contrato_bloquea_sin_decision(tmp_path):
+    ctx = _ctx_at(tmp_path, "SPRINT", "PLAN_APPROVAL", 1)
+
+    out = _transition(ctx, tmp_path, "plan_approval_approved")
+
+    assert out["ok"] is False
+    assert out["action"] == "contract_precondition_failed"
+    assert out["expected"] == "approve"
+
+
+def test_contrato_permite_con_decision(tmp_path):
+    ctx = _ctx_at(tmp_path, "SPRINT", "PLAN_APPROVAL", 1)
+    state = ctx.orchestrator._load_state().record_submit(
+        "PLAN_APPROVAL", {"decision": "approve"}
+    )
+    assert ctx.orchestrator._save_state(state)
+
+    out = _transition(ctx, tmp_path, "plan_approval_approved")
+
+    assert out["ok"] is True
+    assert out["to_sub_state"] == "TASK_SPEC"
+
+
+def test_task_complete_exige_accept(tmp_path):
+    ctx = _ctx_at(tmp_path, "VERIFY", "PO_ACCEPT", 5)
+    state = ctx.orchestrator._load_state().record_submit(
+        "PO_ACCEPT", {"decision": "reject"}
+    )
+    assert ctx.orchestrator._save_state(state)
+
+    out = _transition(ctx, tmp_path, "task_complete")
+
+    assert out["ok"] is False
+    assert out["action"] == "contract_precondition_failed"
+    assert out["expected"] == "accept"
+
+
 def test_po_accept_es_el_que_cierra_con_evidencia():
     node = json.loads((ROOT / "data/workflow/nodes/verify.node.json").read_text(encoding="utf-8"))
     accept = next(ss for ss in node["sub_states"] if ss["key"] == "PO_ACCEPT")
