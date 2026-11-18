@@ -213,6 +213,10 @@ _INPUT_SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "Session identifier (atribuye la tarea al sprint de esa sesión)",
             },
+            "resume": {
+                "type": "boolean",
+                "description": "Reanuda el sprint si está PAUSADO (default: rechazar)",
+            },
             "project_id": {"type": "string", "description": "Project identifier"},
         },
         "required": ["objective"],

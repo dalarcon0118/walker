@@ -22,24 +22,10 @@ def configure(sprint_factory) -> None:
 from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspect_codebase
 
 
-def _persist_spec(
-    ctx: ExecutionContext,
-    task_id: str,
-    objective: str,
-    files: list[str],
-    data: dict,
-    session_override: str = "",
-) -> dict | None:
-    """Crea o actualiza la spec de la tarea en el delta."""
-    if not ctx.chain_dir:
-        return None
-    service = _di.sprint_service(ctx.chain_dir)
-    if service is None:
-        return None
-
+def _select_spring(service, session_override: str) -> dict:
+    """Sprint de la sesión > activo > primero > SPR-ADHOC."""
     springs = service.list_springs() or []
-    # El sprint de la SESIÓN manda: sin esto la tarea cae en "el primero que
-    # haya" y las sesiones se mezclan en un mismo sprint sin relación.
+
     def _owns_session(s: dict) -> bool:
         if not session_override:
             return False
@@ -54,6 +40,51 @@ def _persist_spec(
         spring = springs[0]
     if not spring:
         spring = service.create_spring("SPR-ADHOC", goal="tareas declaradas en sesión")
+    return spring
+
+
+def _ensure_active(service, spring: dict | None, resume: bool) -> tuple[bool, str, dict | None]:
+    """ADR-WALKER-079: declarar tarea en un sprint PAUSADO se rechaza, salvo resume.
+
+    Reanudar implícitamente haría que `paused` signifique "nadie declaró nada
+    desde la última pausa": una garantía débil y silenciosa. El rechazo es
+    explícito y accionable; `resume: true` es el opt-in del llamador.
+    """
+    if not spring:
+        return True, "", spring
+    if str(spring.get("status") or "") != "paused":
+        return True, "", spring
+    spring_id = str(spring.get("spring_id") or spring.get("id") or "")
+    if resume:
+        result = service.transition_spring(spring_id, "active")
+        if not result.get("ok"):
+            return False, f"no se pudo reanudar {spring_id}: {result.get('error')}", spring
+        return True, "", service.get_spring(spring_id) or {**spring, "status": "active"}
+    return (
+        False,
+        f"el sprint {spring_id} está PAUSADO. Reanimalo con sprint_status "
+        f'\'{{"spring_id":"{spring_id}","status":"active"}}\' o repetí con resume:true.',
+        spring,
+    )
+
+
+def _persist_spec(
+    ctx: ExecutionContext,
+    task_id: str,
+    objective: str,
+    files: list[str],
+    data: dict,
+    session_override: str = "",
+    spring: dict | None = None,
+) -> dict | None:
+    """Crea o actualiza la spec de la tarea en el delta."""
+    if not ctx.chain_dir:
+        return None
+    service = _di.sprint_service(ctx.chain_dir)
+    if service is None:
+        return None
+
+    spring = spring or _select_spring(service, session_override)
     spring_id = str(spring.get("spring_id") or spring.get("id") or "")
     if not spring_id:
         return None
@@ -169,6 +200,13 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # La sesión REAL viene del caller (el plugin la conoce); `ctx.session_id`
     # en el path de tool es "mcp" y no sirve para unir delta ↔ trace ↔ CKG.
     session_override = str(data.get("session_id", "") or "").strip()
+
+    service = _di.sprint_service(ctx.chain_dir)
+    chosen = _select_spring(service, session_override) if service is not None else None
+    ok, msg, chosen = _ensure_active(service, chosen, bool(data.get("resume")))
+    if not ok:
+        return TaskResult.failure(f"implement_task: {msg}")
+
     result: dict[str, Any] = {
         "task_id": task_id,
         "result_state": objective,
@@ -179,7 +217,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # agente pueda anclarse en la tarea (delta → archivos → CPG → CKG). Antes
     # sólo devolvía un dict y el delta quedaba vacío para siempre.
     try:
-        spec = _persist_spec(ctx, task_id, objective, files, data, session_override)
+        spec = _persist_spec(ctx, task_id, objective, files, data, session_override, spring=chosen)
         if task_id:
             # Puente al workflow: a partir de acá toda acción recibe el id.
             _di.record_task(ctx.chain_dir, task_id)
