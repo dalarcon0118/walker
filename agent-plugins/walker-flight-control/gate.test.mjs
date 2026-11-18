@@ -95,10 +95,11 @@ const makeEditor = () => ({
   namespace: () => {},
 })
 
+const captured = {}
 const ctx = {
   location: { directory: dir },
   tool: { transform: async (cb) => { cb(makeEditor()); return { dispose: async () => {} } } },
-  session: { hook: async () => ({ dispose: async () => {} }) },
+  session: { hook: async (name, cb) => { captured[name] = cb; return { dispose: async () => {} } } },
   event: { subscribe: () => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) }) },
 }
 
@@ -113,6 +114,30 @@ const call = async (name, input) => {
   } catch (e) {
     return "BLOQUEA"
   }
+}
+
+if (mode === "inject") {
+  // Con tarea declarada, el hook de contexto debe inyectar el prompt REAL del
+  // nodo (sprint/active), no la línea inventada "Complete el paso".
+  await call("edit", { path: "x.txt" }) // fuerza isDeclared → rt.activeTask
+  const event = {
+    sessionID: "harness-1",
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "probar la inyeccion del nodo" }] }],
+  }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+  const okPos = /SPRINT\.ACTIVE/.test(text)
+  const okTpl = /Sprint Monitoring|PHASE 12/.test(text)
+  const noFake = !/Complete el paso:/.test(text)
+  console.log(`posicion real en el bloque   -> ${okPos}`)
+  console.log(`template del nodo inyectado  -> ${okTpl}`)
+  console.log(`sin instruccion inventada    -> ${noFake}`)
+  console.log(`chars inyectados             -> ${text.length}`)
+  console.log("--- primeras lineas ---")
+  console.log(text.split("\n").slice(0, 5).join("\n"))
+  if (typeof dispose === "function") dispose()
+  process.exit(okPos && okTpl && noFake ? 0 : 1)
 }
 
 const res = {}
