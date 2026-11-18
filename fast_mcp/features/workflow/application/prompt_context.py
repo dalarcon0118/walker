@@ -133,14 +133,23 @@ def quality_context(state: Any) -> dict[str, Any]:
         listed = []
         for finding in findings if isinstance(findings, list) else []:
             if isinstance(finding, dict):
-                listed.append(
-                    str(
-                        finding.get("message")
-                        or finding.get("detail")
-                        or finding.get("rule")
-                        or finding
-                    )
+                message = (
+                    finding.get("message")
+                    or finding.get("detail")
+                    or finding.get("rule")
                 )
+                # Hallazgos del CPG: traen `function`/`file`/`line`, no un
+                # `message`. Sin esto el prompt mostraba el dict crudo.
+                if not message and finding.get("function"):
+                    where = ":".join(
+                        str(x)
+                        for x in (finding.get("file"), finding.get("line"))
+                        if x not in (None, "")
+                    )
+                    message = (
+                        f"{finding['function']} ({where})" if where else finding["function"]
+                    )
+                listed.append(str(message or finding))
             else:
                 listed.append(str(finding))
         return {

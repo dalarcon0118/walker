@@ -246,3 +246,26 @@ def test_el_extra_usa_el_6a3_y_no_inventa_riesgos(monkeypatch):
     assert extra["q1"] == "q"
     assert extra["preconditions_list"] == "- p1"
     assert extra["curvature"] == "no declarado"
+
+
+def test_los_hallazgos_del_cpg_se_listan_con_archivo_y_linea():
+    state = SimpleNamespace(
+        node_executions=[
+            _exec(
+                "IMPLEMENT",
+                "CODE_REVIEW_SCAN",
+                data={
+                    "passed": False,
+                    "findings": [
+                        {"source": "cpg", "type": "dead_code", "function": "f", "file": "a.js", "line": 7}
+                    ],
+                },
+            )
+        ],
+        context={},
+    )
+
+    quality = pc.quality_context(state)
+
+    assert quality["step_failed_gates"] == "f (a.js:7)"
+    assert quality["step_quality_passed"] == "no"
