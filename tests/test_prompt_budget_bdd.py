@@ -28,12 +28,13 @@ from fast_mcp.features.workflow.domain.execution import ExecutionContext
 REPO_ROOT = "/Users/davidmartinez/develop/Active-projects/walker"
 
 BUDGET = {
-    # Medidos 2026-11-18 sobre el esqueleto, tras recortar TASK_REVIEW, WORK y
-    # ANALYZE.REVIEW: el mayor `user_input` es 2.890 y el mayor `llm_task`
-    # (TASK_SPEC) 3.508. El tope deja margen y frena el crecimiento.
-    "user_input": 3000,
-    "llm_task": 3600,
-    "manual": 3600,
+    # Medidos 2026-11-18 sobre el esqueleto, tras recortar TASK_REVIEW, WORK,
+    # ANALYZE.REVIEW y TASK_SPEC: el mayor `user_input` es 2.890 y el mayor
+    # `llm_task` (REFINE.DIAGNOSE) 2.993. El tope deja margen y frena el
+    # crecimiento.
+    "user_input": 2950,
+    "llm_task": 3050,
+    "manual": 3050,
 }
 
 
@@ -76,9 +77,9 @@ def rendered_prompts():
 
 def test_los_prompts_respetan_el_presupuesto(rendered_prompts):
     offenders = [
-        f"{chars} chars > {BUDGET.get(exec_type, 3600)} ({node}.{sub}, {exec_type})"
+        f"{chars} chars > {BUDGET.get(exec_type, 3050)} ({node}.{sub}, {exec_type})"
         for chars, node, sub, exec_type in rendered_prompts
-        if chars > BUDGET.get(exec_type, 3600)
+        if chars > BUDGET.get(exec_type, 3050)
     ]
 
     assert offenders == [], (
