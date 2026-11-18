@@ -335,6 +335,46 @@ def sprint_extra(specs: list[dict], spring: dict, task_id: str) -> dict[str, Any
     return extra
 
 
+def submitted_context(state: Any) -> dict[str, Any]:
+    """Campos que el agente YA envió en sub-estados del nodo actual.
+
+    Los prompts de gate declaran `{q1}..{a3}` y `{preconditions_list}`, pero el
+    servicio de sprint no los guarda en la spec: viven en `sub_state_data` del
+    workflow. Sin este puente, ANALYZE.REVIEW se renderizaba con las respuestas
+    del 6->3 en blanco y el PO decidía a ciegas.
+
+    Se fusionan los sub-estados en orden; el último valor gana.
+    """
+    node = str(getattr(state, "current_node", "") or "").upper()
+    if node not in ("ANALYZE", "DESIGN", "REFINE"):
+        return {}
+    data = getattr(state, "sub_state_data", {}) or {}
+    if not isinstance(data, dict):
+        return {}
+
+    # `sub_state_data[node]` es un `SubStateData` en runtime y un dict cuando
+    # viene de JSON: se aceptan las dos formas.
+    entry = data.get(node)
+    fields = getattr(entry, "fields", None)
+    if fields is None and isinstance(entry, dict):
+        fields = entry.get("fields")
+    merged = dict(fields) if isinstance(fields, dict) else {}
+
+    out: dict[str, Any] = {
+        key: merged[key]
+        for key in ("q1", "a1", "q2", "a2", "q3", "a3")
+        if str(merged.get(key) or "").strip()
+    }
+    preconditions = merged.get("preconditions")
+    if isinstance(preconditions, list) and preconditions:
+        out["preconditions"] = [str(x) for x in preconditions if str(x).strip()]
+    for risk in ("curvature", "pre_churn", "commit_trust"):
+        value = merged.get(risk)
+        if value not in (None, ""):
+            out[risk] = value
+    return out
+
+
 def build_prompt_extra(state: Any, chain_dir: str, session_id: str) -> dict[str, Any]:
     """Todo el `extra_data` que los templates pueden usar, sin inventar nada."""
     extra: dict[str, Any] = {}
@@ -370,6 +410,19 @@ def build_prompt_extra(state: Any, chain_dir: str, session_id: str) -> dict[str,
             extra.update(sprint_extra(specs, spring, task_id))
     except Exception as exc:  # noqa: BLE001 — el prompt no depende del sprint
         logger.debug("prompt_context: sprint no disponible (%s)", exc)
+
+    # El análisis 6->3 y las precondiciones que el agente ya envió. La spec no
+    # los guarda (los escribe `transform_spec` al cerrar), así que sin esto el
+    # gate de revisión mostraba las preguntas sin respuestas.
+    submitted = submitted_context(state)
+    extra.update({k: v for k, v in submitted.items() if k != "preconditions"})
+    if not extra.get("preconditions_list") and submitted.get("preconditions"):
+        extra["preconditions_list"] = "\n".join(
+            f"- {x}" for x in submitted["preconditions"]
+        )
+    for risk in ("curvature", "pre_churn", "commit_trust"):
+        if not str(extra.get(risk) or "").strip():
+            extra[risk] = submitted.get(risk, "no declarado")
 
     if task_id:
         extra.update(decisions_context(chain_dir, task_id))

@@ -178,3 +178,71 @@ def test_decisions_context_prioriza_la_tarea(monkeypatch):
 
     assert "decision-b" in out["decisions_list"]
     assert "decision-a" not in out["decisions_list"]
+
+
+# ── el 6->3 que el agente YA envió ──────────────────────────────────────
+# Medido 2026-11-18: ANALYZE.REVIEW renderizaba `{q1}..{a3}` y
+# `{preconditions_list}` en blanco. El dato existía en `sub_state_data`; nadie
+# lo pasaba al template, así que el PO decidía sin ver el análisis.
+
+def test_submitted_context_expone_el_6a3_y_las_precondiciones():
+    state = SimpleNamespace(
+        current_node="ANALYZE",
+        sub_state_data={
+            "ANALYZE": SimpleNamespace(
+                fields={
+                    "q1": "¿qué existe?",
+                    "a1": "index.js:628",
+                    "q2": "¿impacto?",
+                    "a2": "ninguno",
+                    "q3": "¿enfoque?",
+                    "a3": "traza",
+                    "preconditions": ["grep MAX_SESSIONS => rc=0"],
+                }
+            )
+        },
+    )
+
+    out = pc.submitted_context(state)
+
+    assert out["q1"] == "¿qué existe?"
+    assert out["a3"] == "traza"
+    assert out["preconditions"] == ["grep MAX_SESSIONS => rc=0"]
+
+
+def test_submitted_context_acepta_el_shape_de_json():
+    state = SimpleNamespace(
+        current_node="ANALYZE",
+        sub_state_data={"ANALYZE": {"fields": {"q1": "q", "a1": "a"}}},
+    )
+
+    assert pc.submitted_context(state)["a1"] == "a"
+
+
+def test_submitted_context_ignora_nodos_sin_analisis():
+    state = SimpleNamespace(
+        current_node="VERIFY",
+        sub_state_data={"VERIFY": SimpleNamespace(fields={"q1": "x"})},
+    )
+
+    assert pc.submitted_context(state) == {}
+
+
+def test_el_extra_usa_el_6a3_y_no_inventa_riesgos(monkeypatch):
+    monkeypatch.setattr("fast_mcp.composition.build_sprint_service", lambda *a, **k: None)
+    state = SimpleNamespace(
+        current_node="ANALYZE",
+        sub_state_data={
+            "ANALYZE": SimpleNamespace(
+                fields={"q1": "q", "a1": "a", "preconditions": ["p1"]}
+            )
+        },
+        node_executions=[],
+        context={},
+    )
+
+    extra = pc.build_prompt_extra(state, "/tmp", "")
+
+    assert extra["q1"] == "q"
+    assert extra["preconditions_list"] == "- p1"
+    assert extra["curvature"] == "no declarado"
