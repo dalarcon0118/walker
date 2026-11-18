@@ -53,6 +53,20 @@ def _now() -> str:
 MIN_SKILL_SCORE_REQUIRED = 3
 
 
+def merge_action_fields(state: WorkflowState, sub_key: str, fields: dict[str, Any] | None) -> dict[str, Any]:
+    """Campos registrados del sub-estado + los nuevos (los nuevos ganan).
+
+    Un `llm_task` produce su salida desde los campos enviados. `advance` corre
+    la acción del sub-estado actual otra vez: si usa solo `fields` (vacío en
+    ese camino), la acción se ejecuta dos veces y la segunda pisa la primera
+    (medido 2026-11-18: VERIFY.MONITOR perdió plan/deviations y quedó
+    `compliant=true` sin desviaciones).
+    """
+    stored = state.get_sub_state_data(sub_key) if hasattr(state, "get_sub_state_data") else None
+    stored_fields = dict(getattr(stored, "fields", None) or {})
+    return {**stored_fields, **(fields or {})}
+
+
 class OrchestrationService:
     """Unified entry point for workflow operations.
 
@@ -478,10 +492,17 @@ class OrchestrationService:
                 }
 
         # 2. Ejecutar la acción del sub-estado (los `auto` corren sin el modelo).
+        #    Un `llm_task` produce su salida DESDE los campos enviados. Si
+        #    `advance` corre la acción con `{}` (porque el submit fue antes),
+        #    la ejecuta dos veces y la segunda pisa la primera: medido
+        #    2026-11-18, VERIFY.MONITOR perdió `plan`/`deviations` y quedó
+        #    `compliant=true` sin desviaciones. Se mezclan los campos
+        #    registrados con los nuevos (los nuevos ganan).
+        action_fields = merge_action_fields(state, state.current_sub_state, fields)
         task_result = None
         if sub_state.action:
             task_result, task_ok, task_field = self._execute_action(
-                ctx, sub_state, candidate, fields
+                ctx, sub_state, candidate, action_fields
             )
             if task_result is not None and not task_ok:
                 return {
@@ -510,7 +531,7 @@ class OrchestrationService:
             sub_state=state.current_sub_state,
             execution_type=sub_state.execution.value,
             action=sub_state.action,
-            submitted_fields=fields,
+            submitted_fields=action_fields,
             task_ok=True,
             task_result=task_result,
         )
@@ -606,6 +627,7 @@ class OrchestrationService:
             chain_dir=self._bundle.chain_dir,
             task_id=task_id,
             session_id=(ctx.session_id if ctx else "") or "mcp",
+            cpg_adapter=getattr(self._bundle, "cpg_adapter", None),
         )
         exec_data = {
             "task_id": task_id,

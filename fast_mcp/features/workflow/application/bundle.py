@@ -42,3 +42,7 @@ class EngineBundle:
     chain_dir: str
     task_registry: Any = None  # TaskRegistry (Sprint 5): executes sub_state.action
     prompt_manager: Any = None  # IPromptManager: resolve per-node prompts (LLM_TASK)
+    # W5 (ADR-076): las acciones del workflow reciben este adapter para
+    # `inspect_codebase`. Sin él, `ctx.cpg_adapter` no existía y el paso moría
+    # con AttributeError (medido 2026-11-18 en VERIFY.PREDICATE_CHECK).
+    cpg_adapter: Any = None

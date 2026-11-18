@@ -115,6 +115,7 @@ class WorkflowContext:
                 chain_dir=chain_dir,
                 task_registry=task_registry,
                 prompt_manager=prompt_manager,
+                cpg_adapter=cpg_adapter,
             )
             orch = OrchestrationService(bundle=bundle)
 

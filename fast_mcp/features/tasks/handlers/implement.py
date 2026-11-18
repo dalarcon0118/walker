@@ -258,7 +258,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         except Exception as exc:  # noqa: BLE001
             result["plan_error"] = f"{type(exc).__name__}: {exc}"
 
-    inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)
+    inspect_result = run_inspect_codebase(getattr(ctx, "cpg_adapter", None), data)
     if inspect_result is not None:
         result["inspect_codebase"] = inspect_result
 

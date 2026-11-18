@@ -100,6 +100,20 @@ def last_step_summary(state: Any) -> str:
     files = data.get("files")
     if isinstance(files, list) and files:
         parts.append("archivos: " + ", ".join(str(f) for f in files[:_LIST_LIMIT]))
+    # Veredictos sin texto (booleans/contadores): `compliant`, `passed`,
+    # `all_satisfied`. Sin esto, el gate mostraba solo el nombre de la acción.
+    verdicts = [
+        f"{key}={data[key]}"
+        for key in ("compliant", "passed", "all_satisfied", "failed_count", "total")
+        if key in data
+    ]
+    deviations = data.get("deviations")
+    if isinstance(deviations, list) and deviations:
+        verdicts.append(
+            "desviaciones: " + "; ".join(str(d)[:80] for d in deviations[:3])
+        )
+    if verdicts:
+        parts.append(" · ".join(verdicts))
     text = " · ".join(parts)
     return text[:_WHAT_HAPPENED_MAX]
 

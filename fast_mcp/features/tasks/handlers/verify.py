@@ -100,7 +100,9 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         "unmapped": unmapped,
     }
 
-    inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)
+    # `getattr`: el motor arma un ctx mínimo; asumir el atributo rompía el
+    # paso entero con AttributeError en vez de degradar la capability opcional.
+    inspect_result = run_inspect_codebase(getattr(ctx, "cpg_adapter", None), data)
     if inspect_result is not None:
         result_data["inspect_codebase"] = inspect_result
         # W6 (ADR-076): action=imports detecta imports alucinados;

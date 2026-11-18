@@ -21,7 +21,7 @@ def capture(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     artifacts = data.get("artifacts", [])
     task_id = data.get("task_id") or ctx.task_id
 
-    inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)
+    inspect_result = run_inspect_codebase(getattr(ctx, "cpg_adapter", None), data)
     if inspect_result is not None:
         artifacts.append({"type": "inspect_codebase", "result": inspect_result})
 
