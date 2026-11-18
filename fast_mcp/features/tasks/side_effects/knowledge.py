@@ -24,8 +24,14 @@ _PENDING = "pending_update"
 _UP_TO_DATE = "up_to_date"
 
 
-def _state_fields(state: Any) -> dict[str, Any]:
-    """Campos registrados en los sub-estados del nodo actual, del más nuevo al más viejo."""
+def _state_fields(state: Any, wanted: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Campos de los sub-estados del nodo, del más nuevo al más viejo.
+
+    Con `wanted`, devuelve el primero que contenga alguna de esas claves. Es
+    necesario porque `advance` corre los efectos con el estado YA movido: el
+    sub-estado más nuevo puede ser el siguiente (p. ej. con `project_id`) y el
+    `node_id` quedó en el anterior. Misma lección que `capture_decision`.
+    """
     if state is None:
         return {}
     sub_data = getattr(state, "sub_state_data", None) or (
@@ -33,14 +39,19 @@ def _state_fields(state: Any) -> dict[str, Any]:
     )
     if not isinstance(sub_data, dict):
         return {}
+    fallback: dict[str, Any] = {}
     for key in reversed(list(sub_data.keys())):
         entry = sub_data[key]
         fields = getattr(entry, "fields", None)
         if fields is None and isinstance(entry, dict):
             fields = entry.get("fields", entry)
-        if isinstance(fields, dict) and fields:
+        if not isinstance(fields, dict) or not fields:
+            continue
+        if wanted and any(fields.get(name) for name in wanted):
             return fields
-    return {}
+        if not fallback:
+            fallback = fields
+    return {} if wanted else fallback
 
 
 def _save_nodes(chain_dir: str, nodes: list[dict], task_id: str, session_id: str) -> dict[str, Any]:
@@ -62,8 +73,13 @@ def documenting_knowledge(chain_dir: str, params: dict[str, Any], **kwargs: Any)
         out.setdefault("source", "params")
         return out
 
-    # La acción del nodo (DESIGN.CKG_SAVE) ya persistió: no duplicar.
-    fields = _state_fields(kwargs.get("state") or kwargs.get("workflow_state"))
+    # La acción del nodo (DESIGN.CKG_SAVE) ya persistió: no duplicar. Se busca
+    # el marcador en TODO el nodo: el sub-estado más nuevo puede ser el gate
+    # siguiente (con `project_id`), no el que guardó.
+    fields = _state_fields(
+        kwargs.get("state") or kwargs.get("workflow_state"),
+        ("node_id", "nodes_saved", "decision", "statement"),
+    )
     if fields.get("node_id") or fields.get("nodes_saved"):
         return {
             "ok": True,

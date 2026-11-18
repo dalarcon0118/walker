@@ -311,6 +311,22 @@ def test_documenting_knowledge_es_idempotente_si_el_nodo_ya_guardo():
     assert out["node_id"] == "design-001"
 
 
+def test_documenting_knowledge_encuentra_el_node_id_no_el_ultimo_sub_estado():
+    # `advance` corre el efecto con el estado ya movido: el sub-estado más
+    # nuevo tiene `project_id` y el `node_id` quedó en el anterior.
+    state = SimpleNamespace(
+        sub_state_data={
+            "CKG_SAVE": {"fields": {"node_id": "design-001"}},
+            "NEXT_GATE": {"fields": {"project_id": "walker", "decision": ""}},
+        }
+    )
+
+    out = knowledge.documenting_knowledge("/tmp/x", {}, state=state)
+
+    assert out["skipped"] is True
+    assert out["node_id"] == "design-001"
+
+
 def test_documenting_knowledge_persiste_la_decision(monkeypatch):
     saved: dict = {}
 
