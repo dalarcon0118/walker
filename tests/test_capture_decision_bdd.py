@@ -32,3 +32,29 @@ def test_sin_decision_falla():
 
     assert out["ok"] is False
     assert "decision" in out["error"]
+
+
+def test_lee_la_decision_registrada_en_el_estado():
+    """`advance` después de `submit` re-ejecuta el efecto con fields vacío.
+
+    La decisión ya está en el estado; el efecto debe leerla de ahí para no
+    romper el paso siguiente (DESIGN_REVIEW -> CKG_SAVE).
+    """
+    from fast_mcp.features.workflow.domain.entities import SubStateData
+
+    state = SimpleNamespace(
+        current_sub_state="DESIGN_REVIEW",
+        sub_state_data={
+            "DESIGN_REVIEW": SubStateData(
+                fields={"decision": "approve", "evidence": "ADR-lite ok"}
+            )
+        },
+        context={"task_id": "SPEC-002"},
+    )
+
+    out = capture_decision("/tmp/p", {}, state=state, fields={})
+
+    assert out["ok"] is True
+    assert out["decision"] == "approve"
+    assert out["rationale"] == "ADR-lite ok"
+    assert out["sub_state"] == "DESIGN_REVIEW"
