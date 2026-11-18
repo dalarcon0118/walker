@@ -487,6 +487,61 @@ async function runSetup(ctx) {
       return block.length <= 400 ? block : block.slice(0, 397) + "…"
     }
 
+    // Los gates `user_input` son la PREGUNTA que el usuario tiene que
+    // responder. El plugin descartaba el prompt del nodo: el agente solo veía
+    // "complete el paso con submit" y tenía que adivinar qué preguntar (o
+    // peor, decidía por el usuario). El bloque va al contexto del modelo, que
+    // es lo único que el plugin puede hacer para que la pregunta se muestre.
+    const GATE_MAX = 1200
+    const gateOptions = (template) => {
+      // Los templates cierran con "Options:" y líneas ". approve -> ...".
+      const lines = String(template || "").split("\n")
+      let start = -1
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (/^\s*(options|opciones)\s*:/i.test(lines[i])) {
+          start = i
+          break
+        }
+      }
+      if (start === -1) {
+        // Fallback: opciones declaradas en las llamadas a submit.
+        const found = [...String(template || "").matchAll(/"decision"\s*:\s*"([a-z_]+)"/gi)].map(
+          (m) => m[1]
+        )
+        const uniq = [...new Set(found)]
+        return uniq.length ? `Opciones: ${uniq.join(" · ")}` : ""
+      }
+      const picked = []
+      for (let i = start; i < lines.length && picked.length < 10; i++) {
+        const raw = lines[i]
+        if (i > start && /^\s*$/.test(raw) && picked.length) break
+        const line = raw.trim()
+        if (!line) continue
+        if (/walker\s+.*\/submit/i.test(line)) break
+        picked.push(line)
+      }
+      return picked.join("\n")
+    }
+    const gateBlock = (sid, entry, st) => {
+      if (!st || st.execType !== "user_input") return ""
+      // Sesiones ajenas al flujo no reciben la pregunta de otra tarea.
+      if (!planFor(sid) && !st.taskId) return ""
+      const sig = `${st.position}|${st.revision}|${st.prompt?.template_id || ""}`
+      if (entry.gateSig === sig) return ""
+      entry.gateSig = sig
+      const options = gateOptions(st.prompt?.template || "")
+      const lines = [
+        `[WALKER] Gate de decisión: ${st.position}`,
+        "El proceso espera TU decisión. No decidas por el usuario: mostrale las opciones y esperá.",
+      ]
+      if (options) lines.push(options)
+      lines.push(
+        `Cerrá el gate con: ${CLI} ${rt.projectId}/submit '{"decision":"<opción>","evidence":"<motivo>"}'`
+      )
+      const block = lines.join("\n")
+      return block.length <= GATE_MAX ? block : block.slice(0, GATE_MAX - 1) + "…"
+    }
+
     const bindBlock = (sid, sessionGoal) => {
       const fallback = { text: bootstrapBlock(rt), decision: "" }
       if (!rt.projectId || !sid) return fallback
@@ -608,6 +663,7 @@ async function runSetup(ctx) {
           baselineInjected: false,
           baselineFiles: [],
           firstMutation: null,
+          gateSig: "",
         })
       } else {
         sessions.get(key).at = Date.now() // actividad = recencia para la evicción
@@ -822,12 +878,17 @@ async function runSetup(ctx) {
           if (bind.decision) entry.bind = bind.decision
           entry.bootstrapped = true
         }
-        if (!block) return
+        // En un gate de decisión la pregunta del nodo SIEMPRE se agrega, aunque
+        // el plan ya se haya mostrado: es el paso que está bloqueado. Va como
+        // bloque APARTE para no romper el contrato de atención del plan (400).
+        const gate = gateBlock(sid, entry, st)
+        if (!block && !gate) return
         if (!Array.isArray(event?.system)) {
           degrade(rt, "event.system no es array", typeof event?.system)
           return
         }
-        event.system.push({ type: "text", text: block })
+        if (block) event.system.push({ type: "text", text: block })
+        if (gate) event.system.push({ type: "text", text: gate })
         entry.injections += 1
         entry.position = state.data?.position || ""
       })

@@ -56,6 +56,18 @@ if (mode === "baddeclare") {
   ])
 }
 if (mode === "evict") process.env.WALKER_FLIGHT_CONTROL_MAX_SESSIONS = "3"
+if (mode === "gateprompt") {
+  // Un gate `user_input` con su prompt real: el plugin debe poner la PREGUNTA
+  // en el contexto del modelo, no solo recordar "complete el paso".
+  fake("/tmp/fake-walker-gateprompt", [
+    "#!/usr/bin/env node",
+    'const args = process.argv.slice(2); const tool = String(args[0] || "")',
+    'if (tool.endsWith("/session_bind")) { console.log(JSON.stringify({ ok: true, data: { decision: "bound", bound: { spring_id: "SPR-FAKE", status: "active", goal: "gate test", tasks: [] }, suggestion: "continuá" } })); process.exit(0) }',
+    'if (tool.endsWith("/workflow_state")) { console.log(JSON.stringify({ ok: true, task_id: "SPEC-002", current_position: "IMPLEMENT.REPORT_GATE", execution_type: "user_input", required_fields: [], step_satisfied: true, revision: 7, prompt: { template_id: "implement/report-gate", template: "IMPLEMENT.REPORT_GATE - Report\\n\\nPresentá el reporte.\\n\\nOptions:\\n    . proceed -> accepted, continue\\n    . refine  -> needs refinement\\n    . cancel  -> cancel task\\n\\n  walker <p>/submit \'{\\"decision\\":\\"proceed\\"}\'" } })); process.exit(0) }',
+    'if (tool.endsWith("/project_for_path")) { console.log(JSON.stringify({ ok: true, project_id: "game_reset" })); process.exit(0) }',
+    'console.log(JSON.stringify({ ok: true }))',
+  ])
+}
 const tapDir = `/tmp/wfc-tap-${process.pid}`
 const tapFile = `${tapDir}/trace.jsonl`
 if (TAPPED.has(mode)) {
@@ -232,7 +244,13 @@ if (mode === "inject") {
   const noTemplate = !/Sprint Monitoring|PHASE 12/.test(text)
   const okBaseline = /Baseline:/.test(text) && /llamadores/.test(text)
   const okDecision = /·\s*adr-\d+/.test(text)
-  const okCap = text.length <= 400
+  // El tope de 400 es del bloque de PLAN (contrato de atención). El gate de
+  // decisión es otro bloque, con su propio tope (1200): medir el total
+  // confundía los dos contratos.
+  const blocks = (event.system || []).map((b) => b.text || "")
+  const planBlocks = blocks.filter((t) => /\[WALKER\] Plan:/.test(t))
+  const okCap = planBlocks.length > 0 && planBlocks.every((t) => t.length <= 400)
+  const okTotal = text.length <= 1600
   const event2 = {
     sessionID: SID,
     system: [],
@@ -245,11 +263,12 @@ if (mode === "inject") {
   console.log(`sin template del nodo        -> ${noTemplate}`)
   console.log(`baseline desde walker        -> ${okBaseline}`)
   console.log(`decision del CKG (L3)        -> ${okDecision}`)
-  console.log(`tope 400 chars               -> ${okCap} (${text.length})`)
+  console.log(`tope 400 del plan            -> ${okCap} (${planBlocks.map((t) => t.length).join(",")})`)
+  console.log(`total plan+gate <= 1600      -> ${okTotal} (${text.length})`)
   console.log(`estable sin repetir          -> ${stable}`)
   console.log(text.split("\n").slice(0, 4).join(" | "))
   if (typeof dispose === "function") dispose()
-  process.exit(okPlan && okTask && noTemplate && okBaseline && okDecision && okCap && stable ? 0 : 1)
+  process.exit(okPlan && okTask && noTemplate && okBaseline && okDecision && okCap && okTotal && stable ? 0 : 1)
 }
 
 if (mode === "bind") {
@@ -265,6 +284,35 @@ if (mode === "bind") {
   console.log(text.slice(0, 420))
   if (typeof dispose === "function") dispose()
   process.exit(okDecision && okPrev && okCmd ? 0 : 1)
+}
+
+if (mode === "gateprompt") {
+  const event = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "mostrame el gate" }] }],
+  }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+  const okPos = /Gate de decisión: IMPLEMENT\.REPORT_GATE/.test(text)
+  const okNoDecide = /No decidas por el usuario/.test(text)
+  const okOptions = /proceed/.test(text) && /refine/.test(text) && /cancel/.test(text)
+  const okSubmit = /\/submit/.test(text)
+  const event2 = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "sigo esperando" }] }],
+  }
+  await captured.context(event2)
+  const stable = (event2.system || []).length === 0
+  console.log(`posición del gate            -> ${okPos}`)
+  console.log(`no decidir por el usuario    -> ${okNoDecide}`)
+  console.log(`opciones del template        -> ${okOptions}`)
+  console.log(`cómo cerrar el gate          -> ${okSubmit}`)
+  console.log(`estable sin repetir          -> ${stable}`)
+  console.log(text.split("\n").slice(-6).join(" | "))
+  if (typeof dispose === "function") dispose()
+  process.exit(okPos && okNoDecide && okOptions && okSubmit && stable ? 0 : 1)
 }
 
 if (mode === "noproject") {
