@@ -395,7 +395,7 @@ async function runSetup(ctx) {
     }
 
     const preflightCache = new Map()
-    const baselineLine = (scope) => {
+    const baselineLine = (scope, entry) => {
       const groups = scopeProjects(scope)
       if (!Object.keys(groups).length) return ""
       const rows = []
@@ -433,6 +433,10 @@ async function runSetup(ctx) {
       const dominant = Object.keys(groups)[0]
       const decision = decisionFor(dominant, (groups[dominant] || []).map((i) => i.sc))
       const line = `Baseline: ${top.join("; ")}${decision ? " · " + decision : ""}`
+      if (entry) {
+        entry.baselineInjected = true
+        entry.baselineFiles = rows.slice(0, 2).map((r) => String(r.name || ""))
+      }
       return line.slice(0, 140)
     }
 
@@ -460,7 +464,7 @@ async function runSetup(ctx) {
       // no cambia entre llamadas (medido: fallaba y se reinyectaba).
       const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
       if (entry.planSig === sig) return "" // idéntico al anterior: no se inyecta
-      const baseline = baselineLine(scope)
+      const baseline = baselineLine(scope, entry)
       entry.planSig = sig
       entry.planTask = plan.task || ""
       const goal = String(plan.goal).replace(/\s+/g, " ").slice(0, 90)
@@ -585,6 +589,9 @@ async function runSetup(ctx) {
           touched: new Set(),
           planSig: "",
           planTask: "",
+          baselineInjected: false,
+          baselineFiles: [],
+          firstMutation: null,
         })
       }
       return sessions.get(key)
@@ -875,6 +882,15 @@ async function runSetup(ctx) {
                 tokens: usage.tokens,
                 plan_task: entry.planTask || "",
                 bind: entry.bind || "",
+                baseline_injected: Boolean(entry.baselineInjected),
+                baseline_files: (entry.baselineFiles || []).slice(0, 2),
+                first_mutation: entry.firstMutation || null,
+                adherence: entry.firstMutation
+                  ? {
+                      after_baseline: entry.firstMutation.after_baseline,
+                      in_baseline: entry.firstMutation.in_baseline,
+                    }
+                  : null,
               },
             })
           }
@@ -1151,6 +1167,17 @@ async function runSetup(ctx) {
                 entryNow.writes = (entryNow.writes || 0) + 1
                 const touchedPath = relPath(input?.path || input?.filePath || "", rt)
                 if (touchedPath) entryNow.touched.add(touchedPath)
+                if (touchedPath && !entryNow.firstMutation) {
+                  const planNow = planFor(sid) || {}
+                  entryNow.firstMutation = {
+                    file: touchedPath,
+                    after_baseline: Boolean(entryNow.baselineInjected),
+                    in_baseline: (entryNow.baselineFiles || []).some((n) =>
+                      touchedPath.endsWith("/" + n) || touchedPath === n
+                    ),
+                    in_scope: inScope(touchedPath, planNow.scope || []),
+                  }
+                }
               } else if (name === "shell") {
                 const cmd = String(input?.command || "")
                 if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
