@@ -53,6 +53,87 @@ def _now() -> str:
 MIN_SKILL_SCORE_REQUIRED = 3
 
 
+def declared_required_fields(sub_state: Any) -> list[str]:
+    """Campos que el sub-estado exige, de UNA sola fuente derivada.
+
+    Hoy convivían tres: `required_fields`, `input_schema.required` y
+    `output_schema.required`. `workflow_state` mostraba `[]` mientras `advance`
+    reclamaba `decision`, y el agente terminaba deduciendo el payload del
+    prompt. Se unifican en el mismo orden de precedencia que usa `advance`.
+    """
+    required = list(getattr(sub_state, "required_fields", None) or [])
+    if required:
+        return required
+    for schema_name in ("input_schema", "output_schema"):
+        schema = getattr(sub_state, schema_name, None) or {}
+        required = list(schema.get("required") or [])
+        if required:
+            return required
+    return []
+
+
+def missing_declared_fields(state: WorkflowState, sub_state: Any) -> list[str]:
+    sub_data = state.get_sub_state_data(state.current_sub_state)
+    return [f for f in declared_required_fields(sub_state) if not sub_data.is_field_complete(f)]
+
+
+def expected_payload(sub_state: Any) -> dict[str, Any]:
+    """Contrato de campos: tipo, obligatoriedad y enum, listo para armar payload."""
+    out: dict[str, Any] = {}
+    for schema_name in ("input_schema", "output_schema"):
+        schema = getattr(sub_state, schema_name, None) or {}
+        for name, spec in (schema.get("properties") or {}).items():
+            if not isinstance(spec, dict):
+                continue
+            field = {"type": spec.get("type", "string")}
+            if spec.get("description"):
+                field["description"] = str(spec["description"])[:200]
+            if spec.get("enum"):
+                field["enum"] = list(spec["enum"])
+            out[name] = field
+    for name in declared_required_fields(sub_state):
+        out.setdefault(name, {"type": "string"})["required"] = True
+    return out
+
+
+def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any] | None:
+    """La llamada exacta que desbloquea el paso actual.
+
+    Es lo que evita adivinar el protocolo: sin esto el agente descubre que
+    existe `transition` cuando `advance` ya falló con "node complete".
+    """
+    node = graph.get_node(state.current_node)
+    if node is None:
+        return None
+    sub_state = node.find_sub_state(state.current_sub_state)
+    if sub_state is None:
+        return None
+
+    missing = missing_declared_fields(state, sub_state)
+    if missing:
+        return {
+            "tool": "submit",
+            "reason": "missing_fields",
+            "missing": missing,
+            "payload": {field: f"<{field}>" for field in missing},
+            "detail": "Registrá los campos con submit; sin ellos el paso no avanza.",
+        }
+
+    last = state.sub_state_index >= len(node.sub_states) - 1
+    if last:
+        gates = [g.name for g in ValidationService.get_available_gates(state, graph)]
+        if gates:
+            return {
+                "tool": "transition",
+                "gates": gates,
+                "detail": "El nodo está completo: elegí un gate para seguir.",
+            }
+    return {
+        "tool": "advance",
+        "detail": "El paso está satisfecho: avanzá para ejecutar/continuar.",
+    }
+
+
 def merge_action_fields(state: WorkflowState, sub_key: str, fields: dict[str, Any] | None) -> dict[str, Any]:
     """Campos registrados del sub-estado + los nuevos (los nuevos ganan).
 
@@ -363,8 +444,12 @@ class OrchestrationService:
             "ok": True,
             "node": state.current_node,
             "sub_state": state.current_sub_state,
+            "position": f"{state.current_node}.{state.current_sub_state}",
             "revision": state.revision,
             "data": fields,
+            # El agente no debe adivinar el paso siguiente ni pagar un
+            # `workflow_state` extra para saberlo.
+            "next_action": next_action_for(state, graph),
         }
 
     def remember_task(self, ctx: ExecutionContext, task_id: str) -> bool:
@@ -565,6 +650,7 @@ class OrchestrationService:
             # Lo que devolvió la acción (baseline, diff, tests): sin esto el
             # agente tenía que leer node_executions para verlo.
             "action_result": task_result,
+            "next_action": next_action_for(new_state, graph),
         }
 
     def _execute_action(
@@ -1060,6 +1146,32 @@ class OrchestrationService:
             },
         )
 
+        # 7b. Al ENTRAR a otro nodo, su data de sub-estados se descarta: es de
+        # la pasada anterior. Sin esto, un gate de usuario se cruzaba con la
+        # decisión vieja (medido 2026-11-18: DESIGN_REVIEW seguía con el
+        # `approve` de SPEC-002 y el `advance` de SPEC-001 lo daba por hecho).
+        if gate_obj.target_node != gate_obj.source_node:
+            target_node = graph.get_node(gate_obj.target_node)
+            if target_node is not None:
+                stale = {ss.key for ss in target_node.sub_states}
+
+                def _is_target_data(key: Any) -> bool:
+                    text = str(key)
+                    if "." in text:
+                        node_part, _, sub_part = text.partition(".")
+                        return node_part == gate_obj.target_node and sub_part in stale
+                    return text in stale
+
+                cleaned = {
+                    key: value
+                    for key, value in (state.sub_state_data or {}).items()
+                    if not _is_target_data(key)
+                }
+                if len(cleaned) != len(state.sub_state_data or {}):
+                    from dataclasses import replace as _replace
+
+                    state = _replace(state, sub_state_data=cleaned)
+
         # 8. Save state (repository handles CAS + revision bump)
         if not self._save_state(state):
             return {"ok": False, "error": "Failed to persist state"}
@@ -1073,8 +1185,10 @@ class OrchestrationService:
             "from_node": gate_obj.source_node,
             "to_node": gate_obj.target_node,
             "to_sub_state": state.current_sub_state,
+            "position": f"{state.current_node}.{state.current_sub_state}",
             "gate": gate,
             "revision": state.revision,
+            "next_action": next_action_for(state, graph),
         }
 
     # ── status ──────────────────────────────────────────────────────────
@@ -1134,6 +1248,8 @@ class OrchestrationService:
                 "duration_ms": ne.duration_ms,
             })
 
+        from fast_mcp.shared_kernel.build_info import build_info
+
         return {
             "ok": True,
             "node": state.current_node,
@@ -1142,9 +1258,13 @@ class OrchestrationService:
             "execution_type": sub_state_def.execution.value
             if sub_state_def
             else "unknown",
-            "required_fields": list(sub_state_def.required_fields)
+            # Una sola fuente: lo que el paso exige de verdad (no el atributo
+            # `required_fields`, que solía venir vacío aunque el esquema pidiera).
+            "required_fields": declared_required_fields(sub_state_def)
             if sub_state_def
             else [],
+            "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
+            "next_action": next_action_for(state, graph),
             "history": list(state.history),
             "available_gates": available_gates,
             "node_executions": last_executions,
@@ -1153,6 +1273,9 @@ class OrchestrationService:
             "task_id": ctx.task_id,
             "session_id": ctx.session_id,
             "prompt": self._resolve_current_prompt(state, graph, ctx),
+            # Handshake: si `stale` es true, el proceso corre código anterior al
+            # disco; el agente no debe concluir que un fix "no sirve".
+            "build": build_info(),
         }
 
     # ── help ────────────────────────────────────────────────────────────
@@ -1195,8 +1318,9 @@ class OrchestrationService:
                     "description": g.description,
                 })
 
-        # Required fields for current sub-state
-        required_fields = list(sub_state_def.required_fields) if sub_state_def else []
+        # Required fields for current sub-state: una sola fuente derivada
+        # (attribute + input_schema + output_schema), la misma que usa `advance`.
+        required_fields = declared_required_fields(sub_state_def) if sub_state_def else []
 
         # Execution type guidance
         exec_type = sub_state_def.execution.value if sub_state_def else "unknown"
@@ -1208,11 +1332,15 @@ class OrchestrationService:
         sub_data = state.get_sub_state_data(state.current_sub_state)
         step_satisfied = sub_data.all_required_complete(required_fields)
 
+        from fast_mcp.shared_kernel.build_info import build_info
+
         return {
             "ok": True,
             "current_position": f"{state.current_node}.{state.current_sub_state}",
             "execution_type": exec_type,
             "required_fields": required_fields,
+            "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
+            "next_action": next_action_for(state, graph),
             "step_satisfied": step_satisfied,
             "available_gates": [g["name"] for g in available_gates],
             "gates_detail": available_gates,
@@ -1221,4 +1349,5 @@ class OrchestrationService:
             "revision": state.revision,
             "task_id": str((state.context or {}).get("task_id", "") or ""),
             "prompt": self._resolve_current_prompt(state, graph, ctx),
+            "build": build_info(),
         }

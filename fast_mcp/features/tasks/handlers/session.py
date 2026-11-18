@@ -26,12 +26,16 @@ R1: tasks no importa delta_tracking; usa la factory inyectada en `_di`.
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
 from fast_mcp.features.tasks.handlers import _di
 from fast_mcp.features.tasks.handlers.spec_derive import derive
 
+
+
+logger = logging.getLogger(__name__)
 
 def _short_hash(text: str) -> str:
     return hashlib.sha1((text or "session").encode("utf-8")).hexdigest()[:8]
@@ -389,8 +393,8 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.failure("session_plan: sprint service no disponible")
 
     mode = str(data.get("mode") or "get").strip().lower()
-    if mode not in ("get", "set"):
-        return TaskResult.failure("session_plan: mode debe ser get|set")
+    if mode not in ("get", "set", "add", "remove"):
+        return TaskResult.failure("session_plan: mode debe ser get|set|add|remove")
 
     if mode == "get":
         record = service.get_session(session_id)
@@ -400,6 +404,32 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             )
         # Sesión existente sin plan = plan vacío (no es un error).
         return TaskResult.success({"plan": record.get("flight_plan") or {}})
+
+    if mode in ("add", "remove"):
+        # `set` obliga a reenviar el alcance completo (55 entradas hoy) para
+        # agregar un archivo; el error se vuelve una lista ilegible. `add` y
+        # `remove` tocan solo lo que cambió.
+        current = service.get_session(session_id) or {}
+        scope = list((current.get("flight_plan") or {}).get("scope") or [])
+        items = data.get("scope")
+        if isinstance(items, str):
+            items = [items]
+        if not isinstance(items, list) and data.get("path"):
+            items = [data["path"]]
+        if not isinstance(items, list) or not items:
+            return TaskResult.failure(f"session_plan: mode={mode} requiere 'scope' o 'path'")
+        wanted = [str(x) for x in items]
+        if mode == "add":
+            scope = scope + [x for x in wanted if x not in scope]
+        else:
+            drop = set(wanted)
+            scope = [x for x in scope if x not in drop]
+        plan = service.update_session_plan(session_id, {"scope": scope})
+        if plan is None:
+            return TaskResult.failure(
+                f"session_plan: sesión desconocida {session_id!r}; usá session_open o session_bind"
+            )
+        return TaskResult.success({"plan": plan, "scope_size": len(scope)})
 
     patch: dict[str, Any] = {}
     for key in ("goal", "task", "next", "project"):
@@ -481,6 +511,17 @@ def spec_start(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             session_id,
             {"task": task_id, "scope": files, "next": "implementar y verificar"},
         )
+    # El delta ya sabe la tarea, pero el ESTADO del workflow seguía con la
+    # anterior: el diseño de la nueva spec se armaba con los datos de la vieja
+    # (medido 2026-11-18: arrancó SPEC-001 y el prompt mostraba SPEC-002). El
+    # recorder es el mismo puente que usa `implement_task` (R1: lo inyecta el
+    # composition root).
+    recorded = False
+    try:
+        recorded = bool(_di.record_task(ctx.chain_dir, task_id))
+    except Exception as exc:  # noqa: BLE001 — no romper spec_start por esto
+        logger.debug("spec_start: no se pudo recordar la tarea (%s)", exc)
+
     return TaskResult.success(
         {
             "ok": True,
@@ -489,6 +530,7 @@ def spec_start(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "task_id": task_id,
             "files": files,
             "spec": updated,
+            "task_recorded": recorded,
         }
     )
 

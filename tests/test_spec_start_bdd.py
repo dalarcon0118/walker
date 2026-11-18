@@ -81,3 +81,21 @@ def test_sin_sprint_falla(svc):
 
     assert out.ok is False
     assert "spring_id" in out.error
+
+
+def test_spec_start_recuerda_la_tarea_en_el_workflow(svc):
+    """El delta sabía la tarea; el estado del workflow seguía en la anterior.
+
+    Medido 2026-11-18: arrancó SPEC-001 y el prompt seguía mostrando SPEC-002,
+    así que el diseño se armaba con los datos de otra spec.
+    """
+    recorded: list[tuple[str, str]] = []
+    _di.configure_task_recorder(lambda chain_dir, task_id: recorded.append((chain_dir, task_id)) or True)
+    try:
+        out = spec_start(_ctx(), {"session_id": "s1", "spec_id": "SPEC-001"})
+    finally:
+        _di.configure_task_recorder(None)
+
+    assert out.ok
+    assert recorded == [("/tmp/proj", "SPEC-001")]
+    assert out.data["task_recorded"] is True
