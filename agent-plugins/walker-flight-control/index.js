@@ -285,6 +285,37 @@ async function runSetup(ctx) {
     const run = (tool, payload = {}, project = rt.projectId, timeoutMs) =>
       runTool(tool, payload, project, timeoutMs)
 
+    // Protocolo de continuidad (delta-sprint): antes de que el agente escriba,
+    // se le dice qué sprint existe, cuál era su goal y cuántas tareas tiene,
+    // para que PREGUNTE al usuario si continúa o arranca un goal nuevo.
+    // `auto` es read-only: no crea nada. Si walker no responde, se cae al
+    // bootstrap viejo (el agente igual puede trabajar).
+    const bindBlock = (sid, sessionGoal) => {
+      const fallback = { text: bootstrapBlock(rt), decision: "" }
+      if (!rt.projectId || !sid) return fallback
+      const res = run(
+        "session_bind",
+        { session_id: sid, project_id: rt.projectId, mode: "auto", objective: sessionGoal || "" },
+        rt.projectId,
+        HOOK_TIMEOUT_MS
+      )
+      const data = res?.data || res
+      if (!data || data.ok === false || !data.decision) return fallback
+      const b = data.bound || data.previous || {}
+      const head = `[WALKER] session_bind=${data.decision} · sesión ${sid} · proyecto ${rt.projectId}`
+      const meta = b.spring_id
+        ? `\nSprint: ${b.spring_id} (${b.status || "?"}) · goal: ${b.goal || "(sin goal)"} · ` +
+          `tareas: ${b.tasks_count ?? 0} · sesiones: ${(b.sessions || []).join(", ") || "(sin registrar)"}`
+        : ""
+      return {
+        decision: data.decision,
+        text:
+          `${head}${meta}\n${data.suggestion || ""}\n` +
+          `Si el usuario confirma, ejecutá: ${CLI} ${rt.projectId}/session_bind ` +
+          `'{"session_id":"${sid}","mode":"new|continue"}' y después implement_task.`,
+      }
+    }
+
     if (rt.projectDir) {
       // Timeout corto: esto corre en el arranque del plugin y bloquea el event
       // loop. Un walker colgado no puede retrasar el inicio de OpenCode.
@@ -333,6 +364,7 @@ async function runSetup(ctx) {
           position: "",
           sessionID: sessionID || "",
           bootstrapped: false,
+          bind: "",
         })
       }
       return sessions.get(key)
@@ -466,7 +498,11 @@ async function runSetup(ctx) {
         if (rt.activeTask) {
           block = workflowBlock(state.data, rt)
         } else if (!entry.bootstrapped) {
-          block = bootstrapBlock(rt)
+          // Antes de escribir: ofrecer continuidad (sprint/goal previo) en vez
+          // de solo pedir "declará la tarea".
+          const bind = bindBlock(sid, rt.sessionGoal)
+          block = bind.text
+          if (bind.decision) entry.bind = bind.decision
           entry.bootstrapped = true
         }
         if (!block) return
@@ -510,6 +546,7 @@ async function runSetup(ctx) {
               injections: entry.injections,
               position: entry.position,
               followed: entry.followed,
+              bind: entry.bind || "",
               outcome: event.type,
             },
           })

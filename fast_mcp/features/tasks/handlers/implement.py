@@ -37,10 +37,21 @@ def _persist_spec(
     if service is None:
         return None
 
-    spring = service.get_active_spring()
+    springs = service.list_springs() or []
+    # El sprint de la SESIÓN manda: sin esto la tarea cae en "el primero que
+    # haya" y las sesiones se mezclan en un mismo sprint sin relación.
+    def _owns_session(s: dict) -> bool:
+        if not session_override:
+            return False
+        if str(s.get("session_id") or "") == session_override:
+            return True
+        return session_override in ((s.get("context") or {}).get("session_ids") or [])
+
+    spring = next((s for s in springs if _owns_session(s)), None)
     if not spring:
-        springs = service.list_springs() or []
-        spring = springs[0] if springs else None
+        spring = service.get_active_spring()
+    if not spring and springs:
+        spring = springs[0]
     if not spring:
         spring = service.create_spring("SPR-ADHOC", goal="tareas declaradas en sesión")
     spring_id = str(spring.get("spring_id") or spring.get("id") or "")

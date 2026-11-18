@@ -140,6 +140,28 @@ if (mode === "inject") {
   process.exit(okPos && okTpl && noFake ? 0 : 1)
 }
 
+if (mode === "bind") {
+  // Primer turno de una sesión nueva: el bloque debe ofrecer continuidad
+  // (sprint/goal previo) antes de que el agente escriba nada.
+  const event = {
+    sessionID: "harness-bind",
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "quiero arreglar el login" }] }],
+  }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n")
+  const okDecision = /session_bind=(bound|resume_available|no_work)/.test(text)
+  const okPrev = /Sprint: SPR-/.test(text) || /No hay trabajo previo/.test(text)
+  const okCmd = /\/session_bind /.test(text)
+  console.log(`decision en el bloque -> ${okDecision}`)
+  console.log(`contexto previo       -> ${okPrev}`)
+  console.log(`comando para decidir  -> ${okCmd}`)
+  console.log("--- bloque ---")
+  console.log(text.slice(0, 520))
+  if (typeof dispose === "function") dispose()
+  process.exit(okDecision && okPrev && okCmd ? 0 : 1)
+}
+
 const res = {}
 res["edit sin declarar"] = await call("edit", { path: "x.txt" })
 res["write sin declarar"] = await call("write", { path: "x.txt", content: "x" })

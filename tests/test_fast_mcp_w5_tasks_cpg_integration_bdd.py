@@ -224,6 +224,8 @@ class TestTaskRegistryCompleteness:
 
         expected = {
             "implement_task",
+            # Continuidad sesión→sprint (delta-sprint): decision auto|new|continue
+            "session_bind",
             "run_tests",
             "verify_predicates",
             "capture",
