@@ -480,6 +480,32 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
 
     out["tasks"] = tasks
 
+    # 2b. SPRINT DE LA SESIÓN (no el default del proyecto) + jerarquía.
+    # `get_active_spring()` devuelve el sprint más reciente del PROYECTO, que
+    # puede ser de otra sesión; acá se ancla en el sprint que la sesión posee.
+    try:
+        from fast_mcp.composition import build_sprint_service
+
+        record = out.get("session") or {}
+        spring_id = str(record.get("spring_id") or "")
+        project_id = str(record.get("project_id") or "")
+        svc = build_sprint_service(ctx.chain_dir)
+        if spring_id and svc is not None:
+            spring = svc.get_spring(spring_id) or {}
+            out["sprint"] = {
+                "spring_id": spring_id,
+                "goal": spring.get("goal") or record.get("goal") or "",
+                "status": spring.get("status") or "",
+            }
+        if project_id and svc is not None:
+            out["children"] = [
+                s.get("session_id")
+                for s in svc.list_sessions(project_id=project_id)
+                if (s.get("parent_session_id") or "") == sid
+            ]
+    except Exception as exc:  # noqa: BLE001
+        out["sprint_error"] = f"{type(exc).__name__}: {exc}"
+
     # 3. Archivos tocados: trace + tareas declaradas
     files: list[str] = []
     for e in events:
