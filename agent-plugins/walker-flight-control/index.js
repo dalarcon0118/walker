@@ -224,12 +224,21 @@ function projectMissingBlock(rt) {
   )
 }
 
-function closeBlock(rt) {
+function closeBlock(rt, plan, entry) {
   const proj = rt?.projectId || "<proyecto>"
+  const criteria = plan && Array.isArray(plan.acceptance) ? plan.acceptance : []
+  const crit = criteria.length
+    ? `\nCriterios: ${criteria
+        .slice(0, 3)
+        .map((c, i) => `${i + 1}) ${String(c).slice(0, 70)}`)
+        .join(" ")}`
+    : ""
+  const failed =
+    entry && entry.verifyFailed ? "\nLa última verificación FALLÓ: corregí antes de terminar." : ""
   return (
-    `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación registrada.\n` +
-    `Corré los tests del área o de la tarea: ${CLI} ${proj}/run_tests '{"task_id":"<id>"}'.\n` +
-    `Si ya verificaste y pasó, ignorá este aviso.`
+    `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación VERDE.${crit}${failed}\n` +
+    `Corré la suite: ${CLI} ${proj}/run_tests '{"task_id":"<id>"}' (ejecuta pytest y devuelve pass/fail) ` +
+    `o verificá los predicados con verify_predicates.`
   )
 }
 
@@ -286,6 +295,33 @@ async function runSetup(ctx) {
       const plan = (data && data.plan) || {}
       planCache.set(sid, { at: Date.now(), plan })
       return plan
+    }
+
+    // Costo/tokens de la sesión (el proveedor los reporta por mensaje). Si no
+    // se puede leer, `cost` queda null: nunca se reporta 0 como si fuera gratis.
+    const sessionCost = async (sid) => {
+      try {
+        if (!ctx?.session?.context) return { cost: null, tokens: null }
+        const msgs = await ctx.session.context({ sessionID: sid })
+        let cost = 0
+        let known = false
+        const tokens = { input: 0, output: 0, cacheRead: 0 }
+        for (const m of msgs || []) {
+          const info = m?.info || m || {}
+          if (typeof info.cost === "number") {
+            cost += info.cost
+            known = true
+          }
+          const t = info.tokens || {}
+          tokens.input += Number(t.input || 0)
+          tokens.output += Number(t.output || 0)
+          tokens.cacheRead += Number(t.cacheRead || t.cache_read || 0)
+        }
+        return { cost: known ? cost : null, tokens }
+      } catch (err) {
+        degrade(rt, "session cost no disponible", err)
+        return { cost: null, tokens: null }
+      }
     }
 
     const inScope = (file, scope) => {
@@ -422,6 +458,11 @@ async function runSetup(ctx) {
           closed: false,
           wrote: false,
           verified: false,
+          verifyLevel: "",
+          verifyFailed: false,
+          writes: 0,
+          scopeDenied: new Set(),
+          metricsSent: false,
           closeNudged: false,
           touched: new Set(),
           planSig: "",
@@ -680,7 +721,10 @@ async function runSetup(ctx) {
             entry.closeNudged = true
             try {
               if (ctx?.session?.synthetic) {
-                await ctx.session.synthetic({ sessionID: entry.sessionID, text: closeBlock(rt) })
+                await ctx.session.synthetic({
+                  sessionID: entry.sessionID,
+                  text: closeBlock(rt, planFor(entry.sessionID), entry),
+                })
               }
             } catch (err) {
               degrade(rt, "close nudge falló", err)
@@ -693,6 +737,28 @@ async function runSetup(ctx) {
             })
           }
 
+          if (entry.opened && !entry.metricsSent && entry.sessionID) {
+            entry.metricsSent = true
+            const usage = await sessionCost(entry.sessionID)
+            run("trace_push", {
+              event_type: "session_metrics",
+              source: "agent_hook",
+              session_id: entry.sessionID,
+              data: {
+                writes: entry.writes || 0,
+                touched_count: entry.touched.size,
+                touched: Array.from(entry.touched).slice(0, 20),
+                scope_denials: Array.from(entry.scopeDenied || []).slice(0, 10),
+                verified: Boolean(entry.verified),
+                verify_level: entry.verifyLevel || "",
+                verify_failed: Boolean(entry.verifyFailed),
+                cost_usd: usage.cost,
+                tokens: usage.tokens,
+                plan_task: entry.planTask || "",
+                bind: entry.bind || "",
+              },
+            })
+          }
           if (entry.opened && !entry.closed && entry.sessionID) {
             entry.closed = true
             run(
@@ -766,8 +832,10 @@ async function runSetup(ctx) {
             // Evidencia de verificación (gate de cierre). Es un recordatorio, no
             // una prueba: si el comando lanzó, no se marca.
             if (/\b(pytest|run_tests|verify_predicates)\b/.test(cmd)) {
-              sessionOf(key).verified = true
-              sessionOf(key).verifiedBy = "shell"
+              const e = sessionOf(key)
+              e.verified = true
+              if (e.verifyLevel !== "tools") e.verifyLevel = "shell"
+              e.verifiedBy = e.verifiedBy || "shell"
             }
 
             // El plan cambió (o la tarea): la caché de 10s ya no vale.
@@ -930,6 +998,7 @@ async function runSetup(ctx) {
                 const target = relPath(input?.path || input?.filePath || "", rt)
                 const scope = (planFor(sid).scope || []).map(String).filter(Boolean)
                 if (scope.length && target && !inScope(target, scope)) {
+                  sessionOf(sid).scopeDenied.add(target)
                   run("trace_push", {
                     event_type: "flight_control_denied",
                     source: "agent_hook",
@@ -960,6 +1029,7 @@ async function runSetup(ctx) {
               if (name === "edit" || name === "write") {
                 const entryNow = sessionOf(sid)
                 entryNow.wrote = true
+                entryNow.writes = (entryNow.writes || 0) + 1
                 const touchedPath = relPath(input?.path || input?.filePath || "", rt)
                 if (touchedPath) entryNow.touched.add(touchedPath)
               } else if (name === "shell") {
@@ -1146,9 +1216,20 @@ async function runSetup(ctx) {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
-              if (!result || result.ok !== false) {
-                const entry = sessionOf(String(callCtx?.sessionID || "global"))
+              const entry = sessionOf(String(callCtx?.sessionID || rt.sessionId || "global"))
+              const payload = (result && result.data) || {}
+              // `run_tests` ahora ejecuta pytest: passed=false es rojo aunque ok
+              // no venga explícito. verify_predicates ya devuelve ok=failure.
+              const green =
+                Boolean(result) &&
+                result.ok !== false &&
+                (String(name).includes("run_tests") ? payload.passed !== false : true)
+              if (green) {
                 entry.verified = true
+                entry.verifyLevel = "tools"
+                entry.verifiedBy = name
+              } else {
+                entry.verifyFailed = true
                 entry.verifiedBy = name
               }
               return result

@@ -269,42 +269,60 @@ def _resolve_project_root(chain_dir: str) -> str:
 
 
 def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    """Run test suite via pytest --collect-only.
+    """Run the test suite for real (`pytest -q`) and report green/red.
 
-    SPEC-014: prohibits false positive (passed=True with total=0).
+    Antes corría `pytest --collect-only`: devolvía passed=True sin ejecutar
+    nada, así que un cierre "verde" no significaba nada (el agente podía
+    declarar terminado con la suite roja). SPEC-014 sigue vigente: 0 tests no
+    certifica QA.
     """
     project_root = _resolve_project_root(ctx.chain_dir or "")
     try:
         result = subprocess.run(
-            ["pytest", "--collect-only", "-q"],
+            ["pytest", "-q"],
             cwd=project_root,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=300,
         )
-        if result.returncode != 0:
-            return TaskResult.failure(
-                f"run_tests: pytest --collect-only failed (rc={result.returncode})"
-            )
-        match = re.search(r"(\d+) tests? collected", result.stderr + result.stdout)
-        total = int(match.group(1)) if match else 0
-        if total <= 0:
-            return TaskResult.failure(
-                "run_tests: 0 tests collected — cannot certify QA"
-            )
-        return TaskResult.success(data={
+    except subprocess.TimeoutExpired:
+        return TaskResult.failure("run_tests: pytest timed out (300s)")
+    except FileNotFoundError:
+        return TaskResult.failure("run_tests: pytest not found")
+    except Exception as exc:  # noqa: BLE001
+        return TaskResult.failure(f"run_tests: {type(exc).__name__}: {exc}")
+
+    out = (result.stdout or "") + "\n" + (result.stderr or "")
+
+    def _count(label: str) -> int:
+        match = re.search(rf"(\d+)\s+{label}", out)
+        return int(match.group(1)) if match else 0
+
+    passed_n = _count("passed")
+    failed_n = _count("failed")
+    errors_n = _count("error")
+    total = passed_n + failed_n + errors_n
+
+    if result.returncode != 0 or failed_n or errors_n:
+        return TaskResult.failure(
+            "run_tests: SUITE ROJA "
+            f"(rc={result.returncode}, passed={passed_n}, failed={failed_n}, errors={errors_n})"
+        )
+    if total <= 0:
+        return TaskResult.failure(
+            "run_tests: 0 tests ejecutados — no se puede certificar QA"
+        )
+    return TaskResult.success(
+        data={
             "task_id": data.get("task_id", ctx.task_id),
             "passed": True,
             "total": total,
             "failures": 0,
-            "runner": "pytest --collect-only",
-        })
-    except subprocess.TimeoutExpired:
-        return TaskResult.failure("run_tests: pytest timed out (120s)")
-    except FileNotFoundError:
-        return TaskResult.failure("run_tests: pytest not found")
-    except Exception as exc:
-        return TaskResult.failure(f"run_tests: {type(exc).__name__}: {exc}")
+            "errors": 0,
+            "returncode": result.returncode,
+            "runner": "pytest -q",
+        }
+    )
 
 
 def register(registry) -> None:

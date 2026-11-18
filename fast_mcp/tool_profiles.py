@@ -51,6 +51,12 @@ AGENT: frozenset[str] = frozenset({
     # config real: `implement_task` había quedado fuera).
     "implement_task",
     "documenting_knowledge",
+    # continuidad y foco (sesión → sprint y plan de vuelo). `session_open` y
+    # `session_close` NO: son ciclo de vida del plugin, no superficie del agente.
+    "session_bind",
+    "session_plan",
+    "session_list",
+    "sprint_status",
     # verificación
     "run_tests",
     "verify_predicates",

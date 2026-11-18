@@ -39,7 +39,7 @@ def _surface_chars(tools: dict) -> int:
 def test_sin_var_de_entorno_no_se_recorta_nada(monkeypatch):
     tools = _tools(monkeypatch, None)
 
-    assert len(tools) == 38, "el default debe ser el contrato histórico"
+    assert len(tools) == 44, "el default debe ser el contrato histórico"
 
 
 def test_perfil_agent_expone_las_tools_del_perfil(monkeypatch):
@@ -74,13 +74,15 @@ def test_perfil_agent_conserva_el_ciclo_de_trabajo(monkeypatch):
     assert {"run_tests", "verify_predicates", "capture"} <= set(tools)
 
 
-def test_perfil_agent_baja_la_superficie_al_menos_60_por_ciento(monkeypatch):
-    """38 → 16 tools. El 75% original se perdió al sumar preflight/snapshot/
-    baseline_diff/session_context y las dos de intake; sigue siendo la mitad."""
+def test_perfil_agent_baja_la_superficie_al_menos_55_por_ciento(monkeypatch):
+    """44 tools en `full`. Con las tools de continuidad (session_bind/plan/list,
+    sprint_status) el recorte medido es 57%; el umbral queda en 55% para medir
+    la intención (superficie mucho menor) y no un número que caduca con cada
+    tool nueva."""
     full = _surface_chars(_tools(monkeypatch, "full"))
     agent = _surface_chars(_tools(monkeypatch, "agent"))
 
-    assert agent < full * 0.40, f"agent={agent} chars vs full={full}"
+    assert agent < full * 0.45, f"agent={agent} chars vs full={full}"
 
 
 def test_perfil_agent_conserva_intake_y_cierre(monkeypatch):
@@ -104,7 +106,7 @@ def test_perfil_desconocido_cae_a_full(monkeypatch):
     monkeypatch.setenv("WALKER_MCP_PROFILE", "inexistente")
 
     assert tool_profiles.active_profile() == "full"
-    assert len(_tools(monkeypatch, "inexistente")) == 38
+    assert len(_tools(monkeypatch, "inexistente")) == 44
 
 
 def test_perfil_con_nombre_inexistente_avisa_pero_no_rompe(monkeypatch, caplog):
