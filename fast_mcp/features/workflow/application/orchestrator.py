@@ -723,15 +723,20 @@ class OrchestrationService:
             return {"ok": True, "skills_checked": candidates}
 
         self._trace_skill_gate(ctx, state, "blocked", candidates)
+        # `error` es el canal que TODO el resto lee. Dejar el motivo solo en
+        # `message` hacía que un bloqueo se viera como silencio (`error: None`)
+        # y el agente no pudiera diagnosticarlo (medido 2026-11-18).
+        skill_message = (
+            "Antes de avanzar, cargá uno de los skills de esta fase con "
+            "`load_skill(<nombre>)`: " + ", ".join(candidates)
+        )
         return {
             "ok": False,
             "action": "gate_blocked",
             "blocked": True,
             "error_type": "required_skill_gate",
-            "message": (
-                "Antes de avanzar, cargá uno de los skills de esta fase con "
-                "`load_skill(<nombre>)`: " + ", ".join(candidates)
-            ),
+            "error": skill_message,
+            "message": skill_message,
             "skills_checked": candidates,
         }
 
@@ -787,15 +792,17 @@ class OrchestrationService:
         hints = "; ".join(
             f"{t.get('id', '?')}: {t.get('command_hint', '')}" for t in required
         )
+        tools_message = (
+            "This step requires consulting tools before submit: "
+            f"{hints}. Invoke the tool and retry submit."
+        )
         return {
             "ok": False,
             "action": "gate_blocked",
             "blocked": True,
             "error_type": "required_tools_gate",
-            "message": (
-                "This step requires consulting tools before submit: "
-                f"{hints}. Invoke the tool and retry submit."
-            ),
+            "error": tools_message,
+            "message": tools_message,
         }
 
     # ── transition ──────────────────────────────────────────────────────

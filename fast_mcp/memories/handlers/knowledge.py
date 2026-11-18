@@ -197,24 +197,19 @@ def handle_load_skill(ctx: MemoryContext, **kwargs: Any) -> dict:
         }
     body = skill.body()
     # Traza la carga: el gate `skill_intent.policy == required` la verifica
-    # contra el trace (task + timestamp). Best-effort: sin grafo no se bloquea.
-    try:
-        from fast_mcp.features.event_tracing.application.services.trace_factory import (
-            build_trace_service,
-        )
-
-        service = build_trace_service(ctx.chain_dir)
-        if service is not None:
-            service.push_event(ctx.chain_dir, {
-                "event_type": "skill_loaded",
-                "source": "agent",
-                "tool": "load_skill",
-                "task_id": str(kwargs.get("task_id") or ""),
-                "data": {"skill": skill.name, "scope": skill.scope},
-            })
-    except Exception as exc:  # noqa: BLE001 — la carga del skill no depende del trace
-        logger.debug("load_skill: no se pudo trazar (%s)", exc)
-    return {
+    # contra el trace (task + timestamp). Si la escritura no queda, la tool lo
+    # DICE: antes el `except` la convertía en silencio y el gate quedaba
+    # insatisfacible sin que nadie supiera por qué (medido 2026-11-18: la carga
+    # respondió con contenido y la traza no registró nada).
+    event = {
+        "event_type": "skill_loaded",
+        "source": "agent",
+        "tool": "load_skill",
+        "task_id": str(kwargs.get("task_id") or ""),
+        "data": {"skill": skill.name, "scope": skill.scope},
+    }
+    warning = _trace_skill_load(ctx.chain_dir, event)
+    result = {
         "name": skill.name,
         "description": skill.description,
         "scope": skill.scope,
@@ -222,6 +217,47 @@ def handle_load_skill(ctx: MemoryContext, **kwargs: Any) -> dict:
         "chars": len(body),
         "content": body,
     }
+    if warning:
+        result["warning"] = warning
+    return result
+
+
+def _trace_skill_load(chain_dir: str, event: dict) -> str:
+    """Empuja `skill_loaded` y verifica que quedó. Devuelve warning o "".
+
+    Un reintento con servicio recién construido cubre la instancia cacheada que
+    rechaza el write por generación (misma clase de fallo que ya documenta
+    `trace_factory`). Si aun así no escribe, se reporta: nunca silencio.
+    """
+    try:
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+            invalidate_trace_service,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"no se pudo registrar la carga del skill: {type(exc).__name__}: {exc}"
+
+    error = ""
+    for attempt in (1, 2):
+        service = build_trace_service(chain_dir)
+        if service is None:
+            error = "TraceGraph no disponible"
+        else:
+            try:
+                pushed = service.push_event(chain_dir, event)
+            except Exception as exc:  # noqa: BLE001
+                pushed = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            if isinstance(pushed, dict) and pushed.get("ok", True):
+                return ""
+            error = str((pushed or {}).get("error") or "escritura rechazada")
+        if attempt == 1:
+            # La instancia cacheada puede estar rechazando por generación:
+            # se descarta y se reconstruye antes del reintento.
+            try:
+                invalidate_trace_service(chain_dir)
+            except Exception:  # noqa: BLE001
+                pass
+    return f"no se pudo registrar la carga del skill: {error}"
 
 
 def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
