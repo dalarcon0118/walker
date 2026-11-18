@@ -124,7 +124,9 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     objective = str(data.get("objective") or "").strip()
     parent = str(data.get("parent_session_id") or "").strip()
     project_id = str(data.get("project_id") or "").strip()
-    explicit_spring = str(data.get("spring_id") or "").strip()
+    # `sprint_id` es el nombre que usan los prompts y el humano; el dominio
+    # quedó en `spring_id`. Se aceptan los dos para no fallar por sinónimo.
+    explicit_spring = str(data.get("spring_id") or data.get("sprint_id") or "").strip()
 
     service = _di.sprint_service(ctx.chain_dir)
     if service is None:
@@ -465,7 +467,7 @@ def spec_start(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """
     session_id = str(data.get("session_id") or ctx.session_id or "").strip()
     spec_id = str(data.get("spec_id") or "").strip()
-    spring_id = str(data.get("spring_id") or "").strip()
+    spring_id = str(data.get("spring_id") or data.get("sprint_id") or "").strip()
     if not spec_id:
         return TaskResult.failure("spec_start: spec_id requerido (ej. SPEC-001)")
 

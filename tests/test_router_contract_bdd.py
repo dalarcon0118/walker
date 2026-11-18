@@ -19,7 +19,9 @@ from fast_mcp.features.workflow.application.bundle import EngineBundle
 from fast_mcp.features.workflow.application.orchestrator import (
     OrchestrationService,
     declared_required_fields,
+    decision_map_for,
     expected_payload,
+    extract_user_message,
     missing_declared_fields,
     next_action_for,
 )
@@ -241,3 +243,107 @@ def test_transition_limpia_la_data_del_nodo_destino():
     # La data del nodo ORIGEN y la de otros nodos se conserva.
     assert "SPRINT.ACTIVE" in final.sub_state_data
     assert "IMPLEMENT.WORK" in final.sub_state_data
+
+
+# ── decision_map y user_message ─────────────────────────────────────────
+
+def test_decision_map_sale_del_contrato_del_gate():
+    from fast_mcp.features.workflow.domain.entities import Gate
+
+    gates = [
+        Gate(
+            name="design_approved",
+            source_node="DESIGN",
+            target_node="ANALYZE",
+            contract={"pre": "ckg_has_decision('approve')"},
+        ),
+        Gate(
+            name="design_rejected",
+            source_node="DESIGN",
+            target_node="REFINE",
+            contract={"pre": "ckg_has_decision('reject')"},
+        ),
+        Gate(name="design_needs_refine", source_node="DESIGN", target_node="REFINE"),
+    ]
+
+    mapping = decision_map_for(gates)
+
+    assert mapping["approve"] == "design_approved"
+    assert mapping["reject"] == "design_rejected"
+    # Sin contrato, el nombre del gate aporta la decisión.
+    assert mapping["refine"] == "design_needs_refine"
+
+
+def test_decision_map_ignora_gates_que_no_son_decision():
+    from fast_mcp.features.workflow.domain.entities import Gate
+
+    assert decision_map_for([Gate(name="start_task", source_node="A", target_node="B")]) == {}
+
+
+def test_user_message_extrae_las_opciones_y_corta_los_comandos():
+    template = (
+        "REPORTE\n\n"
+        "Options:\n"
+        "    . proceed -> accepted\n"
+        "    . refine  -> needs refinement\n\n"
+        "  walker <project>/submit '{\"decision\":\"proceed\"}'\n"
+        "texto que no debe aparecer"
+    )
+
+    out = extract_user_message(template, "IMPLEMENT.REPORT_GATE")
+
+    assert out["position"] == "IMPLEMENT.REPORT_GATE"
+    assert "proceed -> accepted" in out["text"]
+    assert "refine" in out["text"]
+    assert "walker" not in out["text"]
+    assert "no debe aparecer" not in out["text"]
+
+
+def test_user_message_sin_opciones_es_none():
+    assert extract_user_message("solo instrucciones", "X") is None
+
+
+# ── submit autotransiciona ──────────────────────────────────────────────
+
+def test_submit_cruza_el_gate_cuando_la_decision_mapea():
+    from fast_mcp.features.workflow.domain.entities import Gate
+
+    n1 = WorkflowNode(
+        node_id="VERIFY",
+        sub_states=[
+            _sub("PO_ACCEPT", execution=ExecutionType.USER_INPUT, output_schema={"required": ["decision"]})
+        ],
+    )
+    n2 = WorkflowNode(node_id="SPRINT", sub_states=[_sub("ACTIVE")])
+    graph = WorkflowGraph(nodes={"VERIFY": n1, "SPRINT": n2}, initial_state="VERIFY")
+    gate = Gate(
+        name="task_complete",
+        source_node="VERIFY",
+        target_node="SPRINT",
+        source_sub_state="PO_ACCEPT",
+        contract={"pre": "ckg_has_decision('accept')"},
+    )
+    graph.edges = [gate]
+    graph.edges_by_source = {"VERIFY": [gate]}
+
+    state = WorkflowState(
+        current_node="VERIFY", current_sub_state="PO_ACCEPT", sub_state_index=0
+    )
+    saved: dict = {}
+    orch = OrchestrationService(
+        bundle=EngineBundle(
+            workflow_store=None, workflow_io=None, tracer=None, side_effects=None, chain_dir="/tmp/x"
+        )
+    )
+    orch._load_graph = lambda: graph
+    orch._load_state = lambda: saved.get("state", state)
+    orch._save_state = lambda s: saved.setdefault("state", s) is not None or True
+    orch._trace_submit = lambda *a, **k: None
+    orch._trace_transition = lambda *a, **k: None
+
+    result = orch.submit(ctx=None, fields={"decision": "accept"})
+
+    assert result["ok"] is True, result
+    assert result.get("submitted") is True
+    assert result.get("to_node") == "SPRINT", result
+    assert result.get("position") == "SPRINT.ACTIVE"

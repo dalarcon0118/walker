@@ -74,15 +74,16 @@ def test_perfil_agent_conserva_el_ciclo_de_trabajo(monkeypatch):
     assert {"run_tests", "verify_predicates", "capture"} <= set(tools)
 
 
-def test_perfil_agent_baja_la_superficie_al_menos_55_por_ciento(monkeypatch):
-    """45 tools en `full`. Con las tools de continuidad (session_bind/plan/list,
-    sprint_status) el recorte medido es 57%; el umbral queda en 55% para medir
-    la intención (superficie mucho menor) y no un número que caduca con cada
-    tool nueva."""
+def test_perfil_agent_baja_la_superficie_al_menos_50_por_ciento(monkeypatch):
+    """45 tools en `full`. Medido 2026-11-18: 19.581 vs 9.249 chars = 52,8% de
+    recorte. `search_memories` (533 chars) entra porque los templates la exigen
+    24 veces y sin ella el agente recibía "Unknown tool"; por eso el umbral es
+    50% y no 55%. Sigue midiendo la intención (superficie mucho menor) sin
+    caducar con cada tool nueva."""
     full = _surface_chars(_tools(monkeypatch, "full"))
     agent = _surface_chars(_tools(monkeypatch, "agent"))
 
-    assert agent < full * 0.45, f"agent={agent} chars vs full={full}"
+    assert agent < full * 0.50, f"agent={agent} chars vs full={full}"
 
 
 def test_perfil_agent_conserva_intake_y_cierre(monkeypatch):

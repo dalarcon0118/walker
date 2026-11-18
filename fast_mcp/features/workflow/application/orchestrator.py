@@ -134,6 +134,76 @@ def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any
     }
 
 
+_DECISION_TOKENS = ("refine", "cancel", "reject", "approve", "accept", "proceed")
+
+
+def decision_map_for(gates: list[Any]) -> dict[str, str]:
+    """De cada decisión al gate que dispara, derivado del grafo.
+
+    Fuente primaria: `contract.pre` del gate (`ckg_has_decision('approve')`).
+    Fallback: el nombre del gate (`needs_refine` → `refine`). Se expone para
+    que `submit` cierre el gate solo y el agente deje de encadenar
+    submit → advance → transition.
+    """
+    import re as _re
+
+    out: dict[str, str] = {}
+    for gate in gates:
+        name = str(getattr(gate, "name", "") or "")
+        contract = getattr(gate, "contract", None) or {}
+        pre = str(contract.get("pre") or "") if isinstance(contract, dict) else ""
+        found = _re.search(r"ckg_has_decision\('([^']+)'\)", pre)
+        if found:
+            out.setdefault(found.group(1), name)
+            continue
+        lowered = name.lower()
+        for token in _DECISION_TOKENS:
+            if token in lowered:
+                out.setdefault(token, name)
+                break
+    return out
+
+
+def extract_user_message(template: str, position: str) -> dict[str, Any] | None:
+    """Texto que hay que MOSTRAR al humano, separado de las instrucciones.
+
+    Los templates mezclan instrucciones para el agente con la pregunta y las
+    opciones. El agente decidía qué relatar (y el plugin tuvo que implementar su
+    propio extractor). Acá se devuelve el bloque de opciones ya listo.
+    """
+    import re as _re
+
+    if not template:
+        return None
+    lines = template.splitlines()
+    start = None
+    for index in range(len(lines) - 1, -1, -1):
+        if _re.match(r"^\s*(options|opciones)\s*:", lines[index], _re.IGNORECASE):
+            start = index
+            break
+    if start is None:
+        return None
+    option_line = _re.compile(r"^\s*(?:[-•.]|\d+[.)])\s+\S|^\s*\w+\s*(?:—|->|→)")
+    picked: list[str] = [lines[start].rstrip()]
+    for line in lines[start + 1:]:
+        # Las líneas de comando (`walker <proj>/submit ...`, incluso con un
+        # prefijo como "→ Submit:") son para el AGENTE, no para el humano.
+        if _re.search(r"\bwalker\b.*/", line):
+            continue
+        if not line.strip():
+            picked.append("")
+            continue
+        # Fuera del bloque de opciones (prosa, separadores) se corta: el resto
+        # del template es instrucción, no mensaje para el usuario.
+        if not option_line.match(line):
+            break
+        picked.append(line.rstrip())
+    text = "\n".join(picked).strip()
+    if not text:
+        return None
+    return {"position": position, "text": text}
+
+
 def merge_action_fields(state: WorkflowState, sub_key: str, fields: dict[str, Any] | None) -> dict[str, Any]:
     """Campos registrados del sub-estado + los nuevos (los nuevos ganan).
 
@@ -440,7 +510,7 @@ class OrchestrationService:
         # 9. Trace submit
         self._trace_submit(ctx, state, fields)
 
-        return {
+        result = {
             "ok": True,
             "node": state.current_node,
             "sub_state": state.current_sub_state,
@@ -451,6 +521,25 @@ class OrchestrationService:
             # `workflow_state` extra para saberlo.
             "next_action": next_action_for(state, graph),
         }
+
+        # 9b. Si la decisión mapea a un gate y el nodo terminó acá, se cruza en
+        # la MISMA llamada. Antes eran tres (submit → advance → transition) y
+        # el protocolo se descubría por error (medido 2026-11-18).
+        decision = str((fields or {}).get("decision") or "")
+        node_now = graph.get_node(state.current_node)
+        at_last = bool(node_now) and state.sub_state_index >= len(node_now.sub_states) - 1
+        if decision and at_last:
+            gate_name = decision_map_for(
+                ValidationService.get_available_gates(state, graph)
+            ).get(decision)
+            if gate_name:
+                moved = self.transition(ctx, gate_name, reason=f"submit:{decision}")
+                if isinstance(moved, dict) and moved.get("ok"):
+                    moved["submitted"] = True
+                    moved["decision"] = decision
+                    return moved
+                result["gate_error"] = str((moved or {}).get("error") or "")
+        return result
 
     def remember_task(self, ctx: ExecutionContext, task_id: str) -> bool:
         """Persiste el `task_id` de la tarea declarada en el estado del workflow.
@@ -1250,6 +1339,8 @@ class OrchestrationService:
 
         from fast_mcp.shared_kernel.build_info import build_info
 
+        prompt = self._resolve_current_prompt(state, graph, ctx)
+        gates_now = ValidationService.get_available_gates(state, graph) if node else []
         return {
             "ok": True,
             "node": state.current_node,
@@ -1265,6 +1356,11 @@ class OrchestrationService:
             else [],
             "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
             "next_action": next_action_for(state, graph),
+            "decision_map": decision_map_for(gates_now),
+            "user_message": extract_user_message(
+                (prompt or {}).get("template") or "",
+                f"{state.current_node}.{state.current_sub_state}",
+            ),
             "history": list(state.history),
             "available_gates": available_gates,
             "node_executions": last_executions,
@@ -1272,7 +1368,7 @@ class OrchestrationService:
             "blocked": bool(state.blocked_at),
             "task_id": ctx.task_id,
             "session_id": ctx.session_id,
-            "prompt": self._resolve_current_prompt(state, graph, ctx),
+            "prompt": prompt,
             # Handshake: si `stale` es true, el proceso corre código anterior al
             # disco; el agente no debe concluir que un fix "no sirve".
             "build": build_info(),
@@ -1334,6 +1430,7 @@ class OrchestrationService:
 
         from fast_mcp.shared_kernel.build_info import build_info
 
+        prompt = self._resolve_current_prompt(state, graph, ctx)
         return {
             "ok": True,
             "current_position": f"{state.current_node}.{state.current_sub_state}",
@@ -1341,6 +1438,11 @@ class OrchestrationService:
             "required_fields": required_fields,
             "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
             "next_action": next_action_for(state, graph),
+            "decision_map": decision_map_for(gates),
+            "user_message": extract_user_message(
+                (prompt or {}).get("template") or "",
+                f"{state.current_node}.{state.current_sub_state}",
+            ),
             "step_satisfied": step_satisfied,
             "available_gates": [g["name"] for g in available_gates],
             "gates_detail": available_gates,
@@ -1348,6 +1450,6 @@ class OrchestrationService:
             "blocked": bool(state.blocked_at),
             "revision": state.revision,
             "task_id": str((state.context or {}).get("task_id", "") or ""),
-            "prompt": self._resolve_current_prompt(state, graph, ctx),
+            "prompt": prompt,
             "build": build_info(),
         }

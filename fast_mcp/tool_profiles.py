@@ -39,6 +39,10 @@ AGENT: frozenset[str] = frozenset({
     "transition",
     # contexto del proyecto (un lector, no cuatro)
     "agent_context",
+    # Los templates del workflow mandan a `search_memories` en los gates de
+    # análisis y cierre; dejarla fuera hacía que el agente recibiera una
+    # instrucción imposible ("Unknown tool"). Es la query federada real.
+    "search_memories",
     "preflight",
     # punto A y su diff: el pre-flight del workflow
     "snapshot",
