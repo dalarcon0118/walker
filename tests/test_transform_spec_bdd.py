@@ -209,6 +209,39 @@ class TestTransformSpec:
         out = transform_spec("/tmp/cd", params, sprint_service=svc)
         assert out["skipped"] is True
 
+    def test_output_mergea_resultado_y_campos(self):
+        """`NODE.X.output` debe traer la salida de la acción, no solo el input.
+
+        Regresión: `review_metrics` se guardaba `{files, project_id}` porque el
+        resolver devolvía los campos enviados antes del `task_result`.
+        """
+        from fast_mcp.features.workflow.infrastructure.side_effect_engine import (
+            _resolve_node_output,
+        )
+
+        state = SimpleNamespace(
+            sub_state_data={
+                "CODE_REVIEW_SCAN": SimpleNamespace(fields={"files": ["x.js"]})
+            },
+            node_executions=[
+                SimpleNamespace(
+                    node="IMPLEMENT",
+                    sub_state="CODE_REVIEW_SCAN",
+                    task_result={"data": {"passed": True, "findings": [], "summary": "ok"}},
+                )
+            ],
+            current_node="IMPLEMENT",
+            current_sub_state="CODE_REVIEW_RESULT",
+        )
+
+        out = _resolve_node_output(state, "CODE_REVIEW_SCAN", None)
+
+        assert out["files"] == ["x.js"]
+        assert out["passed"] is True
+        assert out["summary"] == "ok"
+        assert _resolve_node_output(state, "CODE_REVIEW_SCAN", "passed") is True
+
+
     def test_spring_from_session_not_basename(self):
         """El basename (\"walker\") no contiene la spec; la sesión sí."""
         class SessionService:

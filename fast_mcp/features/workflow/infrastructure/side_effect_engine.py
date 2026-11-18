@@ -79,52 +79,25 @@ def _sub_state_key(sub_state: Any, state: Any) -> str:
     return str(_state_attr(state, "current_sub_state", "") or "")
 
 
-def _resolve_node_output(state: Any, node_key: str, field: str | None) -> Any:
-    """Resolve a NODE.<key>.output[.field] reference against state data."""
-    if state is None:
-        return _UNRESOLVED
+def _output_of(state: Any, key: str) -> dict:
+    """Salida de un sub-estado: campos enviados + resultado de la acción.
 
-    # 1. sub-estado actual
-    cur_sub = str(_state_attr(state, "current_sub_state", "") or "")
-    cur_node = str(_state_attr(state, "current_node", "") or "")
-    if node_key in (cur_sub, cur_node):
-        try:
-            ssd = state.get_sub_state_data() if hasattr(state, "get_sub_state_data") else None
-        except Exception:
-            ssd = None
-        fields = None
-        if ssd is not None:
-            fields = getattr(ssd, "fields", None)
-            if fields is None and isinstance(ssd, dict):
-                fields = ssd.get("fields", ssd)
+    El `task_result.data` es la salida real; los campos enviados son la
+    entrada. Se fusionan con el resultado ganando, así `NODE.X.output` sirve
+    para `task_description` (input) y para `review_metrics` (resultado). Antes
+    se devolvía solo el input y el `review_metrics` se guardaba incompleto
+    (medido 2026-11-18: `{files, project_id}` en vez de `passed/findings`).
+    """
+    merged: dict = {}
+    sub_data = _state_attr(state, "sub_state_data", {}) or {}
+    if isinstance(sub_data, dict) and key in sub_data:
+        entry = sub_data[key]
+        fields = getattr(entry, "fields", None)
+        if fields is None and isinstance(entry, dict):
+            fields = entry.get("fields", entry)
         if isinstance(fields, dict):
-            if field:
-                if field in fields:
-                    return fields[field]
-                out = fields.get("output")
-                if isinstance(out, dict) and field in out:
-                    return out[field]
-            else:
-                return dict(fields)
+            merged.update(fields)
 
-    # 2. sub_state_data direct key
-    ssd_map = _state_attr(state, "sub_state_data", {}) or {}
-    if isinstance(ssd_map, dict) and node_key in ssd_map:
-        ssd = ssd_map[node_key]
-        fields = getattr(ssd, "fields", None)
-        if fields is None and isinstance(ssd, dict):
-            fields = ssd.get("fields", ssd)
-        if isinstance(fields, dict):
-            if field:
-                if field in fields:
-                    return fields[field]
-                out = fields.get("output")
-                if isinstance(out, dict) and field in out:
-                    return out[field]
-            else:
-                return dict(fields)
-
-    # 3. node_executions: last registered of that node/sub-state
     execs = _state_attr(state, "node_executions", []) or []
     try:
         for ne in reversed(list(execs)):
@@ -134,30 +107,61 @@ def _resolve_node_output(state: Any, node_key: str, field: str | None) -> Any:
                 node = ne.get("node")
             if sub is None and isinstance(ne, dict):
                 sub = ne.get("sub_state")
-            if str(node or "") != node_key and str(sub or "") != node_key:
+            if str(node or "") != key and str(sub or "") != key:
                 continue
-            data = None
-            tr = getattr(ne, "task_result", None) if not isinstance(ne, dict) else ne.get("task_result")
-            if isinstance(tr, dict):
-                data = tr.get("data", tr)
-            if data is None:
-                sf = getattr(ne, "submitted_fields", None) if not isinstance(ne, dict) else ne.get("submitted_fields")
-                data = sf
+            tr = (
+                getattr(ne, "task_result", None)
+                if not isinstance(ne, dict)
+                else ne.get("task_result")
+            )
+            data = tr.get("data", tr) if isinstance(tr, dict) else None
             if isinstance(data, dict):
-                if field:
-                    if field in data:
-                        return data[field]
-                    out = data.get("output")
-                    if isinstance(out, dict) and field in out:
-                        return out[field]
-                else:
-                    return dict(data)
-            if isinstance(tr, dict) and not field:
-                return dict(tr)
+                merged.update(data)
+                break
+            sf = (
+                getattr(ne, "submitted_fields", None)
+                if not isinstance(ne, dict)
+                else ne.get("submitted_fields")
+            )
+            if isinstance(sf, dict):
+                merged.update(sf)
+                break
     except Exception:
         pass
+    return merged
 
-    return _UNRESOLVED
+
+def _resolve_node_output(state: Any, node_key: str, field: str | None) -> Any:
+    """Resolve a NODE.<key>.output[.field] reference against state data."""
+    if state is None:
+        return _UNRESOLVED
+
+    merged = _output_of(state, node_key)
+
+    # El sub-estado actual puede no estar todavía en `node_executions`.
+    cur_sub = str(_state_attr(state, "current_sub_state", "") or "")
+    cur_node = str(_state_attr(state, "current_node", "") or "")
+    if node_key in (cur_sub, cur_node):
+        try:
+            ssd = state.get_sub_state_data() if hasattr(state, "get_sub_state_data") else None
+        except Exception:
+            ssd = None
+        fields = getattr(ssd, "fields", None) if ssd is not None else None
+        if fields is None and isinstance(ssd, dict):
+            fields = ssd.get("fields", ssd)
+        if isinstance(fields, dict):
+            merged.update(fields)
+
+    if not merged:
+        return _UNRESOLVED
+    if field:
+        if field in merged:
+            return merged[field]
+        out = merged.get("output")
+        if isinstance(out, dict) and field in out:
+            return out[field]
+        return _UNRESOLVED
+    return dict(merged)
 
 
 def _resolve_value(value: Any, state: Any, sub_state: Any, fields: Any) -> Any:
