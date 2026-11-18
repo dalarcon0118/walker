@@ -55,6 +55,7 @@ _FASE3_TOOLS = (
     "session_open",
     "session_close",
     "session_list",
+    "sprint_status",
     "run_tests",
     "verify_predicates",
     "capture",
@@ -190,6 +191,18 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "limit": {"type": "integer", "description": "Máximo de sesiones"},
         },
     },
+    "sprint_status": {
+        "type": "object",
+        "properties": {
+            "spring_id": {"type": "string", "description": "Sprint identifier"},
+            "session_id": {"type": "string", "description": "Resuelve el sprint de la sesión"},
+            "status": {
+                "type": "string",
+                "description": "planning|active|paused|reviewing|closed (paused es reversible)",
+            },
+        },
+        "required": ["status"],
+    },
     "implement_task": {
         "type": "object",
         "properties": {
@@ -258,6 +271,7 @@ _DESCRIPTIONS = {
     "session_open": "Register/open a chat session (idempotente).",
     "session_close": "Close a chat session.",
     "session_list": "List chat sessions with lifecycle and hierarchy.",
+    "sprint_status": "Transition a sprint status (paused is reversible: active<->paused).",
     "trace_push": "Push an event to the execution trace index.",
     "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
     "implement_task": "Prepare task implementation (records objective and files).",
@@ -295,7 +309,7 @@ def _build_runner(name: str):
     _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
-    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "run_tests", "verify_predicates", "capture"}
+    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "sprint_status", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner
         return session_tool_runner(name)

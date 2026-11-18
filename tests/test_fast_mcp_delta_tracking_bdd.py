@@ -100,7 +100,7 @@ class InMemoryDeltaRepo(DeltaRepository):
 
 class TestValues:
     def test_spring_status_flow(self):
-        assert SPRING_STATUS_FLOW == ["planning", "active", "reviewing", "closed"]
+        assert SPRING_STATUS_FLOW == ["planning", "active", "paused", "reviewing", "closed"]
 
     def test_spec_status_flow(self):
         assert "draft" in SPEC_STATUS_FLOW

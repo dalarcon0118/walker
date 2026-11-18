@@ -65,9 +65,9 @@ def test_sesion_completa_protocolo_mcp():
         # Test de completitud (patrón AGENTS.md): una fase nueva actualiza el conteo.
         # trace_message (T-14) suma en F3: captura user/agent messages → TraceGraph.
         assert {"prepare", "list", "status"} <= set(names), names
-        # 42 = 38 previas + las 4 de continuidad de sesión
-        # (session_bind, session_open, session_close, session_list)
-        assert len(names) == 42, f"superficie inesperada ({len(names)}): {names}"
+        # 43 = 38 previas + 5 de continuidad y ciclo de vida
+        # (session_bind, session_open, session_close, session_list, sprint_status)
+        assert len(names) == 43, f"superficie inesperada ({len(names)}): {names}"
 
         # ── 4. tools/call list ──
         send({

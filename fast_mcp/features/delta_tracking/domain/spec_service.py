@@ -14,6 +14,10 @@ from typing import Any
 from returns.result import Result, Success, Failure
 
 from fast_mcp.features.delta_tracking.domain.entities import Spec, _now
+from fast_mcp.features.delta_tracking.domain.values import (
+    SPRING_STATUS_FLOW,
+    SPRING_TRANSITIONS,
+)
 
 
 # ── SSOT: specification field definitions ──────────────────────────────────
@@ -32,7 +36,6 @@ SPEC_REQUIRED_FIELDS = [
 SPEC_VERIFICATION_FIELDS = ["acceptance_criteria", "predicates"]
 
 SPEC_STATUS_FLOW = ["draft", "specified", "approved", "in_progress", "in_review", "completed"]
-SPRINT_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
 
 
 # ── SpecValidator ─────────────────────────────────────────────────────────
@@ -123,16 +126,22 @@ class SpecStatusUpdater:
 class SprintStatusUpdater:
     @staticmethod
     def can_transition(current: str, new_status: str) -> tuple[bool, str]:
-        if new_status not in SPRINT_STATUS_FLOW:
-            return False, f"Invalid sprint status '{new_status}'. Valid: {SPRINT_STATUS_FLOW}"
-        if current not in SPRINT_STATUS_FLOW:
+        # SSOT en values.py. Antes había una copia local con typo
+        # (`SPRINT_STATUS_FLOW`) que ignoraba los cambios del dominio.
+        if new_status not in SPRING_STATUS_FLOW:
+            return False, f"Invalid sprint status '{new_status}'. Valid: {SPRING_STATUS_FLOW}"
+        if current not in SPRING_STATUS_FLOW:
             current = "planning"
-        current_idx = SPRINT_STATUS_FLOW.index(current)
-        new_idx = SPRINT_STATUS_FLOW.index(new_status)
-        if new_idx < current_idx:
-            return False, f"Cannot move sprint status back from '{current}' to '{new_status}'"
         # IDEMPOTENCY: same status = successful no-op
-        return True, ""
+        if new_status == current:
+            return True, ""
+        allowed = SPRING_TRANSITIONS.get(current, frozenset())
+        if new_status in allowed:
+            return True, ""
+        return False, (
+            f"Cannot move sprint status from '{current}' to '{new_status}'. "
+            f"Allowed from '{current}': {sorted(allowed) or ['(terminal)']}"
+        )
 
 
 # ── SpecService (domain) ─────────────────────────────────────────────────

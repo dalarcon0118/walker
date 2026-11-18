@@ -41,6 +41,7 @@ def dispatch_tasks(tool_name: str, arguments: dict) -> dict[str, Any]:
 _HANDLER_MODULES = [
     "implement",
     "session",
+    "sprint_status",
     "verify",
     "capture",
     "sprint_planning",

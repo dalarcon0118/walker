@@ -131,16 +131,30 @@ class SprintService:
         """Derive spring_id from chain_dir."""
         return spring_id_from_chain_dir(chain_dir)
 
-    def set_spring_status(self, spring_id: str, status: str) -> None:
-        """Update spring status."""
+    def transition_spring(self, spring_id: str, status: str) -> dict:
+        """Transición explícita con motivo (ADR-WALKER-078: `paused` reversible).
+
+        Devuelve `{ok, from, to}` o `{ok: False, error}`. A diferencia de
+        `set_spring_status`, un rechazo NO es silencioso: el llamador puede
+        explicar por qué no se puede pasar de `closed` a `active`.
+        """
         if not self._repo:
-            return
+            return {"ok": False, "error": "repo no disponible"}
         spring = self._repo.get_spring(spring_id)
-        if spring:
-            can, msg = SprintStatusUpdater.can_transition(spring.status, status)
-            if can:
-                spring.status = status
-                self._repo.save_spring(spring)
+        if spring is None:
+            return {"ok": False, "error": f"sprint desconocido: {spring_id}"}
+        can, msg = SprintStatusUpdater.can_transition(spring.status, status)
+        if not can:
+            return {"ok": False, "error": msg, "from": spring.status, "to": status}
+        before = spring.status
+        spring.status = status
+        spring.updated_at = _now_iso()
+        self._repo.save_spring(spring)
+        return {"ok": True, "spring_id": spring_id, "from": before, "to": status}
+
+    def set_spring_status(self, spring_id: str, status: str) -> None:
+        """Compatibilidad: aplica si es válido e ignora si no (ver transition)."""
+        self.transition_spring(spring_id, status)
 
     def update_spring(self, spring_id: str, data: dict) -> None:
         """Update spring fields."""

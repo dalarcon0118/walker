@@ -9,7 +9,18 @@ import os
 
 # ── Status flows ──────────────────────────────────────────────────
 
-SPRING_STATUS_FLOW = ["planning", "active", "reviewing", "closed"]
+SPRING_STATUS_FLOW = ["planning", "active", "paused", "reviewing", "closed"]
+
+# ADR-WALKER-078: el ORDEN de la lista ya no es la regla de transición. `paused`
+# es reversible (active <-> paused), cosa que un índice lineal no puede expresar.
+# Grafo explícito; `closed` es terminal y `reviewing` sigue siendo solo-forward.
+SPRING_TRANSITIONS: dict[str, frozenset[str]] = {
+    "planning": frozenset({"active", "reviewing", "closed"}),
+    "active": frozenset({"paused", "reviewing", "closed"}),
+    "paused": frozenset({"active", "reviewing", "closed"}),
+    "reviewing": frozenset({"closed"}),
+    "closed": frozenset(),
+}
 SPEC_STATUS_FLOW = [
     "draft",
     "specified",
