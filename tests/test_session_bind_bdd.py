@@ -130,3 +130,13 @@ def test_continue_sin_sprint_falla_con_indicacion(svc):
     out = session_bind(_ctx(), {"session_id": "s1", "mode": "continue"})
     assert out.ok is False
     assert "mode=new" in out.error
+
+
+def test_bind_avisa_si_el_sprint_esta_pausado(svc):
+    svc.create_spring("SPR-P", goal="en pausa", status="paused", session_id="s1", context={"session_ids": ["s1"]})
+
+    out = _data(session_bind(_ctx(), {"session_id": "s1", "mode": "auto"}))
+
+    assert out["decision"] == "bound"
+    assert "PAUSADO" in out["suggestion"]
+    assert "sprint_status" in out["suggestion"]

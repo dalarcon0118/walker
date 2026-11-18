@@ -85,9 +85,14 @@ def _suggestion(summary: dict, decision: str) -> str:
     goal = summary.get("goal") or "(sin goal)"
     tasks = summary.get("tasks_count", 0)
     if decision == "bound":
+        paused = (
+            " OJO: el sprint está PAUSADO; reanimalo con sprint_status status=active."
+            if str(summary.get("status") or "") == "paused"
+            else ""
+        )
         return (
             f"Esta sesión ya pertenece a {summary['spring_id']} (goal: {goal}, "
-            f"{tasks} tarea(s)). No crees otro sprint: seguí declarando con implement_task."
+            f"{tasks} tarea(s)). No crees otro sprint: seguí declarando con implement_task.{paused}"
         )
     if decision == "resume_available":
         last = summary.get("session_id") or (summary.get("sessions") or [""])[0]
