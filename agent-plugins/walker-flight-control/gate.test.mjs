@@ -422,21 +422,50 @@ if (TAPPED.has(mode)) {
     await hookSid("evict-4")
     pushEvent({ type: "session.execution.succeeded", sessionID: "evict-4" })
     await wait(1500)
+
+    // Reapertura: la sesión liberada vuelve a usarse y debe recrearse. Este es
+    // el caso que faltaba: la evicción no puede dejar la sesión "muerta".
+    await hookSid("evict-1")
+    pushEvent({ type: "session.execution.succeeded", sessionID: "evict-1" })
+    await wait(1500)
+
     const tap = readFileSync(tapFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
     const pushes = tap
       .filter((e) => /\/trace_push$/.test(String(e.args[0] || "")))
       .map((e) => JSON.parse(e.args[1]))
-    const inj = pushes.filter((p) => p.event_type === "workflow_state_injected" && p.session_id === "evict-4")
-    const ss = inj.length ? inj[inj.length - 1].data.sessionsState || [] : []
-    const keys = ss.map((x) => x.k)
+    const lastInj = (sid) => {
+      const hits = pushes.filter((p) => p.event_type === "workflow_state_injected" && p.session_id === sid)
+      return hits.length ? hits[hits.length - 1].data.sessionsState || [] : []
+    }
+    const ss4 = lastInj("evict-4")
+    const keys4 = ss4.map((x) => x.k)
+    const evictEvents = pushes.filter((p) => p.event_type === "session_evicted" && p.session_id === "evict-4")
+    const evictEvent = evictEvents[evictEvents.length - 1]
+    const ss1 = lastInj("evict-1")
+    const reopened = ss1.find((x) => x.k === "evict-1")
+    const evictedKeys = (evictEvent?.data?.evicted_keys || [])
+
     // Contrato: nunca supera MAX_SESSIONS, conserva la actual y libera las
     // cerradas más viejas (con 3 cerradas + 1 nueva, caen las dos primeras).
-    const ok =
-      ss.length <= 3 &&
-      keys.includes("evict-4") &&
-      !keys.includes("evict-1") &&
-      !keys.includes("evict-2")
-    console.log(`${ok ? "ok  " : "FAIL"}  evicción libera cerradas: ${JSON.stringify(keys)} (size=${ss.length})`)
+    const evictionOk =
+      ss4.length <= 3 &&
+      keys4.includes("evict-4") &&
+      !keys4.includes("evict-1") &&
+      !keys4.includes("evict-2")
+    // Traza: la evicción deja rastro y cuenta cuántas liberó.
+    const traceOk =
+      Boolean(evictEvent) &&
+      evictEvent.data.evicted === 2 &&
+      evictedKeys.includes("evict-1") &&
+      evictedKeys.includes("evict-2") &&
+      ss4.some((x) => x.k === "evict-4" && x.e === 2)
+    // Reapertura: vuelve al Map como entrada nueva (evicted=0), con actividad.
+    const reopenOk =
+      Boolean(reopened) && reopened.i >= 1 && reopened.e === 0 && ss1.length <= 3
+    const ok = evictionOk && traceOk && reopenOk
+    console.log(`${ok ? "ok  " : "FAIL"}  evicción libera cerradas: ${JSON.stringify(keys4)} (size=${ss4.length})`)
+    console.log(`${traceOk ? "ok  " : "FAIL"}  traza de evicción: evicted=${evictEvent?.data?.evicted} keys=${JSON.stringify(evictedKeys)} e=${JSON.stringify(ss4.map((x) => x.e))}`)
+    console.log(`${reopenOk ? "ok  " : "FAIL"}  reapertura: ${JSON.stringify(reopened)} (size=${ss1.length})`)
     if (typeof dispose === "function") dispose()
     process.exit(ok ? 0 : 1)
   }

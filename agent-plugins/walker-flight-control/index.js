@@ -631,15 +631,23 @@ async function runSetup(ctx) {
       if (!sessions.has(key)) {
         // Evicción (SPEC-001): con muchas sesiones y recargas el Map crecía sin
         // cota. Se liberan las CERRADAS más viejas; la actual nunca se toca.
+        const evicted = []
         if (sessions.size >= MAX_SESSIONS) {
           const closed = [...sessions.entries()].filter(([k, v]) => v.closed && k !== key)
           closed.sort((a, b) => (a[1].at || 0) - (b[1].at || 0))
           for (const [k] of closed) {
             if (sessions.size < Math.floor(MAX_SESSIONS * 0.75)) break
             sessions.delete(k)
+            evicted.push(k)
           }
         }
         sessions.set(key, {
+          // Traza (SPEC-001): sin esto una evicción no deja rastro y una
+          // sesión recreada es indistinguible de una nueva. Se emite al cerrar
+          // la ejecución, no en el camino del hook (no agrega latencia).
+          evicted: evicted.length,
+          evictedKeys: evicted,
+          evictionTraced: false,
           at: Date.now(),
           injections: 0,
           followed: false,
@@ -993,6 +1001,20 @@ async function runSetup(ctx) {
               HOOK_TIMEOUT_MS
             )
           }
+          if (entry.evicted > 0 && !entry.evictionTraced) {
+            entry.evictionTraced = true
+            run("trace_push", {
+              event_type: "session_evicted",
+              source: "agent_hook",
+              session_id: entry.sessionID,
+              data: {
+                evicted: entry.evicted,
+                evicted_keys: (entry.evictedKeys || []).slice(0, 20),
+                size: sessions.size,
+                max: MAX_SESSIONS,
+              },
+            })
+          }
           if (entry.injections > 0) {
             run("trace_push", {
               event_type: "workflow_state_injected",
@@ -1009,7 +1031,7 @@ async function runSetup(ctx) {
                 verified: entry.verified,
                 verifiedBy: entry.verifiedBy || "",
                 sessionsState: Array.from(sessions.entries()).map(([k, v]) => ({
-                  k, w: v.wrote, i: v.injections, v: v.verified,
+                  k, w: v.wrote, i: v.injections, v: v.verified, e: v.evicted || 0,
                 })),
                 outcome: event.type,
               },
