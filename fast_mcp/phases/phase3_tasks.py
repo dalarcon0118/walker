@@ -164,6 +164,10 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "objective": {"type": "string", "description": "Expected result of the task"},
             "files": {"type": "array", "description": "Files to modify", "items": {"type": "string"}},
             "task_id": {"type": "string", "description": "Task identifier"},
+            "session_id": {
+                "type": "string",
+                "description": "Session identifier (atribuye la tarea al sprint de esa sesión)",
+            },
             "project_id": {"type": "string", "description": "Project identifier"},
         },
         "required": ["objective"],

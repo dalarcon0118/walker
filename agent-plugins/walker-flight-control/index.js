@@ -415,18 +415,19 @@ async function runSetup(ctx) {
     // entra por la TOOL del plugin; el camino normal es el CLI (otro proceso).
     // Por eso además se consulta el estado: `task_id` deja de ser `auto-…`
     // cuando `implement_task` persiste la spec (medido antes/después).
-    let declCheckedAt = 0
-    let declValue = false
+    // ¿Hay tarea declarada? `rt.activeTask` solo se entera si la declaración
+    // entra por la TOOL del plugin o por el CLI observado; el estado del
+    // workflow es del PROYECTO, no de la sesión — por eso se cachea por sesión.
+    const declCache = new Map()
     const isDeclared = (sessionID) => {
       try {
         const key = sessionID || "global"
         if (declared.has(key)) return true
-        if (rt.activeTask) {
-          declared.set(key, { taskId: rt.activeTask.taskId, at: Date.now() })
-          return true
-        }
-        // Cache corto: esta verificación es sincrónica y corre en cada escritura.
-        if (Date.now() - declCheckedAt < 3_000) return declValue
+        // OJO: `rt.activeTask` NO cuenta acá. `isBound` también lo tocaba y eso
+        // abría el gate de tarea con solo tener sprint (bug medido: baddeclare
+        // daba PERMITE donde debía BLOQUEAR).
+        const hit = declCache.get(key)
+        if (hit && Date.now() - hit.at < 3_000) return hit.value
         const s = run("workflow_state", {}, rt.projectId, GATE_TIMEOUT_MS)
         // FAIL-OPEN: si walker no responde (caído, timeout, JSON inválido) no se
         // puede verificar la declaración. Bloquear la escritura en ese caso es
@@ -434,23 +435,63 @@ async function runSetup(ctx) {
         // requisito de funcionamiento de OpenCode.
         if (!s || s.ok === false) {
           degrade(null, "workflow_state no disponible: gate abierto", "sin respuesta")
-          declCheckedAt = Date.now()
-          declValue = true
+          declCache.set(key, { at: Date.now(), value: true })
           return true
         }
         const tid = String(s.task_id || "")
         const ok = Boolean(tid) && !tid.startsWith("auto-")
-        declCheckedAt = Date.now()
-        declValue = ok
+        declCache.set(key, { at: Date.now(), value: ok })
         if (ok) {
           declared.set(key, { taskId: tid, at: Date.now() })
-          rt.activeTask = { taskId: tid, files: [], fromState: true }
           state.fetchedAt = 0
         }
         return ok
       } catch (err) {
         // Cualquier excepción acá también es fail-open.
         degrade(null, "isDeclared falló: gate abierto", err)
+        return true
+      }
+    }
+
+    // ¿La sesión tiene sprint (delta-sprint)? `session_bind mode=auto` es la
+    // fuente autoritativa y es session-scoped, a diferencia del `task_id` del
+    // workflow, que es del proyecto: sin esto, una sesión podía escribir porque
+    // OTRA sesión ya había declarado tarea.
+    const boundCache = new Map()
+    const bindFailures = new Map()
+    // Sesiones donde el protocolo no se puede satisfacer (walker roto para
+    // bind/declaración): se abren del todo. Un protocolo insatisfacible no
+    // puede dejar la sesión muerta.
+    const forceOpen = new Set()
+    const isBound = (sessionID) => {
+      try {
+        const key = sessionID || "global"
+        const hit = boundCache.get(key)
+        if (hit && Date.now() - hit.at < 3_000) return hit.value
+        const res = run(
+          "session_bind",
+          { session_id: key, project_id: rt.projectId, mode: "auto" },
+          rt.projectId,
+          GATE_TIMEOUT_MS
+        )
+        const data = res?.data || res
+        // FAIL-OPEN: sin respuesta no se puede verificar; el protocolo es un
+        // servicio, no un requisito de funcionamiento de OpenCode.
+        if (!data || data.ok === false || !data.decision) {
+          degrade(null, "session_bind no disponible: gate abierto", "sin respuesta")
+          boundCache.set(key, { at: Date.now(), value: true })
+          return true
+        }
+        const value = data.decision === "bound"
+        boundCache.set(key, { at: Date.now(), value })
+        if (value) {
+          // Señal SEPARADA de la tarea: `rt.bound` dice "hay sprint", no
+          // "hay tarea". Mezclarlas abría el gate de tarea sin tarea.
+          rt.bound = (data.bound || {}).spring_id || "?"
+        }
+        return value
+      } catch (err) {
+        degrade(null, "isBound falló: gate abierto", err)
         return true
       }
     }
@@ -495,8 +536,13 @@ async function runSetup(ctx) {
           rt.pendingBaseline = null
         }
         let block = ""
-        if (rt.activeTask) {
-          block = workflowBlock(state.data, rt)
+        const st = state.data
+        // Decisión POR SESIÓN: `state.data.taskId` es del proyecto y hacía que
+        // una sesión nueva heredara "tarea declarada" de otra (medido en el
+        // harness: el bloque de binding no aparecía nunca).
+        const hasTask = Boolean(rt.activeTask) || declared.has(sid || "global")
+        if (hasTask) {
+          block = workflowBlock(st, rt)
         } else if (!entry.bootstrapped) {
           // Antes de escribir: ofrecer continuidad (sprint/goal previo) en vez
           // de solo pedir "declará la tarea".
@@ -577,28 +623,62 @@ async function runSetup(ctx) {
           const original = draft.execute
           draft.execute = async (input, callCtx) => {
             const cmd = String(input?.command || "")
+            const isCli =
+              /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(cmd)
             const result = await original(input, callCtx)
-            if (/walker3|\/walker\/bin\//.test(cmd) && /\bimplement_task\b/.test(cmd)) {
+            const key = String(callCtx?.sessionID || "global")
+
+            if (isCli && /\bsession_bind\b/.test(cmd)) {
+              // El binding corre en otro proceso: se verifica contra el estado y
+              // se invalida la caché para que el gate abra en la próxima llamada
+              // (sin esto, el agente obedece y el gate lo sigue bloqueando).
+              const res = run(
+                "session_bind",
+                { session_id: key, project_id: rt.projectId, mode: "auto" },
+                rt.projectId,
+                GATE_TIMEOUT_MS
+              )
+              const d = res?.data || res
+              const ok = Boolean(d) && d.decision === "bound"
+              boundCache.set(key, { at: Date.now(), value: ok })
+              if (ok) {
+                bindFailures.delete(key)
+              } else {
+                const n = (bindFailures.get(key) || 0) + 1
+                bindFailures.set(key, n)
+                degrade(null, "session_bind no verificada", (d && d.decision) || "(sin respuesta)")
+                if (n >= 2) {
+                  forceOpen.add(key)
+                  boundCache.set(key, { at: Date.now(), value: true })
+                  degrade(null, "gate abierto tras 2 bindings fallidos", key)
+                }
+              }
+            }
+
+            if (isCli && /\bimplement_task\b/.test(cmd)) {
               // No alcanza con que el comando "parezca" la declaración: se
               // verifica contra el estado. Un typo en el JSON del CLI devuelve
               // error y la sesión quedaría marcada como declarada sin serlo.
               const tid = String(run("workflow_state", {})?.task_id || "")
               if (tid && !tid.startsWith("auto-")) {
-                declared.set(String(callCtx?.sessionID || "global"), {
+                declared.set(key, {
                   taskId: tid,
                   at: Date.now(),
                   cmd: cmd.slice(0, 160),
                 })
+                declCache.set(key, { at: Date.now(), value: true })
+                // El hook necesita saber que hay tarea para inyectar el prompt
+                // del nodo en vez del bloque de binding.
+                rt.activeTask = rt.activeTask || { taskId: tid, files: [] }
               } else {
                 // No se pudo verificar: puede ser un typo o un walker a medias.
                 // Se cuenta por sesión y, al segundo intento, se abre el gate:
                 // un protocolo insatisfacible no puede dejar la sesión muerta.
-                const key = String(callCtx?.sessionID || "global")
                 const n = (declareFailures.get(key) || 0) + 1
                 declareFailures.set(key, n)
                 degrade(null, "declaración por CLI no verificada", tid || "(sin task_id)")
                 if (n >= 2) {
-                  declared.set(key, { taskId: "(fail-open tras declaraciones fallidas)", at: Date.now() })
+                  forceOpen.add(key)
                   degrade(null, "gate abierto tras 2 declaraciones fallidas", key)
                 }
               }
@@ -635,33 +715,67 @@ async function runSetup(ctx) {
                 /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(
                   String(input?.command || "")
                 )
-              if (DENY_INTAKE && rt.projectId && !isWalkerCli && !isDeclared(callCtx?.sessionID)) {
-                const path = relPath(input?.path || input?.filePath || "", rt)
-                const slug = String(rt.sessionGoal || path || "tarea")
-                  .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "tarea"
-                run("trace_push", {
-                  event_type: "flight_control_denied",
-                  source: "agent_hook",
-                  session_id: String(callCtx?.sessionID || ""),
-                  data: { tool: name, gate: "intake", file: path },
-                })
-                throw new Error(
-                  `[WALKER] Escritura bloqueada: la sesión no declaró su tarea.
+              const sid = String(callCtx?.sessionID || "")
+              if (
+                DENY_INTAKE &&
+                rt.projectId &&
+                !isWalkerCli &&
+                !forceOpen.has(sid || "global")
+              ) {
+                if (!isBound(sid)) {
+                  run("trace_push", {
+                    event_type: "flight_control_denied",
+                    source: "agent_hook",
+                    session_id: sid,
+                    data: { tool: name, gate: "bind" },
+                  })
+                  throw new Error(
+                    `[WALKER] Escritura bloqueada: esta sesión no tiene sprint (delta-sprint).
 ` +
-                    `No es un bug: es el protocolo del proyecto y se abre con UNA llamada.
+                      `No es un bug: es el protocolo de continuidad y se abre en dos pasos.
 ` +
-                    `  ${CLI} ${rt.projectId}/implement_task '${JSON.stringify({
-                      task_id: slug,
-                      session_id: String(callCtx?.sessionID || ""),
-                      objective:
-                        "<síntoma y reproducción>. Asumiendo <hipótesis>. Debe <criterio observable>. Sin romper los tests de <área>",
-                      files: path ? [path] : [],
-                    })}'
+                      `  1) VINCULAR: ${CLI} ${rt.projectId}/session_bind '${JSON.stringify({
+                        session_id: sid,
+                        mode: "auto",
+                      })}'
 ` +
-                    `El objective NO es un título: walker deriva de ahí los criterios de aceptación ("debe…", "sin romper…") y las precondiciones ("asumiendo…"). Sin criterios no hay verificación posible, y el cierre no se puede validar.
+                      `     Te dice si hay goal previo (resume_available) o nada (no_work).
 ` +
-                    `Después repetí exactamente la misma herramienta: el bloqueo se libera solo.`
-                )
+                      `  2) SEGÚN la respuesta, preguntale al usuario y ejecutá
+` +
+                      `     mode="continue" (mismo goal) o mode="new" (goal nuevo).
+` +
+                      `Después repetí exactamente la misma herramienta.`
+                  )
+                }
+                if (!isDeclared(sid)) {
+                  const path = relPath(input?.path || input?.filePath || "", rt)
+                  const slug = String(rt.sessionGoal || path || "tarea")
+                    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "tarea"
+                  run("trace_push", {
+                    event_type: "flight_control_denied",
+                    source: "agent_hook",
+                    session_id: sid,
+                    data: { tool: name, gate: "intake", file: path },
+                  })
+                  throw new Error(
+                    `[WALKER] Escritura bloqueada: la sesión no declaró su tarea.
+` +
+                      `No es un bug: es el protocolo del proyecto y se abre con UNA llamada.
+` +
+                      `  ${CLI} ${rt.projectId}/implement_task '${JSON.stringify({
+                        task_id: slug,
+                        session_id: sid,
+                        objective:
+                          "<síntoma y reproducción>. Asumiendo <hipótesis>. Debe <criterio observable>. Sin romper los tests de <área>",
+                        files: path ? [path] : [],
+                      })}'
+` +
+                      `El objective NO es un título: walker deriva de ahí los criterios de aceptación ("debe…", "sin romper…") y las precondiciones ("asumiendo…"). Sin criterios no hay verificación posible, y el cierre no se puede validar.
+` +
+                      `Después repetí exactamente la misma herramienta: el bloqueo se libera solo.`
+                  )
+                }
               }
               if (!DENY || !cur || cur.execType !== "llm_task" || cur.satisfied || !rt.activeTask) {
                 return original(input, callCtx)
@@ -824,11 +938,26 @@ async function runSetup(ctx) {
                 taskId: String(input?.task_id || ""),
                 files: Array.isArray(input?.files) ? input.files.map(String) : [],
               }
-              declared.set(String(callCtx?.sessionID || "global"), {
-                taskId: rt.activeTask.taskId,
-                at: Date.now(),
-              })
+              const key = String(callCtx?.sessionID || "global")
+              declared.set(key, { taskId: rt.activeTask.taskId, at: Date.now() })
+              declCache.set(key, { at: Date.now(), value: true })
               state.fetchedAt = 0
+              return result
+            }
+          })
+        }
+        // El binding hecho por la TOOL (no por el CLI) también tiene que abrir
+        // el gate: se invalida la caché para que el próximo chequeo relea.
+        for (const name of ["session_bind", "walker_session_bind"]) {
+          const bindTool = editor.get(name)
+          if (!bindTool || typeof bindTool.execute !== "function") continue
+          editor.update(name, (draft) => {
+            const original = draft.execute
+            draft.execute = async (input, callCtx) => {
+              const result = await original(input, callCtx)
+              const key = String(callCtx?.sessionID || "global")
+              boundCache.delete(key)
+              bindFailures.delete(key)
               return result
             }
           })

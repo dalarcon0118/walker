@@ -1,81 +1,89 @@
 // Harness del plugin real, sin OpenCode.
-//   node gate.test.mjs <directorio> [normal|missing|garbage|hang]
+//   node gate.test.mjs <directorio> [normal|missing|garbage|hang|badbind|baddeclare|inject|bind]
 //
-// normal  → gate cierra sin declaración y abre tras el CLI
-// missing → WALKER_CLI inexistente: FAIL-OPEN (no se puede verificar)
-// garbage → el CLI existe pero no devuelve JSON: FAIL-OPEN
-// hang    → el CLI se cuelga: timeout corto y FAIL-OPEN
+// El gate tiene DOS fases: (1) sesión ligada a un sprint (session_bind), y
+// (2) tarea declarada (implement_task). Cada modo falla una pieza distinta.
 import { chmodSync, writeFileSync } from "node:fs"
 
 const dir = process.argv[2] || process.cwd()
 const mode = process.argv[3] || "normal"
+const SID = process.env.HARNESS_SESSION || "harness-1"
+const WALKER = "/Users/davidmartinez/develop/Active-projects/walker"
+const REAL_CLI = `${WALKER}/bin/walker3`
+
+const fake = (path, lines) => {
+  writeFileSync(path, lines.join("\n") + "\n")
+  chmodSync(path, 0o755)
+  process.env.WALKER_CLI = path
+}
 
 if (mode === "missing") process.env.WALKER_CLI = "/nonexistent/walker3"
 if (mode === "garbage") {
-  writeFileSync("/tmp/fake-walker-garbage", "#!/bin/sh\necho esto-no-es-json\n")
-  chmodSync("/tmp/fake-walker-garbage", 0o755)
-  process.env.WALKER_CLI = "/tmp/fake-walker-garbage"
+  fake("/tmp/fake-walker-garbage", ["#!/bin/sh", "echo esto-no-es-json"])
 }
 if (mode === "hang") {
-  writeFileSync("/tmp/fake-walker-hang", "#!/bin/sh\nsleep 30\n")
-  chmodSync("/tmp/fake-walker-hang", 0o755)
-  process.env.WALKER_CLI = "/tmp/fake-walker-hang"
+  fake("/tmp/fake-walker-hang", ["#!/bin/sh", "sleep 30"])
+}
+if (mode === "badbind") {
+  // session_bind siempre dice "no hay sprint": el gate nunca abre solo.
+  fake("/tmp/fake-walker-badbind", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"no_work"}}'; exit 0;;`,
+    `  */workflow_state) echo '{"ok":true,"task_id":"auto-x","current_position":"START.SELECT","step_satisfied":true}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  *) echo '{"ok":false}'; exit 1;;`,
+    "esac",
+  ])
 }
 if (mode === "baddeclare") {
-  // Responde "sin declarar" (auto-…) pero implement_task SIEMPRE falla: el
-  // escenario que podría dejar la sesión bloqueada para siempre.
-  writeFileSync(
-    "/tmp/fake-walker-bad",
-    [
-      "#!/bin/sh",
-      'case "$1" in',
-      '  */workflow_state) echo \'{"ok":true,"task_id":"auto-x","current_position":"START.SELECT","step_satisfied":true}\'; exit 0;;',
-      '  */project_for_path) echo \'{"ok":true,"project_id":"game_reset"}\'; exit 0;;',
-      '  *) echo \'{"ok":false,"error":"boom"}\'; exit 1;;',
-      "esac",
-      "",
-    ].join("\n")
-  )
-  chmodSync("/tmp/fake-walker-bad", 0o755)
-  process.env.WALKER_CLI = "/tmp/fake-walker-bad"
+  // El binding anda, pero implement_task falla siempre.
+  fake("/tmp/fake-walker-baddeclare", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-FAKE","tasks":[]}}}'; exit 0;;`,
+    `  */workflow_state) echo '{"ok":true,"task_id":"auto-x","current_position":"START.SELECT","step_satisfied":true}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  *) echo '{"ok":false,"error":"boom"}'; exit 1;;`,
+    "esac",
+  ])
 }
-if (mode !== "normal") {
-  // Proyecto conocido sin depender de project_for_path (que también fallaría):
-  // así el gate SÍ se evalúa y se prueba el fail-open, no el atajo de projectId.
+if (mode !== "normal" && !mode.startsWith("inject") && mode !== "bind") {
   process.env.WALKER_PROJECT_ID = "game_reset"
 }
 
-const MOD = new URL("./index.js", import.meta.url).href
-
 if (mode === "normal") {
-  // El harness prepara el estado "sin declarar" él mismo: si lo hiciera el
-  // shell de OpenCode, el gate bloquearía al test runner.
+  // Estado "sin declarar" para que el gate evalúe las dos fases. Se hace acá y
+  // no por el shell de OpenCode, que estaría bloqueado por el propio gate.
   const { execSync } = await import("node:child_process")
-  const cli = process.env.WALKER_CLI || "/Users/davidmartinez/develop/Active-projects/walker/bin/walker3"
   execSync(
-    `${cli} game_reset/implement_task '${JSON.stringify({
+    `${REAL_CLI} game_reset/implement_task '${JSON.stringify({
       task_id: "auto-harness",
-      session_id: "harness-1",
+      session_id: SID,
       objective: "Condicion de prueba: task_id auto para forzar el gate.",
       files: [],
     })}'`,
-    { cwd: "/Users/davidmartinez/develop/Active-projects/walker", stdio: ["ignore", "ignore", "ignore"] }
+    { cwd: WALKER, stdio: ["ignore", "ignore", "ignore"] }
   )
 }
 
+const MOD = new URL("./index.js", import.meta.url).href
 const plugin = (await import(MOD)).default
 
 const tools = new Map()
 for (const n of ["edit", "write", "read", "implement_task", "walker_implement_task"]) {
   tools.set(n, { name: n, execute: async (input) => ({ ok: true, tool: n, input }) })
 }
-// `shell` ejecuta de verdad: en modo normal el gate se libera por el CLI real.
-// Se corre en /tmp y con un comando sin redirección para no dejar basura.
+// `shell` ejecuta de verdad: el desbloqueo pasa por el CLI. Se corre en /tmp.
 tools.set("shell", {
   name: "shell",
   execute: async (input) => {
     const { execSync } = await import("node:child_process")
-    const output = execSync(String(input.command), { encoding: "utf8", cwd: "/tmp", stdio: ["ignore", "pipe", "ignore"] })
+    const output = execSync(String(input.command), {
+      encoding: "utf8",
+      cwd: "/tmp",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
     return { ok: true, output }
   },
 })
@@ -109,22 +117,19 @@ const setupMs = Date.now() - t0
 
 const call = async (name, input) => {
   try {
-    await tools.get(name).execute(input, { sessionID: "harness-1" })
+    await tools.get(name).execute(input, { sessionID: SID })
     return "PERMITE"
-  } catch (e) {
+  } catch {
     return "BLOQUEA"
   }
 }
 
+const cli = (task, payload) =>
+  `cd ${WALKER} && ./bin/walker3 game_reset/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
+
 if (mode === "inject") {
-  // Con tarea declarada, el hook de contexto debe inyectar el prompt REAL del
-  // nodo (sprint/active), no la línea inventada "Complete el paso".
-  await call("edit", { path: "x.txt" }) // fuerza isDeclared → rt.activeTask
-  const event = {
-    sessionID: "harness-1",
-    system: [],
-    messages: [{ role: "user", content: [{ type: "text", text: "probar la inyeccion del nodo" }] }],
-  }
+  await call("edit", { path: "x.txt" }) // fuerza el estado de sesión
+  const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "probar la inyeccion del nodo" }] }] }
   await captured.context(event)
   const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
   const okPos = /SPRINT\.ACTIVE/.test(text)
@@ -134,20 +139,12 @@ if (mode === "inject") {
   console.log(`template del nodo inyectado  -> ${okTpl}`)
   console.log(`sin instruccion inventada    -> ${noFake}`)
   console.log(`chars inyectados             -> ${text.length}`)
-  console.log("--- primeras lineas ---")
-  console.log(text.split("\n").slice(0, 5).join("\n"))
   if (typeof dispose === "function") dispose()
   process.exit(okPos && okTpl && noFake ? 0 : 1)
 }
 
 if (mode === "bind") {
-  // Primer turno de una sesión nueva: el bloque debe ofrecer continuidad
-  // (sprint/goal previo) antes de que el agente escriba nada.
-  const event = {
-    sessionID: "harness-bind",
-    system: [],
-    messages: [{ role: "user", content: [{ type: "text", text: "quiero arreglar el login" }] }],
-  }
+  const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "quiero arreglar el login" }] }] }
   await captured.context(event)
   const text = (event.system || []).map((b) => b.text || "").join("\n")
   const okDecision = /session_bind=(bound|resume_available|no_work)/.test(text)
@@ -156,44 +153,58 @@ if (mode === "bind") {
   console.log(`decision en el bloque -> ${okDecision}`)
   console.log(`contexto previo       -> ${okPrev}`)
   console.log(`comando para decidir  -> ${okCmd}`)
-  console.log("--- bloque ---")
-  console.log(text.slice(0, 520))
+  console.log(text.slice(0, 420))
   if (typeof dispose === "function") dispose()
   process.exit(okDecision && okPrev && okCmd ? 0 : 1)
 }
 
 const res = {}
-res["edit sin declarar"] = await call("edit", { path: "x.txt" })
-res["write sin declarar"] = await call("write", { path: "x.txt", content: "x" })
-res["shell no-walker"] = await call("shell", { command: "echo hola" })
-res["shell CLI walker3"] = await call("shell", {
-  command:
-    "cd /Users/davidmartinez/develop/Active-projects/walker && ./bin/walker3 game_reset/implement_task " +
-    `'${JSON.stringify({ task_id: "harness-declared", session_id: "harness-1", objective: "Declaracion del harness. Debe liberar el gate. Sin romper los tests.", files: [] })}'`,
+const bindCmd = cli("session_bind", { mode: "new", objective: "Probar el binding en el harness. Debe ligar la sesion al sprint." })
+const taskCmd = cli("implement_task", {
+  task_id: "harness-task",
+  objective: "Tarea del harness. Debe liberar el gate. Sin romper los tests.",
+  files: [],
 })
-res["edit tras declarar"] = await call("edit", { path: "x.txt" })
-if (mode === "baddeclare") {
-  // Segundo intento fallido: acá se dispara el cortacircuito y el gate abre.
-  await call("shell", {
-    command:
-      "cd /Users/davidmartinez/develop/Active-projects/walker && ./bin/walker3 game_reset/implement_task " +
-      `'${JSON.stringify({ task_id: "harness-declared-2", session_id: "harness-1", objective: "Segundo intento. Debe abrir el gate.", files: [] })}'`,
-  })
-  res["edit tras 2do intento"] = await call("edit", { path: "x.txt" })
+
+if (mode === "normal" || mode === "badbind" || mode === "baddeclare") {
+  res["edit sin nada"] = await call("edit", { path: "x.txt" })
+  if (mode === "badbind") {
+    res["bind intento 1"] = await call("shell", { command: bindCmd })
+    res["edit tras bind 1"] = await call("edit", { path: "x.txt" })
+    res["bind intento 2"] = await call("shell", { command: bindCmd })
+    res["edit tras bind 2"] = await call("edit", { path: "x.txt" })
+  } else if (mode === "baddeclare") {
+    res["bind intento 1"] = await call("shell", { command: bindCmd })
+    res["edit sin tarea"] = await call("edit", { path: "x.txt" })
+    res["task intento 1"] = await call("shell", { command: taskCmd })
+    res["edit tras task 1"] = await call("edit", { path: "x.txt" })
+    res["task intento 2"] = await call("shell", { command: taskCmd })
+    res["edit tras task 2"] = await call("edit", { path: "x.txt" })
+  } else {
+    res["bind"] = await call("shell", { command: bindCmd })
+    res["edit sin tarea"] = await call("edit", { path: "x.txt" })
+    res["implement_task"] = await call("shell", { command: taskCmd })
+    res["edit final"] = await call("edit", { path: "x.txt" })
+  }
+} else {
+  // walker caído / colgado / basura: fail-open en TODO.
+  res["edit"] = await call("edit", { path: "x.txt" })
+  res["write"] = await call("write", { path: "x.txt", content: "x" })
+  res["shell no-walker"] = await call("shell", { command: "echo hola" })
+  res["edit 2"] = await call("edit", { path: "x.txt" })
 }
 
-const expected =
-  mode === "normal"
-    ? { "edit sin declarar": "BLOQUEA", "write sin declarar": "BLOQUEA", "shell no-walker": "BLOQUEA", "shell CLI walker3": "PERMITE", "edit tras declarar": "PERMITE" }
-    : mode === "baddeclare"
-      ? { "edit sin declarar": "BLOQUEA", "write sin declarar": "BLOQUEA", "shell no-walker": "BLOQUEA", "shell CLI walker3": "PERMITE", "edit tras declarar": "BLOQUEA", "edit tras 2do intento": "PERMITE" }
-      : { "edit sin declarar": "PERMITE", "write sin declarar": "PERMITE", "shell no-walker": "PERMITE", "shell CLI walker3": "PERMITE", "edit tras declarar": "PERMITE" }
+const expected = {
+  normal: { "edit sin nada": "BLOQUEA", bind: "PERMITE", "edit sin tarea": "BLOQUEA", implement_task: "PERMITE", "edit final": "PERMITE" },
+  badbind: { "edit sin nada": "BLOQUEA", "bind intento 1": "PERMITE", "edit tras bind 1": "BLOQUEA", "bind intento 2": "PERMITE", "edit tras bind 2": "PERMITE" },
+  baddeclare: { "edit sin nada": "BLOQUEA", "bind intento 1": "PERMITE", "edit sin tarea": "BLOQUEA", "task intento 1": "PERMITE", "edit tras task 1": "BLOQUEA", "task intento 2": "PERMITE", "edit tras task 2": "PERMITE" },
+}[mode] || { edit: "PERMITE", write: "PERMITE", "shell no-walker": "PERMITE", "edit 2": "PERMITE" }
 
 let failed = 0
 for (const [k, v] of Object.entries(res)) {
   const ok = v === expected[k]
   if (!ok) failed++
-  console.log(`${ok ? "ok  " : "FAIL"}  ${k.padEnd(22)} -> ${v} (esperado ${expected[k]})`)
+  console.log(`${ok ? "ok  " : "FAIL"}  ${k.padEnd(20)} -> ${v} (esperado ${expected[k]})`)
 }
 console.log(`mode=${mode} setup=${setupMs}ms fail=${failed}`)
 
