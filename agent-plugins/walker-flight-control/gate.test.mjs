@@ -155,15 +155,16 @@ if (mode === "inject") {
   const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "probar la inyeccion del nodo" }] }] }
   await captured.context(event)
   const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
-  const okPos = /SPRINT\.ACTIVE/.test(text)
-  const okTpl = /Sprint Monitoring|PHASE 12/.test(text)
-  const noFake = !/Complete el paso:/.test(text)
-  console.log(`posicion real en el bloque   -> ${okPos}`)
-  console.log(`template del nodo inyectado  -> ${okTpl}`)
-  console.log(`sin instruccion inventada    -> ${noFake}`)
+  const okPlan = /\[WALKER\] Plan:/.test(text)
+  const okTask = /Tarea:/.test(text) && /Próximo:/.test(text)
+  const noTemplate = !/Sprint Monitoring|PHASE 12/.test(text)
+  console.log(`bloque de plan               -> ${okPlan}`)
+  console.log(`tarea y proximo paso         -> ${okTask}`)
+  console.log(`sin template del nodo        -> ${noTemplate}`)
   console.log(`chars inyectados             -> ${text.length}`)
+  console.log(text.split("\n").slice(0, 4).join(" | "))
   if (typeof dispose === "function") dispose()
-  process.exit(okPos && okTpl && noFake ? 0 : 1)
+  process.exit(okPlan && okTask && noTemplate ? 0 : 1)
 }
 
 if (mode === "bind") {

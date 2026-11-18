@@ -230,43 +230,6 @@ function closeBlock(rt) {
   )
 }
 
-function workflowBlock(state, rt) {
-  if (!state?.position) return ""
-  // START es el asistente de alta de proyecto (elegir/crear). Cuando la sesión
-  // ya tiene una tarea declarada, ese paso no gobierna la implementación:
-  // inyectarlo es ruido que el agente descarta (medido: 2/2 ignoradas).
-  if (/^START\b/.test(state.position)) return ""
-  const proj = rt?.projectId || "<proyecto>"
-  const tpl = state.prompt?.template
-  if (tpl) {
-    // Renderizar el prompt REAL del nodo (con su checklist y su RULE) en vez de
-    // inventar "complete el paso". Es la diferencia entre guiar y molestar.
-    const head = `[WALKER] Paso actual: ${state.position}` +
-      (state.prompt?.template_id ? ` (${state.prompt.template_id})` : "") + "."
-    const body = String(tpl).trim().slice(0, 1200)
-    const tail = state.gates?.length
-      ? `\nAl terminar: ${CLI} ${proj}/transition '{"gate":"${state.gates[0]}"}'.`
-      : ""
-    return `${head}\n${body}${tail}`
-  }
-  const parts = [`[WALKER] Workflow: ${state.position} (${state.execType || ""}).`]
-  if (state.required.length) {
-    parts.push(`Campos requeridos: ${state.required.join(", ")}.`)
-    const example = state.required.map((f) => `"${f}":"..."`).join(",")
-    parts.push(
-      `Complete el paso ANTES de escribir código: ${CLI} ${proj}/submit '{${example}}'.`
-    )
-  } else {
-    parts.push(`Complete el paso: ${CLI} ${proj}/submit '{}'.`)
-  }
-  if (state.gates.length) {
-    parts.push(
-      `Después, avance con: ${CLI} ${proj}/transition '{"gate":"${state.gates[0]}"}'. Salidas: ${state.gates.join(", ")}.`
-    )
-  }
-  return parts.join(" ")
-}
-
 export default {
   id: "walker-flight-control",
 
@@ -309,6 +272,42 @@ async function runSetup(ctx) {
     // para que PREGUNTE al usuario si continúa o arranca un goal nuevo.
     // `auto` es read-only: no crea nada. Si walker no responde, se cae al
     // bootstrap viejo (el agente igual puede trabajar).
+    const planCache = new Map()
+    // Bloque CORTO y estable: destino, tarea, próximo paso y desvío. Se emite
+    // solo cuando cambia la firma del plan (no rompe el caché ni repite ruido).
+    const planBlock = (sid, entry) => {
+      if (!rt.projectId || !sid) return ""
+      const hit = planCache.get(sid)
+      let plan
+      if (hit && Date.now() - hit.at < 10_000) {
+        plan = hit.plan
+      } else {
+        const res = run("session_plan", { session_id: sid, mode: "get" }, rt.projectId, HOOK_TIMEOUT_MS)
+        const data = res?.data || res
+        plan = (data && data.plan) || {}
+        planCache.set(sid, { at: Date.now(), plan })
+      }
+      if (!plan || !plan.goal) return ""
+      const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
+      if (entry.planSig === sig) return "" // idéntico al anterior: no se inyecta
+      entry.planSig = sig
+      entry.planTask = plan.task || ""
+      const goal = String(plan.goal).replace(/\s+/g, " ").slice(0, 110)
+      const scope = Array.isArray(plan.scope) ? plan.scope : []
+      const criteria = Array.isArray(plan.acceptance) ? plan.acceptance.length : 0
+      const touched = Array.from(entry.touched || [])
+      const outside = scope.length
+        ? touched.filter((f) => !scope.some((sc) => f === sc || f.endsWith(String(sc))))
+        : []
+      const lines = [
+        `[WALKER] Plan: ${goal}`,
+        `Tarea: ${plan.task || "(sin declarar)"} · Alcance: ${scope.length || "sin definir"} · Criterios: ${criteria}`,
+        `Próximo: ${String(plan.next || "(definir)").slice(0, 100)}`,
+      ]
+      if (outside.length) lines.push(`⚠ Fuera de alcance: ${outside.slice(0, 3).join(", ")}`)
+      return lines.join("\n")
+    }
+
     const bindBlock = (sid, sessionGoal) => {
       const fallback = { text: bootstrapBlock(rt), decision: "" }
       if (!rt.projectId || !sid) return fallback
@@ -405,6 +404,9 @@ async function runSetup(ctx) {
           wrote: false,
           verified: false,
           closeNudged: false,
+          touched: new Set(),
+          planSig: "",
+          planTask: "",
         })
       }
       return sessions.get(key)
@@ -603,15 +605,8 @@ async function runSetup(ctx) {
         // Decisión POR SESIÓN: `state.data.taskId` es del proyecto y hacía que
         // una sesión nueva heredara "tarea declarada" de otra (medido en el
         // harness: el bloque de binding no aparecía nunca).
-        const hasTask =
-          Boolean(rt.activeTask) ||
-          declared.has(sid || "global") ||
-          (boundTasks.get(sid || "global") || []).some(
-            (t) => String(t.session_id || "") === (sid || "global")
-          )
-        if (hasTask) {
-          block = workflowBlock(st, rt)
-        } else if (!entry.bootstrapped) {
+        if (!block) block = planBlock(sid, entry)
+        if (!block && !entry.bootstrapped) {
           // Antes de escribir: ofrecer continuidad (sprint/goal previo) en vez
           // de solo pedir "declará la tarea".
           const bind = bindBlock(sid, rt.sessionGoal)
@@ -701,6 +696,7 @@ async function runSetup(ctx) {
               position: entry.position,
               followed: entry.followed,
               bind: entry.bind || "",
+              planTask: entry.planTask || "",
               wrote: entry.wrote,
               verified: entry.verified,
               verifiedBy: entry.verifiedBy || "",
@@ -910,7 +906,10 @@ async function runSetup(ctx) {
               // bypass real (medido: tras bloquear `write`, el agente usó
               // `printf > archivo` y el gate de cierre no se enteraba).
               if (name === "edit" || name === "write") {
-                sessionOf(sid).wrote = true
+                const entryNow = sessionOf(sid)
+                entryNow.wrote = true
+                const touchedPath = relPath(input?.path || input?.filePath || "", rt)
+                if (touchedPath) entryNow.touched.add(touchedPath)
               } else if (name === "shell") {
                 const cmd = String(input?.command || "")
                 if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
