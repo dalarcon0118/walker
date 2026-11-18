@@ -211,6 +211,10 @@ class Session:
     ended_at: str = ""
     outcome: str = ""
     context: dict | None = None
+    # Plan de vuelo de la sesión (ADR-WALKER-080): goal, acceptance, task,
+    # scope, next. Es el estado que el agente debe mantener a la vista; vive en
+    # el registro para sobrevivir recargas del plugin.
+    flight_plan: dict | None = None
 
     @property
     def type(self) -> str:
@@ -232,6 +236,7 @@ class Session:
             "ended_at": self.ended_at,
             "outcome": self.outcome,
             "context": self.context or {},
+            "flight_plan": self.flight_plan or {},
         }
 
     @classmethod
@@ -250,6 +255,7 @@ class Session:
             ended_at=data.get("ended_at", ""),
             outcome=data.get("outcome", ""),
             context=data.get("context"),
+            flight_plan=data.get("flight_plan"),
         )
 
 

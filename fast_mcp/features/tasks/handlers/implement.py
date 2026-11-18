@@ -208,6 +208,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # esta resolución vivía dentro del try de `_persist_spec`: sacarla hizo que
     # un chain_dir sin proyecto abortara la declaración (regresión medida).
     chosen = None
+    service = None
     try:
         service = _di.sprint_service(ctx.chain_dir)
         chosen = _select_spring(service, session_override) if service is not None else None
@@ -236,6 +237,17 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             result["spec"] = {"spec_id": spec.get("spec_id"), "status": spec.get("status")}
     except Exception as exc:  # noqa: BLE001 — fail-loud en el dato, no en la tool
         result["spec_error"] = f"{type(exc).__name__}: {exc}"
+
+    # Plan de vuelo: la tarea y el alcance declarados son lo que el agente
+    # debe mantener a la vista (ADR-WALKER-080).
+    if service is not None and session_override:
+        try:
+            service.update_session_plan(
+                session_override,
+                {"task": task_id, "scope": files, "next": "implementar y verificar"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            result["plan_error"] = f"{type(exc).__name__}: {exc}"
 
     inspect_result = run_inspect_codebase(ctx.cpg_adapter, data)
     if inspect_result is not None:

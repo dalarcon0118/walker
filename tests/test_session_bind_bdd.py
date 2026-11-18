@@ -22,6 +22,7 @@ class FakeSprintService:
         self.springs: list[dict] = []
         self.specs: dict[str, list[dict]] = {}
         self.sessions: dict[str, dict] = {}
+        self.plans: dict[str, dict] = {}
 
     def list_springs(self, status: str = "") -> list[dict]:
         return list(self.springs)
@@ -64,6 +65,13 @@ class FakeSprintService:
 
     def last_session(self, project_id: str = "") -> dict | None:
         return None
+
+    def update_session_plan(self, session_id: str, patch: dict) -> dict:
+        self.plans[session_id] = {**self.plans.get(session_id, {}), **patch}
+        return self.plans[session_id]
+
+    def get_session_plan(self, session_id: str) -> dict | None:
+        return self.plans.get(session_id)
 
 
 @pytest.fixture()
@@ -140,3 +148,13 @@ def test_bind_avisa_si_el_sprint_esta_pausado(svc):
     assert out["decision"] == "bound"
     assert "PAUSADO" in out["suggestion"]
     assert "sprint_status" in out["suggestion"]
+
+
+def test_new_inicializa_el_plan_de_vuelo(svc):
+    _data(session_bind(_ctx(), {"session_id": "s1", "mode": "new", "objective": "debe arreglar el login; sin romper los tests"}))
+
+    plan = svc.get_session_plan("s1")
+    assert plan["goal"].startswith("debe arreglar")
+    assert plan["acceptance"]
+    assert plan["task"] == ""
+    assert plan["next"]

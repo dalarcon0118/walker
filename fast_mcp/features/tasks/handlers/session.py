@@ -30,6 +30,7 @@ from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
 from fast_mcp.features.tasks.handlers import _di
+from fast_mcp.features.tasks.handlers.spec_derive import derive
 
 
 def _short_hash(text: str) -> str:
@@ -210,6 +211,22 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             goal=goal,
             context={"bound_by": "session_bind/new"},
         )
+        if hasattr(service, "update_session_plan"):
+            derived = derive(goal)
+            service.update_session_plan(
+                session_id,
+                {
+                    "goal": goal,
+                    "acceptance": derived["acceptance_criteria"],
+                    "task": "",
+                    "scope": [],
+                    "next": (
+                        "declarar la tarea con implement_task"
+                        if derived["acceptance_criteria"]
+                        else "definir criterios de aceptación verificables"
+                    ),
+                },
+            )
         return TaskResult.success(
             {**base, "decision": "bound", "created": True, "bound": summary,
              "suggestion": f"Sprint {spring_id} creado para esta sesión (goal: {goal})."},
@@ -309,6 +326,58 @@ def session_list(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     )
 
 
+def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    """Plan de vuelo de la sesión (ADR-WALKER-080): get/set.
+
+    Forma: {goal, acceptance[], task, scope[], next, updated_at}. Es el estado
+    que el agente debe tener a la vista; vive en el registro para sobrevivir
+    recargas del plugin.
+    """
+    session_id = str(data.get("session_id") or ctx.session_id or "").strip()
+    if not session_id or session_id == "mcp":
+        return TaskResult.failure("session_plan: session_id requerido")
+    service = _di.sprint_service(ctx.chain_dir)
+    if service is None:
+        return TaskResult.failure("session_plan: sprint service no disponible")
+
+    mode = str(data.get("mode") or "get").strip().lower()
+    if mode not in ("get", "set"):
+        return TaskResult.failure("session_plan: mode debe ser get|set")
+
+    if mode == "get":
+        record = service.get_session(session_id)
+        if record is None:
+            return TaskResult.failure(
+                f"session_plan: sesión desconocida {session_id!r}; usá session_open o session_bind"
+            )
+        # Sesión existente sin plan = plan vacío (no es un error).
+        return TaskResult.success({"plan": record.get("flight_plan") or {}})
+
+    patch: dict[str, Any] = {}
+    for key in ("goal", "task", "next"):
+        if data.get(key) is not None:
+            patch[key] = str(data[key])
+    if isinstance(data.get("acceptance"), list):
+        patch["acceptance"] = [str(x) for x in data["acceptance"]]
+    if isinstance(data.get("scope"), list):
+        patch["scope"] = [str(x) for x in data["scope"]]
+    if not patch:
+        return TaskResult.failure("session_plan: nada para actualizar")
+
+    if patch.get("goal") and not patch.get("acceptance"):
+        derived = derive(patch["goal"])
+        patch["acceptance"] = derived["acceptance_criteria"]
+        if not patch["acceptance"]:
+            patch["next"] = patch.get("next") or "definir criterios de aceptación verificables"
+
+    plan = service.update_session_plan(session_id, patch)
+    if plan is None:
+        return TaskResult.failure(
+            f"session_plan: sesión desconocida {session_id!r}; usá session_open o session_bind"
+        )
+    return TaskResult.success({"plan": plan})
+
+
 def register(registry) -> None:
     registry.register(
         "session_open",
@@ -324,6 +393,11 @@ def register(registry) -> None:
         "session_list",
         session_list,
         metadata={"description": "List chat sessions", "tags": ["session"], "scope": "internal"},
+    )
+    registry.register(
+        "session_plan",
+        session_plan,
+        metadata={"description": "Get/set the session flight plan", "tags": ["session", "focus"], "scope": "internal"},
     )
     registry.register(
         "session_bind",

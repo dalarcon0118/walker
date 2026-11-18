@@ -263,6 +263,28 @@ class SprintService:
         self._repo.save_session(session)
         return _session_to_dict(session)
 
+    def update_session_plan(self, session_id: str, patch: dict) -> dict | None:
+        """Merge del plan de vuelo (goal/acceptance/task/scope/next)."""
+        if not self._repo:
+            return None
+        session = self._repo.get_session(session_id)
+        if session is None:
+            return None
+        plan = dict(session.flight_plan or {})
+        for key, value in (patch or {}).items():
+            if value is None:
+                continue
+            plan[key] = value
+        plan["updated_at"] = _now_iso()
+        session.flight_plan = plan
+        session.updated_at = plan["updated_at"]
+        self._repo.save_session(session)
+        return plan
+
+    def get_session_plan(self, session_id: str) -> dict | None:
+        session = self.get_session(session_id)
+        return (session or {}).get("flight_plan") or None
+
     def list_sessions(
         self, status: str = "", project_id: str = "", limit: int = 0
     ) -> list[dict]:

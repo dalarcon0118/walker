@@ -55,6 +55,7 @@ _FASE3_TOOLS = (
     "session_open",
     "session_close",
     "session_list",
+    "session_plan",
     "sprint_status",
     "run_tests",
     "verify_predicates",
@@ -191,6 +192,27 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "limit": {"type": "integer", "description": "Máximo de sesiones"},
         },
     },
+    "session_plan": {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session identifier"},
+            "mode": {"type": "string", "description": "get|set", "enum": ["get", "set"]},
+            "goal": {"type": "string", "description": "Destino de la sesión"},
+            "acceptance": {
+                "type": "array",
+                "description": "Criterios de aceptación verificables",
+                "items": {"type": "string"},
+            },
+            "task": {"type": "string", "description": "Tarea actual"},
+            "scope": {
+                "type": "array",
+                "description": "Archivos en alcance",
+                "items": {"type": "string"},
+            },
+            "next": {"type": "string", "description": "Próximo paso concreto"},
+        },
+        "required": ["session_id"],
+    },
     "sprint_status": {
         "type": "object",
         "properties": {
@@ -275,6 +297,7 @@ _DESCRIPTIONS = {
     "session_open": "Register/open a chat session (idempotente).",
     "session_close": "Close a chat session.",
     "session_list": "List chat sessions with lifecycle and hierarchy.",
+    "session_plan": "Get/set the session flight plan (goal, acceptance, task, scope, next).",
     "sprint_status": "Transition a sprint status (paused is reversible: active<->paused).",
     "trace_push": "Push an event to the execution trace index.",
     "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
@@ -313,7 +336,7 @@ def _build_runner(name: str):
     _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
-    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "sprint_status", "run_tests", "verify_predicates", "capture"}
+    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "sprint_status", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner
         return session_tool_runner(name)

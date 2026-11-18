@@ -231,6 +231,8 @@ class TestTaskRegistryCompleteness:
             "session_list",
             # ADR-WALKER-078: transición de sprint (paused reversible)
             "sprint_status",
+            # ADR-WALKER-080: plan de vuelo de la sesión
+            "session_plan",
             "run_tests",
             "verify_predicates",
             "capture",
