@@ -101,6 +101,11 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "properties": {
             "project_id": {"type": "string", "description": "Project identifier"},
             "goal": {"type": "string", "description": "Sprint goal description"},
+            "spring_id": {"type": "string", "description": "Sprint identifier (default sprint-<project>)"},
+            "status": {
+                "type": "string",
+                "description": "planning|active (default active). Un roadmap nace en planning",
+            },
             "tasks": {
                 "type": "array",
                 "description": "List of tasks (objective, type, domain)",

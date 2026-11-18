@@ -51,12 +51,18 @@ def handle_sprint_planning(args: dict) -> dict[str, Any]:
     if not goal:
         return {"ok": False, "error": "goal is required"}
 
-    # Create sprint
-    spring_id = f"sprint-{project_id}"
+    # Create sprint. `spring_id`/`status` explícitos: un roadmap nace en
+    # planning, no activo, y no debe pisar `sprint-<project>` si ya existe.
+    from fast_mcp.features.delta_tracking.domain.values import is_valid_spring_status
+
+    spring_id = str(args.get("spring_id") or f"sprint-{project_id}")
+    status = str(args.get("status") or "active")
+    if not is_valid_spring_status(status):
+        return {"ok": False, "error": f"invalid sprint status: {status}"}
     spring = svc.create_spring(
         spring_id=spring_id,
         goal=goal,
-        status="active",
+        status=status,
         project_id=project_id,
     )
 

@@ -121,3 +121,16 @@ produce el juicio.** Lo que no se puede medir (trace/métrica) no entra.
 
 P0.7 → P0.8 → P1.1/T1.2 → T2.1/T3.1 → T5.1 → T6.1/T6.2 → medir (P3) → decidir
 T0.9 y T3.3 con datos.
+
+## Materialización
+
+- **Sprint:** `SPR-INTEG-20261118` (proyecto `walker`, status `planning`).
+- **Specs:** 25 (`SPEC-001..025`), una por tarea del backlog, con `objective`
+  (incluye la aceptación), `domain`, `files` y status `specified`.
+- El sprint es el artefacto de **ejecución**; el nodo CKG `roadmap-001` y este
+  doc son la **referencia**. Nace en `planning` a propósito: un roadmap no es un
+  sprint activo (ADR-077).
+- **Gap detectado:** una sesión no puede unirse a este sprint todavía.
+  `session_bind continue` usa el sprint previo de la sesión, y `mode=new` crea
+  uno nuevo; falta aceptar `spring_id` explícito para ejecutar una spec del
+  roadmap dentro de su sprint.
