@@ -568,8 +568,10 @@ async function runSetup(ctx) {
     const declareFailures = new Map()
     const controller = new AbortController()
 
+    const keyFor = (sessionID) => String(sessionID || rt.sessionId || "global")
+
     const sessionOf = (sessionID) => {
-      const key = sessionID || "global"
+      const key = keyFor(sessionID)
       if (!sessions.has(key)) {
         sessions.set(key, {
           injections: 0,
@@ -745,8 +747,12 @@ async function runSetup(ctx) {
         const sid = event.sessionID || event.sessionId || ""
         rt.sessionId = rt.sessionId || sid
         const entry = sessionOf(sid)
-        if (!entry.opened && rt.projectId && sid) {
+        if (rt.projectId && sid && (!entry.opened || entry.closed)) {
+          // `closed` significa "sin actividad", no terminal: si la sesión vuelve
+          // a usarse en otra ejecución, se reabre (open_session es idempotente y
+          // limpia ended_at). Antes se cerraba en la PRIMERA ejecución.
           entry.opened = true
+          entry.closed = false
           // Registro de continuidad: ciclo de vida + jerarquía. Fail-open: si
           // walker no responde, la sesión sigue igual.
           run(
@@ -908,35 +914,50 @@ async function runSetup(ctx) {
               HOOK_TIMEOUT_MS
             )
           }
-          if (entry.injections === 0) continue
-          run("trace_push", {
-            event_type: "workflow_state_injected",
-            source: "agent_hook",
-            session_id: entry.sessionID,
-            data: {
-              injections: entry.injections,
-              position: entry.position,
-              followed: entry.followed,
-              bind: entry.bind || "",
-              planTask: entry.planTask || "",
-              wrote: entry.wrote,
-              verified: entry.verified,
-              verifiedBy: entry.verifiedBy || "",
-              sessionsState: Array.from(sessions.entries()).map(([k, v]) => ({
-                k, w: v.wrote, i: v.injections, v: v.verified,
-              })),
-              outcome: event.type,
-            },
-          })
-          if (!entry.followed) {
+          if (entry.injections > 0) {
             run("trace_push", {
-              event_type: "workflow_suggestion_ignored",
+              event_type: "workflow_state_injected",
               source: "agent_hook",
               session_id: entry.sessionID,
-              data: { injections: entry.injections, position: entry.position },
+              data: {
+                injections: entry.injections,
+                position: entry.position,
+                followed: entry.followed,
+                followedBy: entry.followedBy || "",
+                bind: entry.bind || "",
+                planTask: entry.planTask || "",
+                wrote: entry.wrote,
+                verified: entry.verified,
+                verifiedBy: entry.verifiedBy || "",
+                sessionsState: Array.from(sessions.entries()).map(([k, v]) => ({
+                  k, w: v.wrote, i: v.injections, v: v.verified,
+                })),
+                outcome: event.type,
+              },
             })
+            if (!entry.followed) {
+              run("trace_push", {
+                event_type: "workflow_suggestion_ignored",
+                source: "agent_hook",
+                session_id: entry.sessionID,
+                data: {
+                  injections: entry.injections,
+                  position: entry.position,
+                  followedBy: entry.followedBy || "",
+                },
+              })
+            }
           }
-          sessions.delete(sid || "global")
+          // Reset PER-EJECUCIÓN. El estado PER-SESIÓN (firstMutation,
+          // scopeDenied, writes, verified, metricsSent, closed, touched,
+          // planSig, baseline*) SOBREVIVE entre ejecuciones: antes
+          // `sessions.delete` lo borraba y las métricas salían vacías.
+          entry.injections = 0
+          entry.followed = false
+          entry.followedBy = ""
+          entry.position = ""
+          entry.metricsSent = false
+          entry.closeNudged = false
         }
       } catch (err) {
         degrade(rt, "event.subscribe falló", err)
@@ -959,6 +980,21 @@ async function runSetup(ctx) {
               /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(cmd)
             const result = await original(input, callCtx)
             const key = String(callCtx?.sessionID || rt.sessionId || "global")
+
+            if (isCli) {
+              const step = String(cmd).match(/(?:^|\s)(?:\S+\/)?(submit|transition)(?=\s|$)/)
+              if (step) {
+                const e = sessionOf(key)
+                const before = e.position
+                state.fetchedAt = 0 // releer: el paso pudo cambiar el nodo
+                const after = readState()
+                // Solo cuenta si hubo progreso real; un typo en el JSON no marca.
+                if (after && (after.satisfied || after.position !== before)) {
+                  e.followed = true
+                  e.followedBy = "cli"
+                }
+              }
+            }
 
             // Segunda vía de `wrote`: el wrapper de shell corre siempre, así que
             // cubre el caso en que el agente escribe por shell en vez de `write`.
@@ -1183,7 +1219,30 @@ async function runSetup(ctx) {
               } else if (name === "shell") {
                 const cmd = String(input?.command || "")
                 if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
-                  sessionOf(sid).wrote = true
+                  const entryNow = sessionOf(sid)
+                  entryNow.wrote = true
+                  entryNow.writes = (entryNow.writes || 0) + 1
+                  if (!entryNow.firstMutation) {
+                    // Path del redirect (`> archivo`), si se puede; si no, null.
+                    const m = cmd.match(/>>?\s*([^\s;&|]+)/)
+                    const target = m ? m[1].replace(/^['"]|['"]$/g, "") : ""
+                    if (target) {
+                      const rel = relPath(target, rt)
+                      if (rel) entryNow.touched.add(rel)
+                    }
+                    const planNow = planFor(sid) || {}
+                    entryNow.firstMutation = {
+                      file: target,
+                      via: "shell",
+                      after_baseline: Boolean(entryNow.baselineInjected),
+                      in_baseline: target
+                        ? (entryNow.baselineFiles || []).some(
+                            (n) => target.endsWith("/" + n) || target === n
+                          )
+                        : null,
+                      in_scope: target ? inScope(relPath(target, rt), planNow.scope || []) : null,
+                    }
+                  }
                 }
               }
               if (!DENY || !cur || cur.execType !== "llm_task" || cur.satisfied || !rt.activeTask) {
@@ -1415,7 +1474,9 @@ async function runSetup(ctx) {
           const original = tool.execute
           editor.update(name, (draft) => {
             draft.execute = async (input, callCtx) => {
-              sessionOf(callCtx?.sessionID || "").followed = true
+              const followEntry = sessionOf(String(callCtx?.sessionID || rt.sessionId || "global"))
+              followEntry.followed = true
+              followEntry.followedBy = "tool"
               const result = await original(input, callCtx)
               // El estado cambió: sin invalidar, el gate sigue negando con el
               // `satisfied: false` cacheado hasta REFRESH_MS y el agente reintenta

@@ -375,6 +375,7 @@ if (TAPPED.has(mode)) {
   if (mode === "idem") {
     pushEvent({ type: "session.execution.succeeded", sessionID: SID })
     await wait(1500)
+    planInjections.push(await hook()) // nueva ejecución: reabre sin reinyectar
     pushEvent({ type: "session.execution.succeeded", sessionID: SID })
     await wait(1500)
   }
@@ -388,9 +389,10 @@ if (TAPPED.has(mode)) {
   const closes = tap.filter((e) => /\/session_close$/.test(String(e.args[0] || ""))).length
   const last = metrics.length ? metrics[metrics.length - 1].data : null
 
+  const cycles = mode === "idem" || mode === "persist" ? 2 : 1
   const checks = []
-  checks.push(["session_open una vez", opens === 1])
-  checks.push(["session_close una vez", closes === 1])
+  checks.push([`session_open ${cycles} vez/veces`, opens === cycles])
+  checks.push([`session_close ${cycles} vez/veces`, closes === cycles])
   if (mode === "persist") {
     checks.push(["metrics emitidas", metrics.length >= 2])
     checks.push(["writes acumuladas", last && last.writes === 2])
