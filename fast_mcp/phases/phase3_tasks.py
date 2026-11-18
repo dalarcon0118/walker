@@ -210,6 +210,10 @@ _INPUT_SCHEMAS: dict[str, dict] = {
                 "items": {"type": "string"},
             },
             "next": {"type": "string", "description": "Próximo paso concreto"},
+            "project": {
+                "type": "string",
+                "description": "Proyecto de TRABAJO (puede diferir del cwd de la sesión)",
+            },
         },
         "required": ["session_id"],
     },

@@ -158,13 +158,24 @@ if (mode === "inject") {
   const okPlan = /\[WALKER\] Plan:/.test(text)
   const okTask = /Tarea:/.test(text) && /Próximo:/.test(text)
   const noTemplate = !/Sprint Monitoring|PHASE 12/.test(text)
+  const okBaseline = /Baseline:/.test(text) && /llamadores/.test(text)
+  const okCap = text.length <= 400
+  const event2 = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "seguimiento" }] }],
+  }
+  await captured.context(event2)
+  const stable = (event2.system || []).length === 0
   console.log(`bloque de plan               -> ${okPlan}`)
   console.log(`tarea y proximo paso         -> ${okTask}`)
   console.log(`sin template del nodo        -> ${noTemplate}`)
-  console.log(`chars inyectados             -> ${text.length}`)
+  console.log(`baseline desde walker        -> ${okBaseline}`)
+  console.log(`tope 400 chars               -> ${okCap} (${text.length})`)
+  console.log(`estable sin repetir          -> ${stable}`)
   console.log(text.split("\n").slice(0, 4).join(" | "))
   if (typeof dispose === "function") dispose()
-  process.exit(okPlan && okTask && noTemplate ? 0 : 1)
+  process.exit(okPlan && okTask && noTemplate && okBaseline && okCap && stable ? 0 : 1)
 }
 
 if (mode === "bind") {

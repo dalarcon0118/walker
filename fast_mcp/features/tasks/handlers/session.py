@@ -354,7 +354,7 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.success({"plan": record.get("flight_plan") or {}})
 
     patch: dict[str, Any] = {}
-    for key in ("goal", "task", "next"):
+    for key in ("goal", "task", "next", "project"):
         if data.get(key) is not None:
             patch[key] = str(data[key])
     if isinstance(data.get("acceptance"), list):

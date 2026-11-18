@@ -17,7 +17,8 @@
  * Escape hatch: WALKER_FLIGHT_CONTROL=0.
  */
 import { execFileSync } from "node:child_process"
-import { appendFileSync } from "node:fs"
+import { appendFileSync, existsSync } from "node:fs"
+import { join } from "node:path"
 
 const WALKER_ROOT = process.env.WALKER_ROOT || "/Users/davidmartinez/develop/Active-projects/walker"
 // Configurable para poder probar el camino "walker no está" sin renombrar el
@@ -224,8 +225,8 @@ function projectMissingBlock(rt) {
   )
 }
 
-function closeBlock(rt, plan, entry) {
-  const proj = rt?.projectId || "<proyecto>"
+function closeBlock(rt, plan, entry, workProject) {
+  const proj = workProject || rt?.projectId || "<proyecto>"
   const criteria = plan && Array.isArray(plan.acceptance) ? plan.acceptance : []
   const crit = criteria.length
     ? `\nCriterios: ${criteria
@@ -324,6 +325,89 @@ async function runSetup(ctx) {
       }
     }
 
+    // Resolución de proyecto POR PATH (una sesión puede editar otro repo).
+    const projectPathCache = new Map()
+    const projectForPath = (abs) => {
+      const hit = projectPathCache.get(abs)
+      if (hit && Date.now() - hit.at < 60_000) return hit.value
+      const res = run("project_for_path", { path: abs }, "_", GATE_TIMEOUT_MS)
+      const value = res && res.ok && res.project_id ? res.project_id : ""
+      projectPathCache.set(abs, { at: Date.now(), value })
+      return value
+    }
+
+    const scopeProjects = (scope) => {
+      const files = (Array.isArray(scope) ? scope : [])
+        .map(String)
+        .filter((sc) => sc && !sc.endsWith("/") && sc.includes("."))
+      const groups = {}
+      for (const sc of files) {
+        const candidates = sc.startsWith("/")
+          ? [sc]
+          : [join(rt.projectDir || "", sc), join(WALKER_ROOT, sc)]
+        for (const abs of candidates) {
+          // `project_for_path` resuelve por PREFIJO: sin exigir que el archivo
+          // exista, el candidato de la sesión "gana" siempre y el baseline es
+          // del proyecto equivocado (medido: game_reset para un archivo walker).
+          if (!existsSync(abs)) continue
+          const proj = projectForPath(abs)
+          if (proj) {
+            ;(groups[proj] = groups[proj] || []).push({ sc, abs })
+            break
+          }
+        }
+      }
+      return groups
+    }
+
+    // Proyecto de TRABAJO (puede diferir del cwd): plan.project -> scope -> cwd.
+    const workProjectFor = (sid) => {
+      const plan = planFor(sid) || {}
+      if (plan.project) return String(plan.project)
+      const groups = scopeProjects(plan.scope)
+      const first = Object.keys(groups)[0]
+      return first || rt.projectId
+    }
+
+    const preflightCache = new Map()
+    const baselineLine = (scope) => {
+      const groups = scopeProjects(scope)
+      if (!Object.keys(groups).length) return ""
+      const rows = []
+      for (const [proj, items] of Object.entries(groups)) {
+        const key = `${proj}|${items.map((i) => i.sc).join(",")}`
+        const hit = preflightCache.get(key)
+        let pf = hit && Date.now() - hit.at < 60_000 ? hit.value : null
+        if (!pf) {
+          pf = run(
+            "preflight",
+            { project_id: proj, files: items.map((i) => i.sc).slice(0, 4) },
+            proj,
+            GATE_TIMEOUT_MS
+          )
+          preflightCache.set(key, { at: Date.now(), value: pf || null })
+        }
+        if (!pf || pf.error || !Array.isArray(pf.files)) continue
+        const tests = Array.isArray(pf.tests) ? pf.tests.length : 0
+        for (const f of pf.files) {
+          const name = String(f.file || "").split("/").pop()
+          const callers = Number(f.callers || 0)
+          const cyclo = Number((Array.isArray(f.heaviest) && f.heaviest[0] && f.heaviest[0].cyclo) || 0)
+          rows.push({ name, callers, cyclo, tests })
+        }
+      }
+      // Prioridad por RIESGO: blast radius × complejidad; máximo dos archivos.
+      rows.sort((a, b) => b.callers * Math.max(b.cyclo, 1) - a.callers * Math.max(a.cyclo, 1))
+      const top = rows.slice(0, 2).map((r) => {
+        const parts = [String(r.callers) + " llamadores"]
+        if (r.cyclo) parts.push("cyclo " + r.cyclo)
+        parts.push(r.tests === 1 ? "1 test" : r.tests + " tests")
+        return `${r.name} ${parts.join(" · ")}`
+      })
+      if (!top.length) return ""
+      return `Baseline: ${top.join("; ")}`.slice(0, 140)
+    }
+
     const inScope = (file, scope) => {
       const f = String(file)
       return scope.some((raw) => {
@@ -343,24 +427,28 @@ async function runSetup(ctx) {
     const planBlock = (sid, entry) => {
       const plan = planFor(sid)
       if (!plan || !plan.goal) return ""
-      const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
+      const scope = Array.isArray(plan.scope) ? plan.scope : []
+      const baseline = baselineLine(scope)
+      const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance, baseline])
       if (entry.planSig === sig) return "" // idéntico al anterior: no se inyecta
       entry.planSig = sig
       entry.planTask = plan.task || ""
-      const goal = String(plan.goal).replace(/\s+/g, " ").slice(0, 110)
-      const scope = Array.isArray(plan.scope) ? plan.scope : []
+      const goal = String(plan.goal).replace(/\s+/g, " ").slice(0, 90)
       const criteria = Array.isArray(plan.acceptance) ? plan.acceptance.length : 0
       const touched = Array.from(entry.touched || [])
       const outside = scope.length
-        ? touched.filter((f) => !scope.some((sc) => f === sc || f.endsWith(String(sc))))
+        ? touched.filter((f) => !inScope(f, scope))
         : []
       const lines = [
         `[WALKER] Plan: ${goal}`,
         `Tarea: ${plan.task || "(sin declarar)"} · Alcance: ${scope.length || "sin definir"} · Criterios: ${criteria}`,
-        `Próximo: ${String(plan.next || "(definir)").slice(0, 100)}`,
       ]
+      if (baseline) lines.push(baseline)
+      lines.push(`Próximo: ${String(plan.next || "(definir)").slice(0, 70)}`)
       if (outside.length) lines.push(`⚠ Fuera de alcance: ${outside.slice(0, 3).join(", ")}`)
-      return lines.join("\n")
+      // Contrato de atención: el bloque entero <= 400 caracteres.
+      const block = lines.join("\n")
+      return block.length <= 400 ? block : block.slice(0, 397) + "…"
     }
 
     const bindBlock = (sid, sessionGoal) => {
@@ -656,16 +744,17 @@ async function runSetup(ctx) {
             }
           }
         }
-        if (rt.pendingBaseline) {
-          event.system.push({ type: "text", text: rt.pendingBaseline })
-          rt.pendingBaseline = null
-        }
+        // El baseline viejo (multilínea) ya no se inyecta: el bloque del plan
+        // trae la versión compacta (contrato de atención <= 400 chars). Se
+        // consume para no acumularlo; la traza `intake_preflight` queda.
+        rt.pendingBaseline = null
         let block = ""
         const st = state.data
         // Decisión POR SESIÓN: `state.data.taskId` es del proyecto y hacía que
         // una sesión nueva heredara "tarea declarada" de otra (medido en el
         // harness: el bloque de binding no aparecía nunca).
         if (!block) block = planBlock(sid, entry)
+        if (block) entry.bootstrapped = true // ya se mostró el plan: no ofrecer binding
         if (!block && !entry.bootstrapped) {
           // Antes de escribir: ofrecer continuidad (sprint/goal previo) en vez
           // de solo pedir "declará la tarea".
@@ -723,7 +812,7 @@ async function runSetup(ctx) {
               if (ctx?.session?.synthetic) {
                 await ctx.session.synthetic({
                   sessionID: entry.sessionID,
-                  text: closeBlock(rt, planFor(entry.sessionID), entry),
+                  text: closeBlock(rt, planFor(entry.sessionID), entry, workProjectFor(entry.sessionID)),
                 })
               }
             } catch (err) {
