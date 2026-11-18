@@ -143,7 +143,7 @@ def _build_handlers(sprint_service: Any):
         objective = data.get("objective", "") or data.get("title", "")
         if not spring_id or not objective:
             return TaskResult.failure(
-                "spec_task: spec incompleta (spring_id + objective requeridos)"
+                "spec_task: spec incompleta (objective requerido; spring_id explícito o sesión con sprint ligado)"
             )
 
         try:

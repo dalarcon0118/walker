@@ -103,8 +103,8 @@ path que antes "hacía algo por defecto" debe decidir explícitamente o fallar.
 Walker se diseña **domain-first**: el modelo de dominio es SSOT y viene primero; la infraestructura (MCP, CLI, DB) es el último en aparecer. Fases 0–5 y su mapeo a capas reales en [`docs/domain-first.md`](docs/domain-first.md) — obligatoria para toda contribución.
 
 Regla mínima:
-- Las dependencias apuntan hacia el dominio (`shared/core/engine/domain`).
-- `shared/core/engine/` **nunca** importa `features/`.
+- Las dependencias apuntan hacia el dominio (`fast_mcp/features/*/domain`).
+- `fast_mcp/features/*/domain/` no importa infraestructura; `fast_mcp/shared_kernel/` **nunca** importa `features/`.
 - Los adaptadores (fase 5) consumen puertos, no reconstruyen el dominio; se cablean en el composition root (ADR-045) y se resuelven por **id+contrato** (ADR-062).
 
 ---
@@ -113,23 +113,24 @@ Regla mínima:
 
 ```
 walker/
-  features/
-    cli_interface/     # CLI + MCP adapter
-    engine/            # Workflow engine, orchestrator, use_cases
-    delta_tracking/    # Spring/spec tracking (SSOT)
-    cognitive_knowledge/ # CKG
-    code_analysis/     # CPG
-    event_tracing/     # Trace
-    task_execution/    # Task handlers + side effects
-  libs/
-    cognitive_graph/   # CPG/CKG/Delta/Trace storage
-    context/           # Context models
-    router/            # REST router
+  fast_mcp/
+    features/            # bounded contexts
+      delta_tracking/    # Spring/spec/session tracking (SSOT)
+      cognitive_knowledge/ # CKG
+      code_analysis/     # CPG
+      event_tracing/     # Trace
+      tasks/             # Task handlers + side effects
+      workflow/          # Workflow engine, orchestrator, nodos
+    phases/              # fases 1-3 del MCP (prepare/memories/tasks)
+    memories/            # tools de memoria
+    shared_kernel/       # paths, storage, project_support
+    composition.py       # composition root
+    server.py            # build_server()
+  agent-plugins/         # plugins del agente (walker-flight-control)
+  bin/walker3            # CLI
   tests/
-    test_*_e2e_bdd.py  # Tests E2E por nivel
-  schemas/specs/       # SPECs en JSON
-  docs/                # Documentación arquitectónica
-  project.md           # Constitución del proyecto
+  docs/
+  project.md             # Constitución del proyecto
 ```
 
 ---
@@ -137,14 +138,17 @@ walker/
 ## Comandos útiles
 
 ```bash
-# Tests E2E completos
-pytest tests/test_agent_e2e_bdd.py tests/test_cli_walker_bdd.py tests/test_rag_pipeline_bdd.py tests/test_agent_session_bdd.py -v
+# Suite completa
+pytest -q
 
-# Listar tools MCP
-python -c "from features.engine.application.tool_catalog import list_tools; import json; print(json.dumps([t['name'] for t in list_tools()], indent=2))"
+# Listar tools MCP reales
+python3 -c "from fast_mcp.server import build_server; s=build_server(); print(sorted(s._tool_manager._tools))"
 
-# Validar workflow
-python -c "from features.engine.workflow import WorkflowRepository; wr = WorkflowRepository(); wf = wr.load('features/engine/workflow'); print('OK' if wf else 'FAIL')"
+# Validar el workflow (nodos + infra)
+python3 -m pytest tests/test_fast_mcp_workflow_infrastructure_bdd.py -q
+
+# Estado de un proyecto
+./bin/walker3 <proyecto>/workflow_state '{}'
 ```
 
 ---
