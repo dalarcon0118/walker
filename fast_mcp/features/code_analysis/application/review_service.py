@@ -67,13 +67,20 @@ class ReviewUseCase:
         """Resuelve (repo_root, data_dir) para metrics_service (CPG-native).
 
         R1 (ADR-WALKER-055): delega en el ContextResolver compartido.
-        repo_root: raíz real del código; data_dir: dir canónico de memorias.
-        """
-        data_dir = self._data_dir or self.repo.data_dir
-        from fast_mcp.shared_kernel.paths import resolve_memory_context
 
-        ctx = resolve_memory_context(data_dir)
-        return ctx.repo_root or ctx.data_dir, ctx.data_dir or data_dir
+        El data_dir que llega es el CANÓNICO (`.cognitive/projects/<id>/data`).
+        Resolverlo con `resolve_memory_context(data_dir)` lo trataba como raíz
+        del proyecto y devolvía `<repo>/data`: el CPG se leía del store legacy
+        vacío y `compute_cpg_metrics` reportaba functions=0/classes=0. Medido
+        2026-11-18: 4.134 funciones y 441 clases en el store v2. `resolve_paths`
+        acepta tanto la raíz del proyecto como el data_dir y devuelve el par
+        correcto.
+        """
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        paths = ProjectService.resolve_paths(self.chain_dir)
+        data_dir = self._data_dir or paths.data_dir or self.repo.data_dir
+        return paths.repo_path or self.chain_dir, data_dir
 
     def _scan_dead_code(
         self,

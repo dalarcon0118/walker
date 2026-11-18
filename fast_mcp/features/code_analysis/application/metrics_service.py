@@ -159,8 +159,16 @@ def compute_cpg_metrics(
     if fs_files > MAX_LOC_FILES:
         warnings.append(f"loc truncada a {MAX_LOC_FILES} archivos")
 
+    def _file_loc(rel: str) -> int:
+        fp = rel if os.path.isabs(rel) else os.path.join(repo_path, rel)
+        try:
+            with open(fp, "rb") as fh:
+                return sum(1 for _ in fh)
+        except OSError:
+            return 0
+
     per_file = [
-        FileMetrics(file=f, functions=c)
+        FileMetrics(file=f, loc=_file_loc(f), functions=c)
         for f, c in sorted(per_func_file.items(), key=lambda kv: -kv[1])[:10]
     ]
 
