@@ -5,6 +5,7 @@ Simplified: removed legacy ValidatedVO, uses plain dict validation.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -15,6 +16,8 @@ from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskR
 # R1: tasks no importa delta_tracking. El composition root inyecta la factory
 # en `handlers._di` (la comparten implement y verify).
 from fast_mcp.features.tasks.handlers import _di
+
+logger = logging.getLogger(__name__)
 
 
 def configure(sprint_factory) -> None:
@@ -201,11 +204,19 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # en el path de tool es "mcp" y no sirve para unir delta ↔ trace ↔ CKG.
     session_override = str(data.get("session_id", "") or "").strip()
 
-    service = _di.sprint_service(ctx.chain_dir)
-    chosen = _select_spring(service, session_override) if service is not None else None
-    ok, msg, chosen = _ensure_active(service, chosen, bool(data.get("resume")))
-    if not ok:
-        return TaskResult.failure(f"implement_task: {msg}")
+    # La política de pausa se aplica SOLO si se puede resolver el sprint. Antes
+    # esta resolución vivía dentro del try de `_persist_spec`: sacarla hizo que
+    # un chain_dir sin proyecto abortara la declaración (regresión medida).
+    chosen = None
+    try:
+        service = _di.sprint_service(ctx.chain_dir)
+        chosen = _select_spring(service, session_override) if service is not None else None
+        ok, msg, chosen = _ensure_active(service, chosen, bool(data.get("resume")))
+        if not ok:
+            return TaskResult.failure(f"implement_task: {msg}")
+    except Exception as exc:  # noqa: BLE001
+        chosen = None
+        logger.debug("implement_task: sin sprint para la política de pausa (%s)", exc)
 
     result: dict[str, Any] = {
         "task_id": task_id,
