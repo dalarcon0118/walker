@@ -747,6 +747,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "proceed",
+              "refine",
+              "cancel"
+            ],
+            "description": "Post-implementation decision"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Evidence or reason for the decision"
+          },
           "commit_hash": {
             "type": "string",
             "description": "Hash del commit del tramo. El cierre (PO_ACCEPT) lo exige."

@@ -370,6 +370,21 @@
           },
           "loop_acceptance": {
             "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Evidence items supporting the spec"
+          },
+          "impacted_artifacts": {
+            "type": "object",
+            "description": "Artifacts impacted by the task"
+          },
+          "risks": {
+            "type": "object",
+            "description": "Risk assessment for the task"
           }
         },
         "required": [

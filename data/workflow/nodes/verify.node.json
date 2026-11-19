@@ -249,7 +249,27 @@
       "key": "QA",
       "label": "QA review",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "description": "QA result"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Evidence of results (logs, screenshots, reasons)"
+          }
+        },
+        "required": [
+          "decision",
+          "evidence"
+        ]
+      },
       "output_schema": {
         "type": "object",
         "properties": {
@@ -342,7 +362,26 @@
       "key": "PO_ACCEPT",
       "label": "PO acceptance",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "reject"
+            ],
+            "description": "Product Owner decision"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "PO feedback on the completed task"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
       "output_schema": {
         "type": "object",
         "properties": {
