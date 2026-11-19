@@ -36,7 +36,14 @@ El plugin no habla MCP: invoca el binario.
 ```bash
 bin/walker3 <project>/<tool> '<json>'
 # → una línea JSON por stdout
+# tools de verificación (run_tests, verify_predicates), además:
+# → WALKER_RESULT tool=... ok=<0|1> passed=<n> failed=<n> errors=<n> exit=<n>
 ```
+
+El marcador `WALKER_RESULT` (SPEC-WALKER-044) es el contrato de certificación:
+va al final del stdout para sobrevivir a un preview/truncado y el plugin no
+certifica por `exitCode` cuando el comando usa un pipe (el exit code sería el
+del último comando, p. ej. `tail`).
 
 `main.py` decide: si el primer argumento tiene `<project>/<tool>` ejecuta la
 tool; si no, arranca el server MCP por stdio como siempre. La resolución de

@@ -238,8 +238,12 @@ function closeBlock(rt, plan, entry, workProject) {
     : ""
   const failed =
     entry && entry.verifyFailed ? "\nLa última verificación FALLÓ: corregí antes de terminar." : ""
+  const pipe =
+    entry && entry.verifyHint === "pipe"
+      ? "\nLa última verificación usó un pipe: su exit code es el del último comando. Repetila sin pipe o asegurate de que aparezca WALKER_RESULT."
+      : ""
   return (
-    `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación VERDE.${crit}${failed}\n` +
+    `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación VERDE.${crit}${failed}${pipe}\n` +
     `Corré la suite: ${CLI} ${proj}/run_tests '{"task_id":"<id>"}' (ejecuta pytest y devuelve pass/fail) ` +
     `o verificá los predicados con verify_predicates.`
   )
@@ -1136,6 +1140,9 @@ async function runSetup(ctx) {
             const cliVerify = cmd.match(
               /(?:^|\s)(?:\S*\/)?walker3\s+\S+\/(run_tests|verify_predicates)\b/
             )
+            // Con pipe el exit code es el del ÚLTIMO comando (`tail` → 0),
+            // así que no puede usarse como evidencia. Sólo el marcador.
+            const hasPipe = cliVerify ? /\|/.test(cmd) : false
             if (cliVerify) {
               const e = sessionOf(key)
               const output =
@@ -1153,40 +1160,61 @@ async function runSetup(ctx) {
                     result.metadata?.exitCode)) ??
                   NaN
               )
-              // El resultado puede venir recortado (pipes, preview de la
-              // tool): no alcanza con buscar `all_satisfied`. Se aceptan los
-              // contadores y el returncode, que quedan al final del JSON.
-              const failedCount = output.match(/"failed_count"\s*:\s*(\d+)/)
-              const returnCode = output.match(/"returncode"\s*:\s*(-?\d+)/)
-              const red =
-                exitCode > 0 ||
-                /"passed"\s*:\s*false/.test(output) ||
-                /"all_satisfied"\s*:\s*false/.test(output) ||
-                (failedCount && Number(failedCount[1]) > 0) ||
-                (returnCode && Number(returnCode[1]) !== 0) ||
-                /"ok"\s*:\s*false/.test(output) ||
-                /"error"\s*:/.test(output)
-              // Certificamos si el CLI devolvió un resultado y no hay señal
-              // de fallo. El comando es la tool real (no `echo pytest`), así
-              // que una salida no roja con contenido es un verde válido, aunque
-              // un pipe haya recortado el campo principal.
-              const green =
-                output.trim().length > 0 &&
-                !red &&
-                (Number.isNaN(exitCode) ||
-                  exitCode === 0 ||
-                  /"passed"\s*:\s*true/.test(output) ||
-                  /"all_satisfied"\s*:\s*true/.test(output) ||
-                  (failedCount && Number(failedCount[1]) === 0) ||
-                  (returnCode && Number(returnCode[1]) === 0))
-              e.verifyLevel = "cli"
-              e.verifiedBy = cliVerify[1]
-              if (green && !red) {
-                e.verified = true
-                e.verifyFailed = false
-              } else if (red) {
-                e.verified = false
-                e.verifyFailed = true
+              // 1. Marcador estable (contrato nuevo): gana sobre contadores y
+              // sobre el exit code. Es una línea final, sobrevive al recorte.
+              const marker = output.match(/(?:^|\n)\s*WALKER_RESULT\b([^\n\r]*)/)
+              if (marker) {
+                const kv = {}
+                for (const m of marker[1].matchAll(/([a-z_]+)=(\S+)/g)) kv[m[1]] = m[2]
+                const failed = Number(kv.failed || 0)
+                const errors = Number(kv.errors || 0)
+                const exit = Number(kv.exit || 0)
+                const green =
+                  kv.ok === "1" && failed === 0 && errors === 0 && exit === 0
+                e.verifyLevel = hasPipe ? "cli-marker-pipe" : "cli-marker"
+                e.verifiedBy = cliVerify[1]
+                e.verified = green
+                e.verifyFailed = !green
+                e.verifyHint = ""
+              } else if (hasPipe) {
+                // No hay marcador y el exit code no es confiable: no se
+                // certifica. No se toca `verified`; el nudge explica el motivo.
+                e.verifyLevel = "cli-pipe"
+                e.verifyHint = "pipe"
+              } else {
+                // 2. Compatibilidad: parseo por contadores/exit code. El
+                // resultado puede venir recortado (preview de la tool): no
+                // alcanza con buscar `all_satisfied`; los contadores y el
+                // returncode quedan al final del JSON.
+                const failedCount = output.match(/"failed_count"\s*:\s*(\d+)/)
+                const returnCode = output.match(/"returncode"\s*:\s*(-?\d+)/)
+                const red =
+                  exitCode > 0 ||
+                  /"passed"\s*:\s*false/.test(output) ||
+                  /"all_satisfied"\s*:\s*false/.test(output) ||
+                  (failedCount && Number(failedCount[1]) > 0) ||
+                  (returnCode && Number(returnCode[1]) !== 0) ||
+                  /"ok"\s*:\s*false/.test(output) ||
+                  /"error"\s*:/.test(output)
+                const green =
+                  output.trim().length > 0 &&
+                  !red &&
+                  (Number.isNaN(exitCode) ||
+                    exitCode === 0 ||
+                    /"passed"\s*:\s*true/.test(output) ||
+                    /"all_satisfied"\s*:\s*true/.test(output) ||
+                    (failedCount && Number(failedCount[1]) === 0) ||
+                    (returnCode && Number(returnCode[1]) === 0))
+                e.verifyLevel = "cli"
+                e.verifiedBy = cliVerify[1]
+                if (green && !red) {
+                  e.verified = true
+                  e.verifyFailed = false
+                  e.verifyHint = ""
+                } else if (red) {
+                  e.verified = false
+                  e.verifyFailed = true
+                }
               }
             } else if (/\b(pytest|run_tests|verify_predicates)\b/.test(cmd)) {
               const e = sessionOf(key)

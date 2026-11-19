@@ -12,8 +12,11 @@ runners que registra el server, en proceso, imprimiendo un JSON por stdout.
     walker3 walker/help '{}'
     walker3 backend-microservices/recall_knowledge '{"index":"ckg","query":"ADR"}'
 
-Salida: JSON del resultado. Exit code 1 si el resultado trae `error`, 2 si el
-invocante está mal (tool desconocida, JSON inválido, proyecto no registrado).
+Salida: JSON del resultado. Las tools de verificación (`run_tests`,
+`verify_predicates`) agregan una línea final `WALKER_RESULT ...` como contrato
+de certificación (SPEC-WALKER-044), para no depender de un JSON truncable.
+Exit code 1 si el resultado trae `error`, 2 si el invocante está mal (tool
+desconocida, JSON inválido, proyecto no registrado).
 """
 
 from __future__ import annotations
@@ -26,6 +29,45 @@ from typing import Any, Callable
 def _error(message: str, code: int = 2) -> int:
     print(json.dumps({"error": message}, ensure_ascii=False))
     return code
+
+
+#: Tools cuya salida certifica un cierre. Su resultado viaja con un marcador
+#: final estable para que el plugin no dependa de parsear un JSON truncable.
+_VERIFICATION_TOOLS = ("run_tests", "verify_predicates")
+
+
+def _verification_marker(tool: str, result: Any) -> str:
+    """Línea final `WALKER_RESULT ...` para las tools de verificación.
+
+    El JSON sigue siendo la primera línea (detalle); el marcador es el contrato
+    de certificación. Va al final para sobrevivir a previews/truncados que
+    conservan la cola, y su ausencia significa "no certificable".
+    """
+    if tool not in _VERIFICATION_TOOLS or not isinstance(result, dict):
+        return ""
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    ok = bool(result.get("ok")) and not result.get("error")
+
+    if tool == "run_tests":
+        ok = ok and data.get("passed") is not False
+        passed = int(data.get("total") or 0) if data.get("passed") else 0
+        failed = int(data.get("failures") or 0)
+        errors = int(data.get("errors") or 0)
+        rc = data.get("returncode")
+        exit_code = int(rc) if rc is not None else (0 if ok else 1)
+        return (
+            f"WALKER_RESULT tool=run_tests ok={int(ok)} passed={passed} "
+            f"failed={failed} errors={errors} exit={exit_code}"
+        )
+
+    total = int(data.get("total") or 0)
+    passed = int(data.get("passed_count") or 0)
+    failed = int(data.get("failed_count") or 0)
+    ok = ok and bool(data.get("all_satisfied")) and failed == 0
+    return (
+        f"WALKER_RESULT tool=verify_predicates ok={int(ok)} passed={passed} "
+        f"failed={failed} errors=0 total={total} exit={0 if ok else 1}"
+    )
 
 
 def _runner_for(tool: str) -> Callable[..., Any] | None:
@@ -105,6 +147,9 @@ def run_task(argv: list[str]) -> int:
         return _error(f"{type(exc).__name__}: {exc}", code=1)
 
     print(json.dumps(result, ensure_ascii=False, default=str))
+    marker = _verification_marker(tool, result)
+    if marker:
+        print(marker)
     if isinstance(result, dict) and result.get("error"):
         return 1
     return 0

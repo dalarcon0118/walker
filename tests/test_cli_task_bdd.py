@@ -6,7 +6,9 @@ imprimir nada, así que TODAS las llamadas del plugin de OpenCode (trace, gates,
 CKG, contexto) eran no-ops silenciosos: el agente nunca veía walker.
 
 El contrato ahora: `<project>/<tool> [json]` ejecuta la tool y devuelve UN JSON
-por stdout (el plugin hace `JSON.parse`), con exit code útil.
+por stdout (el plugin hace `JSON.parse`), con exit code útil. Excepción: las
+tools de verificación (`run_tests`, `verify_predicates`) agregan una segunda
+línea `WALKER_RESULT ...` como contrato de certificación (SPEC-WALKER-044).
 """
 
 from __future__ import annotations
@@ -96,6 +98,55 @@ def test_bin_walker3_responde_json_por_stdout():
     assert proc.returncode == 0, proc.stderr
     data = json.loads(proc.stdout)
     assert data.get("current_position")
+
+
+def test_run_tests_emite_json_y_marcador(capsys, monkeypatch):
+    """SPEC-WALKER-044: el marcador final es el contrato de certificación."""
+    def runner(**_kwargs):
+        return {
+            "ok": True,
+            "data": {
+                "task_id": "t",
+                "passed": True,
+                "total": 7,
+                "failures": 0,
+                "errors": 0,
+                "returncode": 0,
+                "runner": "pytest -q",
+            },
+        }
+
+    monkeypatch.setattr("fast_mcp.cli._runner_for", lambda tool: runner)
+    code = run_task(["walker/run_tests", "{}"])
+    lines = capsys.readouterr().out.strip().splitlines()
+
+    assert code == 0
+    assert json.loads(lines[0])["data"]["passed"] is True
+    assert lines[-1] == (
+        "WALKER_RESULT tool=run_tests ok=1 passed=7 failed=0 errors=0 exit=0"
+    )
+
+
+def test_verify_predicates_rojo_emite_marcador_no_verde(capsys, monkeypatch):
+    """Un predicado fallido no puede certificar aunque el comando salga 0."""
+    def runner(**_kwargs):
+        return {
+            "ok": True,
+            "data": {
+                "all_satisfied": False,
+                "passed_count": 1,
+                "failed_count": 1,
+                "total": 2,
+            },
+        }
+
+    monkeypatch.setattr("fast_mcp.cli._runner_for", lambda tool: runner)
+    run_task(["walker/verify_predicates", "{}"])
+    lines = capsys.readouterr().out.strip().splitlines()
+
+    marker = lines[-1]
+    assert marker.startswith("WALKER_RESULT tool=verify_predicates ok=0")
+    assert "failed=1" in marker and "exit=1" in marker
 
 
 def test_trace_push_conserva_session_id_en_metadata():

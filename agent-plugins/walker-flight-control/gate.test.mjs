@@ -179,6 +179,27 @@ tools.set("shell", {
           '{"data":{"results":[{"passed":true}],"failed_count":0,"passed_count":2,"total":2}}',
       }
     }
+    if (
+      (mode === "closeclimark" || mode === "closeclimarkpipe") &&
+      /verify_predicates/.test(command)
+    ) {
+      // El cuerpo viene cortado a propósito: el marcador final es la evidencia.
+      return {
+        ok: true,
+        output:
+          '{"data":{"results":[{"passed":true}],"failed_count":0,"passed_c\n' +
+          "WALKER_RESULT tool=verify_predicates ok=1 passed=2 failed=0 errors=0 total=2 exit=0",
+        exitCode: 0,
+      }
+    }
+    if (mode === "closeclipipefail" && /verify_predicates/.test(command)) {
+      // Pipe con exit 0 (tail) y SIN marcador: no es certificable.
+      return {
+        ok: true,
+        output: '{"data":{"results":[{"passed":true}],"failed_count":0',
+        exitCode: 0,
+      }
+    }
     const { execSync } = await import("node:child_process")
     const output = execSync(command, {
       encoding: "utf8",
@@ -238,6 +259,9 @@ const closeMode =
   mode === "closeshell" ||
   mode === "closecli" ||
   mode === "closeclipipe" ||
+  mode === "closeclimark" ||
+  mode === "closeclimarkpipe" ||
+  mode === "closeclipipefail" ||
   mode === "gateoff"
 const ctx = {
   location: { directory: dir },
@@ -384,14 +408,26 @@ if (closeMode) {
     // Con acceptance declarada, el shell NO debe certificar: se espera nudge.
     await call("shell", { command: "echo pytest" })
   }
-  if (mode === "closecli" || mode === "closeclipipe") {
+  if (
+    mode === "closecli" ||
+    mode === "closeclipipe" ||
+    mode === "closeclimark" ||
+    mode === "closeclimarkpipe" ||
+    mode === "closeclipipefail"
+  ) {
     // CLI real con `acceptance` declarada: el plugin debe certificar por el
     // RESULTADO (Code Mode invoca las tools por shell, no por el wrapper).
+    // Los modos "pipe" agregan el pipe real: el exit code no es del CLI.
+    const pipe =
+      mode === "closeclipipefail" || mode === "closeclimarkpipe"
+        ? " | tail -c 400"
+        : ""
     await call("shell", {
-      command: `cd ${WALKER} && ./bin/walker3 game_reset/verify_predicates '${JSON.stringify({
-        session_id: SID,
-        task_id: "close-task",
-      })}'`,
+      command:
+        `cd ${WALKER} && ./bin/walker3 game_reset/verify_predicates '${JSON.stringify({
+          session_id: SID,
+          task_id: "close-task",
+        })}'` + pipe,
     })
   }
   // El evento de fin se empuja DESPUÉS de los pasos: si llega antes del edit,
@@ -400,10 +436,23 @@ if (closeMode) {
   await new Promise((r) => setTimeout(r, 1500))
   const nudged = nudges.length
   const okText = nudged > 0 && /No cierres/.test(nudges[0].text)
-  const expectedNudge =
-    mode !== "closeok" && mode !== "closecli" && mode !== "closeclipipe"
-  const ok = expectedNudge ? okText : nudged === 0
+  const certified = new Set([
+    "closeok",
+    "closecli",
+    "closeclipipe",
+    "closeclimark",
+    "closeclimarkpipe",
+  ])
+  const expectedNudge = !certified.has(mode)
+  // Un verde no certificado por pipe debe explicar el motivo, no sólo nudgar.
+  const okHint =
+    mode !== "closeclipipefail" ||
+    (nudged > 0 && /pipe|WALKER_RESULT/i.test(nudges[0].text))
+  const ok = (expectedNudge ? okText : nudged === 0) && okHint
   console.log(`${ok ? "ok  " : "FAIL"} nudges=${nudged} (esperado ${expectedNudge ? 1 : 0})`)
+  if (mode === "closeclipipefail") {
+    console.log(`${okHint ? "ok  " : "FAIL"}  hint de pipe en el nudge`)
+  }
   if (nudged) console.log(nudges[0].text.split("\n")[0])
   if (typeof dispose === "function") dispose()
   process.exit(ok ? 0 : 1)
