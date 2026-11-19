@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 _SPRINT_FACTORY: Callable[[str], Any] | None = None
 _TASK_RECORDER: Callable[[str, str], bool] | None = None
+_WORKFLOW_RESET: Callable[[str], dict] | None = None
 _KNOWLEDGE_WRITER: Callable[..., Any] | None = None
 _TRACE_READER: Callable[[str, str], list] | None = None
 _SPEC_VALIDATOR: Callable[[dict], list] | None = None
@@ -25,6 +26,30 @@ def configure_task_recorder(recorder: Callable[[str, str], bool] | None) -> None
     """Inyecta `(chain_dir, task_id) -> bool`: guarda la tarea en el workflow."""
     global _TASK_RECORDER
     _TASK_RECORDER = recorder
+
+
+def configure_workflow_reset(reset: Callable[[str], dict] | None) -> None:
+    """Inyecta `(chain_dir) -> {ok, changed}`: reposiciona el workflow.
+
+    Lo usa `session_bind mode=new` cuando el sprint anterior está cerrado: si
+    el workflow se queda en SPRINT.CLOSE, el auto-advance cierra el sprint
+    recién creado en el siguiente turno.
+    """
+    global _WORKFLOW_RESET
+    _WORKFLOW_RESET = reset
+
+
+def reset_workflow_active(chain_dir: str) -> dict:
+    """Reposiciona el workflow en SPRINT.ACTIVE si está en CLOSE (fail-loud)."""
+    if _WORKFLOW_RESET is None:
+        return {
+            "ok": False,
+            "error": "reset de workflow no configurado (composición rota)",
+        }
+    try:
+        return dict(_WORKFLOW_RESET(chain_dir) or {})
+    except Exception as exc:  # noqa: BLE001 — se reporta al caller
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def configure_knowledge_writer(writer: Callable[..., Any] | None) -> None:

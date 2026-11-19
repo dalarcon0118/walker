@@ -148,9 +148,19 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             mine = None
     if mine is None:
         mine = next((s for s in springs if _owns(s, session_id)), None)
+    # `closed` es terminal para la sesión: no se reutiliza ni se "continúa".
+    # Se conserva aparte para informar el estado en `auto` sin reportarlo bound.
+    closed_mine = None
+    if mine is not None and str(mine.get("status") or "") == "closed":
+        closed_mine = mine
+        mine = None
     active = next((s for s in springs if str(s.get("status") or "") == "active"), None)
     if active is None and springs:
-        active = springs[-1]
+        # El fallback existe para ofrecer un sprint en `planning` al reanudar,
+        # pero NUNCA uno cerrado: cerrar es terminal y ofrecerlo como
+        # "trabajo previo" era la mentira que dejaba la sesión sin salida.
+        candidates = [s for s in springs if str(s.get("status") or "") != "closed"]
+        active = candidates[-1] if candidates else None
 
     explicit = service.get_spring(explicit_spring) if explicit_spring else None
     if explicit_spring and explicit is None:
@@ -214,6 +224,23 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             return TaskResult.success(
                 {**base, "decision": "bound", "bound": summary, "suggestion": _suggestion(summary, "bound")}
             )
+        if closed_mine is not None:
+            # No se miente diciendo "bound": el sprint previo terminó. Se
+            # informa el cierre y la vía explícita para volver a trabajar.
+            summary = _summary(service, closed_mine)
+            return TaskResult.success(
+                {
+                    **base,
+                    "decision": "no_work",
+                    "previous": summary,
+                    "suggestion": (
+                        f"El sprint {summary['spring_id']} está cerrado (terminal). "
+                        "Para trabajar de nuevo, creá un sprint nuevo con "
+                        "session_bind mode=new: reposiciona el workflow y deja un "
+                        "sprint vivo."
+                    ),
+                }
+            )
         if active is not None:
             summary = _summary(service, active)
             return TaskResult.success(
@@ -256,13 +283,36 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                  "suggestion": _suggestion(summary, "bound")}
             )
         if explicit is not None:
+            if str(explicit.get("status") or "") == "closed":
+                return TaskResult.failure(
+                    f"session_bind: {explicit.get('spring_id')} está cerrado "
+                    "(terminal): no se puede reutilizar. Usá mode=new para uno nuevo."
+                )
             # Unirse a un sprint existente (roadmap) en vez de crear/pisarlo.
             summary = _join(explicit)
             return TaskResult.success(
                 {**base, "decision": "bound", "created": False, "continued": True, "bound": summary,
                  "suggestion": f"Esta sesión se sumó a {summary.get('spring_id')} (goal: {summary.get('goal') or ''})."},
             )
-        spring_id = f"SPR-S{_short_hash(session_id)}"
+        # El sprint de la sesión se deriva de su id, pero una sesión puede tener
+        # varios ciclos: el primero ocupa SPR-Sxxxx y los siguientes -2, -3…
+        base_id = f"SPR-S{_short_hash(session_id)}"
+        spring_id = base_id
+        suffix = 2
+        while hasattr(service, "get_spring") and service.get_spring(spring_id):
+            spring_id = f"{base_id}-{suffix}"
+            suffix += 1
+        # Si el ciclo anterior cerró, el workflow puede estar en SPRINT.CLOSE.
+        # Se lo reposiciona ANTES de crear: el auto-advance de CLOSE ejecuta
+        # `close_sprint` y cerraría el sprint recién nacido (0 tareas → válido).
+        if closed_mine is not None:
+            reset = _di.reset_workflow_active(ctx.chain_dir)
+            if not reset.get("ok"):
+                return TaskResult.failure(
+                    "session_bind: no se pudo reposicionar el workflow "
+                    f"({reset.get('error')}); el sprint nuevo se cerraría solo. "
+                    "Revisá el workflow y reintentá."
+                )
         goal = objective or f"sesión {session_id}"
         context = {"session_ids": [session_id]}
         inherited_parent = parent or (str(active.get("session_id") or "") if active else "")
@@ -309,8 +359,19 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # mode == "continue"
     target = explicit or mine or active
     if target is None:
+        hint = (
+            f" El sprint {closed_mine.get('spring_id')} está cerrado (terminal)."
+            if closed_mine is not None
+            else ""
+        )
         return TaskResult.failure(
-            "session_bind: no hay sprint para continuar; usá mode=new para crear uno"
+            "session_bind: no hay sprint para continuar; usá mode=new para crear uno."
+            + hint
+        )
+    if str(target.get("status") or "") == "closed":
+        return TaskResult.failure(
+            f"session_bind: {target.get('spring_id')} está cerrado (terminal): "
+            "no se continúa un sprint cerrado. Usá mode=new para uno nuevo."
         )
     summary = _join(target)
     return TaskResult.success(

@@ -187,3 +187,85 @@ def test_spring_explicito_desconocido_falla(svc):
 
     assert out.ok is False
     assert "desconocido" in out.error
+
+
+# ── Ciclo de vida post-cierre (el sprint `closed` es terminal) ──────────
+
+
+def _closed_spring(svc, session_id="s1", spring_id=None):
+    from fast_mcp.features.tasks.handlers.session import _short_hash
+
+    spring_id = spring_id or f"SPR-S{_short_hash(session_id)}"
+    return svc.create_spring(
+        spring_id,
+        goal="ciclo anterior",
+        status="closed",
+        session_id=session_id,
+        context={"session_ids": [session_id]},
+    )
+
+
+def test_auto_con_sprint_cerrado_no_lo_reporta_bound(svc):
+    _closed_spring(svc)
+
+    out = _data(session_bind(_ctx(), {"session_id": "s1", "mode": "auto"}))
+
+    assert out["decision"] == "no_work"
+    assert out["previous"]["spring_id"].startswith("SPR-S")
+    assert out["previous"]["status"] == "closed"
+    assert "mode=new" in out["suggestion"]
+
+
+def test_new_con_sprint_cerrado_crea_otro_y_reposiciona(svc):
+    from fast_mcp.features.tasks.handlers.session import _short_hash
+
+    base_id = f"SPR-S{_short_hash('s1')}"
+    _closed_spring(svc, spring_id=base_id)
+    calls: list[str] = []
+    _di.configure_workflow_reset(
+        lambda chain_dir: calls.append(chain_dir) or {"ok": True, "changed": True}
+    )
+    try:
+        out = _data(session_bind(_ctx(), {"session_id": "s1", "mode": "new", "objective": "ciclo nuevo"}))
+    finally:
+        _di.configure_workflow_reset(None)
+
+    assert out["decision"] == "bound" and out["created"] is True
+    assert out["bound"]["spring_id"] == f"{base_id}-2"
+    assert out["bound"]["status"] == "active"
+    assert calls == ["/tmp/proj"]
+    assert len(svc.springs) == 2
+    assert svc.get_spring(base_id)["status"] == "closed"  # el anterior no se toca
+
+
+def test_new_no_crea_si_no_puede_reposicionar_el_workflow(svc):
+    _closed_spring(svc)
+    _di.configure_workflow_reset(lambda chain_dir: {"ok": False, "error": "boom"})
+    try:
+        out = session_bind(_ctx(), {"session_id": "s1", "mode": "new", "objective": "x"})
+    finally:
+        _di.configure_workflow_reset(None)
+
+    assert out.ok is False
+    assert "reposicionar" in out.error
+    assert len(svc.springs) == 1  # no se creó nada
+
+
+def test_continue_con_sprint_cerrado_falla(svc):
+    _closed_spring(svc)
+
+    out = session_bind(_ctx(), {"session_id": "s1", "mode": "continue"})
+
+    assert out.ok is False
+    assert "cerrado" in out.error and "mode=new" in out.error
+
+
+def test_new_con_spring_explicito_cerrado_falla(svc):
+    _closed_spring(svc, spring_id="SPR-CERRADO")
+
+    out = session_bind(
+        _ctx(), {"session_id": "s1", "spring_id": "SPR-CERRADO", "mode": "new"}
+    )
+
+    assert out.ok is False
+    assert "cerrado" in out.error

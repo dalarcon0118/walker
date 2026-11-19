@@ -364,6 +364,29 @@ def workflow_tool_runner(name: str, root: Path | None = None):
         if ctx is None:
             return {"error": f"Could not resolve workflow for '{chain_dir}'"}
 
+        # `back_to_active` NO reabre sprints: `closed` es terminal (ADR-078).
+        # Desde SPRINT.CLOSE solo tiene sentido si hay un sprint VIVO al cual
+        # volver; si no, el resultado sería un workflow ACTIVE con el sprint
+        # cerrado (incoherencia silenciosa). La salida es crear uno nuevo.
+        if name == "transition" and str(kwargs.get("gate") or "") == "back_to_active":
+            from fast_mcp.features.workflow.domain.execution import (
+                ExecutionContext as _WfExecCtx,
+            )
+
+            st = ctx.orchestrator.status(
+                _WfExecCtx(session_id="", trace_id="", span_id="", chain_dir=chain_dir)
+            ) or {}
+            pos = f"{st.get('node') or ''}.{st.get('sub_state') or ''}"
+            active = None
+            if pos == "SPRINT.CLOSE" and sprint_service is not None:
+                try:
+                    active = sprint_service.get_active_spring()
+                except Exception as exc:  # noqa: BLE001 — se reporta como ausencia
+                    logger.warning("back_to_active: sprint activo ilegible (%s)", exc)
+            reason = back_to_active_guard(pos, active)
+            if reason:
+                return {"ok": False, "action": "needs_sprint", "error": reason}
+
         return dispatch(name, ctx, **kwargs)
 
     return runner
@@ -582,6 +605,55 @@ def _emit_task_after(name, ctx, result) -> None:
         pass
 
 
+def reset_workflow_after_close(chain_dir: str) -> dict:
+    """Saca el workflow de SPRINT.CLOSE sin reabrir el sprint cerrado.
+
+    Se usa al crear un sprint nuevo después de un cierre: si el estado se queda
+    en CLOSE, el auto-advance ejecuta `close_sprint` y cierra el sprint recién
+    creado (0 tareas → cierre válido, así que el daño es silencioso).
+    """
+    from fast_mcp.features.workflow.context import WorkflowContext
+    from fast_mcp.features.workflow.domain.execution import ExecutionContext
+
+    wctx = WorkflowContext.resolve(chain_dir)
+    if wctx is None:
+        return {"ok": False, "error": "workflow no resoluble"}
+    exec_ctx = ExecutionContext(
+        session_id="", trace_id="", span_id="", chain_dir=chain_dir
+    )
+    st = wctx.orchestrator.status(exec_ctx) or {}
+    pos = f"{st.get('node') or ''}.{st.get('sub_state') or ''}"
+    if pos != "SPRINT.CLOSE":
+        return {"ok": True, "changed": False, "position": pos}
+    res = wctx.orchestrator.transition(
+        exec_ctx,
+        gate="back_to_active",
+        reason="nuevo sprint de la sesión (post-cierre)",
+    )
+    if not res.get("ok"):
+        return {
+            "ok": False,
+            "error": res.get("error", "no se pudo reposicionar el workflow"),
+        }
+    return {"ok": True, "changed": True, "position": res.get("position", "")}
+
+
+def back_to_active_guard(position: str, active: Any) -> str | None:
+    """Motivo por el que `back_to_active` no procede, o None si es válido.
+
+    `closed` es terminal (ADR-078): el gate no reabre sprints. Desde
+    SPRINT.CLOSE solo tiene sentido si hay un sprint VIVO al cual volver; si no,
+    quedaría un workflow ACTIVE sobre un sprint cerrado sin aviso.
+    """
+    if position != "SPRINT.CLOSE" or active is not None:
+        return None
+    return (
+        "back_to_active no reabre un sprint cerrado (closed es terminal). "
+        "Creá un sprint nuevo con session_bind mode=new: reposiciona el "
+        "workflow y deja un sprint vivo."
+    )
+
+
 def _build_task_registry(sprint_service=None):
     """Build and populate a TaskRegistry with all registered handlers."""
     from fast_mcp.features.code_analysis.application.use_cases.sync_cpg import (
@@ -625,6 +697,7 @@ def _build_task_registry(sprint_service=None):
             )
 
         tasks_di.configure_task_recorder(_record_task_id)
+        tasks_di.configure_workflow_reset(reset_workflow_after_close)
 
         from fast_mcp.features.cognitive_knowledge.application.services.ckg_write import (
             CkgWriteService,
