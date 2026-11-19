@@ -76,6 +76,26 @@ if (mode === "inject") {
     "esac",
   ])
 }
+if (mode === "normal") {
+  // Fixture PROPIO: `normal` no puede depender del `workflow_state` de
+  // game_reset. Ese `task_id` es del PROYECTO y otra corrida lo dejaba en un
+  // valor no-auto, con lo que el gate abría antes de declarar (medido: segunda
+  // corrida consecutiva). El fake emula la transición real: arranca en `auto-x`
+  // y solo `implement_task` lo cambia.
+  const stateFile = `/tmp/fake-walker3-normal-${process.pid}.state`
+  mkdirSync("/tmp/wfc-normal", { recursive: true })
+  fake("/tmp/wfc-normal/walker3", [
+    "#!/bin/sh",
+    `STATE="${stateFile}"`,
+    'case "$1" in',
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-NORMAL","status":"active","goal":"normal test","tasks":[]}}}'; exit 0;;`,
+    `  */workflow_state) TID=$(cat "$STATE" 2>/dev/null || printf 'auto-x'); printf '{"ok":true,"task_id":"%s","current_position":"START.SELECT","execution_type":"","step_satisfied":true,"revision":1}\\n' "$TID"; exit 0;;`,
+    `  */implement_task) TID=$(printf '%s' "$2" | sed -n 's/.*"task_id":"\\([^"]*\\)".*/\\1/p'); printf '%s' "\${TID:-harness-task}" > "$STATE"; printf '{"ok":true,"data":{"task_id":"%s"}}\\n' "\${TID:-harness-task}"; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"normal_probe"}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+}
 if (mode === "evict") process.env.WALKER_FLIGHT_CONTROL_MAX_SESSIONS = "3"
 if (mode === "gateprompt") {
   // Un gate `user_input` con su prompt real: el plugin debe poner la PREGUNTA
@@ -124,21 +144,6 @@ if (mode !== "missing" && !mode.startsWith("inject") && mode !== "bind" && mode 
 }
 
 if (mode === "gateoff") process.env.WALKER_FLIGHT_CONTROL_INTAKE = "0"
-
-if (mode === "normal") {
-  // Estado "sin declarar" para que el gate evalúe las dos fases. Se hace acá y
-  // no por el shell de OpenCode, que estaría bloqueado por el propio gate.
-  const { execSync } = await import("node:child_process")
-  execSync(
-    `${REAL_CLI} game_reset/implement_task '${JSON.stringify({
-      task_id: "auto-harness",
-      session_id: SID,
-      objective: "Condicion de prueba: task_id auto para forzar el gate.",
-      files: [],
-    })}'`,
-    { cwd: WALKER, stdio: ["ignore", "ignore", "ignore"] }
-  )
-}
 
 const MOD = new URL("./index.js", import.meta.url).href
 const plugin = (await import(MOD)).default
@@ -258,8 +263,11 @@ const call = async (name, input) => {
   }
 }
 
+// `normal` corre contra su propio fake para no leer el estado del proyecto;
+// el resto usa el CLI real porque prueba la integración de punta a punta.
+const CLI_BIN = mode === "normal" ? process.env.WALKER_CLI || REAL_CLI : REAL_CLI
 const cli = (task, payload) =>
-  `cd ${WALKER} && ./bin/walker3 game_reset/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
+  `cd ${WALKER} && ${CLI_BIN} game_reset/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
 
 if (mode === "inject") {
   await call("edit", { path: "x.txt" }) // fuerza el estado de sesión
