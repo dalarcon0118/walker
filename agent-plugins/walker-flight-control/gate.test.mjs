@@ -109,6 +109,33 @@ if (mode === "gateprompt") {
     'console.log(JSON.stringify({ ok: true }))',
   ])
 }
+if (mode === "reloadverified" || mode === "reloadedit" || mode === "reloaddirty") {
+  const stateFile = `/tmp/fake-walker3-reload-${process.pid}.state`
+  mkdirSync("/tmp/wfc-reload", { recursive: true })
+  // `reloaddirty` prueba el estado SUCIO persistido: un reload tras editar
+  // debe conservar wrote=true/verified=false y volver a nudgar.
+  const flightState =
+    mode === "reloaddirty"
+      ? '{"verified":false,"verify_level":"","verified_at":"","dirty_since":"2026-11-19T00:00:00Z","wrote":true,"writes":1,"touched":["x.txt"]}'
+      : '{"verified":true,"verify_level":"cli-marker","verified_at":"2026-11-19T00:00:00Z","wrote":true,"writes":1,"touched":["x.txt"]}'
+  fake("/tmp/wfc-reload/walker3", [
+    "#!/bin/sh",
+    `STATE="${stateFile}"`,
+    'case "$1" in',
+    `  */session_context) echo '{"ok":true,"data":{"flight_state":${flightState}}}'; exit 0;;`,
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-RELOAD","status":"active","goal":"reload test","tasks":[]}}}'; exit 0;;`,
+    `  */workflow_state) TID=$(cat "$STATE" 2>/dev/null || printf 'auto-x'); printf '{"ok":true,"task_id":"%s","current_position":"START.SELECT","execution_type":"","step_satisfied":true,"revision":1}\\n' "$TID"; exit 0;;`,
+    `  */implement_task) TID=$(printf '%s' "$2" | sed -n 's/.*"task_id":"\\([^"]*\\)".*/\\1/p'); printf '%s' "\${TID:-close-task}" > "$STATE"; printf '{"ok":true,"data":{"task_id":"%s"}}\\n' "\${TID:-close-task}"; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  */session_plan) echo '{"ok":true,"data":{"plan":{}}}'; exit 0;;`,
+    `  */trace_push) echo '{"ok":true}'; exit 0;;`,
+    `  */session_open) echo '{"ok":true}'; exit 0;;`,
+    `  */session_close) echo '{"ok":true}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+}
+
 const tapDir = `/tmp/wfc-tap-${process.pid}`
 const tapFile = `${tapDir}/trace.jsonl`
 if (TAPPED.has(mode)) {
@@ -258,6 +285,9 @@ const closeMode =
   mode === "closefail" ||
   mode === "closeshell" ||
   mode === "closecli" ||
+  mode === "reloadverified" ||
+  mode === "reloadedit" ||
+  mode === "reloaddirty" ||
   mode === "closeclipipe" ||
   mode === "closeclimark" ||
   mode === "closeclimarkpipe" ||
@@ -289,7 +319,7 @@ const call = async (name, input) => {
 
 // `normal` corre contra su propio fake para no leer el estado del proyecto;
 // el resto usa el CLI real porque prueba la integración de punta a punta.
-const CLI_BIN = mode === "normal" ? process.env.WALKER_CLI || REAL_CLI : REAL_CLI
+const CLI_BIN = (mode === "normal" || mode.startsWith("reload")) ? process.env.WALKER_CLI || REAL_CLI : REAL_CLI
 const cli = (task, payload) =>
   `cd ${WALKER} && ${CLI_BIN} game_reset/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
 
@@ -400,7 +430,9 @@ if (closeMode) {
       files: [],
     }),
   })
-  await call("edit", { path: "x.txt" })
+  if (mode !== "reloadverified" && mode !== "reloaddirty") {
+    await call("edit", { path: "x.txt" })
+  }
   if (mode === "closeok" || mode === "closefail") {
     await call("run_tests", {})
   }
@@ -442,6 +474,7 @@ if (closeMode) {
     "closeclipipe",
     "closeclimark",
     "closeclimarkpipe",
+    "reloadverified",
   ])
   const expectedNudge = !certified.has(mode)
   // Un verde no certificado por pipe debe explicar el motivo, no sólo nudgar.

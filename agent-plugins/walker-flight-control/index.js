@@ -683,9 +683,13 @@ async function runSetup(ctx) {
           closed: false,
           wrote: false,
           verified: false,
+          verifiedAt: "",
+          dirtySince: "",
           verifyLevel: "",
           verifyFailed: false,
           writes: 0,
+          hydrated: false,
+          statePersisted: false,
           scopeDenied: new Set(),
           metricsSent: false,
           closeNudged: false,
@@ -895,6 +899,38 @@ async function runSetup(ctx) {
         // trae la versión compacta (contrato de atención <= 400 chars). Se
         // consume para no acumularlo; la traza `intake_preflight` queda.
         rt.pendingBaseline = null
+        // Hidratación del estado de vuelo desde el TRACE (SSOT): una recarga del
+        // plugin no pierde `verified`, y el nudge de cierre no vuelve a aparecer.
+        if (sid && entry && !entry.hydrated) {
+          try {
+            const _res = run("session_context", { session_id: sid }, rt.projectId, HOOK_TIMEOUT_MS)
+            const _data = (_res && (_res.data || _res)) || {}
+            const _fs = (_data && _data.flight_state) || (_res && _res.flight_state)
+            // Hidratar TAMBIÉN el estado sucio (verified=false, wrote=true): si
+            // sólo se copiara el verde, un reload tras una edición perdería la
+            // deuda y el nudge no volvería (el hueco que P0.2 debe cerrar).
+            if (
+              _fs &&
+              typeof _fs === "object" &&
+              Object.keys(_fs).length &&
+              !entry.verified &&
+              !entry.wrote &&
+              !entry.writes
+            ) {
+              if (typeof _fs.verified === "boolean") entry.verified = _fs.verified
+              entry.verifiedAt = _fs.verified_at || entry.verifiedAt || ""
+              entry.verifyLevel = _fs.verify_level || entry.verifyLevel || ""
+              entry.dirtySince = _fs.dirty_since || ""
+              entry.wrote = _fs.wrote === undefined ? entry.wrote : Boolean(_fs.wrote)
+              if (typeof _fs.writes === "number") entry.writes = _fs.writes
+              if (Array.isArray(_fs.touched)) entry.touched = new Set(_fs.touched)
+              entry.statePersisted = true
+            }
+          } catch (err) {
+            degrade(rt, "session_context hydration falló", err)
+          }
+          entry.hydrated = true
+        }
         let block = ""
         const st = state.data
         // Decisión POR SESIÓN: `state.data.taskId` es del proyecto y hacía que
@@ -995,6 +1031,8 @@ async function runSetup(ctx) {
                 touched: Array.from(entry.touched).slice(0, 20),
                 scope_denials: Array.from(entry.scopeDenied || []).slice(0, 10),
                 verified: Boolean(entry.verified),
+                verified_at: entry.verifiedAt || "",
+                dirty_since: entry.dirtySince || "",
                 verify_level: entry.verifyLevel || "",
                 verify_failed: Boolean(entry.verifyFailed),
                 cost_usd: usage.cost,
@@ -1171,11 +1209,32 @@ async function runSetup(ctx) {
                 const exit = Number(kv.exit || 0)
                 const green =
                   kv.ok === "1" && failed === 0 && errors === 0 && exit === 0
+                const wasVerifiedMarker = e.verified === true
                 e.verifyLevel = hasPipe ? "cli-marker-pipe" : "cli-marker"
                 e.verifiedBy = cliVerify[1]
                 e.verified = green
                 e.verifyFailed = !green
                 e.verifyHint = ""
+                if (green) {
+                  e.verifiedAt = new Date().toISOString()
+                  e.dirtySince = ""
+                  if (!wasVerifiedMarker) {
+                    tracePush({
+                      event_type: "session_state",
+                      source: "agent_hook",
+                      session_id: key,
+                      data: {
+                        verified: true,
+                        verified_at: e.verifiedAt,
+                        verify_level: e.verifyLevel,
+                        dirty_since: "",
+                        wrote: Boolean(e.wrote),
+                        writes: e.writes || 0,
+                        touched: Array.from(e.touched || []).slice(0, 20),
+                      },
+                    })
+                  }
+                }
               } else if (hasPipe) {
                 // No hay marcador y el exit code no es confiable: no se
                 // certifica. No se toca `verified`; el nudge explica el motivo.
@@ -1208,9 +1267,28 @@ async function runSetup(ctx) {
                 e.verifyLevel = "cli"
                 e.verifiedBy = cliVerify[1]
                 if (green && !red) {
+                  const wasVerifiedCli = e.verified === true
                   e.verified = true
                   e.verifyFailed = false
                   e.verifyHint = ""
+                  e.verifiedAt = new Date().toISOString()
+                  e.dirtySince = ""
+                  if (!wasVerifiedCli) {
+                    tracePush({
+                      event_type: "session_state",
+                      source: "agent_hook",
+                      session_id: key,
+                      data: {
+                        verified: true,
+                        verified_at: e.verifiedAt,
+                        verify_level: e.verifyLevel,
+                        dirty_since: "",
+                        wrote: Boolean(e.wrote),
+                        writes: e.writes || 0,
+                        touched: Array.from(e.touched || []).slice(0, 20),
+                      },
+                    })
+                  }
                 } else if (red) {
                   e.verified = false
                   e.verifyFailed = true
@@ -1223,9 +1301,28 @@ async function runSetup(ctx) {
                 Array.isArray(plan.acceptance) && plan.acceptance.length > 0
               // Antes `echo pytest` cerraba una tarea con criterios sin probar.
               if (!hasAcceptance) {
+                const wasVerifiedShell = e.verified === true
                 e.verified = true
                 if (e.verifyLevel !== "tools") e.verifyLevel = "shell"
                 e.verifiedBy = e.verifiedBy || "shell"
+                e.verifiedAt = new Date().toISOString()
+                e.dirtySince = ""
+                if (!wasVerifiedShell) {
+                  tracePush({
+                    event_type: "session_state",
+                    source: "agent_hook",
+                    session_id: key,
+                    data: {
+                      verified: true,
+                      verified_at: e.verifiedAt,
+                      verify_level: e.verifyLevel,
+                      dirty_since: "",
+                      wrote: Boolean(e.wrote),
+                      writes: e.writes || 0,
+                      touched: Array.from(e.touched || []).slice(0, 20),
+                    },
+                  })
+                }
               }
             }
 
@@ -1420,10 +1517,32 @@ async function runSetup(ctx) {
               // `printf > archivo` y el gate de cierre no se enteraba).
               if (name === "edit" || name === "write") {
                 const entryNow = sessionOf(sid)
+                const wasVerifiedMut = entryNow.verified === true
+                const wasWroteMut = entryNow.wrote === true
                 entryNow.wrote = true
                 entryNow.writes = (entryNow.writes || 0) + 1
                 const touchedPath = relPath(input?.path || input?.filePath || "", rt)
                 if (touchedPath) entryNow.touched.add(touchedPath)
+                // Transición a sucio: también en la PRIMERA escritura de una
+                // sesión no verificada (wrote=false), para que un reload no
+                // pierda la deuda.
+                if (wasVerifiedMut || !wasWroteMut) {
+                  entryNow.verified = false
+                  entryNow.verifyFailed = false
+                  entryNow.dirtySince = new Date().toISOString()
+                  tracePush({
+                    event_type: "session_state",
+                    source: "agent_hook",
+                    session_id: sid,
+                    data: {
+                      verified: false,
+                      dirty_since: entryNow.dirtySince,
+                      wrote: true,
+                      writes: entryNow.writes,
+                      touched: Array.from(entryNow.touched || []).slice(0, 20),
+                    },
+                  })
+                }
                 if (touchedPath && !entryNow.firstMutation) {
                   const planNow = planFor(sid) || {}
                   entryNow.firstMutation = {
@@ -1439,8 +1558,27 @@ async function runSetup(ctx) {
                 const cmd = String(input?.command || "")
                 if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
                   const entryNow = sessionOf(sid)
+                  const wasVerifiedShellMut = entryNow.verified === true
+                  const wasWroteShellMut = entryNow.wrote === true
                   entryNow.wrote = true
                   entryNow.writes = (entryNow.writes || 0) + 1
+                  if (wasVerifiedShellMut || !wasWroteShellMut) {
+                    entryNow.verified = false
+                    entryNow.verifyFailed = false
+                    entryNow.dirtySince = new Date().toISOString()
+                    tracePush({
+                      event_type: "session_state",
+                      source: "agent_hook",
+                      session_id: sid,
+                      data: {
+                        verified: false,
+                        dirty_since: entryNow.dirtySince,
+                        wrote: true,
+                        writes: entryNow.writes,
+                        touched: Array.from(entryNow.touched || []).slice(0, 20),
+                      },
+                    })
+                  }
                   if (!entryNow.firstMutation) {
                     // Path del redirect (`> archivo`), si se puede; si no, null.
                     const m = cmd.match(/>>?\s*([^\s;&|]+)/)
@@ -1651,10 +1789,29 @@ async function runSetup(ctx) {
                 result.ok !== false &&
                 (String(name).includes("run_tests") ? payload.passed !== false : true)
               if (green) {
+                const wasVerifiedTools = entry.verified === true
                 entry.verified = true
                 entry.verifyFailed = false
                 entry.verifyLevel = "tools"
                 entry.verifiedBy = name
+                entry.verifiedAt = new Date().toISOString()
+                entry.dirtySince = ""
+                if (!wasVerifiedTools) {
+                  tracePush({
+                    event_type: "session_state",
+                    source: "agent_hook",
+                    session_id: String(callCtx?.sessionID || rt.sessionId || "global"),
+                    data: {
+                      verified: true,
+                      verified_at: entry.verifiedAt,
+                      verify_level: entry.verifyLevel,
+                      dirty_since: "",
+                      wrote: Boolean(entry.wrote),
+                      writes: entry.writes || 0,
+                      touched: Array.from(entry.touched || []).slice(0, 20),
+                    },
+                  })
+                }
               } else {
                 entry.verifyFailed = true
                 entry.verified = false

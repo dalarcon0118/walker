@@ -554,6 +554,31 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
                 files.append(f)
     out["files"] = files[:50]
 
+    # 3b. FLIGHT STATE: proyección del último estado de vuelo de la sesión.
+    # El TRACE es el SSOT; el último evento `session_state` (o, si no hay,
+    # el último `session_metrics`) describe verified/verified_at/verify_level/
+    # dirty_since/wrote/writes/touched. Se usa la lista completa de eventos,
+    # no el slice de display.
+    _FLIGHT_KEYS = (
+        "verified", "verified_at", "verify_level", "dirty_since",
+        "wrote", "writes", "touched",
+    )
+    _source = None
+    for _e in events:
+        if getattr(_e, "event_type", None) == "session_state":
+            _source = _e
+    if _source is None:
+        for _e in events:
+            if getattr(_e, "event_type", None) == "session_metrics":
+                _source = _e
+    if _source is not None:
+        _data = getattr(_source, "data", None) or {}
+        if not isinstance(_data, dict):
+            _data = {}
+        out["flight_state"] = {k: _data[k] for k in _FLIGHT_KEYS if k in _data}
+    else:
+        out["flight_state"] = {}
+
     # 4. CKG: decisiones y hechos de la sesión
     try:
         from returns.pipeline import is_successful
