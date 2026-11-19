@@ -42,6 +42,7 @@ _HANDLER_MODULES = [
     "implement",
     "session",
     "sprint_status",
+    "spec_status",
     "verify",
     "capture",
     "sprint_planning",

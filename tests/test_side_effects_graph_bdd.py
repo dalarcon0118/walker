@@ -63,6 +63,19 @@ class FakeSprintService:
         self.springs.setdefault(spring_id, {"spring_id": spring_id})["status"] = status
         return {"ok": True, "from": current, "to": status}
 
+    def close_spring(self, spring_id, force=False, reason=""):
+        open_specs = [
+            s.get("spec_id")
+            for s in self.get_specs(spring_id)
+            if str(s.get("status") or "") != "completed"
+        ]
+        if open_specs and not force:
+            return {"ok": False, "error": f"tareas abiertas: {open_specs}"}
+        if str((self.springs.get(spring_id) or {}).get("status") or "") == "closed":
+            return {"ok": True, "spring_id": spring_id, "status": "closed", "idempotent": True}
+        result = self.transition_spring(spring_id, "closed")
+        return {**result, "spring_id": spring_id, "status": "closed", "settled": [], "open": []}
+
     def list_springs(self):
         return list(self.springs.values())
 

@@ -64,7 +64,7 @@ def test_server_expone_tools_fase1_y_fase2(fastmcp_server):
         "code_context", "inspect_codebase", "snapshot", "baseline_diff",
         "read_code", "code_search",
     }
-    fase3 = {"submit", "advance", "transition", "help", "list_projects", "sprint_planning", "resolve_project_sprint", "workflow_state", "project_for_path", "trace_push", "trace_message", "implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "sprint_status", "run_tests", "verify_predicates", "capture"}
+    fase3 = {"submit", "advance", "transition", "help", "list_projects", "sprint_planning", "resolve_project_sprint", "workflow_state", "project_for_path", "trace_push", "trace_message", "implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "spec_status", "sprint_status", "run_tests", "verify_predicates", "capture"}
     expected = fase1 | fase2 | fase3
     assert names == expected, f"tools inesperadas: {names - expected}; faltantes: {expected - names}"
 

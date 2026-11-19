@@ -57,6 +57,7 @@ _FASE3_TOOLS = (
     "session_list",
     "session_plan",
     "spec_start",
+    "spec_status",
     "sprint_status",
     "run_tests",
     "verify_predicates",
@@ -255,8 +256,34 @@ _INPUT_SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "planning|active|paused|reviewing|closed (paused es reversible)",
             },
+            "force": {
+                "type": "boolean",
+                "description": "Cerrar con tareas abiertas (exige reason; queda auditado en el sprint)",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Motivo del cierre forzado",
+            },
         },
         "required": ["status"],
+    },
+    "spec_status": {
+        "type": "object",
+        "properties": {
+            "spec_id": {"type": "string", "description": "Spec/tarea (ej. SPEC-002)"},
+            "status": {"type": "string", "description": "draft|specified|approved|in_progress|in_review|completed"},
+            "spring_id": {"type": "string"},
+            "session_id": {"type": "string"},
+            "completed_at": {"type": "string", "description": "ISO-8601 (REPORT_GATE)"},
+            "commit_hash": {"type": "string"},
+            "review_verdict": {"type": "string", "description": "Veredicto QA (VERIFY)"},
+            "evidence": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Evidencia (al menos un ítem)",
+            },
+        },
+        "required": ["spec_id", "status"],
     },
     "implement_task": {
         "type": "object",
@@ -337,6 +364,7 @@ _DESCRIPTIONS = {
     "session_list": "List chat sessions with lifecycle and hierarchy.",
     "session_plan": "Get/set the session flight plan (goal, acceptance, task, scope, next).",
     "spec_start": "Start an existing spec: status in_progress + session/task link + plan.",
+    "spec_status": "Transition a spec; completed requires artifacts.",
     "sprint_status": "Transition a sprint status (paused is reversible: active<->paused).",
     "trace_push": "Push an event to the execution trace index.",
     "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
@@ -375,7 +403,7 @@ def _build_runner(name: str):
     _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
-    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "sprint_status", "run_tests", "verify_predicates", "capture"}
+    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "spec_status", "sprint_status", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner
         return session_tool_runner(name)

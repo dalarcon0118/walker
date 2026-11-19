@@ -53,6 +53,17 @@ class FakeService:
     def set_spring_status(self, spring_id, status):
         self.springs[spring_id]["status"] = status
 
+    def close_spring(self, spring_id, force=False, reason=""):
+        self.springs[spring_id]["status"] = "closed"
+        return {
+            "ok": True,
+            "spring_id": spring_id,
+            "status": "closed",
+            "settled": [],
+            "open": [],
+            "forced": False,
+        }
+
     def transition_spring(self, spring_id, status):
         self.springs[spring_id]["status"] = status
         return {"ok": True}

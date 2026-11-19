@@ -24,6 +24,7 @@ from fast_mcp.features.delta_tracking.domain.spec_service import (
     SpecStatusUpdater,
     SprintStatusUpdater,
     SpecService,
+    _completion_missing,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,114 @@ class SprintService:
     def set_spring_status(self, spring_id: str, status: str) -> None:
         """Compatibilidad: aplica si es válido e ignora si no (ver transition)."""
         self.transition_spring(spring_id, status)
+
+    def close_spring(
+        self, spring_id: str, *, force: bool = False, reason: str = ""
+    ) -> dict:
+        """Cierra un sprint liquidando antes sus tareas (invariante de cierre).
+
+        Un sprint `closed` con specs `in_progress` es estado incoherente: el
+        trabajo quedó a medias pero el contenedor dice terminado. Reglas:
+
+          1. Las specs en `in_review` que YA tienen los cuatro artefactos se
+             completan solas: el trabajo estaba verificado, solo faltaba la
+             transición (era el caso real del cierre 2026-11-19).
+          2. Cualquier otra spec abierta BLOQUEA el cierre, con la lista de
+             qué falta. El llamador completa con `spec_status` o fuerza.
+          3. `force=True` exige `reason` y deja la deuda en
+             `spring.context.closed_with_open_tasks`: el cierre excepcional es
+             explícito y auditable, nunca silencioso.
+        """
+        if not self._repo:
+            return {"ok": False, "error": "repo no disponible"}
+        spring = self._repo.get_spring(spring_id)
+        if spring is None:
+            return {"ok": False, "error": f"sprint desconocido: {spring_id}"}
+        if str(getattr(spring, "status", "")) == "closed":
+            return {
+                "ok": True,
+                "spring_id": spring_id,
+                "status": "closed",
+                "idempotent": True,
+                "settled": [],
+                "open": [],
+            }
+
+        settled: list[str] = []
+        for spec in self.get_specs(spring_id):
+            if str(spec.get("status") or "") != "in_review":
+                continue
+            try:
+                self.update_spec_status(spring_id, str(spec.get("spec_id")), "completed")
+                settled.append(str(spec.get("spec_id")))
+            except ValueError:
+                continue  # sin artefactos: sigue abierta y se reporta abajo
+
+        open_specs = [
+            {
+                "spec_id": str(spec.get("spec_id") or ""),
+                "task_id": str(
+                    (spec.get("task_context") or {}).get("task_id")
+                    or spec.get("spec_id")
+                    or ""
+                ),
+                "status": str(spec.get("status") or ""),
+                "missing": _completion_missing(spec),
+            }
+            for spec in self.get_specs(spring_id)
+            if str(spec.get("status") or "") != "completed"
+        ]
+
+        if open_specs and not force:
+            return {
+                "ok": False,
+                "error": (
+                    f"No se puede cerrar {spring_id}: {len(open_specs)} tarea(s) sin "
+                    "completar. Completalas con spec_status (status=completed + "
+                    "artefactos) o cerra con force=true y un reason explicito."
+                ),
+                "spring_id": spring_id,
+                "settled": settled,
+                "open": open_specs,
+            }
+        if open_specs and not str(reason or "").strip():
+            return {
+                "ok": False,
+                "error": (
+                    "force=true exige reason: cerrar con tareas abiertas debe ser "
+                    "explicito y auditable."
+                ),
+                "spring_id": spring_id,
+                "settled": settled,
+                "open": open_specs,
+            }
+
+        result = self.transition_spring(spring_id, "closed")
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "error": result.get("error", "no se pudo cerrar el sprint"),
+                "spring_id": spring_id,
+                "settled": settled,
+                "open": open_specs,
+            }
+
+        if open_specs:
+            spring = self._repo.get_spring(spring_id)
+            context = dict(getattr(spring, "context", None) or {})
+            context["closed_with_open_tasks"] = open_specs
+            context["close_reason"] = str(reason).strip()
+            context["closed_at"] = _now_iso()
+            self.update_spring(spring_id, {"context": context})
+
+        return {
+            "ok": True,
+            "spring_id": spring_id,
+            "status": "closed",
+            "settled": settled,
+            "open": open_specs,
+            "forced": bool(open_specs),
+        }
 
     def update_spring(self, spring_id: str, data: dict) -> None:
         """Update spring fields."""
@@ -428,14 +537,28 @@ class SprintService:
         self._repo.delete_spec(spring_id, spec_id)
         return True
 
-    def update_spec_status(self, spring_id: str, spec_id: str, status: str) -> dict | None:
-        """Update spec status."""
+    def update_spec_status(
+        self,
+        spring_id: str,
+        spec_id: str,
+        status: str,
+        artifacts: dict | None = None,
+    ) -> dict | None:
+        """Update spec status, optionally writing the closing artifacts.
+
+        `artifacts` se aplica al MISMO save que el status: la invariante de
+        `completed` (completed_at/commit/review/evidence) se evalúa una sola
+        vez, y no queda un estado intermedio con artefactos y sin transición.
+        """
         if not self._repo:
             return None
         spec = self._repo.get_spec(spring_id, spec_id)
         if not spec:
             return None
         spec_dict = spec.to_dict()
+        for key, value in (artifacts or {}).items():
+            if value not in (None, "", []):
+                spec_dict[key] = value
         updated = SpecStatusUpdater.update(spec_dict, status)
         merged = Spec.from_dict(updated)
         self._repo.save_spec(merged)

@@ -143,7 +143,12 @@ def advance_sprint_task(chain_dir: str, params: dict[str, Any], **kwargs: Any) -
 
 
 def archive_sprint(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-    """Cierra el sprint al terminar. Idempotente."""
+    """Cierra el sprint al terminar. Idempotente.
+
+    Delega en `SprintService.close_spring`: archivar tampoco puede dejar tareas
+    abiertas en silencio. `force`/`reason` viajan en `params` para el cierre
+    excepcional (queda registrado en la deuda del sprint).
+    """
     params = params or {}
     service = sprint_service(chain_dir, params, kwargs)
     if service is None:
@@ -152,15 +157,25 @@ def archive_sprint(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dic
     if not spring_id:
         return {"ok": True, "skipped": True, "reason": "sin sprint"}
 
-    spring = service.get_spring(spring_id) or {}
-    if str(spring.get("status") or "") == "closed":
-        return {"ok": True, "archived": True, "spring_id": spring_id, "idempotent": True}
+    close = getattr(service, "close_spring", None)
+    if not callable(close):
+        return {
+            "ok": False,
+            "error": "archive_sprint: sprint service sin close_spring (composición rota)",
+            "spring_id": spring_id,
+        }
     try:
-        result = service.transition_spring(spring_id, "closed")
+        result = close(
+            spring_id,
+            force=bool(params.get("force")),
+            reason=str(params.get("reason") or ""),
+        )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     if isinstance(result, dict) and result.get("ok") is False:
         return {"ok": False, "error": result.get("error", "no se pudo cerrar"), "spring_id": spring_id}
+    if isinstance(result, dict) and result.get("idempotent"):
+        return {"ok": True, "archived": True, "spring_id": spring_id, "idempotent": True}
     return {"ok": True, "archived": True, "spring_id": spring_id, "result": result}
 
 

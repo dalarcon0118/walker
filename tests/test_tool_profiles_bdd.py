@@ -39,7 +39,7 @@ def _surface_chars(tools: dict) -> int:
 def test_sin_var_de_entorno_no_se_recorta_nada(monkeypatch):
     tools = _tools(monkeypatch, None)
 
-    assert len(tools) == 45, "el default debe ser el contrato histórico"
+    assert len(tools) == 46, "el default debe ser el contrato histórico"
 
 
 def test_perfil_agent_expone_las_tools_del_perfil(monkeypatch):
@@ -75,7 +75,7 @@ def test_perfil_agent_conserva_el_ciclo_de_trabajo(monkeypatch):
 
 
 def test_perfil_agent_baja_la_superficie_al_menos_50_por_ciento(monkeypatch):
-    """45 tools en `full`. Medido 2026-11-18: 19.581 vs 9.249 chars = 52,8% de
+    """46 tools en `full`. Medido 2026-11-18: 19.581 vs 9.249 chars = 52,8% de
     recorte. `search_memories` (533 chars) entra porque los templates la exigen
     24 veces y sin ella el agente recibía "Unknown tool"; por eso el umbral es
     50% y no 55%. Sigue midiendo la intención (superficie mucho menor) sin
@@ -107,7 +107,7 @@ def test_perfil_desconocido_cae_a_full(monkeypatch):
     monkeypatch.setenv("WALKER_MCP_PROFILE", "inexistente")
 
     assert tool_profiles.active_profile() == "full"
-    assert len(_tools(monkeypatch, "inexistente")) == 45
+    assert len(_tools(monkeypatch, "inexistente")) == 46
 
 
 def test_perfil_con_nombre_inexistente_avisa_pero_no_rompe(monkeypatch, caplog):

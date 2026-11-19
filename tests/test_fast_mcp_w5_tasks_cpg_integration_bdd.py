@@ -215,6 +215,8 @@ class TestTaskRegistryCompleteness:
             "session_plan",
             # Detalle: iniciar una spec existente (roadmap)
             "spec_start",
+            # Cierre de tarea con artefactos (salida accionable de close_sprint)
+            "spec_status",
             "run_tests",
             "verify_predicates",
             "capture",

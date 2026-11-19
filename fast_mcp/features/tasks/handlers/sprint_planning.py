@@ -343,7 +343,12 @@ def _build_handlers(sprint_service: Any):
         })
 
     def close_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-        """Close the current sprint."""
+        """Close the current sprint, settling its tasks first.
+
+        El cierre NO puede dejar specs `in_progress` en un sprint cerrado: eso
+        fue el estado real del 2026-11-19. La regla vive en
+        `SprintService.close_spring` (dominio/aplicación), no acá.
+        """
         if sprint_service is None:
             return TaskResult.failure("close_sprint: sprint_service not configured")
 
@@ -362,15 +367,21 @@ def _build_handlers(sprint_service: Any):
             return TaskResult.failure("close_sprint: no hay sprint activo")
 
         try:
-            sprint_service.set_spring_status(spring_id, "closed")
+            result = sprint_service.close_spring(
+                spring_id,
+                force=bool(data.get("force")),
+                reason=str(data.get("reason") or ""),
+            )
         except Exception as exc:  # noqa: BLE001
             return TaskResult.failure(f"close_sprint: {type(exc).__name__}: {exc}")
 
-        return TaskResult.success(data={
-            "spring_id": spring_id,
-            "status": "closed",
-            "resolved_by": resolved_by,
-        })
+        if isinstance(result, dict) and result.get("ok") is False:
+            return TaskResult.failure(str(result.get("error") or "close_sprint falló"))
+        payload = dict(result or {})
+        payload.setdefault("spring_id", spring_id)
+        payload.setdefault("status", "closed")
+        payload["resolved_by"] = resolved_by
+        return TaskResult.success(data=payload)
 
     return plan_sprint, validate_plan, spec_task, close_sprint
 

@@ -60,6 +60,7 @@ AGENT: frozenset[str] = frozenset({
     "session_bind",
     "session_plan",
     "spec_start",
+    "spec_status",
     "session_list",
     "sprint_status",
     # verificación

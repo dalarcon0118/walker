@@ -31,6 +31,25 @@ def sprint_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             )
     if not spring_id:
         return TaskResult.failure("sprint_status: spring_id o session_id requerido")
+    if status == "closed":
+        # Cerrar por el camino administrativo tampoco puede dejar tareas
+        # abiertas en silencio: misma invariante que `close_sprint`.
+        close = getattr(service, "close_spring", None)
+        if not callable(close):
+            return TaskResult.failure(
+                "sprint_status: sprint service sin close_spring (composición rota)"
+            )
+        try:
+            result = close(
+                spring_id,
+                force=bool(data.get("force")),
+                reason=str(data.get("reason") or ""),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return TaskResult.failure(f"sprint_status: {type(exc).__name__}: {exc}")
+        if isinstance(result, dict) and result.get("ok") is False:
+            return TaskResult.failure(f"sprint_status: {result.get('error')}")
+        return TaskResult.success(result if isinstance(result, dict) else {"status": "closed"})
     result = service.transition_spring(spring_id, status)
     if not result.get("ok"):
         return TaskResult.failure(f"sprint_status: {result.get('error')}")
