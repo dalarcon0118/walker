@@ -55,6 +55,27 @@ if (mode === "baddeclare") {
     "esac",
   ])
 }
+if (mode === "inject") {
+  // Fixture determinista: el modo NO depende del CKG/CPG real de game_reset
+  // (que estaba vacío y hacía fallar baseline/ADR). El scope apunta a un
+  // archivo real para que `existsSync` pase; el resto lo responde el fake.
+  const scopeFile = `${WALKER}/agent-plugins/walker-flight-control/index.js`
+  fake("/tmp/fake-walker-inject", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_plan) echo '{"ok":true,"data":{"plan":{"goal":"Probar la inyeccion del nodo","task":"harness-task","next":"implementar y verificar","scope":["${scopeFile}"],"acceptance":["Debe mostrar el plan","Sin romper los tests"]}}}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"testproj"}'; exit 0;;`,
+    `  */workflow_state) echo '{"ok":true,"current_position":"IMPLEMENT.WORK","execution_type":"llm_task","step_satisfied":true,"task_id":"harness-task","revision":1}'; exit 0;;`,
+    `  */preflight) echo '{"ok":true,"files":[{"file":"index.js","callers":5,"heaviest":[{"cyclo":7}]}],"tests":["t1.py","t2.py"]}'; exit 0;;`,
+    `  */agent_context) echo '{"ok":true,"ckg":{"results":[{"_id":"adr-055"}]}}'; exit 0;;`,
+    `  */trace_push) echo '{"ok":true}'; exit 0;;`,
+    `  */session_open) echo '{"ok":true}'; exit 0;;`,
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-TEST","tasks":[]}}}'; exit 0;;`,
+    `  */implement_task) echo '{"ok":true,"data":{"task_id":"harness-task"}}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+}
 if (mode === "evict") process.env.WALKER_FLIGHT_CONTROL_MAX_SESSIONS = "3"
 if (mode === "gateprompt") {
   // Un gate `user_input` con su prompt real: el plugin debe poner la PREGUNTA
@@ -103,25 +124,6 @@ if (mode !== "missing" && !mode.startsWith("inject") && mode !== "bind" && mode 
 }
 
 if (mode === "gateoff") process.env.WALKER_FLIGHT_CONTROL_INTAKE = "0"
-
-if (mode === "inject") {
-  // Decisión ligada al archivo (convención "aplica a: <path>") para que L3 sea
-  // determinista y no dependa del CKG vivo del proyecto.
-  const { execSync } = await import("node:child_process")
-  try {
-    execSync(
-      `${REAL_CLI} walker/documenting_knowledge '${JSON.stringify({
-        nodes: [{
-          id: "adr-999",
-          type: "adr",
-          subject: "seed de test",
-          statement: "Seed del harness: aplica a: agent-plugins/walker-flight-control/index.js.",
-        }],
-      })}'`,
-      { cwd: WALKER, stdio: ["ignore", "ignore", "ignore"] }
-    )
-  } catch {}
-}
 
 if (mode === "normal") {
   // Estado "sin declarar" para que el gate evalúe las dos fases. Se hace acá y
