@@ -136,8 +136,29 @@ if (mode === "reloadverified" || mode === "reloadedit" || mode === "reloaddirty"
   ])
 }
 
+if (mode === "reloadclosedirty" || mode === "reloadcloseverified") {
+  // Recarga del plugin SIN hook de contexto: el estado persistido tiene que
+  // llegar igual al gate de cierre (hidratación en el camino de cierre). Antes
+  // el entry nacía vacío y una sesión sucia cerraba sin verificación.
+  mkdirSync("/tmp/wfc-reloadclose", { recursive: true })
+  const fs =
+    mode === "reloadclosedirty"
+      ? '{"verified":false,"verify_level":"","verified_at":"","dirty_since":"2026-11-19T00:00:00Z","wrote":true,"writes":3,"touched":["a.py"]}'
+      : '{"verified":true,"verify_level":"cli-marker","verified_at":"2026-11-19T00:00:00Z","dirty_since":"","wrote":true,"writes":1,"touched":["a.py"]}'
+  fake("/tmp/wfc-reloadclose/walker3", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_context) echo '{"ok":true,"data":{"flight_state":${fs}}}'; exit 0;;`,
+    `  */session_plan) echo '{"ok":true,"data":{"plan":{"goal":"reload close","task":"t","scope":[],"acceptance":["Debe cerrar con verde"]}}}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+}
+
 const tapDir = `/tmp/wfc-tap-${process.pid}`
 const tapFile = `${tapDir}/trace.jsonl`
+
 if (TAPPED.has(mode)) {
   mkdirSync(tapDir, { recursive: true })
   const proxy = `${tapDir}/walker3-tap`
@@ -487,6 +508,21 @@ if (closeMode) {
     console.log(`${okHint ? "ok  " : "FAIL"}  hint de pipe en el nudge`)
   }
   if (nudged) console.log(nudges[0].text.split("\n")[0])
+  if (typeof dispose === "function") dispose()
+  process.exit(ok ? 0 : 1)
+}
+
+if (mode === "reloadclosedirty" || mode === "reloadcloseverified") {
+  // NO se llama captured.context: el plugin arranca "en frío" (recarga) y el
+  // agente cierra. El estado persistido debe decidir el gate.
+  pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+  await new Promise((r) => setTimeout(r, 1500))
+  const expected = mode === "reloadclosedirty" ? 1 : 0
+  const ok = nudges.length === expected
+  console.log(
+    `${ok ? "ok  " : "FAIL"} nudges=${nudges.length} (esperado ${expected}) [sin hook de contexto]`
+  )
+  if (nudges.length) console.log(nudges[0].text.split("\n")[0])
   if (typeof dispose === "function") dispose()
   process.exit(ok ? 0 : 1)
 }

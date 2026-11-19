@@ -151,7 +151,8 @@ o posterior a `verified_at`.
 
 - [ ] Evento `session_state` en transiciones y proyección `flight_state` en
       `session_context`.
-- [ ] Hidratación del plugin en el primer hook de la sesión.
+- [ ] Hidratación del plugin en el primer hook de la sesión y también en el
+      camino de cierre (recarga sin hook de contexto).
 - [ ] Invalidación de `verified` en toda mutación, con `dirty_since`.
 - [ ] Nudge de cierre basado en `flight_state`, no sólo en el `Map`.
 - [ ] Harness: reload después de verificar (no debe nudgar) y reload después de
@@ -163,6 +164,33 @@ o posterior a `verified_at`.
 - [ ] M-05 Concurrencia: dos hooks concurrentes no pueden dejar `verified=true`
       con `dirty_since` no vacío — anti-patrón: last-write-wins sin validación.
 
+### Fase 3 — Integridad de escritura (P0.4)
+
+Contexto medido: el CAS de generación de `SqliteIndex` rechazaba el `store`
+cuando otro proceso había escrito (`{"ok": False, "error": "… cambió bajo el
+cache …"}`) y `CognitiveDeltaRepository.save_session`/`save_spec` descartaban el
+resultado. `implement_task` devolvía `ok: true` **sin spec y sin plan**, el gate
+de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
+`mode=scope` en rojo).
+
+- [ ] El conflicto de generación se resuelve como manda su error: refrescar el
+      diff-cache (conservando sólo los docs de la operación) y reintentar una
+      vez, con warning visible.
+- [ ] `save_*` del delta falla (`DeltaWriteError`) si el backend sigue
+      rechazando: nunca más un "ok" que no persistió (INV-016).
+- [ ] `implement_task` reporta `spec_error`/`plan_error` cuando la persistencia
+      falla, en vez de devolver un resultado vacío.
+- [ ] Harness `mode=scope` verde: alcance declarado ⇒ escritura fuera BLOQUEA.
+- [ ] Tests: conflicto real (dos servicios sobre el mismo data_dir) y
+      fail-fast con un `store` que devuelve `ok: False`.
+- [ ] M-01 Integridad de escritura: el write reporta lo que el backend hizo
+      (ok explícito) — anti-patrón: descartar el Result del `store`.
+- [ ] M-05 Concurrencia: dos procesos sobre la misma base no pierden la
+      escritura del segundo (refresh + reintento) — anti-patrón: CAS sin
+      remediación.
+- [ ] M-09 Fallback visible: el reintento se loguea y cuenta — anti-patrón:
+      reintentar en silencio y llamarlo éxito.
+
 ---
 
 ## 6. failure_scenarios
@@ -173,7 +201,8 @@ o posterior a `verified_at`.
   "Un preview/truncado corta el JSON y no hay marcador → el plugin queda verified=false y el nudge se repite → causa: certificación depende de un payload mutable → mitigación: marcador final estable y regla 'sin marcador no hay verde' con mensaje accionable → detección: modo closeclimark (corte + marcador) y un test que verifique que un corte sin marcador no certifica",
   "Un reload del plugin pierde el Map y borra verified → el agente recibe el nudge aunque la suite esté verde → causa: estado de vuelo en memoria → mitigación: session_state en trace + flight_state en session_context + hidratación en setup → detección: harness con re-setup después de verificar",
   "Una escritura después de verificar deja verified=true → el cierre acepta cambios sin probar → causa: la mutación no invalida el verde → mitigación: verified=false + dirty_since en toda mutación → detección: test de escritura posterior a la certificación",
-  "Dos sesiones o dos hooks concurrentes escriben flight_state y el último gana con un estado incoherente → causa: last-write-wins sin validación → mitigación: transiciones atómicas y `verified_at`/`dirty_since` consistentes → detección: test de dos transiciones intercaladas"
+  "Dos sesiones o dos hooks concurrentes escriben flight_state y el último gana con un estado incoherente → causa: last-write-wins sin validación → mitigación: transiciones atómicas y `verified_at`/`dirty_since` consistentes → detección: test de dos transiciones intercaladas",
+  "Otro proceso avanza la generación del delta entre la lectura y la escritura → el CAS rechaza el store y el repo descarta el ok:False → la spec/plan no queda en el delta y el gate de desvío opera con scope vacío (medido: implement_task ok sin spec, harness mode=scope en rojo) → mitigación: refrescar el diff-cache y reintentar una vez; si sigue fallando, DeltaWriteError visible → detección: test de dos servicios sobre el mismo data_dir + harness mode=scope"
 ]
 ```
 
@@ -190,6 +219,9 @@ o posterior a `verified_at`.
    marcador) y la suite completa sigue verde.
 5. P0.2: un reload después de verificar conserva el verde; una edición posterior
    lo invalida y el nudge vuelve con el motivo correcto.
+6. P0.4: un conflicto de generación no pierde la escritura (refresh + reintento)
+   y, si persiste, el error es visible; el harness `mode=scope` bloquea la
+   escritura fuera de alcance.
 
 ---
 
@@ -213,4 +245,10 @@ o posterior a `verified_at`.
   `closeclipipefail`, `closeclimarkpipe`.
 - `tests/test_cli_task_bdd.py`: marcador de `run_tests`/`verify_predicates` y
   contrato de salida (JSON + línea final).
+- `tests/test_session_context_flight_state_bdd.py`: proyección `flight_state`.
+- `tests/test_workflow_contract_bdd.py`: refs `NODE.*` y acciones con handler.
+- `tests/test_delta_write_retry_bdd.py`: conflicto de generación, reintento y
+  `DeltaWriteError` (P0.4).
+- `agent-plugins/walker-flight-control/suite.mjs`: suite del harness (todos los
+  modos en procesos limpios, `--fast` omite los de CLI real).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

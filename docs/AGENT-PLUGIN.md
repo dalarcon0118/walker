@@ -123,7 +123,16 @@ bin/walker3 walker/workflow_state '{}'
 
 # smoke del plugin sin OpenCode (fake del shell de Bun)
 node /tmp/plugin_smoke.mjs   # inyecta [WALKER] Workflow: … y traza los eventos
+
+# suite del harness (todos los modos, cada uno en un proceso limpio)
+node agent-plugins/walker-flight-control/suite.mjs ~/develop/Active-projects/game_reset
+node agent-plugins/walker-flight-control/suite.mjs ~/develop/Active-projects/game_reset --fast
 ```
+
+`--fast` omite los modos con CLI real (`scope`, `closecli*`). Esos son los que
+prueban integración de punta a punta y fueron los que expusieron la pérdida de
+escrituras del delta (2026-11-19): el `mode=scope` quedó en rojo porque
+`implement_task` no persistía el plan y el gate no tenía alcance que enforçar.
 
 ---
 

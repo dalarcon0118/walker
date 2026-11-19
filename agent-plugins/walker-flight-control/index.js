@@ -308,6 +308,36 @@ async function runSetup(ctx) {
       return plan
     }
 
+    // Hidratación del estado de vuelo desde el TRACE (SSOT): una recarga del
+    // plugin no pierde `verified`/`wrote`. Se hace UNA vez por entry, en
+    // cualquier camino (context o gate de cierre): si el plugin se recargó y
+    // no hubo hook de contexto, el estado persistido igual llega al gate.
+    const hydrateFlight = (sid, entry) => {
+      if (!sid || !entry || entry.hydrated) return
+      entry.hydrated = true // fail-open: no reintentar en cada evento
+      try {
+        const res = run("session_context", { session_id: sid }, rt.projectId, HOOK_TIMEOUT_MS)
+        const data = (res && (res.data || res)) || {}
+        const fs = (data && data.flight_state) || (res && res.flight_state)
+        if (!fs || typeof fs !== "object" || !Object.keys(fs).length) return
+        // Estado local más nuevo: no se pisa con el persistido.
+        if (entry.verified || entry.wrote || entry.writes) return
+        if (typeof fs.verified === "boolean") entry.verified = fs.verified
+        entry.verifiedAt = fs.verified_at || entry.verifiedAt || ""
+        entry.verifyLevel = fs.verify_level || entry.verifyLevel || ""
+        entry.dirtySince = fs.dirty_since || ""
+        entry.wrote = fs.wrote === undefined ? entry.wrote : Boolean(fs.wrote)
+        if (typeof fs.writes === "number") entry.writes = fs.writes
+        if (Array.isArray(fs.touched)) entry.touched = new Set(fs.touched)
+        entry.statePersisted = true
+        // La sesión existía antes de la recarga: el gate de cierre debe
+        // evaluarla (si no, una sesión sucia "desaparece" al recargar).
+        if (entry.wrote || entry.verified) entry.opened = true
+      } catch (err) {
+        degrade(rt, "session_context hydration falló", err)
+      }
+    }
+
     // Costo/tokens de la sesión (el proveedor los reporta por mensaje). Si no
     // se puede leer, `cost` queda null: nunca se reporta 0 como si fuera gratis.
     const sessionCost = async (sid) => {
@@ -900,37 +930,8 @@ async function runSetup(ctx) {
         // consume para no acumularlo; la traza `intake_preflight` queda.
         rt.pendingBaseline = null
         // Hidratación del estado de vuelo desde el TRACE (SSOT): una recarga del
-        // plugin no pierde `verified`, y el nudge de cierre no vuelve a aparecer.
-        if (sid && entry && !entry.hydrated) {
-          try {
-            const _res = run("session_context", { session_id: sid }, rt.projectId, HOOK_TIMEOUT_MS)
-            const _data = (_res && (_res.data || _res)) || {}
-            const _fs = (_data && _data.flight_state) || (_res && _res.flight_state)
-            // Hidratar TAMBIÉN el estado sucio (verified=false, wrote=true): si
-            // sólo se copiara el verde, un reload tras una edición perdería la
-            // deuda y el nudge no volvería (el hueco que P0.2 debe cerrar).
-            if (
-              _fs &&
-              typeof _fs === "object" &&
-              Object.keys(_fs).length &&
-              !entry.verified &&
-              !entry.wrote &&
-              !entry.writes
-            ) {
-              if (typeof _fs.verified === "boolean") entry.verified = _fs.verified
-              entry.verifiedAt = _fs.verified_at || entry.verifiedAt || ""
-              entry.verifyLevel = _fs.verify_level || entry.verifyLevel || ""
-              entry.dirtySince = _fs.dirty_since || ""
-              entry.wrote = _fs.wrote === undefined ? entry.wrote : Boolean(_fs.wrote)
-              if (typeof _fs.writes === "number") entry.writes = _fs.writes
-              if (Array.isArray(_fs.touched)) entry.touched = new Set(_fs.touched)
-              entry.statePersisted = true
-            }
-          } catch (err) {
-            degrade(rt, "session_context hydration falló", err)
-          }
-          entry.hydrated = true
-        }
+        // plugin no pierde `verified`/`wrote` (ver `hydrateFlight`).
+        hydrateFlight(sid, entry)
         let block = ""
         const st = state.data
         // Decisión POR SESIÓN: `state.data.taskId` es del proyecto y hacía que
@@ -983,6 +984,11 @@ async function runSetup(ctx) {
             event.data?.info?.sessionID ||
             ""
           const entry = sessionOf(sid)
+
+          // Recarga del plugin: el estado de vuelo persistido se hidrata antes
+          // de decidir el cierre. Si no, una sesión sucia "desaparece" al
+          // recargar y el cierre pasa sin verificación (medido).
+          hydrateFlight(sid, entry)
 
           // ── Gate de CIERRE: hubo escritura y no hay verificación ──
           // No se puede impedir el fin de ejecución, así que se reinyecta un
