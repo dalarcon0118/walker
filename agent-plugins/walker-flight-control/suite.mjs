@@ -47,6 +47,7 @@ const MODES = [
   "persist",
   "idem",
   "shellmut",
+  "shelltmp",
   "evict",
   "bind",
   "noproject",

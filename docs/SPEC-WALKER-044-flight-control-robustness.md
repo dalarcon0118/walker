@@ -183,6 +183,9 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
 - [ ] Harness `mode=scope` verde: alcance declarado ⇒ escritura fuera BLOQUEA.
 - [ ] Tests: conflicto real (dos servicios sobre el mismo data_dir) y
       fail-fast con un `store` que devuelve `ok: False`.
+- [ ] La mutación por `shell` no cuenta redirects a `/tmp`, `2>&1` ni `>`
+      dentro de comillas: capturar la salida de una verificación no invalida el
+      verde (medido: el nudge volvía a aparecer justo después del verde).
 - [ ] M-01 Integridad de escritura: el write reporta lo que el backend hizo
       (ok explícito) — anti-patrón: descartar el Result del `store`.
 - [ ] M-05 Concurrencia: dos procesos sobre la misma base no pierden la
@@ -202,7 +205,8 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
   "Un reload del plugin pierde el Map y borra verified → el agente recibe el nudge aunque la suite esté verde → causa: estado de vuelo en memoria → mitigación: session_state en trace + flight_state en session_context + hidratación en setup → detección: harness con re-setup después de verificar",
   "Una escritura después de verificar deja verified=true → el cierre acepta cambios sin probar → causa: la mutación no invalida el verde → mitigación: verified=false + dirty_since en toda mutación → detección: test de escritura posterior a la certificación",
   "Dos sesiones o dos hooks concurrentes escriben flight_state y el último gana con un estado incoherente → causa: last-write-wins sin validación → mitigación: transiciones atómicas y `verified_at`/`dirty_since` consistentes → detección: test de dos transiciones intercaladas",
-  "Otro proceso avanza la generación del delta entre la lectura y la escritura → el CAS rechaza el store y el repo descarta el ok:False → la spec/plan no queda en el delta y el gate de desvío opera con scope vacío (medido: implement_task ok sin spec, harness mode=scope en rojo) → mitigación: refrescar el diff-cache y reintentar una vez; si sigue fallando, DeltaWriteError visible → detección: test de dos servicios sobre el mismo data_dir + harness mode=scope"
+  "Otro proceso avanza la generación del delta entre la lectura y la escritura → el CAS rechaza el store y el repo descarta el ok:False → la spec/plan no queda en el delta y el gate de desvío opera con scope vacío (medido: implement_task ok sin spec, harness mode=scope en rojo) → mitigación: refrescar el diff-cache y reintentar una vez; si sigue fallando, DeltaWriteError visible → detección: test de dos servicios sobre el mismo data_dir + harness mode=scope",
+  "El agente captura la salida de la verificación a /tmp (o usa 2>&1) y el detector de mutaciones lo cuenta como escritura → el verde recién obtenido se invalida y el cierre vuelve a nudgar (medido: `run_tests … > /tmp/out 2>&1`) → causa: el detector busca '>' sin mirar destino ni comillas → mitigación: shellMutation ignora /dev/null, fd dups, /tmp y `>` citados; sólo cuenta redirects dentro del proyecto → detección: harness mode=shelltmp (verde + redirect a /tmp ⇒ 0 nudges) y mode=shellmut (redirect al proyecto ⇒ mutación)"
 ]
 ```
 
@@ -251,4 +255,6 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
   `DeltaWriteError` (P0.4).
 - `agent-plugins/walker-flight-control/suite.mjs`: suite del harness (todos los
   modos en procesos limpios, `--fast` omite los de CLI real).
+- `gate.test.mjs` modos nuevos: `reloadclosedirty`/`reloadcloseverified`
+  (hidratación en el cierre) y `shelltmp` (redirect a /tmp no invalida).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

@@ -338,6 +338,37 @@ async function runSetup(ctx) {
       }
     }
 
+    // ¿El comando de shell muta ARCHIVOS DEL PROYECTO? No alcanza con buscar
+    // ">": `2>&1`, `> /tmp/log` y los `>` dentro de comillas (mensajes de
+    // commit, JSON) no son mutaciones. Medido: `run_tests … > /tmp/out 2>&1`
+    // invalidaba el verde recién obtenido y el nudge volvía a aparecer.
+    const shellMutation = (cmd) => {
+      const raw = String(cmd || "")
+      // 1) fuera lo que está entre comillas: mensajes/JSON no escriben nada.
+      const unquoted = raw.replace(/'[^']*'|"[^"]*"/g, "''")
+      // 2) fuera duplicaciones de fd y /dev/null.
+      const cleaned = unquoted
+        .replace(/\d?>&\d/g, " ")
+        .replace(/&?>>?\s*\/dev\/null/g, " ")
+      const project = String(rt.projectDir || "")
+      // 3) redirects: sólo cuentan si el destino es del proyecto.
+      for (const m of cleaned.matchAll(/>>?\s*([^\s;&|]+)/g)) {
+        const target = m[1].replace(/^['"]|['"]$/g, "")
+        if (!target) continue
+        if (target.startsWith("/") && project && !target.startsWith(project)) continue
+        return { mutates: true, target }
+      }
+      // 4) mutadores en posición de comando (no dentro de un path).
+      if (
+        /(?:^|[;&|]\s*)(rm|mv|cp|tee|sed\s+-i|touch|mkdir|install|truncate|dd)\b/.test(
+          cleaned
+        )
+      ) {
+        return { mutates: true, target: "" }
+      }
+      return { mutates: false, target: "" }
+    }
+
     // Costo/tokens de la sesión (el proveedor los reporta por mensaje). Si no
     // se puede leer, `cost` queda null: nunca se reporta 0 como si fuera gratis.
     const sessionCost = async (sid) => {
@@ -1167,7 +1198,8 @@ async function runSetup(ctx) {
 
             // Segunda vía de `wrote`: el wrapper de shell corre siempre, así que
             // cubre el caso en que el agente escribe por shell en vez de `write`.
-            if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
+            // `shellMutation` ignora /dev/null, `2>&1`, /tmp y los `>` citados.
+            if (shellMutation(cmd).mutates) {
               sessionOf(key).wrote = true
             }
 
@@ -1562,7 +1594,8 @@ async function runSetup(ctx) {
                 }
               } else if (name === "shell") {
                 const cmd = String(input?.command || "")
-                if (/(>>?|\brm\b|\bmv\b|\bcp\b|\btee\b|\bsed\s+-i\b|\btouch\b|\bmkdir\b)/.test(cmd)) {
+                const mut = shellMutation(cmd)
+                if (mut.mutates) {
                   const entryNow = sessionOf(sid)
                   const wasVerifiedShellMut = entryNow.verified === true
                   const wasWroteShellMut = entryNow.wrote === true
@@ -1586,9 +1619,9 @@ async function runSetup(ctx) {
                     })
                   }
                   if (!entryNow.firstMutation) {
-                    // Path del redirect (`> archivo`), si se puede; si no, null.
-                    const m = cmd.match(/>>?\s*([^\s;&|]+)/)
-                    const target = m ? m[1].replace(/^['"]|['"]$/g, "") : ""
+                    // Path del redirect, sólo si el destino es del proyecto
+                    // (un `> /tmp/log` no es una mutación del repo).
+                    const target = mut.target || ""
                     if (target) {
                       const rel = relPath(target, rt)
                       if (rel) entryNow.touched.add(rel)

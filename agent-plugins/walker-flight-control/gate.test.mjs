@@ -527,6 +527,51 @@ if (mode === "reloadclosedirty" || mode === "reloadcloseverified") {
   process.exit(ok ? 0 : 1)
 }
 
+if (mode === "shelltmp") {
+  // Un redirect a /tmp (con 2>&1) NO es una mutación del proyecto: no puede
+  // invalidar el verde recién obtenido. Medido en sesión real: el agente
+  // captura la salida de la verificación a /tmp y el nudge volvía a aparecer.
+  fake("/tmp/fake-walker-shelltmp", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-TMP","status":"active","goal":"tmp test","tasks":[]}}}'; exit 0;;`,
+    `  */workflow_state) echo '{"ok":true,"task_id":"auto-x","current_position":"START.SELECT","execution_type":"","step_satisfied":true,"revision":1}'; exit 0;;`,
+    `  */implement_task) echo '{"ok":true,"data":{"task_id":"tmp-task"}}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"tmp_probe"}'; exit 0;;`,
+    `  */session_plan) echo '{"ok":true,"data":{"plan":{"goal":"tmp","task":"t","scope":[],"acceptance":["Debe cerrar con verde"]}}}'; exit 0;;`,
+    `  */trace_push) echo '{"ok":true}'; exit 0;;`,
+    `  */session_open) echo '{"ok":true}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+  const WCLI = process.env.WALKER_CLI
+  const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "arreglar" }] }] }
+  await captured.context(event)
+  await call("shell", {
+    command: `${WCLI} tmp_probe/session_bind '${JSON.stringify({ session_id: SID, mode: "new", objective: "tmp" })}'`,
+  })
+  await call("shell", {
+    command: `${WCLI} tmp_probe/implement_task '${JSON.stringify({
+      session_id: SID,
+      task_id: "tmp-task",
+      objective: "Debe cerrar con verde. Sin romper los tests.",
+      files: [],
+    })}'`,
+  })
+  await call("edit", { path: "x.txt" })
+  await call("run_tests", {}) // verde por tools
+  await call("shell", { command: "pytest -q 2>&1 | tail -n 1 > /tmp/wfc-shelltmp.log" })
+  pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+  await new Promise((r) => setTimeout(r, 1500))
+  const ok = nudges.length === 0
+  console.log(
+    `${ok ? "ok  " : "FAIL"} nudges=${nudges.length} (esperado 0; redirect a /tmp no es mutación)`
+  )
+  if (nudges.length) console.log(nudges[0].text.split("\n")[0])
+  if (typeof dispose === "function") dispose()
+  process.exit(ok ? 0 : 1)
+}
+
 if (mode === "scope") {
   const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "arreglar" }] }] }
   await captured.context(event)
@@ -650,7 +695,7 @@ if (TAPPED.has(mode)) {
     })
     await hook()
     if (mode === "shellmut") {
-      await call("shell", { command: "printf x >> /tmp/wfc-h-out" })
+      await call("shell", { command: "printf x >> out.txt" })
       pushEvent({ type: "session.execution.succeeded", sessionID: SID })
       await wait(1500)
     } else {
@@ -692,7 +737,7 @@ if (TAPPED.has(mode)) {
   } else if (mode === "shellmut") {
     checks.push(["writes=1 por shell", last && last.writes === 1])
     checks.push(["firstMutation via shell", last && last.first_mutation?.via === "shell"])
-    checks.push(["file del redirect", last && String(last.first_mutation?.file || "").endsWith("wfc-h-out")])
+    checks.push(["file del redirect", last && String(last.first_mutation?.file || "").endsWith("out.txt")])
   } else {
     checks.push(["plan inyectado 1 vez", planInjections.filter((t) => /\[WALKER\] Plan:/.test(t)).length === 1])
     checks.push(["sin mutaciones", last && last.writes === 0])
