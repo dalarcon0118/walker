@@ -1103,15 +1103,60 @@ async function runSetup(ctx) {
               sessionOf(key).wrote = true
             }
 
-            // Evidencia de verificación (gate de cierre). Es un recordatorio, no
-            // una prueba: si el comando lanzó, no se marca.
-            if (/\b(pytest|run_tests|verify_predicates)\b/.test(cmd)) {
+            // Evidencia de verificación (gate de cierre).
+            //
+            // Dos caminos:
+            //  1. `walker3 <proyecto>/run_tests|verify_predicates` ES la tool de
+            //     verificación: ejecuta pytest/predicados y devuelve el
+            //     resultado. En Code Mode el agente la invoca por shell (las MCP
+            //     tools no pasan por este wrapper), así que con `acceptance`
+            //     declarada el gate nunca podría abrirse. Se certifica por el
+            //     RESULTADO, no por el nombre: un `echo pytest` sigue sin contar.
+            //  2. `pytest` suelto: compat, solo certifica si no hay acceptance.
+            const cliVerify = cmd.match(
+              /(?:^|\s)(?:\S*\/)?walker3\s+\S+\/(run_tests|verify_predicates)\b/
+            )
+            if (cliVerify) {
+              const e = sessionOf(key)
+              const output =
+                typeof result === "string"
+                  ? result
+                  : String(
+                      (result &&
+                        (result.output ?? result.stdout ?? result.data?.output)) ||
+                        ""
+                    )
+              const exitCode = Number(
+                (result &&
+                  (result.exitCode ??
+                    result.exit_code ??
+                    result.metadata?.exitCode)) ??
+                  NaN
+              )
+              const green =
+                (exitCode === 0 &&
+                  !/"passed"\s*:\s*false/.test(output) &&
+                  !/"all_satisfied"\s*:\s*false/.test(output)) ||
+                /"passed"\s*:\s*true/.test(output) ||
+                /"all_satisfied"\s*:\s*true/.test(output)
+              const red =
+                exitCode > 0 ||
+                /"passed"\s*:\s*false/.test(output) ||
+                /"all_satisfied"\s*:\s*false/.test(output)
+              e.verifyLevel = "cli"
+              e.verifiedBy = cliVerify[1]
+              if (green && !red) {
+                e.verified = true
+                e.verifyFailed = false
+              } else if (red) {
+                e.verified = false
+                e.verifyFailed = true
+              }
+            } else if (/\b(pytest|run_tests|verify_predicates)\b/.test(cmd)) {
               const e = sessionOf(key)
               const plan = planFor(key) || {}
               const hasAcceptance =
                 Array.isArray(plan.acceptance) && plan.acceptance.length > 0
-              // Con acceptance declarada, el shell no certifica: solo una tool
-              // de verificación (run_tests/verify_predicates) puede hacerlo.
               // Antes `echo pytest` cerraba una tarea con criterios sin probar.
               if (!hasAcceptance) {
                 e.verified = true

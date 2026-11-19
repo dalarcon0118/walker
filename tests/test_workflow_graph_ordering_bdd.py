@@ -176,4 +176,5 @@ def test_po_accept_es_el_que_cierra_con_evidencia():
 
     assert effect["params"]["status"] == "completed"
     assert effect["params"]["fields"]["review_verdict"] == "NODE.QA.output.decision"
-    assert effect["params"]["fields"]["evidence"] == "NODE.PO_ACCEPT.output.evidence"
+    # El evidence lo produce VERIFY.QA; PO_ACCEPT solo declara `feedback`.
+    assert effect["params"]["fields"]["evidence"] == "NODE.QA.output.evidence"

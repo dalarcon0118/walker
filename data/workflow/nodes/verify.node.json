@@ -273,9 +273,10 @@
           }
         },
         "required": [
-          "decision"
+          "decision",
+          "evidence"
         ],
-        "description": "QA completed. approve -> PO_ACCEPT. reject -> IMPLEMENT.WORK."
+        "description": "QA completed. approve -> PO_ACCEPT. reject -> IMPLEMENT.WORK. `evidence` es el artefacto que cierra la spec: sin él el PO_ACCEPT no puede marcar `completed`."
       },
       "on_success": "PO_ACCEPT",
       "on_failure": "PREDICATE_CHECK",
@@ -393,7 +394,7 @@
             "status": "completed",
             "fields": {
               "review_verdict": "NODE.QA.output.decision",
-              "evidence": "NODE.PO_ACCEPT.output.evidence",
+              "evidence": "NODE.QA.output.evidence",
               "completed_at": "NODE.REPORT_GATE.output.completed_at",
               "commit_hash": "NODE.REPORT_GATE.output.commit_hash"
             }

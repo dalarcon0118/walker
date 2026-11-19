@@ -149,8 +149,22 @@ for (const n of ["edit", "write", "read", "implement_task", "walker_implement_ta
 tools.set("shell", {
   name: "shell",
   execute: async (input) => {
+    const command = String(input.command)
+    // `closecli` prueba la certificación por el RESULTADO del CLI. El comando
+    // es el real; la salida se canjea por un verde determinista para no
+    // depender de que el proyecto game_reset tenga predicates ejecutables.
+    if (mode === "closecli" && /verify_predicates/.test(command)) {
+      return {
+        ok: true,
+        output: JSON.stringify({
+          ok: true,
+          data: { all_satisfied: true, results: [], failed_count: 0, passed_count: 0, total: 0 },
+        }),
+        exitCode: 0,
+      }
+    }
     const { execSync } = await import("node:child_process")
-    const output = execSync(String(input.command), {
+    const output = execSync(command, {
       encoding: "utf8",
       cwd: "/tmp",
       stdio: ["ignore", "pipe", "ignore"],
@@ -206,6 +220,7 @@ const closeMode =
   mode === "closeok" ||
   mode === "closefail" ||
   mode === "closeshell" ||
+  mode === "closecli" ||
   mode === "gateoff"
 const ctx = {
   location: { directory: dir },
@@ -349,13 +364,23 @@ if (closeMode) {
     // Con acceptance declarada, el shell NO debe certificar: se espera nudge.
     await call("shell", { command: "echo pytest" })
   }
+  if (mode === "closecli") {
+    // CLI real con `acceptance` declarada: el plugin debe certificar por el
+    // RESULTADO (Code Mode invoca las tools por shell, no por el wrapper).
+    await call("shell", {
+      command: `cd ${WALKER} && ./bin/walker3 game_reset/verify_predicates '${JSON.stringify({
+        session_id: SID,
+        task_id: "close-task",
+      })}'`,
+    })
+  }
   // El evento de fin se empuja DESPUÉS de los pasos: si llega antes del edit,
   // el gate de cierre no ve `wrote` y no avisa.
   pushEvent({ type: "session.execution.succeeded", sessionID: SID })
   await new Promise((r) => setTimeout(r, 1500))
   const nudged = nudges.length
   const okText = nudged > 0 && /No cierres/.test(nudges[0].text)
-  const expectedNudge = mode !== "closeok"
+  const expectedNudge = mode !== "closeok" && mode !== "closecli"
   const ok = expectedNudge ? okText : nudged === 0
   console.log(`${ok ? "ok  " : "FAIL"} nudges=${nudged} (esperado ${expectedNudge ? 1 : 0})`)
   if (nudged) console.log(nudges[0].text.split("\n")[0])
