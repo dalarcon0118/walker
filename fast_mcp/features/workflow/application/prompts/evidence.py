@@ -262,33 +262,3 @@ def risk_label(value: float, thresholds: list[tuple[float, str]]) -> str:
         if value <= m:
             return label
     return thresholds[-1][1]
-
-
-def build_risk_summary(risks: dict) -> str:
-    """Resume riesgos con labels legibles."""
-    if not risks:
-        return "  (sin riesgos)"
-    curvature = risks.get("curvature", 0)
-    pre_churn = risks.get("pre_churn", 0)
-    trust = risks.get("commit_trust", 1)
-
-    curvature_label = risk_label(
-        curvature, [(0.2, "muy baja"), (0.3, "baja"), (0.4, "moderada"), (1.0, "alta")]
-    )
-    pre_churn_label = risk_label(
-        pre_churn, [(0.15, "baja"), (0.25, "moderada"), (1.0, "alta")]
-    )
-    trust_label = risk_label(trust, [(0.7, "baja"), (0.85, "moderada"), (1.0, "alta")])
-    risk_level = (
-        "bajo"
-        if (curvature + (1 - trust) + pre_churn) / 3 < 0.3
-        else "moderado"
-        if (curvature + (1 - trust) + pre_churn) / 3 < 0.5
-        else "alto"
-    )
-    return (
-        f"  • Curvatura: {curvature} ({curvature_label})\n"
-        f"  • Pre-churn: {pre_churn} ({pre_churn_label})\n"
-        f"  • Commit-trust: {trust} ({trust_label})\n"
-        f"  • Nivel general: {risk_level}"
-    )

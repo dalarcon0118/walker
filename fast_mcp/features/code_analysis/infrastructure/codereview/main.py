@@ -11,39 +11,6 @@ from .analysis import run_analysis
 from .quality import c_lower_better, format_rating
 
 
-def _format_check_issue(issue: dict) -> str:
-    level_icon = {"note": "💡", "warning": "⚠️", "error": "❌"}.get(
-        issue.get("level") or issue.get("severity") or "note", "💡"
-    )
-    label = issue.get("label") or issue.get("message") or ""
-    return (
-        f"  {level_icon} \033[1m{issue.get('pattern_id') or issue.get('rule_id', '?')}\033[0m"
-        f" L{issue.get('line', 0)}\n"
-        f"    {str(label)[:120]}"
-    )
-
-
-def _format_fast_metrics(data: dict) -> str:
-    lines = ["📊 Métricas (fast mode):"]
-    for f in data.get("files", []):
-        name = f.get("file", "?")
-        loc = f.get("loc", 0)
-        cyclo = f.get("cyclo", 0)
-        complexity = f.get("complexity", 0)
-        lcom = f.get("lcom", 0)
-        funcs = f.get("funcs", 0)
-        if loc or cyclo or funcs:
-            lines.append(
-                f"   {name}: LOC={loc}, cyclo={cyclo}, complexity={complexity}, LCOM={lcom}, funcs={funcs}"
-            )
-    total_loc = sum(f.get("loc", 0) for f in data.get("files", []))
-    total_cyclo = sum(f.get("cyclo", 0) for f in data.get("files", []))
-    lines.append(
-        f"   TOTAL: LOC={total_loc}, cyclo={total_cyclo}, files={data.get('files_analyzed', 0)}"
-    )
-    return "\n".join(lines)
-
-
 def _update_progress(msg: str) -> None:
     """Write progress to stderr for JSON mode, stdout otherwise."""
     if "--json" in sys.argv:

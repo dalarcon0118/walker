@@ -46,6 +46,7 @@ def find_unused_functions(
     is_false_positive_dead_code,
     is_referenced,
     main_guard=None,
+    is_fixture=None,
 ) -> list[dict[str, Any]]:
     """Detecta funciones/métodos sin callers (dead code) — scanner ÚNICO (F7).
 
@@ -79,6 +80,8 @@ def find_unused_functions(
         if is_false_positive_dead_code(
             name, ntype, sig, path, kind=str(n.get("kind", "") or "")
         ):
+            continue
+        if is_fixture is not None and is_fixture(path, line):
             continue
         if is_referenced(name, path, line):
             continue

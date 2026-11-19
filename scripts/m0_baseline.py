@@ -77,10 +77,6 @@ def pct(samples: list[float], p: float) -> float:
     return s[k]
 
 
-def now_ms() -> float:
-    return time.perf_counter_ns() / 1_000_000.0
-
-
 # ── Copia real: snapshot consistente vía API de backup (read-only origen) ──
 
 def snapshot_real_db(dest_path: str) -> None:

@@ -21,26 +21,6 @@ import pytest
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def _registry_with(name: str, handler):
-    from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
-
-    registry = TaskRegistry()
-    registry.register(name, handler)
-    return registry
-
-
-def _workflow_ctx(task_registry=None, cpg_adapter=None):
-    from fast_mcp.features.workflow.context import WorkflowContext
-
-    return WorkflowContext(
-        chain_dir="/tmp",
-        orchestrator=None,
-        bundle=None,
-        task_registry=task_registry,
-        cpg_adapter=cpg_adapter,
-    )
-
-
 def _task_ctx(cpg_adapter=None):
     from fast_mcp.features.workflow.domain.execution import ExecutionContext
 

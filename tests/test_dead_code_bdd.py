@@ -8,8 +8,10 @@ el review 955. Casi todos eran **callee stubs externos** (`server.add_tool`,
 CALLS va caller→callee: marcaba usados a los callers y muertas a las
 funciones que sí tenían callers.
 
-Después de ambos filtros quedan 22 funciones realmente sin referencias en el
-repo. El gate baja de 50 a 25 (ratchet: baseline + 3 de margen).
+Después de ambos filtros quedaban 22 funciones realmente sin referencias;
+se limpiaron (incluidas fixtures y helpers) y el baseline quedó en 0. El gate
+baja de 50 a 5: margen para un falso positivo heurístico, pero cualquier
+acumulación real lo rompe.
 """
 from __future__ import annotations
 
@@ -118,14 +120,14 @@ def test_el_caller_con_calls_outgoing_no_oculta_al_callee():
     assert "callee" not in {f["name"] for f in found}
 
 
-def test_el_gate_baja_a_25_y_pasa_con_el_baseline_real():
-    assert MAX_DEAD_CODE_DEFAULT == 25
+def test_el_gate_baja_a_5_y_pasa_con_el_baseline_real():
+    assert MAX_DEAD_CODE_DEFAULT == 5
 
     report = ReviewCodeUseCase.execute(ROOT, files=[])
     gates = {g["name"]: g for g in report.get("gates") or []}
 
-    assert gates["dead_code"]["threshold"] == 25
-    assert gates["dead_code"]["actual"] <= 25
+    assert gates["dead_code"]["threshold"] == 5
+    assert gates["dead_code"]["actual"] <= 5
     assert report.get("passed") is True
 
 

@@ -419,6 +419,7 @@ def _collect_bug_proposals_core(data: dict) -> dict[str, list[dict]]:
         nodes, edges,
         is_false_positive_dead_code=is_false_positive_dead_code,
         is_referenced=scanner.is_referenced,
+        is_fixture=scanner.is_pytest_fixture,
     ):
         proposals["unused_functions"].append(
             {

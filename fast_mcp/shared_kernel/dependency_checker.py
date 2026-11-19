@@ -82,11 +82,6 @@ def ensure_ast_grep() -> bool:
     return not ensure_tools(["ast-grep"])
 
 
-def ensure_all() -> list[str]:
-    """Check/install ALL known tools."""
-    return ensure_tools(["ast-grep"])
-
-
 def check_and_report(verbose: bool = False) -> int:
     """Check all tools and print a report.
 

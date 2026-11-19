@@ -18,11 +18,11 @@ from returns.pipeline import is_successful
 
 logger = logging.getLogger(__name__)
 
-# Umbral del gate de dead code. Medido 2026-11-18 tras corregir los falsos
-# positivos (external_call + dirección de CALLS): 22 funciones realmente sin
-# referencias. 25 es un ratchet: el baseline pasa con 3 de margen y cualquier
-# función nueva sin uso lo rompe. El objetivo es limpiar las 22 y bajarlo a 5.
-MAX_DEAD_CODE_DEFAULT = 25
+# Umbral del gate de dead code. Medido 2026-11-18: tras corregir external_call
+# + dirección de CALLS y limpiar las 22 funciones sin referencias (incluidas
+# fixtures y helpers), el baseline es 0. 5 es un ratchet: deja margen para un
+# falso positivo heurístico, pero cualquier acumulación real lo rompe.
+MAX_DEAD_CODE_DEFAULT = 5
 
 from fast_mcp.features.code_analysis.domain.graph import Graph
 from fast_mcp.features.code_analysis.domain.metrics import ReviewResult, ProjectMetrics, QualityGate
@@ -142,6 +142,7 @@ class ReviewUseCase:
             is_false_positive_dead_code=is_false_positive_dead_code,
             is_referenced=scanner.is_referenced,
             main_guard=lambda name, path: name == "main" and _has_main_guard(path),
+            is_fixture=scanner.is_pytest_fixture,
         )
         return [
             {"function": f["name"], "file": f["file"], "line": f["line"],

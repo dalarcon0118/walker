@@ -41,7 +41,7 @@ pip-install:
 
 # ── Verification / Doctor ────────────────────────────────────
 check:
-	@python3 -c "from features.dependency_checker import check_and_report; check_and_report()"
+	@python3 -c "from fast_mcp.shared_kernel.dependency_checker import check_and_report; check_and_report()"
 
 doctor:
 	@echo ""
@@ -49,7 +49,7 @@ doctor:
 	@echo "  ║   Walker3 — Environment Diagnostics           ║"
 	@echo "  ╚═══════════════════════════════════════════════╝"
 	@echo ""
-	@python3 -c "from features.dependency_checker import check_and_report; check_and_report(verbose=True)"
+	@python3 -c "from fast_mcp.shared_kernel.dependency_checker import check_and_report; check_and_report(verbose=True)"
 	@echo "  → walker3 package: $$(pip3 show walker3 2>/dev/null | grep Version || echo 'NOT INSTALLED')"
 	@echo ""
 

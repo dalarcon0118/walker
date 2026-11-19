@@ -15,6 +15,11 @@ from returns.result import safe
 logger = logging.getLogger(__name__)
 
 
+# Entry points invocados desde FUERA de Python (Makefile `check`/`doctor`,
+# scripts). No tienen CALLS edge dentro del repo, pero son API pública real.
+_EXTERNAL_ENTRYPOINTS = {"check_and_report"}
+
+
 def is_false_positive_dead_code(
     name: str,
     node_type: str = "",
@@ -40,6 +45,8 @@ def is_false_positive_dead_code(
     # `kind=external_call`: no son funciones del proyecto y no pueden ser
     # dead code. Medido 2026-11-18: eran 1.014 de los 1.014 "unused_functions".
     if kind == "external_call":
+        return True
+    if name in _EXTERNAL_ENTRYPOINTS:
         return True
     if name.startswith("test_") or name.endswith("_test"):
         return True
@@ -143,6 +150,28 @@ class DeadCodeReferenceScanner:
             if lineno == def_line:
                 continue
             if name in line:
+                return True
+        return False
+
+    def is_pytest_fixture(self, path: str, def_line: int = 0) -> bool:
+        """True si la función está decorada con `@pytest.fixture`.
+
+        Las fixtures se inyectan por nombre en los tests: no tienen CALLS ni
+        una referencia textual que el scanner pueda ver (y nombres genéricos
+        como `ctx` se descartan a propósito en `is_referenced`). Sin este
+        filtro, cada fixture del repo aparece como dead code.
+        """
+        if not path or def_line <= 0:
+            return False
+        text = self._text(os.path.realpath(path))
+        if not text:
+            return False
+        lines = text.splitlines()
+        idx = min(def_line - 1, len(lines) - 1)
+        while idx > 0 and not lines[idx].lstrip().startswith("def "):
+            idx -= 1
+        for j in range(max(0, idx - 6), idx):
+            if "@pytest.fixture" in lines[j] or "@fixture" in lines[j]:
                 return True
         return False
 

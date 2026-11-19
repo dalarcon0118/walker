@@ -60,25 +60,6 @@ def _run_ast_grep_core(pattern: str, filepath: Path, lang: str) -> list[dict]:
     return _parse_ast_grep_json(r.stdout)
 
 
-def run_ast_grep_multi(patterns: list[str], filepath: Path, lang: str | None = None) -> dict[str, list[dict]]:
-    """Run multiple ast-grep patterns on one file in a single invocation.
-    
-    ast-grep soporta -p multiple times or -c rule file.
-    Returns dict {pattern: matches}
-    """
-    if not AST_GREP_AVAILABLE or not patterns:
-        return {}
-    if lang is None:
-        lang = ast_grep_lang(filepath)
-    if not lang or not filepath.exists():
-        return {}
-
-    results = {}
-    for pattern in patterns:
-        results[pattern] = run_ast_grep(pattern, filepath, lang)
-    return results
-
-
 def _parse_ast_grep_json(stdout: str) -> list[dict]:
     """Parse ast-grep --json output.
 

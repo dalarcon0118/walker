@@ -70,12 +70,6 @@ def project_data_dir() -> str:
     return str((cfg.get("project") or {}).get("data_dir", "data"))
 
 
-def project_ckg_dir() -> str:
-    """Nombre del directorio de conocimiento (CKG) de un proyecto (config)."""
-    cfg = _read_config_file()
-    return str((cfg.get("project") or {}).get("ckg_dir", "ckg"))
-
-
 def compose_project_layout(repo_path: str, project_id: str) -> Path:
     """Layout cognitivo de un proyecto compuesto sobre su repo path.
 
@@ -163,17 +157,6 @@ def get_projects_dir() -> Path:
     if cfg:
         return Path(cfg).expanduser().resolve()
     return get_active_cognitive_dir() / "projects"
-
-
-def get_sessions_dir() -> Path:
-    """Directorio de sesiones: <cognitive>/sessions/ (o override; agent id)."""
-    cfg = _get_cfg("sessions_dir")
-    if cfg:
-        base = Path(cfg).expanduser().resolve()
-    else:
-        base = get_active_cognitive_dir() / "sessions"
-    agent = os.environ.get("WALKER_AGENT_ID", "")
-    return (base / "agents" / agent) if agent else base
 
 
 # ── 4. Proyectos: project_id → paths específicos ───────────────────
@@ -283,11 +266,6 @@ def cognitive_data_dir(chain_dir: str) -> str:
         pass
     return os.path.join(chain_dir, "data")
 
-
-
-def get_state_path(project_id: str) -> Path:
-    """Estado del workflow de un proyecto: <project_dir>/state"""
-    return get_project_dir(project_id) / "state"
 
 
 def get_walker_root() -> Path:
@@ -538,47 +516,6 @@ def resolve_memory_context(chain_dir: str) -> MemoryContext:
 def resolve_data_dir(chain_dir: str) -> str:
     """Solo el data_dir canónico (atajo común)."""
     return resolve_memory_context(chain_dir).data_dir
-
-
-def resolve_real_project_dir(chain_dir: str) -> str:
-    """Resuelve el directorio REAL del código fuente desde chain_dir."""
-    cognitive_dir = resolve_project_root(chain_dir)
-    manifest_path = os.path.join(cognitive_dir, "data", "project.json")
-    if not os.path.exists(manifest_path):
-        manifest_path = os.path.join(cognitive_dir, "project.json")
-        if not os.path.exists(manifest_path):
-            raise FileNotFoundError(
-                f"project.json no encontrado en '{cognitive_dir}/data/' ni en '{cognitive_dir}'"
-            )
-    try:
-        with open(manifest_path) as f:
-            data = json.load(f)
-        loc = data.get("project", data).get("location", {})
-        repo_path = loc.get("repo_path", "")
-        project_id = data.get("project", data).get("meta", {}).get("project_id", "")
-        if not repo_path or not project_id:
-            raise FileNotFoundError(
-                f"project.json en '{manifest_path}' no contiene 'location.repo_path' o 'meta.project_id'"
-            )
-        return os.path.join(repo_path, "projects", project_id)
-    except (json.JSONDecodeError, KeyError, OSError) as e:
-        raise FileNotFoundError(f"Error leyendo project.json en '{manifest_path}': {e}")
-
-
-def resolve_data_path(chain_dir: str, filename: str) -> str:
-    """Resuelve ruta a un archivo de datos desde chain_dir (<root>/data/<f>[.gz])."""
-    project_root = resolve_project_root(chain_dir)
-    data_dir = os.path.join(project_root, _get_cfg("data_dir", "data"))
-    data_file = os.path.join(data_dir, filename + ".gz")
-    if os.path.exists(data_file):
-        return data_file
-    data_file_plain = os.path.join(data_dir, filename)
-    if os.path.exists(data_file_plain):
-        return data_file_plain
-    raise FileNotFoundError(
-        f"Archivo de datos '{filename}' no encontrado en '{data_dir}'. "
-        "Debe estar en <project_root>/data/<filename>[.gz]."
-    )
 
 
 def resolve_trace_path(chain_dir: str) -> str:

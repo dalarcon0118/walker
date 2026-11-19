@@ -681,35 +681,3 @@ def scan_file(filepath: Path, project_root: str) -> dict:
         "hallucinations": len(hallucinations),
         "warnings": len(warnings),
     }
-
-
-def scan_directory(dir_path: Path, project_root: str) -> list[dict]:
-    """Escanea recursivamente un directorio en busca de archivos fuente."""
-    results: list[dict] = []
-    skip_dirs = {
-        "__pycache__",
-        ".git",
-        "node_modules",
-        ".venv",
-        "venv",
-        "dist",
-        "build",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".tox",
-        ".eggs",
-        "*.egg-info",
-        ".coverage",
-        "htmlcov",
-    }
-
-    for root, dirs, files in os.walk(dir_path):
-        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
-        for fname in files:
-            if fname.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")):
-                fp = Path(root, fname)
-                result = scan_file(fp, project_root)
-                if result.get("hallucinations", 0) > 0:
-                    results.append(result)
-
-    return results

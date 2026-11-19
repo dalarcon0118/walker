@@ -35,18 +35,3 @@ def get_workflow_manifest_dir() -> str:
     from fast_mcp.shared_kernel.path_manager import PathManager
 
     return str(PathManager().engine_workflow_dir())
-
-
-def _config_walker_root() -> str:
-    """Raíz walker para config (evita ciclo: paths._read_config_file la usa)."""
-    from pathlib import Path
-
-    candidate = Path(__file__).resolve().parent.parent.parent  # kernel→fast_mcp→raíz
-    for _ in range(8):
-        if (candidate / "config" / "config.json").is_file():
-            return str(candidate.resolve())
-        parent = candidate.parent
-        if parent == candidate:
-            break
-        candidate = parent
-    return str(Path.cwd().resolve())

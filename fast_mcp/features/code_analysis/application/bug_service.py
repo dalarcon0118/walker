@@ -213,6 +213,8 @@ class ScanBugsUseCase:
             ]
             if incoming_calls:
                 continue
+            if scanner.is_pytest_fixture(node.path, node.line):
+                continue  # Inyectada por pytest, no por CALLS
             if scanner.is_referenced(name, node.path, node.line):
                 continue  # Referenciado por texto en otro archivo → vivo
 
