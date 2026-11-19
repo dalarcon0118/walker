@@ -421,15 +421,16 @@ class TestEdgeWritePathTouched:
         assert len(edges) == 2001
 
 class TestGenerationCas:
-    """T-12a (H-1): proceso stale NO puede escribir — CAS por generación.
+    """T-12a (H-1): CAS por generación con remediación.
 
     WAL multi-proceso está in-contract (ADR-WALKER-063 CA-8): el guard no es
-    un lock de fichero sino un CAS transaccional sobre `__generation__`; el
-    diff-cache stale falla con StorageStateError accionable (reabrir) en vez
-    de corromper silenciosamente.
+    un lock de fichero sino un CAS transaccional sobre `__generation__`. Un
+    diff-cache stale no se escribe ciego: se refresca el cache y se reintenta
+    UNA vez (la remediación que dicta el propio error). Si aun así el estado
+    cambió, el store se rechaza — nunca corrupción silenciosa.
     """
 
-    def test_stale_process_save_rejected(self, tmp_path):
+    def test_stale_process_save_se_recupera_y_persiste(self, tmp_path):
         backend = _make(tmp_path)  # 3 docs → generación 1
         # "proceso B": abre ANTES de que A escriba y fuerza el light-load
         conn_b = MemoryConnection(backend="sqlite", uri=f"sqlite://{tmp_path}")
@@ -443,7 +444,37 @@ class TestGenerationCas:
                                       "path": "src/nueve.py",
                                       "signature": "def fn_nueve():", "kind": "def"})
 
-        # B guarda con cache stale → CAS falla, cero corrupción silenciosa
+        # B guarda con cache stale → refresca y reintenta: la escritura NO se
+        # pierde (antes el repo descartaba el ok:False y el dato desaparecía).
+        result = b_backend.store(
+            "cpg", "f:10", {"name": "fn_diez", "type": "function",
+                             "path": "src/diez.py",
+                             "signature": "def fn_diez():", "kind": "def"})
+        assert result.get("ok") is True, result
+        assert b_idx._generation_retries == 1
+        db = _db(tmp_path)
+        ids = {r[0] for r in db.execute("SELECT id FROM docs WHERE `index`='cpg'")}
+        # el doc de A sobrevive: el reintento escribe sólo lo suyo, no pisa ciego
+        assert "f:9" in ids and "f:10" in ids
+        db.close()
+
+    def test_cas_rechaza_si_el_refresco_no_alcanza(self, tmp_path, monkeypatch):
+        """Si el refresh no logra el estado committed, el CAS sigue rechazando."""
+        backend = _make(tmp_path)
+        conn_b = MemoryConnection(backend="sqlite", uri=f"sqlite://{tmp_path}")
+        b_backend = resolve_storage_backend(conn_b)
+        b_idx = b_backend._indexes["cpg"]  # noqa: SLF001
+        b_idx.keys()  # light-load: generación 1
+
+        backend.store("cpg", "f:9", {"name": "fn_nueve", "type": "function",
+                                      "path": "src/nueve.py",
+                                      "signature": "def fn_nueve():", "kind": "def"})
+
+        # Simula que otro proceso vuelve a escribir entre el refresh y el
+        # retry (el refresh no ve el estado committed).
+        monkeypatch.setattr(
+            type(b_idx), "_reload_light_state", lambda self, keep: None
+        )
         result = b_backend.store(
             "cpg", "f:10", {"name": "fn_diez", "type": "function",
                              "path": "src/diez.py",

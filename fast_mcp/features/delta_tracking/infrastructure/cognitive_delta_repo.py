@@ -22,6 +22,23 @@ from fast_mcp.features.delta_tracking.domain.values import (
 logger = logging.getLogger(__name__)
 
 
+class DeltaWriteError(RuntimeError):
+    """La escritura del delta no se persistió (INV-016: sin pérdida silenciosa).
+
+    `CognitiveGraph.store` devuelve un Result-dict que puede traer `ok: False`
+    (p. ej. CAS de generación agotado tras el reintento). Descartarlo convertía
+    un conflicto real en un "ok" mentiroso: la spec/plan no quedaba en el
+    delta y los gates de arriba actuaban sobre un estado vacío.
+    """
+
+
+def _require_ok(result: Any, what: str) -> None:
+    """Fail-fast si el backend rechazó la escritura (tolerante a fakes)."""
+    if isinstance(result, dict) and result.get("ok") is False:
+        detail = str(result.get("error") or "escritura rechazada")
+        raise DeltaWriteError(f"{what}: {detail}")
+
+
 class CognitiveDeltaRepository(DeltaRepository):
     """DeltaRepository implementation using CognitiveGraph.
 
@@ -63,7 +80,10 @@ class CognitiveDeltaRepository(DeltaRepository):
         return None
 
     def save_spring(self, spring: Spring) -> None:
-        self._cg.store(self.INDEX, spring.spring_id, spring.to_dict())
+        _require_ok(
+            self._cg.store(self.INDEX, spring.spring_id, spring.to_dict()),
+            f"save_spring({spring.spring_id})",
+        )
 
     def list_springs(self, status: str = "") -> list[Spring]:
         filters = {"type": TYPE_SPRING}
@@ -138,16 +158,25 @@ class CognitiveDeltaRepository(DeltaRepository):
         return None
 
     def save_spec(self, spec: Spec) -> None:
-        self._cg.store(self.INDEX, spec.doc_id, spec.to_dict())
+        _require_ok(
+            self._cg.store(self.INDEX, spec.doc_id, spec.to_dict()),
+            f"save_spec({spec.doc_id})",
+        )
 
     def save_specs_batch(self, specs: list[Spec]) -> None:
         if not specs:
             return
         docs = {s.doc_id: s.to_dict() for s in specs}
-        self._cg.store_many(self.INDEX, docs)
+        _require_ok(
+            self._cg.store_many(self.INDEX, docs),
+            f"save_specs_batch({len(docs)})",
+        )
 
     def delete_spec(self, spring_id: str, spec_id: str) -> None:
-        self._cg.delete(self.INDEX, spec_doc_id(spring_id, spec_id))
+        _require_ok(
+            self._cg.delete(self.INDEX, spec_doc_id(spring_id, spec_id)),
+            f"delete_spec({spec_doc_id(spring_id, spec_id)})",
+        )
 
     # ── Session ──
 
@@ -158,7 +187,10 @@ class CognitiveDeltaRepository(DeltaRepository):
         return None
 
     def save_session(self, session: Session) -> None:
-        self._cg.store(self.INDEX, session.session_id, session.to_dict())
+        _require_ok(
+            self._cg.store(self.INDEX, session.session_id, session.to_dict()),
+            f"save_session({session.session_id})",
+        )
 
     def list_sessions(self, status: str = "", project_id: str = "") -> list[Session]:
         hits = self._search({"type": TYPE_SESSION})

@@ -75,6 +75,11 @@ _PAGE_SIZE_KEYS = ("max_results", "size", "max_events")
 _PAGE_FROM_KEYS = ("_from", "from")
 _META_QUERY_KEYS = (*_PAGE_SIZE_KEYS, "_index", "query", *_PAGE_FROM_KEYS, "text_fields")
 
+#: Firma del CAS de generación (T-12a). Un proceso con cache stale la ve al
+#: guardar: su diff describe un estado que ya no es el committed. La
+#: remediación la dicta el propio error — refrescar el cache y reintentar.
+_GENERATION_CONFLICT = "cambió bajo el cache"
+
 
 def _sha1(value: Any) -> str:
     """Hash determinista del JSON canónico (diff de persistencia)."""
@@ -127,6 +132,9 @@ class SqliteIndex(Index):
         # generación committed del CAS multi-proceso.
         self._metadata_keys: set[str] = set()
         self._generation: int = 0
+        # T-12a (H-1) remediación: reintentos por conflicto de generación
+        # (cache refrescada + reintento, visible en logs — jamás silencioso).
+        self._generation_retries: int = 0
         # F1 (ADR-WALKER-075 D2): columnas FTS activas para este índice
         # (schema.search.fields) o None si el índice no tiene FTS — lo setea
         # SqliteBackend tras ensure_fts (boot/register). Con FTS activo el
@@ -173,6 +181,73 @@ class SqliteIndex(Index):
         """Edge eliminado del grafo → sale del cache, entra al diff como DELETE."""
         self._edge_raws.pop(key, None)
         self._dirty_edges.add(key)
+
+    # ── T-12a (H-1): remediación del CAS de generación ──
+
+    def _reload_light_state(self, keep: set[str]) -> None:
+        """Refresca el diff-cache desde la BD tras un conflicto de generación.
+
+        Conserva del cache SOLO los docs de la operación en curso (`keep`): el
+        reintento escribe únicamente lo que este proceso está guardando, nunca
+        una copia vieja de docs que otro proceso ya cambió. En un índice
+        materializado el read model se reconstruye completo (una copia parcial
+        rompería search y los índices secundarios).
+
+        Nota: `_save` actualiza `_saved_docs` ANTES del CAS; si el CAS falla la
+        transacción hace rollback pero el cache Python queda mintiendo. Por eso
+        el reload es obligatorio antes de reintentar.
+        """
+        self._meta_loaded = False
+        self._saved_docs = {}
+        self._saved_edges = {}
+        self._edge_raws = {}
+        self._dirty_edges = set()
+        self._metadata = {}
+        self._metadata_hash = ""
+        self._metadata_keys = set()
+        self._generation = 0
+        pending = {d: v for d, v in self._docs.items() if d in keep}
+        if self._loaded:
+            self._materialize_docs()
+            # `_materialize_docs` reemplaza `_docs` con lo committed: se
+            # re-aplican los docs de la operación (el op los vuelve a escribir).
+            self._docs.update(pending)
+        else:
+            self._docs = pending
+        self._ensure_light()
+
+    def _with_generation_retry(self, keep: set[str], op: Callable[[], dict]) -> dict:
+        """Reintenta UNA vez con cache fresca ante conflicto de generación.
+
+        El CAS existe para que un proceso stale no sobrescriba ciego; su
+        remediación es refrescar y reintentar. Descartar el `ok: False` (lo que
+        hacían los repos) convertía un conflicto real en una escritura perdida
+        silenciosa (medido: `implement_task` devolvía ok sin plan).
+        """
+        result = op()
+        if result.get("ok") is not False:
+            return result
+        if _GENERATION_CONFLICT not in str(result.get("error", "")):
+            return result
+        self._generation_retries += 1
+        logger.warning(
+            "SqliteIndex['%s']: conflicto de generación (otro proceso escribió) "
+            "— se refresca el cache y se reintenta una vez (reintento %d).",
+            self.name,
+            self._generation_retries,
+        )
+        self._reload_light_state(keep)
+        return op()
+
+    def store(self, doc_id: str, data: dict) -> dict:
+        return self._with_generation_retry(
+            {doc_id}, lambda: Index.store(self, doc_id, data)
+        )
+
+    def delete(self, doc_id: str) -> dict:
+        return self._with_generation_retry(
+            set(), lambda: Index.delete(self, doc_id)
+        )
 
     # ── Persistencia: carga en dos niveles (F3, D4/M-09) ──
 
@@ -380,6 +455,9 @@ class SqliteIndex(Index):
 
     def store_many(self, docs: dict[str, dict]) -> dict:
         """Indexa muchos nodos en batch SIN materializar (F3)."""
+        return self._with_generation_retry(set(docs), lambda: self._store_many_once(docs))
+
+    def _store_many_once(self, docs: dict[str, dict]) -> dict:
         self._acquire_write_lock()
         self._write_locked = True
         try:
@@ -393,6 +471,9 @@ class SqliteIndex(Index):
 
     def delete_many(self, doc_ids: set[str]) -> dict:
         """Elimina varios nodos SIN materializar (F3, tombstones, L7: Result)."""
+        return self._with_generation_retry(set(), lambda: self._delete_many_once(doc_ids))
+
+    def _delete_many_once(self, doc_ids: set[str]) -> dict:
         self._acquire_write_lock()
         self._write_locked = True
         try:
