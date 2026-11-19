@@ -272,6 +272,8 @@ async function runSetup(ctx) {
     // sesión en walker bloqueara con el rt.projectId de game_reset.
     const rt = {
       projectId: process.env.WALKER_PROJECT_ID || "",
+      // Proyecto de TRABAJO (donde están los archivos), distinto del cwd.
+      workProjectId: "",
       projectDir: ctx?.location?.directory || ctx?.directory || "",
       sessionId: "",
       activeTask: null,
@@ -365,13 +367,31 @@ async function runSetup(ctx) {
     }
 
     // Proyecto de TRABAJO (puede diferir del cwd): plan.project -> scope -> cwd.
+    // La sesión vive en `rt.projectId` (continuidad), pero el workflow, la
+    // memoria y las trazas son del proyecto donde están los archivos. Sin
+    // esto, una sesión abierta en game_reset trabajando en walker consultaba
+    // el CKG vacío de game_reset (medido 2026-11-19).
     const workProjectFor = (sid) => {
+      if (rt.workProjectId) return rt.workProjectId
       const plan = planFor(sid) || {}
-      if (plan.project) return String(plan.project)
-      const groups = scopeProjects(plan.scope)
-      const first = Object.keys(groups)[0]
-      return first || rt.projectId
+      let proj = plan.project ? String(plan.project) : ""
+      if (!proj) {
+        const groups = scopeProjects(plan.scope)
+        proj = Object.keys(groups)[0] || ""
+      }
+      rt.workProjectId = proj || rt.projectId
+      return rt.workProjectId
     }
+
+    // Trazas al proyecto de TRABAJO: una sesión abierta en game_reset que
+    // edita walker no debe llenar de métricas el trace equivocado.
+    const tracePush = (payload, _project, _timeoutMs) =>
+      run(
+        "trace_push",
+        payload,
+        workProjectFor((payload && payload.session_id) || rt.sessionId),
+        HOOK_TIMEOUT_MS
+      )
 
     const decisionCache = new Map()
     // L3: UNA decisión que aplique al archivo. El CKG la devuelve si su
@@ -679,8 +699,8 @@ async function runSetup(ctx) {
       return sessions.get(key)
     }
 
-    const readState = () => {
-      const data = run("workflow_state", {}, rt.projectId, GATE_TIMEOUT_MS)
+    const readState = (sid) => {
+      const data = run("workflow_state", {}, workProjectFor(sid || rt.sessionId), GATE_TIMEOUT_MS)
       if (!data || data.ok === false) return null
       return {
         position: data.current_position || "",
@@ -702,20 +722,20 @@ async function runSetup(ctx) {
     // tiene sentido esperar a que el agente se acuerde de submitear un paso
     // que no requiere criterio. Hasta ahora nadie los disparaba, así que todos
     // los proyectos quedaban clavados en `START.LIST` (medido: 7/7).
-    const driveAuto = (current) => {
+    const driveAuto = (current, sid) => {
       let cur = current
       for (let i = 0; i < MAX_AUTO_STEPS; i++) {
         if (!cur || (cur.execType !== "auto" && cur.execType !== "bootstrap")) break
-        const res = run("advance", {}, rt.projectId, GATE_TIMEOUT_MS)
+        const res = run("advance", {}, workProjectFor(sid || rt.sessionId), GATE_TIMEOUT_MS)
         if (!res || res.ok === false) break
-        cur = readState() || cur
+        cur = readState(sid) || cur
       }
       return cur
     }
 
-    const refresh = () => {
+    const refresh = (sid) => {
       if (Date.now() - state.fetchedAt < REFRESH_MS) return state.data
-      state.data = driveAuto(readState())
+      state.data = driveAuto(readState(sid), sid)
       state.fetchedAt = Date.now()
       return state.data
     }
@@ -821,8 +841,8 @@ async function runSetup(ctx) {
         // texto solo se inyecta cuando hay una TAREA declarada. Medido: la
         // inyección en sesiones ad-hoc hacía que el agente caminara el
         // workflow por su cuenta (4 → 15 pasos sin que nada lo exigiera).
-        refresh()
         const sid = event.sessionID || event.sessionId || ""
+        refresh(sid)
         rt.sessionId = rt.sessionId || sid
         const entry = sessionOf(sid)
         if (rt.projectId && sid && (!entry.opened || entry.closed)) {
@@ -850,14 +870,14 @@ async function runSetup(ctx) {
         // hook de lectura nunca dispara — medido).
         if (!rt.baselineDone && rt.projectId && state.data?.taskId) {
           rt.baselineDone = true
-          const taskCtx = run("agent_context", { task_id: state.data.taskId }, rt.projectId, HOOK_TIMEOUT_MS)
+          const taskCtx = run("agent_context", { task_id: state.data.taskId }, workProjectFor(sid), HOOK_TIMEOUT_MS)
           const files = (taskCtx?.anchor?.files || []).filter(Boolean)
           if (files.length) {
-            const pf = run("preflight", { files }, rt.projectId, HOOK_TIMEOUT_MS)
+            const pf = run("preflight", { files }, workProjectFor(sid), HOOK_TIMEOUT_MS)
             const text = preflightBlock(pf)
             if (text) {
               rt.pendingBaseline = text
-              run("trace_push", {
+              tracePush({
                 event_type: "intake_preflight",
                 source: "agent_hook",
                 session_id: sid,
@@ -946,7 +966,7 @@ async function runSetup(ctx) {
             } catch (err) {
               degrade(rt, "close nudge falló", err)
             }
-            run("trace_push", {
+            tracePush({
               event_type: "close_blocked",
               source: "agent_hook",
               session_id: entry.sessionID,
@@ -961,7 +981,7 @@ async function runSetup(ctx) {
           if (entry.opened && !entry.metricsSent && entry.sessionID) {
             entry.metricsSent = true
             const usage = await sessionCost(entry.sessionID)
-            run("trace_push", {
+            tracePush({
               event_type: "session_metrics",
               source: "agent_hook",
               session_id: entry.sessionID,
@@ -1003,7 +1023,7 @@ async function runSetup(ctx) {
           }
           if (entry.evicted > 0 && !entry.evictionTraced) {
             entry.evictionTraced = true
-            run("trace_push", {
+            tracePush({
               event_type: "session_evicted",
               source: "agent_hook",
               session_id: entry.sessionID,
@@ -1016,7 +1036,7 @@ async function runSetup(ctx) {
             })
           }
           if (entry.injections > 0) {
-            run("trace_push", {
+            tracePush({
               event_type: "workflow_state_injected",
               source: "agent_hook",
               session_id: entry.sessionID,
@@ -1037,7 +1057,7 @@ async function runSetup(ctx) {
               },
             })
             if (!entry.followed) {
-              run("trace_push", {
+              tracePush({
                 event_type: "workflow_suggestion_ignored",
                 source: "agent_hook",
                 session_id: entry.sessionID,
@@ -1088,7 +1108,7 @@ async function runSetup(ctx) {
                 const e = sessionOf(key)
                 const before = e.position
                 state.fetchedAt = 0 // releer: el paso pudo cambiar el nodo
-                const after = readState()
+                const after = readState(key)
                 // Solo cuenta si hubo progreso real; un typo en el JSON no marca.
                 if (after && (after.satisfied || after.position !== before)) {
                   e.followed = true
@@ -1133,16 +1153,24 @@ async function runSetup(ctx) {
                     result.metadata?.exitCode)) ??
                   NaN
               )
+              // El resultado puede venir recortado (pipes, preview de la
+              // tool): no alcanza con buscar `all_satisfied`. Se aceptan los
+              // contadores y el returncode, que quedan al final del JSON.
+              const failedCount = output.match(/"failed_count"\s*:\s*(\d+)/)
+              const returnCode = output.match(/"returncode"\s*:\s*(-?\d+)/)
               const green =
                 (exitCode === 0 &&
-                  !/"passed"\s*:\s*false/.test(output) &&
-                  !/"all_satisfied"\s*:\s*false/.test(output)) ||
+                  !/"(?:passed|all_satisfied)"\s*:\s*false/.test(output)) ||
                 /"passed"\s*:\s*true/.test(output) ||
-                /"all_satisfied"\s*:\s*true/.test(output)
+                /"all_satisfied"\s*:\s*true/.test(output) ||
+                (failedCount && Number(failedCount[1]) === 0) ||
+                (returnCode && Number(returnCode[1]) === 0)
               const red =
                 exitCode > 0 ||
                 /"passed"\s*:\s*false/.test(output) ||
-                /"all_satisfied"\s*:\s*false/.test(output)
+                /"all_satisfied"\s*:\s*false/.test(output) ||
+                (failedCount && Number(failedCount[1]) > 0) ||
+                (returnCode && Number(returnCode[1]) !== 0)
               e.verifyLevel = "cli"
               e.verifiedBy = cliVerify[1]
               if (green && !red) {
@@ -1168,6 +1196,7 @@ async function runSetup(ctx) {
             // El plan cambió (o la tarea): la caché de 10s ya no vale.
             if (/\b(session_plan|implement_task|session_bind)\b/.test(cmd)) {
               planCache.delete(key)
+              rt.workProjectId = ""
             }
 
             if (isCli && /\bsession_bind\b/.test(cmd)) {
@@ -1201,7 +1230,7 @@ async function runSetup(ctx) {
               // No alcanza con que el comando "parezca" la declaración: se
               // verifica contra el estado. Un typo en el JSON del CLI devuelve
               // error y la sesión quedaría marcada como declarada sin serlo.
-              const tid = String(run("workflow_state", {})?.task_id || "")
+              const tid = String(run("workflow_state", {}, workProjectFor(key))?.task_id || "")
               if (tid && !tid.startsWith("auto-")) {
                 declared.set(key, {
                   taskId: tid,
@@ -1266,7 +1295,7 @@ async function runSetup(ctx) {
                 !forceOpen.has(sid || "global")
               ) {
                 if (!isBound(sid)) {
-                  run("trace_push", {
+                  tracePush({
                     event_type: "flight_control_denied",
                     source: "agent_hook",
                     session_id: sid,
@@ -1295,7 +1324,7 @@ async function runSetup(ctx) {
                   const path = relPath(input?.path || input?.filePath || "", rt)
                   const slug = String(rt.sessionGoal || path || "tarea")
                     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "tarea"
-                  run("trace_push", {
+                  tracePush({
                     event_type: "flight_control_denied",
                     source: "agent_hook",
                     session_id: sid,
@@ -1326,7 +1355,7 @@ async function runSetup(ctx) {
                 const scope = (planFor(sid).scope || []).map(String).filter(Boolean)
                 if (scope.length && target && !inScope(target, scope)) {
                   sessionOf(sid).scopeDenied.add(target)
-                  run("trace_push", {
+                  tracePush({
                     event_type: "flight_control_denied",
                     source: "agent_hook",
                     session_id: sid,
@@ -1412,7 +1441,7 @@ async function runSetup(ctx) {
                 ? (cur.required || []).map((f) => `"${f}":"..."`).join(",")
                 : ""
               const gate = (cur.gates || [])[0] || ""
-              run("trace_push", {
+              tracePush({
                 event_type: "flight_control_denied",
                 source: "agent_hook",
                 session_id: String(callCtx?.sessionID || ""),
@@ -1469,7 +1498,7 @@ async function runSetup(ctx) {
                 })
                 if (res && res.ok !== false) {
                   rt.activeTask = { taskId, files: file ? [file] : [], auto: true }
-                  run("trace_push", {
+                  tracePush({
                     event_type: "task_autodeclared",
                     source: "agent_hook",
                     session_id: String(callCtx?.sessionID || ""),
@@ -1512,21 +1541,21 @@ async function runSetup(ctx) {
                 let source = "file"
                 const tid = state.data?.taskId || ""
                 if (tid) {
-                  const taskCtx = run("agent_context", { task_id: tid }, rt.projectId, HOOK_TIMEOUT_MS)
+                  const taskCtx = run("agent_context", { task_id: tid }, workProjectFor(sid), HOOK_TIMEOUT_MS)
                   const files = (taskCtx?.anchor?.files || []).filter(Boolean)
                   if (files.length) {
-                    const pf = run("preflight", { files }, rt.projectId, HOOK_TIMEOUT_MS)
+                    const pf = run("preflight", { files }, workProjectFor(sid), HOOK_TIMEOUT_MS)
                     block = preflightBlock(pf)
                     if (block) source = "task"
                   }
                 }
                 if (!block) {
-                  const ctxData = run("agent_context", { file }, rt.projectId, HOOK_TIMEOUT_MS)
+                  const ctxData = run("agent_context", { file }, workProjectFor(sid), HOOK_TIMEOUT_MS)
                   if (ctxData) block = baselineBlock(ctxData, file, rt)
                 }
                 if (block) {
                   rt.pendingBaseline = block
-                  run("trace_push", {
+                  tracePush({
                     event_type: "intake_baseline",
                     source: "agent_hook",
                     session_id: sid,

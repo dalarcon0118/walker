@@ -163,6 +163,15 @@ tools.set("shell", {
         exitCode: 0,
       }
     }
+    if (mode === "closeclipipe" && /verify_predicates/.test(command)) {
+      // Salida recortada por un pipe: pierde `all_satisfied` y el exitCode.
+      // El parser tiene que certificar por `failed_count: 0`.
+      return {
+        ok: true,
+        output:
+          '{"data":{"results":[{"passed":true}],"failed_count":0,"passed_count":2,"total":2}}',
+      }
+    }
     const { execSync } = await import("node:child_process")
     const output = execSync(command, {
       encoding: "utf8",
@@ -221,6 +230,7 @@ const closeMode =
   mode === "closefail" ||
   mode === "closeshell" ||
   mode === "closecli" ||
+  mode === "closeclipipe" ||
   mode === "gateoff"
 const ctx = {
   location: { directory: dir },
@@ -364,7 +374,7 @@ if (closeMode) {
     // Con acceptance declarada, el shell NO debe certificar: se espera nudge.
     await call("shell", { command: "echo pytest" })
   }
-  if (mode === "closecli") {
+  if (mode === "closecli" || mode === "closeclipipe") {
     // CLI real con `acceptance` declarada: el plugin debe certificar por el
     // RESULTADO (Code Mode invoca las tools por shell, no por el wrapper).
     await call("shell", {
@@ -380,7 +390,8 @@ if (closeMode) {
   await new Promise((r) => setTimeout(r, 1500))
   const nudged = nudges.length
   const okText = nudged > 0 && /No cierres/.test(nudges[0].text)
-  const expectedNudge = mode !== "closeok" && mode !== "closecli"
+  const expectedNudge =
+    mode !== "closeok" && mode !== "closecli" && mode !== "closeclipipe"
   const ok = expectedNudge ? okText : nudged === 0
   console.log(`${ok ? "ok  " : "FAIL"} nudges=${nudged} (esperado ${expectedNudge ? 1 : 0})`)
   if (nudged) console.log(nudges[0].text.split("\n")[0])
