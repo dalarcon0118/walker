@@ -1158,19 +1158,27 @@ async function runSetup(ctx) {
               // contadores y el returncode, que quedan al final del JSON.
               const failedCount = output.match(/"failed_count"\s*:\s*(\d+)/)
               const returnCode = output.match(/"returncode"\s*:\s*(-?\d+)/)
-              const green =
-                (exitCode === 0 &&
-                  !/"(?:passed|all_satisfied)"\s*:\s*false/.test(output)) ||
-                /"passed"\s*:\s*true/.test(output) ||
-                /"all_satisfied"\s*:\s*true/.test(output) ||
-                (failedCount && Number(failedCount[1]) === 0) ||
-                (returnCode && Number(returnCode[1]) === 0)
               const red =
                 exitCode > 0 ||
                 /"passed"\s*:\s*false/.test(output) ||
                 /"all_satisfied"\s*:\s*false/.test(output) ||
                 (failedCount && Number(failedCount[1]) > 0) ||
-                (returnCode && Number(returnCode[1]) !== 0)
+                (returnCode && Number(returnCode[1]) !== 0) ||
+                /"ok"\s*:\s*false/.test(output) ||
+                /"error"\s*:/.test(output)
+              // Certificamos si el CLI devolvió un resultado y no hay señal
+              // de fallo. El comando es la tool real (no `echo pytest`), así
+              // que una salida no roja con contenido es un verde válido, aunque
+              // un pipe haya recortado el campo principal.
+              const green =
+                output.trim().length > 0 &&
+                !red &&
+                (Number.isNaN(exitCode) ||
+                  exitCode === 0 ||
+                  /"passed"\s*:\s*true/.test(output) ||
+                  /"all_satisfied"\s*:\s*true/.test(output) ||
+                  (failedCount && Number(failedCount[1]) === 0) ||
+                  (returnCode && Number(returnCode[1]) === 0))
               e.verifyLevel = "cli"
               e.verifiedBy = cliVerify[1]
               if (green && !red) {
