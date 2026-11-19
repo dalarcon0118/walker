@@ -203,7 +203,9 @@ class ScanBugsUseCase:
             name = node.name
             if name in entry_points:
                 continue
-            if is_false_positive_dead_code(name, node.type, node.signature, node.path):
+            if is_false_positive_dead_code(
+                name, node.type, node.signature, node.path, kind=node.kind
+            ):
                 continue
 
             incoming_calls = [

@@ -18,6 +18,12 @@ from returns.pipeline import is_successful
 
 logger = logging.getLogger(__name__)
 
+# Umbral del gate de dead code. Medido 2026-11-18 tras corregir los falsos
+# positivos (external_call + dirección de CALLS): 22 funciones realmente sin
+# referencias. 25 es un ratchet: el baseline pasa con 3 de margen y cualquier
+# función nueva sin uso lo rompe. El objetivo es limpiar las 22 y bajarlo a 5.
+MAX_DEAD_CODE_DEFAULT = 25
+
 from fast_mcp.features.code_analysis.domain.graph import Graph
 from fast_mcp.features.code_analysis.domain.metrics import ReviewResult, ProjectMetrics, QualityGate
 from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import CognitiveCpgRepository
@@ -125,6 +131,7 @@ class ReviewUseCase:
                 "path": node.path,
                 "line": node.line,
                 "signature": getattr(node, "signature", "") or "",
+                "kind": getattr(node, "kind", "") or "",
                 "is_import": bool(getattr(node, "is_import", False)),
             }
             for nid, node in graph.nodes.items()
@@ -217,8 +224,8 @@ class ReviewUseCase:
             QualityGate(
                 name="dead_code",
                 actual=len(dead_code_list),
-                threshold=thresholds.get("max_dead_code", 50),
-                passed=len(dead_code_list) <= thresholds.get("max_dead_code", 50),
+                threshold=thresholds.get("max_dead_code", MAX_DEAD_CODE_DEFAULT),
+                passed=len(dead_code_list) <= thresholds.get("max_dead_code", MAX_DEAD_CODE_DEFAULT),
             ),
             QualityGate(
                 name="loc_per_file",
@@ -274,7 +281,7 @@ class ReviewUseCase:
     ) -> list[dict]:
         """Generate actionable recommendations based on metrics + findings."""
         recs = []
-        max_dead = thresholds.get("max_dead_code", 50)
+        max_dead = thresholds.get("max_dead_code", MAX_DEAD_CODE_DEFAULT)
 
         # Priority 1: Dead code
         dc = findings.get("dead_code", [])

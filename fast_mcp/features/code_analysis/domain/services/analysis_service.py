@@ -58,7 +58,11 @@ def find_unused_functions(
     Devuelve [{id, name, file, line, is_private}] — cada caller adapta el
     shape a su salida.
     """
-    incoming_ids = {e.get("from") for e in edges if e.get("type") == "CALLS"}
+    # El edge CALLS va del CALLER al CALLEE (`from` -> `to`). El callee está
+    # USADO cuando aparece como `to`; usar `from` marcaba usados a los callers
+    # y reportaba como muertas a funciones que sí tenían callers (medido
+    # 2026-11-18 con `_match_threshold_core`).
+    incoming_ids = {e.get("to") for e in edges if e.get("type") == "CALLS"}
     results: list[dict[str, Any]] = []
     for nid, n in nodes.items():
         if not isinstance(n, dict):
@@ -69,10 +73,12 @@ def find_unused_functions(
         if nid in incoming_ids or name.startswith("__"):
             continue
         ntype = n.get("type", "")
-        sig = str(n.get("signature", ""))
+        sig = str(n.get("signature", "") or "")
         path = str(n.get("path", ""))
         line = int(n.get("line", 0) or 0)
-        if is_false_positive_dead_code(name, ntype, sig, path):
+        if is_false_positive_dead_code(
+            name, ntype, sig, path, kind=str(n.get("kind", "") or "")
+        ):
             continue
         if is_referenced(name, path, line):
             continue

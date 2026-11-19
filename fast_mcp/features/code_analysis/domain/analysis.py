@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 def is_false_positive_dead_code(
-    name: str, node_type: str = "", signature: str = "", path: str = ""
+    name: str,
+    node_type: str = "",
+    signature: str = "",
+    path: str = "",
+    kind: str = "",
 ) -> bool:
     """Filtra falsos positivos estructurales del análisis de dead code.
 
@@ -31,6 +35,12 @@ def is_false_positive_dead_code(
     Retorna True si el símbolo es un falso positivo y NO debe reportarse
     como dead code.
     """
+    # Los callee stubs externos (`server.add_tool`, `Path`,
+    # `traceback.print_exc`) se indexan como `type=function` +
+    # `kind=external_call`: no son funciones del proyecto y no pueden ser
+    # dead code. Medido 2026-11-18: eran 1.014 de los 1.014 "unused_functions".
+    if kind == "external_call":
+        return True
     if name.startswith("test_") or name.endswith("_test"):
         return True
     if name.startswith("__") and name.endswith("__"):
