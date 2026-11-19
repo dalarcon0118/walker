@@ -7,6 +7,7 @@ del índice — ADR-WALKER-055 F1: sin parseo crudo en la capa de aplicación).
 from __future__ import annotations
 
 import logging
+import os
 
 from returns.pipeline import is_successful
 from returns.result import safe
@@ -40,7 +41,8 @@ class CheckCpgHealthUseCase:
             return {
                 "status": "not scanned",
                 "node_count": 0,
-                "cyclo": {"known": 0, "total": 0, "status": "unavailable"},
+                "cyclo": {"known": 0, "total": 0, "status": "unavailable",
+                          "by_language": {}},
             }
 
         result = _load_cpg_core(repo)
@@ -63,6 +65,17 @@ class CheckCpgHealthUseCase:
                 cyclo_status = "partial"
             else:
                 cyclo_status = "full"
+            # Cobertura POR EXTRACTOR. Walker no depende de un lenguaje: `cyclo`
+            # es un campo opcional del símbolo y cada adapter lo llena si puede.
+            # El desglose por extensión es la evidencia para saber QUÉ adapter
+            # falta, sin hardcodear nombres de lenguajes en el mensaje.
+            by_language: dict[str, dict[str, int]] = {}
+            for n in callables:
+                ext = os.path.splitext(str(n.get("path") or ""))[1] or "(sin extensión)"
+                slot = by_language.setdefault(ext, {"known": 0, "total": 0})
+                slot["total"] += 1
+                if n.get("cyclo") is not None:
+                    slot["known"] += 1
             return {
                 "status": f"{total} nodes",
                 "node_count": total,
@@ -70,6 +83,9 @@ class CheckCpgHealthUseCase:
                     "known": known,
                     "total": cyclo_total,
                     "status": cyclo_status,
+                    "by_language": dict(
+                        sorted(by_language.items(), key=lambda kv: -kv[1]["total"])
+                    ),
                 },
             }
         error = result.failure()
@@ -81,7 +97,8 @@ class CheckCpgHealthUseCase:
         return {
             "status": "not scanned",
             "node_count": 0,
-            "cyclo": {"known": 0, "total": 0, "status": "unavailable"},
+            "cyclo": {"known": 0, "total": 0, "status": "unavailable",
+                          "by_language": {}},
         }
 
 

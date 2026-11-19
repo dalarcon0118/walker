@@ -26,7 +26,8 @@ P0.3 se especifica acá como fase posterior, pero **no se implementa en este
 ciclo**: el foco de ejecución es P0.1 y, después, P0.2.
 
 Fuera de alcance: reindexar game_reset, cambiar el modelo de sesión/sprint,
-reabrir sprints cerrados (ADR-WALKER-078) y el extractor de cyclo para JS.
+reabrir sprints cerrados (ADR-WALKER-078) y la cobertura de cyclo de los
+adapters de lenguaje (se reporta como `partial`; walker no depende de ninguno).
 
 ---
 
@@ -225,8 +226,9 @@ Los health checks existían pero ninguna decisión los consumía. `preflight` y
 - [ ] `trusted=false` ⇒ el plugin NO cita `adr-###`; dice "CKG degradado".
 - [ ] Nodos de prueba excluidos del L3 por `origin:test`/tag, no por lista
       negra de ids; los seeds viejos se borran con revisión.
-- [ ] `cyclo.status` distingue `partial` (extractor sin cobertura, p. ej. JS)
-      de `unavailable` (sin funciones) — no se finge ninguna de las dos.
+- [ ] `cyclo.status` distingue `partial` (el adapter del lenguaje del proyecto
+      no produce cyclo) de `unavailable` (sin funciones); el desglose
+      `by_language` dice QUÉ adapter falta y el mensaje no nombra lenguajes.
 - [ ] M-09 Fallback visible: el health declara status y conteos, nunca un 0
       silencioso — anti-patrón: "ok" sin nodos.
 - [ ] M-03 Modelo: `memory_health` es un value object estable y compartido por

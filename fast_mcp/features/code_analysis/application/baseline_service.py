@@ -177,17 +177,25 @@ class BaselineService:
         values = [v for v in values if isinstance(v, int) and v > 0]
         if not values:
             # P1.2: cobertura de extractor, no índice vacío. Un scope con
-            # funciones y cero cyclo (p. ej. JS) es `partial`, no `unavailable`:
-            # decir "reindexá" manda al trabajo equivocado (reindexar no agrega
-            # cyclo a un lenguaje que el extractor no mide).
+            # funciones y cero cyclo es `partial`, no `unavailable`: decir
+            # "reindexá" manda al trabajo equivocado (reindexar no agrega cyclo
+            # si el adapter del lenguaje no lo produce). No se nombra un
+            # lenguaje: walker reporta cobertura, cada adapter la llena.
             if total:
                 return {
                     "status": "partial",
                     "known": 0,
                     "total": total,
+                    "languages": sorted(
+                        {
+                            os.path.splitext(str(getattr(n, "path", "") or ""))[1]
+                            or "(sin extensión)"
+                            for n in callables
+                        }
+                    ),
                     "reason": (
-                        "el extractor no produce cyclo para este scope "
-                        "(p. ej. JS): es cobertura, no un índice vacío"
+                        "el adapter del lenguaje no produce cyclo para este "
+                        "scope: es cobertura del extractor, no un índice vacío"
                     ),
                 }
             return {"status": "unavailable", "reason": "sin funciones en el scope"}

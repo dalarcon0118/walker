@@ -297,6 +297,7 @@ def _memory_health(chain_dir: str) -> dict:
             "known": int(cyclo.get("known") or 0),
             "total": int(cyclo.get("total") or 0),
             "status": str(cyclo.get("status") or "unknown"),
+            "by_language": dict(cyclo.get("by_language") or {}),
         }
     except Exception as exc:  # noqa: BLE001 — health es observación, no gate
         out["cpg"] = {"nodes": 0, "status": "error",

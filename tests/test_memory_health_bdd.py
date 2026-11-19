@@ -80,8 +80,35 @@ def test_memory_health_reporta_partial_y_trusted(project_dir, monkeypatch):
 
     assert out["ckg"] == {"nodes": 12, "status": "ok"}
     assert out["cpg"] == {"nodes": 100, "status": "ok"}
-    assert out["cyclo"] == {"known": 60, "total": 100, "status": "partial"}
+    assert out["cyclo"] == {"known": 60, "total": 100, "status": "partial",
+                            "by_language": {}}
     assert out["trusted"] is True
+
+
+def test_complexity_partial_no_nombra_un_lenguaje():
+    """Walker reporta cobertura por adapter, no un lenguaje hardcodeado.
+
+    `cyclo` es opcional en el símbolo: si el adapter del lenguaje del proyecto
+    no lo produce, el estado honesto es `partial` con `languages`, sin decir
+    "JS" (el mismo mensaje debe servir para cualquier proyecto).
+    """
+    from types import SimpleNamespace
+
+    from fast_mcp.features.code_analysis.application.baseline_service import (
+        BaselineService,
+    )
+
+    nodes = [
+        SimpleNamespace(type="function", name="f", path="src/a.js", cyclo=None),
+        SimpleNamespace(type="function", name="g", path="src/b.js", cyclo=None),
+    ]
+    out = BaselineService._complexity(nodes)
+
+    assert out["status"] == "partial"
+    assert out["known"] == 0 and out["total"] == 2
+    assert out["languages"] == [".js"]
+    assert "js" not in out["reason"].lower()
+    assert "reindex" not in out["reason"].lower()
 
 
 def test_agent_context_incluye_memory_health(project_dir, monkeypatch):
