@@ -171,7 +171,13 @@ def test_declared_actions_have_handlers():
 
 
 # ── (d) prompt submit keys vs input_schema (diagnostic only) ─────────────────
-def test_prompt_submit_keys_diagnostic():
+def test_prompt_submit_keys_declared():
+    """Todo campo que un prompt manda en un submit está declarado (P0.3b).
+
+    Es bloqueante: un prompt que envía `decision`/`evidence`/`feedback` a un
+    sub-estado cuyo schema no los declara hace que la prosa y el contrato
+    discrepen, y el gate de accept termina cruzando con campos fantasma.
+    """
     submap = _load_nodes()
     pid_to_ss: dict = {}
     for key, ss in submap.items():
@@ -206,7 +212,8 @@ def test_prompt_submit_keys_diagnostic():
                 if k not in props:
                     violations.append(f"{pid}: '{k}' not declared in input_schema.properties")
 
-    # Diagnostic only: report, do not fail.
-    print(f"\n[d] prompt/submit vs input_schema: {len(violations)} violations")
-    for v in violations:
-        print("  " + v)
+    # Dedupe (el mismo campo aparece en varios ejemplos del mismo prompt).
+    violations = sorted(set(violations))
+    assert not violations, (
+        "prompts que envían campos no declarados:\n  " + "\n  ".join(violations)
+    )

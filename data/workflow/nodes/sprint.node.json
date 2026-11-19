@@ -780,7 +780,23 @@
       "key": "REVIEW",
       "label": "Sprint review",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "needs_work"
+            ],
+            "description": "Decisión del PO sobre el incremento del sprint"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "Comentario o qué falta"
+          }
+        }
+      },
       "output_schema": {
         "type": "object",
         "properties": {
@@ -1095,7 +1111,23 @@
       "key": "CLOSE_CONFIRM",
       "label": "Confirm sprint close",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "close",
+              "cancel"
+            ],
+            "description": "Confirmación del PO sobre el cierre del sprint"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "Resumen del outcome o motivo de cancelación"
+          }
+        }
+      },
       "output_schema": {
         "type": "object",
         "properties": {

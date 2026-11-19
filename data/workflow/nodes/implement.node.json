@@ -199,7 +199,24 @@
       "key": "USER_GATE",
       "label": "User approval gate",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "proceed",
+              "refine",
+              "cancel"
+            ],
+            "description": "Decisión del usuario sobre el briefing de la tarea"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Motivo: aprobación, qué falta o por qué cancela"
+          }
+        }
+      },
       "output_schema": {
         "type": "object",
         "properties": {
@@ -286,7 +303,18 @@
       "key": "WORK",
       "label": "Implementation",
       "execution": "llm_task",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loop_verification": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Comandos de verificación y su resultado ('<comando> => <resultado>')"
+          }
+        }
+      },
       "output_schema": {
         "type": "object",
         "properties": {
@@ -489,7 +517,25 @@
       "key": "CODE_REVIEW_RESULT",
       "label": "Code review results",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refine",
+              "analyze",
+              "cancel"
+            ],
+            "description": "Decisión sobre el resultado del code review"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Motivo de la decisión (comentario o qué corregir)"
+          }
+        }
+      },
       "output_schema": {
         "type": "object",
         "properties": {
@@ -644,6 +690,27 @@
           },
           "task_id": {
             "type": "string"
+          },
+          "actualizaciones": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Cambios a conocimiento existente (array)"
+          },
+          "nuevas_reglas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Reglas nuevas (array)"
+          },
+          "nuevas_advertencias": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Riesgos o advertencias nuevas (array)"
           }
         }
       },

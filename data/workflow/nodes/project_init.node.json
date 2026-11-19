@@ -45,7 +45,32 @@
       "key": "SCENARIO",
       "label": "Choose initialization scenario",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scenario": {
+            "type": "string",
+            "enum": [
+              "from_code",
+              "greenfield",
+              "from_spec"
+            ],
+            "description": "Escenario de inicialización elegido"
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Nombre del proyecto"
+          },
+          "project_path": {
+            "type": "string",
+            "description": "Path del código (from_code)"
+          },
+          "spec_path": {
+            "type": "string",
+            "description": "Path de la spec (from_spec)"
+          }
+        }
+      },
       "output_schema": {
         "type": "object",
         "properties": {

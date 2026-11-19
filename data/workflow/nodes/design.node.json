@@ -382,7 +382,24 @@
       "key": "DESIGN_REVIEW",
       "label": "Design review",
       "execution": "user_input",
-      "input_schema": {},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject",
+              "refine"
+            ],
+            "description": "Decisión del PO sobre el diseño"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Motivo: por qué aprueba, qué falta o qué refinar"
+          }
+        }
+      },
       "output_schema": {
         "type": "object",
         "properties": {
