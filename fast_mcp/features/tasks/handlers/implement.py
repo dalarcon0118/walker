@@ -25,25 +25,93 @@ def configure(sprint_factory) -> None:
 from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspect_codebase
 
 
-def _select_spring(service, session_override: str) -> dict:
-    """Sprint de la sesión > activo > primero > SPR-ADHOC."""
+def _spring_id(s: dict | None) -> str:
+    if not s:
+        return ""
+    return str(s.get("spring_id") or s.get("id") or s.get("_id") or "")
+
+
+def _spring_status(s: dict | None) -> str:
+    if not s:
+        return ""
+    return str(s.get("status") or "")
+
+
+def _owns_session(s: dict, session_override: str) -> bool:
+    if not session_override:
+        return False
+    if str(s.get("session_id") or "") == session_override:
+        return True
+    return session_override in ((s.get("context") or {}).get("session_ids") or [])
+
+
+def _select_spring(service, session_override: str) -> dict | None:
+    """Resuelve el sprint a usar, NUNCA uno cerrado.
+
+    Orden (ADR-WALKER-065 sprint fix):
+      (a) service.get_session(session_override)["spring_id"] si existe y su
+          status != "closed";
+      (b) un spring ACTIVE que posea la sesión;
+      (c) service.get_active_spring();
+      (d) un spring no-cerrado que posea la sesión (paused/planning/reviewing);
+      (e) un spring no-cerrado.
+    Si hay springs pero todos están cerrados → None (sin escritura silenciosa).
+    Si NO hay springs → se crea SPR-ADHOC (comportamiento previo, solo en ese caso).
+    """
     springs = service.list_springs() or []
 
-    def _owns_session(s: dict) -> bool:
-        if not session_override:
-            return False
-        if str(s.get("session_id") or "") == session_override:
-            return True
-        return session_override in ((s.get("context") or {}).get("session_ids") or [])
+    # (a) la sesión registra a qué sprint pertenece.
+    if session_override:
+        try:
+            sess = service.get_session(session_override)
+        except Exception:  # noqa: BLE001
+            sess = None
+        if sess:
+            sid = str((sess or {}).get("spring_id") or "")
+            if sid:
+                target = None
+                for s in springs:
+                    if _spring_id(s) == sid:
+                        target = s
+                        break
+                if target is None:
+                    try:
+                        target = service.get_spring(sid)
+                    except Exception:  # noqa: BLE001
+                        target = None
+                if target is not None and _spring_status(target) != "closed":
+                    return target
 
-    spring = next((s for s in springs if _owns_session(s)), None)
-    if not spring:
-        spring = service.get_active_spring()
-    if not spring and springs:
-        spring = springs[0]
-    if not spring:
-        spring = service.create_spring("SPR-ADHOC", goal="tareas declaradas en sesión")
-    return spring
+    # (b) spring activo que posea la sesión.
+    for s in springs:
+        if _owns_session(s, session_override) and _spring_status(s) == "active":
+            return s
+
+    # (c) spring activo del servicio.
+    try:
+        active = service.get_active_spring()
+    except Exception:  # noqa: BLE001
+        active = None
+    if active is not None and _spring_status(active) != "closed":
+        return active
+
+    # (d) spring no-cerrado que posea la sesión.
+    for s in springs:
+        if _owns_session(s, session_override) and _spring_status(s) != "closed":
+            return s
+
+    # (e) cualquier spring no-cerrado.
+    for s in springs:
+        if _spring_status(s) != "closed":
+            return s
+
+    # Todos los springs están cerrados (o no hay spring activo no-cerrado).
+    if not springs:
+        try:
+            return service.create_spring("SPR-ADHOC", goal="tareas declaradas en sesión")
+        except Exception:  # noqa: BLE001
+            return None
+    return None
 
 
 def _ensure_active(service, spring: dict | None, resume: bool) -> tuple[bool, str, dict | None]:
@@ -211,13 +279,28 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     service = None
     try:
         service = _di.sprint_service(ctx.chain_dir)
-        chosen = _select_spring(service, session_override) if service is not None else None
+        if service is not None:
+            chosen = _select_spring(service, session_override)
+            # Hay springs pero todos cerrados → no se escribe en un sprint muerto.
+            if chosen is None and (service.list_springs() or []):
+                return TaskResult.failure(
+                    "no hay sprint vivo para la sesión; creá uno con session_bind mode=new"
+                )
         ok, msg, chosen = _ensure_active(service, chosen, bool(data.get("resume")))
         if not ok:
             return TaskResult.failure(f"implement_task: {msg}")
     except Exception as exc:  # noqa: BLE001
         chosen = None
         logger.debug("implement_task: sin sprint para la política de pausa (%s)", exc)
+
+    if service is not None and chosen is None:
+        try:
+            if service.list_springs():
+                return TaskResult.failure(
+                    "no hay sprint vivo para la sesión; creá uno con session_bind mode=new"
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
     result: dict[str, Any] = {
         "task_id": task_id,
