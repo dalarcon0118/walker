@@ -24,6 +24,19 @@ _SINGLE_QUERY_KEYS = (
 )
 
 
+def _is_test_seed(node: dict) -> bool:
+    """Nodo de prueba del harness (seed), no conocimiento del proyecto."""
+    tags = node.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    meta = node.get("metadata") or {}
+    return bool(
+        "test-seed" in tags
+        or "origin:test" in tags
+        or str(meta.get("origin", "")) == "test"
+    )
+
+
 def _with_compact_defaults(queries: dict) -> dict:
     """Add default compact search parameters."""
     out = dict(queries or {})
@@ -100,7 +113,11 @@ class CkgReadService:
         def _gather() -> list:
             ckg, _ = _resolve_ckg(chain_dir)
             q = f"task_id:{task_id}" if task_id else query
-            return ckg.search(q)[:20] if ckg else []
+            rows = ckg.search(q)[:20] if ckg else []
+            # P1.2: los nodos de prueba del harness no son decisiones del
+            # proyecto. Citarlos (p. ej. `adr-999`) le da autoridad falsa a un
+            # seed; se excluyen por tag/origen, no por lista negra de ids.
+            return [n for n in rows if not _is_test_seed(n)]
 
         result = _gather()
         return result if is_successful(result) else Success([])

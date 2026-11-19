@@ -48,26 +48,56 @@ class CognitiveTracer(ITracer):
         session_id: str = "",
         skills: set[str] | list[str] | None = None,
         since: str = "",
+        node: str = "",
+        sub_state: str = "",
     ) -> bool:
         """True si hay un evento `skill_loaded` de uno de `skills`.
 
-        `since` (ISO) acota a lo cargado después de entrar al sub-estado: sin
-        eso, un load viejo satisfaría el gate de cualquier fase.
+        Token (task, node, sub_state): una carga hecha en ESTE sub-estado vale
+        aunque después haya submits. `state.updated_at` cambia con cada submit;
+        usarlo como piso obligaba a recargar el skill en cada paso — el paso
+        artificial que reporta el feedback (P1.1).
+
+        `since` queda como fallback para eventos legacy (sin node/sub_state):
+        sin token no se puede probar la entrada, así que se conserva la regla
+        anterior en vez de aceptar cualquier carga vieja. Los eventos con
+        posición de OTRA entrada se ignoran: un token de otra tarea/fase no
+        satisface el gate.
         """
         wanted = {str(s) for s in (skills or [])}
         try:
             events = self._service.load_traces(chain_dir)
         except Exception:  # noqa: BLE001 — sin trace no se puede verificar
             return False
-        for ev in events:
+
+        def _matches(ev: Any) -> bool:
             if getattr(ev, "event_type", "") != "skill_loaded":
-                continue
+                return False
             if task_id and getattr(ev, "task_id", "") and ev.task_id != task_id:
-                continue
+                return False
             data = getattr(ev, "data", None) or {}
             name = str(data.get("skill", "")) if isinstance(data, dict) else ""
-            if wanted and name not in wanted:
+            return not wanted or name in wanted
+
+        token = bool(node and sub_state)
+        legacy: list = []
+        for ev in events:
+            if not _matches(ev):
                 continue
+            data = getattr(ev, "data", None) or {}
+            ev_node = str(data.get("node", "") or "") if isinstance(data, dict) else ""
+            ev_sub = str(data.get("sub_state", "") or "") if isinstance(data, dict) else ""
+            if not ev_node and not ev_sub:
+                legacy.append(ev)
+                continue
+            if token and ev_node == node and ev_sub == sub_state:
+                return True
+            if not token and (
+                not since or str(getattr(ev, "timestamp", "")) >= since
+            ):
+                return True
+        # Compat: cargas sin posición (cliente viejo) dentro de la entrada.
+        for ev in legacy:
             if since and str(getattr(ev, "timestamp", "")) < since:
                 continue
             return True

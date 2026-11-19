@@ -156,6 +156,27 @@ if (mode === "reloadclosedirty" || mode === "reloadcloseverified") {
   ])
 }
 
+if (mode === "degraded") {
+  // CKG vacío + un `adr-999` de seed: el bloque NO debe citarlo como autoridad
+  // (P1.2). Sí debe decir que la memoria está degradada.
+  const scopeFile = `${WALKER}/agent-plugins/walker-flight-control/index.js`
+  fake("/tmp/fake-walker-degraded", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_plan) echo '{"ok":true,"data":{"plan":{"goal":"Probar CKG degradado","task":"harness-task","next":"implementar y verificar","scope":["${scopeFile}"],"acceptance":["Debe no citar adr-999","Sin romper los tests"]}}}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"testproj"}'; exit 0;;`,
+    `  */workflow_state) echo '{"ok":true,"current_position":"IMPLEMENT.WORK","execution_type":"llm_task","step_satisfied":true,"task_id":"harness-task","revision":1}'; exit 0;;`,
+    `  */preflight) echo '{"ok":true,"files":[{"file":"index.js","callers":5,"heaviest":[{"cyclo":7}]}],"tests":["t1.py"],"memory_health":{"ckg":{"nodes":0,"status":"empty"},"cpg":{"nodes":0,"status":"empty"},"cyclo":{"known":0,"total":0,"status":"unavailable"},"trusted":false}}'; exit 0;;`,
+    `  */agent_context) echo '{"ok":true,"memory_health":{"ckg":{"nodes":0,"status":"empty"},"cpg":{"nodes":0,"status":"empty"},"cyclo":{"known":0,"total":0,"status":"unavailable"},"trusted":false},"ckg":{"results":[{"_id":"adr-999","statement":"seed"}]}}'; exit 0;;`,
+    `  */trace_push) echo '{"ok":true}'; exit 0;;`,
+    `  */session_open) echo '{"ok":true}'; exit 0;;`,
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-TEST","tasks":[]}}}'; exit 0;;`,
+    `  */implement_task) echo '{"ok":true,"data":{"task_id":"harness-task"}}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+}
+
 const tapDir = `/tmp/wfc-tap-${process.pid}`
 const tapFile = `${tapDir}/trace.jsonl`
 
@@ -379,6 +400,24 @@ if (mode === "inject") {
   console.log(text.split("\n").slice(0, 4).join(" | "))
   if (typeof dispose === "function") dispose()
   process.exit(okPlan && okTask && noTemplate && okBaseline && okDecision && okCap && okTotal && stable ? 0 : 1)
+}
+
+if (mode === "degraded") {
+  await call("edit", { path: "x.txt" })
+  const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "probar ckg degradado" }] }] }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+  const okPlan = /\[WALKER\] Plan:/.test(text)
+  const okBaseline = /Baseline:/.test(text)
+  const noAdr = !/adr-\d+/.test(text)
+  const okDegraded = /CKG degradado/.test(text)
+  console.log(`bloque de plan               -> ${okPlan}`)
+  console.log(`baseline presente            -> ${okBaseline}`)
+  console.log(`no cita adr-999              -> ${noAdr}`)
+  console.log(`dice CKG degradado           -> ${okDegraded}`)
+  console.log(text.split("\n").slice(0, 3).join(" | "))
+  if (typeof dispose === "function") dispose()
+  process.exit(okPlan && okBaseline && noAdr && okDegraded ? 0 : 1)
 }
 
 if (mode === "bind") {

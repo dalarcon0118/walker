@@ -329,6 +329,14 @@ class OrchestrationService:
         except Exception:
             return None
 
+    def current_state(self) -> WorkflowState | None:
+        """Estado actual del workflow (lectura pública, fail-open).
+
+        Lo consumen tools de memoria que necesitan saber en qué sub-estado está
+        el agente (p. ej. `load_skill` para firmar el token skill (P1.1)).
+        """
+        return self._load_state()
+
     def _save_state(self, state: WorkflowState) -> bool:
         """Persist state. Returns True on success."""
         try:
@@ -996,6 +1004,11 @@ class OrchestrationService:
                     task_id=ctx.task_id or "",
                     skills=set(candidates),
                     since=str(getattr(state, "updated_at", "") or ""),
+                    # Token por entrada: la carga vale para ESTE sub-estado
+                    # aunque después haya submits (P1.1). `since` queda como
+                    # fallback para eventos legacy.
+                    node=str(getattr(state, "current_node", "") or ""),
+                    sub_state=str(getattr(state, "current_sub_state", "") or ""),
                 )
             except Exception:  # noqa: BLE001 — sin tracer verificable no se bloquea
                 loaded = True

@@ -169,13 +169,28 @@ class BaselineService:
 
     @staticmethod
     def _complexity(nodes: list) -> dict:
+        callables = [n for n in nodes if getattr(n, "type", "") in FUNCTION_TYPES]
+        total = len(callables)
         values = [
-            getattr(n, "cyclo", None) for n in nodes
-            if getattr(n, "type", "") in FUNCTION_TYPES
+            getattr(n, "cyclo", None) for n in callables
         ]
         values = [v for v in values if isinstance(v, int) and v > 0]
         if not values:
-            return {"status": "unavailable", "reason": "sin cyclo en el scope: reindexá con build_code_index"}
+            # P1.2: cobertura de extractor, no índice vacío. Un scope con
+            # funciones y cero cyclo (p. ej. JS) es `partial`, no `unavailable`:
+            # decir "reindexá" manda al trabajo equivocado (reindexar no agrega
+            # cyclo a un lenguaje que el extractor no mide).
+            if total:
+                return {
+                    "status": "partial",
+                    "known": 0,
+                    "total": total,
+                    "reason": (
+                        "el extractor no produce cyclo para este scope "
+                        "(p. ej. JS): es cobertura, no un índice vacío"
+                    ),
+                }
+            return {"status": "unavailable", "reason": "sin funciones en el scope"}
         top = sorted(
             (
                 {"name": getattr(n, "name", ""), "cyclo": getattr(n, "cyclo"),
@@ -190,6 +205,9 @@ class BaselineService:
             "avg": round(sum(values) / len(values), 2),
             "max": max(values),
             "above_10": sum(1 for v in values if v > _HOT_CYCLO),
+            "known": len(values),
+            "total": total,
+            "status": "full" if len(values) == total else "partial",
             "top": top,
         }
 

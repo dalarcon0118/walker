@@ -196,7 +196,59 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
 
 ---
 
-## 6. failure_scenarios
+## 6. P1.1 — Token de skill por sub-estado
+
+El gate usaba `since=state.updated_at`: cualquier submit cambia `updated_at` y
+obliga a recargar el skill. El token es `(task_id, node, sub_state)`:
+`load_skill` firma la entrada donde se cargó y el gate acepta esa carga aunque
+haya submits posteriores. No elimina el gate; elimina el paso artificial.
+
+- [ ] `load_skill` traza `skill_loaded` con `node`/`sub_state` (fail-open si el
+      estado no se puede leer).
+- [ ] `has_skill_load` acepta el token de la entrada actual; ignora eventos de
+      otra entrada; mantiene `since` como fallback para eventos legacy.
+- [ ] El gate pasa `current_node`/`current_sub_state` (no sólo `updated_at`).
+- [ ] M-04 Eventos: el token viaja en el evento, no en estado del plugin —
+      anti-patrón: firmar en memoria del hook.
+- [ ] M-06 Extensibilidad: un solo lugar decide (tracer); el orquestador no
+      reimplementa matching — anti-patrón: dos reglas de aceptación.
+- [ ] M-01 Integridad: un token de otra tarea/entrada NO satisface el gate —
+      anti-patrón: aceptar cualquier load reciente.
+
+## 7. P1.2 — Salud de memoria como precondición
+
+Los health checks existían pero ninguna decisión los consumía. `preflight` y
+`agent_context` exponen `memory_health` con `{ckg, cpg, cyclo, trusted}`:
+
+- [ ] `memory_health` en `preflight` y `agent_context` (cache TTL corto: el CPG
+      se carga completo para contar cyclo).
+- [ ] `trusted=false` ⇒ el plugin NO cita `adr-###`; dice "CKG degradado".
+- [ ] Nodos de prueba excluidos del L3 por `origin:test`/tag, no por lista
+      negra de ids; los seeds viejos se borran con revisión.
+- [ ] `cyclo.status` distingue `partial` (extractor sin cobertura, p. ej. JS)
+      de `unavailable` (sin funciones) — no se finge ninguna de las dos.
+- [ ] M-09 Fallback visible: el health declara status y conteos, nunca un 0
+      silencioso — anti-patrón: "ok" sin nodos.
+- [ ] M-03 Modelo: `memory_health` es un value object estable y compartido por
+      las dos tools — anti-patrón: dos shapes distintos del mismo health.
+- [ ] M-02 Performance: el health se cachea (TTL) y no se recalcula en cada
+      `agent_context` — anti-patrón: cargar 8.8k nodos por llamada.
+
+## 8. P0.3b — Contrato prompt ↔ schema (bloqueante)
+
+- [ ] Todo campo que un prompt manda en `submit` está declarado en el
+      `input_schema` de su sub-estado (40 → 0 violaciones).
+- [ ] El chequeo es bloqueante en `test_workflow_contract_bdd.py`.
+- [ ] M-01 Integridad: el schema es la única fuente de campos aceptados —
+      anti-patrón: prosa que declara campos que el schema no.
+- [ ] M-06 Extensibilidad: agregar un campo al prompt sin declararlo rompe el
+      test en CI — anti-patrón: allowlist de excepciones.
+- [ ] M-04 Acoplamiento: prompts y nodos se validan juntos, sin defaults
+      ocultos — anti-patrón: aceptar cualquier campo en runtime.
+
+---
+
+## 9. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -206,13 +258,16 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
   "Una escritura después de verificar deja verified=true → el cierre acepta cambios sin probar → causa: la mutación no invalida el verde → mitigación: verified=false + dirty_since en toda mutación → detección: test de escritura posterior a la certificación",
   "Dos sesiones o dos hooks concurrentes escriben flight_state y el último gana con un estado incoherente → causa: last-write-wins sin validación → mitigación: transiciones atómicas y `verified_at`/`dirty_since` consistentes → detección: test de dos transiciones intercaladas",
   "Otro proceso avanza la generación del delta entre la lectura y la escritura → el CAS rechaza el store y el repo descarta el ok:False → la spec/plan no queda en el delta y el gate de desvío opera con scope vacío (medido: implement_task ok sin spec, harness mode=scope en rojo) → mitigación: refrescar el diff-cache y reintentar una vez; si sigue fallando, DeltaWriteError visible → detección: test de dos servicios sobre el mismo data_dir + harness mode=scope",
-  "El agente captura la salida de la verificación a /tmp (o usa 2>&1) y el detector de mutaciones lo cuenta como escritura → el verde recién obtenido se invalida y el cierre vuelve a nudgar (medido: `run_tests … > /tmp/out 2>&1`) → causa: el detector busca '>' sin mirar destino ni comillas → mitigación: shellMutation ignora /dev/null, fd dups, /tmp y `>` citados; sólo cuenta redirects dentro del proyecto → detección: harness mode=shelltmp (verde + redirect a /tmp ⇒ 0 nudges) y mode=shellmut (redirect al proyecto ⇒ mutación)"
+  "El agente captura la salida de la verificación a /tmp (o usa 2>&1) y el detector de mutaciones lo cuenta como escritura → el verde recién obtenido se invalida y el cierre vuelve a nudgar (medido: `run_tests … > /tmp/out 2>&1`) → causa: el detector busca '>' sin mirar destino ni comillas → mitigación: shellMutation ignora /dev/null, fd dups, /tmp y `>` citados; sólo cuenta redirects dentro del proyecto → detección: harness mode=shelltmp (verde + redirect a /tmp ⇒ 0 nudges) y mode=shellmut (redirect al proyecto ⇒ mutación)",
+  "Cada submit cambia state.updated_at y el gate de skills exige recargar el skill en cada paso → pasos artificiales y fricción (feedback 6/10) → causa: since=updated_at como única evidencia → mitigación: load_skill firma (task, node, sub_state) y el gate acepta la carga de la entrada actual; since queda como fallback legacy → detección: test_skill_token_bdd + harness con dos submits",
+  "El CKG está vacío o contaminado y el plugin cita adr-999 como si fuera una decisión del proyecto → el agente decide sobre memoria falsa → causa: los health checks existían pero ninguna decisión los consumía → mitigación: memory_health.trusted en preflight/agent_context, exclusión por origin:test y borrado de seeds con revisión → detección: harness mode=degraded (no cita adr-, dice 'CKG degradado')",
+  "Un prompt envía un campo que su input_schema no declara → el contrato de accept cruza con campos fantasma y el drift sólo se ve en runtime → causa: prosa y schema versionados por separado → mitigación: check bloqueante prompt→schema y declaración de los campos (40 → 0) → detección: test_workflow_contract_bdd"
 ]
 ```
 
 ---
 
-## 7. Criterios de aceptación
+## 10. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -226,10 +281,16 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
 6. P0.4: un conflicto de generación no pierde la escritura (refresh + reintento)
    y, si persiste, el error es visible; el harness `mode=scope` bloquea la
    escritura fuera de alcance.
+7. P1.1: la carga del skill de la entrada actual vale aunque haya submits
+   posteriores; un token de otra entrada o tarea no satisface el gate.
+8. P1.2: `preflight` y `agent_context` reportan `memory_health`; con
+   `trusted=false` el plugin no cita `adr-###` y `cyclo` se declara `partial`
+   cuando el extractor no cubre el scope.
+9. P0.3b: cero campos de prompt sin declarar y el chequeo es bloqueante en CI.
 
 ---
 
-## 8. Riesgos y compatibilidad
+## 11. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -243,7 +304,7 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
 
 ---
 
-## 9. Tests
+## 12. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -257,4 +318,9 @@ de desvío no tenía alcance y permitía escrituras fuera de alcance (harness
   modos en procesos limpios, `--fast` omite los de CLI real).
 - `gate.test.mjs` modos nuevos: `reloadclosedirty`/`reloadcloseverified`
   (hidratación en el cierre) y `shelltmp` (redirect a /tmp no invalida).
+- `tests/test_skill_token_bdd.py`: token por entrada y fallback legacy.
+- `tests/test_memory_health_bdd.py`: health en preflight/agent_context y
+  `cyclo.partial`.
+- `gate.test.mjs` modo `degraded`: CKG vacío ⇒ no cita `adr-999`.
+- `tests/test_workflow_contract_bdd.py`: prompt→schema bloqueante (P0.3b).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

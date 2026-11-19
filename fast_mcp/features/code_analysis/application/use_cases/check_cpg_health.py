@@ -37,19 +37,52 @@ class CheckCpgHealthUseCase:
 
         repo = CognitiveCpgRepository(projects_data_dir, "")
         if not repo.exists():
-            return {"status": "not scanned", "node_count": 0}
+            return {
+                "status": "not scanned",
+                "node_count": 0,
+                "cyclo": {"known": 0, "total": 0, "status": "unavailable"},
+            }
 
         result = _load_cpg_core(repo)
         if is_successful(result):
             data = result.value_or({})
-            total = len(data.get("nodes", {}))
-            return {"status": f"{total} nodes", "node_count": total}
+            nodes = data.get("nodes", {}) or {}
+            total = len(nodes)
+            # P1.2: la cobertura de cyclo se reporta como partial, no como
+            # "unavailable" ni 0. Es una propiedad del extractor (JS no tiene
+            # cyclo), no del índice: fingir cualquiera de las dos engaña.
+            callables = [
+                n for n in nodes.values()
+                if str(n.get("type") or n.get("kind") or "") in ("function", "method")
+            ]
+            known = sum(1 for n in callables if n.get("cyclo") is not None)
+            cyclo_total = len(callables)
+            if cyclo_total == 0 or known == 0:
+                cyclo_status = "unavailable"
+            elif known < cyclo_total:
+                cyclo_status = "partial"
+            else:
+                cyclo_status = "full"
+            return {
+                "status": f"{total} nodes",
+                "node_count": total,
+                "cyclo": {
+                    "known": known,
+                    "total": cyclo_total,
+                    "status": cyclo_status,
+                },
+            }
         error = result.failure()
         logger.warning(
             "No se pudo leer CPG en %s (%s: %s); se reporta no escaneado",
             projects_data_dir, type(error).__name__, error,
         )
-        return {"status": "not scanned", "node_count": 0}
+        # No se pudo leer: se declara no escaneado, nunca un 0 silencioso.
+        return {
+            "status": "not scanned",
+            "node_count": 0,
+            "cyclo": {"known": 0, "total": 0, "status": "unavailable"},
+        }
 
 
 @safe

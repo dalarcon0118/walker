@@ -197,16 +197,18 @@ def handle_load_skill(ctx: MemoryContext, **kwargs: Any) -> dict:
         }
     body = skill.body()
     # Traza la carga: el gate `skill_intent.policy == required` la verifica
-    # contra el trace (task + timestamp). Si la escritura no queda, la tool lo
-    # DICE: antes el `except` la convertía en silencio y el gate quedaba
-    # insatisfacible sin que nadie supiera por qué (medido 2026-11-18: la carga
-    # respondió con contenido y la traza no registró nada).
+    # contra el trace. La entrada (node, sub_state) es el token: sin ella el
+    # gate sólo podía comparar timestamps y cualquier submit obligaba a
+    # recargar (P1.1). Fail-open: si el estado no se puede leer, el evento va
+    # sin posición y el gate cae al fallback por timestamp.
+    node, sub_state = _workflow_position(ctx.chain_dir)
     event = {
         "event_type": "skill_loaded",
         "source": "agent",
         "tool": "load_skill",
         "task_id": str(kwargs.get("task_id") or ""),
-        "data": {"skill": skill.name, "scope": skill.scope},
+        "data": {"skill": skill.name, "scope": skill.scope,
+                 "node": node, "sub_state": sub_state},
     }
     warning = _trace_skill_load(ctx.chain_dir, event)
     result = {
@@ -220,6 +222,113 @@ def handle_load_skill(ctx: MemoryContext, **kwargs: Any) -> dict:
     if warning:
         result["warning"] = warning
     return result
+
+
+#: Cache corto del health de memoria (por data_dir). El CPG se carga completo
+#: para contar cyclo; hacerlo en cada `agent_context` sería caro y el estado
+#: cambia lento (sólo al reindexar).
+_HEALTH_CACHE: dict[str, tuple[float, dict]] = {}
+_HEALTH_TTL = 60.0
+
+
+def _memory_health(chain_dir: str) -> dict:
+    """Salud de CKG/CPG + cobertura de cyclo (P1.2).
+
+    Los health checks ya existían (`CkgReadService.check_health`,
+    `CheckCpgHealthUseCase`) pero no los consumía ninguna decisión: el agente
+    citaba `adr-###` de un CKG vacío como si fuera autoridad. `trusted` es la
+    señal para no citar memoria degradada; `cyclo.status` distingue `partial`
+    (extractor incompleto) de `unavailable` (no hay nada que medir).
+    """
+    out: dict[str, Any] = {
+        "ckg": {"nodes": 0, "status": "unknown"},
+        "cpg": {"nodes": 0, "status": "unknown"},
+        "cyclo": {"known": 0, "total": 0, "status": "unknown"},
+        "trusted": False,
+    }
+    if not chain_dir:
+        return out
+    try:
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        data_dir = str(ProjectService.resolve_paths(chain_dir).data_dir or "")
+    except Exception as exc:  # noqa: BLE001 — sin data_dir no hay health
+        out["error"] = f"{type(exc).__name__}: {exc}"
+        return out
+    if not data_dir:
+        return out
+
+    # Health es observación de estado lento: TTL corto para no pagar el load
+    # del CPG (8.8k nodos) en cada `agent_context`, que es la tool más llamada.
+    import time
+
+    hit = _HEALTH_CACHE.get(data_dir)
+    if hit and time.monotonic() - hit[0] < _HEALTH_TTL:
+        return dict(hit[1])
+
+    try:
+        from returns.pipeline import is_successful
+
+        from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import (
+            CkgReadService,
+        )
+
+        res = CkgReadService.check_health(data_dir)
+        if is_successful(res):
+            data = res.value_or({}) or {}
+            nodes = int(data.get("node_count") or 0)
+            out["ckg"] = {"nodes": nodes, "status": "ok" if nodes > 0 else "empty"}
+        else:
+            out["ckg"] = {"nodes": 0, "status": "error"}
+    except Exception as exc:  # noqa: BLE001 — health es observación, no gate
+        out["ckg"] = {"nodes": 0, "status": "error",
+                      "error": f"{type(exc).__name__}: {exc}"}
+
+    try:
+        from fast_mcp.features.code_analysis.application.use_cases.check_cpg_health import (
+            CheckCpgHealthUseCase,
+        )
+
+        cpg = CheckCpgHealthUseCase.execute(data_dir) or {}
+        nodes = int(cpg.get("node_count") or 0)
+        out["cpg"] = {"nodes": nodes, "status": "ok" if nodes > 0 else "empty"}
+        cyclo = cpg.get("cyclo") or {}
+        out["cyclo"] = {
+            "known": int(cyclo.get("known") or 0),
+            "total": int(cyclo.get("total") or 0),
+            "status": str(cyclo.get("status") or "unknown"),
+        }
+    except Exception as exc:  # noqa: BLE001 — health es observación, no gate
+        out["cpg"] = {"nodes": 0, "status": "error",
+                      "error": f"{type(exc).__name__}: {exc}"}
+
+    out["trusted"] = out["ckg"]["status"] == "ok" and out["cpg"]["status"] == "ok"
+    _HEALTH_CACHE[data_dir] = (time.monotonic(), dict(out))
+    return out
+
+
+def _workflow_position(chain_dir: str) -> tuple[str, str]:
+    """(node, sub_state) actual del workflow, o ("", "") si no se puede leer.
+
+    Es el token de P1.1: `load_skill` firma en qué entrada se cargó el skill.
+    Fail-open a propósito — una tool de memoria no puede romperse por no poder
+    leer el estado; en ese caso el gate cae al fallback por timestamp.
+    """
+    if not chain_dir:
+        return "", ""
+    try:
+        from fast_mcp.features.workflow.context import WorkflowContext
+
+        wctx = WorkflowContext.resolve(chain_dir)
+        state = wctx.orchestrator.current_state() if wctx is not None else None
+        if state is None:
+            return "", ""
+        return (
+            str(getattr(state, "current_node", "") or ""),
+            str(getattr(state, "current_sub_state", "") or ""),
+        )
+    except Exception:  # noqa: BLE001 — sin estado, el token queda vacío
+        return "", ""
 
 
 def _trace_skill_load(chain_dir: str, event: dict) -> str:
@@ -390,6 +499,9 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
         "file": target_file,
         "text": query,
     }
+    # P1.2: salud de la memoria como precondición de la decisión. `trusted`
+    # es la señal que el plugin usa para no citar `adr-###` de un CKG vacío.
+    out["memory_health"] = _memory_health(ctx.chain_dir)
 
     # CKG: decisiones y convenciones del scope.
     result = CkgReadService.gather_context(ctx.chain_dir, query=query or target_file)
@@ -647,6 +759,7 @@ def handle_preflight(ctx: MemoryContext, **kwargs: Any) -> dict:
         return {"error": "files requerido: el preflight es por archivos", "type": "preflight"}
 
     out: dict[str, Any] = {"type": "preflight", "files": [], "unmapped": []}
+    out["memory_health"] = _memory_health(ctx.chain_dir)
 
     # 1. Impacto por archivo
     for f in files[:10]:

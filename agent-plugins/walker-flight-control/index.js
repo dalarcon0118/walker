@@ -462,6 +462,10 @@ async function runSetup(ctx) {
     // L3: UNA decisión que aplique al archivo. El CKG la devuelve si su
     // statement menciona el path (convención "aplica a: <archivo>"); se filtra
     // por id `adr-NNN` para no citar nodos de sesión ni probes.
+    //
+    // P1.2: si `memory_health.trusted` es false (CKG/CPG vacío), NO se cita un
+    // `adr-` como autoridad. Un `adr-999` de seed en un CKG sin índice no es una
+    // decisión del proyecto; citarlo es peor que no citar nada.
     const decisionFor = (proj, files) => {
       if (!proj || !files.length) return ""
       const key = `${proj}|${files.join(",")}`
@@ -470,6 +474,12 @@ async function runSetup(ctx) {
       let found = ""
       for (const f of files.slice(0, 2)) {
         const res = run("agent_context", { project_id: proj, file: f }, proj, BASELINE_TIMEOUT_MS)
+        const health = (res && res.memory_health) || null
+        if (health && health.trusted === false) {
+          rt.ckgDegraded = health
+          return ""
+        }
+        rt.ckgDegraded = null
         const results = (res && res.ckg && res.ckg.results) || []
         const adr = results.find((r) => /^adr-\d+$/.test(String((r && r._id) || "")))
         if (adr) {
@@ -519,7 +529,13 @@ async function runSetup(ctx) {
       if (!top.length) return ""
       const dominant = Object.keys(groups)[0]
       const decision = decisionFor(dominant, (groups[dominant] || []).map((i) => i.sc))
-      const line = `Baseline: ${top.join("; ")}${decision ? " · " + decision : ""}`
+      // Sin memoria confiable no se cita `adr-`: se dice que está degradada.
+      const tail = decision
+        ? " · " + decision
+        : rt.ckgDegraded
+          ? " · CKG degradado"
+          : ""
+      const line = `Baseline: ${top.join("; ")}${tail}`
       if (entry) {
         entry.baselineInjected = true
         entry.baselineFiles = rows.slice(0, 2).map((r) => String(r.name || ""))

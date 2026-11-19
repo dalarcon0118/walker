@@ -67,6 +67,8 @@ class NoopTracer(ITracer):
         session_id: str = "",
         skills: set[str] | list[str] | None = None,
         since: str = "",
+        node: str = "",
+        sub_state: str = "",
     ) -> bool:
         """Sin tracer no se puede verificar: fail-open (no bloquear por falta)."""
         return True

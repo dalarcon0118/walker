@@ -23,8 +23,9 @@ class FakeTracer:
         self.raises = raises
         self.calls: list[dict] = []
 
-    def has_skill_load(self, chain_dir, task_id="", session_id="", skills=None, since=""):
-        self.calls.append({"skills": set(skills or []), "since": since})
+    def has_skill_load(self, chain_dir, task_id="", session_id="", skills=None, since="", node="", sub_state=""):
+        self.calls.append({"skills": set(skills or []), "since": since,
+                           "node": node, "sub_state": sub_state})
         if self.raises:
             raise RuntimeError("trace roto")
         return self.loaded
@@ -45,8 +46,10 @@ def _orchestrator(tmp_path, tracer):
     return orch
 
 
-def _state(updated_at: str = "2026-11-17T10:00:00+00:00"):
-    return SimpleNamespace(updated_at=updated_at)
+def _state(updated_at: str = "2026-11-17T10:00:00+00:00", node: str = "VERIFY",
+           sub_state: str = "QA"):
+    return SimpleNamespace(updated_at=updated_at, current_node=node,
+                           current_sub_state=sub_state)
 
 
 def _sub(policy: str = "required"):
@@ -92,6 +95,9 @@ def test_con_candidatos_y_sin_carga_bloquea(tmp_path, monkeypatch):
     assert "review-x" in out["message"]
     assert tracer.calls[0]["skills"] == {"review-x"}
     assert tracer.calls[0]["since"] == "2026-11-17T10:00:00+00:00"
+    # P1.1: el gate pasa la entrada actual como token, no sólo el timestamp.
+    assert tracer.calls[0]["node"] == "VERIFY"
+    assert tracer.calls[0]["sub_state"] == "QA"
 
 
 def test_con_candidatos_y_carga_pasa(tmp_path, monkeypatch):
@@ -156,6 +162,7 @@ def test_load_skill_empuja_evento_al_trace(tmp_path, monkeypatch):
         "fast_mcp.features.event_tracing.application.services.trace_factory.build_trace_service",
         lambda chain_dir: FakeService(),
     )
+    monkeypatch.setattr(handlers, "_workflow_position", lambda chain_dir: ("VERIFY", "QA"))
     ctx = MemoryContext(chain_dir=str(root), project_root=str(root),
                         project_id="demo", data_dir="")
 
@@ -164,6 +171,9 @@ def test_load_skill_empuja_evento_al_trace(tmp_path, monkeypatch):
     assert pushed and pushed[0]["event_type"] == "skill_loaded"
     assert pushed[0]["data"]["skill"] == "demo"
     assert pushed[0]["tool"] == "load_skill"
+    # P1.1: la carga firma la entrada donde se hizo (token del gate).
+    assert pushed[0]["data"]["node"] == "VERIFY"
+    assert pushed[0]["data"]["sub_state"] == "QA"
 
 
 def test_umbral_ignora_candidatos_debiles(tmp_path, monkeypatch):
@@ -220,7 +230,8 @@ def test_el_gate_deja_constancia_en_el_trace(tmp_path, monkeypatch):
     assert event_type == "skill_gate"
     assert data["outcome"] == "blocked"
     assert data["skills"] == ["review-x"]
-    assert data["node"] == ""
+    assert data["node"] == "VERIFY"
+    assert data["sub_state"] == "QA"
 
 
 def test_el_gate_marca_no_candidates(tmp_path, monkeypatch):
