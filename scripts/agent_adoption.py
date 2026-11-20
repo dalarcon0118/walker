@@ -21,6 +21,8 @@ import json
 import os
 import sqlite3
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -37,12 +39,25 @@ from fast_mcp.shared_kernel.telemetry import (  # noqa: E402
 HARNESS_DB = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
 _NATIVE = ("bash", "edit", "read", "grep", "write", "glob", "todowrite", "question")
 
+#: Antigüedad máxima de la última sesión para dar el ratio por vigente.
+HARNESS_MAX_AGE_DAYS = 2.0
 
-def read_harness(db_path: str | Path, project_path: str = "Active-projects/walker") -> dict | None:
+
+def read_harness(
+    db_path: str | Path,
+    project_path: str = "Active-projects/walker",
+    max_age_days: float = HARNESS_MAX_AGE_DAYS,
+    now_ms: int | None = None,
+) -> dict | None:
     """Llamadas Walker vs nativas por sesión, desde la DB del harness.
 
     El trace de walker no ve las tools nativas; la DB de opencode sí. Se lee
     read-only y se declara `None` si no está (fail-loud, sin inventar ratio).
+
+    La DB puede estar congelada (otra instancia del harness, sesión en memoria):
+    si la última sesión es más vieja que `max_age_days`, el conteo se publica
+    pero `native_ratio` queda en `None` con motivo. Un número viejo presentado
+    como actual es peor que un N/D (AE-INV-08).
     """
     path = Path(db_path)
     if not path.is_file():
@@ -52,7 +67,8 @@ def read_harness(db_path: str | Path, project_path: str = "Active-projects/walke
         select s.id,
           sum(case when json_extract(p.data,'$.tool') like 'walker_%' then 1 else 0 end) w,
           sum(case when json_extract(p.data,'$.tool') in ({placeholders}) then 1 else 0 end) n,
-          count(*) total
+          count(*) total,
+          max(cast(s.time_created as integer)) latest
         from session s join part p on p.session_id = s.id
         where json_extract(p.data,'$.type')='tool' and s.directory like ?
         group by s.id
@@ -61,6 +77,10 @@ def read_harness(db_path: str | Path, project_path: str = "Active-projects/walke
     """
     try:
         db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        columns = {row[1] for row in db.execute("pragma table_info(session)")}
+        if "time_created" not in columns:
+            db.close()
+            return None
         rows = db.execute(query, (*_NATIVE, f"%{project_path}%")).fetchall()
         db.close()
     except sqlite3.Error:
@@ -73,12 +93,31 @@ def read_harness(db_path: str | Path, project_path: str = "Active-projects/walke
     ]
     walker = sum(r["walker"] for r in sessions)
     native = sum(r["native"] for r in sessions)
+    latest = max((int(r[4]) for r in rows if r[4]), default=None)
+    now = int(now_ms if now_ms is not None else time.time() * 1000)
+    age_days = (now - latest) / 86_400_000 if latest else None
+    stale = age_days is None or age_days > max_age_days
+    measured = round(walker / native, 3) if native else None
+    latest_iso = (
+        datetime.fromtimestamp(latest / 1000, tz=timezone.utc).date().isoformat()
+        if latest else ""
+    )
     return {
         "db": str(path),
         "sessions": len(sessions),
         "walker_calls": walker,
         "native_calls": native,
-        "native_ratio": round(walker / native, 3) if native else None,
+        "measured_ratio": measured,
+        "native_ratio": None if stale else measured,
+        "latest_session": latest_iso,
+        "age_days": round(age_days, 1) if age_days is not None else None,
+        "stale": stale,
+        "stale_reason": (
+            f"la última sesión registrada es del {latest_iso} "
+            f"({age_days:.1f} días): la DB no refleja la superficie actual"
+            if stale and latest_iso else
+            ("la DB no expone sesiones con fecha" if stale else "")
+        ),
         "per_session": sessions,
     }
 
@@ -133,11 +172,22 @@ def summarize_adoption(records: list[dict], events: list[dict] | None = None,
         "first_pass_tests": first_pass if sessions else None,
         "native_ratio": (harness or {}).get("native_ratio"),
         "harness": harness,
-        "unavailable": {
-            "first_pass_tests": "se cuenta por sesión (verified sin verify_failed); el intento por tarea no se separa",
-            "per_session_tools": "la telemetría por tool no guarda session_id",
-        },
+        "unavailable": _unavailable(harness),
     }
+
+
+def _unavailable(harness: dict | None) -> dict[str, str]:
+    """Lo no medible, con motivo. Un ratio viejo no se publica como actual."""
+    unavailable = {
+        "first_pass_tests": "se cuenta por sesión (verified sin verify_failed); "
+                            "el intento por tarea no se separa",
+        "per_session_tools": "la telemetría por tool no guarda session_id",
+    }
+    if harness is None:
+        unavailable["native_ratio"] = "no se pudo leer la DB del harness"
+    elif harness.get("stale"):
+        unavailable["native_ratio"] = harness.get("stale_reason") or "DB del harness sin datos recientes"
+    return unavailable
 
 
 def _load_trace_events() -> list[dict]:
@@ -177,9 +227,14 @@ def _table(summary: dict) -> str:
         )
     harness = summary.get("harness") or {}
     if harness:
+        state = (
+            f"NO VIGENTE: {harness['stale_reason']}"
+            if harness.get("stale") else "vigente"
+        )
         lines.append(
             f"harness: {harness['sessions']} sesiones · walker={harness['walker_calls']} "
-            f"nativas={harness['native_calls']} · ratio={harness['native_ratio']}"
+            f"nativas={harness['native_calls']} · ratio={harness['native_ratio']} "
+            f"({state})"
         )
     lines.append("")
     for key, reason in summary["unavailable"].items():

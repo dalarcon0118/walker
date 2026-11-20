@@ -50,9 +50,12 @@ def test_sin_verificaciones_el_rework_es_nulo():
 def test_read_harness_calcula_el_ratio(tmp_path):
     db = tmp_path / "harness.db"
     con = sqlite3.connect(db)
-    con.execute("create table session (id text, directory text)")
+    con.execute("create table session (id text, directory text, time_created integer)")
     con.execute("create table part (session_id text, data text)")
-    con.execute("insert into session values ('s1', '/x/Active-projects/walker')")
+    con.execute(
+        "insert into session values ('s1', '/x/Active-projects/walker', ?)",
+        (1_800_000_000_000,),
+    )
     for tool in ("walker_brief", "read", "bash"):
         con.execute(
             "insert into part values (?, ?)",
@@ -60,8 +63,41 @@ def test_read_harness_calcula_el_ratio(tmp_path):
         )
     con.commit(); con.close()
 
-    out = read_harness(db, project_path="Active-projects/walker")
+    out = read_harness(
+        db, project_path="Active-projects/walker", now_ms=1_800_000_100_000
+    )
 
     assert out["walker_calls"] == 1
     assert out["native_calls"] == 2
     assert out["native_ratio"] == 0.5
+    assert out["stale"] is False
+
+
+def test_read_harness_no_publica_un_ratio_viejo(tmp_path):
+    """Una DB congelada no representa la superficie actual: ratio N/D."""
+    db = tmp_path / "harness.db"
+    con = sqlite3.connect(db)
+    con.execute("create table session (id text, directory text, time_created integer)")
+    con.execute("create table part (session_id text, data text)")
+    con.execute(
+        "insert into session values ('s1', '/x/Active-projects/walker', ?)",
+        (1_700_000_000_000,),
+    )
+    for tool in ("walker_brief", "read", "bash"):
+        con.execute(
+            "insert into part values (?, ?)",
+            ("s1", '{"type":"tool","tool":"%s"}' % tool),
+        )
+    con.commit(); con.close()
+
+    out = read_harness(
+        db, project_path="Active-projects/walker", now_ms=1_800_000_000_000
+    )
+    summary = summarize_adoption([], [], out)
+
+    assert out["walker_calls"] == 1, "el conteo se publica"
+    assert out["native_ratio"] is None, "pero el ratio no se declara actual"
+    assert out["measured_ratio"] == 0.5
+    assert out["age_days"] > 2
+    assert summary["native_ratio"] is None
+    assert "native_ratio" in summary["unavailable"]

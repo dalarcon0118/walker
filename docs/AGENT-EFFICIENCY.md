@@ -116,6 +116,10 @@ peaje, al principio. Ningún prompt arregla esa economía.
   `full`. Reproducible con
   `WALKER_MCP_PROFILE=agent python3 -c "…build_server()…"` (ver
   `tests/test_tool_profiles_bdd.py:77-86`, que exige `<50%`).
+  *Actualización 2026-11-20:* el número de arriba es el **baseline medido**. El
+  código ya expone **8 tools**, pero un proceso `walker-mcp` arrancado antes del
+  cambio sigue sirviendo las 23 (§7.1ter): la medición de superficie debe
+  hacerse contra el proceso vivo, no sólo contra el código.
 - Es decir: la superficie **casi duplicó** respecto del objetivo y quedó pegada al
   umbral del test. Las 7 tools que volvieron entraron con justificación individual
   válida (`implement_task` "había quedado fuera"), pero el agregado no se volvió a
@@ -471,11 +475,12 @@ acá sigue abierto.
 | `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`, **`step`** (absorbe `workflow_state`), **`skills`/`skill`** (absorbe `search_skills`/`load_skill`) y **`plan`** (absorbe `plan_diff`); `missing[]`/`degraded` obligatorios (`tests/test_brief_bdd.py`) |
 | `plan_diff` (F3/M-04) | **implementado** | compara flight_plan ↔ spec: criterios en uno y no en el otro, scope ampliado y criterios sin predicado (`tests/test_plan_diff_bdd.py`) |
 | `design_brief` (F3) | **implementado** | `DESIGN_ANALYZE` declara `x-artifact` y el contrato vive en código (`ARTIFACT_GATES`), así que no depende de `data/workflow`; valida forma (>=2 opciones, descarte con motivo, invariantes, verificación) y deniega con `missing[]`+`remedy` (`tests/test_design_brief_bdd.py`) |
-| Perfil `agent` | **8 tools / 1.901 chars** | loop: `brief`, `search_memories`, `submit`, `advance`, `transition`, `implement_task`, `run_tests`, `capture`. Los schemas del perfil se compactan (sin descripciones por propiedad); el resto vive en `full`/`admin` y se invoca por CLI. Cumple §2.6 (≤8 / ≤2.500). |
-| Adopción medida | **implementado** | `scripts/agent_adoption.py`: telemetría por tool + trace + **DB del harness**. Medido: **485 Walker / 12.306 nativas = 0,039** en 16 sesiones de `walker`; 778 llamadas y 992k tokens de salida (`agent_adoption.py`). El intento por tarea sigue N/D (el trace no lo separa). |
+| Perfil `agent` | **8 tools / 1.470 chars** | loop: `brief`, `search_memories`, `submit`, `advance`, `transition`, `implement_task`, `run_tests`, `capture`. Medido en proceso nuevo: **8 tools, 1.470 chars de schema, 1.974 con nombre+descripción**; los schemas se compactan (sin descripciones por propiedad) y el resto vive en `full`/`admin`. Cumple §2.6 (≤8 / ≤2.500). |
+| Adopción medida | **N/D declarado, no estimado** | `scripts/agent_adoption.py` lee telemetría + trace + DB del harness. La DB de opencode escribe hasta **2026-09-04** (76,9 días): el `0,039` que se publicaba era de esa era. Ahora `read_harness` publica el conteo pero **`native_ratio: null`** con motivo si la última sesión supera 2 días (`tests/test_agent_adoption_bdd.py`). Telemetría de walker: 802 llamadas hoy, 992k tokens acumulados. |
+| Superficie en ejecución | **riesgo abierto** | Un `walker-mcp` arrancado antes del cambio sirve 23 tools sin `brief` (verificado 2026-11-20: PID 35258, 13:01, antes del commit de las 15:39). El código está verde y el proceso no: hace falta reiniciar el MCP y un chequeo que compare `list_tools()` vivo vs `.agent` (§7.1ter). |
 | Sustrato (AE-INV-07) | **cerrado** | warm imports + caches por firma + **pool de 4 procesos** para lecturas (`fast_mcp/memories/read_pool.py`). `agent_context` caliente **169 ms**, 4 concurrentes **248 ms = 1,32×**; probe 100/100, **p50 110 / p95 219 ms**. Costo: la primera ráfaga paga el spawn de los workers (mitigado con warm en background) |
 
-Verificación: `python3 -m pytest -q` → **1.576 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.577 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
@@ -516,10 +521,27 @@ Salieron de operar el sistema, no de leerlo. Quedan acá para que no se pierdan:
 
 ### 7.1bis Hallazgo: el workflow no está versionado
 
-`data/workflow/` está en `.gitignore`: el grafo vive sólo en el runtime y no se
-reproduce en un checkout limpio. El gate del `design_brief` ya **no depende** de
-ese archivo: el contrato está en `ARTIFACT_GATES` (código). Sigue siendo deuda
-la reproducibilidad del resto del grafo (nodos/edges).
+`data/workflow/` está en `.gitignore`, así que el grafo runtime no se reproducía
+en un checkout limpio. Resuelto: `workflow-src/` versiona los 13 archivos,
+`GraphRepository` los siembra cuando falta (sólo en el path canónico, para no
+ocultar un error de resolución) y `scripts/sync_workflow.py --check` detecta
+drift. El gate del `design_brief` además no depende del archivo: el contrato está
+en `ARTIFACT_GATES` (código).
+
+### 7.1ter Hallazgo: la superficie viva no es la del código
+
+El MCP es un proceso de vida larga (`bin/walker-mcp`, stdio). Arrancó a las
+13:01 del 2026-11-20; el perfil de 8 se commiteó a las 15:39. Resultado: el
+agente siguió viendo **23 tools sin `brief`**, incluidas las cuatro que el perfil
+retiró (`agent_context`, `preflight`, `snapshot`, `baseline_diff`). Cualquier
+métrica de adopción tomada en esa ventana mide otra superficie.
+
+Consecuencia de diseño: `apply_profile` corre en el `build_server()`, una sola
+vez. No hay señal de "perfil viejo" en runtime. Remedio propuesto: `walker doctor`
+que compare `server.list_tools()` con `WALKER_MCP_PROFILE` y falle con el
+comando de reinicio; y que el plugin registre la superficie al iniciar sesión
+(evento `tool_surface`), para que la telemetría sepa qué tools existían.
+
 
 ### 7.2 Resultado de F2 (retrieval + firma)
 
