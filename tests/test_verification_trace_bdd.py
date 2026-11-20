@@ -238,6 +238,9 @@ def test_scan_ignora_el_estado_de_walker(tmp_path):
     (tmp_path / ".workflow-state.json").write_text("{}")
     (tmp_path / "data").mkdir(exist_ok=True)
     (tmp_path / "data" / "cognitive.sqlite3").write_text("")
+    # WAL/SHM del store: los escribe el motor. Medido: `touched` los incluía.
+    (tmp_path / "data" / "cognitive.sqlite3-wal").write_text("")
+    (tmp_path / "data" / "cognitive.sqlite3-shm").write_text("")
 
     assert changed_since_last_scan(str(tmp_path)) == ["src/a.py"]
 

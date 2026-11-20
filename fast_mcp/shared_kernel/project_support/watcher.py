@@ -60,7 +60,9 @@ def _is_walker_state(rel_path: str) -> bool:
         return True
     if name.startswith(SESSION_SNAPSHOT_PREFIX):
         return True
-    if parts[0] == "data" and name.endswith(".sqlite3"):
+    # El WAL/SHM del sqlite también lo escribe el motor, no el agente:
+    # `cognitive.sqlite3-wal` no termina en `.sqlite3` y se colaba en `touched`.
+    if parts[0] == "data" and re.match(r".*\.sqlite3(-wal|-shm)?$", name):
         return True
     return False
 
