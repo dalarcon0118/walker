@@ -2,7 +2,8 @@
 
 - **Rol:** fuente única de la política del flight control (plugin ↔ workflow).
   Es una **instrucción de trabajo**, no un registro histórico.
-- **Vigencia:** v2 · 2026-11-20. Resuelve C1 (negociación de alcance). Reemplaza
+- **Vigencia:** v3 · 2026-11-20. Resuelve C1–C4 (alcance, read-only, evidencia
+  de cierre, caché). Reemplaza
   como guía operativa a ADR-081, ADR-082 y ADR-083 (ver §1.6).
 - **Cómo leerlo:** §1 son hechos verificables (con archivo:línea o medición
   reproducible); §2 es la definición de terminado; §3 son invariantes.
@@ -98,29 +99,63 @@ Reproducible con `python3 scripts/flight_control_metrics.py walker --json`.
 - CKG del proyecto: **1 nodo** cita `adr-082` y no tiene `superseded_by`;
   ADR-083 no está indexado. `search_memories` no lo encuentra.
 
-### 1.6 Contradicciones abiertas (deuda explícita)
+### 1.6 Decisiones sobre las contradicciones (v2)
 
-| # | Documento dice | Código/harness hace |
-| :-- | :-- | :-- |
-| C2 | INV-11: "ningún comando demostrablemente read-only se bloquea". | `pwd`, `ls`, `git status`, `--help` van por `shell` y se bloquean antes de ligar/declarar (`:1520`, `:1538`). |
-| C3 | "El cierre no pasa sin evidencia". | `shellMutation` (`:377`) no detecta `python -c "open(...,'w')"`, `make`, `npm run build` ni `git checkout`: la escritura no deja deuda. |
-| C4 | M-02 del ADR: "p95 de la decisión < 5 ms con estado cacheado". | No hay contrato para el **cache frío**: no está definido qué devuelve el gate con estado vencido. |
+**C1 · Alcance — el gate negocia.** ADR-081/INV-07 decían "el gate no modifica el
+plan". La medición muestra lo contrario de lo que suponía esa regla: de 27
+intentos fuera de alcance, los 27 eran archivos del trabajo en curso y ninguno
+era deriva. Decisión en §2.4: se conserva la negociación, acotada a un archivo
+por vez, sólo dentro del proyecto de trabajo, trazada y sin reescribir el plan.
+FC-INV-08.
 
-**C1 (resuelta en v2).** ADR-081/INV-07 decían "el gate no modifica el plan".
-La medición muestra lo contrario de lo que suponía esa regla: de 27 intentos
-fuera de alcance, los 27 eran archivos del trabajo en curso y ninguno era
-deriva. La decisión está en §2.4: se conserva la negociación, acotada a un
-archivo por vez, sólo dentro del proyecto de trabajo, trazada y sin reescribir
-el plan. La invariante se reescribe en FC-INV-08.
+**C2 · Read-only bloqueado — el fin es `allow`; el interim se mide, no se
+improvisa.** Hoy, sin sprint o sin tarea, se bloquea todo `shell` que no sea
+exactamente `walker3` (`:1520`, regex anclado en `:1538`). Hay 13 denials
+`bind/shell` en 4 sesiones (el comando no se guarda). Decisión: el resultado
+final es `read → allow` (§2.1) y **no se agrega una allowlist ad-hoc**: una lista
+incompleta mueve el falso positivo y una lista de más abre el bypass que el gate
+existe para cerrar. Hasta F2 se mantiene el bloqueo, F0 registra el comando y
+mide `readonly_blocked`, y F2 es el criterio para declarar FC-INV-04 verde.
+Lo que sí se arregla en F0: la **alcanzabilidad del remedio** (FC-INV-05). Un
+`walker3 … '{}' 2>&1` o con pipe hoy queda bloqueado porque el ancla exige la
+línea exacta: el remedio del propio gate es inalcanzable (deadlock). `protocol`
+se reconoce de forma estructural (tolera `cd &&`, `env`, `timeout` y
+duplicaciones de fd; rechaza cualquier otro compuesto).
+
+**C3 · Falsos negativos del cierre — cubiertos por evidencia, no por regex.**
+`shellMutation` (`:377`) no ve `python -c "open(...,'w')"`, `make`,
+`npm run build` ni `git checkout`. Pero el cierre no depende de esa regex: la
+próxima `session_context` compara el árbol con el snapshot de la sesión y lo
+detecta. Reproducido con el handler real: tras un `python -c` que escribe,
+`flight_state = {wrote: true, writes: 2, touched: ["b.py", …]}`. El plugin hace
+ese force-hydrate antes de nudgar. Decisión: FC-INV-11 (evidencia del watcher) es
+la garantía; `shellMutation` queda sólo para clasificación/`firstMutation` y se
+elimina en F3, con fixtures de esos comandos en F1.
+*Bug encontrado al verificar:* el filtro del footprint no excluía
+`*.sqlite3-wal`/`-shm`, así que el motor aparecía como escritura del agente.
+Corregido en v2.
+
+**C4 · Cache frío — un fallo no es estado fresco.** `refresh` cachea 60 s y
+`readState` devuelve `null` ante un fallo dejando `fetchedAt` actualizado: un
+fallo transitorio deja al plugin ciego 60 s, sin reintento. Decisión: tibio =
+in-process (<5 ms); frío = una lectura acotada (≤750 ms); fallo = no se cachea
+como fresco (reintento ≤2 s), se conserva el último estado conocido de la sesión
+si incluye tarea y alcance, y toda decisión por disponibilidad emite
+`plugin_degraded` y `gate.decision.degraded=true`. `read` no depende del estado;
+un `write` con estado desconocido es **disponibilidad**: allow trazado, nunca
+allow silencioso. FC-INV-15.
 
 ### 1.7 Lo que NO se sabe (no inventar)
 
 - El vocabulario exacto de `permission.hook("evaluate")` para comandos de shell
   (`action` = `"tool.use"` vs `"shell"`): requiere capturar un payload real.
 - Cuántos de los 13 `bind/shell` eran read-only: el denial no guarda el comando.
+  F0 lo mide; hasta entonces, el interim de C2 no se dimensiona de memoria.
 - Si `permission.hook` compone con las reglas estáticas por AND o por precedencia
   de `deny`.
-- La tasa de falsos negativos de `shellMutation` en uso real (no hay fixture).
+- La tasa de falsos negativos de `shellMutation` **como clasificador en tiempo
+  real** (no hay corpus). El cierre no depende de él: la evidencia es el diff del
+  watcher (C3).
 
 ---
 
@@ -212,29 +247,41 @@ Si walker no responde, el bloqueo lleva el comando exacto para ampliar
 ### 2.5 Observabilidad completa
 
 - Cada invocación emite `gate.decision` con: `action`, `resources` (redactados),
-  `effect`, `decision`, `rule_id`, `source`, `latency_ms`, `policy_version`.
+  `effect`, `decision`, `rule_id`, `source`, `latency_ms`, `degraded`,
+  `policy_version`.
 - El `flight_control_denied` existente **incluye el comando** (redactado), para
   poder auditar los falsos positivos históricos.
-- Se publica `readonly_blocked / readonly_attempts` por sesión.
+- Se publica `readonly_blocked / readonly_attempts` por sesión y por sesión el
+  conteo de decisiones `degraded` (disponibilidad) — nunca un allow anónimo.
 
 ### 2.6 Semántica de fallo y caché
 
-- **Disponibilidad** (walker caído/timeout): fail-open, traza `plugin_degraded`.
+- **Disponibilidad** (walker caído/timeout): fail-open, traza `plugin_degraded`
+  y `gate.decision.degraded=true`. Las reglas estáticas siguen protegiendo.
 - **Política** (`unknown`): fail-closed/ask con `remedy`. Nunca allow silencioso.
 - **Error interno del hook:** fail-open, contado y trazado.
-- **Cache frío:** se usa la última política conocida si y solo si incluye la
-  tarea y el alcance de la sesión; si no, `deny` con `remedy`. Nunca un `allow`
-  por ausencia de estado. La regla se documenta y se testea.
+- **Cache tibio:** decisión in-process, p95 < 5 ms, sin IO.
+- **Cache frío:** una lectura acotada (≤750 ms). Se usa el último estado conocido
+  de la sesión si y solo si incluye tarea y alcance; si no lo incluye, es
+  disponibilidad (allow trazado) o `deny` si hay humano para preguntar.
+- **Fallo de lectura:** NO se cachea como estado fresco; reintento con backoff
+  corto (≤2 s) para no dejar al plugin ciego 60 s por un error transitorio.
+  Nunca un `allow` porque "no hay dato" en el sentido de política.
 
 ### 2.7 Orden de trabajo y definición de terminado
 
 Cada paso se commitea y declara verde su checklist; sin métricas verdes no se
 pasa al siguiente.
 
-1. **F0 · Observar (sin cambiar comportamiento).**
+1. **F0 · Observar (sin cambiar comportamiento de política).**
    - Capturar un payload real de `permission.hook("evaluate")` y de
      `shell.hook("create.before")`; anotar el vocabulario definitivo en §2.3.
    - `gate.decision` en modo `observe`; `cmd` redactado en los denials.
+   - **Remedio alcanzable (C2):** `protocol` se reconoce de forma estructural
+     (`cd &&`, `env`, `timeout`, duplicación de fd). Es un deadlock, no una
+     observación: se corrige acá.
+   - **Fallo de lectura no cacheado (C4):** un `readState` fallido no marca
+     `fetchedAt`; reintento ≤2 s. Evita 60 s de ceguera por un error transitorio.
    - Verde: 100% de invocaciones mutantes con evento; `readonly_blocked` medido;
      p95 de la decisión < 5 ms con caché tibio; 32/32 modos; suite verde.
 2. **F1 · Extraer.** `GatePolicy` puro + tabla de efectos + ≥30 fixtures
@@ -243,8 +290,9 @@ pasa al siguiente.
    - Verde: dominio sin imports de infraestructura; fixtures 100%; 32/32.
 3. **F2 · Declarar + hook.** Reglas estáticas a `permissions`;
    `permission.hook("evaluate")`; modos nuevos `readonly`, `compound`,
-   `unknown`, `ask`.
-   - Verde: `pwd/ls/git status/--help` → allow; `printf > x` → deny;
+   `unknown`, `ask`; caché frío con política last-known (§2.6).
+   - Verde: `pwd/ls/git status/--help` → allow (**C2 cerrada**:
+     `readonly_blocked = 0`); `printf > x` → deny;
      `walker3 …/session_bind` → allow (incluso con pipe); 0 sesiones con >2
      round trips de remedio; 0 auto-expansiones de archivos fuera del
      `projectDir`; digest de política idéntico walker↔plugin.
@@ -280,11 +328,14 @@ con otra regla cumplida.
   relaja; el auto-declare desde el plan cuenta como declaración.
   *Detección:* corpus adversarial + harness `normal`/`autodeclare`.
 - **FC-INV-04 · Read-only nunca se bloquea.** La clase `read` de §2.1 es
-  `allow` en cualquier estado (sin sprint, sin tarea).
+  `allow` en cualquier estado (sin sprint, sin tarea). Hasta F2 es deuda
+  declarada (C2) y se mide; F2 es el criterio para declararla verde.
   *Detección:* `readonly_blocked = 0`; fixtures de §2.7.
 - **FC-INV-05 · Protocolo alcanzable.** Los verbos de `protocol` se reconocen
-  por estructura (prefijos, `&&`, `env`, `timeout`, pipes).
-  *Detección:* modos `bind`/`autodeclare` y fixtures con pipe.
+  por estructura (toleran `cd &&`, `env`, `timeout` y duplicación de fd; otra
+  composición no se reconoce). El remedio nunca queda bloqueado por el gate.
+  *Detección:* modos `bind`/`autodeclare` y un fixture con `2>&1` (PERMITE);
+  un `walker3 …; printf > f` no se reconoce (BLOQUEA).
 - **FC-INV-06 · `unknown` ≠ `read`.** Lo no demostrable es `ask`/`deny`, jamás
   `allow`.
   *Detección:* fixture `python -c`, `make`, `git checkout`.
@@ -306,9 +357,11 @@ con otra regla cumplida.
   deny incluye el comando redactado.
   *Detección:* `gate.decision` por invocación; `readonly_attempts` > 0.
 - **FC-INV-11 · Evidencia.** Una escritura no observada no puede dejar el cierre
-  limpio: el diff del watcher por sesión completa `wrote`.
+  limpio: el diff del watcher por sesión completa `wrote`, excluyendo el
+  footprint del motor (`.cognitive/`, `*.json.gz`, snapshots, `*.sqlite3` y sus
+  `-wal`/`-shm`).
   *Detección:* `task_degraded`/`session_state` con `touched_source=watcher`;
-  modo `extverify`.
+  modo `extverify`; `test_scan_ignora_el_estado_de_walker`.
 - **FC-INV-12 · Cierre.** El cierre exige verificación verde; la certificación
   por shell con pipe exige `WALKER_RESULT`. Sin marcador no hay verde.
   *Detección:* modos `close*` y `closeclipipefail`.
@@ -318,6 +371,11 @@ con otra regla cumplida.
 - **FC-INV-14 · Memoria.** Con `memory_health.trusted=false` no se cita ningún
   `adr-`; no se citan decisiones retiradas.
   *Detección:* modo `degraded` + CKG sin nodos activos de 081/082.
+- **FC-INV-15 · Caché.** Un fallo de lectura no se cachea como estado fresco: se
+  reintenta con backoff corto (≤2 s) y la decisión degradada se traza. Ningún
+  `allow` por ausencia de dato puede ser anónimo.
+  *Detección:* test de dos lecturas con la primera fallando; `gate.decision`
+  con `degraded=true`.
 
 ---
 
