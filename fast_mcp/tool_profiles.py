@@ -31,42 +31,15 @@ FULL: frozenset[str] = frozenset()  # vacío = sin filtro
 #:   - mantenimiento de índices (el watcher/git los corre, no el agente),
 #:   - telemetría (`trace_*`: la escribe el plugin, no el modelo).
 AGENT: frozenset[str] = frozenset({
-    # workflow
-    "status",
-    "workflow_state",
+    # Loop del agente (8). Todo lo demás vive en `full`/`admin` y se invoca
+    # por CLI (session_*, spec_*, status, skills sueltos, plan_diff).
+    "brief",          # contexto + step + skills + plan (absorbe 5 tools)
+    "search_memories",# query federada que los templates piden 20 veces
     "submit",
     "advance",
     "transition",
-    # contexto del proyecto: UN lector (AE-INV-01). `brief` compone lo que
-    # antes eran `agent_context` + `preflight`; las tools viejas siguen en
-    # `full`/`admin` por compatibilidad del CLI, pero el agente ya no elige
-    # entre tres lectores solapados.
-    "brief",
-    "plan_diff",
-    # Los templates del workflow mandan a `search_memories` en los gates de
-    # análisis y cierre; dejarla fuera hacía que el agente recibiera una
-    # instrucción imposible ("Unknown tool"). Es la query federada real.
-    "search_memories",
-    # skills: descubrir y cargar bajo demanda
-    "search_skills",
-    "load_skill",
-    # intake y cierre: sin estas dos, la skill y el comando no pueden declarar
-    # la tarea ni documentar lo decidido (se detectó al aplicar el perfil en la
-    # config real: `implement_task` había quedado fuera).
     "implement_task",
-    "documenting_knowledge",
-    # continuidad y foco (sesión → sprint y plan de vuelo). `session_open` y
-    # `session_close` NO: son ciclo de vida del plugin, no superficie del agente.
-    "session_bind",
-    "session_plan",
-    "spec_start",
-    "spec_status",
-    "session_list",
-    "sprint_status",
-    # verificación
     "run_tests",
-    "verify_predicates",
-    # evidencia
     "capture",
 })
 
@@ -105,13 +78,34 @@ def active_profile() -> str:
     return name if name in PROFILES else "full"
 
 
+def _compact_schema(schema: dict) -> dict:
+    """Schema del perfil `agent`: sin descripciones de propiedad.
+
+    AE-INV-05: el precio es contrato. Con 8 tools, las descripciones por
+    propiedad sumaban ~1 KB de los 3.2 KB del perfil. El nombre y el tipo
+    alcanzan; la descripción de la TOOL (que sí se conserva) explica el
+    contrato. `full`/`admin` mantienen el schema documentado.
+    """
+    import copy
+
+    compact = copy.deepcopy(schema or {})
+    for prop in (compact.get("properties") or {}).values():
+        if isinstance(prop, dict):
+            prop.pop("description", None)
+            items = prop.get("items")
+            if isinstance(items, dict):
+                items.pop("description", None)
+    return compact
+
+
 def apply_profile(server: FastMCP, name: str | None = None) -> list[str]:
     """Quita del server las tools que el perfil no expone.
 
     Returns:
         Los nombres efectivamente removidos (vacío si el perfil es `full`).
     """
-    profile = PROFILES.get((name or active_profile()), FULL)
+    profile_name = (name or active_profile()).strip().lower()
+    profile = PROFILES.get(profile_name, FULL)
     if not profile:
         return []
 
@@ -122,6 +116,9 @@ def apply_profile(server: FastMCP, name: str | None = None) -> list[str]:
             server.remove_tool(tool_name)
         except Exception as exc:  # noqa: BLE001 - no romper el boot por una tool
             logger.warning("tool_profile: no se pudo remover %s (%s)", tool_name, exc)
+    if profile_name == "agent":
+        for tool in server._tool_manager.list_tools():  # noqa: SLF001
+            tool.parameters = _compact_schema(tool.parameters)
     # Fail-loud si el perfil nombra tools que no existen: el perfil quedó viejo.
     missing = sorted(set(profile) - kept)
     if missing:

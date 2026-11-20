@@ -466,13 +466,14 @@ acá sigue abierto.
 | Clasificador de escritura | **implementado** | `shell_mutation.mjs`: el **destino** decide (`cp x /tmp/y` no muta; `cp x src/y` sí). 25 casos en `node --test shell_mutation.test.mjs`; `index.js` sólo pasa `projectDir` |
 | `supersedes` (M-03) | **implementado** | `ingest_adrs.py` parsea `**Consolida:** ADR-081 y ADR-082` y resuelve a ids en `build_nodes`; 081/082 quedan `superseded` en el CKG (`tests/test_ingest_adrs_bdd.py`) |
 | Plan → spec | **parcial** | `implement_task` ya no pisa `flight_plan.acceptance` (merge). La spec todavía no hereda: `_persist_spec` devuelve `None` sin error (§7.1-6). |
-| `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`; `missing[]`/`degraded` obligatorios. 3.9 KB (~1k tok) en el ancla por archivo (`tests/test_brief_bdd.py`) |
+| `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`, **`step`** (absorbe `workflow_state`), **`skills`/`skill`** (absorbe `search_skills`/`load_skill`) y **`plan`** (absorbe `plan_diff`); `missing[]`/`degraded` obligatorios (`tests/test_brief_bdd.py`) |
 | `plan_diff` (F3/M-04) | **implementado** | compara flight_plan ↔ spec: criterios en uno y no en el otro, scope ampliado y criterios sin predicado (`tests/test_plan_diff_bdd.py`) |
-| `design_brief` (F3) | **implementado** | `DESIGN_ANALYZE` declara `x-artifact`; el orquestador valida la forma (>=2 opciones, descartada con motivo, invariantes, verificación) y deniega con `missing[]`+`remedy` (`tests/test_design_brief_bdd.py`) |
-| Perfil `agent` | **21 tools / 9.683 chars** | `brief` reemplazó a `agent_context` + `preflight`; `snapshot`/`baseline_diff` salieron (siguen en `full`/`admin`); `plan_diff` entró. F3 sigue pendiente: objetivo ≤8 / 2.500. |
+| `design_brief` (F3) | **implementado** | `DESIGN_ANALYZE` declara `x-artifact` y el contrato vive en código (`ARTIFACT_GATES`), así que no depende de `data/workflow`; valida forma (>=2 opciones, descarte con motivo, invariantes, verificación) y deniega con `missing[]`+`remedy` (`tests/test_design_brief_bdd.py`) |
+| Perfil `agent` | **8 tools / 1.901 chars** | loop: `brief`, `search_memories`, `submit`, `advance`, `transition`, `implement_task`, `run_tests`, `capture`. Los schemas del perfil se compactan (sin descripciones por propiedad); el resto vive en `full`/`admin` y se invoca por CLI. Cumple §2.6 (≤8 / ≤2.500). |
+| Adopción medida | **implementado** | `scripts/agent_adoption.py`: llamadas/tokens por tool, sesiones verificadas, 1er intento, writes y costo desde el trace. `native_ratio` y el intento por tarea se declaran N/D con motivo (AE-INV-08: no se inventan). |
 | Sustrato (AE-INV-07) | **cerrado** | warm imports + caches por firma + **pool de 4 procesos** para lecturas (`fast_mcp/memories/read_pool.py`). `agent_context` caliente **169 ms**, 4 concurrentes **248 ms = 1,32×**; probe 100/100, **p50 110 / p95 219 ms**. Costo: la primera ráfaga paga el spawn de los workers (mitigado con warm en background) |
 
-Verificación: `python3 -m pytest -q` → **1.566 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.568 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
@@ -513,10 +514,10 @@ Salieron de operar el sistema, no de leerlo. Quedan acá para que no se pierdan:
 
 ### 7.1bis Hallazgo: el workflow no está versionado
 
-`data/workflow/` está en `.gitignore`: el nodo que declara `x-artifact` (el gate
-del `design_brief`) vive sólo en el runtime. En un checkout limpio el gate no
-se activa aunque el validador y el prompt sí estén versionados. Es deuda de
-reproducibilidad, no del gate.
+`data/workflow/` está en `.gitignore`: el grafo vive sólo en el runtime y no se
+reproduce en un checkout limpio. El gate del `design_brief` ya **no depende** de
+ese archivo: el contrato está en `ARTIFACT_GATES` (código). Sigue siendo deuda
+la reproducibilidad del resto del grafo (nodos/edges).
 
 ### 7.2 Resultado de F2 (retrieval + firma)
 

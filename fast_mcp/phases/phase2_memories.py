@@ -218,6 +218,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "task_id": {"type": "string", "description": "Ancla por tarea del sprint."},
             "text": {"type": "string", "description": "Ancla por pregunta en lenguaje natural."},
             "session_id": {"type": "string", "description": "Sesión para leer el plan de vuelo."},
+            "skill": {"type": "string", "description": "Carga y traza un skill por nombre."},
             "mode": {"type": "string", "enum": ["brief", "full"]},
         },
     },

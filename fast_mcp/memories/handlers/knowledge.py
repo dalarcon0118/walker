@@ -1007,9 +1007,9 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
                 meta = node.get("metadata") or {}
                 decisions.append({
                     "id": node_id,
-                    "title": str(node.get("statement") or node.get("label") or "")[:160],
+                    "title": str(node.get("statement") or node.get("label") or "")[:120],
                     "state": str(meta.get("status") or ""),
-                    "why": str(node.get("rationale") or "")[:180],
+                    "why": str(node.get("rationale") or "")[:120],
                     "supersedes": list(node.get("supersedes") or meta.get("supersedes") or []),
                 })
                 if len(decisions) == 5:
@@ -1068,15 +1068,76 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
             service = build_sprint_service(ctx.chain_dir)
             session = (service.get_session(session_id) or {}) if service else {}
             plan = (service.get_session_plan(session_id) or {}) if service else {}
+            scope = list(plan.get("scope") or [])
             gates = {
                 "sprint": str(session.get("spring_id") or plan.get("spring_id") or ""),
                 "task": str(plan.get("task") or ""),
-                "scope": list(plan.get("scope") or []),
-                "next": str(plan.get("next") or ""),
+                "scope": scope[:8],
+                "scope_total": len(scope),
+                "next": str(plan.get("next") or "")[:120],
             }
         except Exception as exc:  # noqa: BLE001
             missing.append(f"gates: {type(exc).__name__}: {exc}")
             degraded = True
+
+    # 4. Step del workflow: reemplaza `workflow_state` en el perfil del agente.
+    step: dict[str, Any] = {}
+    try:
+        from fast_mcp.composition import workflow_tool_runner
+
+        state = workflow_tool_runner("workflow_state")(
+            project_id=ctx.project_id, view="light"
+        )
+        if isinstance(state, dict) and not state.get("error"):
+            step = {
+                "position": str(state.get("current_position") or ""),
+                "execution": str(state.get("execution_type") or ""),
+                "required_fields": list(state.get("required_fields") or []),
+                "next_action": state.get("next_action") or {},
+                "gates": list(state.get("available_gates") or []),
+            }
+    except Exception as exc:  # noqa: BLE001
+        missing.append(f"step: {type(exc).__name__}: {exc}")
+
+    # 5. Skills: catálogo corto; `brief(skill=…)` carga y traza (el gate
+    # `skill_intent` busca el evento, no el nombre de la tool).
+    skills: list[dict[str, Any]] = []
+    try:
+        found = handle_search_skills(ctx, query=text or query, limit=3)
+        skills = [
+            {"name": s.get("name", ""), "description": str(s.get("description") or "")[:120]}
+            for s in (found.get("skills") or [])
+        ]
+    except Exception as exc:  # noqa: BLE001
+        missing.append(f"skills: {type(exc).__name__}: {exc}")
+
+    loaded_skill: dict[str, Any] | None = None
+    skill_name = str(body.get("skill") or "").strip()
+    if skill_name:
+        loaded = handle_load_skill(ctx, name=skill_name, task_id=task_id)
+        if loaded.get("error"):
+            missing.append(f"skill: {loaded['error']}")
+        else:
+            loaded_skill = {
+                "name": loaded.get("name", skill_name),
+                "chars": loaded.get("chars", 0),
+                "content": str(loaded.get("content") or "")[:4000],
+            }
+
+    # 6. Plan vs spec (reemplaza `plan_diff` en el perfil).
+    plan: dict[str, Any] = {}
+    if session_id:
+        diff = handle_plan_diff(ctx, _payload={"session_id": session_id, "task_id": task_id})
+        if not diff.get("error"):
+            plan = {
+                "spec_id": diff.get("spec_id"),
+                "spec_status": diff.get("spec_status"),
+                "only_in_plan": (diff.get("only_in_plan") or [])[:5],
+                "only_in_spec": (diff.get("only_in_spec") or [])[:5],
+                "scope_expanded": (diff.get("scope_expanded") or [])[:5],
+                "unverified": (diff.get("unverified") or [])[:5],
+            }
+            missing.extend(diff.get("missing") or [])
 
     return {
         "type": "brief",
@@ -1084,6 +1145,10 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
         "decisions": decisions,
         "impact": impact,
         "gates": gates,
+        "step": step,
+        "skills": skills,
+        "skill": loaded_skill,
+        "plan": plan,
         "missing": missing,
         "degraded": degraded or bool(missing),
     }
@@ -1134,6 +1199,13 @@ def handle_plan_diff(ctx: MemoryContext, **kwargs: Any) -> dict:
             ):
                 spec = candidate
                 break
+    if not spec:
+        # Sprint de una sola spec: el plan puede nombrar la tarea con otro id
+        # (la spec guarda `task_context.task_id`). Usarla es más honesto que
+        # declarar "no hay spec" cuando el sprint tiene exactamente una.
+        candidates = list(service.get_specs(spring_id) or []) if spring_id else []
+        if len(candidates) == 1:
+            spec = candidates[0]
     if not spec:
         missing.append(f"spec: no hay spec para '{target or '(sin task)'}' en {spring_id or '(sin sprint)'}")
 

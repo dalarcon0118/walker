@@ -254,7 +254,7 @@ function closeBlock(rt, plan, entry, workProject) {
   return (
     `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación VERDE.${crit}${failed}${pipe}\n` +
     `Corré la suite: ${CLI} ${proj}/run_tests '{"task_id":"${task}"${sid}}' (ejecuta pytest y devuelve pass/fail) ` +
-    `o verificá los predicados con verify_predicates.`
+    `o verificá los predicados con: ${CLI} ${proj}/verify_predicates '{"task_id":"${task}"${sid}}'.`
   )
 }
 

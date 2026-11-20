@@ -55,11 +55,15 @@ def _preflight(files: list[str]) -> dict:
 
 
 def _service():
+    plan = {"task": "T-1", "acceptance": ["a"], "scope": ["a.py"],
+            "next": "verificar"}
+    spec = {"spec_id": "SPEC-001", "task_context": {"task_id": "T-1"},
+            "acceptance_criteria": ["a"], "files": ["a.py"],
+            "status": "in_progress", "predicates": {}}
     return SimpleNamespace(
-        get_session=lambda _sid: {"spring_id": "SPR-1"},
-        get_session_plan=lambda _sid: {
-            "task": "T-1", "scope": ["a.py"], "next": "verificar",
-        },
+        get_session=lambda _sid: {"spring_id": "SPR-1", "flight_plan": plan},
+        get_session_plan=lambda _sid: plan,
+        get_specs=lambda _spr: [spec],
     )
 
 
@@ -82,8 +86,10 @@ def test_brief_compone_las_tres_secciones(monkeypatch):
     assert out["decisions"][0]["supersedes"] == ["adr-viejo"]
     assert out["impact"]["callers"] == 20
     assert out["impact"]["tests"] == ["tests/test_x.py"]
-    assert out["gates"] == {"sprint": "SPR-1", "task": "T-1",
-                            "scope": ["a.py"], "next": "verificar"}
+    assert out["gates"]["sprint"] == "SPR-1"
+    assert out["gates"]["task"] == "T-1"
+    assert out["gates"]["scope"] == ["a.py"]
+    assert out["gates"]["scope_total"] == 1
     assert out["missing"] == []
     assert out["degraded"] is False
 

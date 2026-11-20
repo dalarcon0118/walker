@@ -590,6 +590,12 @@ class OrchestrationService:
         # `x-artifact` en su input_schema; el validator exige la forma y da
         # remedio. No valida "que el agente haya pensado".
         artifact_kind = str((sub_state.input_schema or {}).get("x-artifact") or "")
+        if not artifact_kind:
+            # El nodo runtime puede no traer `x-artifact` (data/workflow no se
+            # versiona). El contrato versionado es la tabla de código.
+            from fast_mcp.features.workflow.domain.artifacts import artifact_for
+
+            artifact_kind = artifact_for(state.current_node, sub_state.key)
         if artifact_kind:
             from fast_mcp.features.workflow.domain.artifacts import validate_artifact
 

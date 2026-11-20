@@ -69,9 +69,9 @@ def test_perfil_agent_no_duplica_tools_nativas(monkeypatch):
 def test_perfil_agent_conserva_el_ciclo_de_trabajo(monkeypatch):
     tools = _tools(monkeypatch, "agent")
 
-    assert {"workflow_state", "submit", "advance", "transition", "status"} <= set(tools)
-    assert {"brief", "search_skills", "load_skill"} <= set(tools)
-    assert {"run_tests", "verify_predicates", "capture"} <= set(tools)
+    assert {"submit", "advance", "transition"} <= set(tools)
+    assert {"brief", "search_memories", "submit", "transition"} <= set(tools)
+    assert {"run_tests", "capture", "implement_task", "advance"} <= set(tools)
 
 
 def test_perfil_agent_baja_la_superficie_al_menos_50_por_ciento(monkeypatch):
@@ -92,7 +92,7 @@ def test_perfil_agent_conserva_intake_y_cierre(monkeypatch):
     tools = _tools(monkeypatch, "agent")
 
     assert "implement_task" in tools
-    assert "documenting_knowledge" in tools
+    assert "capture" in tools
 
 
 def test_perfil_admin_es_superconjunto_de_agent(monkeypatch):
@@ -133,7 +133,7 @@ def test_toda_tool_con_contexto_declara_project_id(monkeypatch):
     """
     tools = _tools(monkeypatch, "agent")
 
-    for name in ("brief", "search_memories", "search_skills", "load_skill"):
+    for name in ("brief", "search_memories"):
         props = (tools[name].inputSchema or {}).get("properties") or {}
         assert "project_id" in props, f"{name} no declara project_id"
 

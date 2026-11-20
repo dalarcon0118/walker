@@ -90,6 +90,18 @@ def validate_design_brief(brief: Any) -> dict | None:
 
 _VALIDATORS = {"design_brief": validate_design_brief}
 
+#: Contrato versionado de artefactos por (nodo, sub-estado). El nodo puede
+#: declararlo con `x-artifact`, pero `data/workflow/` está gitignoreado: en un
+#: checkout limpio el nodo no lo trae y el gate quedaría inerte. Esta tabla es
+#: la fuente que SÍ viaja con el código (se consulta como fallback).
+ARTIFACT_GATES: dict[tuple[str, str], str] = {
+    ("DESIGN", "DESIGN_ANALYZE"): "design_brief",
+}
+
+
+def artifact_for(node_id: str, sub_state_key: str) -> str:
+    return ARTIFACT_GATES.get((node_id, sub_state_key), "")
+
 
 def validate_artifact(kind: str, payload: dict) -> dict | None:
     """Valida `payload[kind]` (o el payload si ya es el artefacto)."""

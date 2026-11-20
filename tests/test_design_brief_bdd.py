@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from fast_mcp.features.workflow.domain.artifacts import (
+    artifact_for,
     validate_artifact,
     validate_design_brief,
 )
@@ -87,6 +88,12 @@ def test_design_analyze_declara_el_artefacto():
     analyze = next(s for s in node["sub_states"] if s["key"] == "DESIGN_ANALYZE")
     assert analyze["input_schema"]["x-artifact"] == "design_brief"
     assert "design_brief" in analyze["input_schema"]["properties"]
+
+
+def test_el_contrato_del_gate_vive_en_codigo():
+    """`data/workflow` no se versiona: el gate no puede depender del nodo."""
+    assert artifact_for("DESIGN", "DESIGN_ANALYZE") == "design_brief"
+    assert artifact_for("DESIGN", "DESIGN_OBSERVE") == ""
 
 
 def test_prompt_de_analyze_explica_la_forma():
