@@ -416,7 +416,32 @@ importara el archivo.
 - [ ] M-09 Fallback visible: un lenguaje sin adapter no suma "0 alucinaciones";
       se reporta como no verificado con el motivo — anti-patrón: cero verde.
 
-## 15. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 15. P1.10 — El protocolo se negocia, no se adivina
+
+Medido en la traza: 7 escrituras bloqueadas por `bind` antes de que el agente
+entendiera el protocolo, y 20 bloqueos de `scope` (5 archivos distintos) en la
+misma sesión; cada bloqueo es un turno perdido y el agente tiene que
+reconstruir un `scope` de 55 entradas a mano.
+
+- [ ] `session_plan mode=set task=X` registra X como tarea activa del workflow
+      aunque no exista spec: la tarea del plan ES la tarea, no una etiqueta.
+- [ ] En la primera escritura, si el plan ya declara tarea y la sesión está
+      ligada, el plugin la declara solo (una llamada a `session_plan`),
+      verificando contra `workflow_state`; si no hay plan, el bloqueo accionable
+      sigue igual.
+- [ ] Una escritura fuera del `scope` se negocia UNA vez por archivo: el plugin
+      llama `session_plan mode=add`, invalida el cache del plan y deja pasar la
+      escritura. Si walker no responde, se bloquea con el comando manual.
+- [ ] La ampliación queda visible: evento `flight_control_scope_expanded` y
+      `scope_expanded` en `session_metrics` — anti-patrón: crecer en silencio.
+- [ ] M-04 Eventos: la negociación ocurre en el mismo hook que la escritura, no
+      en un job aparte — anti-patrón: sincronizar después.
+- [ ] M-09 Fallback visible: sin plan no hay auto-declare; sin respuesta no hay
+      auto-expand — el bloqueo explica qué hacer.
+- [ ] M-06 Extensibilidad: `session_plan` es el único punto que cambia el plan
+      (CLI y plugin usan el mismo), sin caminos paralelos.
+
+## 16. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -430,7 +455,7 @@ importara el archivo.
 
 ---
 
-## 16. failure_scenarios
+## 17. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -452,13 +477,14 @@ importara el archivo.
   "Dos agentes/sesiones a la vez y la captura toma 'la única sesión activa' → 13 nodos con la sesión del harness y la tarea de acá → causa: adivinar la sesión cuando la tarea no la declara → mitigación: solo la sesión que declara la tarea en su plan o la de la spec; si no, captura fallida visible → detección: test_no_usa_una_sesion_que_no_declara_la_tarea",
   "El harness apunta a un proyecto fijo (game_reset) y el plugin resuelve otro desde el cwd → 7 de 29 modos fallan por el entorno y la suite depende de datos del usuario → causa: id y ruta absoluta hardcodeados → mitigación: fixture propio registrado con _/prepare + HARNESS_PROJECT, y rutas derivadas del layout → detección: suite.mjs sin argumentos (29/29) y test de dispatch de Fase 1 en el CLI",
   "run_tests y verify_engine buscan project.json en <repo>/data y caen a pytest → un proyecto con vitest ejecuta python3 -m pytest y nunca certifica (gate de cierre infinito) → causa: ruta del manifiesto desactualizada respecto del layout .cognitive + default silencioso → mitigación: resolver por ProjectService.resolve_paths, runner declarado y TestRunnerUnavailable sin declaración → detección: tests/test_run_tests_framework_bdd.py (vitest/go/pytest y sin declaración)",
-  "El detector de imports solo entiende Python y coupling usa prefijos hardcodeados → en un repo JS los alias son alucinaciones falsas y Ca=0 aunque haya importadores; en Go/Rust el resultado es un cero que parece dato → causa: resolución de imports sin adapter por lenguaje → mitigación: lang_imports + status/not_checked y agregado que separa verificados de no verificados → detección: tests/test_language_imports_bdd.py (JS relativos/alias, Go/Rust not_checked, Ca por resolución)"
+  "El detector de imports solo entiende Python y coupling usa prefijos hardcodeados → en un repo JS los alias son alucinaciones falsas y Ca=0 aunque haya importadores; en Go/Rust el resultado es un cero que parece dato → causa: resolución de imports sin adapter por lenguaje → mitigación: lang_imports + status/not_checked y agregado que separa verificados de no verificados → detección: tests/test_language_imports_bdd.py (JS relativos/alias, Go/Rust not_checked, Ca por resolución)",
+  "El gate de intake repite el bloqueo aunque el plan ya declare la tarea, y el de scope bloquea cada intento hasta que el agente reescriba el scope completo → 7 + 20 bloqueos en una sesión, cada uno un turno perdido → causa: la declaración y la ampliación vivían solo del lado del agente → mitigación: auto-declare desde el plan y una negociación por archivo con session_plan mode=add, verificada contra workflow_state → detección: harness modes autodeclare y scope"
 ]
 ```
 
 ---
 
-## 17. Criterios de aceptación
+## 18. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -500,10 +526,13 @@ importara el archivo.
 17. P1.9: un import relativo JS inexistente es alucinación y un alias es
     `not_checked`; un lenguaje sin resolver nunca aparece como "0
     alucinaciones", y `coupling` reporta `ca_status` en vez de un cero mudo.
+18. P1.10: una sesión con plan declara y escribe sin `implement_task`; una
+    escritura fuera de alcance se agrega al plan en la misma llamada (una sola
+    vez por archivo) y queda trazada.
 
 ---
 
-## 18. Riesgos y compatibilidad
+## 19. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -517,7 +546,7 @@ importara el archivo.
 
 ---
 
-## 19. Tests
+## 20. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -554,4 +583,8 @@ importara el archivo.
   y `test_pass` con error accionable (P1.8).
 - `tests/test_language_imports_bdd.py`: adapter local/externo por lenguaje,
   relativos/alias JS, agregado checked/not_checked y Ca por resolución (P1.9).
+- `gate.test.mjs` modos `autodeclare` (plan→tarea activa sin implement_task) y
+  `scope` (negociación por archivo + plan ampliado) (P1.10).
+- `tests/test_task_context_advance_bdd.py`: `session_plan` registra la tarea
+  aunque no tenga spec (P1.10).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

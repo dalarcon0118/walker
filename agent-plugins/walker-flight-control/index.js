@@ -774,6 +774,7 @@ async function runSetup(ctx) {
           hydrated: false,
           statePersisted: false,
           scopeDenied: new Set(),
+          scopeExpanded: new Set(),
           metricsSent: false,
           closeNudged: false,
           touched: new Set(),
@@ -1089,6 +1090,7 @@ async function runSetup(ctx) {
                 touched_count: entry.touched.size,
                 touched: Array.from(entry.touched).slice(0, 20),
                 scope_denials: Array.from(entry.scopeDenied || []).slice(0, 10),
+                scope_expanded: Array.from(entry.scopeExpanded || []).slice(0, 10),
                 verified: Boolean(entry.verified),
                 verified_at: entry.verifiedAt || "",
                 dirty_since: entry.dirtySince || "",
@@ -1204,6 +1206,10 @@ async function runSetup(ctx) {
             const key = String(callCtx?.sessionID || rt.sessionId || "global")
 
             if (isCli) {
+              // El plan cambió por CLI: el cache de `planFor` (10s) deja de
+              // valer. Sin esto, el auto-declare leía el plan viejo y seguía
+              // bloqueando una escritura que el plan ya declaraba.
+              if (/\bsession_plan\b/.test(cmd)) planCache.delete(key)
               const step = String(cmd).match(/(?:^|\s)(?:\S+\/)?(submit|transition)(?=\s|$)/)
               if (step) {
                 const e = sessionOf(key)
@@ -1514,6 +1520,45 @@ async function runSetup(ctx) {
                   )
                 }
                 if (!isDeclared(sid)) {
+                  // P1.10: si el PLAN ya declara la tarea, se declara sola. El
+                  // gate sigue existiendo para el caso "no hay plan": ahí el
+                  // agente debe decir qué está haciendo. Medido: 7 escrituras
+                  // bloqueadas por no repetir una tarea que el plan ya tenía.
+                  const planned = String((planFor(sid) || {}).task || "").trim()
+                  let auto = false
+                  if (planned) {
+                    try {
+                      const res = run(
+                        "session_plan",
+                        {
+                          session_id: sid,
+                          project_id: rt.projectId,
+                          mode: "set",
+                          task: planned,
+                        },
+                        rt.projectId,
+                        HOOK_TIMEOUT_MS
+                      )
+                      const data = res?.data || res
+                      declCache.delete(sid || "global")
+                      if (data && data.ok !== false && isDeclared(sid)) {
+                        auto = true
+                        rt.activeTask = rt.activeTask || { taskId: planned, files: [] }
+                        tracePush({
+                          event_type: "flight_control_autodeclared",
+                          source: "agent_hook",
+                          session_id: sid,
+                          data: { tool: name, task: planned, from: "plan" },
+                        })
+                      }
+                    } catch (err) {
+                      // El intento falla abierto: queda el bloqueo accionable.
+                      degrade(null, "auto-declare falló", err)
+                    }
+                  }
+                  if (auto) {
+                    // declarada: la escritura sigue
+                  } else {
                   const path = relPath(input?.path || input?.filePath || "", rt)
                   const slug = String(rt.sessionGoal || path || "tarea")
                     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "tarea"
@@ -1540,6 +1585,7 @@ async function runSetup(ctx) {
 ` +
                       `Después repetí exactamente la misma herramienta: el bloqueo se libera solo.`
                   )
+                  }
                 }
               }
               // ── Gate de DESVÍO: escritura fuera del `scope` del plan ──
@@ -1547,27 +1593,67 @@ async function runSetup(ctx) {
                 const target = relPath(input?.path || input?.filePath || "", rt)
                 const scope = (planFor(sid).scope || []).map(String).filter(Boolean)
                 if (scope.length && target && !inScope(target, scope)) {
-                  sessionOf(sid).scopeDenied.add(target)
-                  tracePush({
-                    event_type: "flight_control_denied",
-                    source: "agent_hook",
-                    session_id: sid,
-                    data: { tool: name, gate: "scope", file: target, scope },
-                  })
-                  const newScope = Array.from(new Set([...scope, target]))
-                  throw new Error(
-                    `[WALKER] Escritura fuera de alcance: ${target}
+                  const entryNow = sessionOf(sid)
+                  const already = entryNow.scopeExpanded.has(target)
+                  let expanded = already
+                  if (!already) {
+                    // P1.10: la negociación es UNA llamada que hace el plugin,
+                    // una vez por archivo. Antes el agente recibía un bloqueo y
+                    // tenía que reconstruir el `scope` completo (55 entradas) a
+                    // mano; medido: 20 bloqueos de scope y 5 ampliaciones en la
+                    // misma sesión. Queda trazado como desvío, no silencioso.
+                    try {
+                      const res = run(
+                        "session_plan",
+                        {
+                          session_id: sid,
+                          project_id: rt.projectId,
+                          mode: "add",
+                          scope: [target],
+                        },
+                        rt.projectId,
+                        HOOK_TIMEOUT_MS
+                      )
+                      const data = res?.data || res
+                      if (data && data.ok !== false) {
+                        expanded = true
+                        entryNow.scopeExpanded.add(target)
+                        planCache.delete(sid) // el plan cambió: no leer cache
+                        state.fetchedAt = 0
+                        tracePush({
+                          event_type: "flight_control_scope_expanded",
+                          source: "agent_hook",
+                          session_id: sid,
+                          data: { tool: name, file: target, throughput: "auto" },
+                        })
+                      }
+                    } catch (err) {
+                      degrade(null, "scope auto-expand falló", err)
+                    }
+                  }
+                  if (!expanded) {
+                    entryNow.scopeDenied.add(target)
+                    tracePush({
+                      event_type: "flight_control_denied",
+                      source: "agent_hook",
+                      session_id: sid,
+                      data: { tool: name, gate: "scope", file: target, scope },
+                    })
+                    const newScope = Array.from(new Set([...scope, target]))
+                    throw new Error(
+                      `[WALKER] No se pudo ampliar el alcance para ${target} (walker no respondió al plan).
 ` +
-                      `Alcance declarado: ${scope.slice(0, 5).join(", ")}${scope.length > 5 ? " …" : ""}.
+                        `Alcance declarado: ${scope.slice(0, 5).join(", ")}${scope.length > 5 ? " …" : ""}.
 ` +
-                      `Es una regla del plan de vuelo, no un bug. Si el archivo corresponde, ampliá el alcance y repetí:
+                        `Ampliá el alcance y repetí:
 ` +
-                      `  ${CLI} ${rt.projectId}/session_plan '${JSON.stringify({
-                        session_id: sid,
-                        mode: "set",
-                        scope: newScope,
-                      })}'`
-                  )
+                        `  ${CLI} ${rt.projectId}/session_plan '${JSON.stringify({
+                          session_id: sid,
+                          mode: "set",
+                          scope: newScope,
+                        })}'`
+                    )
+                  }
                 }
               }
 

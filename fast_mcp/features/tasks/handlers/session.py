@@ -587,9 +587,12 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # escribía con la identidad de otra (la última `in_progress` del sprint).
     payload: dict[str, Any] = {"plan": plan}
     if patch.get("task"):
-        link = link_task_to_spec(service, session_id, str(patch["task"]))
-        if link.get("linked"):
-            _di.record_task(ctx.chain_dir, str(patch["task"]))
+        task = str(patch["task"])
+        link = link_task_to_spec(service, session_id, task)
+        # La tarea del plan ES la tarea activa del workflow, haya spec o no:
+        # sin esto el agente declara en el plan y el gate de intake sigue
+        # bloqueando (medido: 7 escrituras bloqueadas antes de declarar).
+        payload["task_recorded"] = bool(_di.record_task(ctx.chain_dir, task))
         payload["task_link"] = link
     return TaskResult.success(payload)
 

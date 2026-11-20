@@ -116,7 +116,12 @@ def test_session_plan_ancla_la_spec_de_la_tarea_nueva(svc):
     assert resolved["spec_id"] == "SPEC-002"
 
 
-def test_session_plan_con_tarea_inexistente_no_inventa_spec(svc):
+def test_session_plan_con_tarea_inexistente_no_inventa_spec_pero_la_registra(svc):
+    """La tarea activa es la del plan, tenga spec o no.
+
+    Sin esto el agente declara en el plan y el gate de intake sigue bloqueando
+    (medido: 7 escrituras bloqueadas por una tarea que el plan ya declaraba).
+    """
     out = session_plan(
         _ctx(),
         {"session_id": "S-1", "mode": "set", "task": "TAREA-QUE-NO-EXISTE"},
@@ -126,7 +131,8 @@ def test_session_plan_con_tarea_inexistente_no_inventa_spec(svc):
     assert out.data["plan"]["task"] == "TAREA-QUE-NO-EXISTE"
     assert out.data["task_link"]["linked"] == ""
     assert "TAREA-QUE-NO-EXISTE" in out.data["task_link"]["reason"]
-    assert svc.recorded == [], "sin spec no se avanza el estado del workflow"
+    assert out.data["task_recorded"] is True
+    assert svc.recorded == ["TAREA-QUE-NO-EXISTE"], "la tarea del plan es la activa"
 
 
 def test_session_plan_sin_cambio_de_tarea_no_toca_specs(svc):

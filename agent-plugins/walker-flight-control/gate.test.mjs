@@ -3,6 +3,7 @@
 //
 // El gate tiene DOS fases: (1) sesión ligada a un sprint (session_bind), y
 // (2) tarea declarada (implement_task). Cada modo falla una pieza distinta.
+import { execFileSync } from "node:child_process"
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -427,6 +428,41 @@ if (mode === "degraded") {
   process.exit(okPlan && okBaseline && noAdr && okDegraded ? 0 : 1)
 }
 
+if (mode === "autodeclare") {
+  const event = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "arreglar" }] }],
+  }
+  await captured.context(event)
+  await call("shell", {
+    command: cli("session_bind", {
+      mode: "new",
+      objective: "Auto-declare. Debe declarar desde el plan. Sin romper los tests.",
+    }),
+  })
+  // El plan declara la tarea (lo normal cuando el agente usa session_plan).
+  await call("shell", {
+    command: cli("session_plan", { mode: "set", task: "declared-by-plan" }),
+  })
+  const out = {}
+  out["edit sin implement_task"] = await call("edit", { path: "a.txt" })
+  const st = JSON.parse(
+    execFileSync(REAL_CLI, [`${PROJECT}/workflow_state`, "{}"], { encoding: "utf8" })
+  )
+  out["task en workflow"] = String(st.task_id || "") === "declared-by-plan" ? "SI" : `NO(${st.task_id})`
+  const expected = { "edit sin implement_task": "PERMITE", "task en workflow": "SI" }
+  let failed = 0
+  for (const [k, v] of Object.entries(out)) {
+    const ok = v === expected[k]
+    if (!ok) failed++
+    console.log(`${ok ? "ok  " : "FAIL"}  ${k.padEnd(22)} -> ${v} (esperado ${expected[k]})`)
+  }
+  console.log(`mode=autodeclare fail=${failed}`)
+  if (typeof dispose === "function") dispose()
+  process.exit(failed ? 1 : 0)
+}
+
 if (mode === "bind") {
   const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "quiero arreglar el login" }] }] }
   await captured.context(event)
@@ -633,16 +669,24 @@ if (mode === "scope") {
   })
   const out = {}
   out["edit en alcance"] = await call("edit", { path: "allowed.py" })
+  // P1.10: el gate NEGOCIA (session_plan mode=add) en vez de bloquear y
+  // esperar que el agente reconstruya el scope completo. El desvío queda
+  // trazado (`flight_control_scope_expanded`).
   out["edit fuera"] = await call("edit", { path: "otro/x.txt" })
-  out["ampliar alcance"] = await call("shell", {
-    command: cli("session_plan", { mode: "set", scope: ["allowed.py", "otro/x.txt"] }),
-  })
-  out["edit tras ampliar"] = await call("edit", { path: "otro/x.txt" })
+  out["edit fuera otra vez"] = await call("edit", { path: "otro/x.txt" })
+  const plan = JSON.parse(
+    execFileSync(REAL_CLI, [
+      `${PROJECT}/session_plan`,
+      JSON.stringify({ session_id: SID, mode: "get" }),
+    ], { encoding: "utf8" })
+  )
+  const scope = (plan?.data?.plan?.scope) || []
+  out["plan ampliado"] = scope.some((f) => String(f).endsWith("otro/x.txt")) ? "SI" : "NO"
   const expected = {
     "edit en alcance": "PERMITE",
-    "edit fuera": "BLOQUEA",
-    "ampliar alcance": "PERMITE",
-    "edit tras ampliar": "PERMITE",
+    "edit fuera": "PERMITE",
+    "edit fuera otra vez": "PERMITE",
+    "plan ampliado": "SI",
   }
   let failed = 0
   for (const [k, v] of Object.entries(out)) {
