@@ -36,7 +36,13 @@ class WorkflowEvent:
     def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
+            # El evento tipado lo emite el MOTOR; el default del TraceGraph
+            # (`walker_task`) lo haría pasar por una tool.
+            "source": "workflow",
             "payload": dict(self.payload),
+            # `data` es la clave que persiste el TraceGraph (push_event). Sin
+            # esto el payload del evento se perdía al trazar.
+            "data": dict(self.payload),
             "timestamp": self.timestamp,
             "task_id": self.task_id,
             "session_id": self.session_id,

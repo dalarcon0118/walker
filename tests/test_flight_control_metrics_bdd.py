@@ -132,3 +132,21 @@ def test_el_detalle_marca_una_ignorada_inconsistente():
     assert out["suggestions"]["ignored"] == 2
     assert detail[0]["wrote"] is True and detail[0]["reason"] == ""
     assert detail[1]["reason"].startswith("sin accion")
+
+
+def test_side_effects_sin_efecto_se_cuentan():
+    """P1.18: el efecto que no se aplicó queda en el trace y el reporte lo ve,
+    sin depender de que el agente haya mirado la respuesta del submit."""
+    events = [
+        _ev("side_effect_skipped", type="transform_spec", reason="sin sprint"),
+        _ev("side_effect_skipped", type="transform_spec", reason="sin spec_id"),
+        _ev("side_effect_failed", type="sprint_status", error="boom"),
+    ]
+
+    out = metrics.summarize(events)
+
+    assert out["side_effects"] == {
+        "skipped": 2,
+        "failed": 1,
+        "by": {"transform_spec": 2},
+    }

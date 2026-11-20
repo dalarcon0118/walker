@@ -296,6 +296,39 @@ def merge_action_fields(state: WorkflowState, sub_key: str, fields: dict[str, An
     return {**stored_fields, **(fields or {})}
 
 
+def _trace_effect_notes(
+    tracer: Any, chain_dir: str, ctx: Any, state: Any, notes: list[dict[str, str]]
+) -> None:
+    """Un evento por efecto que no se aplicó (visible en el TraceGraph).
+
+    El agente ve las notas en la respuesta del submit; esto las hace medibles
+    sin depender de que las mire (el reporte de flight control las cuenta).
+    """
+    for note in notes:
+        skipped = "skipped" in note
+        payload = {
+            "type": note.get("type", ""),
+            "node": str(getattr(state, "current_node", "") or ""),
+            "sub_state": str(getattr(state, "current_sub_state", "") or ""),
+        }
+        if skipped:
+            payload["reason"] = note["skipped"]
+        else:
+            payload["error"] = note.get("error", "")
+        try:
+            tracer.trace_event(
+                WorkflowEvent.of(
+                    "side_effect_skipped" if skipped else "side_effect_failed",
+                    payload,
+                    task_id=str(getattr(ctx, "task_id", "") or ""),
+                    session_id=str(getattr(ctx, "session_id", "") or ""),
+                    chain_dir=chain_dir,
+                )
+            )
+        except Exception:  # noqa: BLE001 — trazar nunca frena el workflow
+            logger.debug("orchestrator: no se pudo trazar %s", payload)
+
+
 def _side_effect_notes(eff: Any) -> list[dict[str, str]]:
     """Skips CON MOTIVO (y errores) de los side effects, para el caller.
 
@@ -624,8 +657,13 @@ class OrchestrationService:
         if not self._save_state(state):
             return {"ok": False, "error": "Failed to persist state"}
 
-        # 9. Trace submit
+        # 9. Trace submit (el efecto sin efecto se traza DESPUÉS de persistir:
+        # un submit que no guarda no debe dejar eventos de lo que no pasó).
         self._trace_submit(ctx, state, fields)
+        if effect_notes:
+            _trace_effect_notes(
+                self._bundle.tracer, self._bundle.chain_dir, ctx, state, effect_notes
+            )
 
         result = {
             "ok": True,
@@ -883,6 +921,10 @@ class OrchestrationService:
         if not self._save_state(new_state):
             return {"ok": False, "error": "Failed to persist state"}
         self._trace_submit(ctx, new_state, fields)
+        if effect_notes:
+            _trace_effect_notes(
+                self._bundle.tracer, self._bundle.chain_dir, ctx, new_state, effect_notes
+            )
 
         result = {
             "ok": True,

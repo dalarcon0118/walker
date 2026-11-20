@@ -421,3 +421,53 @@ def test_remove_knowledge_borra_por_task_id(monkeypatch):
 
     assert out["ok"] is True
     assert called == {"key": "task_id", "value": "SPEC-002"}
+
+
+def test_el_evento_del_efecto_llega_al_tracegrafo(tmp_path):
+    """P1.18: WorkflowEvent → CognitiveTracer → TraceGraph.
+
+    El payload tiene que llegar como `data` (no como `payload`) y la sesión
+    tiene que quedar en metadata: sin eso el reporte no puede contar el efecto
+    ni correlacionarlo con la sesión que lo sufrió.
+    """
+    import json
+
+    from fast_mcp.features.event_tracing.application.services.trace_factory import (
+        build_trace_service,
+    )
+    from fast_mcp.features.event_tracing.infrastructure.cognitive_tracer import (
+        CognitiveTracer,
+    )
+    from fast_mcp.features.workflow.domain.events import WorkflowEvent
+
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "project.json").write_text(
+        json.dumps(
+            {
+                "project": {
+                    "meta": {"project_id": "probe"},
+                    "location": {"repo_path": str(tmp_path)},
+                }
+            }
+        )
+    )
+    service = build_trace_service(str(tmp_path))
+
+    CognitiveTracer(service).trace_event(
+        WorkflowEvent.of(
+            "side_effect_skipped",
+            {"type": "transform_spec", "reason": "sin sprint", "node": "SPRINT"},
+            task_id="T-1",
+            session_id="S-1",
+            chain_dir=str(tmp_path),
+        )
+    )
+
+    events = service.load_traces(str(tmp_path))
+    assert len(events) == 1
+    event = events[0]
+    assert event.event_type == "side_effect_skipped"
+    assert event.data["type"] == "transform_spec"
+    assert event.data["reason"] == "sin sprint"
+    assert event.task_id == "T-1"
+    assert (event.metadata or {}).get("session_id") == "S-1"

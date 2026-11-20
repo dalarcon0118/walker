@@ -617,7 +617,32 @@ descartaba cuando `ok` era verdadero.
 - [ ] M-06 Extensibilidad: la clasificación vive en un helper
       (`_side_effect_notes`) — anti-patrón: cada efecto inventa su forma.
 
-## 23. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 23. P1.18 — El efecto que no se aplicó queda en el TRACE
+
+P1.17 hizo visible el skip en la respuesta del submit, pero seguía dependiendo
+de que el agente la mire: el reporte de flight control no podía contar cuántas
+veces el motor no aplicó un efecto, ni en qué nodo, ni por qué.
+
+- [ ] Cada nota de `_side_effect_notes` se traza como evento propio:
+      `side_effect_skipped` (skip con motivo) o `side_effect_failed` (error de
+      un efecto opcional), con `type`, `node`, `sub_state` y `reason`/`error`.
+- [ ] El evento lleva `task_id`, `session_id` y `chain_dir`: sin ellos no se
+      puede correlacionar con la sesión que lo sufrió.
+- [ ] `WorkflowEvent.to_dict` publica el payload como `data` (la clave que
+      persiste el TraceGraph) y `source=workflow` (el default `walker_task` lo
+      haría pasar por una tool).
+- [ ] Trazar nunca frena el workflow: el error del tracer se ignora con debug.
+- [ ] `scripts/flight_control_metrics.py` cuenta skips/fallos y los agrupa por
+      tipo de efecto; el reporte los imprime.
+- [ ] M-04 Eventos como contrato: el nombre y el payload del evento son el
+      contrato de la métrica — anti-patrón: parsear logs.
+- [ ] M-09 Fallback visible: un efecto que no se aplicó no puede existir solo
+      en la respuesta de un submit que nadie leyó — anti-patrón: log y olvido.
+- [ ] M-01 Integridad: el evento se emite después de PERSISTIR el submit, no
+      dentro de la ejecución del efecto — anti-patrón: trazar un submit que no
+      guardó estado.
+
+## 24. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -631,7 +656,7 @@ descartaba cuando `ok` era verdadero.
 
 ---
 
-## 24. failure_scenarios
+## 25. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -662,13 +687,14 @@ descartaba cuando `ok` era verdadero.
   "initialize_knowledge_base devuelve ok:true con el error (o skipped) adentro → el workflow cree que la memoria está sembrada y la falta aparece en las consultas o nunca → causa: el bootstrap se declaró fail-open sin distinguir best-effort de contrato incumplido → mitigación: TaskResult.failure con el motivo (sin CKG, sin nodo, excepción) → detección: tests de initialize_knowledge_base (caído, sin guardar, éxito)",
   "prepare arma <repo>/.cognitive/projects/<pid>/data a mano → con project.cognitive_dir/data_dir configurados crea un layout que resolve_paths no encuentra y el proyecto queda inaccesible por API → causa: literales en vez del SSOT de rutas → mitigación: paths.compose_project_layout → detección: test_prepare_usa_el_layout_configurado_y_no_lo_hardcodea",
   "El baseline de escritura se crea en el primer session_context y no al abrir la sesión → lo escrito antes (subagente, sed -i, git apply) cae dentro del baseline y el cierre pasa limpio → causa: el arranque de la sesión no fijaba evidencia → mitigación: seed_session_baseline en session_open/session_bind, idempotente y sin refresco → detección: test_session_open_fija_el_baseline_antes_del_primer_context",
-  "transform_spec devuelve ok:true+skipped sin motivo (sin servicio, sin sprint, sin spec_id, update_spec→None) y results se descarta cuando ok es verdadero → la spec no se mueve y el submit sigue como si nada (medido 2026-11-18) → causa: skip indistinguible de 'nada que hacer' y motivo no propagado → mitigación: wiring como error, skips con reason/missing, update_spec→None como error y side_effects en el resultado del submit → detección: tests de transform_spec y del orquestador (_side_effect_notes)"
+  "transform_spec devuelve ok:true+skipped sin motivo (sin servicio, sin sprint, sin spec_id, update_spec→None) y results se descarta cuando ok es verdadero → la spec no se mueve y el submit sigue como si nada (medido 2026-11-18) → causa: skip indistinguible de 'nada que hacer' y motivo no propagado → mitigación: wiring como error, skips con reason/missing, update_spec→None como error y side_effects en el resultado del submit → detección: tests de transform_spec y del orquestador (_side_effect_notes)",
+  "El motivo del efecto no aplicado vive solo en la respuesta del submit → si el agente no la lee, nadie sabe que el motor no movió la spec, y el reporte no puede contarlo → causa: la visibilidad dependía de un consumidor humano/LLM → mitigación: un evento por nota (side_effect_skipped/failed) con type/node/reason, task y session, y agregado en el reporte → detección: test del tracer contra el TraceGraph y test del reporte"
 ]
 ```
 
 ---
 
-## 25. Criterios de aceptación
+## 26. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -728,10 +754,12 @@ descartaba cuando `ok` era verdadero.
     o vincular la sesión fija el baseline y no lo refresca.
 25. P1.17: un side effect que no se aplicó (spec que no se movió, sprint sin
     servicio) aparece en el resultado del submit con su motivo, o falla.
+26. P1.18: ese skip es además un evento del trace (`side_effect_skipped`) y el
+    reporte lo cuenta por tipo de efecto, sin depender de la respuesta.
 
 ---
 
-## 26. Riesgos y compatibilidad
+## 27. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -745,7 +773,7 @@ descartaba cuando `ok` era verdadero.
 
 ---
 
-## 27. Tests
+## 28. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -802,7 +830,12 @@ descartaba cuando `ok` era verdadero.
   sin sprint (skip con motivo), sin `spec_id` (skip con motivo) y
   `update_spec -> None` (error) (P1.17).
 - `tests/test_fast_mcp_workflow_application_bdd.py`: `side_effects` en el
-  resultado del submit y clasificación de `_side_effect_notes` (P1.17).
+  resultado del submit, clasificación de `_side_effect_notes` y el evento
+  trazado con task/session (P1.17/P1.18).
+- `tests/test_side_effects_graph_bdd.py`: `WorkflowEvent → CognitiveTracer →
+  TraceGraph` con `data`/`task_id`/`session_id` (P1.18).
+- `tests/test_flight_control_metrics_bdd.py`: conteo de `side_effect_skipped`
+  y `side_effect_failed` por tipo (P1.18).
 - `gate.test.mjs` modo `injectsuggest`: prueba las DOS direcciones — escribir
   deja `followed=true` por `edit` y una sesión que sólo recibe el plan y no
   actúa emite `workflow_suggestion_ignored` con `reason` (P1.14).

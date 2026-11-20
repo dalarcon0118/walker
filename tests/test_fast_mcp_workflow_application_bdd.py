@@ -60,12 +60,14 @@ class MockWorkflowStore(IWorkflowStore):
 class MockTracer(ITracer):
     """In-memory mock of ITracer."""
     events: list = field(default_factory=list)
+    raw: list = field(default_factory=list)
 
     def trace(self, chain_dir, event_type, data=None, task_id=None, session_id=None):
         self.events.append(("trace", event_type))
 
     def trace_event(self, event):
         self.events.append(("event", event.event_type))
+        self.raw.append(event)
 
     def trace_submit(self, chain_dir, sub_state, decision, evidence, task_id=None):
         self.events.append(("submit", sub_state))
@@ -214,7 +216,7 @@ class TestOrchestratorSubmit:
 
         g = _make_graph()
         s = WorkflowState(current_node="START", current_sub_state="INIT")
-        bundle, store, _ = _make_bundle(graph=g, state=s)
+        bundle, store, tracer = _make_bundle(graph=g, state=s)
 
         class SkippingEffects:
             def apply_side_effects(self, *a, **k):  # noqa: ARG002
@@ -239,6 +241,17 @@ class TestOrchestratorSubmit:
         assert out["side_effects"] == [
             {"type": "transform_spec", "skipped": "sin sprint resuelto"}
         ]
+
+        # P1.18: además de la respuesta, queda en el TRACE (medible sin que el
+        # agente mire el submit). El idempotente no se traza (no es decisión).
+        traced = [e for e in tracer.raw if e.event_type == "side_effect_skipped"]
+        assert len(traced) == 1
+        ev = traced[0]
+        assert ev.payload["type"] == "transform_spec"
+        assert ev.payload["reason"] == "sin sprint resuelto"
+        assert ev.payload["node"] == "START" and ev.payload["sub_state"] == "INIT"
+        assert ev.task_id == "T1" and ev.session_id == "S1"
+        assert not [e for e in tracer.raw if e.event_type == "side_effect_failed"]
 
     def test_side_effect_notes_ignora_skips_sin_motivo(self):
         from fast_mcp.features.workflow.application.orchestrator import _side_effect_notes

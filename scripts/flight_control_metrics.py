@@ -62,6 +62,7 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
     autodeclared = 0
     close_blocked = 0
     verifications = {"green": 0, "red": 0}
+    side_effects = {"skipped": 0, "failed": 0, "by": {}}
     write_evidence = {"events": 0, "files": set()}
     suggestions = {"followed": 0, "ignored": 0, "by": {}, "ignored_detail": []}
 
@@ -107,6 +108,12 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
                 verifications["green"] += 1
             else:
                 verifications["red"] += 1
+        if kind == "side_effect_skipped":
+            side_effects["skipped"] += 1
+            by = str(data.get("type") or "?")
+            side_effects["by"][by] = side_effects["by"].get(by, 0) + 1
+        elif kind == "side_effect_failed":
+            side_effects["failed"] += 1
         if kind == "session_state" and data.get("touched_source") == "watcher":
             write_evidence["events"] += 1
             write_evidence["files"].update(str(f) for f in (data.get("touched") or []))
@@ -124,6 +131,7 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
         "scope_expanded": {"events": expanded_events, "files": sorted(expanded_files)},
         "close_blocked": close_blocked,
         "verifications": verifications,
+        "side_effects": side_effects,
         "write_evidence": {
             "events": write_evidence["events"],
             "files": len(write_evidence["files"]),
@@ -178,6 +186,10 @@ def _print_table(summary: dict[str, Any]) -> None:
     print(f"close_blocked: {summary['close_blocked']}")
     v = summary["verifications"]
     print(f"verificaciones por tool: verdes={v['green']} rojas={v['red']}")
+    se = summary["side_effects"]
+    if se["skipped"] or se["failed"]:
+        by = ",".join(f"{k}={v}" for k, v in sorted(se["by"].items())) or "-"
+        print(f"side effects sin efecto: skips={se['skipped']} ({by}) fallos={se['failed']}")
     w = summary["write_evidence"]
     print(f"escritura sin hook: {w['events']} evento(s), {w['files']} archivo(s)")
     s = summary["suggestions"]
