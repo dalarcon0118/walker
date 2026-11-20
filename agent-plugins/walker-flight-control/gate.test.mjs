@@ -14,11 +14,29 @@ const dir = process.argv[2] || process.env.HARNESS_PROJECT_DIR || process.cwd()
 const PROJECT = process.env.HARNESS_PROJECT || "fixture"
 const mode = process.argv[3] || "normal"
 const TAPPED = new Set(["persist", "shellmut", "idem", "evict"])
+// Modos que comparten proyecto pero NO deben compartir sesión: el flight state
+// persistido (wrote/verified) de un modo se filtraba al siguiente y `closeshell`
+// pasaba sin nudgar por heredar el verde de `closeok`. Cada corrida usa su id.
+const OWN_SESSION = new Set([
+  ...TAPPED,
+  "closegate",
+  "closeok",
+  "closefail",
+  "closeshell",
+  "closerounds",
+  "gateoff",
+  "extverify",
+  "reloadverified",
+  "reloadedit",
+  "reloaddirty",
+  "reloadclosedirty",
+  "reloadcloseverified",
+])
 const SID =
   process.env.HARNESS_SESSION ||
   (mode === "normal"
     ? `harness-normal-${Date.now()}`
-    : TAPPED.has(mode)
+    : OWN_SESSION.has(mode)
       ? `harness-${mode}-${Date.now()}`
       : "harness-1")
 // El repo bajo prueba se deriva de la ubicación de este archivo
@@ -63,7 +81,11 @@ if (mode === "baddeclare") {
     "esac",
   ])
 }
-if (mode === "inject") {
+// Modos del A/B de inyección (AE-INV-10). `injectsuggest` NO es uno de ellos:
+// mide otra cosa (seguimiento del plan) y tiene su propio fixture.
+const INJECT_MODES = new Set(["inject", "injectonce", "injectmessages"])
+
+if (INJECT_MODES.has(mode) || mode === "verifycounts") {
   // Fixture determinista: el modo NO depende del CKG/CPG real del proyecto
   // (que estaba vacío y hacía fallar baseline/ADR). El scope apunta a un
   // archivo real para que `existsSync` pase; el resto lo responde el fake.
@@ -105,6 +127,10 @@ if (mode === "normal") {
   ])
 }
 if (mode === "evict") process.env.WALKER_FLIGHT_CONTROL_MAX_SESSIONS = "3"
+// Canal de inyección (AE-INV-10): el A/B del harness corre los TRES caminos
+// contra el mismo fixture. `inject` es el default (stable).
+if (mode === "injectonce") process.env.WALKER_FLIGHT_CONTROL_INJECTION = "once"
+if (mode === "injectmessages") process.env.WALKER_FLIGHT_CONTROL_INJECTION = "messages"
 if (mode === "gateprompt") {
   // Un gate `user_input` con su prompt real: el plugin debe poner la PREGUNTA
   // en el contexto del modelo, no solo recordar "complete el paso".
@@ -320,6 +346,27 @@ tools.set("run_tests", {
   name: "run_tests",
   execute: async () => ({ ok: true, data: { passed: mode !== "closefail" } }),
 })
+// SPEC-013/014: `verify_predicates` devuelve el conteo (verde o rojo). En
+// `closetai` el rojo trae su `output_tail`, que el nudge debe mostrar.
+tools.set("verify_predicates", {
+  name: "verify_predicates",
+  execute: async () =>
+    mode === "closetai"
+      ? {
+          ok: true,
+          data: {
+            all_satisfied: false,
+            passed_count: 1,
+            failed_count: 1,
+            total: 2,
+            output_tail: "E   assert 3 == 4\nFAILED tests/test_suma.py::test_suma",
+          },
+        }
+      : {
+          ok: true,
+          data: { all_satisfied: true, passed_count: 2, failed_count: 0, total: 2, results: [] },
+        },
+})
 
 const makeEditor = () => ({
   get: (n) => tools.get(n),
@@ -362,6 +409,8 @@ const closeMode =
   mode === "closeok" ||
   mode === "closefail" ||
   mode === "closeshell" ||
+  mode === "closerounds" ||
+  mode === "closetai" ||
   mode === "closecli" ||
   mode === "reloadverified" ||
   mode === "reloadedit" ||
@@ -402,11 +451,21 @@ const CLI_BIN = (mode === "normal" || mode.startsWith("reload")) ? process.env.W
 const cli = (task, payload) =>
   `cd ${WALKER} && ${CLI_BIN} ${PROJECT}/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
 
-if (mode === "inject") {
+if (INJECT_MODES.has(mode)) {
   await call("edit", { path: "x.txt" }) // fuerza el estado de sesión
   const event = { sessionID: SID, system: [], messages: [{ role: "user", content: [{ type: "text", text: "probar la inyeccion del nodo" }] }] }
   await captured.context(event)
-  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+  // El texto puede venir por `system` (stable/once) o por el último turno del
+  // usuario (messages). Se leen los dos: el modo no cambia lo que se afirma,
+  // sólo dónde viaja.
+  const eventText = (ev) =>
+    [
+      ...(ev.system || []).map((b) => b.text || ""),
+      ...(ev.messages || []).flatMap((m) =>
+        (m.content || m.parts || []).map((p) => p.text || "")
+      ),
+    ].join("\n---\n")
+  const text = eventText(event)
   const okPlan = /\[WALKER\] Plan:/.test(text)
   const okTask = /Tarea:/.test(text) && /Próximo:/.test(text)
   const noTemplate = !/Sprint Monitoring|PHASE 12/.test(text)
@@ -416,7 +475,9 @@ if (mode === "inject") {
   // decisión es otro bloque, con su propio tope (1200): medir el total
   // confundía los dos contratos.
   const blocks = (event.system || []).map((b) => b.text || "")
-  const planBlocks = blocks.filter((t) => /\[WALKER\] Plan:/.test(t))
+  // El tope de 400 es del bloque de PLAN (contrato de atención), sin importar
+  // el canal por el que viaje.
+  const planBlocks = text.split("\n---\n").filter((t) => /\[WALKER\] Plan:/.test(t))
   const okCap = planBlocks.length > 0 && planBlocks.every((t) => t.length <= 400)
   const okTotal = text.length <= 1600
   const event2 = {
@@ -425,7 +486,40 @@ if (mode === "inject") {
     messages: [{ role: "user", content: [{ type: "text", text: "seguimiento" }] }],
   }
   await captured.context(event2)
-  const stable = (event2.system || []).length === 0
+  const again = (event2.system || []).map((b) => b.text || "")
+  // Tercer request: con el contenido ya estabilizado, el prefijo DEBE repetirse
+  // byte-idéntico. Es el contrato real: un cambio de nodo cuesta un miss; los
+  // requests siguientes del mismo nodo no.
+  const event3 = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "otra vez" }] }],
+  }
+  await captured.context(event3)
+  const again2 = (event3.system || []).map((b) => b.text || "")
+  // A/B de los tres canales (AE-INV-10):
+  //   stable   -> el prefijo se repite byte-idéntico (cache hit posible)
+  //   once     -> los requests siguientes no mandan nada (previo)
+  //   messages -> el bloque va al último turno del usuario, system vacío
+  let okChannel = false
+  let channelNote = ""
+  if (mode === "injectonce") {
+    okChannel = again.length === 0 && again2.length === 0
+    channelNote = `once: system=${again.length}/${again2.length} (esperado 0/0)`
+  } else if (mode === "injectmessages") {
+    const parts = event3.messages[0].content
+    okChannel =
+      again2.length === 0 && parts.length === 2 && /\[WALKER\]/.test(parts[1].text)
+    channelNote = `messages: system=${again2.length} partes=${parts.length}`
+  } else {
+    okChannel =
+      again2.length > 0 && again2.length === again.length && again2.every((t, i) => t === again[i])
+    channelNote = `stable: mismo prefijo (${again2.length} bloques)`
+    if (!okChannel) {
+      console.log("dbg-2:", JSON.stringify(again))
+      console.log("dbg-3:", JSON.stringify(again2))
+    }
+  }
   console.log(`bloque de plan               -> ${okPlan}`)
   console.log(`tarea y proximo paso         -> ${okTask}`)
   console.log(`sin template del nodo        -> ${noTemplate}`)
@@ -433,10 +527,35 @@ if (mode === "inject") {
   console.log(`decision del CKG (L3)        -> ${okDecision}`)
   console.log(`tope 400 del plan            -> ${okCap} (${planBlocks.map((t) => t.length).join(",")})`)
   console.log(`total plan+gate <= 1600      -> ${okTotal} (${text.length})`)
-  console.log(`estable sin repetir          -> ${stable}`)
+  console.log(`canal ${mode.padEnd(14)}     -> ${okChannel} (${channelNote})`)
   console.log(text.split("\n").slice(0, 4).join(" | "))
   if (typeof dispose === "function") dispose()
-  process.exit(okPlan && okTask && noTemplate && okBaseline && okDecision && okCap && okTotal && stable ? 0 : 1)
+  process.exit(
+    okPlan && okTask && noTemplate && okBaseline && okDecision && okCap && okTotal && okChannel
+      ? 0
+      : 1
+  )
+}
+
+if (mode === "verifycounts") {
+  // SPEC-014: el bloque del plan dice CUÁNTOS predicados se verificaron.
+  // `Verif: 2/2` es el dato; sin él sólo se puede afirmar "verificado".
+  await call("edit", { path: "x.txt" })
+  await call("verify_predicates", {})
+  const event = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "verificar el trabajo" }] }],
+  }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+  const okCount = /Verif: 2\/2/.test(text)
+  const okPlan = /\[WALKER\] Plan:/.test(text)
+  console.log(`${okCount ? "ok  " : "FAIL"}  el bloque muestra 2/2 predicados`)
+  console.log(`${okPlan ? "ok  " : "FAIL"}  el bloque sigue siendo el del plan`)
+  if (!okCount) console.log(text.slice(0, 320))
+  if (typeof dispose === "function") dispose()
+  process.exit(okCount && okPlan ? 0 : 1)
 }
 
 if (mode === "degraded") {
@@ -525,12 +644,16 @@ if (mode === "gateprompt") {
     messages: [{ role: "user", content: [{ type: "text", text: "sigo esperando" }] }],
   }
   await captured.context(event2)
-  const stable = (event2.system || []).length === 0
+  // AE-INV-10: el gate es pregunta abierta, no evento de una vez. En `stable`
+  // se repite byte-idéntico (mismos bytes = prefijo cacheable); en `once` se
+  // manda una sola vez. Este modo corre el default (stable).
+  const repeat = (event2.system || []).map((b) => b.text || "")
+  const stable = repeat.length === 1 && /Gate de decisión: IMPLEMENT\.REPORT_GATE/.test(repeat[0])
   console.log(`posición del gate            -> ${okPos}`)
   console.log(`no decidir por el usuario    -> ${okNoDecide}`)
   console.log(`opciones del template        -> ${okOptions}`)
   console.log(`cómo cerrar el gate          -> ${okSubmit}`)
-  console.log(`estable sin repetir          -> ${stable}`)
+  console.log(`gate repetido idéntico       -> ${stable} (${repeat.length} bloque/s)`)
   console.log(text.split("\n").slice(-6).join(" | "))
   if (typeof dispose === "function") dispose()
   process.exit(okPos && okNoDecide && okOptions && okSubmit && stable ? 0 : 1)
@@ -626,7 +749,8 @@ if (closeMode) {
     command: cli("implement_task", {
       task_id: "close-task",
       objective: "Tarea del gate de cierre. Debe exigir verificación. Sin romper los tests.",
-      files: [],
+      files: ["x.txt"],
+      acceptance: ["la tarea cierra con verificación verde"],
     }),
   })
   if (mode !== "reloadverified" && mode !== "reloaddirty") {
@@ -638,6 +762,38 @@ if (closeMode) {
   if (mode === "closeshell") {
     // Con acceptance declarada, el shell NO debe certificar: se espera nudge.
     await call("shell", { command: "echo pytest" })
+  }
+  if (mode === "closetai") {
+    // SPEC-013: un rojo con salida. El nudge debe traer la cola del fallo y el
+    // archivo tocado, y no certificar el cierre.
+    await call("verify_predicates", {})
+  }
+  if (mode === "closerounds") {
+    // AE-INV-12: hasta CLOSE_ROUNDS-1 insiste; en la última escala al humano
+    // y después calla. Antes era un solo nudge y luego "verde" sin evidencia.
+    const counts = []
+    for (let i = 1; i <= 4; i++) {
+      pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+      await new Promise((r) => setTimeout(r, 900))
+      counts.push(nudges.length)
+    }
+    const first = (nudges[0] && nudges[0].text) || ""
+    const third = (nudges[2] && nudges[2].text) || ""
+    const checks = [
+      ["insiste en la ronda 1", counts[0] === 1],
+      ["insiste en la ronda 2", counts[1] === 2],
+      ["escala en la ronda 3", counts[2] === 3 && /Tercera ronda/.test(third)],
+      ["calla en la ronda 4", counts[3] === 3],
+      ["la primera no escalaba", /No cierres/.test(first) && !/Tercera ronda/.test(first)],
+    ]
+    let failed = 0
+    for (const [name, ok] of checks) {
+      if (!ok) failed++
+      console.log(`${ok ? "ok  " : "FAIL"}  ${name}`)
+    }
+    console.log(`rondas=${counts.join(",")}`)
+    if (typeof dispose === "function") dispose()
+    process.exit(failed ? 1 : 0)
   }
   if (mode === "extverify") {
     // P1.11: la verificación ocurre en la TOOL real, fuera del wrapper del
@@ -697,6 +853,21 @@ if (closeMode) {
     mode !== "closeclipipefail" ||
     (nudged > 0 && /pipe|WALKER_RESULT/i.test(nudges[0].text))
   const ok = (expectedNudge ? okText : nudged === 0) && okHint
+  if (mode === "closetai") {
+    const text = (nudges[0] && nudges[0].text) || ""
+    const checks = [
+      ["la cola del fallo viaja en el nudge", /assert 3 == 4/.test(text)],
+      ["el archivo tocado se nombra", /x\.txt/.test(text)],
+      ["el rojo no certifica", ok && /No cierres/.test(text)],
+    ]
+    let failed = 0
+    for (const [name, pass] of checks) {
+      if (!pass) failed++
+      console.log(`${pass ? "ok  " : "FAIL"}  ${name}`)
+    }
+    if (typeof dispose === "function") dispose()
+    process.exit(failed ? 1 : 0)
+  }
   console.log(`${ok ? "ok  " : "FAIL"} nudges=${nudged} (esperado ${expectedNudge ? 1 : 0})`)
   if (mode === "closeclipipefail") {
     console.log(`${okHint ? "ok  " : "FAIL"}  hint de pipe en el nudge`)
@@ -749,7 +920,8 @@ if (mode === "shelltmp") {
       session_id: SID,
       task_id: "tmp-task",
       objective: "Debe cerrar con verde. Sin romper los tests.",
-      files: [],
+      files: ["x.txt"],
+      acceptance: ["cierra con verde"],
     })}'`,
   })
   await call("edit", { path: "x.txt" })
@@ -941,7 +1113,16 @@ if (TAPPED.has(mode)) {
     checks.push(["firstMutation via shell", last && last.first_mutation?.via === "shell"])
     checks.push(["file del redirect", last && String(last.first_mutation?.file || "").endsWith("out.txt")])
   } else {
-    checks.push(["plan inyectado 1 vez", planInjections.filter((t) => /\[WALKER\] Plan:/.test(t)).length === 1])
+    // AE-INV-10: el plan se REPITE con los mismos bytes en cada request del
+    // mismo nodo (prefijo cacheable). Lo que no puede pasar es que cambie el
+    // texto entre requests: eso sí es reinyectar.
+    const planLines = planInjections
+      .map((t) => String(t || "").split("\n").find((l) => /\[WALKER\] Plan:/.test(l)) || "")
+      .filter(Boolean)
+    checks.push(["plan estable", planLines.length >= 1 && planLines.every((t) => t === planLines[0])])
+    if (planLines.length && !planLines.every((t) => t === planLines[0])) {
+      console.log("dbg-plan:", JSON.stringify(planLines))
+    }
     checks.push(["sin mutaciones", last && last.writes === 0])
   }
 
@@ -962,7 +1143,7 @@ const bindCmd = cli("session_bind", { mode: "new", objective: "Probar el binding
 const taskCmd = cli("implement_task", {
   task_id: "harness-task",
   objective: "Tarea del harness. Debe liberar el gate. Sin romper los tests.",
-  files: [],
+  files: ["x.txt"],
 })
 
 if (mode === "normal" || mode === "badbind" || mode === "baddeclare") {

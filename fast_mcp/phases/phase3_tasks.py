@@ -196,6 +196,33 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "properties": {
             "session_id": {"type": "string", "description": "Session identifier"},
             "outcome": {"type": "string", "description": "Resultado (succeeded|failed|interrupted|...)"},
+            "stamp": {
+                "type": "object",
+                "description": (
+                    "Sello de verificación (AE-INV-12): test|predicates|e2e|command|none. "
+                    "Sin sello el cierre queda kind=none y source=unstated (visible)."
+                ),
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["tests", "predicates", "e2e", "command", "none"],
+                    },
+                    "verified": {"type": "boolean"},
+                    "level": {"type": "string", "description": "verify_level crudo del vuelo"},
+                    "weak": {"type": "boolean", "description": "exit code no confiable (pipe)"},
+                    "criteria": {"type": "integer"},
+                    "rounds": {"type": "integer"},
+                    "at": {"type": "string"},
+                },
+            },
+            "cost_usd": {
+                "type": "number",
+                "description": "Costo acumulado del proveedor (F5.4: costo por subagente)",
+            },
+            "tokens": {
+                "type": "object",
+                "description": "Tokens acumulados {input, output, cacheRead, cacheWrite, reasoning}",
+            },
         },
         "required": ["session_id"],
     },
@@ -295,6 +322,11 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "properties": {
             "objective": {"type": "string", "description": "Expected result of the task"},
             "files": {"type": "array", "description": "Files to modify", "items": {"type": "string"}},
+            "acceptance": {
+                "type": "array",
+                "description": "Criterios de aceptación verificables (obligatorio si el objetivo no los declara)",
+                "items": {"type": "string"},
+            },
             "task_id": {"type": "string", "description": "Task identifier"},
             "session_id": {
                 "type": "string",
@@ -325,6 +357,13 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             },
             "task_id": {"type": "string", "description": "Task identifier"},
             "project_id": {"type": "string", "description": "Project identifier"},
+            "strict": {
+                "type": "boolean",
+                "description": (
+                    "P3c: si una regla (test/command) fue modificada por este cambio, "
+                    "el verde deja de contar. Default false (observe)."
+                ),
+            },
         },
     },
     "project_for_path": {

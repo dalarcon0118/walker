@@ -22,6 +22,7 @@ import { join } from "node:path"
 
 import { shellMutation as shellMutationImpl } from "./shell_mutation.mjs"
 import { briefBlock, failureBriefBlock } from "./brief_block.mjs"
+import { applyInjection, describeMessages, normalizeMode, planBlocks } from "./injection.mjs"
 
 const WALKER_ROOT = process.env.WALKER_ROOT || "/Users/davidmartinez/develop/Active-projects/walker"
 // Configurable para poder probar el camino "walker no está" sin renombrar el
@@ -61,6 +62,17 @@ const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
 // `shell` incluido: sin él el agente escribe con `echo >> archivo` y el gate
 // de `edit`/`write` no contiene nada (medido: 1/1 bypass por shell).
 const MUTATING_TOOLS = ["edit", "write", "shell"]
+
+// Canal de inyección del turno (AE-INV-10). El default deja el `system`
+// byte-idéntico mientras el nodo no cambie: es lo que permite que el proveedor
+// reutilice el prefijo. `once` reproduce el comportamiento previo (un bloque por
+// cambio de firma) y existe para comparar A/B. `messages` anexa al último turno
+// del usuario y sólo se activa con evidencia: si la forma no se reconoce, cae a
+// `system` y lo traza (`injection_fallback`).
+const INJECTION_MODE = normalizeMode(process.env.WALKER_FLIGHT_CONTROL_INJECTION)
+// Rondas de cierre sin verificación antes de pasarlo a un humano (AE-INV-12).
+// Antes era 1 (>255 `close_blocked`): insistir no verificaba, sólo cobraba.
+const CLOSE_ROUNDS = Math.max(1, Number(process.env.WALKER_FLIGHT_CONTROL_CLOSE_ROUNDS || 3))
 
 // OJO: NO hay estado module-global. `setup` corre UNA VEZ POR UBICACIÓN en el
 // mismo proceso (medido: tres setups para tres worktrees), así que una variable
@@ -204,10 +216,89 @@ function closeBlock(rt, plan, entry, workProject) {
   // plan ya declara.
   const task = plan && plan.task ? String(plan.task) : "<id>"
   const sid = entry && entry.sessionID ? `,"session_id":"${entry.sessionID}"` : ""
+  // SPEC-013: el nudge dice QUÉ falló y DÓNDE, no sólo que falta el verde. Sin
+  // la salida el agente repite el mismo comando; con la cola del error y los
+  // archivos tocados corrige sobre el fallo real. La cola se recorta: el nudge
+  // compite por atención y no debe traer el volcado completo.
+  const touched = Array.from((entry && entry.touched) || []).slice(0, 3)
+  const files = touched.length ? `\nArchivos modificados: ${touched.join(", ")}` : ""
+  const failure = entry && entry.lastFailure ? entry.lastFailure : null
+  const detail = failure
+    ? `\nÚltimo intento (rojo): ${String(failure.command || "").slice(0, 90)}` +
+      (String(failure.text || "").trim()
+        ? `\n${String(failure.text).trim().split("\n").slice(-4).join("\n").slice(-240)}`
+        : "")
+    : ""
   return (
-    `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación VERDE.${crit}${failed}${pipe}\n` +
+    `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación VERDE.${crit}${failed}${pipe}${files}${detail}\n` +
     `Corré la suite: ${CLI} ${proj}/run_tests '{"task_id":"${task}"${sid}}' (ejecuta pytest y devuelve pass/fail) ` +
     `o verificá los predicados con: ${CLI} ${proj}/verify_predicates '{"task_id":"${task}"${sid}}'.`
+  )
+}
+
+// ── Sello de verificación (AE-INV-12) ────────────────────────────────────
+// El cierre no es una frase: es un artefacto consultable. `kind` dice QUÉ
+// verificó (tests, predicados, e2e, comando suelto) y `none` es un valor
+// legítimo — el problema no es no verificar, es no poder demostrarlo.
+const STAMP_KINDS = ["tests", "predicates", "e2e", "command", "none"]
+
+const VERIFY_LEVEL_TO_KIND = {
+  predicates: "predicates",
+  tools: "predicates",
+  tool: "tests",
+  "cli-marker": "tests",
+  "cli-marker-pipe": "tests",
+  cli: "tests",
+  "cli-pipe": "command",
+  shell: "command",
+  e2e: "e2e",
+  tests: "tests",
+}
+
+export function verificationStamp(entry, plan, now = new Date().toISOString()) {
+  const wrote = Boolean(entry && entry.wrote)
+  const verified = Boolean(entry && entry.verified) && !entry?.verifyFailed
+  const level = String((entry && entry.verifyLevel) || "").toLowerCase()
+  const kind = wrote && verified ? VERIFY_LEVEL_TO_KIND[level] || "command" : "none"
+  const criteria = plan && Array.isArray(plan.acceptance) ? plan.acceptance.length : 0
+  return {
+    kind: STAMP_KINDS.includes(kind) ? kind : "none",
+    wrote,
+    verified,
+    level: level || "none",
+    weak: level === "cli-pipe" || Boolean(entry && entry.verifyWeak),
+    criteria,
+    rounds: Number((entry && entry.closeRounds) || 0),
+    at: now,
+  }
+}
+
+export function stampLine(stamp) {
+  if (!stamp || stamp.kind === "none") return "verificación: NONE (sin evidencia)"
+  return `verificación: ${String(stamp.kind).toUpperCase()}${stamp.weak ? " (pipe: exit code no confiable)" : ""}`
+}
+
+function escalateBlock(rt, plan, entry, workProject) {
+  const proj = workProject || rt?.projectId || "<proyecto>"
+  const rounds = Number((entry && entry.closeRounds) || 3)
+  const criteria = plan && Array.isArray(plan.acceptance) ? plan.acceptance : []
+  const crit = criteria.length
+    ? `\nCriterios sin certificar: ${criteria
+        .slice(0, 3)
+        .map((c, i) => `${i + 1}) ${String(c).slice(0, 60)}`)
+        .join(" ")}`
+    : ""
+  // SPEC-013: la escalada también nombra el trabajo pendiente (archivos), para
+  // que el humano reciba el estado y no una queja genérica.
+  const touched = Array.from((entry && entry.touched) || []).slice(0, 3)
+  const files = touched.length ? `\nArchivos modificados sin certificar: ${touched.join(", ")}` : ""
+  return (
+    `[WALKER] Tercera ronda sin verificación VERDE (${rounds} intentos).${crit}${files}\n` +
+    `No sigas reintentando solo: PARÁ y pedile al usuario qué falta o qué criterio se cae. ` +
+    `Si el trabajo quedó incompleto, decilo explícitamente y no lo presentes como terminado.\n` +
+    `Cuando haya verde, el cierre queda sellado con: ${CLI} ${proj}/run_tests '{"task_id":"${
+      plan && plan.task ? plan.task : "<id>"
+    }"${entry && entry.sessionID ? `,"session_id":"${entry.sessionID}"` : ""}}'.`
   )
 }
 
@@ -298,6 +389,9 @@ async function runSetup(ctx) {
               entry.verifyFailed = false
               entry.verifiedAt = fs.verified_at || entry.verifiedAt || ""
               entry.verifyLevel = fs.verify_level || entry.verifyLevel || ""
+              // P3c: el verde puede ser débil (se certificó con reglas que el
+              // cambio tocó). Viaja al sello como `weak`, no se descarta.
+              if (fs.weak === true) entry.verifyWeak = true
               entry.dirtySince = ""
             }
           } else if (!entry.verified) {
@@ -331,15 +425,40 @@ async function runSetup(ctx) {
     // `projectDir` de la sesión.
     const shellMutation = (cmd) => shellMutationImpl(cmd, rt.projectDir)
 
-    // Costo/tokens de la sesión (el proveedor los reporta por mensaje). Si no
-    // se puede leer, `cost` queda null: nunca se reporta 0 como si fuera gratis.
+    // Costo/tokens de la sesión. Dos caminos, en ese orden:
+    //   1) `Session.Info` (sesión): ya agrega costo y tokens INCLUYENDO
+    //      cache.read/write y reasoning. Es el único que permite distinguir un
+    //      miss de prefijo (cacheWrite sube, cacheRead cae).
+    //   2) `session.context()`: suma mensajes. Se conserva para runtimes sin
+    //      `session.get` y para no perder el dato si el primero falla.
+    // Si ninguno responde, `cost` queda null: nunca 0 como si fuera gratis.
     const sessionCost = async (sid) => {
+      try {
+        if (ctx?.session?.get) {
+          const info = await ctx.session.get({ sessionID: sid })
+          const t = info?.tokens
+          if (t && typeof t === "object") {
+            return {
+              cost: typeof info.cost === "number" ? info.cost : null,
+              tokens: {
+                input: Number(t.input || 0),
+                output: Number(t.output || 0),
+                cacheRead: Number(t.cache?.read ?? t.cacheRead ?? 0),
+                cacheWrite: Number(t.cache?.write ?? t.cacheWrite ?? 0),
+                reasoning: Number(t.reasoning || 0),
+              },
+            }
+          }
+        }
+      } catch (err) {
+        degrade(null, "session.get no disponible", err)
+      }
       try {
         if (!ctx?.session?.context) return { cost: null, tokens: null }
         const msgs = await ctx.session.context({ sessionID: sid })
         let cost = 0
         let known = false
-        const tokens = { input: 0, output: 0, cacheRead: 0 }
+        const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
         for (const m of msgs || []) {
           const info = m?.info || m || {}
           if (typeof info.cost === "number") {
@@ -350,6 +469,8 @@ async function runSetup(ctx) {
           tokens.input += Number(t.input || 0)
           tokens.output += Number(t.output || 0)
           tokens.cacheRead += Number(t.cacheRead || t.cache_read || 0)
+          tokens.cacheWrite += Number(t.cacheWrite || t.cache_write || 0)
+          tokens.reasoning += Number(t.reasoning || 0)
         }
         return { cost: known ? cost : null, tokens }
       } catch (err) {
@@ -521,26 +642,34 @@ async function runSetup(ctx) {
 
     // Bloque CORTO y estable: destino, tarea, próximo paso y desvío. Se emite
     // solo cuando cambia la firma del plan (no rompe el caché ni repite ruido).
-    const planBlock = (sid, entry) => {
+    const planSigOf = (plan) =>
+      JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
+
+    // Texto del plan SIN dedupe: en `stable` el request necesita los mismos
+    // bytes otra vez, no "una vez y nunca más" (AE-INV-10).
+    const planText = (sid, entry) => {
       const plan = planFor(sid)
       if (!plan || !plan.goal) return ""
       const scope = Array.isArray(plan.scope) ? plan.scope : []
-      // La firma NO incluye el baseline: si preflight falla o tarda, el bloque
-      // no cambia entre llamadas (medido: fallaba y se reinyectaba).
-      const sig = JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
-      if (entry.planSig === sig) return "" // idéntico al anterior: no se inyecta
-      const baseline = baselineLine(scope, entry)
-      entry.planSig = sig
       entry.planTask = plan.task || ""
+      const baseline = baselineLine(scope, entry)
       const goal = String(plan.goal).replace(/\s+/g, " ").slice(0, 90)
       const criteria = Array.isArray(plan.acceptance) ? plan.acceptance.length : 0
       const touched = Array.from(entry.touched || [])
       const outside = scope.length
         ? touched.filter((f) => !inScope(f, scope))
         : []
+      // SPEC-014: el bloque dice CUÁNTOS criterios se verificaron, no sólo que
+      // hubo un verde. `1/3` es un estado distinto de "verificado" y se ve sin
+      // abrir el trace.
+      const counts = entry.verifyCounts
+      const verif =
+        counts && counts.total
+          ? ` · Verif: ${counts.passed == null ? "?" : counts.passed}/${counts.total}`
+          : ""
       const lines = [
         `[WALKER] Plan: ${goal}`,
-        `Tarea: ${plan.task || "(sin declarar)"} · Alcance: ${scope.length || "sin definir"} · Criterios: ${criteria}`,
+        `Tarea: ${plan.task || "(sin declarar)"} · Alcance: ${scope.length || "sin definir"} · Criterios: ${criteria}${verif}`,
       ]
       if (baseline) lines.push(baseline)
       lines.push(`Próximo: ${String(plan.next || "(definir)").slice(0, 70)}`)
@@ -548,6 +677,21 @@ async function runSetup(ctx) {
       // Contrato de atención: el bloque entero <= 400 caracteres.
       const block = lines.join("\n")
       return block.length <= 400 ? block : block.slice(0, 397) + "…"
+    }
+
+    const planBlock = (sid, entry) => {
+      const plan = planFor(sid)
+      if (!plan || !plan.goal) return ""
+      // La firma NO incluye el baseline: si preflight falla o tarda, el bloque
+      // no cambia entre llamadas (medido: fallaba y se reinyectaba).
+      // La firma del PLAN no cambia con la verificación; la del bloque sí: si
+      // se verificaron predicados, el bloque tiene que volver a emitirse con el
+      // conteo (SPEC-014). Sin esto el memo lo dejaba viejo.
+      const counts = entry.verifyCounts
+      const sig = `${planSigOf(plan)}|v:${counts ? `${counts.passed}/${counts.total}` : ""}`
+      if (entry.planSig === sig) return "" // idéntico al anterior: no se inyecta
+      entry.planSig = sig
+      return planText(sid, entry)
     }
 
     // Los gates `user_input` son la PREGUNTA que el usuario tiene que
@@ -585,13 +729,10 @@ async function runSetup(ctx) {
       }
       return picked.join("\n")
     }
-    const gateBlock = (sid, entry, st) => {
+    const gateText = (sid, st) => {
       if (!st || st.execType !== "user_input") return ""
       // Sesiones ajenas al flujo no reciben la pregunta de otra tarea.
       if (!planFor(sid) && !st.taskId) return ""
-      const sig = `${st.position}|${st.revision}|${st.prompt?.template_id || ""}`
-      if (entry.gateSig === sig) return ""
-      entry.gateSig = sig
       const options = gateOptions(st.prompt?.template || "")
       const lines = [
         `[WALKER] Gate de decisión: ${st.position}`,
@@ -603,6 +744,13 @@ async function runSetup(ctx) {
       )
       const block = lines.join("\n")
       return block.length <= GATE_MAX ? block : block.slice(0, GATE_MAX - 1) + "…"
+    }
+    const gateBlock = (sid, entry, st) => {
+      if (!st || st.execType !== "user_input") return ""
+      const sig = `${st.position}|${st.revision}|${st.prompt?.template_id || ""}`
+      if (entry.gateSig === sig) return ""
+      entry.gateSig = sig
+      return gateText(sid, st)
     }
 
     const bindBlock = (sid, sessionGoal) => {
@@ -732,10 +880,22 @@ async function runSetup(ctx) {
           scopeDenied: new Set(),
           scopeExpanded: new Set(),
           metricsSent: false,
+          // Rondas de cierre (AE-INV-12): 1..n insiste, la última escala al
+          // humano. `closeNudged` queda por compatibilidad de lectura de trazas.
           closeNudged: false,
+          closeRounds: 0,
+          closeEscalated: false,
+          // Inyección (AE-INV-10): memo del prefijo estable y modo efectivo.
+          injectMemo: null,
+          injectionMode: "",
+          briefText: "",
+          usage: null,
+          turns: 0,
           touched: new Set(),
           planSig: "",
           planTask: "",
+          parentSessionId: "",
+          model: "",
           baselineInjected: false,
           baselineFiles: [],
           firstMutation: null,
@@ -884,7 +1044,7 @@ async function runSetup(ctx) {
     try {
       if (!ctx?.session?.hook) {
         degrade(rt, "session.hook missing", "el runtime no expone el hook de contexto")
-      } else await ctx.session.hook("context", (event) => {
+      } else await ctx.session.hook("context", async (event) => {
         // El motor se conduce igual (los `auto` corren sin tokens), pero el
         // texto solo se inyecta cuando hay una TAREA declarada. Medido: la
         // inyección en sesiones ad-hoc hacía que el agente caminara el
@@ -899,6 +1059,21 @@ async function runSetup(ctx) {
           // limpia ended_at). Antes se cerraba en la PRIMERA ejecución.
           entry.opened = true
           entry.closed = false
+          // Jerarquía (F5.4): `Session.Info.parentID` es la fuente. Un subagente
+          // de OpenCode es una sesión hija; sin este dato la sesión quedaba como
+          // raíz y su costo no se podía agregar a la tarea que lo lanzó.
+          // Fail-open: si `session.get` no existe o falla, se abre sin padre.
+          let parentId = ""
+          try {
+            if (ctx?.session?.get) {
+              const info = await ctx.session.get({ sessionID: sid })
+              parentId = String(info?.parentID || info?.parent_id || "")
+              if (!entry.model) entry.model = String(info?.model?.id || info?.model || "")
+            }
+          } catch (err) {
+            degrade(null, "session.get falló", err)
+          }
+          entry.parentSessionId = parentId
           // Registro de continuidad: ciclo de vida + jerarquía. Fail-open: si
           // walker no responde, la sesión sigue igual.
           run(
@@ -907,6 +1082,8 @@ async function runSetup(ctx) {
               session_id: sid,
               project_id: rt.projectId,
               agent: String(event.agent || ""),
+              ...(parentId ? { parent_session_id: parentId } : {}),
+              ...(entry.model ? { model: entry.model } : {}),
             },
             rt.projectId,
             HOOK_TIMEOUT_MS
@@ -954,6 +1131,18 @@ async function runSetup(ctx) {
             }
           }
         }
+        // Probe de forma (una vez por sesión): ¿`event.messages` sirve como
+        // canal? Se mide, no se asume. Costo: un trace por sesión.
+        if (!entry.shapeProbed) {
+          entry.shapeProbed = true
+          const shape = describeMessages(event?.messages)
+          tracePush({
+            event_type: "context_probe",
+            source: "agent_hook",
+            session_id: sid,
+            data: { ...shape, mode: INJECTION_MODE, system_blocks: Array.isArray(event?.system) ? event.system.length : -1 },
+          })
+        }
         // El baseline viejo (multilínea) ya no se inyecta: el flight card lo
         // reemplaza. Se consume para no acumularlo; la traza queda.
         rt.pendingBaseline = null
@@ -965,23 +1154,29 @@ async function runSetup(ctx) {
         // Decisión POR SESIÓN: `state.data.taskId` es del proyecto y hacía que
         // una sesión nueva heredara "tarea declarada" de otra (medido en el
         // harness: el bloque de binding no aparecía nunca).
-        if (!block) block = planBlock(sid, entry)
+        if (!block) block = INJECTION_MODE === "once" ? planBlock(sid, entry) : planText(sid, entry)
         if (block) entry.bootstrapped = true // ya se mostró el plan: no ofrecer binding
+        // El binding/bootstrap es un AVISO de una vez, no estado: no entra al
+        // conjunto contextual (si entrara, se repetiría para siempre).
+        let nudge = ""
         if (!block && !entry.bootstrapped) {
           // Antes de escribir: ofrecer continuidad (sprint/goal previo) en vez
           // de solo pedir "declará la tarea".
           const bind = bindBlock(sid, rt.sessionGoal)
-          block = bind.text
+          nudge = bind.text
           if (bind.decision) entry.bind = bind.decision
           entry.bootstrapped = true
         }
         // En un gate de decisión la pregunta del nodo SIEMPRE se agrega, aunque
         // el plan ya se haya mostrado: es el paso que está bloqueado. Va como
         // bloque APARTE para no romper el contrato de atención del plan (400).
-        const gate = gateBlock(sid, entry, st)
+        // En `stable` se recalcula el texto sin dedupe: el request necesita los
+        // mismos bytes, no "una vez y nunca más".
+        const gate =
+          INJECTION_MODE === "once" ? gateBlock(sid, entry, st) : gateText(sid, st)
         // Fallo de comando: el contexto llega sin que el modelo tenga que pedirlo.
-        // Una vez por firma y como máximo 2 por sesión: un loop de fallos no
-        // debe convertirse en un loop de inyecciones.
+        // Es un EVENTO, no estado: se inyecta una vez por firma y como máximo 2
+        // por sesión. Repetirlo no informa más y compite por atención.
         let failureText = ""
         if (entry.lastFailure && !entry.lastFailure.injected && (entry.failureBriefs || 0) < 2) {
           const failure = entry.lastFailure
@@ -1016,20 +1211,88 @@ async function runSetup(ctx) {
             })
           }
         }
-        if (!block && !gate && !rt.pendingBrief && !failureText) return
-        if (!Array.isArray(event?.system)) {
+        // El flight card es ESTADO del plan: en `stable` se conserva para
+        // repetirlo idéntico; en `once` se manda una vez y se descarta.
+        const incomingBrief = rt.pendingBrief || ""
+        if (rt.pendingBrief) {
+          entry.briefText = rt.pendingBrief
+          rt.pendingBrief = null
+        }
+        const briefText = INJECTION_MODE === "once" ? "" : entry.briefText || ""
+
+        if (INJECTION_MODE === "once") {
+          // Camino previo (línea base del A/B): el plan se repite, gate/brief/
+          // fallo se mandan una sola vez. No se toca: es el control.
+          const legacy = [block, gate, incomingBrief, failureText].filter(Boolean)
+          if (!legacy.length) return
+          const res = applyInjection(event, legacy, "once")
+          if (res.channel === "none") {
+            degrade(rt, "event.system no es array", typeof event?.system)
+            return
+          }
+          entry.injections += 1
+          entry.injectionMode = "once"
+          entry.position = st?.position || ""
+          return
+        }
+
+        // `stable` / `messages`: el conjunto contextual se memoiza por firma.
+        // La firma incluye lo que puede cambiar el texto de los bloques.
+        const sig = [
+          st?.position || "",
+          st?.revision ?? "",
+          st?.prompt?.template_id || "",
+          entry.planTask || "",
+          (entry.briefText || "").length,
+          // SPEC-014: el bloque del plan cambia con el conteo de verificación.
+          entry.verifyCounts
+            ? `${entry.verifyCounts.passed}/${entry.verifyCounts.total}`
+            : "",
+        ].join("|")
+        const planned = planBlocks({
+          blocks: [block, gate, briefText].filter(Boolean),
+          sig,
+          memo: entry.injectMemo,
+        })
+        const contextual = planned.blocks
+        if (planned.changed && contextual.length) entry.injectMemo = { sig, blocks: contextual }
+        // El aviso de binding no se memoiza: va una vez y se olvida. El fallo
+        // tampoco: es un evento.
+        const blocks = contextual.concat([nudge, failureText].filter(Boolean))
+        if (!blocks.length) return
+
+        const applied = applyInjection(event, blocks, INJECTION_MODE)
+        if (applied.channel === "none") {
           degrade(rt, "event.system no es array", typeof event?.system)
           return
         }
-        if (block) event.system.push({ type: "text", text: block })
-        if (gate) event.system.push({ type: "text", text: gate })
-        if (rt.pendingBrief) {
-          event.system.push({ type: "text", text: rt.pendingBrief })
-          rt.pendingBrief = null
+        if (applied.fallback) {
+          // Visible, no degradación silenciosa: el modo pedido no se pudo usar.
+          tracePush({
+            event_type: "injection_fallback",
+            source: "agent_hook",
+            session_id: sid,
+            data: { mode: INJECTION_MODE, channel: applied.channel, reason: applied.fallback },
+          })
         }
-        if (failureText) event.system.push({ type: "text", text: failureText })
+        if (planned.changed) {
+          tracePush({
+            event_type: "injection_prefix",
+            source: "agent_hook",
+            session_id: sid,
+            data: {
+              mode: INJECTION_MODE,
+              channel: applied.channel,
+              blocks: applied.applied,
+              chars: blocks.join("").length,
+              sig,
+              reason: planned.reason,
+            },
+          })
+        }
         entry.injections += 1
-        entry.position = state.data?.position || ""
+        entry.injectionMode = INJECTION_MODE
+        entry.position = st?.position || ""
       })
     } catch (err) {
       degrade(rt, "hook de contexto falló", err)
@@ -1060,9 +1323,59 @@ async function runSetup(ctx) {
           // recargar y el cierre pasa sin verificación (medido).
           hydrateFlight(sid, entry)
 
+          // ── Telemetría por TURNO (AE-INV-10) ──
+          // El cache de prefijo se juega por request, no por sesión: agregar
+          // `cacheRead` al final no dice dónde se rompió. Se publica el delta
+          // contra la lectura anterior, con el modo de inyección vigente.
+          if (entry.opened && entry.sessionID) {
+            const usage = await sessionCost(entry.sessionID)
+            const nowTok = usage.tokens || { input: 0, output: 0, cacheRead: 0 }
+            // Primera lectura de la sesión: es la LÍNEA BASE, no un turno. Sin
+            // esto un reload del plugin publicaba todo el acumulado como si
+            // fuera un turno de un millón de tokens.
+            if (!entry.usage) {
+              entry.usage = nowTok
+            } else {
+              const prevTok = entry.usage
+              const delta = {
+                input: nowTok.input - prevTok.input,
+                output: nowTok.output - prevTok.output,
+                cacheRead: nowTok.cacheRead - prevTok.cacheRead,
+                cacheWrite: (nowTok.cacheWrite || 0) - (prevTok.cacheWrite || 0),
+                reasoning: (nowTok.reasoning || 0) - (prevTok.reasoning || 0),
+              }
+              if (delta.input > 0 || delta.output > 0 || delta.cacheRead > 0) {
+                entry.usage = nowTok
+                entry.turns = (entry.turns || 0) + 1
+                tracePush({
+                  event_type: "token_turn",
+                  source: "agent_hook",
+                  session_id: entry.sessionID,
+                  data: {
+                    turn: entry.turns,
+                    input: delta.input,
+                    output: delta.output,
+                    cache_read: delta.cacheRead,
+                    cache_write: delta.cacheWrite,
+                    reasoning: delta.reasoning,
+                    hit_rate: delta.input > 0 ? Number((delta.cacheRead / delta.input).toFixed(3)) : null,
+                    // `write_ratio` alto con `hit_rate` bajo es la firma de un
+                    // prefijo invalidado: se pagó de nuevo todo el contexto.
+                    write_ratio:
+                      delta.input > 0 ? Number((delta.cacheWrite / delta.input).toFixed(3)) : null,
+                    injection_mode: entry.injectionMode || INJECTION_MODE,
+                    cost_usd: usage.cost,
+                  },
+                })
+              }
+            }
+          }
+
           // ── Gate de CIERRE: hubo escritura y no hay verificación ──
           // No se puede impedir el fin de ejecución, así que se reinyecta un
-          // mensaje sintético UNA vez (sin esto el ciclo sería infinito).
+          // mensaje sintético. Rondas: hasta CLOSE_ROUNDS-1 insiste; en la
+          // última escala al humano y después calla. Antes era UNA vez y luego
+          // nada: la sesión quedaba "verde" sin evidencia (255 `close_blocked`).
           // Antes de nudgar se fuerza la hidratación: walker pudo registrar el
           // verde desde la TOOL y el plugin no haber visto el comando.
           if (
@@ -1070,7 +1383,6 @@ async function runSetup(ctx) {
             entry.opened &&
             entry.wrote &&
             (!entry.verified || entry.verifyFailed) &&
-            !entry.closeNudged &&
             entry.sessionID
           ) {
             hydrateFlight(sid, entry, { force: true })
@@ -1080,30 +1392,41 @@ async function runSetup(ctx) {
             entry.opened &&
             entry.wrote &&
             (!entry.verified || entry.verifyFailed) &&
-            !entry.closeNudged &&
             entry.sessionID
           ) {
-            entry.closeNudged = true
-            try {
-              if (ctx?.session?.synthetic) {
-                await ctx.session.synthetic({
-                  sessionID: entry.sessionID,
-                  text: closeBlock(rt, planFor(entry.sessionID), entry, workProjectFor(entry.sessionID)),
-                })
+            entry.closeRounds = (entry.closeRounds || 0) + 1
+            const round = entry.closeRounds
+            if (round <= CLOSE_ROUNDS) {
+              const escalate = round === CLOSE_ROUNDS
+              const plan = planFor(entry.sessionID)
+              try {
+                if (ctx?.session?.synthetic) {
+                  await ctx.session.synthetic({
+                    sessionID: entry.sessionID,
+                    text: escalate
+                      ? escalateBlock(rt, plan, entry, workProjectFor(entry.sessionID))
+                      : closeBlock(rt, plan, entry, workProjectFor(entry.sessionID)),
+                  })
+                }
+              } catch (err) {
+                degrade(rt, "close nudge falló", err)
               }
-            } catch (err) {
-              degrade(rt, "close nudge falló", err)
+              if (escalate) entry.closeEscalated = true
+              tracePush({
+                event_type: "close_blocked",
+                source: "agent_hook",
+                session_id: entry.sessionID,
+                data: {
+                  reason: entry.verifyFailed ? "verificación falló" : "sin verificación",
+                  round,
+                  limit: CLOSE_ROUNDS,
+                  escalation: escalate,
+                  stamp: verificationStamp(entry, plan).kind,
+                  wrote: true,
+                  verify_failed: Boolean(entry.verifyFailed),
+                },
+              })
             }
-            tracePush({
-              event_type: "close_blocked",
-              source: "agent_hook",
-              session_id: entry.sessionID,
-              data: {
-              reason: entry.verifyFailed ? "verificación falló" : "sin verificación",
-              wrote: true,
-              verify_failed: Boolean(entry.verifyFailed),
-            },
-            })
           }
 
           if (entry.opened && !entry.metricsSent && entry.sessionID) {
@@ -1126,6 +1449,11 @@ async function runSetup(ctx) {
                 verify_failed: Boolean(entry.verifyFailed),
                 cost_usd: usage.cost,
                 tokens: usage.tokens,
+                turns: entry.turns || 0,
+                close_rounds: entry.closeRounds || 0,
+                close_escalated: Boolean(entry.closeEscalated),
+                injection_mode: entry.injectionMode || INJECTION_MODE,
+                stamp: verificationStamp(entry, planFor(entry.sessionID)).kind,
                 plan_task: entry.planTask || "",
                 bind: entry.bind || "",
                 baseline_injected: Boolean(entry.baselineInjected),
@@ -1142,11 +1470,18 @@ async function runSetup(ctx) {
           }
           if (entry.opened && !entry.closed && entry.sessionID) {
             entry.closed = true
+            const stamp = verificationStamp(entry, planFor(entry.sessionID))
+            // Costo/tokens al cierre: quedan en la sesión del delta para que la
+            // jerarquía publique costo por subagente sin recorrer la traza.
+            const usage = await sessionCost(entry.sessionID)
             run(
               "session_close",
               {
                 session_id: entry.sessionID,
                 outcome: String(event.type || "").replace("session.execution.", ""),
+                stamp,
+                ...(usage.cost != null ? { cost_usd: usage.cost } : {}),
+                ...(usage.tokens ? { tokens: usage.tokens } : {}),
               },
               rt.projectId,
               HOOK_TIMEOUT_MS
@@ -1212,6 +1547,9 @@ async function runSetup(ctx) {
           entry.followedBy = ""
           entry.position = ""
           entry.metricsSent = false
+          // `closeRounds` NO se resetea: la cuenta es de la sesión, no de la
+          // ejecución. Resetearlo fue lo que hacía que el nudge se repitiera
+          // para siempre (255 close_blocked) sin escalar nunca.
           entry.closeNudged = false
         }
       } catch (err) {
@@ -2023,12 +2361,33 @@ async function runSetup(ctx) {
                 entry.followedBy = "verify"
               }
               const payload = (result && result.data) || {}
-              // `run_tests` ahora ejecuta pytest: passed=false es rojo aunque ok
-              // no venga explícito. verify_predicates ya devuelve ok=failure.
+              const isPredicates = String(name).includes("verify_predicates")
+              // `run_tests` marca passed=false; `verify_predicates` devuelve
+              // ok=true con `all_satisfied=false`. Antes el wrapper trataba
+              // todo verify_predicates como verde y el gate de cierre cerraba
+              // sin criterios cumplidos (medido 2026-11-20).
               const green =
                 Boolean(result) &&
                 result.ok !== false &&
-                (String(name).includes("run_tests") ? payload.passed !== false : true)
+                (isPredicates
+                  ? payload.all_satisfied !== false &&
+                    Number(payload.failed_count || 0) === 0
+                  : payload.passed !== false)
+              // SPEC-014: cuántos predicados se verificaron. El bloque lo
+              // muestra; sin el conteo sólo puede decir "verificado".
+              const total = Number(payload.total)
+              if (Number.isFinite(total) && total > 0) {
+                const failed = Number(payload.failed_count ?? payload.failures) || 0
+                const errors = Number(payload.errors) || 0
+                const passedCount = Number(payload.passed_count)
+                entry.verifyCounts = {
+                  passed: Number.isFinite(passedCount)
+                    ? passedCount
+                    : Math.max(0, total - failed - errors),
+                  total,
+                  by: isPredicates ? "predicates" : String(payload.test_framework || "tests"),
+                }
+              }
               if (green) {
                 const wasVerifiedTools = entry.verified === true
                 entry.verified = true
@@ -2057,6 +2416,20 @@ async function runSetup(ctx) {
                 entry.verifyFailed = true
                 entry.verified = false
                 entry.verifiedBy = name
+                entry.verifyCounts = null
+                // SPEC-013: el rojo se guarda con su salida. El nudge de
+                // cierre la muestra; sin ella el agente repite el comando.
+                const tail = String(
+                  payload.output_tail || payload.output || (result && result.error) || ""
+                )
+                const code = Number(payload.returncode)
+                entry.lastFailure = {
+                  command: String(name),
+                  exitCode: Number.isFinite(code) ? code : 1,
+                  text: tail.slice(-800),
+                  signature: `${name}|rojo|${tail.slice(0, 120)}`,
+                  injected: false,
+                }
               }
               return result
             }

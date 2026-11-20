@@ -92,6 +92,8 @@ const REAL_CLI = new Set([
 const MODES = [
   "normal",
   "inject",
+  "injectonce",
+  "injectmessages",
   "injectsuggest",
   "degraded",
   "badbind",
@@ -111,6 +113,9 @@ const MODES = [
   "closeok",
   "closefail",
   "closeshell",
+  "closerounds",
+  "closetai",
+  "verifycounts",
   "closecli",
   "closeclipipe",
   "closeclimark",

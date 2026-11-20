@@ -198,6 +198,10 @@ def test_run_tests_rojo_reporta_el_framework(tmp_path, monkeypatch):
 
     assert out.ok is False
     assert "SUITE ROJA (jest:" in out.error
+    # SPEC-013: el rojo lleva su evidencia. Sin la cola, el nudge de cierre no
+    # puede decir qué falló y el agente repite el comando.
+    assert out.data["passed"] is False
+    assert "1 failed, 2 passed" in out.data["output_tail"]
 
 
 # ── verify_engine: contexto ausente es fallo accionable ────────────

@@ -370,7 +370,14 @@ class SprintService:
         self._repo.save_session(session)
         return _session_to_dict(session)
 
-    def close_session(self, session_id: str, outcome: str = "") -> dict | None:
+    def close_session(
+        self,
+        session_id: str,
+        outcome: str = "",
+        stamp: dict | None = None,
+        cost_usd: float | None = None,
+        tokens: dict | None = None,
+    ) -> dict | None:
         if not self._repo:
             return None
         session = self._repo.get_session(session_id)
@@ -382,6 +389,14 @@ class SprintService:
         session.updated_at = now
         if outcome:
             session.outcome = outcome
+        if stamp:
+            session.stamp = dict(stamp)
+        # Costo por sesión: la jerarquía del delta lo publica tal cual, sin
+        # recorrer la traza de cada hijo (F5.4).
+        if isinstance(cost_usd, (int, float)):
+            session.cost_usd = float(cost_usd)
+        if isinstance(tokens, dict) and tokens:
+            session.tokens = dict(tokens)
         self._repo.save_session(session)
         return _session_to_dict(session)
 

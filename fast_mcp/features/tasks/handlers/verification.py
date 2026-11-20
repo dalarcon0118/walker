@@ -37,6 +37,7 @@ def record_verification(
     returncode: int | None = None,
     task_id: str = "",
     touched: list[str] | None = None,
+    weak: bool = False,
 ) -> bool:
     """Escribe un `session_state` con el resultado de la verificación.
 
@@ -71,6 +72,12 @@ def record_verification(
     }
     if returncode is not None:
         data["returncode"] = int(returncode)
+
+    if weak:
+        # P3c: el verde existe pero se certificó con reglas que el cambio tocó.
+        # Es un dato, no un silencio: el sello lo marca `weak`.
+        data["weak"] = True
+        data["weak_reason"] = "rules_modified_by_change"
 
     files = [str(f) for f in (touched or []) if f][:20]
     if files:

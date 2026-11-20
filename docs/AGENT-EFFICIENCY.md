@@ -446,6 +446,7 @@ Cada regla trae cómo se detecta su violación.
 | `FLIGHT-CONTROL.md` | política de gates, intake, cierre, invariantes FC-* | superficie ni costo de las tools |
 | `OPENCODE-TUNING.md` | configuración del runtime (perfil, compactación) | memoria de decisiones ni artefactos |
 | `AGENT-EFFICIENCY.md` (este) | superficie, costo, memoria y artefacto de diseño | política de gates |
+| `FABLE-5.2-ALIGNMENT.md` | **hipótesis** sobre la economía de un modelo con razonamiento preservado | nada ejecutable: sus modelos no están en el catálogo (§8.1) |
 
 Si este documento y `FLIGHT-CONTROL.md` se contradicen en política, gana
 `FLIGHT-CONTROL.md` (FC-INV-01) y este documento se corrige en el mismo cambio.
@@ -611,6 +612,173 @@ perfil y la migración de las 30 referencias a tools en prompts/workflow.
 3. *El payload crece con el corpus.* Mitigación: `_normalize_node` recorta a
    600 chars y declara `rationale_chars`. Detección:
    `tests/test_ckg_retrieval_ranking_bdd.py`.
+
+---
+
+## 8. Alineación con "modelos de razonamiento preservado" (F5)
+
+- **Rol:** tomar [`FABLE-5.2-ALIGNMENT.md`](FABLE-5.2-ALIGNMENT.md) como
+  **hipótesis sobre la economía del harness** y conservar sólo lo que se puede
+  verificar contra este repo. No define política de gates (FC-INV-01) ni
+  reemplaza §1–§7: los agrega como una fase más (F5).
+- **Regla de admisión:** un principio entra a F5 sólo si (a) el mecanismo existe
+  en este runtime, (b) su violación es medible con lo que ya tenemos, y (c) no
+  agrega una tool ni un lector (AE-INV-01).
+
+### 8.1 Qué del documento es verificable (y qué no)
+
+| Afirmación del doc | Estado acá | Evidencia |
+| :-- | :-- | :-- |
+| "Fable 5.2 / Mythos 5.2 / Opus 5.5 / GPT-6 Astra / Gemini 4 Carbon", precios y benchmarks | **no verificable** | El catálogo de este OpenCode es `opencode-go/{qwen4-max, hy4-flash-free, longcat-2.5-free, iceman-contributor-free, kimi-k3.1-pro, minimax-m3.1-flash}`. Ningún número del doc se puede reproducir localmente, así que ninguno entra a una decisión. |
+| Los bloques de razonamiento y el cache pagan por **prefijo** de la conversación | **verificable por mecánica** | No hace falta un modelo nuevo: cualquier proveedor con cache de prefijo cobra distinto si el encabezado cambia. El instrumento ya existe (abajo). |
+| El harness reescribe el `system` por turno | **verificado en el plugin** | `agent-plugins/walker-flight-control/index.js:1019-1031`: cuatro bloques volátiles (`block`, `gate`, `pendingBrief`, `failureText`) se hacen `event.system.push(...)` y el hook corta con `return` cuando no hay ninguno. Dos requests consecutivos **no** mandan el mismo encabezado. |
+| El runtime ofrece un seam para inyectar sin tocar el `system` | **verificado** | El hook `context` entrega `system`, `messages`, `tools` y `options` (docs V2, *Model requests*). `@opencode-ai/plugin` v2.3.2 expone además `experimental.chat.messages.transform` (`dist/index.d.ts:255`) y `experimental.chat.system.transform` (`:261`). El plugin usaba sólo `system`: la vía de mensaje existía y no se usaba. |
+| "Effort" con cinco niveles por llamada | **verificado, pero con otro mecanismo** | Acá el nivel es una **variante de modelo del agente**, no un parámetro por llamada: `minimax-m3.1-flash [low,medium,high,xhigh,max]`, `kimi-k3.1-pro [low,high,max]`, `qwen4-max [none,low,high,xhigh]`. Walker no puede fijarlo por nodo; el plugin tampoco puede cambiarlo a mitad de sesión. |
+| "El modelo corta antes de terminar" / "pide permiso de más" | **no medido acá** | Es comportamiento de un modelo que no está en el catálogo. Se puede medir con la telemetría de §7, no se asume. |
+| La ceremonia de nodos cuesta más que el juicio | **ya medido** | §1.4: 4 `submit` + 4 `transition` a 1–2 s por llamada antes de llegar a REVIEW. Ese número es de este repo y sostiene P2 sin depender del modelo. |
+
+### 8.2 Los cuatro choques, con estado real
+
+**F5.1 · Inyección vs. prefijo estable — el único caro y sin dueño.**
+El plugin inyecta en el `system` cuatro bloques que cambian por turno. El
+`system` es el **encabezado** del prefijo: cambiarlo es el peor lugar para poner
+un byte que cambia. Y no sólo invalida cache de prompt: si un proveedor exige
+devolver los bloques de razonamiento atados al prefijo, el bloque se descarta o
+la llamada falla, y el modelo vuelve a pensar desde cero. Costo real por turno:
+`tokens` completos en vez de `cacheRead`.
+
+Estado: **no medido**. El instrumento existe y ya corre:
+`index.js:334-357` suma `cost` y `tokens{input,output,cacheRead}` de la sesión y
+los publica en `session_metrics` (`:1127-1128`). Lo que falta es la serie por
+turno; `scripts/flight_control_metrics.py` todavía no la reporta.
+
+**F5.2 · Effort vs. ceremonia — mitad aplicable, mitad no.**
+Aplicable: el nivel de esfuerzo se elige **por agente** (`model:
+proveedor/modelo#variante` en el frontmatter), no por nodo. Un agente de
+implementación y uno de exploración pueden correr a niveles distintos; hoy
+`agents/build.md:3` fija `opencode/beam-free` sin variante.
+No aplicable: que `brief` devuelva `effort` por nodo. Walker no controla el
+request; devolver un nivel que nadie aplica es un dato muerto.
+Lo que ya se puede hacer sin depender de nadie: **bajar la ceremonia** (§1.4) y
+no poner coaching de esfuerzo en el prompt (verificado: no hay líneas de "pensá
+menos" en `AGENTS.md` ni en `project.md`).
+
+**F5.3 · Verificación de primera clase — ya está, falta el stamp.**
+Ya implementado en §7: `design_brief` con `ARTIFACT_GATES` (forma, ≥2 opciones,
+descarte con motivo), `plan_diff`, golden set en CI, guard de cancelación
+(AE-INV-09), `run_tests` con entorno limpio. Lo que **no** existe: (a) el stamp
+`tests|predicates|e2e|none` consultable desde el commit, (b) la regla de 3 rondas
+→ humano, (c) que un check no pueda modificar sus propias reglas. Eso sí es
+nuevo y es barato.
+
+**F5.4 · Delegación — el tablero existe, la jerarquía no se usa.**
+`parent_session_id` ya está en el dominio (`sprint_service.py:309`,
+`entities.py:208`) y `subagent_depth: 2` está configurado
+(`OPENCODE-TUNING.md:21`). Pero el plugin abre sesión con
+`session_open {session_id, project_id, agent}` (`index.js:904-913`): no pasa el
+padre, así que un subagente queda como raíz y su costo no se agrega a la tarea.
+La lección del doc (el valor está en el tablero compartido, no en la cantidad de
+agentes) acá se traduce en **una** cosa: que la jerarquía de sesiones sea
+visible. No en más orquestación.
+
+**F5.5 · Podar antes de agregar — el número es el prompt estático.**
+`project.md` 30.044 chars + `AGENTS.md` 6.959 + `~/.config/opencode/AGENTS.md`
+423 = **37.426 chars** de encabezado fijo, antes de tools y de cualquier
+inyección. Es el costo por request más grande del harness y el que menos se
+revisa. Recortarlo es una decisión de gobernanza (ADR + diff por línea), no una
+limpieza.
+
+### 8.3 Principios adoptados
+
+- **P1 · Prefijo estable, contexto append-only (AE-INV-10).** Lo que cambia por
+  turno va como **mensaje del turno** o, como mínimo, se repite byte-idéntico
+  mientras la firma del nodo no cambie. El hook `context` recibe `system`,
+  `messages` y `tools`: no hace falta el `experimental.chat.messages.transform`
+  — se puede anexar al último turno del usuario en el mismo hook, sin reescribir
+  historial (nunca al turno del assistant: sus bloques de razonamiento están
+  firmados). Modos: `stable` (default, prefijo idéntico por firma), `once`
+  (control: un envío por firma) y `messages` (opt-in; cae a `system` con
+  `injection_fallback` trazado si la forma no se reconoce). *Aceptación:* 20
+  turnos sin caída de `cacheRead/input`; salida ≤+10%. *Detección:*
+  `token_turn.hit_rate` por turno.
+- **P2 · Effort es una propiedad del agente, no del nodo (AE-INV-11).** Se elige
+  variante en el frontmatter; no se pide "pensá menos" por prompt y no se muestra
+  budget de tokens. Un `effort` que `brief` recomienda y nadie aplica es ruido.
+  *Aceptación:* mismo gate-pass con ≤70% de tokens en tareas rutinarias.
+  *Detección:* tokens por tarea en `summarize_tasks`.
+- **P3 · "Done" es un predicado, no una afirmación (AE-INV-12).** Cierre =
+  criterios con `check` verde + stamp en el commit; 3 rondas → humano; los checks
+  leen de la rama base y no se auto-modifican. *Aceptación:* 0 cierres sin stamp;
+  1er intento ≥70%. *Detección:* `plan_diff` ya publica criterios sin predicado.
+- **P4 · Podar antes de agregar (AE-INV-13).** Ningún bloque nuevo de prompt o de
+  inyección entra sin declarar qué sale. *Aceptación:* diff con justificación por
+  línea y medición de salida. *Detección:* `wc -c` del encabezado en el reporte.
+
+### 8.4 Cómo se mide (sin modelo nuevo)
+
+El A/B es una sesión con el harness actual contra una con P1, sobre la misma
+tarea, comparando `tokens.cacheRead / tokens.input`, tokens de salida, tiempo y
+gate-pass. La serie por turno ya se publica (`token_turn.hit_rate`); el harness
+tiene los dos lados del canal (`inject` = `stable`, `injectonce` = control), así
+que la comparación no depende de acordarse de cambiar el env.
+
+### 8.5 Lo que no se adopta
+
+- La ceremonia de `submit`/`transition` como sustituto del juicio (§1.4 ya la
+  mide como peaje).
+- Coaching genérico ("sé riguroso", "pensá paso a paso"): ya está en el modelo y
+  compite por atención con el plan.
+- Límites duros de estilo y cautelas sin fecha de revisión: se obedecen para
+  siempre y la prosa se rompe.
+- Mostrar el budget de tokens en el prompt.
+- Confiar en la verificación que el propio cambio produce (P3 la prohíbe).
+
+### 8.6 failure_scenarios
+
+1. **Mover la inyección a mensaje sin verificar el seam** → el bloque no llega
+   o se duplica. Mitigación: feature flag + 20 turnos con proveedor real.
+   Detección: trace `injection_mode` (`system|messages`) y `chars` por turno.
+2. **Bajar la ceremonia de nodos y perder el gate de diseño** → specs vacías.
+   Mitigación: `ARTIFACT_GATES` sigue validando forma. Detección: specs con <2
+   opciones o sin descarte.
+3. **Podar el encabezado y perder un invariante** → regresión silenciosa.
+   Mitigación: diff por línea con justificación y revisión humana. Detección:
+   reverts y `pytest -q` por invariante.
+4. **Imputar al harness un costo que era del índice de memoria** → se poda lo
+   que servía. Mitigación: el A/B cambia **una** variable. Detección: §7.2 ya
+   mostró que la mejora vino de indexar, no de relajar el retrieval.
+5. **Registrar jerarquía de subagentes sin tope de costo** → sesiones caras sin
+   mejora. Mitigación: cap por sesión y `cost` por subagente trazado. Detección:
+   `% de tokens en subagentes` por tarea.
+
+### 8.7 Estado
+
+| Ítem | Estado | Evidencia |
+| :-- | :-- | :-- |
+| P1a · prefijo estable (AE-INV-10) | **implementado** | `injection.mjs` (modos `stable`/`once`/`messages`) + memo por firma en `index.js`; modos `inject`/`injectonce` del harness prueban los dos caminos. Por defecto `stable`: el prefijo se repite byte-idéntico dentro del nodo. |
+| P1b · canal de mensaje | **medido y descartado como default** | Probe real (`context_probe`, sesión `ses_e0581bc04ffeSFlM0Tldqa5Ojl`): `count=653`, `last_keys=["role","content"]`, `last_role="tool"`, `has_parts=false`, `target="no-anexable"`. En una continuación de tool el último turno es `tool`: anexar ahí rompe el par tool_use/tool_result, y anexar al turno del usuario (que quedó atrás) invalida todo lo posterior. El modo queda como opt-in y cae a `system` con `injection_fallback`. |
+| P1c · telemetría por turno | **implementado, con punto ciego del proveedor** | `token_turn` con `input`/`output`/`cache_read`/`cache_write`/`reasoning`/`hit_rate`/`write_ratio`/`injection_mode`. Medido en esta sesión: `cache_read=0` en todos los turnos y `cost_usd=0`. Ese 0 **no prueba** que no haya cache: `opencode-go` no reporta `tokens.cache` ni costo, así que el A/B de P1 no se puede leer con este proveedor. Necesita uno que reporte `cache.read`. |
+| P2 · effort por agente | **propuesto** | Variantes disponibles (`minimax-m3.1-flash [low..max]`); `build` sigue sin variante. No hay API por nodo. |
+| P3a · sello de verificación (AE-INV-12) | **implementado** | `session_close` normaliza y persiste `stamp {kind, verified, level, weak, criteria, rounds, source, at}`; `session_context` lo publica. `kind=none` + `source=unstated` cuando falta: nunca se inventa un verde. |
+| P3b · 3 rondas → humano | **implementado** | `entry.closeRounds` (no se resetea por ejecución) + `escalateBlock`; modo `closerounds` del harness: 1-2 insisten, 3 escala, 4 calla. |
+| P3c · checks que no se auto-certifican | **implementado en `observe`** | `verify.py` extrae las reglas que EJECUTA cada predicado (`test_pass`/`command_exit`) y las compara con `git diff --name-only HEAD`: si están modificadas, el verde queda `weak` (y `strict=true` lo vuelve rojo). Un test NUEVO no cuenta como regla cambiada. `tests/test_verify_self_certified_bdd.py` (7). |
+| F5.4 · jerarquía y costo por subagente | **implementado** | El plugin pasa `parent_session_id` desde `Session.Info.parentID` y persiste `cost_usd`/`tokens` en la sesión al cerrar; `session_list` ya devuelve `children`, así que el costo por subagente es un join, no un escaneo de traza. |
+| P4 · poda del encabezado | **propuesto** | 37.426 chars medidos; requiere ADR + diff por línea. |
+
+`WALKER_FLIGHT_CONTROL_INJECTION` (`stable`|`once`|`messages`) y
+`WALKER_FLIGHT_CONTROL_CLOSE_ROUNDS` (default 3) son las dos palancas nuevas.
+El A/B de P1 se lee en `token_turn.hit_rate`: mismo nodo con `once` pierde el
+prefijo después del primer request; con `stable` lo conserva.
+
+**Límite de medición (2026-11-20).** En `opencode-go` los turnos reportan
+`cache_read=0` y `cost_usd=0`: el proveedor no publica `tokens.cache` ni costo.
+Sin ese dato, `hit_rate` no distingue "no hay cache" de "no se reporta", y el
+A/B de P1 queda **no concluyente en este proveedor**. La instrumentación ya está
+(no hay que tocarla): alcanza con correr la misma tarea en un modelo que reporte
+`cache.read` para tener el número. Hasta entonces, `stable` se sostiene por el
+argumento de forma (repetir bytes idénticos no puede invalidar más que
+cambiarlos), no por un delta medido.
+
 
 
 

@@ -370,9 +370,15 @@ con otra regla cumplida.
 - **FC-INV-12 · Cierre.** El cierre exige verificación verde; la certificación
   por shell con pipe exige `WALKER_RESULT`. Sin marcador no hay verde.
   *Detección:* modos `close*` y `closeclipipefail`.
-- **FC-INV-13 · Atención.** Bloque de plan ≤ 400 chars, baseline ≤ 140; una
-  inyección por cambio de firma. Repetir entrena a ignorar.
-  *Detección:* modo `inject` (tope) y `gateprompt` (estable sin cambio).
+- **FC-INV-13 · Atención.** Bloque de plan ≤ 400 chars, baseline ≤ 140. La
+  inyección es **estable por firma**: mientras la firma del nodo no cambie, se
+  repiten los MISMOS bytes (AE-INV-10); cuando cambia, cuesta un miss y vuelve a
+  estabilizarse. Lo que entrena a ignorar no es la repetición idéntica: es la
+  variación — cuatro bloques distintos por request, que además invalidan el
+  prefijo. `WALKER_FLIGHT_CONTROL_INJECTION=once` reproduce el contrato previo
+  (una vez por firma) para comparar.
+  *Detección:* modos `inject` (tope y prefijo idéntico), `injectonce` (control) y
+  `gateprompt` (el gate se repite sin cambiar).
 - **FC-INV-14 · Memoria.** Con `memory_health.trusted=false` no se cita ningún
   `adr-`; no se citan decisiones retiradas.
   *Detección:* modo `degraded` + CKG sin nodos activos de 081/082.

@@ -32,8 +32,14 @@ class TaskResult:
         return cls(ok=True, data=data or {})
 
     @classmethod
-    def failure(cls, error: str) -> TaskResult:
-        return cls(ok=False, error=error)
+    def failure(cls, error: str, data: dict[str, Any] | None = None) -> TaskResult:
+        """Fallo con mensaje accionable.
+
+        `data` es opcional y aditivo: un rojo puede traer su evidencia
+        estructurada (p. ej. `output_tail` de una suite roja) sin perder el
+        contrato de error. El dispatcher conserva ambos.
+        """
+        return cls(ok=False, data=data or {}, error=error)
 
 
 @dataclass(frozen=True)

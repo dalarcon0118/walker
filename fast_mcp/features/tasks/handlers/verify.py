@@ -8,6 +8,8 @@ Uses the verify_engine from infrastructure/ for real predicate checking:
 from __future__ import annotations
 
 import logging
+import re
+import subprocess
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
@@ -18,6 +20,62 @@ from fast_mcp.features.tasks.infrastructure.verify_engine import (
 from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspect_codebase
 
 logger = logging.getLogger(__name__)
+
+# AE-INV-12 / P3c: un check no puede certificarse con reglas que el mismo cambio
+# tocó. Se detectan los archivos de regla que el predicado va a ejecutar
+# (`tests/test_x.py`, `spec/...`), y si están MODIFICADOS respecto de HEAD el
+# verde queda `weak`. Modo `observe` por defecto; `strict=true` lo vuelve rojo.
+_RULE_PATH_RE = re.compile(
+    r"(?:^|[\s'\"=(])((?:[\w.-]+/)*(?:tests?|spec|specs)/[\w./-]+\.(?:py|js|mjs|cjs|ts|tsx))"
+)
+_MAX_RULES = 20
+
+
+def _rule_files(predicates: list[Any]) -> list[str]:
+    """Archivos de regla que los predicados ejecutan (no los que verifican).
+
+    Sólo `test_pass` y `command_exit` ejecutan código: `file_exists`,
+    `symbol_exists` o `grep` leen el árbol pero no corren una regla. Se extraen
+    del comando, sin adivinar: si el path no aparece, no hay regla que cuidar.
+    """
+    found: list[str] = []
+    for pred in predicates:
+        if not isinstance(pred, dict):
+            continue
+        if str(pred.get("type") or "") not in ("test_pass", "command_exit"):
+            continue
+        command = str(pred.get("command") or "")
+        for match in _RULE_PATH_RE.finditer(command):
+            path = match.group(1).lstrip("./")
+            if path not in found:
+                found.append(path)
+    return found[:_MAX_RULES]
+
+
+def _dirty_rule_files(project_root: str, rules: list[str]) -> tuple[list[str], str]:
+    """Reglas modificadas respecto de HEAD.
+
+    Devuelve `(archivos, estado)` con estado `ok|no-rules|no-git|git-error`.
+    Un archivo NUEVO no cuenta: agregar un test no cambia la regla que certifica
+    el trabajo, modificarla sí. `git diff --name-only HEAD` no lista untracked.
+    """
+    if not rules:
+        return [], "no-rules"
+    try:
+        out = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD", "--", *rules],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [], f"git-error: {type(exc).__name__}"
+    if out.returncode != 0:
+        return [], "no-git"
+    dirty = [line.strip() for line in out.stdout.splitlines() if line.strip()]
+    return dirty, "ok"
+
 
 
 def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -111,6 +169,33 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         "unmapped": unmapped,
     }
 
+    # P3c (AE-INV-12): ¿el verde se certificó con reglas que este mismo cambio
+    # modificó? Detección contra HEAD. `strict` convierte la debilidad en rojo;
+    # por defecto es `observe` (se marca, no se bloquea) para no frenar trabajo
+    # legítimo sobre tests antes de tener la tasa de falsos positivos.
+    rules = _rule_files(predicates)
+    dirty_rules, rules_check = _dirty_rule_files(project_root, rules)
+    strict = bool(data.get("strict"))
+    result_data["self_certified"] = bool(dirty_rules)
+    result_data["dirty_rules"] = dirty_rules
+    result_data["rules_check"] = rules_check
+    result_data["strict"] = strict
+    if dirty_rules:
+        result_data["weak"] = True
+        if strict:
+            result_data["all_satisfied"] = False
+            result_data["failed_count"] = result_data.get("failed_count", 0) + 1
+            result_data["total"] = result_data.get("total", 0) + 1
+            result_data["results"].append({
+                "predicate": "checks:no_self_certified",
+                "method": "rules_from_head",
+                "passed": False,
+                "detail": {
+                    "dirty_rules": dirty_rules,
+                    "reason": "la verificación ejecuta reglas modificadas por este cambio",
+                },
+            })
+
     # `getattr`: el motor arma un ctx mínimo; asumir el atributo rompía el
     # paso entero con AttributeError en vez de degradar la capability opcional.
     inspect_result = run_inspect_codebase(getattr(ctx, "cpg_adapter", None), data)
@@ -148,6 +233,7 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         runner="verify_predicates",
         task_id=str(data.get("task_id") or getattr(ctx, "task_id", "") or ""),
         touched=touched,
+        weak=bool(dirty_rules),
     )
 
     return TaskResult.success(data=result_data)

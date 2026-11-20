@@ -215,6 +215,15 @@ class Session:
     # scope, next. Es el estado que el agente debe mantener a la vista; vive en
     # el registro para sobrevivir recargas del plugin.
     flight_plan: dict | None = None
+    # Sello de verificación del cierre (AE-INV-12): {kind, verified, level,
+    # criteria, rounds, weak, at}. `kind=none` es un valor legítimo y visible:
+    # el problema no es no verificar, es no poder demostrarlo.
+    stamp: dict | None = None
+    # Costo/tokens acumulados del proveedor (F5.4). Viven en la sesión para que
+    # la jerarquía (`children` de session_list) publique costo por subagente sin
+    # tener que recorrer la traza de cada hijo.
+    cost_usd: float | None = None
+    tokens: dict | None = None
 
     @property
     def type(self) -> str:
@@ -237,6 +246,9 @@ class Session:
             "outcome": self.outcome,
             "context": self.context or {},
             "flight_plan": self.flight_plan or {},
+            "stamp": self.stamp or {},
+            "cost_usd": self.cost_usd,
+            "tokens": self.tokens or {},
         }
 
     @classmethod
@@ -256,6 +268,9 @@ class Session:
             outcome=data.get("outcome", ""),
             context=data.get("context"),
             flight_plan=data.get("flight_plan"),
+            stamp=data.get("stamp"),
+            cost_usd=data.get("cost_usd"),
+            tokens=data.get("tokens"),
         )
 
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
@@ -433,6 +434,53 @@ def session_open(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     )
 
 
+STAMP_KINDS = ("tests", "predicates", "e2e", "command", "none")
+
+
+def _number_or_none(value: Any) -> float | None:
+    """Costo del proveedor: sólo un número finito es un dato; el resto es None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
+def normalize_stamp(raw: Any) -> dict:
+    """Normaliza el sello de verificación del cierre (AE-INV-12).
+
+    El plugin lo manda; si falta, el cierre NO queda sin sello: queda con
+    `kind=none` y `source=unstated`, que es un dato visible y contable. Un sello
+    inventado (kind desconocido) se degrada a `none`, nunca se acepta como verde.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    if not isinstance(raw, dict) or not raw:
+        return {"kind": "none", "verified": False, "source": "unstated", "at": now}
+    kind = str(raw.get("kind") or "").strip().lower()
+    if kind not in STAMP_KINDS:
+        kind = "none"
+    verified = bool(raw.get("verified")) and kind != "none"
+    try:
+        rounds = max(0, int(raw.get("rounds") or 0))
+    except (TypeError, ValueError):
+        rounds = 0
+    try:
+        criteria = max(0, int(raw.get("criteria") or 0))
+    except (TypeError, ValueError):
+        criteria = 0
+    return {
+        "kind": kind,
+        "verified": verified,
+        "level": str(raw.get("level") or "none"),
+        "weak": bool(raw.get("weak")),
+        "criteria": criteria,
+        "rounds": rounds,
+        "source": "plugin",
+        "at": str(raw.get("at") or now),
+    }
+
+
 def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     session_id = str(data.get("session_id") or ctx.session_id or "").strip()
     if not session_id or session_id == "mcp":
@@ -455,7 +503,13 @@ def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         task_id=str(data.get("task_id") or ctx.task_id or ""),
     )
 
-    record = service.close_session(session_id, outcome=str(data.get("outcome") or ""))
+    record = service.close_session(
+        session_id,
+        outcome=str(data.get("outcome") or ""),
+        stamp=normalize_stamp(data.get("stamp")),
+        cost_usd=_number_or_none(data.get("cost_usd")),
+        tokens=data.get("tokens") if isinstance(data.get("tokens"), dict) else None,
+    )
     if record is None:
         return TaskResult.failure(f"session_close: sesión desconocida {session_id!r}")
     return TaskResult.success({"ok": True, "session": record, "knowledge": knowledge})

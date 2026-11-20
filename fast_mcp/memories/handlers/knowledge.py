@@ -682,6 +682,8 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
         reg = build_sprint_service(ctx.chain_dir)
         record = reg.get_session(sid) if reg is not None else None
         out["session"] = record or {"status": "unregistered"}
+        # El sello de verificación se consulta sin abrir el registro (AE-INV-12).
+        out["stamp"] = (record or {}).get("stamp") or {}
     except Exception as exc:  # noqa: BLE001
         out["session_error"] = f"{type(exc).__name__}: {exc}"
 
@@ -784,7 +786,7 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     # no el slice de display.
     _FLIGHT_KEYS = (
         "verified", "verified_at", "verify_level", "dirty_since",
-        "wrote", "writes", "touched",
+        "wrote", "writes", "touched", "weak", "weak_reason",
     )
     _source = None
     for _e in events:

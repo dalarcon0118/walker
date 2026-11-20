@@ -575,15 +575,33 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
     if result.returncode != 0 or failed_n or errors_n:
         _record(False, result.returncode)
+        # SPEC-013: el rojo trae su evidencia (cola de la salida). Sin ella el
+        # agente repite el comando a ciegas; el nudge de cierre la muestra.
         return TaskResult.failure(
             "run_tests: SUITE ROJA "
             f"({framework}: rc={result.returncode}, passed={passed_n}, "
-            f"failed={failed_n}, errors={errors_n})"
+            f"failed={failed_n}, errors={errors_n})",
+            {
+                "passed": False,
+                "total": total,
+                "failures": failed_n,
+                "errors": errors_n,
+                "returncode": result.returncode,
+                "test_framework": framework,
+                "output_tail": out[-1500:],
+            },
         )
     if framework == "pytest" and total <= 0:
         _record(False, result.returncode)
         return TaskResult.failure(
-            "run_tests: 0 tests ejecutados — no se puede certificar QA"
+            "run_tests: 0 tests ejecutados — no se puede certificar QA",
+            {
+                "passed": False,
+                "total": 0,
+                "returncode": result.returncode,
+                "test_framework": framework,
+                "output_tail": out[-1500:],
+            },
         )
     # P1.11: el verde queda en el TRACE. El plugin lo hidrata aunque no haya
     # visto el comando (Code Mode / shell del host / subagente).

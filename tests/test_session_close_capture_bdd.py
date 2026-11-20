@@ -22,10 +22,19 @@ from fast_mcp.features.tasks.handlers import session as session_handlers
 class _FakeSprintService:
     def __init__(self):
         self.closed: list[tuple[str, str]] = []
+        self.stamps: list[dict] = []
 
-    def close_session(self, session_id, outcome=""):
+    def close_session(self, session_id, outcome="", stamp=None, cost_usd=None, tokens=None):
         self.closed.append((session_id, outcome))
-        return {"session_id": session_id, "status": "closed", "outcome": outcome}
+        self.stamps.append(stamp or {})
+        return {
+            "session_id": session_id,
+            "status": "closed",
+            "outcome": outcome,
+            "stamp": stamp or {},
+            "cost_usd": cost_usd,
+            "tokens": tokens or {},
+        }
 
 
 @pytest.fixture()
