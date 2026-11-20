@@ -424,3 +424,48 @@ def test_si_el_ckg_no_guarda_el_nodo_el_trace_igual_queda(tmp_path, monkeypatch)
     assert out.ok, "la verificación no depende del CKG"
     assert events[-1]["data"]["verified"] is True
     assert events[-1]["data"]["evidence_node"] == ""
+
+
+def test_el_writer_real_inyecta_la_sesion_en_el_nodo(tmp_path, monkeypatch):
+    """La inyección de `metadata.session_id` la hace el SERVICIO real.
+
+    Los demás tests usan un writer fake, así que la única parte que el CKG
+    necesita para unir el nodo con la sesión (`session_id` + `source`) no se
+    ejercitaba. Acá el puente `_di` se cablea con `CkgWriteService.save_nodes`
+    y sólo se sustituye el grafo: si la inyección se rompe, este test falla.
+    """
+    from returns.pipeline import is_successful
+
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_write
+
+    saved: dict = {}
+
+    class _Ckg:
+        def save_nodes(self, nodes):
+            saved["nodes"] = nodes
+            return {"nodes_created": len(nodes)}
+
+    monkeypatch.setattr(ckg_write, "_resolve_ckg", lambda chain: (_Ckg(), str(tmp_path)))
+
+    def _writer(chain_dir, nodes, task_id="", session_id=""):
+        res = ckg_write.CkgWriteService.save_nodes(
+            chain_dir, nodes, task_id=task_id, session_id=session_id
+        )
+        return res.value_or({}) if is_successful(res) else {"error": str(res.failure())}
+
+    _di.configure_knowledge_writer(_writer)
+    try:
+        _pytest_project(tmp_path, monkeypatch)
+        monkeypatch.setattr(impl.subprocess, "run", lambda *a, **k: _Result(0, "2 passed"))
+        out = impl.run_tests(
+            _ctx(str(tmp_path)), {"session_id": "S-1", "task_id": "T-1"}
+        )
+    finally:
+        _di.configure_knowledge_writer(None)
+
+    assert out.ok
+    node = saved["nodes"][0]
+    assert node["metadata"]["session_id"] == "S-1"
+    assert node["metadata"]["source"] == "session:S-1"
+    assert node["metadata"]["task_id"] == "T-1"
+    assert node["type"] == "verification"
