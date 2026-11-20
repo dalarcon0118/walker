@@ -252,6 +252,14 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
             f"{str(data.get('task_id') or data.get('session_id') or '(sin id)')!r} "
             "(ni spec ni traza de la sesión)"
         )
+    # Un hecho sin sesión es un nodo huérfano (`session-sin-id-…`) que no
+    # aparece en `session_context` ni se puede podar por tarea. Se declara en
+    # vez de escribirlo: el cierre administrativo debe pasar la sesión.
+    if not str((fact.get("metadata") or {}).get("session_id") or "").strip():
+        return TaskResult.failure(
+            "capture_knowledge: el hecho no tiene sesión; pasá session_id "
+            "para ligarlo al cierre"
+        )
 
     task_id = str((fact.get("metadata") or {}).get("task_id") or data.get("task_id", "") or "")
     supersedes = _supersedes_for(ctx.chain_dir, fact, task_id)

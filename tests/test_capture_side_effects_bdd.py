@@ -221,3 +221,48 @@ def test_fact_for_pasa_el_sprint_a_la_resolucion(project_dir, monkeypatch):
 
     assert fact is not None
     assert seen == {"task_id": "SPEC-012", "spring_id": "S2"}
+
+
+def test_captura_sin_sesion_falla_en_vez_de_crear_un_nodo_huerfano(
+    project_dir, monkeypatch
+):
+    """`session-sin-id-…` no se puede encontrar por session_context ni podar."""
+    monkeypatch.setattr(
+        _di,
+        "current_spec",
+        lambda *a, **k: {"spec_id": "SPEC-005", "objective": "x", "files": [],
+                         "task_context": {}},
+    )
+    monkeypatch.setattr(_di, "session_events", lambda *a, **k: [])
+    monkeypatch.setattr(_di, "session_spring", lambda *a, **k: "")
+    monkeypatch.setattr(_di, "sprint_service", lambda *a, **k: None)
+
+    out = knowledge.capture_knowledge(
+        _ctx(project_dir), {"task_id": "SPEC-005", "spring_id": "SPR-1"}
+    )
+
+    assert not out.ok
+    assert "no tiene sesión" in out.error
+
+
+def test_spec_status_sin_sesion_reporta_la_captura_no_ligada(project_dir, monkeypatch):
+    """El cierre administrativo sin sesión no crea un nodo huérfano: lo dice."""
+    service = _FakeService()
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda chain_dir: service)
+    monkeypatch.setattr(
+        _di, "current_spec",
+        lambda *a, **k: {"spec_id": "SPEC-001", "objective": "x", "files": [],
+                         "task_context": {}},
+    )
+    monkeypatch.setattr(_di, "session_events", lambda *a, **k: [])
+
+    out = spec_status.spec_status(
+        _ctx(project_dir),
+        {"spec_id": "SPEC-001", "status": "completed", "spring_id": "SPR-1",
+         "commit_hash": "abc", "evidence": ["suite verde"],
+         "review_verdict": "ok", "completed_at": "2026-11-20T00:00:00Z"},
+    )
+
+    assert out.ok, "la spec se completa igual"
+    assert out.data["knowledge"]["ok"] is False
+    assert "sesión" in out.data["knowledge"]["error"]
