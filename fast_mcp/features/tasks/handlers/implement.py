@@ -407,6 +407,30 @@ def _resolve_project_root(chain_dir: str) -> str:
         current = parent
 
 
+def _suite_env() -> dict[str, str]:
+    """Entorno limpio para la suite: sin los knobs de runtime del agente.
+
+    Medido 2026-11-20: el server MCP corre con `WALKER_MCP_PROFILE=agent`, así
+    que `run_tests` heredaba el perfil y 14 tests que fijan el contrato `full`
+    (46 tools) fallaban SOLO desde la tool de verificación. La suite certifica
+    el proyecto, no la configuración de la sesión: esos knobs se descartan.
+    """
+    skip = {
+        "WALKER_MCP_PROFILE",
+        "WALKER_PROJECT_ID",
+        "WALKER_SESSION_ID",
+        "WALKER_PROMPT_SKILLS",
+        "WALKER_PROMPT_KNOWLEDGE",
+        "WALKER_SKILLS_HOME",
+        "WALKER_HOOKS_TRUST",
+    }
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key not in skip and not key.startswith("WALKER_FLIGHT_CONTROL")
+    }
+
+
 def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """Ejecuta el runner DECLARADO por el proyecto y reporta verde/rojo.
 
@@ -467,6 +491,7 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             capture_output=True,
             text=True,
             timeout=300,
+            env=_suite_env(),
         )
     except subprocess.TimeoutExpired:
         _record(False)
