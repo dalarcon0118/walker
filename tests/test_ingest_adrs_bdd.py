@@ -57,6 +57,35 @@ def test_parse_adr_justificacion_es_prosa_no_metadata(tmp_path):
     assert "motor de workflow" in node["description"]
 
 
+def test_descripcion_indexa_el_cuerpo_no_solo_el_primer_parrafo(tmp_path):
+    """F2: la decisión vive en el cuerpo, no en la cabecera de 800 chars.
+
+    Medido en el golden set: "por qué el engine no puede importar
+    infraestructura" no encontraba ADR-067 porque su cuerpo no estaba
+    indexado (sólo el primer párrafo, recortado a 800).
+    """
+    cuerpo = (
+        _ADR
+        + "\n## Decisión\n\n"
+        "El engine no puede importar infraestructura: el dominio define el "
+        "puerto y el composition root resuelve el adaptador en runtime.\n"
+    )
+    node = parse_adr(_write(tmp_path, "ADR-WALKER-042.md", cuerpo))
+
+    assert "motor de workflow" in node["description"]
+    assert "importar infraestructura" in node["description"]
+
+
+def test_descripcion_tiene_tope(tmp_path):
+    """El cuerpo indexado no puede crecer sin límite: 8 KB por ADR."""
+    from scripts.ingest_adrs import SEARCH_BODY_LIMIT
+
+    relleno = "\n\n".join("palabra " * 200 for _ in range(40))
+    node = parse_adr(_write(tmp_path, "ADR-WALKER-042.md", _ADR + "\n\n" + relleno))
+
+    assert len(node["description"]) <= SEARCH_BODY_LIMIT + 500
+
+
 def test_ids_distintos_para_dos_adr_con_el_mismo_numero(tmp_path):
     """Hay dos ADR-WALKER-018: el id sale del filename, no del número."""
     a_body = "# ADR-WALKER-018: Context Gates\n\n> **Status:** Accepted\n\nLos gates de contexto resuelven qué memoria inyectar antes de ejecutar cualquier herramienta del workflow.\n"

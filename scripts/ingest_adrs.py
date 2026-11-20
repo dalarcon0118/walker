@@ -89,6 +89,27 @@ def _first_paragraph(lines: list[str], start: int) -> str:
     return (substantial or paragraphs)[0]
 
 
+#: Cuánto cuerpo del ADR se indexa. El retrieval necesita la decisión, no la
+#: cabecera: indexar sólo el primer párrafo dejaba ~800 chars de Status/Date y
+#: el golden set en 0/20 (ADR-067 no aparecía para "por qué el engine no puede
+#: importar infraestructura" porque la respuesta vive en el cuerpo).
+SEARCH_BODY_LIMIT = 8_000
+
+
+def _search_body(lines: list[str], start: int, limit: int = SEARCH_BODY_LIMIT) -> str:
+    """Párrafos sustantivos del ADR hasta `limit` chars, en orden."""
+    chunks: list[str] = []
+    size = 0
+    for paragraph in _paragraphs(lines, start):
+        if len(paragraph) < 40:
+            continue
+        chunks.append(paragraph)
+        size += len(paragraph) + 2
+        if size >= limit:
+            break
+    return "\n\n".join(chunks)[:limit]
+
+
 _STATUS_VOCAB: dict[str, str] = {
     "accepted": "accepted",
     "aceptado": "accepted",
@@ -155,13 +176,23 @@ def parse_adr(path: Path) -> dict:
     match = _ADR_RE.search(title) or _ADR_RE.search(path.name)
     adr_code = f"ADR-WALKER-{match.group(1)}" if match else path.stem.upper()
 
-    body = _first_paragraph(lines, title_idx + 1)
-    if len(body) < 60:
-        body = _first_paragraph(lines, title_idx + 1 + 6)
+    summary = _first_paragraph(lines, title_idx + 1)
+    if len(summary) < 60:
+        summary = _first_paragraph(lines, title_idx + 1 + 6)
+
+    # F2: se indexa el cuerpo sustantivo, no sólo el primer párrafo. El
+    # `description` es lo que entra al FTS (campos statement + rationale).
+    body = _search_body(lines, title_idx + 1)
+    if body.startswith(summary):
+        description = body
+    elif summary:
+        description = f"{summary}\n\n{body}"
+    else:
+        description = body
 
     from scripts.derive_knowledge_tags import derive_tags
 
-    tags = derive_tags(title, text[:1500])
+    tags = derive_tags(title, description[:1500])
     tags.add("architecture")
     tag = _status_tag(status)
     if tag:
@@ -170,7 +201,7 @@ def parse_adr(path: Path) -> dict:
     return {
         "id": path.stem.lower(),
         "label": title,
-        "description": body[:800],
+        "description": description[: SEARCH_BODY_LIMIT + 500],
         "type": "design-decision",
         "tags": sorted(tags),
         "metadata": {

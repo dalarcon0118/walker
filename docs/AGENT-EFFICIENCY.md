@@ -66,7 +66,10 @@ Lectura de la tabla:
    (un token) devuelve 5 resultados; `… gate de alcance flight control`
    (seis tokens) devuelve 0.
    Baseline del golden set de 20 preguntas naturales: **hit@5 = 0/20 (0%)**,
-   latencia media 1.981 ms (`data/golden/baseline.json`).
+   latencia media 1.981 ms (`data/golden/baseline.json`). Con el fallback
+   OR+bm25 de F2 (`search_fts(allow_or_fallback=True)` pedido por el CKG) y el
+   filtro de nodos de sesión: **17/20 (85%)** a la misma latencia
+   (`data/golden/baseline-or.json`).
 2. **El server no escala en paralelo.** Tres lecturas concurrentes tardan lo mismo
    que tres secuenciales. Un agente que hace fan-out paga N × latencia.
 3. **La firma no es uniforme.** `agent_context` recibe `project_id`+`file|text`;
@@ -457,14 +460,17 @@ acá sigue abierto.
 | Timeouts alineados | **aplicado** | walker `timeout: 420000` en `~/.config/opencode/opencode.json` (era 30.000) |
 | Telemetría por tool (F0) | **implementado** | `fast_mcp/shared_kernel/telemetry/` + `scripts/agent_metrics.py`; primera llamada medida: `status` 3 ms · 255 tok · `hit` |
 | Golden set (F0) | **congelado con baseline** | `data/golden/agent_queries.json` → `data/golden/baseline.json`: **0/20**, 1.981 ms de media |
-| Causa del retrieval vacío | **identificada, no corregida** | `match_expr` con AND estricto (`fts.py:231-266`); `storage` → 5 resultados, 6 tokens → 0 |
+| Causa del retrieval vacío | **corregida en F2** | AND estricto (`fts.py:match_expr`); OR+bm25 para texto libre (`match_mode=any`) con fallback cuando el AND devuelve `<5`; **cuerpo del ADR indexado** (`ingest_adrs.py`, era 800 chars de cabecera); golden set **18/20** (`baseline-f2.json`) |
+| Firma uniforme de `search_memories` | **implementada** | `project_id`/paginación fuera del mapa de índices; `text`/`query` → `ckg.text`; error con ejemplo ejecutable (`tests/test_memory_signature_bdd.py`) |
+| Ranking por autoridad | **implementado** | ADR/`docs/` antes que memoria de sesión, con orden bm25 estable (`tests/test_ckg_retrieval_ranking_bdd.py`) |
+| Plan → spec | **corregido** | `implement_task` hereda `acceptance` del `session_plan`; `spec_status` acepta `artifacts` anidado |
 | `brief` compuesto (F2) | pendiente | — |
 | `plan_diff` y `design_brief` (F3) | pendiente | — |
-| Perfil ≤8 tools (F3) | pendiente | hoy 23 tools / 10.314 chars |
+| Perfil ≤8 tools (F3) | pendiente | hoy 23 tools / 10.314 chars. El recorte exige migrar 30 referencias a nombres de tool en prompts/workflow: sin eso se reproduce el escenario 3 de §4 (`Unknown tool`). No se hace a ciegas. |
 | Deadlock de import concurrente (AE-INV-07) | **abierto** | no se tocó en esta fase |
 
-Verificación: `python3 -m pytest -q` → **1.524 passed** (1.515 previos + 9
-nuevos), `python3 scripts/golden_queries.py`, `python3 scripts/agent_metrics.py`.
+Verificación: `python3 -m pytest -q` → **1.540 passed** (`scripts/golden_queries.py`
+da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
 
@@ -495,5 +501,48 @@ Salieron de operar el sistema, no de leerlo. Quedan acá para que no se pierdan:
    `session_bind` nuevo: la sesión que acaba de cerrar no puede escribir su
    propio reporte. Es AE-INV-02 en su forma más cara (una escritura de
    documentación paga el peaje de un sprint nuevo).
+
+### 7.2 Resultado de F2 (retrieval + firma)
+
+`python3 scripts/golden_queries.py` → **18/20 (90%)**, media 2.019 ms
+(`data/golden/baseline-f2.json`). La mejora no vino de relajar el AND: vino de
+indexar lo que se pregunta.
+
+| Cambio | Efecto medido |
+| :-- | :-- |
+| `match_expr(mode="any")` + OR cuando el AND da `<5` | `agent_context(text=…)` deja de devolver `ckg: []` |
+| Cuerpo del ADR indexado (8 KB, era 800 chars de cabecera) | q01 pasa de 0 a **rank 3**; q15 vuelve a rank 2 |
+| Autoridad antes que memoria de sesión (orden bm25 estable) | `decision-001` ("proceed") deja de ser top-1 de q06 |
+| `search_memories` sin `project_id` en el mapa | desaparece `Índice 'project_id' no registrado` |
+
+Quedan **2 fallos, conocidos y no parcheados a propósito**:
+
+- **q05** — "por qué el engine no puede importar infraestructura": el ADR-067
+  escribe `infra`, la pregunta dice `infraestructura`. Es morfología, no
+  ranking; se resuelve con stemming/embeddings, no con sinónimos ad-hoc.
+- **q06** — "cómo se separan las tareas del workflow de las acciones": el
+  ADR-065 está en inglés (`tasks`/`workflow actions`). Es brecha bilingüe.
+
+Tocar el golden set para que pasen sería el escenario 2 de §4 (optimizar la
+consulta que se está mirando). Se documentan como límite léxico.
+
+**Por qué `brief` no entra todavía:** AE-INV-01 prohíbe sumar un lector sin
+retirar otro. Agregarlo hoy sería la 24ª tool del perfil `agent` (ya en 23
+contra un objetivo de 8) y pagaría esquema en cada request sin sacar
+`agent_context`/`preflight`/`workflow_state`. Entra en F3, con el corte del
+perfil y la migración de las 30 referencias a tools en prompts/workflow.
+
+`failure_scenarios` de este cambio:
+
+1. *El cuerpo indexado degrada la precisión por dilución de bm25.* Mitigación:
+   el AND se conserva mientras devuelva ≥5; el OR sólo completa. Detección:
+   golden set en CI (hoy 18/20).
+2. *El índice queda desincronizado al re-ingerir.* Mitigación: ids
+   determinísticos + `save_nodes` actualiza FTS en la misma transacción.
+   Detección: `memory_health` y el marker `fts_config`.
+3. *El payload crece con el corpus.* Mitigación: `_normalize_node` recorta a
+   600 chars y declara `rationale_chars`. Detección:
+   `tests/test_ckg_retrieval_ranking_bdd.py`.
+
 
 

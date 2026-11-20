@@ -41,6 +41,34 @@ def test_multi_palabra_mantiene_and_estricto():
     assert match_expr("") == ""
 
 
+def test_mode_any_une_los_prefijos_con_or():
+    """Recall explícito para preguntas naturales (F2, 2026-11-20)."""
+    assert match_expr("auth token", mode="any") == '("auth"* OR "token"*)'
+    # Un solo token es idéntico en ambos modos.
+    assert match_expr("bootstraps", mode="any") == '"bootstraps"*'
+
+
+def test_fts_real_cae_a_or_cuando_el_and_no_encuentra(tmp_path):
+    """El AND de 2 tokens no matchea; el match_mode=any + bm25 sí lo encuentra."""
+    conn = MemoryConnection(backend="sqlite", uri=f"sqlite://{tmp_path}")
+    backend = resolve_storage_backend(conn)
+    backend.register_index("ckg", PRODUCTION_INDEX_SCHEMAS["ckg"])
+    backend.store_many(
+        "ckg",
+        {"c:1": {"statement": "sprint delta model", "type": "decision"}},
+    )
+
+    # AND exacto: ambos tokens están en el doc → hit (precisión intacta).
+    assert backend.search("ckg", {"text": "sprint delta"})["hits"]["total"] == 1
+    # Sin match_mode, un token ausente NO matchea (contrato AND del índice).
+    assert backend.search("ckg", {"text": "almacenamiento sprint"})["hits"]["total"] == 0
+    # Con match_mode=any (texto libre del CKG), el OR lo recupera.
+    result = backend.search(
+        "ckg", {"text": "almacenamiento sprint", "match_mode": "any"}
+    )
+    assert result["hits"]["total"] == 1
+
+
 def test_scoped_valida_columnas_y_anida_el_or():
     expr = match_expr("AppProviders", ["statement"], ["statement"])
     assert expr == 'statement:("AppProviders" OR ("app"* "providers"*))'
@@ -77,3 +105,35 @@ def test_comilla_interna_no_rompe_la_sintaxis_match(tmp_path):
                                        "type": "component"}})
     # ejecuta la consulta real: si la sintaxis fuera inválida, lanzaría
     assert backend.search("ckg", {"text": 'App"Providers'})["hits"]["total"] == 1
+
+
+def test_match_mode_any_cuando_el_and_devuelve_pocos(tmp_path):
+    """AND con 1–4 candidatos no alcanza: se completa con OR + bm25.
+
+    Regresión medida 2026-11-20: al indexar el cuerpo de los ADR, el AND
+    empezó a devolver 1 doc irrelevante y el fallback (sólo con total==0)
+    dejaba de dispararse. "Encontrar algo" no es encontrar lo preguntado.
+    """
+    conn = MemoryConnection(backend="sqlite", uri=f"sqlite://{tmp_path}")
+    backend = resolve_storage_backend(conn)
+    backend.register_index("ckg", PRODUCTION_INDEX_SCHEMAS["ckg"])
+    backend.store_many(
+        "ckg",
+        {
+            "c:1": {"statement": "engine e infraestructura juntos", "type": "decision"},
+            "c:2": {"statement": "engine puro", "type": "decision"},
+            "c:3": {"statement": "engine sin adaptadores", "type": "decision"},
+            "c:4": {"statement": "infraestructura del storage", "type": "decision"},
+            "c:5": {"statement": "infraestructura del trace", "type": "decision"},
+            "c:6": {"statement": "infraestructura del cpg", "type": "decision"},
+        },
+    )
+
+    # Sin match_mode: contrato AND (sólo el doc que tiene ambos tokens).
+    assert backend.search("ckg", {"text": "engine infraestructura"})["hits"]["total"] == 1
+    # Con match_mode=any y AND corto: OR recupera el corpus relevante.
+    amplio = backend.search(
+        "ckg", {"text": "engine infraestructura", "match_mode": "any"}
+    )
+    assert amplio["hits"]["total"] == 6
+

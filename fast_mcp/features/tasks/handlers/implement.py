@@ -139,6 +139,27 @@ def _ensure_active(service, spring: dict | None, resume: bool) -> tuple[bool, st
     )
 
 
+def _session_plan_acceptance(ctx: ExecutionContext, session_id: str) -> list[str]:
+    """Criterios de aceptación del `session_plan` de la sesión (si los hay).
+
+    El plan es lo que el agente declaró al empezar; la spec es lo que se va a
+    cerrar. Si no se copian, el cierre valida contra cero criterios y el hueco
+    queda invisible (AE-INV-06).
+    """
+    if not session_id:
+        return []
+    try:
+        service = _di.sprint_service(ctx.chain_dir)
+        if service is None or not hasattr(service, "get_session"):
+            return []
+        record = service.get_session(session_id) or {}
+        plan = record.get("flight_plan") or record.get("plan") or {}
+        items = plan.get("acceptance") or []
+        return [str(item) for item in items if str(item).strip()]
+    except Exception:  # noqa: BLE001 — sin plan la declaración sigue
+        return []
+
+
 def _persist_spec(
     ctx: ExecutionContext,
     task_id: str,
@@ -167,6 +188,17 @@ def _persist_spec(
     )
 
     derived = derive(objective or "")
+    # El plan de vuelo es la fuente de aceptación de la SESIÓN. Antes se
+    # descartaba: el plan tenía 4 criterios y la spec se creaba con 0
+    # (medido 2026-11-20: `validation.errors = "sin criterios de aceptación"`).
+    if not derived.get("acceptance_criteria"):
+        plan_criteria = _session_plan_acceptance(ctx, session_override or ctx.session_id or "")
+        if plan_criteria:
+            derived = {
+                **derived,
+                "acceptance_criteria": plan_criteria,
+                "source": "session_plan",
+            }
     mapped = criteria_to_predicates(derived["acceptance_criteria"], ctx.chain_dir)
     if not mapped["predicates"]:
         # Sin criterios en el texto (títulos descriptivos), los ARCHIVOS dicen

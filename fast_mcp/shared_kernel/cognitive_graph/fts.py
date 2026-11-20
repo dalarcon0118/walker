@@ -227,7 +227,8 @@ def _fts_object_exists(conn: sqlite3.Connection, index: str) -> bool:
 # ── Match expression (sintaxis FTS segura) ─────────────────────────────────
 
 def match_expr(text: str, fields_scoped: list[str] | None = None,
-               fts_columns: list[str] | None = None) -> str:
+               fts_columns: list[str] | None = None,
+               mode: str = "all") -> str:
     """`text` → expresión MATCH segura con paridad de tokenización (D2).
 
     Los tokens vienen de `tokenize()` (SSOT de TokenIndex, models.py): split
@@ -241,8 +242,13 @@ def match_expr(text: str, fields_scoped: list[str] | None = None,
     "AppProviders" como UN token, mientras `tokenize()` lo parte en
     [app, providers] y el AND de prefijos no lo matchea (medido: FTS crudo 2
     hits, `"app"* "providers"*` 0). Para queries de UNA palabra se agrega el
-    token LITERAL en OR con el grupo de prefijos; las multi-término mantienen
-    el AND estricto (no se relaja la semántica de búsqueda).
+    token LITERAL en OR con el grupo de prefijos.
+
+    `mode` (fix 2026-11-20): `"all"` mantiene el AND estricto (precisión) y
+    `"any"` une los prefijos con OR (recall). El default NO cambia: el
+    fallback a `"any"` lo decide `search_fts` sólo cuando el AND devolvió 0.
+    Motivo medido: una pregunta natural de 5–6 palabras exigía las 5–6 y
+    devolvía `ckg.results: []` en 2–3 s (golden set: hit@5 0/20).
 
     fields_scoped → column-scoped (`campo:"tok"*`). El texto del usuario
     jamás llega crudo a MATCH (operadores/comillas neutralizados por la
@@ -252,8 +258,11 @@ def match_expr(text: str, fields_scoped: list[str] | None = None,
     if not tokens:
         return ""
     terms = [f'"{t}"*' for t in tokens]
+    any_mode = str(mode).lower() == "any"
     and_terms = " ".join(terms)
-    inner = and_terms
+    inner = (" OR ".join(terms)) if any_mode else and_terms
+    if len(terms) > 1 and any_mode:
+        inner = f"({inner})"
     # OR con el literal solo si la palabra se partió (camelCase/snake/dash).
     words = [
         w.strip("\"'()[]{},;:!?")
@@ -550,28 +559,50 @@ def search_fts(
     max_results: int = 50,
     fields_scoped: list[str] | None = None,
     offset: int = 0,
+    allow_or_fallback: bool = False,
 ) -> tuple[list[tuple[str, float]], int]:
     """MATCH nativo con orden bm25. Returns ([(doc_id, bm25_rank)], total).
 
     `total` = TODOS los matches (G8: paginación real), independiente del
     LIMIT de la página. `bm25` es COSTO (menor = mejor). `fields_scoped` →
     column-scoped MATCH (solo columnas FTS del índice).
+
+    Fallback de recall (2026-11-20): el AND estricto devuelve 0 en preguntas
+    naturales (5–6 tokens que ningún doc contiene juntos). Con
+    `allow_or_fallback=True` y `total == 0`, se repite con `mode="any"` +
+    bm25: el ranking ya ordena por relevancia, así que el OR llena el top-5
+    sin cambiar el orden de los hits del AND. El default es `False`: la
+    semántica AND es contrato del índice; el recall ampliado lo pide el caller
+    (hoy: `search('ckg', {"text": ..., "match_mode": "any"})`).
     """
     _validate(index, [])
     marker = fts_marker(conn, index)
     cols = marker.get("fields", []) if marker else []
+    fts_name = fts_table(index)
+
+    def _query(expr: str) -> tuple[list[tuple[str, float]], int]:
+        total = int(conn.execute(
+            f"SELECT COUNT(*) FROM {fts_name} WHERE {fts_name} MATCH ?",
+            (expr,),
+        ).fetchone()[0])
+        rows = conn.execute(
+            f"SELECT d.id, bm25({fts_name}) AS rank "
+            f"FROM {fts_name} f JOIN docs d ON d.rowid = f.rowid "
+            f"WHERE {fts_name} MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
+            (expr, int(max_results), int(offset)),
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows], total
+
     match = match_expr(text, fields_scoped, cols)
     if not match:
         return [], 0
-    fts_name = fts_table(index)
-    total = int(conn.execute(
-        f"SELECT COUNT(*) FROM {fts_name} WHERE {fts_name} MATCH ?",
-        (match,),
-    ).fetchone()[0])
-    rows = conn.execute(
-        f"SELECT d.id, bm25({fts_name}) AS rank "
-        f"FROM {fts_name} f JOIN docs d ON d.rowid = f.rowid "
-        f"WHERE {fts_name} MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
-        (match, int(max_results), int(offset)),
-    ).fetchall()
-    return [(r[0], r[1]) for r in rows], total
+    rows, total = _query(match)
+    if allow_or_fallback and total < min(5, int(max_results)):
+        # Recall para preguntas naturales: el AND estricto puede devolver 1–3
+        # docs (cuerpos largos) y "encontrar algo" no es encontrar lo que se
+        # pregunta. Con <5 candidatos se repite en OR + bm25: el ranking ya
+        # ordena por relevancia y el AND pierde sólo cuando no alcanza.
+        broader = match_expr(text, fields_scoped, cols, mode="any")
+        if broader and broader != match:
+            rows, total = _query(broader)
+    return rows, total

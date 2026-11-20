@@ -33,6 +33,17 @@ def spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if not status:
         return TaskResult.failure("spec_status: status requerido")
 
+    # Compatibilidad de firma (AE-INV-03): el handler lee los artefactos como
+    # parámetros de primer nivel, pero un caller natural manda
+    # `artifacts: {…}`. Antes se ignoraba en silencio y el error sólo decía
+    # "missing required artifacts" (medido 2026-11-20).
+    nested = data.get("artifacts")
+    if isinstance(nested, dict):
+        for key in _ARTIFACT_FIELDS:
+            if data.get(key) in (None, "", []) and nested.get(key) not in (None, "", []):
+                data[key] = nested.get(key)
+        data.pop("artifacts", None)
+
     service = _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("spec_status: sprint service no disponible")

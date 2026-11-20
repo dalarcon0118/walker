@@ -370,19 +370,77 @@ def _trace_skill_load(chain_dir: str, event: dict) -> str:
     return f"no se pudo registrar la carga del skill: {error}"
 
 
+#: Índices consultables del grafo cognitivo. Es el vocabulario del payload:
+#: una clave fuera de este set NO es un índice (AE-INV-03, firma uniforme).
+_SEARCH_INDEXES = ("ckg", "cpg", "delta", "trace")
+
+#: Claves de plomería que el cliente MCP agrega y que no son consultas.
+_SEARCH_CONTROL = frozenset({
+    "_project_id", "project_id", "project", "text", "query",
+    "max_results", "size", "max_events", "_from", "from",
+    "match_mode", "limit",
+})
+
+#: Ejemplo ejecutable: un error de firma sin ejemplo obliga a adivinar.
+_SEARCH_EXAMPLE = '{"ckg": {"text": "gate de alcance"}}'
+
+
 def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
-    """Federated query across multiple indexes at once."""
+    """Federated query across multiple indexes at once.
+
+    Firma uniforme (AE-INV-03): `project_id` es contexto, no un índice. Antes
+    el payload llegaba crudo a `search_many` y `project_id` se respondía como
+    `Índice 'project_id' no registrado` — el agente pagaba un turno por una
+    clave de plomería. `text`/`query` de primer nivel son atajo de
+    `ckg.text`; las claves desconocidas se reportan con el ejemplo exacto y
+    NO bloquean las consultas válidas.
+    """
     ckg = ctx.ckg()
     if ckg is None:
         return {"error": "CKG not available"}
 
-    queries = kwargs.get("_payload", kwargs)
-    if isinstance(queries, dict):
-        try:
-            return ckg.search_many(queries)
-        except (KeyError, Exception) as e:
-            return {"error": str(e)}
-    return {"error": "Invalid queries format"}
+    raw = kwargs.get("_payload", kwargs)
+    if not isinstance(raw, dict):
+        return {"error": "Invalid queries format", "example": _SEARCH_EXAMPLE}
+
+    queries: dict[str, dict] = {}
+    unknown: list[str] = []
+    for key, value in raw.items():
+        if key in _SEARCH_INDEXES:
+            queries[key] = dict(value) if isinstance(value, dict) else {}
+        elif key not in _SEARCH_CONTROL and not key.startswith("_"):
+            unknown.append(str(key))
+
+    text = raw.get("text", raw.get("query", ""))
+    if text:
+        queries.setdefault("ckg", {})["text"] = str(text)
+    match_mode = raw.get("match_mode")
+    size = raw.get("size", raw.get("max_results"))
+    for query in queries.values():
+        if match_mode:
+            query.setdefault("match_mode", match_mode)
+        if size:
+            query.setdefault("size", size)
+
+    if not queries:
+        return {
+            "error": "Sin índices en el payload",
+            "indexes": list(_SEARCH_INDEXES),
+            "example": _SEARCH_EXAMPLE,
+        }
+
+    try:
+        out = ckg.search_many(queries)
+    except Exception as e:  # noqa: BLE001 — el handler nunca tumba el server
+        return {"error": str(e), "example": _SEARCH_EXAMPLE}
+    if not isinstance(out, dict):
+        return out
+    # Fallo ruidoso pero parcial: los índices válidos se devuelven igual.
+    if unknown:
+        out["error"] = f"Índices no registrados: {unknown}"
+        out["indexes"] = list(_SEARCH_INDEXES)
+        out["example"] = _SEARCH_EXAMPLE
+    return out
 
 
 def _resolve_anchor(

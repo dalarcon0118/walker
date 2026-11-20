@@ -236,7 +236,17 @@ class CognitiveCkgRepository(CkgRepository):
         ]
 
     def search(self, query: str, max_results: int = 20) -> list[dict]:
-        result = self._cg.search("ckg", {"text": query, "size": max_results})
+        text = str(query)
+        # F2 (2026-11-20): una pregunta natural de 5–6 palabras exigía las 5–6
+        # (AND estricto) y devolvía 0 en 2–3 s — golden set: hit@5 0/20. El
+        # texto libre (sin filtros `campo:valor`) va directo a OR + bm25: el
+        # backend conserva el AND mientras devuelva ≥5 candidatos y cae a OR
+        # cuando no alcanza. Los filtros estructurados NO cambian.
+        free_text = ":" not in text and len(text.split()) > 1
+        payload: dict = {"text": text, "size": max_results}
+        if free_text:
+            payload["match_mode"] = "any"
+        result = self._cg.search("ckg", payload)
         hits = result["hits"]["hits"]
         return [
             {**h.get("_source", {}), "_id": h.get("_id", "")}

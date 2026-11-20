@@ -37,6 +37,26 @@ def _is_test_seed(node: dict) -> bool:
     )
 
 
+def _is_session_node(node: dict) -> bool:
+    """Nodo capturado por una sesión (memoria de trabajo), no una decisión.
+
+    Medido en el golden set (2026-11-20): al preguntar por el engine puro
+    (`adr-walker-067`) el top-1 era un path de OTRO proyecto capturado en una
+    sesión, y la pregunta por tareas/workflow devolvía `session:roadmap-…`.
+    Estos nodos traen `metadata.session_id` y `metadata.source = "session:<sid>"`
+    (el `scope` es el del proyecto, así que no sirve como señal). Se recuperan
+    por `trace`/`delta`, no por el índice de decisiones.
+    """
+    meta = node.get("metadata") or {}
+    if str(meta.get("source") or "").startswith("session:"):
+        return True
+    if str(meta.get("session_id") or "").strip():
+        return True
+    if str(node.get("type") or meta.get("type") or "").lower() == "session":
+        return True
+    return str(node.get("_id") or node.get("id") or "").startswith("session-")
+
+
 def _with_compact_defaults(queries: dict) -> dict:
     """Add default compact search parameters."""
     out = dict(queries or {})
@@ -47,19 +67,49 @@ def _with_compact_defaults(queries: dict) -> dict:
     return out
 
 
+def _is_authority(node: dict) -> bool:
+    """Nodo con autoridad de proyecto: ADR — o índice derivado de `docs/`.
+
+    La memoria de trabajo de una sesión (`source: session:*`) es evidencia de
+    lo que pasó, no una decisión del proyecto. Desplazaba ADRs en el top-5 del
+    golden set (`decision-001` con statement "proceed" rankeaba 1º).
+    """
+    meta = node.get("metadata") or {}
+    if meta.get("adr"):
+        return True
+    if str(meta.get("source") or "").startswith("docs/"):
+        return True
+    return str(node.get("id") or node.get("_id") or "").startswith("adr-")
+
+
+#: Tope del `rationale` que viaja al agente. El cuerpo completo se sigue
+#: indexando para búsqueda; la salida no paga 6 KB por resultado × 20.
+_MAX_RATIONALE = 600
+
+
 def _normalize_node(node: dict) -> dict:
     """Homogeneiza la lectura: `_id` → `id` y `label` con contenido.
 
     El storage devuelve `_id` y no devuelve `label` (es la clave con la que se
     guardó). Cualquier consumidor que mire `node["id"]` recibía None — pasó con
     `session_context` y con la verificación de escrituras.
+
+    Desde F2 el `rationale` se indexa completo (cuerpo del ADR) pero se
+    devuelve recortado: el payload de 20 decisiones no puede crecer con el
+    corpus. `rationale_chars` dice el tamaño real para no confundir recorte
+    con documento corto.
     """
     if not isinstance(node, dict):
         return node
+    node = dict(node)
     if not node.get("id"):
         node["id"] = node.get("_id") or ""
     if not node.get("label"):
         node["label"] = node.get("statement") or node.get("subject") or node.get("id") or ""
+    rationale = node.get("rationale")
+    if isinstance(rationale, str) and len(rationale) > _MAX_RATIONALE:
+        node["rationale"] = rationale[:_MAX_RATIONALE].rstrip() + "…"
+        node["rationale_chars"] = len(rationale)
     return node
 
 
@@ -119,19 +169,40 @@ class CkgReadService:
         def _gather() -> list:
             ckg, _ = _resolve_ckg(chain_dir)
             q = f"task_id:{task_id}" if task_id else query
-            rows = ckg.search(q)[:20] if ckg else []
+            rows = ckg.search(q, max_results=50) if ckg else []
             # P1.2: los nodos de prueba del harness no son decisiones del
             # proyecto. Citarlos (p. ej. `adr-999`) le da autoridad falsa a un
             # seed; se excluyen por tag/origen, no por lista negra de ids.
             # P1.5: un nodo superseded tampoco es autoridad vigente (el
             # contrato del puerto dice que las queries devuelven solo activos;
             # `search` por texto no lo aplica, así que se filtra acá).
+            # F2: los nodos de sesión (`session-*`) son memoria de trabajo; se
+            # recuperan por trace/delta y desplazaban decisiones en el top-5.
+            # Si al filtrarlos no queda nada, se devuelve la lista sin filtrar:
+            # "no hay decisión" no debe convertirse en "no hay nada" (medido:
+            # la pregunta por tasks/workflow quedaba en 0 resultados).
+            decisions = [
+                n for n in rows
+                if not _is_test_seed(n)
+                and not _is_session_node(n)
+                and str((n.get("metadata") or {}).get("status", "") or "")
+                not in ("superseded", "deprecated")
+            ]
+            if decisions:
+                # F2: autoridad primero. `sorted` es estable, así que dentro de
+                # cada tier se conserva el orden bm25 del índice. Un nodo de
+                # sesión ("proceed", "el CKG deriva label") no puede rankear
+                # por encima de un ADR en una pregunta de arquitectura.
+                decisions.sort(key=lambda n: 0 if _is_authority(n) else 1)
+                return decisions[:20]
+            # Sin decisiones: devolver lo recuperado (menos seeds) antes que
+            # convertir "no hay decisión" en "no hay nada".
             return [
                 n for n in rows
                 if not _is_test_seed(n)
                 and str((n.get("metadata") or {}).get("status", "") or "")
                 not in ("superseded", "deprecated")
-            ]
+            ][:20]
 
         result = _gather()
         return result if is_successful(result) else Success([])

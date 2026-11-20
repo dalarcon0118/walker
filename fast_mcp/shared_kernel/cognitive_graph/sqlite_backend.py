@@ -73,7 +73,8 @@ _META_SYSTEM_KEYS = ("__schema__", "schema_hash", "__generation__", fts_mod.MARK
 # una sola fuente de verdad para los nombres de página.
 _PAGE_SIZE_KEYS = ("max_results", "size", "max_events")
 _PAGE_FROM_KEYS = ("_from", "from")
-_META_QUERY_KEYS = (*_PAGE_SIZE_KEYS, "_index", "query", *_PAGE_FROM_KEYS, "text_fields")
+_META_QUERY_KEYS = (*_PAGE_SIZE_KEYS, "_index", "query", *_PAGE_FROM_KEYS, "text_fields",
+                    "match_mode")
 
 #: Firma del CAS de generación (T-12a). Un proceso con cache stale la ve al
 #: guardar: su diff describe un estado que ya no es el committed. La
@@ -837,10 +838,11 @@ class SqliteIndex(Index):
 
         took = time.time()
         self._ensure_light()  # F3/M-09: search NO materializa el read model
+        allow_or = str(query.get("match_mode") or "").lower() in ("any", "or")
         ranked, total = fts_mod.search_fts(
             self._db, self.name, text,
             max_results=max_results, fields_scoped=fields_scoped,
-            offset=_from,
+            offset=_from, allow_or_fallback=allow_or,
         )
         # F3: los _source de la PÁGINA llegan por SQL (M-07/M-09) — jamás
         # materializar el índice completo para armar hits.

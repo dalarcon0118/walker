@@ -112,7 +112,7 @@ def test_gather_context_no_cita_superseded(monkeypatch):
     from fast_mcp.features.cognitive_knowledge.application.services import ckg_read
 
     class FakeCkg:
-        def search(self, q):
+        def search(self, q, max_results=20):
             return [
                 {"_id": "adr-viejo", "metadata": {"status": "superseded"}},
                 {"_id": "adr-vigente", "metadata": {}},

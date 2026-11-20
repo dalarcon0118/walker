@@ -1,0 +1,273 @@
+{
+  "generated_at": "2026-11-20T16:29:40.602417+00:00",
+  "project": "walker",
+  "set": "/Users/davidmartinez/develop/Active-projects/walker/data/golden/agent_queries.json",
+  "total": 20,
+  "hits": 17,
+  "hit_rate": 0.85,
+  "mean_latency_ms": 1990,
+  "rows": [
+    {
+      "id": "q01",
+      "query": "cómo se guardan los eventos de trazabilidad sin reescribir todo el índice",
+      "expected": [
+        "adr-walker-063"
+      ],
+      "hit": false,
+      "hit_rank": 0,
+      "results": 20,
+      "first_adr": "ADR-WALKER-054",
+      "latency_ms": 2185,
+      "error": ""
+    },
+    {
+      "id": "q02",
+      "query": "por qué el storage es un puerto y no un path de archivo",
+      "expected": [
+        "adr-walker-061"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 19,
+      "first_adr": "ADR-WALKER-061",
+      "latency_ms": 2046,
+      "error": ""
+    },
+    {
+      "id": "q03",
+      "query": "dónde se cablean los adaptadores y los puertos",
+      "expected": [
+        "adr-walker-045"
+      ],
+      "hit": true,
+      "hit_rank": 2,
+      "results": 10,
+      "first_adr": "ADR-WALKER-062",
+      "latency_ms": 1980,
+      "error": ""
+    },
+    {
+      "id": "q04",
+      "query": "qué pasó con la validación del protocolo MCP",
+      "expected": [
+        "adr-walker-073"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 20,
+      "first_adr": "ADR-WALKER-073",
+      "latency_ms": 2017,
+      "error": ""
+    },
+    {
+      "id": "q05",
+      "query": "por qué el engine no puede importar infraestructura",
+      "expected": [
+        "adr-walker-067"
+      ],
+      "hit": false,
+      "hit_rank": 0,
+      "results": 20,
+      "first_adr": "ADR-WALKER-063",
+      "latency_ms": 2053,
+      "error": ""
+    },
+    {
+      "id": "q06",
+      "query": "cómo se separan las tareas del workflow de las acciones",
+      "expected": [
+        "adr-walker-065"
+      ],
+      "hit": false,
+      "hit_rank": 0,
+      "results": 20,
+      "first_adr": "",
+      "latency_ms": 2005,
+      "error": ""
+    },
+    {
+      "id": "q07",
+      "query": "por qué se abandonó la nomenclatura legacy de knowledge graph",
+      "expected": [
+        "adr-walker-057"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 20,
+      "first_adr": "ADR-WALKER-057",
+      "latency_ms": 1941,
+      "error": ""
+    },
+    {
+      "id": "q08",
+      "query": "cuál es la estrategia de migración del CLI al server MCP",
+      "expected": [
+        "adr-walker-071"
+      ],
+      "hit": true,
+      "hit_rank": 2,
+      "results": 20,
+      "first_adr": "ADR-WALKER-070",
+      "latency_ms": 1959,
+      "error": ""
+    },
+    {
+      "id": "q09",
+      "query": "cómo se evita que un registry mezcle capas",
+      "expected": [
+        "adr-walker-047"
+      ],
+      "hit": true,
+      "hit_rank": 4,
+      "results": 20,
+      "first_adr": "ADR-WALKER-044",
+      "latency_ms": 2012,
+      "error": ""
+    },
+    {
+      "id": "q10",
+      "query": "qué significa que el modelo de sprints sea delta",
+      "expected": [
+        "adr-walker-072",
+        "adr-072"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 20,
+      "first_adr": "ADR-WALKER-072",
+      "latency_ms": 1990,
+      "error": ""
+    },
+    {
+      "id": "q11",
+      "query": "cómo se normaliza sqlite para búsqueda full text",
+      "expected": [
+        "adr-walker-075"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 19,
+      "first_adr": "ADR-WALKER-075",
+      "latency_ms": 1940,
+      "error": ""
+    },
+    {
+      "id": "q12",
+      "query": "qué antipatrones se eliminaron del engine",
+      "expected": [
+        "adr-walker-058"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 20,
+      "first_adr": "ADR-WALKER-058",
+      "latency_ms": 1943,
+      "error": ""
+    },
+    {
+      "id": "q13",
+      "query": "cómo se decide el contexto que se manda al prompt",
+      "expected": [
+        "adr-walker-048"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 19,
+      "first_adr": "ADR-WALKER-048",
+      "latency_ms": 2002,
+      "error": ""
+    },
+    {
+      "id": "q14",
+      "query": "qué responsabilidades tiene el service de paths del proyecto",
+      "expected": [
+        "adr-walker-074"
+      ],
+      "hit": true,
+      "hit_rank": 5,
+      "results": 20,
+      "first_adr": "ADR-WALKER-051",
+      "latency_ms": 2015,
+      "error": ""
+    },
+    {
+      "id": "q15",
+      "query": "cómo se nombran los side effects",
+      "expected": [
+        "adr-walker-049"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 18,
+      "first_adr": "ADR-WALKER-049",
+      "latency_ms": 1926,
+      "error": ""
+    },
+    {
+      "id": "q16",
+      "query": "por qué el proyecto es monolito con puertos e inyección de dependencias",
+      "expected": [
+        "adr-walker-062"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 20,
+      "first_adr": "ADR-WALKER-067",
+      "latency_ms": 1930,
+      "error": ""
+    },
+    {
+      "id": "q17",
+      "query": "qué inspiración de nestjs se adoptó",
+      "expected": [
+        "adr-walker-060"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 20,
+      "first_adr": "ADR-WALKER-065",
+      "latency_ms": 2002,
+      "error": ""
+    },
+    {
+      "id": "q18",
+      "query": "estado de la migración a dependency injection",
+      "expected": [
+        "adr-walker-059"
+      ],
+      "hit": true,
+      "hit_rank": 2,
+      "results": 8,
+      "first_adr": "ADR-WALKER-018",
+      "latency_ms": 1964,
+      "error": ""
+    },
+    {
+      "id": "q19",
+      "query": "cómo se gatea el alcance de una escritura y por qué",
+      "expected": [
+        "adr-083",
+        "adr-walker-083"
+      ],
+      "hit": true,
+      "hit_rank": 2,
+      "results": 20,
+      "first_adr": "",
+      "latency_ms": 1913,
+      "error": ""
+    },
+    {
+      "id": "q20",
+      "query": "qué mejoras de pareto se priorizaron",
+      "expected": [
+        "adr-walker-064"
+      ],
+      "hit": true,
+      "hit_rank": 1,
+      "results": 20,
+      "first_adr": "ADR-WALKER-064",
+      "latency_ms": 1977,
+      "error": ""
+    }
+  ]
+}
