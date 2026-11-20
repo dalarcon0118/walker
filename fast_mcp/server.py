@@ -34,6 +34,8 @@ def build_server() -> FastMCP:
     (sin importar mcp/).
     """
     from fast_mcp.phases import install as install_phases
+    from fast_mcp.shared_kernel.runtime_safety import install_cancellation_guard
+    from fast_mcp.shared_kernel.telemetry import install_tool_metrics
     from fast_mcp.tool_profiles import apply_profile
 
     server = FastMCP(_SERVER_NAME)
@@ -42,4 +44,10 @@ def build_server() -> FastMCP:
     # (`tools/list`). Cada tool extra se paga en tokens y en atención en TODOS
     # los turnos; ver fast_mcp/tool_profiles.py.
     apply_profile(server)
+    # AE-INV-09: una tool cancelada por el cliente no puede tumbar el proceso.
+    # Sin esto, `run_tests` (suite > timeout del cliente) mata el server y deja
+    # la sesión sin walker en el momento del cierre.
+    install_cancellation_guard()
+    # F0 (AGENT-EFFICIENCY §2.7): latencia, tokens y outcome por llamada.
+    install_tool_metrics(server)
     return server
