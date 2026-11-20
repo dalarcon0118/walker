@@ -194,11 +194,11 @@ class CkgReadService:
                 # sesión ("proceed", "el CKG deriva label") no puede rankear
                 # por encima de un ADR en una pregunta de arquitectura.
                 decisions.sort(key=lambda n: 0 if _is_authority(n) else 1)
-                return decisions[:20]
+                return [_normalize_node(n) for n in decisions[:20]]
             # Sin decisiones: devolver lo recuperado (menos seeds) antes que
             # convertir "no hay decisión" en "no hay nada".
             return [
-                n for n in rows
+                _normalize_node(n) for n in rows
                 if not _is_test_seed(n)
                 and str((n.get("metadata") or {}).get("status", "") or "")
                 not in ("superseded", "deprecated")

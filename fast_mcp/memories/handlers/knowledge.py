@@ -569,9 +569,16 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     # es la señal que el plugin usa para no citar `adr-###` de un CKG vacío.
     out["memory_health"] = _memory_health(ctx.chain_dir)
 
-    # CKG: decisiones y convenciones del scope.
+    # CKG: decisiones y convenciones del scope. Se devuelven top-5 (top-10 si
+    # el ancla es una tarea): 20 racionales de 600 chars son ~12 KB y el
+    # agente deja de llamar a la tool que lo ahoga (AE-INV-05). `total` dice
+    # cuántas había para que pueda pedir más con search_memories.
     result = CkgReadService.gather_context(ctx.chain_dir, query=query or target_file)
-    out["ckg"] = {"results": result.value_or([]) if is_successful(result) else []}
+    decisions = result.value_or([]) if is_successful(result) else []
+    limit = 10 if anchor.get("type") == "task" else 5
+    out["ckg"] = {"results": decisions[:limit]}
+    if len(decisions) > limit:
+        out["ckg"]["total"] = len(decisions)
 
     # CPG: qué toca este archivo/símbolo (llamadas, llamadores, imports).
     # Si el ancla fue una tarea, se usa su primer archivo declarado.

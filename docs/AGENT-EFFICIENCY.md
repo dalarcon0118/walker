@@ -464,7 +464,7 @@ acá sigue abierto.
 | Firma uniforme | **implementada** | `search_memories`: `project_id`/paginación fuera del mapa de índices, `text`/`query` → `ckg.text`, error con ejemplo (`tests/test_memory_signature_bdd.py`); `preflight`/`snapshot`/`baseline_diff`/`session_context` declaran `project_id` — antes morían con "No project context" (`test_tool_profiles_bdd.py`) |
 | Ranking por autoridad | **implementado** | ADR/`docs/` antes que memoria de sesión, con orden bm25 estable (`tests/test_ckg_retrieval_ranking_bdd.py`) |
 | `run_tests` con entorno limpio | **implementado** | heredaba `WALKER_MCP_PROFILE=agent`: 14 tests del contrato `full` fallaban sólo desde la tool. `_suite_env()` los descarta (`tests/test_run_tests_env_bdd.py`) |
-| Plan → spec | **corregido** | `implement_task` hereda `acceptance` del `session_plan`; `spec_status` acepta `artifacts` anidado |
+| Plan → spec | **parcial** | `implement_task` ya no pisa `flight_plan.acceptance` (merge). La spec todavía no hereda: `_persist_spec` devuelve `None` sin error (§7.1-6). |
 | `brief` compuesto (F2) | pendiente | — |
 | `plan_diff` y `design_brief` (F3) | pendiente | — |
 | Perfil ≤8 tools (F3) | pendiente | hoy 23 tools / 10.314 chars. El recorte exige migrar 30 referencias a nombres de tool en prompts/workflow: sin eso se reproduce el escenario 3 de §4 (`Unknown tool`). No se hace a ciegas. |
@@ -502,6 +502,12 @@ Salieron de operar el sistema, no de leerlo. Quedan acá para que no se pierdan:
    `session_bind` nuevo: la sesión que acaba de cerrar no puede escribir su
    propio reporte. Es AE-INV-02 en su forma más cara (una escritura de
    documentación paga el peaje de un sprint nuevo).
+6. **`_persist_spec` puede ser un no-op silencioso.** `implement_task` devuelve
+   `ok` con `files_modified`, pero la spec no se escribe: `_persist_spec`
+   retorna `None` cuando no resuelve `spring_id` y el caller no lo distingue de
+   "no había nada que guardar". Medido 2026-11-20: `task_context.task_id` y
+   `acceptance_criteria` quedaron nulos tras un `implement_task` exitoso. Un
+   `Result` fallido, no `None`.
 
 ### 7.2 Resultado de F2 (retrieval + firma)
 

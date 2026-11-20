@@ -358,6 +358,14 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # debe mantener a la vista (ADR-WALKER-080).
     if service is not None and session_override:
         try:
+            # MERGE, no overwrite: el `acceptance` del plan es la fuente de la
+            # sesión. Escribir el de la spec (que puede estar vacío) borraba los
+            # criterios que el agente ya había declarado — medido 2026-11-20:
+            # `session_plan set` con 3 criterios → `implement_task` → plan
+            # `acceptance: []`. Y sin plan no hay nada que heredar en la spec.
+            current_plan = (service.get_session(session_override) or {}).get("flight_plan") or {}
+            spec_acceptance = list((spec or {}).get("acceptance_criteria") or [])
+            plan_acceptance = spec_acceptance or list(current_plan.get("acceptance") or [])
             service.update_session_plan(
                 session_override,
                 {
@@ -366,7 +374,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                     # El gate de cierre mira `acceptance` para decidir si el
                     # shell puede certificar. Sin esto el plan viajaba sin
                     # criterios y `echo pytest` cerraba una tarea con DoD.
-                    "acceptance": list((spec or {}).get("acceptance_criteria") or []),
+                    "acceptance": plan_acceptance,
                     "next": "implementar y verificar",
                 },
             )

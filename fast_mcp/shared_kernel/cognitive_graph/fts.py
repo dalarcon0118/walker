@@ -579,6 +579,15 @@ def search_fts(
     marker = fts_marker(conn, index)
     cols = marker.get("fields", []) if marker else []
     fts_name = fts_table(index)
+    # El PRIMER campo del schema es el titular (statement/name/objective); el
+    # resto es cuerpo. bm25 pesa todos los campos igual, así que un ADR largo
+    # con la palabra repetida en el cuerpo le gana a uno cuyo TÍTULO es la
+    # respuesta (medido: ADR-047 caía a rank 6 por el cuerpo de ADR-074). Pesar
+    # el titular x3 recupera la señal sin tocar el corpus.
+    rank_fn = f"bm25({fts_name})"
+    if len(cols) > 1:
+        weights = ", ".join(["3.0"] + ["1.0"] * (len(cols) - 1))
+        rank_fn = f"bm25({fts_name}, {weights})"
 
     def _query(expr: str) -> tuple[list[tuple[str, float]], int]:
         total = int(conn.execute(
@@ -586,7 +595,7 @@ def search_fts(
             (expr,),
         ).fetchone()[0])
         rows = conn.execute(
-            f"SELECT d.id, bm25({fts_name}) AS rank "
+            f"SELECT d.id, {rank_fn} AS rank "
             f"FROM {fts_name} f JOIN docs d ON d.rowid = f.rowid "
             f"WHERE {fts_name} MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
             (expr, int(max_results), int(offset)),
