@@ -15,6 +15,7 @@ from returns.result import Result, Success, Failure
 
 from fast_mcp.features.delta_tracking.domain.entities import Spec, _now
 from fast_mcp.features.delta_tracking.domain.values import (
+    SPEC_STATUS_FLOW,
     SPRING_STATUS_FLOW,
     SPRING_TRANSITIONS,
 )
@@ -35,7 +36,10 @@ SPEC_REQUIRED_FIELDS = [
 # Lo que además hace falta para poder VERIFICAR (una de las dos).
 SPEC_VERIFICATION_FIELDS = ["acceptance_criteria", "predicates"]
 
-SPEC_STATUS_FLOW = ["draft", "specified", "approved", "in_progress", "in_review", "completed"]
+#: Estados sin salida por el flujo normal. `rejected` existe en el SSOT
+#: (`values.SPEC_STATUS_FLOW`) para poder abandonar trabajo sin fabricar
+#: artefactos; `reopen(reason)` es la vía explícita para volver a `specified`.
+TERMINAL_SPEC_STATUSES = frozenset({"completed", "rejected"})
 
 
 def _completion_missing(spec: dict) -> list[str]:
@@ -137,6 +141,11 @@ class SpecStatusUpdater:
         current = spec.get("status", "draft")
         if current not in SPEC_STATUS_FLOW:
             current = "draft"
+        if current in TERMINAL_SPEC_STATUSES and new_status != current:
+            raise ValueError(
+                f"Cannot move status from terminal '{current}' to '{new_status}'; "
+                "usá reopen(reason) para volver a 'specified'"
+            )
         current_idx = SPEC_STATUS_FLOW.index(current)
         new_idx = SPEC_STATUS_FLOW.index(new_status)
         if new_idx < current_idx:

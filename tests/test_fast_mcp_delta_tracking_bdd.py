@@ -321,6 +321,21 @@ class TestSpecStatusUpdater:
         with pytest.raises(ValueError, match="Invalid status"):
             SpecStatusUpdater.update(spec, "invalid")
 
+    def test_rechazar_una_spec_en_progreso_es_valido(self):
+        """`rejected` está en el SSOT (`values.py`), no sólo en el docstring."""
+        updated = SpecStatusUpdater.update({"status": "in_progress"}, "rejected")
+        assert updated["status"] == "rejected"
+
+    def test_completed_es_terminal(self):
+        spec = {"status": "completed", "completed_at": "x", "commit_hash": "c",
+                "review_verdict": "ok", "evidence": ["e"]}
+        with pytest.raises(ValueError, match="terminal"):
+            SpecStatusUpdater.update(spec, "rejected")
+
+    def test_rejected_es_terminal(self):
+        with pytest.raises(ValueError, match="terminal"):
+            SpecStatusUpdater.update({"status": "rejected"}, "in_progress")
+
 
 class TestSprintStatusUpdater:
     def test_can_transition_forward(self):
