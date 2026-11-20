@@ -3,7 +3,7 @@
 > **Status:** P0.1 implementado (2026-11-19); P0.2 pendiente
 > **Fecha:** 2026-11-19
 > **Autor:** Usuario (PO) + diseño del agente
-> **Complementa:** ADR-WALKER-016 (CLI), ADR-WALKER-062 (puertos/DI), ADR-WALKER-078 (closed terminal), ADR-WALKER-080 (flight plan), ADR-WALKER-082 (contrato de atención)
+> **Complementa:** ADR-WALKER-016 (CLI), ADR-WALKER-062 (puertos/DI), ADR-WALKER-078 (closed terminal), ADR-WALKER-080 (flight plan), ADR-WALKER-083 (flight control: atención, alcance y gate por efecto)
 > **Insumo:** `docs/walker copy.md` (feedback 6/10 del agente sobre walker)
 
 ---
@@ -642,7 +642,39 @@ veces el motor no aplicó un efecto, ni en qué nodo, ni por qué.
       dentro de la ejecución del efecto — anti-patrón: trazar un submit que no
       guardó estado.
 
-## 24. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 24. P1.19 — La degradación del task deja de vivir sólo en la respuesta
+
+`design.gather_context` devuelve `warnings` cuando el contexto de sprint falla;
+`review_code` devuelve `cpg.available=False` y `findings[].error` cuando el CPG
+no está inyectado o un archivo no se pudo revisar. El task termina `ok: True`
+—correcto: hizo lo que pudo— pero la parte que NO hizo sólo existía en el
+`data` del resultado. Si el agente no lo lee, el motor parece haber hecho todo.
+
+- [ ] `result_notes` (dominio de tasks, función pura) extrae un contrato
+      ACOTADO: `warnings`, `available: False` (propio o un nivel anidado, p. ej.
+      `cpg`) y `findings[].error`. No adivina texto libre.
+- [ ] Techo de 5 notas por task y 300 caracteres por detalle: el trace no es un
+      log.
+- [ ] Un solo seam: `TaskRegistry(on_task_done=_after_task)` en composición, que
+      corre hooks del proyecto + traza. Cubre las DOS entradas (tools MCP y
+      acciones del motor) porque ambas pasan por `TaskRegistry.execute`.
+- [ ] El shape del evento (`degradation_event`) vive en el dominio de tasks, no
+      en la composición: el guard de SSOT que prohíbe copiar el schema de trace
+      en `composition.py` sigue vigente.
+- [ ] Evento `task_degraded` con `task`, `kind` (warning|unavailable|
+      finding_error), `detail` y `source`, más `task_id`/`session_id`.
+- [ ] Observador best-effort: un fallo al trazar no cambia el resultado del
+      task (ni lo vuelve rojo).
+- [ ] El reporte cuenta `degradations` por tipo y por tarea.
+- [ ] M-04 Eventos como contrato: `kind`/`source` son el contrato de la métrica
+      — anti-patrón: parsear el texto del warning.
+- [ ] M-09 Fallback visible: `ok: True` con trabajo sin hacer no puede depender
+      de que alguien lea el resultado — anti-patrón: warning en el data y nada
+      más.
+- [ ] M-06 Extensibilidad: la detección vive en un solo lugar (dominio) y el
+      cableado en otro (composición) — anti-patrón: cada handler traza lo suyo.
+
+## 25. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -656,7 +688,7 @@ veces el motor no aplicó un efecto, ni en qué nodo, ni por qué.
 
 ---
 
-## 25. failure_scenarios
+## 26. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -688,13 +720,14 @@ veces el motor no aplicó un efecto, ni en qué nodo, ni por qué.
   "prepare arma <repo>/.cognitive/projects/<pid>/data a mano → con project.cognitive_dir/data_dir configurados crea un layout que resolve_paths no encuentra y el proyecto queda inaccesible por API → causa: literales en vez del SSOT de rutas → mitigación: paths.compose_project_layout → detección: test_prepare_usa_el_layout_configurado_y_no_lo_hardcodea",
   "El baseline de escritura se crea en el primer session_context y no al abrir la sesión → lo escrito antes (subagente, sed -i, git apply) cae dentro del baseline y el cierre pasa limpio → causa: el arranque de la sesión no fijaba evidencia → mitigación: seed_session_baseline en session_open/session_bind, idempotente y sin refresco → detección: test_session_open_fija_el_baseline_antes_del_primer_context",
   "transform_spec devuelve ok:true+skipped sin motivo (sin servicio, sin sprint, sin spec_id, update_spec→None) y results se descarta cuando ok es verdadero → la spec no se mueve y el submit sigue como si nada (medido 2026-11-18) → causa: skip indistinguible de 'nada que hacer' y motivo no propagado → mitigación: wiring como error, skips con reason/missing, update_spec→None como error y side_effects en el resultado del submit → detección: tests de transform_spec y del orquestador (_side_effect_notes)",
-  "El motivo del efecto no aplicado vive solo en la respuesta del submit → si el agente no la lee, nadie sabe que el motor no movió la spec, y el reporte no puede contarlo → causa: la visibilidad dependía de un consumidor humano/LLM → mitigación: un evento por nota (side_effect_skipped/failed) con type/node/reason, task y session, y agregado en el reporte → detección: test del tracer contra el TraceGraph y test del reporte"
+  "El motivo del efecto no aplicado vive solo en la respuesta del submit → si el agente no la lee, nadie sabe que el motor no movió la spec, y el reporte no puede contarlo → causa: la visibilidad dependía de un consumidor humano/LLM → mitigación: un evento por nota (side_effect_skipped/failed) con type/node/reason, task y session, y agregado en el reporte → detección: test del tracer contra el TraceGraph y test del reporte",
+  "Un task devuelve ok:true con parte del trabajo sin hacer (CPG no inyectado, archivo no revisado, contexto de sprint caído) y la señal vive sólo en el data del resultado → el motor parece completo y el reporte no puede medir la degradación → causa: no había contrato ni consumidor para warnings/available/findings[].error → mitigación: result_notes acotado + un evento task_degraded por nota en el único seam (TaskRegistry.on_task_done), best-effort → detección: test del dominio, test del seam y test de punta a punta (review_code sin cpg_adapter deja el evento)"
 ]
 ```
 
 ---
 
-## 26. Criterios de aceptación
+## 27. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -756,10 +789,12 @@ veces el motor no aplicó un efecto, ni en qué nodo, ni por qué.
     servicio) aparece en el resultado del submit con su motivo, o falla.
 26. P1.18: ese skip es además un evento del trace (`side_effect_skipped`) y el
     reporte lo cuenta por tipo de efecto, sin depender de la respuesta.
+27. P1.19: un task con `warnings`/`available: False`/`findings[].error` deja
+    `task_degraded` en el trace y el reporte lo cuenta por tipo y tarea.
 
 ---
 
-## 27. Riesgos y compatibilidad
+## 28. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -773,7 +808,7 @@ veces el motor no aplicó un efecto, ni en qué nodo, ni por qué.
 
 ---
 
-## 28. Tests
+## 29. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -835,7 +870,11 @@ veces el motor no aplicó un efecto, ni en qué nodo, ni por qué.
 - `tests/test_side_effects_graph_bdd.py`: `WorkflowEvent → CognitiveTracer →
   TraceGraph` con `data`/`task_id`/`session_id` (P1.18).
 - `tests/test_flight_control_metrics_bdd.py`: conteo de `side_effect_skipped`
-  y `side_effect_failed` por tipo (P1.18).
+  y `side_effect_failed` por tipo (P1.18) y de `task_degraded` por tipo y
+  tarea (P1.19).
+- `tests/test_task_degradations_bdd.py`: contrato de `result_notes` (warnings,
+  `available` anidado, findings, techo), el seam de composición y el caso de
+  punta a punta (`review_code` sin `cpg_adapter` ⇒ `task_degraded`) (P1.19).
 - `gate.test.mjs` modo `injectsuggest`: prueba las DOS direcciones — escribir
   deja `followed=true` por `edit` y una sesión que sólo recibe el plan y no
   actúa emite `workflow_suggestion_ignored` con `reason` (P1.14).

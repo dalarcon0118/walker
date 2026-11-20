@@ -63,6 +63,7 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
     close_blocked = 0
     verifications = {"green": 0, "red": 0}
     side_effects = {"skipped": 0, "failed": 0, "by": {}}
+    degradations = {"events": 0, "by_kind": {}, "by_task": {}}
     write_evidence = {"events": 0, "files": set()}
     suggestions = {"followed": 0, "ignored": 0, "by": {}, "ignored_detail": []}
 
@@ -114,6 +115,16 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
             side_effects["by"][by] = side_effects["by"].get(by, 0) + 1
         elif kind == "side_effect_failed":
             side_effects["failed"] += 1
+        elif kind == "task_degraded":
+            degradations["events"] += 1
+            by_kind = str(data.get("kind") or "?")
+            degradations["by_kind"][by_kind] = (
+                degradations["by_kind"].get(by_kind, 0) + 1
+            )
+            by_task = str(data.get("task") or "?")
+            degradations["by_task"][by_task] = (
+                degradations["by_task"].get(by_task, 0) + 1
+            )
         if kind == "session_state" and data.get("touched_source") == "watcher":
             write_evidence["events"] += 1
             write_evidence["files"].update(str(f) for f in (data.get("touched") or []))
@@ -132,6 +143,7 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
         "close_blocked": close_blocked,
         "verifications": verifications,
         "side_effects": side_effects,
+        "degradations": degradations,
         "write_evidence": {
             "events": write_evidence["events"],
             "files": len(write_evidence["files"]),
@@ -186,6 +198,11 @@ def _print_table(summary: dict[str, Any]) -> None:
     print(f"close_blocked: {summary['close_blocked']}")
     v = summary["verifications"]
     print(f"verificaciones por tool: verdes={v['green']} rojas={v['red']}")
+    dg = summary["degradations"]
+    if dg["events"]:
+        kinds = ",".join(f"{k}={v}" for k, v in sorted(dg["by_kind"].items()))
+        tasks = ",".join(f"{k}={v}" for k, v in sorted(dg["by_task"].items()))
+        print(f"degradaciones de task: {dg['events']} ({kinds}; {tasks})")
     se = summary["side_effects"]
     if se["skipped"] or se["failed"]:
         by = ",".join(f"{k}={v}" for k, v in sorted(se["by"].items())) or "-"

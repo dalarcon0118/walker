@@ -18,8 +18,8 @@ metrics = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(metrics)
 
 
-def _ev(kind: str, sid: str = "ses-1", **data) -> dict:
-    return {"event_type": kind, "session_id": sid, "data": data}
+def _ev(event_type: str, sid: str = "ses-1", **data) -> dict:
+    return {"event_type": event_type, "session_id": sid, "data": data}
 
 
 def test_denials_por_gate_y_sesiones():
@@ -149,4 +149,21 @@ def test_side_effects_sin_efecto_se_cuentan():
         "skipped": 2,
         "failed": 1,
         "by": {"transform_spec": 2},
+    }
+
+
+def test_degradaciones_de_task_por_tipo_y_por_tarea():
+    """P1.19: la degradación que el agente no leyó igual se cuenta."""
+    events = [
+        _ev("task_degraded", task="review_code", kind="unavailable", source="cpg"),
+        _ev("task_degraded", task="review_code", kind="finding_error", source="x.js"),
+        _ev("task_degraded", task="gather_context", kind="warning"),
+    ]
+
+    out = metrics.summarize(events)
+
+    assert out["degradations"] == {
+        "events": 3,
+        "by_kind": {"unavailable": 1, "finding_error": 1, "warning": 1},
+        "by_task": {"review_code": 2, "gather_context": 1},
     }

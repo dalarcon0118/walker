@@ -571,6 +571,41 @@ def ckg_delete_by_metadata(chain_dir: str, key: str, value: str) -> dict:
     return CkgWriteService.delete_by_metadata(chain_dir, key, value)
 
 
+def _trace_task_notes(name, ctx, result) -> None:
+    """Traza las degradaciones del resultado de un task (P1.19).
+
+    `warnings`, `available: False` y `findings[].error` son señales que hoy
+    sólo ve quien lee el resultado: si el agente no lo lee, el motor "hizo" algo
+    que no hizo. El reporte de flight control las cuenta desde el trace.
+    Observador best-effort: nunca forma parte del task.
+    """
+    try:
+        from fast_mcp.features.tasks.domain.degradations import (
+            degradation_event,
+            result_notes,
+        )
+        from fast_mcp.features.tasks.handlers import _di as tasks_di
+
+        notes = result_notes(result)
+        if not notes:
+            return
+        chain_dir = str(getattr(ctx, "chain_dir", "") or "")
+        session_id = str(getattr(ctx, "session_id", "") or "")
+        task_id = str(getattr(ctx, "task_id", "") or "")
+        for note in notes:
+            tasks_di.push_trace(
+                chain_dir, degradation_event(name, note, task_id=task_id, session_id=session_id)
+            )
+    except Exception:  # noqa: BLE001 — observador, nunca parte del task
+        logger.debug("_trace_task_notes falló para '%s'", name, exc_info=True)
+
+
+def _after_task(name, ctx, result) -> None:
+    """Observadores de fin de task: hooks del proyecto + trace de degradaciones."""
+    _emit_task_after(name, ctx, result)
+    _trace_task_notes(name, ctx, result)
+
+
 def _emit_task_after(name, ctx, result) -> None:
     """Notifica `task.after` al bus de hooks del proyecto del task.
 
@@ -662,7 +697,7 @@ def _build_task_registry(sprint_service=None):
     from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
     from fast_mcp.features.tasks.handlers import register_all_tasks
 
-    registry = TaskRegistry(on_task_done=_emit_task_after)
+    registry = TaskRegistry(on_task_done=_after_task)
     # cpg_sync: composition es el único que puede cruzar features (R1); el
     # handler de tasks la recibe inyectada en vez de importar code_analysis.
     # Baseline del workflow: la factory se inyecta acá porque la feature tasks
