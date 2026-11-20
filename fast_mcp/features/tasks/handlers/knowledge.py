@@ -17,22 +17,30 @@ from fast_mcp.features.tasks.handlers import _di
 
 
 def _session_for_task(chain_dir: str, task_id: str) -> str:
-    """Sesión activa cuyo plan de vuelo declara esta tarea.
+    """Sesión activa del proyecto a la que pertenece esta tarea.
 
-    El plugin llama `run_tests '{"task_id":"<id>"}'` sin sesión; y el canal de
-    tools usa `"mcp"` como placeholder. Sin este puente la captura se quedaba
-    sin sesión (y sin traza) o caía a la spec equivocada.
+    Primero la que declara la tarea en su plan de vuelo. Si ninguna lo hace y
+    hay UNA sola sesión activa, no hay ambigüedad sobre de quién es la traza y
+    se usa. Con dos o más sesiones activas no se adivina: la captura se reporta
+    como fallida en vez de mezclar trabajo de otro agente.
+
+    El plugin llama `run_tests '{"task_id":"<id>"}'` sin sesión, y el canal de
+    tools usa `"mcp"` como placeholder; sin este puente la captura se quedaba
+    sin sesión (y sin traza).
     """
     service = _di.sprint_service(chain_dir)
     if service is None or not task_id or not hasattr(service, "list_sessions"):
         return ""
     try:
-        for session in service.list_sessions(status="active") or []:
-            plan = session.get("flight_plan") or {}
-            if str(plan.get("task") or "") == task_id:
-                return str(session.get("session_id") or "")
+        sessions = service.list_sessions(status="active") or []
     except Exception:  # noqa: BLE001 — sin sesión se sigue con lo que haya
         return ""
+    for session in sessions:
+        plan = session.get("flight_plan") or {}
+        if str(plan.get("task") or "") == task_id:
+            return str(session.get("session_id") or "")
+    if len(sessions) == 1:
+        return str(sessions[0].get("session_id") or "")
     return ""
 
 
@@ -49,23 +57,18 @@ def _plan_task(chain_dir: str, session_id: str) -> str:
 def _resolve_spec(chain_dir: str, session_id: str, task_id: str) -> dict | None:
     """Spec de la tarea, sin heredar la identidad de otra (P1.6).
 
-    Orden: id exacto → tarea del plan de vuelo de la sesión → heurística
-    `in_progress`, pero la heurística SOLO cuando el caller no nombró tarea.
-    Antes, cualquier id desconocido caía en la última spec `in_progress` del
-    sprint y el hecho se guardaba con la identidad de otra tarea.
+    Orden: id exacto que nombró el caller → tarea del plan (solo si el caller no
+    nombró tarea) → heurística `in_progress` (solo cuando no hay ninguna tarea
+    declarada). Antes, cualquier id desconocido caía en la última spec
+    `in_progress` del sprint y el hecho se guardaba con la identidad de otra
+    tarea (medido: `prepare-seeds-manifest` como `skill-token-memory-health`).
     """
     if task_id:
-        spec = _di.current_spec(chain_dir, task_id=task_id, exact=True)
-        if spec is not None:
-            return spec
+        return _di.current_spec(chain_dir, task_id=task_id, exact=True)
     plan_task = _plan_task(chain_dir, session_id)
-    if plan_task and plan_task != task_id:
-        spec = _di.current_spec(chain_dir, task_id=plan_task, exact=True)
-        if spec is not None:
-            return spec
-    if not task_id and not plan_task:
-        return _di.current_spec(chain_dir)
-    return None
+    if plan_task:
+        return _di.current_spec(chain_dir, task_id=plan_task, exact=True)
+    return _di.current_spec(chain_dir)
 
 
 def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
@@ -176,7 +179,9 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     fact = _fact_for(ctx, data)
     if fact is None:
         return TaskResult.failure(
-            "capture_knowledge: no hay sesión ni tarea declarada que documentar"
+            "capture_knowledge: no hay evidencia de la tarea "
+            f"{str(data.get('task_id') or data.get('session_id') or '(sin id)')!r} "
+            "(ni spec ni traza de la sesión)"
         )
 
     task_id = str((fact.get("metadata") or {}).get("task_id") or data.get("task_id", "") or "")

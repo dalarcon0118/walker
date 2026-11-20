@@ -321,6 +321,8 @@ la identidad de la tarea anterior del sprint.
       `task_link.reason` (visible, no se inventa una spec).
 - [ ] `spec_status → in_progress` mueve el plan de la sesión y el estado del
       workflow a esa spec; `completed` no deja una tarea cerrada como activa.
+- [ ] El nudge de cierre corre `run_tests` con la tarea del plan y el
+      `session_id`, para que la captura tenga (task, session) con qué anclarse.
 - [ ] La captura resuelve por id exacto o por la tarea del plan; la heurística
       `in_progress` solo corre cuando el caller no nombró tarea.
 - [ ] M-01 Integridad: la identidad del hecho viene de la spec o del plan, no

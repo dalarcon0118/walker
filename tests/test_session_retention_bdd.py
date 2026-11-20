@@ -126,7 +126,7 @@ def test_gather_context_no_cita_superseded(monkeypatch):
 
 
 def test_la_tarea_del_plan_resuelve_la_spec(project_dir, monkeypatch):
-    """El rótulo del caller no manda si el plan de la sesión dice la tarea."""
+    """Sin tarea del caller, la del plan de vuelo es la identidad."""
     spec = {
         "objective": "Debe capturar con la identidad de la spec.",
         "files": ["a.py"],
@@ -155,14 +155,55 @@ def test_la_tarea_del_plan_resuelve_la_spec(project_dir, monkeypatch):
         ) or {"ok": True},
     )
 
-    out = knowledge.capture_knowledge(
-        _ctx(project_dir), {"session_id": "S-1", "task_id": "rotulo-arbitrario"}
-    )
+    out = knowledge.capture_knowledge(_ctx(project_dir), {"session_id": "S-1"})
 
     assert out.ok
     assert saved["nodes"][0]["id"].endswith("T-REAL")
     assert saved["nodes"][0]["metadata"]["task_id"] == "T-REAL"
     assert saved["task_id"] == "T-REAL"
+
+
+def test_un_plan_viejo_no_pisa_la_tarea_nueva(project_dir, monkeypatch):
+    """El caso medido: el plan sigue en la tarea anterior; manda la nueva."""
+    from types import SimpleNamespace
+
+    def _current_spec(chain_dir, task_id="", exact=False):
+        if exact and task_id == "T-VIEJA":  # el plan apunta a la vieja
+            return {
+                "objective": "tarea anterior del sprint",
+                "files": ["vieja.py"],
+                "task_context": {"task_id": "T-VIEJA", "session_id": "S-0"},
+            }
+        return None
+
+    class _Svc:
+        def get_session_plan(self, session_id):
+            return {"task": "T-VIEJA"}
+
+    monkeypatch.setattr(_di, "current_spec", _current_spec)
+    monkeypatch.setattr(_di, "sprint_service", lambda chain_dir: _Svc())
+    monkeypatch.setattr(
+        _di, "session_events",
+        lambda chain_dir, session_id: [
+            SimpleNamespace(event_type="write", files=["nuevo.py"])
+        ],
+    )
+    monkeypatch.setattr(_di, "session_facts", lambda chain_dir: [])
+    saved: dict = {}
+    monkeypatch.setattr(
+        _di, "save_knowledge",
+        lambda chain_dir, nodes, task_id="", session_id="": saved.update(
+            nodes=nodes, task_id=task_id
+        ) or {"ok": True},
+    )
+
+    out = knowledge.capture_knowledge(
+        _ctx(project_dir), {"session_id": "S-1", "task_id": "T-NUEVA"}
+    )
+
+    assert out.ok
+    assert saved["nodes"][0]["metadata"]["task_id"] == "T-NUEVA"
+    assert "vieja.py" not in saved["nodes"][0]["metadata"]["files"]
 
 
 def test_no_hereda_la_identidad_de_otra_spec_in_progress(project_dir, monkeypatch):
@@ -206,6 +247,68 @@ def test_no_hereda_la_identidad_de_otra_spec_in_progress(project_dir, monkeypatc
     assert "vieja.py" not in saved["nodes"][0]["metadata"]["files"]
     assert "nuevo.py" in saved["nodes"][0]["metadata"]["files"]
     assert False not in calls, "nunca debe usar la heurística `in_progress`"
+
+
+def test_una_sola_sesion_activa_aporta_la_traza(project_dir, monkeypatch):
+    """Con una única sesión activa no hay ambigüedad: su traza es la evidencia."""
+    from types import SimpleNamespace
+
+    class _Svc:
+        def list_sessions(self, status=""):
+            return [{"session_id": "S-1", "flight_plan": {}}]
+
+        def get_session_plan(self, session_id):
+            return {}
+
+    monkeypatch.setattr(_di, "current_spec", lambda chain_dir, task_id="", exact=False: None)
+    monkeypatch.setattr(_di, "sprint_service", lambda chain_dir: _Svc())
+    monkeypatch.setattr(
+        _di, "session_events",
+        lambda chain_dir, session_id: [
+            SimpleNamespace(event_type="run_tests", files=["nuevo.py"])
+        ],
+    )
+    monkeypatch.setattr(_di, "session_facts", lambda chain_dir: [])
+    saved: dict = {}
+    monkeypatch.setattr(
+        _di, "save_knowledge",
+        lambda chain_dir, nodes, task_id="", session_id="": saved.update(
+            nodes=nodes, session_id=session_id
+        ) or {"ok": True},
+    )
+
+    out = knowledge.capture_knowledge(
+        _ctx(project_dir), {"task_id": "T-SUELTA"}
+    )
+
+    assert out.ok
+    assert out.data["fact"].startswith("session-")
+    assert saved["nodes"][0]["metadata"]["session_id"] == "S-1"
+    assert saved["nodes"][0]["metadata"]["task_id"] == "T-SUELTA"
+
+
+def test_varias_sesiones_activas_no_adivina(project_dir, monkeypatch):
+    """Dos sesiones activas: no se mezcla la traza de otro agente."""
+    class _Svc:
+        def list_sessions(self, status=""):
+            return [
+                {"session_id": "S-1", "flight_plan": {}},
+                {"session_id": "S-2", "flight_plan": {}},
+            ]
+
+    monkeypatch.setattr(_di, "current_spec", lambda chain_dir, task_id="", exact=False: None)
+    monkeypatch.setattr(_di, "sprint_service", lambda chain_dir: _Svc())
+    monkeypatch.setattr(
+        _di, "session_events",
+        lambda chain_dir, session_id: [
+            __import__("types").SimpleNamespace(event_type="write", files=[])
+        ],
+    )
+
+    out = knowledge.capture_knowledge(_ctx(project_dir), {"task_id": "T-SUELTA"})
+
+    assert out.ok is False
+    assert "T-SUELTA" in out.error
 
 
 def test_captura_supersede_en_ckg_real(project_dir, monkeypatch):
