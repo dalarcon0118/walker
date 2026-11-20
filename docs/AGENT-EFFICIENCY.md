@@ -469,9 +469,9 @@ acá sigue abierto.
 | `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`; `missing[]`/`degraded` obligatorios. 3.9 KB (~1k tok) en el ancla por archivo (`tests/test_brief_bdd.py`) |
 | `plan_diff` y `design_brief` (F3) | pendiente | — |
 | Perfil `agent` | **20 tools / 9.360 chars** | `brief` reemplazó a `agent_context` + `preflight`; `snapshot`/`baseline_diff` salieron del perfil (siguen en `full`/`admin`). F3 sigue pendiente: objetivo ≤8 / 2.500. |
-| Deadlock de import concurrente (AE-INV-07) | **mitigado, no cerrado** | `build_server()` pre-importa `check_cpg_health`, `ckg_read` y `verify_engine` (la carrera era del importador, no del dominio). `scripts/concurrency_probe.py`: 100 llamadas / 10 lotes = 0 errores. p95 ~1 s: **sigue abierto** |
+| Deadlock de import concurrente (AE-INV-07) | **mitigado, no cerrado** | `build_server()` pre-importa `check_cpg_health`, `ckg_read` y `verify_engine` (la carrera era del importador, no del dominio). `scripts/concurrency_probe.py`: 100 llamadas / 10 lotes = 0 errores. **Serialización abierta**: 4 concurrentes = 3,03× una sola (AE-INV-07) y p95 ~1,1 s |
 
-Verificación: `python3 -m pytest -q` → **1.550 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.551 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
