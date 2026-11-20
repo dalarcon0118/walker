@@ -242,9 +242,15 @@ function closeBlock(rt, plan, entry, workProject) {
     entry && entry.verifyHint === "pipe"
       ? "\nLa última verificación usó un pipe: su exit code es el del último comando. Repetila sin pipe o asegurate de que aparezca WALKER_RESULT."
       : ""
+  // La captura de conocimiento resuelve la spec y la traza por (task, session).
+  // Si el nudge manda `<id>` y sin sesión, el hecho no se puede anclar y se
+  // pierde (o peor: hereda la identidad de otra tarea). Se propaga lo que el
+  // plan ya declara.
+  const task = plan && plan.task ? String(plan.task) : "<id>"
+  const sid = entry && entry.sessionID ? `,"session_id":"${entry.sessionID}"` : ""
   return (
     `[WALKER] No cierres todavía: esta sesión modificó archivos y no hay verificación VERDE.${crit}${failed}${pipe}\n` +
-    `Corré la suite: ${CLI} ${proj}/run_tests '{"task_id":"<id>"}' (ejecuta pytest y devuelve pass/fail) ` +
+    `Corré la suite: ${CLI} ${proj}/run_tests '{"task_id":"${task}"${sid}}' (ejecuta pytest y devuelve pass/fail) ` +
     `o verificá los predicados con verify_predicates.`
   )
 }
