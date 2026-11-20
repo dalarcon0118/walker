@@ -473,7 +473,7 @@ acá sigue abierto.
 | Adopción medida | **implementado** | `scripts/agent_adoption.py`: llamadas/tokens por tool, sesiones verificadas, 1er intento, writes y costo desde el trace. `native_ratio` y el intento por tarea se declaran N/D con motivo (AE-INV-08: no se inventan). |
 | Sustrato (AE-INV-07) | **cerrado** | warm imports + caches por firma + **pool de 4 procesos** para lecturas (`fast_mcp/memories/read_pool.py`). `agent_context` caliente **169 ms**, 4 concurrentes **248 ms = 1,32×**; probe 100/100, **p50 110 / p95 219 ms**. Costo: la primera ráfaga paga el spawn de los workers (mitigado con warm en background) |
 
-Verificación: `python3 -m pytest -q` → **1.568 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.569 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
