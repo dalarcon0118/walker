@@ -60,7 +60,7 @@ def test_server_expone_tools_fase1_y_fase2(fastmcp_server):
         "build_code_index", "index_repo", "update_incremental_code",
         "extract_knowledge", "knowledge_query", "memory_schema",
         "recall_knowledge", "documenting_knowledge", "search_memories",
-        "agent_context", "brief", "session_context", "preflight", "search_skills", "load_skill",
+        "agent_context", "brief", "plan_diff", "session_context", "preflight", "search_skills", "load_skill",
         "code_context", "inspect_codebase", "snapshot", "baseline_diff",
         "read_code", "code_search",
     }

@@ -467,11 +467,12 @@ acá sigue abierto.
 | `supersedes` (M-03) | **implementado** | `ingest_adrs.py` parsea `**Consolida:** ADR-081 y ADR-082` y resuelve a ids en `build_nodes`; 081/082 quedan `superseded` en el CKG (`tests/test_ingest_adrs_bdd.py`) |
 | Plan → spec | **parcial** | `implement_task` ya no pisa `flight_plan.acceptance` (merge). La spec todavía no hereda: `_persist_spec` devuelve `None` sin error (§7.1-6). |
 | `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`; `missing[]`/`degraded` obligatorios. 3.9 KB (~1k tok) en el ancla por archivo (`tests/test_brief_bdd.py`) |
-| `plan_diff` y `design_brief` (F3) | pendiente | — |
-| Perfil `agent` | **20 tools / 9.360 chars** | `brief` reemplazó a `agent_context` + `preflight`; `snapshot`/`baseline_diff` salieron del perfil (siguen en `full`/`admin`). F3 sigue pendiente: objetivo ≤8 / 2.500. |
-| Deadlock de import concurrente (AE-INV-07) | **mitigado, no cerrado** | `build_server()` pre-importa `check_cpg_health`, `ckg_read` y `verify_engine` (la carrera era del importador, no del dominio). `scripts/concurrency_probe.py`: 100 llamadas / 10 lotes = 0 errores. **Serialización abierta**: 4 concurrentes = 3,03× una sola (AE-INV-07) y p95 ~1,1 s |
+| `plan_diff` (F3/M-04) | **implementado** | compara flight_plan ↔ spec: criterios en uno y no en el otro, scope ampliado y criterios sin predicado (`tests/test_plan_diff_bdd.py`) |
+| `design_brief` (F3) | pendiente | requiere el gate por forma en el nodo DESIGN.REVIEW; no se hace a ciegas |
+| Perfil `agent` | **21 tools / 9.683 chars** | `brief` reemplazó a `agent_context` + `preflight`; `snapshot`/`baseline_diff` salieron (siguen en `full`/`admin`); `plan_diff` entró. F3 sigue pendiente: objetivo ≤8 / 2.500. |
+| Sustrato (AE-INV-07) | **deadlock cerrado; concurrencia abierta** | warm imports + `PRAGMA integrity_check` y carga del CPG cacheadas por firma del archivo. `agent_context` caliente **189 ms** (antes 787); `brief` **396 ms** (antes 2.165); probe 100/100 sin errores, **p50 102 ms / p95 558 ms**. **Falta**: 4 concurrentes = 2,35× (AE-INV-07 pide ≤1,5; requiere pool/daemon) |
 
-Verificación: `python3 -m pytest -q` → **1.551 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.556 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)

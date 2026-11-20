@@ -20,6 +20,22 @@ from typing import Any
 from fast_mcp.features.code_analysis.application.ports.cpg_repository import CpgRepository
 from fast_mcp.shared_kernel.cognitive_graph.config import load_memory_connection
 
+#: Cache del grafo cargado por (data_dir, project_id) → (firma del archivo, data).
+#: `load()` materializa 9.5k nodos + edges (0.45 s medidos) en CADA lectura;
+#: el agente repite el mismo archivo. Se invalida por (mtime_ns, size) y en
+#: `save()`; tope 4 proyectos para no crecer sin cota en tests.
+_LOAD_CACHE: dict[tuple[str, str], tuple[tuple[int, int] | None, dict]] = {}
+_LOAD_CACHE_MAX = 4
+
+
+def _db_stat_key(data_dir: str) -> tuple[int, int] | None:
+    try:
+        stat = os.stat(os.path.join(data_dir, "cognitive.sqlite3"))
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 
 class CognitiveCpgRepository(CpgRepository):
     """Implementación sobre el índice 'cpg' del puerto StorageBackend."""
@@ -68,6 +84,11 @@ class CognitiveCpgRepository(CpgRepository):
 
     def load(self, project_id: str = "") -> dict:
         pid = project_id or self._project_id
+        key = (self._data_dir, pid)
+        stat_key = _db_stat_key(self._data_dir)
+        hit = _LOAD_CACHE.get(key)
+        if hit is not None and stat_key is not None and hit[0] == stat_key:
+            return hit[1]
         nodes = self._cg.get_docs(self.INDEX)
         edges = self._cg.get_all_edges(self.INDEX)
         metadata = self._cg.get_metadata(self.INDEX)
@@ -81,6 +102,10 @@ class CognitiveCpgRepository(CpgRepository):
             "total_edges": len(edges),
             "files_scanned": metadata.get("stats", {}).get("files_scanned", 0),
         }
+        if stat_key is not None:
+            if len(_LOAD_CACHE) >= _LOAD_CACHE_MAX:
+                _LOAD_CACHE.clear()
+            _LOAD_CACHE[key] = (stat_key, data)
         return data
 
     def save(self, data: dict) -> None:
@@ -89,6 +114,9 @@ class CognitiveCpgRepository(CpgRepository):
         F3 (ADR-WALKER-055): los derivados (business_layer/quality_report/
         bug_proposals/dfg/analysis_results) NO se persisten en el blob.
         """
+        # El cache de lectura de este data_dir queda viejo en el acto.
+        for key in [k for k in _LOAD_CACHE if k[0] == self._data_dir]:
+            _LOAD_CACHE.pop(key, None)
         from fast_mcp.features.code_analysis.infrastructure.cpg_constants import CPG_DERIVED_KEYS
 
         nodes = data.get("nodes", {}) or {}

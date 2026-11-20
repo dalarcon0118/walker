@@ -42,6 +42,7 @@ AGENT: frozenset[str] = frozenset({
     # `full`/`admin` por compatibilidad del CLI, pero el agente ya no elige
     # entre tres lectores solapados.
     "brief",
+    "plan_diff",
     # Los templates del workflow mandan a `search_memories` en los gates de
     # análisis y cierre; dejarla fuera hacía que el agente recibiera una
     # instrucción imposible ("Unknown tool"). Es la query federada real.

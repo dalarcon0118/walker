@@ -81,6 +81,19 @@ _META_QUERY_KEYS = (*_PAGE_SIZE_KEYS, "_index", "query", *_PAGE_FROM_KEYS, "text
 #: remediación la dicta el propio error — refrescar el cache y reintentar.
 _GENERATION_CONFLICT = "cambió bajo el cache"
 
+#: PRAGMA integrity_check verificado por (path, mtime, size). Es O(BD) y
+#: corría en CADA `SqliteIndex.__init__` (medido 2026-11-20: 320 ms de un
+#: `agent_context` de 787 ms). La BD es inmutable mientras no cambie su
+#: firma, así que se verifica una vez por versión del archivo.
+_INTEGRITY_OK: dict[str, tuple[int, int]] = {}
+_INTEGRITY_RUNS = 0
+
+
+def integrity_checks() -> int:
+    """Cuántos `PRAGMA integrity_check` se ejecutaron en este proceso."""
+    return _INTEGRITY_RUNS
+
+
 
 def _sha1(value: Any) -> str:
     """Hash determinista del JSON canónico (diff de persistencia)."""
@@ -1202,7 +1215,13 @@ class SqliteBackend:
             os.makedirs(parent, exist_ok=True)
         self._db = sqlite3.connect(self._db_path, timeout=10)
         self._db.row_factory = sqlite3.Row
-        self._integrity_guard()  # antes de cualquier PRAGMA/lectura (FS-5)
+        # FS-5 se sigue cumpliendo: se verifica cada VERSIÓN del archivo, no
+        # cada conexión. Un writer cambia mtime/size; una BD corrupta desde
+        # antes se rechaza en la primera apertura del proceso.
+        stat_key = self._db_stat_key()
+        verify_schema = stat_key is None or _INTEGRITY_OK.get(self._db_path) != stat_key
+        if verify_schema:
+            self._integrity_guard()  # antes de cualquier PRAGMA/lectura (FS-5)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
         self._db.execute("PRAGMA busy_timeout=10000")
@@ -1229,7 +1248,12 @@ class SqliteBackend:
         # verifica conteos si existe (fail-fast en drift FS-1). ANTES de
         # cualquier acceso: todo write posterior sincroniza FTS en su
         # transacción (M-02).
-        self._ensure_fts_indexes()
+        self._ensure_fts_indexes(verify=verify_schema)
+        # La firma se guarda DESPUÉS del boot: la inicialización escribe
+        # (schema/FTS) y un stat previo quedaría viejo en el acto.
+        post = self._db_stat_key()
+        if post is not None:
+            _INTEGRITY_OK[self._db_path] = post
         # §10.1: v3 SOLO se marca tras éxito de todos los pasos (FS-2 —
         # crash a mitad = v2 persistente → próximo boot re-intenta, todo
         # idempotente).
@@ -1443,7 +1467,25 @@ class SqliteBackend:
         """
         return self._idx(index).materialize_all()
 
+    def _db_stat_key(self) -> tuple[int, int] | None:
+        """Firma (mtime_ns, size) del archivo SQLite, o None si no existe.
+
+        Sólo el archivo principal: el `-wal` cambia también en conexiones de
+        lectura (WAL-index), así que incluirlo invalidaba la verificación en
+        cada llamada. Los writes propios van por esta misma instancia y
+        mantienen FTS en la transacción; un writer externo cambia el archivo
+        al hacer checkpoint (FS-1 se verifica en la primera apertura de cada
+        versión del archivo).
+        """
+        try:
+            stat = os.stat(self._db_path)
+        except OSError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
     def _integrity_guard(self) -> None:
+        global _INTEGRITY_RUNS
+        _INTEGRITY_RUNS += 1
         try:
             row = self._db.execute("PRAGMA integrity_check").fetchone()
         except sqlite3.DatabaseError as e:
@@ -1471,7 +1513,7 @@ class SqliteBackend:
                 report["added_columns"], report["indexes"],
             )
 
-    def _ensure_fts_indexes(self) -> None:
+    def _ensure_fts_indexes(self, verify: bool = True) -> None:
         """F1 (§5.1/M-04): FTS por índice con fulltext.
 
         Idempotente vía marker `fts_config` en meta. Al crear: view +
@@ -1483,6 +1525,15 @@ class SqliteBackend:
         for name, schema in list(self._schemas.items()):
             if not schema.has_fulltext():
                 continue
+            idx = self._indexes.get(name)
+            if idx is not None:
+                # `_fts_fields` es contrato de search/write: se setea siempre.
+                idx._fts_fields = list(schema.fulltext_fields)
+            if not verify:
+                # Misma versión del archivo ya verificada en este proceso: los
+                # conteos de FTS no cambian entre lecturas (M-02: 165 ms de un
+                # warm-call de 283 ms eran estas 8 verificaciones).
+                continue
             report = fts_mod.ensure_fts(self._db, name, schema.fulltext_fields)
             # FS-2 detection: conteos pre/post loggeados en la migración.
             logger.info(
@@ -1490,9 +1541,6 @@ class SqliteBackend:
                 report["docs"],
                 report.get("fields", schema.fulltext_fields),
             )
-            idx = self._indexes.get(name)
-            if idx is not None:
-                idx._fts_fields = list(schema.fulltext_fields)
 
     def register_index(self, name: str, schema: Any, search_handler: Any = None) -> None:
         if isinstance(schema, dict):

@@ -43,6 +43,7 @@ _FASE2_TOOLS = (
     "search_memories",
     "agent_context",
     "brief",
+    "plan_diff",
     "session_context",
     "preflight",
     "search_skills",
@@ -220,6 +221,15 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "mode": {"type": "string", "enum": ["brief", "full"]},
         },
     },
+    "plan_diff": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string"},
+            "session_id": {"type": "string", "description": "Sesión con flight_plan."},
+            "task_id": {"type": "string", "description": "Tarea (default: la del plan)."},
+        },
+        "required": ["session_id"],
+    },
     "code_context": {
         "type": "object",
         "properties": {
@@ -281,6 +291,7 @@ _DESCRIPTIONS = {
     "search_memories": "Federated query across multiple indexes at once.",
     "agent_context": "Consolidated delta+ckg+cpg+trace query with cross-references.",
     "brief": "One call: decisions + impact + gates; missing/degraded explicit.",
+    "plan_diff": "Diff the flight plan against the spec: criteria, scope, unverified.",
     "search_skills": "Search installed agent skills by intent (text/tags).",
     "load_skill": "Load an installed skill's content on demand.",
     "code_context": "Structured code context: symbols, calls, imports and relations by file or search.",

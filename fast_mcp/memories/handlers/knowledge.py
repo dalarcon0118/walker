@@ -1089,6 +1089,85 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
     }
 
 
+def handle_plan_diff(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Diff plan de vuelo ↔ spec (AGENT-EFFICIENCY §2.4 / M-04).
+
+    El plan es lo que el agente declaró; la spec es lo que se va a cerrar. Si
+    divergen, el cierre valida contra criterios que el plan no declaró (o al
+    revés) y el hueco queda invisible. Publica:
+      - `only_in_plan` / `only_in_spec`: criterios que no están en el otro lado
+      - `scope_expanded`: archivos del plan fuera de la spec
+      - `unverified`: criterios de la spec sin predicado ejecutable
+    """
+    body = kwargs.get("_payload", kwargs) or {}
+    session_id = str(body.get("session_id") or "")
+    task_id = str(body.get("task_id") or "")
+
+    missing: list[str] = []
+    if not session_id:
+        return {"type": "plan_diff", "error": "session_id es obligatorio"}
+
+    try:
+        from fast_mcp.composition import build_sprint_service
+
+        service = build_sprint_service(ctx.chain_dir)
+    except Exception as exc:  # noqa: BLE001
+        return {"type": "plan_diff", "error": f"{type(exc).__name__}: {exc}"}
+    if service is None:
+        return {"type": "plan_diff", "error": "sprint service no disponible"}
+
+    session = (service.get_session(session_id) or {})
+    plan = session.get("flight_plan") or {}
+    if not plan:
+        missing.append("plan: la sesión no tiene flight_plan")
+    spring_id = str(session.get("spring_id") or plan.get("spring_id") or "")
+    target = task_id or str(plan.get("task") or "")
+
+    spec: dict = {}
+    if spring_id:
+        for candidate in service.get_specs(spring_id) or []:
+            ctx_task = (candidate.get("task_context") or {}).get("task_id") or ""
+            if target and target in (
+                str(candidate.get("spec_id") or ""),
+                str(candidate.get("objective") or ""),
+                str(ctx_task),
+            ):
+                spec = candidate
+                break
+    if not spec:
+        missing.append(f"spec: no hay spec para '{target or '(sin task)'}' en {spring_id or '(sin sprint)'}")
+
+    def _norm(items: Any) -> list[str]:
+        return [str(i).strip().lower() for i in (items or []) if str(i).strip()]
+
+    plan_acc = _norm(plan.get("acceptance"))
+    spec_acc = _norm(spec.get("acceptance_criteria"))
+    plan_scope = [str(f) for f in (plan.get("scope") or []) if str(f)]
+    spec_files = [str(f) for f in (spec.get("files") or []) if str(f)]
+
+    predicates = (spec.get("predicates") or {})
+    unmapped = [
+        str(u.get("criterion") or u.get("reason") or "")
+        for u in (predicates.get("unmapped") or [])
+    ]
+
+    return {
+        "type": "plan_diff",
+        "session_id": session_id,
+        "spring_id": spring_id,
+        "task": target,
+        "spec_id": str(spec.get("spec_id") or ""),
+        "spec_status": str(spec.get("status") or ""),
+        "only_in_plan": [a for a in plan_acc if a not in spec_acc],
+        "only_in_spec": [a for a in spec_acc if a not in plan_acc],
+        "scope_expanded": [f for f in plan_scope if f not in spec_files],
+        "spec_files_missing_from_plan": [f for f in spec_files if f not in plan_scope],
+        "unverified": unmapped,
+        "missing": missing,
+        "degraded": bool(missing),
+    }
+
+
 def handle_index_repo(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Index an external repo as reference in CKG."""
     from returns.pipeline import is_successful
