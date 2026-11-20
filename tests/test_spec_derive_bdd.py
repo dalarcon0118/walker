@@ -98,7 +98,7 @@ def test_implement_task_persiste_los_criterios(monkeypatch):
 
     out = implement.implement_task(
         SimpleNamespace(chain_dir="/tmp/x", task_id="", session_id="s", cpg_adapter=None),
-        {"task_id": "T-1", "objective": "Arreglá suma sin romper los tests.", "files": []},
+        {"task_id": "T-1", "objective": "Arreglá suma sin romper los tests.", "files": ["suma.py"]},
     )
 
     assert out.ok

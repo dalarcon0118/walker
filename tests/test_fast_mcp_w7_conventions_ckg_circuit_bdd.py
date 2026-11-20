@@ -253,6 +253,7 @@ class TestTaskHandlerConventionsIntegration:
         data = {
             "objective": "Refactor",
             "files": ["x.py"],
+            "acceptance": ["las convenciones se respetan"],
             "inspect_codebase_action": "conventions",
             "languages": ["python"],
         }

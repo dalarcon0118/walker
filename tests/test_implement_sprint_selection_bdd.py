@@ -136,7 +136,7 @@ def test_only_closed_returns_none_and_no_spec_created(svc_factory):
         session={"session_id": "ses-1", "spring_id": "SPR-closed"},
     )
     out = implement.implement_task(
-        _ctx("ses-1"), {"task_id": "T-1", "objective": "x", "files": [], "session_id": "ses-1"}
+        _ctx("ses-1"), {"task_id": "T-1", "objective": "x", "files": ["a.py"], "acceptance": ["x"], "session_id": "ses-1"}
     )
     assert not out.ok
     assert "no hay sprint vivo" in (out.error or "")
@@ -149,7 +149,7 @@ def test_only_closed_returns_none_and_no_spec_created(svc_factory):
 def test_no_springs_adhoc_behavior(svc_factory):
     svc = svc_factory(springs=[], session=None)
     out = implement.implement_task(
-        _ctx("ses-1"), {"task_id": "T-1", "objective": "x", "files": [], "session_id": "ses-1"}
+        _ctx("ses-1"), {"task_id": "T-1", "objective": "x", "files": ["a.py"], "acceptance": ["x"], "session_id": "ses-1"}
     )
     assert out.ok
     assert "SPR-ADHOC" in svc.specs or any("SPR-ADHOC" in k for k in svc.specs)

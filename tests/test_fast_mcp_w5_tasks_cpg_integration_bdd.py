@@ -51,6 +51,7 @@ class TestImplementTaskCpgIntegration:
         data = {
             "objective": "Agregar feature X",
             "files": ["x.py"],
+            "acceptance": ["la feature funciona"],
             "inspect_codebase_action": "query",
             "query": "function:main",
         }
@@ -63,7 +64,7 @@ class TestImplementTaskCpgIntegration:
         from fast_mcp.features.tasks.handlers.implement import implement_task
 
         ctx = _task_ctx(cpg_adapter=None)
-        data = {"objective": "X", "files": ["x.py"]}
+        data = {"objective": "X", "files": ["x.py"], "acceptance": ["X"]}
         result = implement_task(ctx, data)
         assert result.ok is True
         assert "inspect_codebase" not in result.data
@@ -78,6 +79,7 @@ class TestImplementTaskCpgIntegration:
         data = {
             "objective": "X",
             "files": ["x.py"],
+            "acceptance": ["X"],
             "inspect_codebase_action": "no_existe",
         }
         result = implement_task(ctx, data)
@@ -95,6 +97,7 @@ class TestImplementTaskCpgIntegration:
         data = {
             "objective": "X",
             "files": ["x.py"],
+            "acceptance": ["X"],
             "inspect_codebase_action": "query",
             "query": "function:main",
         }
@@ -279,7 +282,7 @@ class TestExecutePublicTaskCpgAdapter:
             name="implement_task",
             project_id="p-1",
             chain_dir="/tmp",
-            task_data={"objective": "X", "files": ["a.py", "b.py"], "inspect_codebase_action": "gather_context"},
+            task_data={"objective": "X", "files": ["a.py", "b.py"], "acceptance": ["X"], "inspect_codebase_action": "gather_context"},
             registry=registry,
             cpg_adapter=FakeAdapter(),
         )
@@ -297,7 +300,7 @@ class TestExecutePublicTaskCpgAdapter:
             name="implement_task",
             project_id="p-1",
             chain_dir="/tmp",
-            task_data={"objective": "X", "files": ["a.py"]},
+            task_data={"objective": "X", "files": ["a.py"], "acceptance": ["X"]},
             registry=registry,
         )
         assert result["ok"] is True

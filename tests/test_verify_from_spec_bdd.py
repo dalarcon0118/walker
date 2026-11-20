@@ -227,7 +227,8 @@ def test_implement_task_registra_la_tarea_en_el_workflow(monkeypatch):
 
     implement.implement_task(
         SimpleNamespace(chain_dir="/tmp/x", task_id="", session_id="s", cpg_adapter=None),
-        {"task_id": "T-5", "objective": "x"},
+        {"task_id": "T-5", "objective": "x", "files": ["a.py"],
+         "acceptance": ["x"]},
     )
 
     assert recorded == [("/tmp/x", "T-5")]

@@ -120,7 +120,8 @@ class TestImplementTask:
         from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
 
         ctx = ExecutionContext(chain_dir="/tmp", task_id="t-1")
-        result = implement_task(ctx, {"objective": "fix bug", "files": ["a.py"]})
+        result = implement_task(ctx, {"objective": "fix bug", "files": ["a.py"],
+                                      "acceptance": ["el bug no se reproduce"]})
         assert result.ok is True
         assert result.data["result_state"] == "fix bug"
         assert result.data["files_modified"] == ["a.py"]
@@ -131,8 +132,8 @@ class TestImplementTask:
 
         ctx = ExecutionContext()
         result = implement_task(ctx, {})
-        assert result.ok is True
-        assert result.data["files_modified"] == []
+        assert not result.ok, "sin alcance ni aceptación no se declara la tarea"
+        assert "alcance" in (result.error or "")
 
 
 class TestVerifyPredicates:

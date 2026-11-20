@@ -168,6 +168,7 @@ def _persist_spec(
     data: dict,
     session_override: str = "",
     spring: dict | None = None,
+    criteria_override: list[str] | None = None,
 ) -> dict | None:
     """Crea o actualiza la spec de la tarea en el delta."""
     if not ctx.chain_dir:
@@ -188,10 +189,18 @@ def _persist_spec(
     )
 
     derived = derive(objective or "")
+    # Los criterios explícitos de la llamada ganan: son la fuente más concreta
+    # y no dependen de que el objetivo use una marca de obligación.
+    if criteria_override:
+        derived = {
+            **derived,
+            "acceptance_criteria": list(criteria_override),
+            "source": "explicit",
+        }
     # El plan de vuelo es la fuente de aceptación de la SESIÓN. Antes se
     # descartaba: el plan tenía 4 criterios y la spec se creaba con 0
     # (medido 2026-11-20: `validation.errors = "sin criterios de aceptación"`).
-    if not derived.get("acceptance_criteria"):
+    elif not derived.get("acceptance_criteria"):
         plan_criteria = _session_plan_acceptance(ctx, session_override or ctx.session_id or "")
         if plan_criteria:
             derived = {
@@ -298,6 +307,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     files = data.get("files", [])
     if not isinstance(files, list):
         files = []
+    files = [str(f).strip() for f in files if str(f).strip()]
 
     task_id = str(data.get("task_id") or ctx.task_id or "").strip()
     # La sesión REAL viene del caller (el plugin la conoce); `ctx.session_id`
@@ -334,6 +344,40 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         except Exception:  # noqa: BLE001
             pass
 
+    # SPEC-010: sin alcance no hay ancla (delta → archivos → CPG → CKG) ni
+    # verificación posible. Antes se aceptaba `files: []` y la spec quedaba
+    # vacía; el plan incluso se sobreescribía con scope [].
+    if not files:
+        return TaskResult.failure(
+            "implement_task: falta el alcance (files). Declaralo y reintentá:\n"
+            f'  implement_task {{"task_id":"{task_id or "<id>"}",'
+            f'"session_id":"{session_override or "<sesión>"}","files":["<ruta>"]}}'
+        )
+
+    # SPEC-009: aceptación obligatoria. Fuentes, en orden: la llamada, el
+    # objetivo (marcas de obligación) y el plan de la sesión.
+    raw_acceptance = data.get("acceptance") or []
+    if isinstance(raw_acceptance, str):
+        raw_acceptance = [raw_acceptance]
+    explicit = [str(a).strip() for a in raw_acceptance if str(a).strip()]
+    from fast_mcp.features.tasks.handlers.spec_derive import derive
+
+    effective = explicit or derive(objective or "").get("acceptance_criteria") or []
+    if not effective:
+        effective = _session_plan_acceptance(
+            ctx, session_override or ctx.session_id or ""
+        )
+    if not effective:
+        return TaskResult.failure(
+            "implement_task: faltan criterios de aceptación verificables. "
+            "Pasalos en la llamada o declaralos en el plan:\n"
+            f'  implement_task {{"task_id":"{task_id or "<id>"}","files":[...],'
+            '"acceptance":["<criterio verificable>"]}\n'
+            f'  o session_plan {{"session_id":"{session_override or "<sesión>"}",'
+            '"mode":"set","acceptance":["<criterio>"]}}'
+        )
+
+
     result: dict[str, Any] = {
         "task_id": task_id,
         "result_state": objective,
@@ -345,7 +389,10 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # sólo devolvía un dict y el delta quedaba vacío para siempre.
     spec = None
     try:
-        spec = _persist_spec(ctx, task_id, objective, files, data, session_override, spring=chosen)
+        spec = _persist_spec(
+            ctx, task_id, objective, files, data, session_override, spring=chosen,
+            criteria_override=explicit or None,
+        )
         if task_id:
             # Puente al workflow: a partir de acá toda acción recibe el id.
             _di.record_task(ctx.chain_dir, task_id)

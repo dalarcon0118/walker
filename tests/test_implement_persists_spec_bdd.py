@@ -82,7 +82,8 @@ def _ctx():
 
 def test_implement_task_persiste_la_spec(servicio):
     out = implement.implement_task(
-        _ctx(), {"task_id": "T-42", "objective": "arreglar resta", "files": ["b.py"]}
+        _ctx(), {"task_id": "T-42", "objective": "arreglar resta", "files": ["b.py"],
+         "acceptance": ["la resta da el resultado correcto"]}
     )
 
     assert out.ok
@@ -93,14 +94,17 @@ def test_implement_task_persiste_la_spec(servicio):
 
 
 def test_guarda_el_task_id_real_en_task_context(servicio):
-    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "x", "files": []})
+    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "x", "files": ["a.py"],
+                                       "acceptance": ["x es correcto"]})
 
     assert servicio.specs["SPR-1"][0]["task_context"]["task_id"] == "T-42"
 
 
 def test_no_duplica_la_spec_si_se_declara_dos_veces(servicio):
-    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "uno", "files": ["a.py"]})
-    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "dos", "files": ["a.py", "b.py"]})
+    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "uno", "files": ["a.py"],
+                                       "acceptance": ["uno"]})
+    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "dos", "files": ["a.py", "b.py"],
+                                       "acceptance": ["dos"]})
 
     assert len(servicio.specs["SPR-1"]) == 1
     assert servicio.specs["SPR-1"][0]["files"] == ["a.py", "b.py"]
@@ -111,7 +115,8 @@ def test_sin_factory_no_rompe_la_tool(monkeypatch):
 
     monkeypatch.setattr(_di, "_SPRINT_FACTORY", None)
 
-    out = implement.implement_task(_ctx(), {"task_id": "T-1", "objective": "x", "files": []})
+    out = implement.implement_task(_ctx(), {"task_id": "T-1", "objective": "x", "files": ["a.py"],
+                                            "acceptance": ["x"]})
 
     assert out.ok, "persistir la spec no puede bloquear la implementación"
     assert "spec" not in out.data
@@ -121,9 +126,46 @@ def test_el_ancla_de_tarea_encuentra_la_spec_por_task_context(monkeypatch, servi
     from fast_mcp.memories.handlers import knowledge
     import fast_mcp.composition as composition
 
-    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "x", "files": ["b.py"]})
+    implement.implement_task(_ctx(), {"task_id": "T-42", "objective": "x", "files": ["b.py"],
+                                       "acceptance": ["x"]})
     monkeypatch.setattr(composition, "build_sprint_service", lambda chain: servicio)
 
     found = knowledge._find_task_spec("/tmp/proyecto", "T-42")
 
     assert found and found["files"] == ["b.py"]
+
+
+# ── Contrato de declaración (SPEC-009/010) ──────────────────────────────
+
+
+def test_sin_alcance_rechaza_con_el_comando(servicio):
+    out = implement.implement_task(
+        _ctx(), {"task_id": "T-1", "objective": "x", "acceptance": ["x"]}
+    )
+
+    assert not out.ok
+    assert "alcance" in out.error
+    assert "files" in out.error
+
+
+def test_sin_aceptacion_rechaza_con_el_comando(servicio):
+    out = implement.implement_task(
+        _ctx(), {"task_id": "T-1", "objective": "x", "files": ["a.py"]}
+    )
+
+    assert not out.ok
+    assert "criterios de aceptación" in out.error
+    assert "acceptance" in out.error
+
+
+def test_aceptacion_explicita_queda_en_la_spec(servicio):
+    out = implement.implement_task(
+        _ctx(),
+        {"task_id": "T-1", "objective": "x", "files": ["a.py"],
+         "acceptance": ["el resultado es 4"]},
+    )
+
+    assert out.ok
+    spec = servicio.specs["SPR-1"][0]
+    assert spec["acceptance_criteria"] == ["el resultado es 4"]
+    assert spec["task_context"]["derived"] == "explicit"

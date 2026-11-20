@@ -161,7 +161,7 @@ class TestWorkflowContextTaskRegistry:
         ctx = ExecutionContext(chain_dir="/tmp", task_id="t-1")
 
         # implement_task
-        result = registry.execute("implement_task", ctx, {"objective": "fix bug", "files": ["a.py"]})
+        result = registry.execute("implement_task", ctx, {"objective": "fix bug", "files": ["a.py"], "acceptance": ["el bug no se reproduce"]})
         assert result.ok is True
         assert result.data["result_state"] == "fix bug"
 

@@ -64,6 +64,10 @@ export function briefBlock(payload, { max = 600 } = {}) {
   const missing = (payload.missing || []).slice(0, 2)
   if (missing.length) lines.push(`  falta: ${trim(missing.join("; "), 180)}`)
 
+  // Un payload sin step/gates/plan/decisiones/impacto no aporta nada: no se
+  // inyecta un encabezado vacío (medido en el harness: el fake devuelve
+  // {ok:true} y el bloque igual se mandaba, rompiendo la estabilidad).
+  if (lines.length <= 1) return ""
   return cap(lines, max)
 }
 
