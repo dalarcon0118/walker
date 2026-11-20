@@ -281,6 +281,93 @@
               "The main risk is regression in the persistence module..."
             ],
             "minLength": 10
+          },
+          "design_brief": {
+            "type": "object",
+            "description": "ADR-lite: problema, >=2 alternativas con costo/riesgo, elegida, motivo del descarte, invariantes y verificacion.",
+            "properties": {
+              "problem": {
+                "type": "string",
+                "description": "Problema/objetivo (>=10 chars)."
+              },
+              "options": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "cost": {
+                      "type": "string"
+                    },
+                    "risk": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "summary",
+                    "cost",
+                    "risk"
+                  ]
+                }
+              },
+              "chosen": {
+                "type": "string",
+                "description": "id de la alternativa elegida."
+              },
+              "rejected_because": {
+                "type": "object",
+                "description": "{id: motivo} por cada alternativa no elegida."
+              },
+              "invariants_touched": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "verification": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "criterion": {
+                      "type": "string"
+                    },
+                    "check": {
+                      "type": "string",
+                      "enum": [
+                        "test",
+                        "command"
+                      ]
+                    },
+                    "ref": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "criterion",
+                    "check",
+                    "ref"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "problem",
+              "options",
+              "chosen",
+              "rejected_because",
+              "invariants_touched",
+              "verification"
+            ]
           }
         },
         "required": [
@@ -290,7 +377,8 @@
           "a2",
           "q3",
           "a3"
-        ]
+        ],
+        "x-artifact": "design_brief"
       },
       "output_schema": {
         "type": "object",

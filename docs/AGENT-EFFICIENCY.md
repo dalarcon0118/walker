@@ -468,11 +468,11 @@ acá sigue abierto.
 | Plan → spec | **parcial** | `implement_task` ya no pisa `flight_plan.acceptance` (merge). La spec todavía no hereda: `_persist_spec` devuelve `None` sin error (§7.1-6). |
 | `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`; `missing[]`/`degraded` obligatorios. 3.9 KB (~1k tok) en el ancla por archivo (`tests/test_brief_bdd.py`) |
 | `plan_diff` (F3/M-04) | **implementado** | compara flight_plan ↔ spec: criterios en uno y no en el otro, scope ampliado y criterios sin predicado (`tests/test_plan_diff_bdd.py`) |
-| `design_brief` (F3) | pendiente | requiere el gate por forma en el nodo DESIGN.REVIEW; no se hace a ciegas |
+| `design_brief` (F3) | **implementado** | `DESIGN_ANALYZE` declara `x-artifact`; el orquestador valida la forma (>=2 opciones, descartada con motivo, invariantes, verificación) y deniega con `missing[]`+`remedy` (`tests/test_design_brief_bdd.py`) |
 | Perfil `agent` | **21 tools / 9.683 chars** | `brief` reemplazó a `agent_context` + `preflight`; `snapshot`/`baseline_diff` salieron (siguen en `full`/`admin`); `plan_diff` entró. F3 sigue pendiente: objetivo ≤8 / 2.500. |
-| Sustrato (AE-INV-07) | **deadlock cerrado; concurrencia abierta** | warm imports + `PRAGMA integrity_check` y carga del CPG cacheadas por firma del archivo. `agent_context` caliente **189 ms** (antes 787); `brief` **396 ms** (antes 2.165); probe 100/100 sin errores, **p50 102 ms / p95 558 ms**. **Falta**: 4 concurrentes = 2,35× (AE-INV-07 pide ≤1,5; requiere pool/daemon) |
+| Sustrato (AE-INV-07) | **cerrado** | warm imports + caches por firma + **pool de 4 procesos** para lecturas (`fast_mcp/memories/read_pool.py`). `agent_context` caliente **169 ms**, 4 concurrentes **248 ms = 1,32×**; probe 100/100, **p50 110 / p95 219 ms**. Costo: la primera ráfaga paga el spawn de los workers (mitigado con warm en background) |
 
-Verificación: `python3 -m pytest -q` → **1.556 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.566 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
@@ -510,6 +510,13 @@ Salieron de operar el sistema, no de leerlo. Quedan acá para que no se pierdan:
    "no había nada que guardar". Medido 2026-11-20: `task_context.task_id` y
    `acceptance_criteria` quedaron nulos tras un `implement_task` exitoso. Un
    `Result` fallido, no `None`.
+
+### 7.1bis Hallazgo: el workflow no está versionado
+
+`data/workflow/` está en `.gitignore`: el nodo que declara `x-artifact` (el gate
+del `design_brief`) vive sólo en el runtime. En un checkout limpio el gate no
+se activa aunque el validador y el prompt sí estén versionados. Es deuda de
+reproducibilidad, no del gate.
 
 ### 7.2 Resultado de F2 (retrieval + firma)
 

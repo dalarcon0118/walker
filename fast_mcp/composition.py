@@ -271,6 +271,13 @@ def memory_tool_runner(name: str, root: Path | None = None):
         if not chain_dir:
             return _no_project_context_error()
 
+        # AE-INV-07: las lecturas pesadas corren en procesos (el GIL las
+        # serializa en hilos). El worker resuelve su propio MemoryContext.
+        from fast_mcp.memories import read_pool
+
+        if name in read_pool.TOOLS and read_pool.enabled():
+            return read_pool.run(name, chain_dir, kwargs)
+
         ctx = MemoryContext.resolve(chain_dir)
         if ctx is None:
             return {"error": f"Could not resolve project context for '{chain_dir}'"}

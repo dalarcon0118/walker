@@ -586,6 +586,17 @@ class OrchestrationService:
                 "errors": errors,
                 "action": "validation_failed",
             }
+        # 5b. Gate por FORMA del artefacto de fase (AE-INV-06): el nodo declara
+        # `x-artifact` en su input_schema; el validator exige la forma y da
+        # remedio. No valida "que el agente haya pensado".
+        artifact_kind = str((sub_state.input_schema or {}).get("x-artifact") or "")
+        if artifact_kind:
+            from fast_mcp.features.workflow.domain.artifacts import validate_artifact
+
+            artifact_error = validate_artifact(artifact_kind, fields)
+            if artifact_error:
+                return {"ok": False, "action": "artifact_invalid", **artifact_error}
+
         state = candidate
 
         # 6. Execute sub_state.action via TaskRegistry (Sprint 5 — engine anémico)

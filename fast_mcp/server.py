@@ -66,4 +66,13 @@ def build_server() -> FastMCP:
     install_cancellation_guard()
     # F0 (AGENT-EFFICIENCY §2.7): latencia, tokens y outcome por llamada.
     install_tool_metrics(server)
+    # AE-INV-07: spawnear los workers de lectura en background; la primera
+    # ráfaga no debería pagar el arranque de cada intérprete.
+    from fast_mcp.memories import read_pool
+
+    if read_pool.enabled():
+        import threading
+
+        threading.Thread(target=read_pool.warm, name="walker-read-pool-warm",
+                         daemon=True).start()
     return server

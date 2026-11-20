@@ -92,17 +92,56 @@ async def _run(server, calls: int, concurrency: int, project: str) -> Probe:
     return probe
 
 
+async def _ratio(server, project: str) -> dict:
+    """1 llamada vs 4 concurrentes (AE-INV-07: ≤1,5×)."""
+    payload = {
+        "project_id": project,
+        "file": "fast_mcp/features/workflow/application/orchestrator.py",
+    }
+    await server.call_tool("agent_context", payload)
+    # Calentar los 4 workers (spawn perezoso) y sus caches por proceso: sin
+    # esto, la primera ráfaga mide el arranque de cada intérprete, no el
+    # throughput del pool.
+    await asyncio.gather(*[server.call_tool("agent_context", payload) for _ in range(4)])
+    await asyncio.gather(*[server.call_tool("agent_context", payload) for _ in range(4)])
+
+    started = time.perf_counter()
+    await server.call_tool("agent_context", payload)
+    one = (time.perf_counter() - started) * 1000
+
+    started = time.perf_counter()
+    await asyncio.gather(*[server.call_tool("agent_context", payload) for _ in range(4)])
+    four = (time.perf_counter() - started) * 1000
+
+    return {
+        "one_ms": int(one),
+        "four_ms": int(four),
+        "ratio": round(four / one, 2) if one else 0.0,
+        "ae_inv_07": (four / one) <= 1.5 if one else False,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Sonda de concurrencia MCP")
     ap.add_argument("--calls", type=int, default=100)
     ap.add_argument("--concurrency", type=int, default=10)
     ap.add_argument("--project", default="walker")
+    ap.add_argument("--ratio", action="store_true", help="1 vs 4 concurrentes")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
     from fast_mcp.server import build_server
 
     server = build_server()
+    if args.ratio:
+        summary = asyncio.run(_ratio(server, args.project))
+        if args.json:
+            print(json.dumps(summary, indent=2))
+        else:
+            print(f"1={summary['one_ms']} ms · 4={summary['four_ms']} ms · "
+                  f"ratio={summary['ratio']}× · AE-INV-07={'OK' if summary['ae_inv_07'] else 'NO'}")
+        return 0 if summary["ae_inv_07"] else 1
+
     probe = asyncio.run(_run(server, args.calls, args.concurrency, args.project))
     summary = probe.summary()
     if args.json:
