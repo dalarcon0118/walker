@@ -2,8 +2,8 @@
 
 - **Rol:** fuente única de la política del flight control (plugin ↔ workflow).
   Es una **instrucción de trabajo**, no un registro histórico.
-- **Vigencia:** v1 · 2026-11-20. Reemplaza como guía operativa a ADR-081,
-  ADR-082 y ADR-083 (ver §1.6).
+- **Vigencia:** v2 · 2026-11-20. Resuelve C1 (negociación de alcance). Reemplaza
+  como guía operativa a ADR-081, ADR-082 y ADR-083 (ver §1.6).
 - **Cómo leerlo:** §1 son hechos verificables (con archivo:línea o medición
   reproducible); §2 es la definición de terminado; §3 son invariantes.
   Si el código contradice §2 o §3, **el código es la deuda**.
@@ -82,6 +82,11 @@ Reproducible con `python3 scripts/flight_control_metrics.py walker --json`.
   **no** es el gate, y ya está atacada por P1.11–P1.13 (1 nudge en la ventana).
 - 0 `flight_control_autodeclared` fuera del harness: el auto-declare desde el
   plan **no está probado en una sesión real**.
+- **Fuera de alcance, en el historial:** 27 intentos (20 denials de `scope` +
+  7 `flight_control_scope_expanded`). Los 27 apuntan a archivos del trabajo en
+  curso (`session.py`, `knowledge.py`, `_di.py`, tests, docs); **ninguno** a un
+  archivo ajeno o basura. Es decir: el bloqueo produjo 0 verdaderos positivos y
+  el costo de la vía explícita habría sido ~2 turnos por intento (~54 turnos).
 - Verificación: suite **1.515 passed**; harness **32/32 modos** en ~190 s;
   `tests/test_tool_profiles_bdd.py` mantiene el perfil `agent` bajo 50%.
 
@@ -97,10 +102,16 @@ Reproducible con `python3 scripts/flight_control_metrics.py walker --json`.
 
 | # | Documento dice | Código/harness hace |
 | :-- | :-- | :-- |
-| C1 | ADR-081 INV-2 / ADR-083 §2 e INV-07: "ampliar es explícito, el gate no modifica el plan". | El plugin negocia solo (`:1665`) y el modo `scope` del harness exige `edit fuera → PERMITE` con `plan ampliado: SI`. |
 | C2 | INV-11: "ningún comando demostrablemente read-only se bloquea". | `pwd`, `ls`, `git status`, `--help` van por `shell` y se bloquean antes de ligar/declarar (`:1520`, `:1538`). |
 | C3 | "El cierre no pasa sin evidencia". | `shellMutation` (`:377`) no detecta `python -c "open(...,'w')"`, `make`, `npm run build` ni `git checkout`: la escritura no deja deuda. |
 | C4 | M-02 del ADR: "p95 de la decisión < 5 ms con estado cacheado". | No hay contrato para el **cache frío**: no está definido qué devuelve el gate con estado vencido. |
+
+**C1 (resuelta en v2).** ADR-081/INV-07 decían "el gate no modifica el plan".
+La medición muestra lo contrario de lo que suponía esa regla: de 27 intentos
+fuera de alcance, los 27 eran archivos del trabajo en curso y ninguno era
+deriva. La decisión está en §2.4: se conserva la negociación, acotada a un
+archivo por vez, sólo dentro del proyecto de trabajo, trazada y sin reescribir
+el plan. La invariante se reescribe en FC-INV-08.
 
 ### 1.7 Lo que NO se sabe (no inventar)
 
@@ -166,14 +177,37 @@ pueda cumplir no se implementa: se documenta acá y se vuelve a decidir.
 - Antes de escribir el mapper se captura **un payload real** de `evaluate` y de
   `create.before` (ver §2.7 F0). No se diseña sobre nombres supuestos.
 
-### 2.4 Alcance: se conserva la negociación (resuelve C1)
+### 2.4 Alcance: la negociación SE CONSERVA, acotada (decide C1)
 
-- La negociación automática se **codifica como decisión**: una sola vez por
-  archivo, con `session_plan mode=add`, y traza `flight_control_scope_expanded`.
-- Sin `scope` declarado no hay bloqueo por alcance (el gate no inventa alcance).
-- Si walker no responde, el bloqueo lleva el comando exacto para ampliar.
-- Queda prohibido volver al bloqueo por archivo sin negociación: medido, era
-  ~20 turnos por sesión.
+**Decisión (v2):** cuando el agente escribe un archivo fuera del `scope`, el
+gate **negocia**, no bloquea: agrega ese archivo al plan con
+`session_plan mode=add` (una sola vez por archivo) y traza
+`flight_control_scope_expanded`. El bloqueo queda sólo para el caso en que
+walker no responda.
+
+Por qué, con la evidencia de §1.4: de 27 intentos fuera de alcance registrados,
+los 27 fueron archivos del trabajo en curso; el bloqueo no evitó ninguna
+escritura ajena y la vía explícita habría costado ~2 turnos por intento. Un gate
+que sólo produce falsos positivos no es un contrato: es fricción. Pero la
+negociación **no** puede ser un cheque en blanco; queda acotada así:
+
+1. **Un archivo por vez, idempotente.** Si el archivo ya se amplió, no se repite
+   (ni se traza dos veces).
+2. **Sólo dentro del proyecto de trabajo.** Si el path no está bajo el
+   `projectDir` de la sesión, **no se agrega**: se bloquea con el remedio de
+   declarar/abrir el proyecto correcto. El plan de un proyecto no absorbe
+   archivos de otro. (Hoy `relPath` devuelve el path crudo para archivos
+   externos y el gate los agregaría: es un bug a cerrar en F2.)
+3. **El gate agrega, no reescribe.** Se usa `mode=add`; el `scope` declarado
+   original se conserva intacto y auditable. El gate nunca hace `mode=set`.
+4. **Se cuenta y se ve.** El número de ampliaciones de la sesión queda en
+   `session_metrics` (`scope_expanded`) y en el reporte. No bloquea por cantidad,
+   pero una sesión que amplía mucho es señal de que el plan nació mal: se lee,
+   no se adivina.
+
+Sin `scope` declarado no hay bloqueo por alcance (el gate no inventa alcance).
+Si walker no responde, el bloqueo lleva el comando exacto para ampliar
+(`mode=add` con el archivo), que es una sola llamada.
 
 ### 2.5 Observabilidad completa
 
@@ -212,7 +246,8 @@ pasa al siguiente.
    `unknown`, `ask`.
    - Verde: `pwd/ls/git status/--help` → allow; `printf > x` → deny;
      `walker3 …/session_bind` → allow (incluso con pipe); 0 sesiones con >2
-     round trips de remedio; digest de política idéntico walker↔plugin.
+     round trips de remedio; 0 auto-expansiones de archivos fuera del
+     `projectDir`; digest de política idéntico walker↔plugin.
 4. **F3 · Limpiar.** Eliminar `MUTATING_TOOLS`, `isWalkerCli` y `shellMutation`.
    - Verde: 0 escrituras sin tarea en corpus adversarial; LOC antes/después;
      32/32 modos; suite verde.
@@ -257,10 +292,13 @@ con otra regla cumplida.
   ejecutable. Un gate sin remedio es un bug.
   *Detección:* contrato del ADT + tests de cada regla.
 - **FC-INV-08 · Alcance.** Sin `scope` declarado no hay bloqueo. Con `scope`,
-  fuera de alcance se negocia **una vez por archivo** y se traza; el gate no
-  inventa alcance.
-  *Detección:* modo `scope` (PERMITE + `plan ampliado: SI`) y
-  `flight_control_scope_expanded`.
+  un archivo fuera se negocia **una vez por archivo**, sólo si está dentro del
+  proyecto de trabajo, y se traza; el gate **agrega** (`mode=add`) y **nunca
+  reescribe** el plan. Un path fuera del proyecto de trabajo se bloquea con el
+  remedio del proyecto correcto, no se absorbe.
+  *Detección:* modo `scope` (PERMITE + `plan ampliado: SI`),
+  `flight_control_scope_expanded` con `file` dentro del proyecto, y un caso
+  negativo con path externo (BLOQUEA).
 - **FC-INV-09 · Fallo.** Disponibilidad fail-open con `plugin_degraded`; política
   fail-closed/ask; error interno fail-open con traza. Nunca `allow` silencioso.
   *Detección:* tests de timeout/CLI roto y de excepción del hook.
