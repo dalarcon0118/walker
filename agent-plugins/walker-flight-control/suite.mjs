@@ -118,6 +118,7 @@ const MODES = [
   "verifycounts",
   "handoff",
   "approval",
+  "evidenceadvance",
   "closecli",
   "closeclipipe",
   "closeclimark",

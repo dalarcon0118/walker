@@ -167,3 +167,39 @@ def test_degradaciones_de_task_por_tipo_y_por_tarea():
         "by_kind": {"unavailable": 1, "finding_error": 1, "warning": 1},
         "by_task": {"review_code": 2, "gather_context": 1},
     }
+
+
+# ── Drift: qué pidió el motor y qué hizo el agente (por semana) ─────────
+
+
+def test_drift_por_semana_con_lo_sugerido_y_lo_hecho():
+    events = [
+        {
+            **_ev("workflow_state_injected", followed=True, followedBy="edit"),
+            "timestamp": "2026-11-16T10:00:00",
+        },
+        {
+            **_ev("workflow_suggestion_ignored", suggested_next="submit", did="edit"),
+            "timestamp": "2026-11-16T11:00:00",
+        },
+        {
+            **_ev("workflow_suggestion_ignored", suggested_next="advance", did="none"),
+            "timestamp": "2026-11-17T09:00:00",
+        },
+        {
+            **_ev("workflow_state_injected", followed=True, followedBy="verify"),
+            "timestamp": "2026-11-24T10:00:00",
+        },
+        {"event_type": "workflow_evidence_advance", "session_id": "ses-1",
+         "data": {}, "timestamp": "2026-11-24T11:00:00"},
+    ]
+
+    drift = metrics.summarize(events)["drift"]
+
+    assert drift["by_week"]["2026-W47"] == {"followed": 1, "ignored": 2, "rate": 0.33}
+    assert drift["by_week"]["2026-W48"]["followed"] == 1
+    # La pregunta que antes no se podía responder: de 55 ignoradas, cuántas
+    # pedían submit y cuántas advance.
+    assert drift["suggested"] == {"submit": 1, "advance": 1}
+    assert drift["did"] == {"edit": 1, "none": 1}
+    assert drift["evidence_advances"] == 1

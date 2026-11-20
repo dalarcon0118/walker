@@ -178,7 +178,15 @@ def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any
 
     return {
         "tool": "advance",
-        "detail": "El paso está satisfecho: avanzá para ejecutar/continuar.",
+        # Sin campos que completar ni gates que cruzar, el paso no se "cierra"
+        # con una llamada: se cierra con el trabajo hecho y verificado. El
+        # plugin avanza solo cuando hay escritura + verificación verde
+        # (`driveEvidence`); pedirle `advance` al agente era la ceremonia que
+        # nadie camina (medido: 3 `advance` en 1016 llamadas).
+        "detail": (
+            "Paso de trabajo: hacé el cambio y verificá; el paso avanza con "
+            "esa evidencia (no hace falta submit ni advance)."
+        ),
     }
 
 

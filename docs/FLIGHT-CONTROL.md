@@ -387,6 +387,16 @@ con otra regla cumplida.
   `allow` por ausencia de dato puede ser anónimo.
   *Detección:* test de dos lecturas con la primera fallando; `gate.decision`
   con `degraded=true`.
+- **FC-INV-16 · Ceremonia.** En el camino de implementación el agente **no**
+  ejecuta `submit`/`advance` para pasos `llm_task`: el paso avanza con trabajo
+  (`wrote`) **y** verificación verde (`driveEvidence`), y el avance se traza
+  como `workflow_evidence_advance`. `submit`/`transition` quedan reservados a
+  los gates de decisión (`user_input`), que expresan criterio del usuario y no
+  se auto-cruzan nunca. Sin evidencia el paso **no** avanza: no se salta por
+  existir.
+  *Detección:* modo `evidenceadvance` (sin verificación no avanza; con
+  verificación avanza el `llm_task` y se detiene en el `user_input`) y el
+  evento `workflow_evidence_advance` en el trace.
 
 ---
 

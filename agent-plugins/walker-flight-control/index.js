@@ -945,6 +945,16 @@ async function runSetup(ctx) {
         gates: Array.isArray(data.available_gates) ? data.available_gates : [],
         taskId: String(data.task_id || ""),
         revision: data.revision ?? 0,
+        // Lo que el motor PIDE para este paso (`submit`/`advance`/`transition`).
+        // El plugin no lo usaba: no podía medir si el agente siguió la
+        // sugerencia ni con qué acción (drift sin instrumento).
+        next: data.next_action && typeof data.next_action === "object"
+          ? {
+              tool: String(data.next_action.tool || ""),
+              reason: String(data.next_action.reason || ""),
+              detail: String(data.next_action.detail || ""),
+            }
+          : null,
         // El nodo ya trae su propio prompt (template_id + template). El plugin
         // lo descartaba y armaba "complete el paso con submit", que no coincide
         // con lo que el nodo pide: el agente recibía una instrucción falsa y la
@@ -968,9 +978,66 @@ async function runSetup(ctx) {
       return cur
     }
 
+    // Poda de ceremonia (2): un paso `llm_task` del camino de implementación
+    // NO se desbloquea porque el agente se acuerde de llamar `advance`: se
+    // desbloquea porque hay TRABAJO y VERIFICACIÓN. El `submit`/`transition`
+    // queda para los gates de decisión (`user_input`), que expresan criterio
+    // del usuario y no se auto-cruzan nunca.
+    //
+    // Condición estricta: hubo escritura (`wrote`) y verificación verde en la
+    // sesión. Sin eso no se avanza: el paso no se salta por existir.
+    const EVIDENCE_NODES = /^(IMPLEMENT|VERIFY)\./
+    const driveEvidence = (current, sid, entry) => {
+      if (!entry || !current) return current
+      if (!entry.wrote || !entry.verified || entry.verifyFailed) return current
+      // La verificación tiene que ser POSTERIOR al momento en que se vio este
+      // paso. Si no, un verde de la tarea anterior avanzaría un paso en el que
+      // todavía no se trabajó (el estado `verified` es de la sesión).
+      const verifiedAt = entry.verifiedAt ? Date.parse(entry.verifiedAt) : 0
+      if (!verifiedAt || verifiedAt < (entry.evidenceSeenAt || 0)) return current
+      // Solo el paso que EFFECTIVAMENTE se vio (y por lo tanto se trabajó).
+      if (entry.evidencePosition !== current.position) return current
+      let cur = current
+      for (let i = 0; i < MAX_AUTO_STEPS; i++) {
+        if (!cur || cur.execType !== "llm_task" || cur.satisfied) break
+        if (!EVIDENCE_NODES.test(String(cur.position || ""))) break
+        const from = cur.position
+        const res = run("advance", {}, workProjectFor(sid || rt.sessionId), GATE_TIMEOUT_MS)
+        if (!res || res.ok === false) break
+        cur = readState(sid) || cur
+        if (cur.position === from) break
+        tracePush({
+          event_type: "workflow_evidence_advance",
+          source: "agent_hook",
+          session_id: sid || entry.sessionID,
+          data: { from, to: cur.position, reason: "trabajo verificado", verified: true },
+        })
+        // Un paso por refresh: la evidencia cubre el paso que se vio, no los
+        // siguientes (esos necesitan su propio trabajo y su propio verde).
+        break
+      }
+      return cur
+    }
+
     const refresh = (sid) => {
       if (Date.now() - state.fetchedAt < REFRESH_MS) return state.data
-      state.data = driveAuto(readState(sid), sid)
+      const entry = sessionOf(sid || rt.sessionId)
+      state.data = driveAuto(driveEvidence(readState(sid), sid, entry), sid)
+      if (state.data) {
+        // Marca de cuándo se vio este paso por primera vez: la evidencia que
+        // lo avanza tiene que ser posterior (ver `driveEvidence`).
+        if (entry.evidencePosition !== (state.data.position || "")) {
+          entry.evidencePosition = state.data.position || ""
+          entry.evidenceSeenAt = Date.now()
+        }
+        if (state.data.next) {
+          // Última sugerencia observada: la firma del drift (qué pidió el motor).
+          entry.lastSuggestion = {
+            tool: state.data.next.tool,
+            position: state.data.position || "",
+          }
+        }
+      }
       state.fetchedAt = Date.now()
       return state.data
     }
@@ -1529,6 +1596,11 @@ async function runSetup(ctx) {
             })
           }
           if (entry.injections > 0) {
+            // El drift se mide con la sugerencia REAL del motor y con la acción
+            // que el agente hizo. Antes el evento sólo traía `position` (y a
+            // menudo vacío): se contaba el desvío sin poder decir de qué.
+            const suggestion = entry.lastSuggestion || {}
+            const did = entry.followedBy || "none"
             tracePush({
               event_type: "workflow_state_injected",
               source: "agent_hook",
@@ -1536,6 +1608,9 @@ async function runSetup(ctx) {
               data: {
                 injections: entry.injections,
                 position: entry.position,
+                suggested_next: String(suggestion.tool || ""),
+                suggested_position: String(suggestion.position || ""),
+                did,
                 followed: entry.followed,
                 followedBy: entry.followedBy || "",
                 bind: entry.bind || "",
@@ -1556,7 +1631,9 @@ async function runSetup(ctx) {
                 session_id: entry.sessionID,
                 data: {
                   injections: entry.injections,
-                  position: entry.position,
+                  position: entry.position || String(suggestion.position || ""),
+                  suggested_next: String(suggestion.tool || ""),
+                  did,
                   followedBy: entry.followedBy || "",
                   wrote: Boolean(entry.wrote),
                   verified: Boolean(entry.verified),
@@ -2423,6 +2500,9 @@ async function runSetup(ctx) {
                 entry.verifiedBy = name
                 entry.verifiedAt = new Date().toISOString()
                 entry.dirtySince = ""
+                // La verificación habilita la poda de ceremonia: el próximo
+                // `refresh` puede avanzar el paso con evidencia.
+                state.fetchedAt = 0
                 if (!wasVerifiedTools) {
                   tracePush({
                     event_type: "session_state",

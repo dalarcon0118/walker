@@ -517,3 +517,17 @@ def test_paso_auto_no_declara_required_fields_ni_pide_submit():
         assert payload["required_fields"] == [], payload
         assert payload["next_action"]["tool"] == "advance", payload
         assert payload.get("step_satisfied", True) is True, payload
+
+
+def test_next_action_en_paso_de_trabajo_no_pide_ceremonia():
+    # Poda de ceremonia: un `llm_task` sin campos requeridos ni gates no se
+    # cierra con una llamada; el cambio + la verificación lo avanzan (el
+    # plugin lo hace solo). Antes decía "el paso está satisfecho: avanzá",
+    # que era falso y empujaba una llamada que nadie hacía (3 en 1016).
+    graph = _graph(_sub("A", execution=ExecutionType.LLM_TASK), _sub("B"))
+
+    action = next_action_for(_state("A"), graph)
+
+    assert action["tool"] == "advance"
+    assert "evidencia" in action["detail"]
+    assert "satisfecho" not in action["detail"]

@@ -66,6 +66,23 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
     degradations = {"events": 0, "by_kind": {}, "by_task": {}}
     write_evidence = {"events": 0, "files": set()}
     suggestions = {"followed": 0, "ignored": 0, "by": {}, "ignored_detail": []}
+    # Drift por semana (2): qué pidió el motor y qué hizo el agente. Sin esto
+    # sólo se puede decir "se ignoraron 55", no si el GPS mejora o empeora.
+    drift: dict[str, dict[str, int]] = {}
+    suggested: Counter[str] = Counter()
+    did: Counter[str] = Counter()
+
+    def _week(event: dict) -> str:
+        ts = str(event.get("timestamp") or "")
+        if not ts:
+            return "sin-fecha"
+        try:
+            from datetime import datetime
+
+            return "%d-W%02d" % datetime.fromisoformat(ts[:19]).isocalendar()[:2]
+        except (TypeError, ValueError):
+            return "sin-fecha"
+
 
     for event in selected:
         sid = _session(event)
@@ -88,8 +105,14 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
             # P1.14: con qué acción se siguió (edit/shell/verify/task/plan/cli).
             by = str(data.get("followedBy") or "?")
             suggestions["by"][by] = suggestions["by"].get(by, 0) + 1
+            week = _week(event)
+            drift.setdefault(week, {"followed": 0, "ignored": 0})["followed"] += 1
         elif kind == "workflow_suggestion_ignored":
             suggestions["ignored"] += 1
+            week = _week(event)
+            drift.setdefault(week, {"followed": 0, "ignored": 0})["ignored"] += 1
+            suggested[str(data.get("suggested_next") or "?")] += 1
+            did[str(data.get("did") or "none")] += 1
             # El detalle distingue "no hizo nada" de una inconsistencia: si el
             # evento trae wrote/verified, el agente SÍ actuó y la marca de
             # seguimiento falló (bug del instrumento, no del agente).
@@ -99,6 +122,8 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
                         "session": sid,
                         "position": str(data.get("position") or ""),
                         "injections": int(data.get("injections") or 0),
+                        "suggested_next": str(data.get("suggested_next") or ""),
+                        "did": str(data.get("did") or ""),
                         "wrote": data.get("wrote"),
                         "verified": data.get("verified"),
                         "reason": str(data.get("reason") or ""),
@@ -149,6 +174,24 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
             "files": len(write_evidence["files"]),
         },
         "suggestions": suggestions,
+        "drift": {
+            "by_week": {
+                week: {
+                    **counts,
+                    "rate": round(
+                        counts["followed"] / (counts["followed"] + counts["ignored"]), 2
+                    )
+                    if (counts["followed"] + counts["ignored"])
+                    else None,
+                }
+                for week, counts in sorted(drift.items())
+            },
+            "suggested": dict(suggested.most_common()),
+            "did": dict(did.most_common()),
+            "evidence_advances": sum(
+                1 for e in selected if e.get("event_type") == "workflow_evidence_advance"
+            ),
+        },
     }
 
 
@@ -174,6 +217,9 @@ def _load_events(project_id: str, since: str = "", until: str = "") -> list[dict
                 "event_type": getattr(event, "event_type", ""),
                 "session_id": str((event.metadata or {}).get("session_id") or ""),
                 "data": getattr(event, "data", {}) or {},
+                # La semana del drift sale del timestamp del evento; sin él
+                # todas las tasas se agregaban en un solo bucket.
+                "timestamp": ts,
             }
         )
     return out
@@ -214,6 +260,20 @@ def _print_table(summary: dict[str, Any]) -> None:
     print(
         f"sugerencias: seguidas={s['followed']} ({by}) ignoradas={s['ignored']}"
     )
+    dr = summary["drift"]
+    if dr["by_week"]:
+        print("drift por semana (seguidas/ignoradas):")
+        for week, counts in dr["by_week"].items():
+            rate = counts["rate"]
+            print(
+                f"  {week}  {counts['followed']}/{counts['followed'] + counts['ignored']}"
+                f"  {('%d%%' % round(rate * 100)) if rate is not None else '-'}"
+                f"  avanzado-por-evidencia={dr['evidence_advances']}"
+            )
+        sug = ",".join(f"{k}={v}" for k, v in dr["suggested"].items()) or "-"
+        acts = ",".join(f"{k}={v}" for k, v in dr["did"].items()) or "-"
+        print(f"  sugería: {sug}")
+        print(f"  hizo:    {acts}")
     inconsistent = [
         d for d in s["ignored_detail"] if d.get("wrote") or d.get("verified")
     ]

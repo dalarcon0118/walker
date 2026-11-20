@@ -141,6 +141,42 @@ if (mode === "handoff") {
     "esac",
   ])
 }
+if (mode === "evidenceadvance") {
+  // Poda de ceremonia: un paso `llm_task` del camino de implementación avanza
+  // con TRABAJO + VERIFICACIÓN, sin que el agente llame `advance`/`submit`.
+  // El gate `user_input` que sigue NO se cruza nunca solo.
+  const stateFile = `/tmp/fake-walker-evid-${process.pid}.state`
+  const logFile = `${stateFile}.log`
+  writeFileSync(stateFile, "IMPLEMENT.WORK")
+  writeFileSync(logFile, "")
+  fake("/tmp/fake-walker-evid", [
+    "#!/usr/bin/env node",
+    'const fs = require("node:fs")',
+    `const stateFile = ${JSON.stringify(stateFile)}`,
+    `const logFile = ${JSON.stringify(logFile)}`,
+    'const tool = String(process.argv[2] || "")',
+    'fs.appendFileSync(logFile, process.argv.slice(2).join(" ") + "\\n")',
+    'const pos = fs.readFileSync(stateFile, "utf8").trim()',
+    'const out = (o) => { console.log(JSON.stringify(o)); process.exit(0) }',
+    'if (tool.endsWith("/workflow_state")) {',
+    '  if (pos === "IMPLEMENT.WORK") out({ ok: true, current_position: "IMPLEMENT.WORK", execution_type: "llm_task", step_satisfied: false, next_action: { tool: "advance" }, revision: 1 })',
+    '  if (pos === "IMPLEMENT.GATE") out({ ok: true, current_position: "IMPLEMENT.GATE", execution_type: "user_input", step_satisfied: true, available_gates: ["approve"], next_action: { tool: "transition" }, revision: 2 })',
+    '  out({ ok: true, current_position: "VERIFY.MONITOR", execution_type: "auto", step_satisfied: true, revision: 3 })',
+    '}',
+    'if (tool.endsWith("/advance")) {',
+    '  if (pos === "IMPLEMENT.WORK") fs.writeFileSync(stateFile, "IMPLEMENT.GATE")',
+    '  else if (pos === "IMPLEMENT.GATE") fs.writeFileSync(stateFile, "VERIFY.MONITOR")',
+    '  out({ ok: true })',
+    '}',
+    'if (tool.endsWith("/session_bind")) out({ ok: true, data: { decision: "bound", bound: { spring_id: "SPR-EVID", status: "active", goal: "evidencia", tasks: [] } } })',
+    'if (tool.endsWith("/implement_task")) out({ ok: true, data: { task_id: "evid-task" } })',
+    'if (tool.endsWith("/project_for_path")) out({ ok: true, project_id: "evid_probe" })',
+    'if (tool.endsWith("/session_plan")) out({ ok: true, data: { plan: { goal: "probar avance por evidencia", task: "evid-task", next: "verificar", scope: [], acceptance: ["no cruza un gate"] } } })',
+    'if (tool.endsWith("/agent_context")) out({ ok: true })',
+    'if (tool.endsWith("/preflight")) out({ ok: true, files: [], tests: [] })',
+    'out({ ok: true })',
+  ])
+}
 if (mode === "normal") {
   // Fixture PROPIO: `normal` no puede depender del `workflow_state` de
   // el proyecto. Ese `task_id` es del PROYECTO y otra corrida lo dejaba en un
@@ -591,6 +627,55 @@ if (mode === "verifycounts") {
   if (!okCount) console.log(text.slice(0, 320))
   if (typeof dispose === "function") dispose()
   process.exit(okCount && okPlan ? 0 : 1)
+}
+
+if (mode === "evidenceadvance") {
+  const stateFile = `/tmp/fake-walker-evid-${process.pid}.state`
+  const logFile = `${stateFile}.log`
+  const ev = (text) => ({
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text }] }],
+  })
+  const position = () => readFileSync(stateFile, "utf8").trim()
+
+  await captured.context(ev("empezamos"))
+  // Declaración por la TOOL (no por shell): es el camino del agente en el
+  // perfil `agent` y el que setea `activeTask` + invalida el estado.
+  await call("implement_task", {
+    task_id: "evid-task",
+    objective: "x",
+    files: ["x.txt"],
+    acceptance: ["y"],
+  })
+  await captured.context(ev("sin verificar todavía"))
+  const sinEvidencia = position()
+
+  await call("edit", { path: "x.txt" })
+  await call("run_tests", {})
+  await captured.context(ev("ya verifiqué"))
+  const conEvidencia = position()
+
+  await captured.context(ev("sigo"))
+  const trasGate = position()
+
+  const log = readFileSync(logFile, "utf8")
+  const advances = (log.match(/\/advance /g) || []).length
+  const checks = [
+    ["sin verificación el paso no avanza", sinEvidencia === "IMPLEMENT.WORK"],
+    ["con trabajo verificado avanza solo", conEvidencia === "IMPLEMENT.GATE"],
+    ["no cruza el gate de decisión", trasGate === "IMPLEMENT.GATE"],
+    ["el avance por evidencia queda trazado", /workflow_evidence_advance/.test(log)],
+    ["un solo advance (el del plugin)", advances === 1],
+  ]
+  let failed = 0
+  for (const [name, ok] of checks) {
+    if (!ok) failed++
+    console.log(`${ok ? "ok  " : "FAIL"}  ${name}`)
+  }
+  console.log(`estado=${sinEvidencia} -> ${conEvidencia} -> ${trasGate} · advances=${advances}`)
+  if (typeof dispose === "function") dispose()
+  process.exit(failed ? 1 : 0)
 }
 
 if (mode === "handoff") {

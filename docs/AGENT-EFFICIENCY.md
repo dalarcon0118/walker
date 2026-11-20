@@ -763,6 +763,8 @@ que la comparación no depende de acordarse de cambiar el env.
 | P3b · 3 rondas → humano | **implementado** | `entry.closeRounds` (no se resetea por ejecución) + `escalateBlock`; modo `closerounds` del harness: 1-2 insisten, 3 escala, 4 calla. |
 | P3c · checks que no se auto-certifican | **implementado en `observe`** | `verify.py` extrae las reglas que EJECUTA cada predicado (`test_pass`/`command_exit`) y las compara con `git diff --name-only HEAD`: si están modificadas, el verde queda `weak` (y `strict=true` lo vuelve rojo). Un test NUEVO no cuenta como regla cambiada. `tests/test_verify_self_certified_bdd.py` (7). |
 | F5.4 · jerarquía y costo por subagente | **implementado** | El plugin pasa `parent_session_id` desde `Session.Info.parentID` y persiste `cost_usd`/`tokens` en la sesión al cerrar; `session_list` ya devuelve `children`, así que el costo por subagente es un join, no un escaneo de traza. |
+| P6 · drift instrumentado | **implementado** | `workflow_suggestion_ignored` lleva `suggested_next` (lo que pidió el motor) y `did` (lo que hizo el agente); `scripts/flight_control_metrics.py` imprime la tasa por semana ISO y los contadores por sugerencia/acción. Antes el evento traía `position` vacío: se contaba el desvío sin poder decir de qué. |
+| P7 · poda de ceremonia | **implementado** | `driveEvidence`: un `llm_task` de `IMPLEMENT.*`/`VERIFY.*` avanza solo con `wrote` + verificación verde; los `user_input` no se cruzan. Medido antes: 3 `advance` en 1016 llamadas — el agente no caminaba la ceremonia. |
 | P4 · poda del encabezado | **propuesto** | 37.426 chars medidos; requiere ADR + diff por línea. |
 
 `WALKER_FLIGHT_CONTROL_INJECTION` (`stable`|`once`|`messages`) y
@@ -770,7 +772,38 @@ que la comparación no depende de acordarse de cambiar el env.
 El A/B de P1 se lee en `token_turn.hit_rate`: mismo nodo con `once` pierde el
 prefijo después del primer request; con `stable` lo conserva.
 
-**Límite de medición (2026-11-20).** En `opencode-go` los turnos reportan
+### 8.8 El peaje del workflow, medido
+
+`scripts/node_path_cost.py` camina los nodos rellenando los campos que el propio
+`workflow_state` declara (sin modelo: mide ceremonia, no juicio) y lo compara con
+el camino que el agente usa de verdad.
+
+| Camino | Llamadas | Tiempo | Qué se obtiene |
+| :-- | --: | --: | :-- |
+| `tools`: `session_bind` + `implement_task` + `brief` | 3 | ~1,9–2,4 s | tarea, criterios, alcance, decisiones top-5 |
+| `nodos`: hasta `SPRINT.REVIEW` | 9 | ~4,7 s | todavía **nada de diseño** (no llegó a `DESIGN.*`) |
+| `nodos`: una vuelta completa (vuelve a `START.LIST`) | 11 | ~6,2 s | ciclo, sin avanzar |
+
+- Cada cruce de nodo son **dos** llamadas (`submit` + `transition`), ~500 ms cada
+  una: sostiene el "4 submits + 4 transitions" del documento de referencia, y es
+  la razón por la que el camino de diseño arranca después de ~8 llamadas.
+- Medido con campos sintéticos el walk **cicla** (`START.LIST ⇄ SPRINT.REVIEW`):
+  cruzar `SPRINT.REVIEW` exige contenido real (plan de sprint), es decir más
+  ceremonia antes de llegar al diseño. No se reporta como bug: se reporta como
+  el costo de tener el contenido detrás de la ceremonia.
+- Dos defectos de contrato encontrados al caminarlo (corregidos):
+  1. el enum de `decision` en `START.SELECT` era `select|create`, pero los gates
+     reales son `project_selected|create_project|refresh`: seguir el enum deja
+     el workflow trabado;
+  2. el template manda `intent` y el motor lee `decision`: ahora `_extract_fields`
+     los aliasa, así el payload **documentado** cruza el gate.
+- `existing_work` (F5/P2): `build_prompt_extra` proyecta el plan de la **sesión**
+  (no el del proyecto) al prompt, y el renderer lo pinta con
+  `{existing_work_line}` en `start/select`. Antes el primer nodo preguntaba
+  "elegí un proyecto" con la tarea ya declarada, y citaba la spec de otra tarea
+  (`workflow_state` devolvía `SPEC-014` en una sesión que trabajaba en otra).
+
+**Límite de medición del cache (2026-11-20).** En `opencode-go` los turnos reportan
 `cache_read=0` y `cost_usd=0`: el proveedor no publica `tokens.cache` ni costo.
 Sin ese dato, `hit_rate` no distingue "no hay cache" de "no se reporta", y el
 A/B de P1 queda **no concluyente en este proveedor**. La instrumentación ya está
