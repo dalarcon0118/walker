@@ -474,14 +474,34 @@ acá sigue abierto.
 | Plan → spec | **parcial** | `implement_task` ya no pisa `flight_plan.acceptance` (merge). La spec todavía no hereda: `_persist_spec` devuelve `None` sin error (§7.1-6). |
 | `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`, **`step`** (absorbe `workflow_state`), **`skills`/`skill`** (absorbe `search_skills`/`load_skill`) y **`plan`** (absorbe `plan_diff`); `missing[]`/`degraded` obligatorios (`tests/test_brief_bdd.py`) |
 | `plan_diff` (F3/M-04) | **implementado** | compara flight_plan ↔ spec: criterios en uno y no en el otro, scope ampliado y criterios sin predicado (`tests/test_plan_diff_bdd.py`) |
+| Inyección de `brief` (F4.1) | **implementado** | El plugin inyecta el flight card (≤600 chars) en el primer turno con tarea **de la sesión**, en el primer `read` y tras un fallo de comando de verificación. Reemplaza `agent_context`+`preflight` (2 CLI) por **una** llamada que sí se inyecta — antes el bloque se calculaba y se descartaba (`rt.pendingBaseline = null`). Trazas `brief_injected` con `trigger:intake|read|failure`. `brief_block.test.mjs` (5) + harness 25/25 |
+| Ancla por plan | **implementado** | si la spec no declara `task_context`, `brief(task_id)` toma tarea y alcance del plan de la sesión. Antes moría en `sin ancla`/`degraded` (medido: la inyección llegaba vacía) |
+| Impacto cacheado (F4.5) | **implementado** | `_IMPACT_CACHE` por firma `(ruta, mtime_ns, tamaño)` + TTL 120 s; `impact.cached` es visible. Medido por archivo: **1.985 ms frío → 380 ms tibio** |
+| `brief` reconcilia step ↔ plan | **implementado** | `consistency {ok, governs, reason, hint}`: con spec `completed` y workflow en `START.SELECT` declara que gobierna el plan y que no se avance. Antes el card afirmaba dos estados a la vez |
+| Telemetría correlacionada (F4.3) | **implementado** | `session_id` y `task_id` en cada registro; `summarize_tasks` publica tareas, con brief, brief-primero y brief-antes-de-escribir (`tests/test_agent_adoption_bdd.py`, `tests/test_tool_metrics_bdd.py`) |
 | `design_brief` (F3) | **implementado** | `DESIGN_ANALYZE` declara `x-artifact` y el contrato vive en código (`ARTIFACT_GATES`), así que no depende de `data/workflow`; valida forma (>=2 opciones, descarte con motivo, invariantes, verificación) y deniega con `missing[]`+`remedy` (`tests/test_design_brief_bdd.py`) |
 | Perfil `agent` | **8 tools / 1.470 chars** | loop: `brief`, `search_memories`, `submit`, `advance`, `transition`, `implement_task`, `run_tests`, `capture`. Medido en proceso nuevo: **8 tools, 1.470 chars de schema, 1.974 con nombre+descripción**; los schemas se compactan (sin descripciones por propiedad) y el resto vive en `full`/`admin`. Cumple §2.6 (≤8 / ≤2.500). |
-| Adopción medida | **N/D declarado, no estimado** | `scripts/agent_adoption.py` lee telemetría + trace + DB del harness. La DB de opencode escribe hasta **2026-09-04** (76,9 días): el `0,039` que se publicaba era de esa era. Ahora `read_harness` publica el conteo pero **`native_ratio: null`** con motivo si la última sesión supera 2 días (`tests/test_agent_adoption_bdd.py`). Telemetría de walker: 802 llamadas hoy, 992k tokens acumulados. |
+| Adopción medida | **N/D declarado, no estimado** | `scripts/agent_adoption.py` lee telemetría + trace + DB del harness. La DB de opencode escribe hasta **2026-09-04** (76,9 días): el `0,039` que se publicaba era de esa era. Ahora `read_harness` publica el conteo pero **`native_ratio: null`** con motivo si la última sesión supera 2 días (`tests/test_agent_adoption_bdd.py`). Con `session_id`/`task_id` en la telemetría, `summarize_tasks` mide tareas, brief-primero y brief-antes-de-escribir. |
 | Superficie en ejecución | **verificada tras reinicio** | Un `walker-mcp` arrancado antes del cambio sirve 23 tools sin `brief` (medido 2026-11-20: PID 35258, 13:01, antes del commit de las 15:39). **Reiniciado y verificado:** `list_tools()` = 8 exactos y `brief` responde con `missing: []`. Queda pendiente el chequeo automático (`walker doctor`) para que esto no dependa de acordarse de reiniciar. |
 | Sustrato (AE-INV-07) | **cerrado** | warm imports + caches por firma + **pool de 4 procesos** para lecturas (`fast_mcp/memories/read_pool.py`). `agent_context` caliente **169 ms**, 4 concurrentes **248 ms = 1,32×**; probe 100/100, **p50 110 / p95 219 ms**. Costo: la primera ráfaga paga el spawn de los workers (mitigado con warm en background) |
 
-Verificación: `python3 -m pytest -q` → **1.577 passed** (`scripts/golden_queries.py`
-da 18/20; `scripts/agent_metrics.py` sigue disponible).
+Verificación: `python3 -m pytest -q` → **1.584 passed** (`scripts/golden_queries.py`
+da 18/20; `scripts/agent_metrics.py` sigue disponible). Plugin:
+`node --test brief_block.test.mjs` (5) y `node suite.mjs --fast` (**25/25**).
+
+### 7.2bis Inyección medida (F4.1)
+
+El flight card inyectado en una sesión real: **561 chars** con `trigger:intake`;
+tras el fallback de ancla por plan y el cache de impacto, el mismo pedido deja de
+venir degradado (`missing: []`, 2+ decisiones, impacto y conflicto declarados).
+Costo: **~1,6 s** la primera vez (preflight frío) y **380 ms** cuando el impacto
+está cacheado; se paga una vez por sesión, no por turno.
+
+`brief_injected` deja `trigger`, `task_id`, `chars`, `ms`, `decisions` y `cached`
+en el trace: la inyección es medible, no una intención. El riesgo que se corrigió
+en el camino: usar `state.data.taskId` (del proyecto) inyectaba el card de otra
+tarea en sesiones nuevas — la tarea sale sólo de `planFor(sid)`.
+
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
 

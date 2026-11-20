@@ -21,6 +21,7 @@ import { appendFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 
 import { shellMutation as shellMutationImpl } from "./shell_mutation.mjs"
+import { briefBlock, failureBriefBlock } from "./brief_block.mjs"
 
 const WALKER_ROOT = process.env.WALKER_ROOT || "/Users/davidmartinez/develop/Active-projects/walker"
 // Configurable para poder probar el camino "walker no está" sin renombrar el
@@ -157,54 +158,6 @@ function firstUserText(event) {
 function taskIdFor(sessionID) {
   const clean = String(sessionID || "ses").replace(/[^a-zA-Z0-9]/g, "")
   return `auto-${clean.slice(-10) || Date.now()}`
-}
-
-function baselineBlock(r, file, rt) {
-  const cpg = r?.cpg || {}
-  const rel = cpg.relations || {}
-  const syms = (cpg.symbols || []).filter((s) => s.cyclo)
-  syms.sort((a, b) => (b.cyclo || 0) - (a.cyclo || 0))
-  const callers = (rel.called_by || []).slice(0, 5).map((x) => x.name).filter(Boolean)
-  const parts = [
-    `[WALKER] PUNTO A (baseline) — ${file}`,
-    `  impacto: ${rel.called_by_total ?? (rel.called_by || []).length} llamadores · ` +
-      `${rel.calls_total ?? (rel.calls || []).length} llamadas salientes · ` +
-      `${(cpg.imports || []).length} imports`,
-  ]
-  if (syms.length) {
-    parts.push(`  peso: ${syms.slice(0, 4).map((s) => `${s.name}(${s.cyclo})`).join(", ")}`)
-  }
-  if (callers.length) parts.push(`  quién lo usa: ${callers.join(", ")}`)
-  const ckg = (r?.ckg?.results || []).length
-  if (ckg) parts.push(`  CKG: ${ckg} decisión(es)/convención(es) del scope`)
-  parts.push(`  detalle: ${CLI} ${rt?.projectId || "<proyecto>"}/agent_context '{"file":"${file}"}'`)
-  return parts.join("\n")
-}
-
-function preflightBlock(pf) {
-  if (!pf || pf.error) return ""
-  const lines = ["[WALKER] PREFLIGHT — antes de escribir"]
-  const base = pf.baseline || {}
-  const cx = base.complexity || {}
-  if (base.structure) {
-    lines.push(
-      `  scope ${base.scope || "(proyecto)"}: ${base.structure.files || "?"} archivos · ` +
-        `${base.structure.functions || "?"} funciones · cyclo max ${cx.max ?? "?"}`
-    )
-  }
-  for (const f of (pf.files || []).slice(0, 5)) {
-    const heavy = (f.heaviest || []).map((h) => `${h.name}(${h.cyclo})`).join(", ")
-    lines.push(
-      `  ${f.file}: ${f.symbols ?? "?"} símbolos · ${f.callers ?? "?"} llamadores · ` +
-        `${f.calls ?? "?"} llamadas${heavy ? ` · pesado: ${heavy}` : ""}`
-    )
-    if ((f.top_callers || []).length) lines.push(`    lo usan: ${f.top_callers.join(", ")}`)
-  }
-  if ((pf.tests || []).length) lines.push(`  tests que lo cubren: ${pf.tests.slice(0, 4).join(", ")}`)
-  if ((pf.unmapped || []).length) {
-    lines.push(`  sin verificar: ${pf.unmapped.map((u) => u.criterion || u.reason).join("; ")}`)
-  }
-  return lines.join("\n")
 }
 
 function bootstrapBlock(rt) {
@@ -960,31 +913,49 @@ async function runSetup(ctx) {
           )
         }
         if (!rt.sessionGoal) rt.sessionGoal = firstUserText(event)
-        // Preflight en el PRIMER turno si ya hay tarea declarada: no depende de
-        // que el agente use `read` (puede leer con `execute`, y entonces el
-        // hook de lectura nunca dispara — medido).
-        if (!rt.baselineDone && rt.projectId && state.data?.taskId) {
-          rt.baselineDone = true
-          const taskCtx = run("agent_context", { task_id: state.data.taskId }, workProjectFor(sid), HOOK_TIMEOUT_MS)
-          const files = (taskCtx?.anchor?.files || []).filter(Boolean)
-          if (files.length) {
-            const pf = run("preflight", { files }, workProjectFor(sid), HOOK_TIMEOUT_MS)
-            const text = preflightBlock(pf)
+        // Primer turno con tarea declarada: UNA llamada a `brief` (absorbe
+        // agent_context + preflight) y se INYECTA. Antes se calculaba y se
+        // tiraba (`rt.pendingBaseline = null`): dos CLI de ~600 ms por nada.
+        // La inyección ocurre sólo si hay tarea: en sesiones ad-hoc el agente
+        // caminaba el workflow por su cuenta (medido: 4 → 15 pasos).
+        if (!rt.baselineDone && rt.projectId) {
+          const planned = planFor(sid) || {}
+          // Sólo la tarea DE ESTA SESIÓN. `state.data.taskId` es del proyecto y
+          // hacía que una sesión nueva inyectara el flight card de otra tarea
+          // (medido en el harness: se inyectó `f1-f2-…` en sesiones fixture).
+          const declared = planned.task || ""
+          if (declared && !entry.briefInjected) {
+            rt.baselineDone = true
+            entry.briefInjected = true
+            const started = Date.now()
+            const card = run(
+              "brief",
+              { session_id: sid, task_id: String(declared) },
+              workProjectFor(sid),
+              HOOK_TIMEOUT_MS
+            )
+            const text = briefBlock(card)
             if (text) {
-              rt.pendingBaseline = text
+              rt.pendingBrief = text
               tracePush({
-                event_type: "intake_preflight",
+                event_type: "brief_injected",
                 source: "agent_hook",
                 session_id: sid,
-                files,
-                data: { task_id: state.data.taskId, files },
+                data: {
+                  trigger: "intake",
+                  task_id: String(declared),
+                  chars: text.length,
+                  ms: Date.now() - started,
+                  decisions: (card?.decisions || []).length,
+                  cached: Boolean(card?.impact?.cached),
+                  degraded: Boolean(card?.degraded),
+                },
               })
             }
           }
         }
-        // El baseline viejo (multilínea) ya no se inyecta: el bloque del plan
-        // trae la versión compacta (contrato de atención <= 400 chars). Se
-        // consume para no acumularlo; la traza `intake_preflight` queda.
+        // El baseline viejo (multilínea) ya no se inyecta: el flight card lo
+        // reemplaza. Se consume para no acumularlo; la traza queda.
         rt.pendingBaseline = null
         // Hidratación del estado de vuelo desde el TRACE (SSOT): una recarga del
         // plugin no pierde `verified`/`wrote` (ver `hydrateFlight`).
@@ -1008,13 +979,55 @@ async function runSetup(ctx) {
         // el plan ya se haya mostrado: es el paso que está bloqueado. Va como
         // bloque APARTE para no romper el contrato de atención del plan (400).
         const gate = gateBlock(sid, entry, st)
-        if (!block && !gate) return
+        // Fallo de comando: el contexto llega sin que el modelo tenga que pedirlo.
+        // Una vez por firma y como máximo 2 por sesión: un loop de fallos no
+        // debe convertirse en un loop de inyecciones.
+        let failureText = ""
+        if (entry.lastFailure && !entry.lastFailure.injected && (entry.failureBriefs || 0) < 2) {
+          const failure = entry.lastFailure
+          const started = Date.now()
+          const declaration = entry.planTask || ""
+          const card = run(
+            "brief",
+            {
+              session_id: sid,
+              text: String(failure.text || failure.command || "").slice(-600),
+              ...(declaration ? { task_id: String(declaration) } : {}),
+            },
+            workProjectFor(sid),
+            HOOK_TIMEOUT_MS
+          )
+          failureText = failureBriefBlock(card, failure)
+          failure.injected = true // aunque el CLI falle: no reintentar en loop
+          if (failureText) {
+            entry.failureBriefs = (entry.failureBriefs || 0) + 1
+            tracePush({
+              event_type: "brief_injected",
+              source: "agent_hook",
+              session_id: sid,
+              data: {
+                trigger: "failure",
+                command: String(failure.command || "").slice(0, 160),
+                exit: failure.exitCode ?? null,
+                chars: failureText.length,
+                ms: Date.now() - started,
+                decisions: (card?.decisions || []).length,
+              },
+            })
+          }
+        }
+        if (!block && !gate && !rt.pendingBrief && !failureText) return
         if (!Array.isArray(event?.system)) {
           degrade(rt, "event.system no es array", typeof event?.system)
           return
         }
         if (block) event.system.push({ type: "text", text: block })
         if (gate) event.system.push({ type: "text", text: gate })
+        if (rt.pendingBrief) {
+          event.system.push({ type: "text", text: rt.pendingBrief })
+          rt.pendingBrief = null
+        }
+        if (failureText) event.system.push({ type: "text", text: failureText })
         entry.injections += 1
         entry.position = state.data?.position || ""
       })
@@ -1222,6 +1235,34 @@ async function runSetup(ctx) {
               /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s/.test(cmd)
             const result = await original(input, callCtx)
             const key = String(callCtx?.sessionID || rt.sessionId || "global")
+
+            // Fallo de verificación/build: se guarda para que el hook de
+            // contexto inyecte el flight card del área en el próximo request
+            // del MISMO turno. Antes el error quedaba sólo en la salida y el
+            // modelo improvisaba el diagnóstico.
+            const rawOutput =
+              typeof result === "string"
+                ? result
+                : String(result?.output ?? result?.stdout ?? result?.data?.output ?? "")
+            const rawExit = Number(
+              result?.exitCode ?? result?.exit_code ?? result?.metadata?.exitCode ?? NaN
+            )
+            const isCheck = /\b(pytest|run_tests|verify_predicates|npm\s+(?:run\s+)?test|make\s+test|ruff|mypy|tsc|node\s+--test)\b/.test(cmd)
+            if (isCheck) {
+              const failedEntry = sessionOf(key)
+              if (rawExit > 0) {
+                const tail = rawOutput.slice(-800)
+                failedEntry.lastFailure = {
+                  command: cmd.slice(0, 160),
+                  exitCode: rawExit,
+                  text: tail,
+                  signature: `${cmd.slice(0, 120)}|${rawExit}|${tail.slice(0, 120)}`,
+                  injected: false,
+                }
+              } else if (rawExit === 0) {
+                failedEntry.lastFailure = null
+              }
+            }
 
             if (isCli) {
               // El plan cambió por CLI: el cache de `planFor` (10s) deja de
@@ -1897,32 +1938,33 @@ async function runSetup(ctx) {
               if (!rt.baselineDone && file && rt.projectId) {
                 rt.baselineDone = true
                 const sid = String(callCtx?.sessionID || "")
-                // Preferir los archivos QUE DECLARÓ LA TAREA (contexto de todos,
-                // no del primero que se abre). Si no hay tarea, cae al archivo.
-                let block = ""
-                let source = "file"
-                const tid = state.data?.taskId || ""
-                if (tid) {
-                  const taskCtx = run("agent_context", { task_id: tid }, workProjectFor(sid), HOOK_TIMEOUT_MS)
-                  const files = (taskCtx?.anchor?.files || []).filter(Boolean)
-                  if (files.length) {
-                    const pf = run("preflight", { files }, workProjectFor(sid), HOOK_TIMEOUT_MS)
-                    block = preflightBlock(pf)
-                    if (block) source = "task"
-                  }
-                }
-                if (!block) {
-                  const ctxData = run("agent_context", { file }, workProjectFor(sid), HOOK_TIMEOUT_MS)
-                  if (ctxData) block = baselineBlock(ctxData, file, rt)
-                }
-                if (block) {
-                  rt.pendingBaseline = block
+                // Una sola llamada: `brief` con el archivo como ancla. Antes
+                // eran agent_context + preflight (~1,2 s) y el bloque se
+                // descartaba antes de inyectarse. Si no hay nada que aportar
+                // (sin decisiones ni gates), no se inyecta ruido.
+                const started = Date.now()
+                const card = run(
+                  "brief",
+                  { session_id: sid, file },
+                  workProjectFor(sid),
+                  HOOK_TIMEOUT_MS
+                )
+                const text = briefBlock(card)
+                if (text) {
+                  rt.pendingBrief = text
                   tracePush({
-                    event_type: "intake_baseline",
+                    event_type: "brief_injected",
                     source: "agent_hook",
                     session_id: sid,
                     files: file ? [file] : [],
-                    data: { file, task_id: tid, from: source },
+                    data: {
+                      trigger: "read",
+                      file,
+                      chars: text.length,
+                      ms: Date.now() - started,
+                      decisions: (card?.decisions || []).length,
+                      cached: Boolean(card?.impact?.cached),
+                    },
                   })
                 }
               }

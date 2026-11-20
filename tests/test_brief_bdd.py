@@ -8,6 +8,7 @@ declara (escenario 1 de §4).
 
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 
 from returns.result import Success
@@ -136,3 +137,99 @@ def test_brief_sin_archivos_ni_texto_declara_lo_que_falta():
     assert any("decisions" in m for m in out["missing"])
     assert any("impact" in m for m in out["missing"])
     assert any("gates" in m for m in out["missing"])
+
+
+def test_brief_resuelve_el_ancla_desde_el_plan_si_la_spec_no_tiene_task_context(monkeypatch):
+    """El plan sabe la tarea/alcance aunque la spec no declare `task_context`."""
+    knowledge._IMPACT_CACHE.clear()
+    monkeypatch.setattr(knowledge, "_resolve_anchor",
+                        lambda *_: ({"type": "none", "value": "", "resolved": False,
+                                     "reason": "task_id no está en el delta"}, [], None))
+    monkeypatch.setattr(knowledge, "handle_preflight",
+                        lambda _ctx, **_: _preflight(["a.py"]))
+    monkeypatch.setattr(CkgReadService, "gather_context",
+                        staticmethod(lambda *_a, **_k: Success(_nodes())))
+
+    plan = {"task": "T-1", "acceptance": ["a"], "scope": ["a.py"], "next": "verificar"}
+    spec = {"spec_id": "SPEC-001", "task_context": {}, "acceptance_criteria": ["a"],
+            "files": ["a.py"], "status": "in_progress", "predicates": {}}
+    monkeypatch.setattr(composition, "build_sprint_service", lambda _d: SimpleNamespace(
+        get_session=lambda _sid: {"spring_id": "SPR-1", "flight_plan": plan},
+        get_session_plan=lambda _sid: plan,
+        get_specs=lambda _spr: [spec],
+    ))
+
+    out = handle_brief(_Ctx(), _payload={"session_id": "ses_x", "task_id": "T-1"})
+
+    assert out["anchor"]["type"] == "plan"
+    assert out["impact"]["callers"] == 20
+    assert not any("sin ancla" in m for m in out["missing"])
+    assert not any("impact" in m for m in out["missing"])
+
+
+def test_impact_se_cachea_por_firma_de_archivo(monkeypatch):
+    """Preflight cuesta ~365 ms; el flight card se pide varias veces por tarea."""
+    knowledge._IMPACT_CACHE.clear()
+    calls: list[int] = []
+    monkeypatch.setattr(knowledge, "_resolve_anchor",
+                        lambda *_: ({"type": "file", "value": "a.py", "resolved": True},
+                                    ["a.py"], None))
+
+    def counting_preflight(_ctx, **_kwargs):
+        calls.append(1)
+        return _preflight(["a.py"])
+
+    monkeypatch.setattr(knowledge, "handle_preflight", counting_preflight)
+    monkeypatch.setattr(CkgReadService, "gather_context",
+                        staticmethod(lambda *_a, **_k: Success(_nodes())))
+    monkeypatch.setattr(composition, "build_sprint_service", lambda _d: _service())
+
+    first = handle_brief(_Ctx(), _payload={"file": "a.py", "session_id": "ses_x"})
+    second = handle_brief(_Ctx(), _payload={"file": "a.py", "session_id": "ses_x"})
+
+    assert first["impact"]["cached"] is False
+    assert second["impact"]["cached"] is True
+    assert len(calls) == 1, "la segunda llamada no vuelve a pagar preflight"
+
+
+def test_la_cache_de_impacto_se_invalida_si_el_archivo_cambia(tmp_path):
+    class _TmpCtx:
+        chain_dir = str(tmp_path)
+        project_root = str(tmp_path)
+
+    target = tmp_path / "a.py"
+    target.write_text("x", encoding="utf-8")
+    before = knowledge._impact_key(_TmpCtx(), ["a.py"])
+    os.utime(target, ns=(1, 2_000_000_000))
+    after = knowledge._impact_key(_TmpCtx(), ["a.py"])
+
+    assert before != after
+
+
+def test_brief_declara_el_conflicto_entre_step_y_plan(monkeypatch):
+    """No puede decir `START.SELECT` y `spec completed` sin marcar cuál manda."""
+    knowledge._IMPACT_CACHE.clear()
+    monkeypatch.setattr(knowledge, "_resolve_anchor",
+                        lambda *_: ({"type": "file", "value": "a.py", "resolved": True},
+                                    ["a.py"], None))
+    monkeypatch.setattr(knowledge, "handle_preflight",
+                        lambda _ctx, **_: _preflight(["a.py"]))
+    monkeypatch.setattr(CkgReadService, "gather_context",
+                        staticmethod(lambda *_a, **_k: Success(_nodes())))
+    plan = {"task": "T-1", "acceptance": ["a"], "scope": ["a.py"], "next": "verificar"}
+    spec = {"spec_id": "SPEC-001", "task_context": {"task_id": "T-1"},
+            "acceptance_criteria": ["a"], "files": ["a.py"],
+            "status": "completed", "predicates": {}}
+    monkeypatch.setattr(composition, "build_sprint_service", lambda _d: SimpleNamespace(
+        get_session=lambda _sid: {"spring_id": "SPR-1", "flight_plan": plan},
+        get_session_plan=lambda _sid: plan,
+        get_specs=lambda _spr: [spec],
+    ))
+    monkeypatch.setattr(composition, "workflow_tool_runner",
+                        lambda _name: (lambda **_kw: {"current_position": "START.SELECT"}))
+
+    out = handle_brief(_Ctx(), _payload={"file": "a.py", "session_id": "ses_x"})
+
+    assert out["consistency"]["ok"] is False
+    assert out["consistency"]["governs"] == "plan"
+    assert "SPEC-001" in out["consistency"]["reason"]

@@ -86,3 +86,6 @@ uv.lock
 
 # Telemetría de tools (F0 AGENT-EFFICIENCY): append-only de runtime
 data/metrics/
+
+# runtime del harness del plugin (no versionar)
+agent-plugins/walker-flight-control/data/

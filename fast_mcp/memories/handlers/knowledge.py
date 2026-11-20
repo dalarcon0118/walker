@@ -5,6 +5,8 @@ and returns a dict. Consistent error handling via the dispatch() wrapper.
 """
 from __future__ import annotations
 
+import os
+import time
 from typing import Any
 
 from fast_mcp.memories.context import MemoryContext
@@ -954,6 +956,46 @@ def handle_preflight(ctx: MemoryContext, **kwargs: Any) -> dict:
     return out
 
 
+#: Cache de `impact` para `brief`. Preflight cuesta ~365 ms por llamada y el
+#: flight card se pide varias veces por tarea (primer turno, antes de submit,
+#: tras un fallo). La clave incluye mtime+tamaño de cada archivo, así que
+#: editar invalida; el TTL acota el resto (callers cambian cuando se indexa
+#: otro archivo). El resultado expone `cached: true` — no es magia invisible.
+_IMPACT_CACHE: dict[tuple, tuple[float, dict[str, Any]]] = {}
+_IMPACT_TTL_S = 120.0
+_IMPACT_CACHE_MAX = 64
+
+
+def _impact_key(ctx: MemoryContext, targets: list[str]) -> tuple:
+    """Firma de los archivos: cambia si el contenido pudo cambiar."""
+    signature: list[tuple[str, int, int]] = []
+    for name in targets:
+        try:
+            st = os.stat(os.path.join(str(ctx.project_root), name))
+            signature.append((name, st.st_mtime_ns, st.st_size))
+        except OSError:
+            signature.append((name, 0, 0))
+    return (str(ctx.chain_dir), tuple(signature))
+
+
+def _impact_cached(key: tuple) -> dict[str, Any] | None:
+    hit = _IMPACT_CACHE.get(key)
+    if not hit:
+        return None
+    stored_at, payload = hit
+    if time.monotonic() - stored_at > _IMPACT_TTL_S:
+        _IMPACT_CACHE.pop(key, None)
+        return None
+    return dict(payload)
+
+
+def _impact_store(key: tuple, payload: dict[str, Any]) -> None:
+    if len(_IMPACT_CACHE) >= _IMPACT_CACHE_MAX:
+        oldest = min(_IMPACT_CACHE, key=lambda k: _IMPACT_CACHE[k][0])
+        _IMPACT_CACHE.pop(oldest, None)
+    _IMPACT_CACHE[key] = (time.monotonic(), dict(payload))
+
+
 def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Contexto de fase en UNA llamada: decisiones + impacto + gates.
 
@@ -971,6 +1013,29 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
     missing: list[str] = []
     degraded = False
     anchor, anchor_files, task_spec = _resolve_anchor(ctx, task_id, file, text)
+    if not anchor.get("resolved") and session_id:
+        # El plan de la sesión sabe la tarea y el alcance aunque la spec no
+        # tenga `task_context.task_id` (el hueco plan→spec). Sin este fallback,
+        # `brief(task_id)` moría en "sin ancla" y la inyección del plugin
+        # llegaba degradada (medido 2026-11-20).
+        try:
+            from fast_mcp.composition import build_sprint_service
+
+            service = build_sprint_service(ctx.chain_dir)
+            plan = (service.get_session_plan(session_id) or {}) if service else {}
+        except Exception:  # noqa: BLE001 — el ancla sigue siendo declarable
+            plan = {}
+        scope = [f for f in (plan.get("scope") or []) if isinstance(f, str)]
+        declared = str(plan.get("task") or task_id or "")
+        if scope:
+            anchor = {
+                "type": "plan",
+                "value": declared,
+                "resolved": True,
+                "files": scope[:10],
+                "reason": "la spec no declara task_context; el ancla viene del plan de la sesión",
+            }
+            anchor_files = scope
     if not file and anchor_files:
         file = anchor_files[0]
     targets = files[:5] or ([file] if file else [])
@@ -1021,41 +1086,49 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
             degraded = True
 
     # 2. Impacto: reusa preflight (llamadores, tests, complejidad por archivo).
+    #    Cacheado por firma de archivo: es la sección más cara y la más estable.
     impact: dict[str, Any] = {"callers": 0, "tests": [], "risk": "", "files": []}
     if not targets:
         missing.append("impact: sin archivos declarados")
     else:
-        try:
-            preflight = handle_preflight(ctx, _payload={"files": targets})
-            if preflight.get("error"):
-                missing.append(f"impact: {preflight['error']}")
+        cache_key = _impact_key(ctx, targets)
+        cached = _impact_cached(cache_key)
+        if cached is not None:
+            impact = {**cached, "cached": True}
+        else:
+            try:
+                preflight = handle_preflight(ctx, _payload={"files": targets})
+                if preflight.get("error"):
+                    missing.append(f"impact: {preflight['error']}")
+                    degraded = True
+                else:
+                    rows = preflight.get("files") or []
+                    impact["callers"] = sum(int(r.get("callers") or 0) for r in rows)
+                    impact["tests"] = [str(t) for t in (preflight.get("tests") or [])[:5]]
+                    ranked = sorted(
+                        rows,
+                        key=lambda r: int(r.get("callers") or 0)
+                        * max(int(((r.get("heaviest") or [{}])[0] or {}).get("cyclo") or 1), 1),
+                        reverse=True,
+                    )
+                    impact["files"] = [
+                        {
+                            "file": r.get("file"),
+                            "callers": r.get("callers"),
+                            "heaviest": (r.get("heaviest") or [])[:1],
+                        }
+                        for r in ranked[:3]
+                    ]
+                    impact["risk"] = (
+                        "alto" if impact["callers"] > 50
+                        else "medio" if impact["callers"] > 10
+                        else "bajo"
+                    )
+                    impact["cached"] = False
+                    _impact_store(cache_key, impact)
+            except Exception as exc:  # noqa: BLE001
+                missing.append(f"impact: {type(exc).__name__}: {exc}")
                 degraded = True
-            else:
-                rows = preflight.get("files") or []
-                impact["callers"] = sum(int(r.get("callers") or 0) for r in rows)
-                impact["tests"] = [str(t) for t in (preflight.get("tests") or [])[:5]]
-                ranked = sorted(
-                    rows,
-                    key=lambda r: int(r.get("callers") or 0)
-                    * max(int(((r.get("heaviest") or [{}])[0] or {}).get("cyclo") or 1), 1),
-                    reverse=True,
-                )
-                impact["files"] = [
-                    {
-                        "file": r.get("file"),
-                        "callers": r.get("callers"),
-                        "heaviest": (r.get("heaviest") or [])[:1],
-                    }
-                    for r in ranked[:3]
-                ]
-                impact["risk"] = (
-                    "alto" if impact["callers"] > 50
-                    else "medio" if impact["callers"] > 10
-                    else "bajo"
-                )
-        except Exception as exc:  # noqa: BLE001
-            missing.append(f"impact: {type(exc).__name__}: {exc}")
-            degraded = True
 
     # 3. Gates: sprint/tarea/scope del plan de vuelo de la sesión.
     gates: dict[str, Any] = {"sprint": "", "task": "", "scope": [], "next": ""}
@@ -1139,6 +1212,24 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
             }
             missing.extend(diff.get("missing") or [])
 
+    # 7. Consistencia: el flight card no puede afirmar dos estados a la vez.
+    consistency: dict[str, Any] = {"ok": True, "governs": "workflow"}
+    position = str(step.get("position") or "")
+    spec_status = str(plan.get("spec_status") or "")
+    if position.startswith("START") and spec_status in ("completed", "approved"):
+        consistency = {
+            "ok": False,
+            "governs": "plan",
+            "reason": (
+                f"la spec {plan.get('spec_id') or '(sin id)'} está {spec_status} "
+                f"y el workflow sigue en {position}"
+            ),
+            "hint": (
+                "no recorras START.SELECT para esta tarea: abrí una sesión nueva "
+                "o reabrí la spec antes de avanzar"
+            ),
+        }
+
     return {
         "type": "brief",
         "anchor": anchor,
@@ -1149,6 +1240,7 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
         "skills": skills,
         "skill": loaded_skill,
         "plan": plan,
+        "consistency": consistency,
         "missing": missing,
         "degraded": degraded or bool(missing),
     }

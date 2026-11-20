@@ -61,6 +61,11 @@ class CallRecord:
     outcome: str
     project_id: str = ""
     error: str = ""
+    #: Correlación para adopción por tarea: sin esto el JSONL sólo sirve para
+    #: agregados por tool y no se puede decir "esta tarea consultó el brief
+    #: antes de escribir". Ambos son opcionales: no toda tool los declara.
+    session_id: str = ""
+    task_id: str = ""
     ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
@@ -130,12 +135,24 @@ def _project_id_from(arguments: dict[str, Any] | None) -> str:
     return ""
 
 
+def _str_arg(arguments: dict[str, Any] | None, *keys: str) -> str:
+    if not arguments:
+        return ""
+    for key in keys:
+        value = arguments.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
 def record_call(
     tool: str,
     latency_ms: int,
     result: Any = None,
     error: BaseException | None = None,
     project_id: str = "",
+    session_id: str = "",
+    task_id: str = "",
 ) -> CallRecord | None:
     """Persiste una llamada. No lanza nunca (ver docstring del módulo)."""
     text = _as_text(result)
@@ -147,6 +164,8 @@ def record_call(
         outcome=classify_outcome(result, error),
         project_id=project_id,
         error=(str(error)[:200] if error is not None else ""),
+        session_id=session_id,
+        task_id=task_id,
     )
     path = metrics_path()
     try:
@@ -159,9 +178,23 @@ def record_call(
     return record
 
 
-def record_exception(tool: str, latency_ms: int, error: BaseException, project_id: str = "") -> None:
+def record_exception(
+    tool: str,
+    latency_ms: int,
+    error: BaseException,
+    project_id: str = "",
+    session_id: str = "",
+    task_id: str = "",
+) -> None:
     """Atajo para el camino de error (misma ruta, outcome derivado)."""
-    record_call(tool=tool, latency_ms=latency_ms, error=error, project_id=project_id)
+    record_call(
+        tool=tool,
+        latency_ms=latency_ms,
+        error=error,
+        project_id=project_id,
+        session_id=session_id,
+        task_id=task_id,
+    )
 
 
 def install_tool_metrics(server: Any) -> bool:
@@ -184,6 +217,8 @@ def install_tool_metrics(server: Any) -> bool:
 
     async def call_tool(name, arguments=None, context=None, convert_result=False):  # type: ignore[no-untyped-def]
         started = time.perf_counter()
+        session_id = _str_arg(arguments, "session_id", "_session_id")
+        task_id = _str_arg(arguments, "task_id", "_task_id")
         try:
             result = await original(
                 name,
@@ -197,6 +232,8 @@ def install_tool_metrics(server: Any) -> bool:
                 latency_ms=int((time.perf_counter() - started) * 1000),
                 error=error,
                 project_id=_project_id_from(arguments),
+                session_id=session_id,
+                task_id=task_id,
             )
             raise
         record_call(
@@ -204,6 +241,8 @@ def install_tool_metrics(server: Any) -> bool:
             latency_ms=int((time.perf_counter() - started) * 1000),
             result=result,
             project_id=_project_id_from(arguments),
+            session_id=session_id,
+            task_id=task_id,
         )
         return result
 

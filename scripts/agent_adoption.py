@@ -122,10 +122,57 @@ def read_harness(
     }
 
 
+def summarize_tasks(records: list[dict]) -> dict:
+    """Adopción por (sesión, tarea) desde la telemetría correlacionada.
+
+    Antes el JSONL no guardaba `session_id`: sólo se podía agregar por tool. Con
+    la correlación, "¿el agente consultó el brief antes de escribir?" deja de ser
+    una opinión. Se agrupa por `(session_id, task_id)` y se mira el primer tool
+    de la tarea.
+    """
+    write_tools = {"submit", "implement_task", "capture"}
+    groups: dict[tuple[str, str], dict] = {}
+    for record in sorted(records, key=lambda r: str(r.get("ts") or "")):
+        sid = str(record.get("session_id") or "")
+        if not sid:
+            continue
+        tid = str(record.get("task_id") or "")
+        row = groups.setdefault(
+            (sid, tid),
+            {"session_id": sid, "task_id": tid, "calls": 0, "briefs": 0,
+             "tokens": 0, "first_tool": "", "brief_first": False,
+             "brief_before_write": False, "wrote": False},
+        )
+        tool = str(record.get("tool") or "")
+        if row["calls"] == 0:
+            row["first_tool"] = tool
+            row["brief_first"] = tool == "brief"
+        row["calls"] += 1
+        row["tokens"] += int(record.get("out_tokens") or 0)
+        if tool == "brief":
+            row["briefs"] += 1
+        if tool in write_tools:
+            row["wrote"] = True
+            if row["briefs"] > 0:
+                row["brief_before_write"] = True
+
+    tasks = sorted(groups.values(), key=lambda r: r["calls"], reverse=True)
+    total = len(tasks)
+    return {
+        "tasks_total": total,
+        "tasks_with_brief": sum(1 for t in tasks if t["briefs"]),
+        "tasks_brief_first": sum(1 for t in tasks if t["brief_first"]),
+        "tasks_brief_before_write": sum(1 for t in tasks if t["brief_before_write"]),
+        "tasks": tasks[:20],
+        "calls_total": sum(t["calls"] for t in tasks),
+    }
+
+
 def summarize_adoption(records: list[dict], events: list[dict] | None = None,
                        harness: dict | None = None) -> dict:
     """Agrega telemetría + eventos de sesión. Sin números inventados."""
     tools = summarize(records)
+    tasks = summarize_tasks(records)
     sessions: dict[str, dict] = {}
     verifications = 0
     failed = 0
@@ -170,19 +217,21 @@ def summarize_adoption(records: list[dict], events: list[dict] | None = None,
         "failed_verifications": failed,
         "rework_rate": (failed / verifications) if verifications else None,
         "first_pass_tests": first_pass if sessions else None,
+        "tasks": tasks,
         "native_ratio": (harness or {}).get("native_ratio"),
         "harness": harness,
-        "unavailable": _unavailable(harness),
+        "unavailable": _unavailable(harness, tasks),
     }
 
 
-def _unavailable(harness: dict | None) -> dict[str, str]:
+def _unavailable(harness: dict | None, tasks: dict | None = None) -> dict[str, str]:
     """Lo no medible, con motivo. Un ratio viejo no se publica como actual."""
     unavailable = {
         "first_pass_tests": "se cuenta por sesión (verified sin verify_failed); "
                             "el intento por tarea no se separa",
-        "per_session_tools": "la telemetría por tool no guarda session_id",
     }
+    if not (tasks or {}).get("tasks_total"):
+        unavailable["tasks"] = "ninguna llamada con `session_id`: no hay adopción por tarea que medir"
     if harness is None:
         unavailable["native_ratio"] = "no se pudo leer la DB del harness"
     elif harness.get("stale"):
@@ -224,6 +273,14 @@ def _table(summary: dict) -> str:
             f"{tool:<24}{row['n']:>5}{row['p50_ms']:>8}ms{row['p95_ms']:>8}ms"
             f"{row['empty_rate']:>7.0%}{row['error_rate']:>8.0%}"
             f"{row['out_tokens_total']:>9}"
+        )
+    tasks = summary.get("tasks") or {}
+    if tasks.get("tasks_total"):
+        lines.append("")
+        lines.append(
+            f"tareas: {tasks['tasks_total']} · con brief: {tasks['tasks_with_brief']} "
+            f"· brief primero: {tasks['tasks_brief_first']} "
+            f"· brief antes de escribir: {tasks['tasks_brief_before_write']}"
         )
     harness = summary.get("harness") or {}
     if harness:

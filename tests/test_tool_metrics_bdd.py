@@ -53,6 +53,17 @@ def test_record_escribe_jsonl(metrics_file):
     assert payload["out_tokens"] == payload["out_chars"] // 4
 
 
+def test_record_correlaciona_sesion_y_tarea(metrics_file):
+    """Sin correlación no hay adopción por tarea, sólo agregados por tool."""
+    record_call(
+        "brief", 800, result='{"decisions": []}', project_id="walker",
+        session_id="ses_1", task_id="t-1",
+    )
+    payload = json.loads(metrics_file.read_text(encoding="utf-8").splitlines()[0])
+    assert payload["session_id"] == "ses_1"
+    assert payload["task_id"] == "t-1"
+
+
 def test_summary_publica_p50_p95_y_tasas(metrics_file):
     for latency, result in [(100, '{"a": 1}'), (200, '{"results": []}'), (3000, '{"a": 2}'), (400, "")]:
         record_call("workflow_state", latency, result=result)
@@ -84,7 +95,9 @@ def test_install_es_idempotente_y_no_altera_resultado(metrics_file):
     assert install_tool_metrics(server) is False
 
     async def scenario():
-        ok = await server._tool_manager.call_tool("status", {"project_id": "walker"})
+        ok = await server._tool_manager.call_tool(
+            "status", {"project_id": "walker", "session_id": "ses_9", "task_id": "t-9"},
+        )
         with pytest.raises(ValueError):
             await server._tool_manager.call_tool("boom", {"project_id": "walker"})
         return ok
@@ -96,6 +109,8 @@ def test_install_es_idempotente_y_no_altera_resultado(metrics_file):
     assert [r["tool"] for r in records] == ["status", "boom"]
     assert records[0]["outcome"] == "hit"
     assert records[0]["project_id"] == "walker"
+    assert records[0]["session_id"] == "ses_9", "la correlación viaja desde los args"
+    assert records[0]["task_id"] == "t-9"
     assert records[1]["outcome"] == "error"
 
 

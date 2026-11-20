@@ -582,23 +582,26 @@ cli falló: trace_push      | EACCES: permission denied
 
 En el camino normal no aparece ningún `plugin_degraded`.
 
-### Preflight en el primer turno (no en la primera lectura)
+### Flight card en el primer turno (no en la primera lectura)
 
 El intake nació enganchado a `read`, y eso falla con agentes que leen por Code
 Mode (`execute`): el hook de lectura nunca dispara (medido: una sesión respondió
-sobre un archivo sin emitir `intake_baseline`).
+sobre un archivo sin emitir baseline).
 
-Ahora, si hay tarea declarada (`workflow_state.task_id`), el **primer turno**
-hace el preflight completo de sus archivos y lo inyecta:
+Ahora, si la **sesión** tiene tarea en su plan (`planFor(sid).task` — nunca
+`workflow_state.task_id`, que es del proyecto y contaminaba sesiones nuevas), el
+primer turno pide **`brief`** (una llamada: decisiones + impacto + gates + paso)
+y lo inyecta. El primer `read` y un fallo de comando de verificación hacen lo
+mismo, con `trigger: read|failure`:
 
 ```
-intake_preflight  {"task_id":"T-PF","files":["b.py","pkg/logic.py"]}
+brief_injected  {"trigger":"intake","task_id":"T-PF","chars":561,"ms":1645,
+                 "decisions":2,"cached":false}
 ```
 
-El bloque trae, por archivo, símbolos, llamadores, llamadas y las funciones más
-pesadas; el scope del baseline (archivos, funciones, cyclo max); los tests que lo
-cubren; y `sin verificar` cuando algo no se pudo derivar. El hook de `read` queda
-como fallback para cuando no hay tarea.
+El bloque se acota a 600 chars y no repite jerga si no hay nada que aportar. Antes
+eran `agent_context` + `preflight` (dos CLI) y el resultado se descartaba antes de
+inyectarse. El `read` sigue siendo el camino para sesiones sin tarea declarada.
 
 ### Estado por ubicación (bug que bloqueó sesiones)
 

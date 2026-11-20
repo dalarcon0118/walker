@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import sqlite3
 
-from scripts.agent_adoption import read_harness, summarize_adoption
+from scripts.agent_adoption import read_harness, summarize_adoption, summarize_tasks
 
 
-def _call(tool: str = "brief", outcome: str = "hit", tokens: int = 20) -> dict:
+def _call(tool: str = "brief", outcome: str = "hit", tokens: int = 20,
+          ts: str = "", session_id: str = "", task_id: str = "") -> dict:
     return {
         "tool": tool, "latency_ms": 10, "out_chars": 100, "out_tokens": tokens,
         "outcome": outcome, "project_id": "p", "error": "",
+        "ts": ts, "session_id": session_id, "task_id": task_id,
     }
 
 
@@ -45,6 +47,28 @@ def test_sin_verificaciones_el_rework_es_nulo():
     summary = summarize_adoption([_call()], [])
 
     assert summary["rework_rate"] is None, "no se divide por cero"
+
+
+def test_adopcion_por_tarea_mira_si_el_brief_llego_primero():
+    tasks = summarize_tasks([
+        _call("brief", ts="2026-11-20T10:00:00", session_id="s1", task_id="t1"),
+        _call("submit", ts="2026-11-20T10:00:05", session_id="s1", task_id="t1"),
+        _call("search_memories", ts="2026-11-20T10:00:01", session_id="s2", task_id="t2"),
+        _call("submit", ts="2026-11-20T10:00:02", session_id="s2", task_id="t2"),
+        _call("brief", ts="2026-11-20T10:00:03", session_id="s2", task_id="t2"),
+        _call("brief", ts="2026-11-20T10:00:04"),  # sin session_id: no se puede agrupar
+    ])
+
+    assert tasks["tasks_total"] == 2
+    assert tasks["tasks_with_brief"] == 2
+    assert tasks["tasks_brief_first"] == 1, "sólo t1 abrió con brief"
+    assert tasks["tasks_brief_before_write"] == 1, "en t2 el brief llegó después del submit"
+
+
+def test_sin_correlacion_la_adopcion_por_tarea_es_nd():
+    summary = summarize_adoption([_call("brief")], [])
+    assert summary["tasks"]["tasks_total"] == 0
+    assert "tasks" in summary["unavailable"]
 
 
 def test_read_harness_calcula_el_ratio(tmp_path):
