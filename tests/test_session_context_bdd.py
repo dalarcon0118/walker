@@ -187,7 +187,7 @@ def test_capture_knowledge_escribe_el_hecho_de_la_sesion(monkeypatch):
     monkeypatch.setattr(task_knowledge._di, "_KNOWLEDGE_WRITER", _writer)
     monkeypatch.setattr(
         task_knowledge._di, "current_spec",
-        lambda chain, task_id="", prefer_status=("in_progress",): {
+        lambda chain, task_id="", prefer_status=("in_progress",), exact=False: {
             "spec_id": "SPEC-1", "objective": "arreglar X", "status": "in_progress",
             "files": ["a.py"], "task_context": {"task_id": "T-1", "session_id": "ses-1"},
         },

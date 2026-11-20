@@ -11,10 +11,13 @@ artefactos y el status en el MISMO save, y `SpecStatusUpdater` rechaza el
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
 from fast_mcp.features.tasks.handlers import _di
+
+logger = logging.getLogger(__name__)
 
 _ARTIFACT_FIELDS = ("completed_at", "commit_hash", "commit_url", "review_verdict", "evidence")
 
@@ -77,6 +80,21 @@ def spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         "status": updated.get("status") or status,
         "spec": updated,
     }
+    # P1.6: entrar en progreso mueve la tarea activa a ESTA spec. El plan de la
+    # sesión y el estado del workflow apuntan a la misma identidad con la que
+    # se captura; si no, una tarea nueva hereda la identidad de la anterior.
+    if payload["status"] == "in_progress":
+        from fast_mcp.features.tasks.handlers.session import link_task_to_spec
+
+        if session_id:
+            payload["task_link"] = link_task_to_spec(
+                service, session_id, payload["task_id"]
+            )
+            try:
+                service.update_session_plan(session_id, {"task": payload["task_id"]})
+            except Exception as exc:  # noqa: BLE001 — el status ya se guardó
+                logger.debug("spec_status: no se pudo actualizar el plan (%s)", exc)
+        _di.record_task(ctx.chain_dir, payload["task_id"])
     # P1.3: completar la spec ES el cierre de la tarea. Capturar acá cierra el
     # círculo sin depender de que el agente camine el grafo (submit).
     if payload["status"] == "completed":

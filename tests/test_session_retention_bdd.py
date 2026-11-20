@@ -43,7 +43,7 @@ def _fake_spec(monkeypatch, task_id="T-1"):
     monkeypatch.setattr(
         _di,
         "current_spec",
-        lambda chain_dir, task_id="": {
+        lambda chain_dir, task_id="", exact=False: {
             "objective": "Debe retener sin ruido. Sin romper los tests.",
             "files": ["a.py"],
             "task_context": {"task_id": fixed, "session_id": ""},
@@ -125,11 +125,29 @@ def test_gather_context_no_cita_superseded(monkeypatch):
     assert [r["_id"] for r in rows] == ["adr-vigente"]
 
 
-def test_fact_usa_el_task_id_de_la_spec(project_dir, monkeypatch):
-    """El rótulo del caller no manda: la tarea real es la de la spec."""
-    _fake_spec(monkeypatch, task_id="T-REAL")
-    saved: dict = {}
+def test_la_tarea_del_plan_resuelve_la_spec(project_dir, monkeypatch):
+    """El rótulo del caller no manda si el plan de la sesión dice la tarea."""
+    spec = {
+        "objective": "Debe capturar con la identidad de la spec.",
+        "files": ["a.py"],
+        "task_context": {"task_id": "T-REAL", "session_id": ""},
+    }
+    monkeypatch.setattr(
+        _di,
+        "current_spec",
+        lambda chain_dir, task_id="", exact=False: (
+            spec if exact and task_id == "T-REAL" else None
+        ),
+    )
+
+    class _Svc:
+        def get_session_plan(self, session_id):
+            return {"task": "T-REAL"}
+
+    monkeypatch.setattr(_di, "sprint_service", lambda chain_dir: _Svc())
+    monkeypatch.setattr(_di, "session_events", lambda chain_dir, session_id: [])
     monkeypatch.setattr(_di, "session_facts", lambda chain_dir: [])
+    saved: dict = {}
     monkeypatch.setattr(
         _di, "save_knowledge",
         lambda chain_dir, nodes, task_id="", session_id="": saved.update(
@@ -145,6 +163,49 @@ def test_fact_usa_el_task_id_de_la_spec(project_dir, monkeypatch):
     assert saved["nodes"][0]["id"].endswith("T-REAL")
     assert saved["nodes"][0]["metadata"]["task_id"] == "T-REAL"
     assert saved["task_id"] == "T-REAL"
+
+
+def test_no_hereda_la_identidad_de_otra_spec_in_progress(project_dir, monkeypatch):
+    """Un id desconocido no se convierte en la spec `in_progress` del sprint."""
+    from types import SimpleNamespace
+
+    calls: list[bool] = []
+
+    def _current_spec(chain_dir, task_id="", exact=False):
+        calls.append(exact)
+        if exact:
+            return None  # la tarea del caller no está en el sprint
+        return {
+            "objective": "otra tarea del sprint",
+            "files": ["vieja.py"],
+            "task_context": {"task_id": "T-VIEJA", "session_id": "S-VIEJA"},
+        }
+
+    monkeypatch.setattr(_di, "current_spec", _current_spec)
+    monkeypatch.setattr(
+        _di, "session_events",
+        lambda chain_dir, session_id: [
+            SimpleNamespace(event_type="write", files=["nuevo.py"])
+        ],
+    )
+    monkeypatch.setattr(_di, "session_facts", lambda chain_dir: [])
+    saved: dict = {}
+    monkeypatch.setattr(
+        _di, "save_knowledge",
+        lambda chain_dir, nodes, task_id="", session_id="": saved.update(
+            nodes=nodes, task_id=task_id
+        ) or {"ok": True},
+    )
+
+    out = knowledge.capture_knowledge(
+        _ctx(project_dir), {"session_id": "S-1", "task_id": "T-NUEVA"}
+    )
+
+    assert out.ok
+    assert saved["nodes"][0]["metadata"]["task_id"] == "T-NUEVA"
+    assert "vieja.py" not in saved["nodes"][0]["metadata"]["files"]
+    assert "nuevo.py" in saved["nodes"][0]["metadata"]["files"]
+    assert False not in calls, "nunca debe usar la heurística `in_progress`"
 
 
 def test_captura_supersede_en_ckg_real(project_dir, monkeypatch):

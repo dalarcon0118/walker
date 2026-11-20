@@ -456,6 +456,57 @@ def session_list(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     )
 
 
+def link_task_to_spec(service, session_id: str, task: str) -> dict:
+    """Ancla la tarea activa a su spec (task_context) y reporta si no existe.
+
+    El plan de vuelo dice QUÉ se está haciendo; la spec guarda con qué
+    identidad se captura el conocimiento. Sin este puente, la captura resuelve
+    la spec por `in_progress` y una tarea nueva hereda la identidad de la vieja
+    del sprint (medido 2026-11-19: `prepare-seeds-manifest` quedó capturado
+    como `skill-token-memory-health`).
+
+    Devuelve `{"linked": spec_id, "reason": str, "spring_id": str}`. Nunca
+    lanza: el plan manda aunque el delta no tenga la spec.
+    """
+    if not task:
+        return {"linked": "", "reason": "sin tarea", "spring_id": ""}
+    try:
+        record = service.get_session(session_id) or {}
+    except Exception:  # noqa: BLE001 — un servicio mínimo (tests) no es error
+        record = {}
+    spring_id = str(record.get("spring_id") or "")
+    try:
+        if not spring_id:
+            active = service.get_active_spring() or {}
+            spring_id = str(active.get("spring_id") or active.get("_id") or "")
+        if not spring_id:
+            return {"linked": "", "reason": "la sesión no tiene sprint", "spring_id": ""}
+        candidates = service.get_specs(spring_id) or []
+        match = next(
+            (
+                s
+                for s in candidates
+                if str(s.get("spec_id") or "") == task
+                or str((s.get("task_context") or {}).get("task_id") or "") == task
+            ),
+            None,
+        )
+        if match is None:
+            return {
+                "linked": "",
+                "reason": f"no hay spec {task!r} en {spring_id}",
+                "spring_id": spring_id,
+            }
+        spec_id = str(match.get("spec_id") or "")
+        tc = dict(match.get("task_context") or {})
+        if tc.get("task_id") != task or tc.get("session_id") != session_id:
+            tc.update({"task_id": task, "session_id": session_id})
+            service.update_spec(spring_id, spec_id, {"task_context": tc})
+        return {"linked": spec_id, "reason": "", "spring_id": spring_id}
+    except Exception as exc:  # noqa: BLE001 — el plan no puede fallar por esto
+        return {"linked": "", "reason": f"{type(exc).__name__}: {exc}", "spring_id": spring_id}
+
+
 def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """Plan de vuelo de la sesión (ADR-WALKER-080): get/set.
 
@@ -531,7 +582,16 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.failure(
             f"session_plan: sesión desconocida {session_id!r}; usá session_open o session_bind"
         )
-    return TaskResult.success({"plan": plan})
+    # P1.6: si cambia la tarea activa, la spec de esa tarea pasa a ser la que
+    # identifica la captura. Antes el plan quedaba en una tarea y el CKG se
+    # escribía con la identidad de otra (la última `in_progress` del sprint).
+    payload: dict[str, Any] = {"plan": plan}
+    if patch.get("task"):
+        link = link_task_to_spec(service, session_id, str(patch["task"]))
+        if link.get("linked"):
+            _di.record_task(ctx.chain_dir, str(patch["task"]))
+        payload["task_link"] = link
+    return TaskResult.success(payload)
 
 
 def spec_start(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

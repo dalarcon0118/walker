@@ -139,12 +139,17 @@ def current_spec(
     chain_dir: str,
     task_id: str = "",
     prefer_status: tuple[str, ...] = ("in_progress",),
+    exact: bool = False,
 ) -> dict | None:
     """Spec de la tarea en curso.
 
     Con `task_id` se busca exacta (por `task_context.task_id` o `spec_id`).
     Sin id —el motor no siempre lo conoce— se cae a la más reciente en
     `in_progress`, que es una heurística y así se documenta.
+
+    `exact=True` desactiva la heurística: solo devuelve la spec cuyo id
+    coincide. La usa la captura para no heredar la identidad de otra spec
+    `in_progress` cuando el caller nombra una tarea que no está en el sprint.
     """
     service = sprint_service(chain_dir)
     if service is None:
@@ -171,6 +176,11 @@ def current_spec(
                 return spec
             if str(spec.get("spec_id", "")) == task_id:
                 return spec
+        if exact:
+            return None
+
+    if exact:
+        return None
 
     for status in prefer_status:
         matching = [s for s in candidates if str(s.get("status", "")) == status]

@@ -16,18 +16,74 @@ from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskR
 from fast_mcp.features.tasks.handlers import _di
 
 
+def _session_for_task(chain_dir: str, task_id: str) -> str:
+    """Sesión activa cuyo plan de vuelo declara esta tarea.
+
+    El plugin llama `run_tests '{"task_id":"<id>"}'` sin sesión; y el canal de
+    tools usa `"mcp"` como placeholder. Sin este puente la captura se quedaba
+    sin sesión (y sin traza) o caía a la spec equivocada.
+    """
+    service = _di.sprint_service(chain_dir)
+    if service is None or not task_id or not hasattr(service, "list_sessions"):
+        return ""
+    try:
+        for session in service.list_sessions(status="active") or []:
+            plan = session.get("flight_plan") or {}
+            if str(plan.get("task") or "") == task_id:
+                return str(session.get("session_id") or "")
+    except Exception:  # noqa: BLE001 — sin sesión se sigue con lo que haya
+        return ""
+    return ""
+
+
+def _plan_task(chain_dir: str, session_id: str) -> str:
+    service = _di.sprint_service(chain_dir)
+    if service is None or not session_id or not hasattr(service, "get_session_plan"):
+        return ""
+    try:
+        return str((service.get_session_plan(session_id) or {}).get("task") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _resolve_spec(chain_dir: str, session_id: str, task_id: str) -> dict | None:
+    """Spec de la tarea, sin heredar la identidad de otra (P1.6).
+
+    Orden: id exacto → tarea del plan de vuelo de la sesión → heurística
+    `in_progress`, pero la heurística SOLO cuando el caller no nombró tarea.
+    Antes, cualquier id desconocido caía en la última spec `in_progress` del
+    sprint y el hecho se guardaba con la identidad de otra tarea.
+    """
+    if task_id:
+        spec = _di.current_spec(chain_dir, task_id=task_id, exact=True)
+        if spec is not None:
+            return spec
+    plan_task = _plan_task(chain_dir, session_id)
+    if plan_task and plan_task != task_id:
+        spec = _di.current_spec(chain_dir, task_id=plan_task, exact=True)
+        if spec is not None:
+            return spec
+    if not task_id and not plan_task:
+        return _di.current_spec(chain_dir)
+    return None
+
+
 def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
     session_id = str(data.get("session_id", "") or "").strip()
     task_id = str(data.get("task_id", "") or "").strip()
-    spec = _di.current_spec(ctx.chain_dir or "", task_id=task_id)
+    if not session_id and task_id:
+        session_id = _session_for_task(ctx.chain_dir or "", task_id)
+    spec = _resolve_spec(ctx.chain_dir or "", session_id, task_id)
 
     if spec:
-        # La spec es la SSOT del task_id: el caller puede pasar un rótulo
-        # arbitrario (o "mcp"), pero el nodo debe quedar identificado con la
-        # tarea real para que la retención (supersede por tarea) funcione.
-        spec_task = str((spec.get("task_context") or {}).get("task_id", "") or "")
-        task_id = spec_task or task_id
-        session_id = session_id or str((spec.get("task_context") or {}).get("session_id", "") or "")
+        # La spec es la SSOT de la identidad: el caller puede pasar un rótulo
+        # arbitrario, pero el nodo queda con la tarea real para que la retención
+        # (supersede por tarea) funcione.
+        tc = spec.get("task_context") or {}
+        spec_task = str(tc.get("task_id") or spec.get("spec_id") or "")
+        if spec_task:
+            task_id = spec_task
+        session_id = session_id or str(tc.get("session_id") or "")
         objective = str(spec.get("objective", "") or "")
         files = [f for f in (spec.get("files") or []) if isinstance(f, str)]
     else:
@@ -132,7 +188,7 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         ctx.chain_dir,
         [fact],
         str(fact["metadata"]["task_id"]),
-        str(data.get("session_id", "") or fact["metadata"]["session_id"]),
+        str(fact["metadata"]["session_id"]),
     )
     if result is None:
         return TaskResult.failure("capture_knowledge: writer del CKG no inyectado")

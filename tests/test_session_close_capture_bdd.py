@@ -65,7 +65,7 @@ def test_session_close_persiste_el_hecho(tmp_path, fake_service, monkeypatch):
     monkeypatch.setattr(
         _di,
         "current_spec",
-        lambda chain_dir, task_id="": {
+        lambda chain_dir, task_id="", exact=False: {
             "objective": "Debe capturar al cerrar. Sin romper los tests.",
             "files": ["a.py"],
             "task_context": {"task_id": "T-1", "session_id": "S-1"},
@@ -97,7 +97,7 @@ def test_captura_fallida_no_rompe_el_cierre(tmp_path, fake_service, monkeypatch)
     monkeypatch.setattr(
         _di,
         "current_spec",
-        lambda chain_dir, task_id="": {
+        lambda chain_dir, task_id="", exact=False: {
             "objective": "Debe capturar",
             "files": [],
             "task_context": {"task_id": "T-1", "session_id": "S-1"},
