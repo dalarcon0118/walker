@@ -365,7 +365,33 @@ un proyecto del usuario que el harness no controla.
 - [ ] M-09 Fallback visible: sin `--project`, se ve en la primera línea cuál es
       el proyecto del harness — anti-patrón: usar el del cwd en silencio.
 
-## 13. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 13. P1.8 — El runner de tests sale del proyecto
+
+Medido: `run_tests` ejecutaba `pytest -q` a mano y `verify_engine` buscaba el
+manifiesto en `<repo>/data/project.json`, ruta que dejó de existir con el
+layout `.cognitive/`. Un proyecto que declaraba `vitest` corría
+`python3 -m pytest -k …`; un proyecto JS/Go no podía certificar nunca y el
+gate de cierre quedaba en nudge infinito.
+
+- [ ] El framework es `coding.test_framework` del manifiesto, resuelto por
+      `ProjectService.resolve_paths` (data_dir canónico), con legacy
+      `<root>/project.json` y `<root>/data/project.json`.
+- [ ] `build_test_command` / `resolve_test_framework` son API pública (el
+      handler las usa); `run_tests` reporta el comando realmente ejecutado.
+- [ ] Sin declaración o con framework desconocido → `TestRunnerUnavailable`
+      con mensaje accionable y lista de runners soportados. NO se asume pytest.
+- [ ] `test_pass` convierte ese error en `(False, {"error": ...})`, no en una
+      excepción que rompa el batch de predicates.
+- [ ] `identity.framework`/`language` no cuentan como runner (django/python no
+      dicen cómo se corren los tests).
+- [ ] La regla de 0 tests (SPEC-014) sigue vigente para pytest; en go/cargo el
+      exit code es la autoridad.
+- [ ] M-09 Fallback visible: el default silencioso a pytest se elimina —
+      anti-patrón: inventar el runner cuando falta el dato.
+- [ ] M-06 Extensibilidad: una sola tabla (`_TEST_RUNNERS`) para los dos
+      caminos de verificación — anti-patrón: otro `if language == "python"`.
+
+## 14. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -379,7 +405,7 @@ un proyecto del usuario que el harness no controla.
 
 ---
 
-## 14. failure_scenarios
+## 15. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -399,13 +425,14 @@ un proyecto del usuario que el harness no controla.
   "El plan de vuelo dice una tarea y la spec del sprint dice otra → la captura guarda el hecho con la identidad de la tarea anterior → causa: captura resolvía la spec por in_progress y no había puente plan→task_context → mitigación: session_plan/spec_status anclan task_context + captura exacta con fallback al plan → detección: tests/test_task_context_advance_bdd.py",
   "El supersede de nodos session recorre `query({})` (50 de 97 docs) → reporta `superseded: N` y no degrada ninguno; el contexto sigue citando historia como vigente → causa: resolver por página en vez de por id → mitigación: `get(\"ckg\", id)` + reportar aplicado/faltante → detección: test_supersede_atraviesa_la_pagina_default_del_ckg",
   "Dos agentes/sesiones a la vez y la captura toma 'la única sesión activa' → 13 nodos con la sesión del harness y la tarea de acá → causa: adivinar la sesión cuando la tarea no la declara → mitigación: solo la sesión que declara la tarea en su plan o la de la spec; si no, captura fallida visible → detección: test_no_usa_una_sesion_que_no_declara_la_tarea",
-  "El harness apunta a un proyecto fijo (game_reset) y el plugin resuelve otro desde el cwd → 7 de 29 modos fallan por el entorno y la suite depende de datos del usuario → causa: id y ruta absoluta hardcodeados → mitigación: fixture propio registrado con _/prepare + HARNESS_PROJECT, y rutas derivadas del layout → detección: suite.mjs sin argumentos (29/29) y test de dispatch de Fase 1 en el CLI"
+  "El harness apunta a un proyecto fijo (game_reset) y el plugin resuelve otro desde el cwd → 7 de 29 modos fallan por el entorno y la suite depende de datos del usuario → causa: id y ruta absoluta hardcodeados → mitigación: fixture propio registrado con _/prepare + HARNESS_PROJECT, y rutas derivadas del layout → detección: suite.mjs sin argumentos (29/29) y test de dispatch de Fase 1 en el CLI",
+  "run_tests y verify_engine buscan project.json en <repo>/data y caen a pytest → un proyecto con vitest ejecuta python3 -m pytest y nunca certifica (gate de cierre infinito) → causa: ruta del manifiesto desactualizada respecto del layout .cognitive + default silencioso → mitigación: resolver por ProjectService.resolve_paths, runner declarado y TestRunnerUnavailable sin declaración → detección: tests/test_run_tests_framework_bdd.py (vitest/go/pytest y sin declaración)"
 ]
 ```
 
 ---
 
-## 15. Criterios de aceptación
+## 16. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -441,10 +468,13 @@ un proyecto del usuario que el harness no controla.
 15. P1.7: `node suite.mjs` sin argumentos pasa los 29 modos contra su propio
     fixture, sin tocar ningún proyecto del usuario; y `walker3 _/prepare`
     responde (antes: "tool desconocida").
+16. P1.8: un proyecto que declara `vitest`/`go`/`pytest` ejecuta SU runner;
+    sin declaración, `run_tests` falla con un mensaje accionable y no ejecuta
+    nada (no hay default a pytest).
 
 ---
 
-## 16. Riesgos y compatibilidad
+## 17. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -458,7 +488,7 @@ un proyecto del usuario que el harness no controla.
 
 ---
 
-## 17. Tests
+## 18. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -490,4 +520,7 @@ un proyecto del usuario que el harness no controla.
   (P1.7).
 - `tests/test_cli_phase1_dispatch_bdd.py`: `prepare`/`list`/`status` se
   resuelven por composition desde el CLI (P1.7).
+- `tests/test_run_tests_framework_bdd.py` y `tests/test_run_tests_green_bdd.py`:
+  runner declarado (vitest/go/pytest), sin declaración falla, 0 tests en pytest
+  y `test_pass` con error accionable (P1.8).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

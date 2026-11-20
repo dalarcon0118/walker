@@ -30,6 +30,9 @@ def project_dir(tmp_path: Path) -> str:
                 "project": {
                     "meta": {"project_id": "cap-bdd"},
                     "location": {"repo_path": str(tmp_path)},
+                    # El runner sale de acá: sin declaración, run_tests falla
+                    # a propósito (no se asume pytest).
+                    "coding": {"test_framework": "pytest"},
                 }
             }
         )

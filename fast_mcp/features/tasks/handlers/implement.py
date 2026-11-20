@@ -349,7 +349,22 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
 
 def _resolve_project_root(chain_dir: str) -> str:
-    """Walk up from chain_dir to find project root (dir with tests/)."""
+    """Raíz del repo: la del registro si hay contexto; si no, sube buscando tests/.
+
+    El walk por `tests/` es una heurística Python: se conserva solo como último
+    recurso para proyectos sin registro (p. ej. un repo suelto en tests).
+    """
+    if chain_dir:
+        try:
+            from fast_mcp.shared_kernel.project_support import ProjectService
+
+            root = str(
+                getattr(ProjectService.resolve_paths(chain_dir), "project_root", "") or ""
+            )
+            if root and os.path.isdir(root):
+                return root
+        except Exception:  # noqa: BLE001 — sin registro se usa el walk
+            pass
     current = os.path.abspath(chain_dir)
     while True:
         if os.path.isdir(os.path.join(current, "tests")):
@@ -361,26 +376,43 @@ def _resolve_project_root(chain_dir: str) -> str:
 
 
 def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    """Run the test suite for real (`pytest -q`) and report green/red.
+    """Ejecuta el runner DECLARADO por el proyecto y reporta verde/rojo.
 
-    Antes corría `pytest --collect-only`: devolvía passed=True sin ejecutar
-    nada, así que un cierre "verde" no significaba nada (el agente podía
-    declarar terminado con la suite roja). SPEC-014 sigue vigente: 0 tests no
-    certifica QA.
+    El framework sale de `coding.test_framework` del manifiesto (resuelto por
+    ProjectService). Antes se ejecutaba `pytest -q` a mano, así que un proyecto
+    JS/Go no podía certificar nunca: el gate de cierre quedaba en nudge
+    infinito. Sin framework declarado se falla con un mensaje accionable; no
+    se asume pytest.
+
+    SPEC-014 sigue vigente para pytest: 0 tests no certifica QA.
     """
+    from fast_mcp.features.tasks.infrastructure.verify_engine import (
+        TestRunnerUnavailable,
+        build_test_command,
+        resolve_test_framework,
+    )
+
     project_root = _resolve_project_root(ctx.chain_dir or "")
     try:
+        framework = resolve_test_framework(project_root)
+        argv = build_test_command(project_root)
+    except TestRunnerUnavailable as exc:
+        return TaskResult.failure(f"run_tests: {exc}")
+
+    try:
         result = subprocess.run(
-            ["pytest", "-q"],
+            argv,
             cwd=project_root,
             capture_output=True,
             text=True,
             timeout=300,
         )
     except subprocess.TimeoutExpired:
-        return TaskResult.failure("run_tests: pytest timed out (300s)")
+        return TaskResult.failure(
+            f"run_tests: {' '.join(argv)} timed out (300s)"
+        )
     except FileNotFoundError:
-        return TaskResult.failure("run_tests: pytest not found")
+        return TaskResult.failure(f"run_tests: {argv[0]} not found")
     except Exception as exc:  # noqa: BLE001
         return TaskResult.failure(f"run_tests: {type(exc).__name__}: {exc}")
 
@@ -390,6 +422,8 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         match = re.search(rf"(\d+)\s+{label}", out)
         return int(match.group(1)) if match else 0
 
+    # Los contadores son un extra: la autoridad es el exit code del runner
+    # declarado. pytest/vitest/jest imprimen "N passed"; go, no.
     passed_n = _count("passed")
     failed_n = _count("failed")
     errors_n = _count("error")
@@ -398,9 +432,10 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if result.returncode != 0 or failed_n or errors_n:
         return TaskResult.failure(
             "run_tests: SUITE ROJA "
-            f"(rc={result.returncode}, passed={passed_n}, failed={failed_n}, errors={errors_n})"
+            f"({framework}: rc={result.returncode}, passed={passed_n}, "
+            f"failed={failed_n}, errors={errors_n})"
         )
-    if total <= 0:
+    if framework == "pytest" and total <= 0:
         return TaskResult.failure(
             "run_tests: 0 tests ejecutados — no se puede certificar QA"
         )
@@ -411,7 +446,8 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         "failures": 0,
         "errors": 0,
         "returncode": result.returncode,
-        "runner": "pytest -q",
+        "runner": " ".join(argv),
+        "test_framework": framework,
     }
     # P1.3: el verde es el momento en que el agente termina; capturar acá hace
     # que la obligación de memoria viaje con la tool que sí usa (no con un

@@ -651,7 +651,7 @@ def run_verification(loop_item, project_root, file_hint=None):
         # hardcodea python3 -m pytest para proyectos no-Python.
         test_pattern = predicate.replace("test_", "").replace("()", "")
         try:
-            argv = _build_test_command(project_root, name=test_pattern)
+            argv = build_test_command(project_root, name=test_pattern)
             result = subprocess.run(
                 argv,
                 capture_output=True,
@@ -695,6 +695,14 @@ def _is_string_a_shell_command(predicate_text: str) -> bool:
 # TEST FRAMEWORK RESOLUTION (project.json aware)
 # ═══════════════════════════════════════════════════════════════════
 
+class TestRunnerUnavailable(RuntimeError):
+    """El proyecto no declara un test framework con runner conocido.
+
+    Es un error de CONTEXTO, no un test rojo: antes se caía a pytest y un
+    proyecto JS/Go ejecutaba una suite que no existe (o la equivocada).
+    """
+
+
 # Mostly-keyword → runner base. Normalizada en _normalize_test_framework().
 _TEST_RUNNERS: dict[str, list[str]] = {
     "pytest": ["python3", "-m", "pytest"],
@@ -732,50 +740,48 @@ def _normalize_test_framework(framework: str) -> str:
     Maneja variantes: "go test", "Golang", "jest (ts)", "pytest ~8", etc.
     """
     if not framework:
-        return "pytest"
+        return ""
     text = framework.strip().lower()
     for key in _TEST_RUNNERS:
         if key in text:
             return key
-    return "pytest"
+    return ""
+
+
+def _unavailable(declared: str) -> TestRunnerUnavailable:
+    if not declared:
+        return TestRunnerUnavailable(
+            "el proyecto no declara coding.test_framework en project.json "
+            "(no se asume pytest); declaralo con project_init/apply_project_config "
+            "o editá el manifiesto"
+        )
+    return TestRunnerUnavailable(
+        f"test_framework declarado {declared!r} no tiene runner conocido; "
+        f"soportados: {', '.join(sorted(_TEST_RUNNERS))}"
+    )
+
+
+def resolve_test_framework(project_root: str) -> str:
+    """Key canónica del runner declarado (pytest, jest, go, ...).
+
+    Raises:
+        TestRunnerUnavailable: sin declaración o con un framework desconocido.
+            Es fail-fast a propósito: inventar pytest convertía el contexto
+            ausente en una suite que no corresponde al proyecto.
+    """
+    declared = _read_declared_framework(project_root)
+    key = _normalize_test_framework(declared)
+    if not key:
+        raise _unavailable(declared)
+    return key
 
 
 def _resolve_test_command(project_root: str) -> list[str]:
-    """Resuelve el comando base de tests desde el project.json del proyecto.
-
-    Lee (en orden): data/project.json (canonical) → project.json (legacy).
-    Prioridad: coding.test_framework > identity.framework > identity.language.
-    Default honesto: ``python3 -m pytest`` (siempre ejecutable, nunca mentira).
-    """
-    candidates = [
-        os.path.join(project_root, "data", "project.json"),
-        os.path.join(project_root, "project.json"),
-    ]
-    declared = ""
-    for path in candidates:
-        if not os.path.isfile(path):
-            continue
-        try:
-            with open(path) as f:
-                manifest = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            continue
-        project = manifest.get("project", manifest)
-        coding = project.get("coding", {}) or {}
-        identity = project.get("identity", {}) or {}
-        declared = (
-            coding.get("test_framework")
-            or identity.get("framework")
-            or identity.get("language")
-            or ""
-        )
-        break
-
-    key = _normalize_test_framework(declared)
-    return list(_TEST_RUNNERS[key])
+    """Comando base de tests del framework DECLARADO por el proyecto."""
+    return list(_TEST_RUNNERS[resolve_test_framework(project_root)])
 
 
-def _build_test_command(
+def build_test_command(
     project_root: str,
     *,
     target: str | None = None,
@@ -803,12 +809,30 @@ def _build_test_command(
 
 
 def _read_declared_framework(project_root: str) -> str:
-    """Re-lectura del framework declarado (compartida con _resolve_test_command)."""
+    """`coding.test_framework` del manifiesto, resuelto por ProjectService.
+
+    Antes leía `<root>/data/project.json`: con el layout real
+    (`.cognitive/projects/<pid>/data/project.json`) esa ruta no existe y todo
+    caía al default pytest. Medido: un proyecto con `vitest` declarado
+    ejecutaba `python3 -m pytest -k ...`.
+    """
+    candidates: list[str] = []
+    try:
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        paths = ProjectService.resolve_paths(project_root)
+        data_dir = str(getattr(paths, "data_dir", "") or "")
+        if data_dir:
+            candidates.append(os.path.join(data_dir, "project.json"))
+    except Exception:  # noqa: BLE001 — sin registro se prueba el legacy
+        pass
+    # Legacy: manifiesto en la raíz del repo (proyectos sin layout v2) y en
+    # `<root>/data/project.json` (layout anterior a `.cognitive/`).
+    candidates.append(os.path.join(project_root, "project.json"))
+    candidates.append(os.path.join(project_root, "data", "project.json"))
+
     declared = ""
-    for path in (
-        os.path.join(project_root, "data", "project.json"),
-        os.path.join(project_root, "project.json"),
-    ):
+    for path in candidates:
         if not os.path.isfile(path):
             continue
         try:
@@ -818,13 +842,9 @@ def _read_declared_framework(project_root: str) -> str:
             continue
         project = manifest.get("project", manifest)
         coding = project.get("coding", {}) or {}
-        identity = project.get("identity", {}) or {}
-        declared = (
-            coding.get("test_framework")
-            or identity.get("framework")
-            or identity.get("language")
-            or ""
-        )
+        # Solo la declaración explícita. `identity.framework`/`language` NO son
+        # un runner (django/fastapi/python no dicen cómo se corren los tests).
+        declared = str(coding.get("test_framework") or "").strip()
         break
     return declared
 
@@ -1096,12 +1116,19 @@ def _verify_test_pass(predicate: dict, project_root: str) -> tuple[bool, dict]:
         }
 
     interpretation = _looks_like_test_target(command)
-    if interpretation == "name":
-        argv = _build_test_command(project_root, name=command)
-    elif interpretation == "target":
-        argv = _build_test_command(project_root, target=command)
-    else:
-        argv = [command]  # comando explícito del autor → shell tal cual
+    try:
+        if interpretation == "name":
+            argv = build_test_command(project_root, name=command)
+        elif interpretation == "target":
+            argv = build_test_command(project_root, target=command)
+        else:
+            argv = [command]  # comando explícito del autor → shell tal cual
+    except TestRunnerUnavailable as exc:
+        return False, {
+            "method": "test_pass",
+            "error": str(exc),
+            "label": str(exc)[:70],
+        }
 
     label = " ".join(argv)[:70]
     try:

@@ -6,8 +6,18 @@ que el cierre "verde" no significaba nada.
 
 from __future__ import annotations
 
+import pytest
+
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext
 from fast_mcp.features.tasks.handlers import implement as impl
+
+
+@pytest.fixture(autouse=True)
+def _pytest_declarado(monkeypatch):
+    """El manifiesto declara pytest; acá se prueba el parseo verde/rojo."""
+    from fast_mcp.features.tasks.infrastructure import verify_engine as ve
+
+    monkeypatch.setattr(ve, "_read_declared_framework", lambda root: "pytest")
 
 
 class _Result:
