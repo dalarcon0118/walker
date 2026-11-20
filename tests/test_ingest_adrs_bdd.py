@@ -106,6 +106,35 @@ def test_build_nodes_ignora_archivos_que_no_son_adr(tmp_path):
     assert [n["id"] for n in nodes] == ["adr-walker-042"]
 
 
+def test_consolida_resuelve_supersedes_a_ids(tmp_path):
+    """M-03: `**Consolida:** ADR-081` deja `supersedes` no vacío.
+
+    El ADR nombra por NÚMERO y el id sale del filename: la resolución es una
+    segunda pasada sobre el conjunto, no un lookup global.
+    """
+    base = "# ADR-WALKER-{n}: {t}\n\n> **Status:** Accepted\n\nCuerpo del ADR {n}.\n"
+    _write(tmp_path, "ADR-WALKER-081-gate-alcance.md", base.format(n="081", t="Gate alcance"))
+    _write(tmp_path, "ADR-WALKER-082-contrato.md", base.format(n="082", t="Contrato"))
+    _write(
+        tmp_path,
+        "ADR-WALKER-083-gate-efecto.md",
+        "# ADR-WALKER-083: Gate por efecto\n\n"
+        "> **Status:** Accepted\n"
+        "> **Consolida:** ADR-081 y ADR-082 quedan reemplazados.\n\n"
+        "El gate decide por efecto.\n",
+    )
+
+    nodes = {n["id"]: n for n in build_nodes(tmp_path)}
+
+    assert nodes["adr-walker-083-gate-efecto"]["supersedes"] == [
+        "adr-walker-081-gate-alcance",
+        "adr-walker-082-contrato",
+    ]
+    assert "_supersedes_codes" not in nodes["adr-walker-083-gate-efecto"]
+    assert "supersedes" not in nodes["adr-walker-081-gate-alcance"]
+
+
+
 def test_status_tag_normaliza_espanol_e_ingles():
     assert _status_tag("In Progress — F1-F8") == "status:in-progress"
     assert _status_tag("Aprobada") == "status:accepted"

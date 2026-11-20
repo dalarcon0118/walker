@@ -308,8 +308,7 @@ artefacto**:
    - [ ] M-01 `brief` es atómico: o devuelve todas las secciones o marca las
      faltantes en `missing` — anti-patrón a evitar: **Transaction Script**
      (tres lecturas encadenadas sin resultado único).
-   - Verde: `agent_context(text=…)` de §1.2 devuelve ≥1 decisión relevante en
-     <1 s.
+   - Verde: `brief(text=…)` devuelve ≥1 decisión relevante en <1 s.
 
 4. **F3 · Diseño y comparación.** `design_brief` como artefacto, `plan_diff`,
    perfil ≤8 tools, medición de adopción.
@@ -459,19 +458,20 @@ acá sigue abierto.
 | Guard de cancelación (AE-INV-09) | **implementado** | `fast_mcp/shared_kernel/runtime_safety.py`; `tests/test_mcp_cancellation_bdd.py` (4 tests) |
 | Timeouts alineados | **aplicado** | walker `timeout: 420000` en `~/.config/opencode/opencode.json` (era 30.000) |
 | Telemetría por tool (F0) | **implementado** | `fast_mcp/shared_kernel/telemetry/` + `scripts/agent_metrics.py`; primera llamada medida: `status` 3 ms · 255 tok · `hit` |
-| Golden set (F0) | **congelado con baseline** | `data/golden/agent_queries.json` → `data/golden/baseline.json`: **0/20**, 1.981 ms de media |
+| Golden set (F0) | **congelado y en la suite** | `data/golden/agent_queries.json`; baseline 0/20 en `baseline.json`, 18/20 en `baseline-f2.json`; `tests/test_golden_retrieval_bdd.py` falla bajo 17/20 |
 | Causa del retrieval vacío | **corregida en F2** | AND estricto (`fts.py:match_expr`); OR+bm25 para texto libre (`match_mode=any`) con fallback cuando el AND devuelve `<5`; **cuerpo del ADR indexado** (`ingest_adrs.py`, era 800 chars de cabecera); golden set **18/20** (`baseline-f2.json`) |
 | Firma uniforme | **implementada** | `search_memories`: `project_id`/paginación fuera del mapa de índices, `text`/`query` → `ckg.text`, error con ejemplo (`tests/test_memory_signature_bdd.py`); `preflight`/`snapshot`/`baseline_diff`/`session_context` declaran `project_id` — antes morían con "No project context" (`test_tool_profiles_bdd.py`) |
 | Ranking por autoridad | **implementado** | ADR/`docs/` antes que memoria de sesión, con orden bm25 estable (`tests/test_ckg_retrieval_ranking_bdd.py`) |
 | `run_tests` con entorno limpio | **implementado** | heredaba `WALKER_MCP_PROFILE=agent`: 14 tests del contrato `full` fallaban sólo desde la tool. `_suite_env()` los descarta (`tests/test_run_tests_env_bdd.py`) |
 | Clasificador de escritura | **implementado** | `shell_mutation.mjs`: el **destino** decide (`cp x /tmp/y` no muta; `cp x src/y` sí). 25 casos en `node --test shell_mutation.test.mjs`; `index.js` sólo pasa `projectDir` |
+| `supersedes` (M-03) | **implementado** | `ingest_adrs.py` parsea `**Consolida:** ADR-081 y ADR-082` y resuelve a ids en `build_nodes`; 081/082 quedan `superseded` en el CKG (`tests/test_ingest_adrs_bdd.py`) |
 | Plan → spec | **parcial** | `implement_task` ya no pisa `flight_plan.acceptance` (merge). La spec todavía no hereda: `_persist_spec` devuelve `None` sin error (§7.1-6). |
-| `brief` compuesto (F2) | pendiente | — |
+| `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`; `missing[]`/`degraded` obligatorios. 3.9 KB (~1k tok) en el ancla por archivo (`tests/test_brief_bdd.py`) |
 | `plan_diff` y `design_brief` (F3) | pendiente | — |
-| Perfil ≤8 tools (F3) | pendiente | hoy 23 tools / 10.314 chars. El recorte exige migrar 30 referencias a nombres de tool en prompts/workflow: sin eso se reproduce el escenario 3 de §4 (`Unknown tool`). No se hace a ciegas. |
-| Deadlock de import concurrente (AE-INV-07) | **abierto** | no se tocó en esta fase |
+| Perfil `agent` | **20 tools / 9.360 chars** | `brief` reemplazó a `agent_context` + `preflight`; `snapshot`/`baseline_diff` salieron del perfil (siguen en `full`/`admin`). F3 sigue pendiente: objetivo ≤8 / 2.500. |
+| Deadlock de import concurrente (AE-INV-07) | **mitigado, no cerrado** | `build_server()` pre-importa `check_cpg_health`, `ckg_read` y `verify_engine` (la carrera era del importador, no del dominio). `scripts/concurrency_probe.py`: 100 llamadas / 10 lotes = 0 errores. p95 ~1 s: **sigue abierto** |
 
-Verificación: `python3 -m pytest -q` → **1.544 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.550 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
@@ -518,7 +518,7 @@ indexar lo que se pregunta.
 
 | Cambio | Efecto medido |
 | :-- | :-- |
-| `match_expr(mode="any")` + OR cuando el AND da `<5` | `agent_context(text=…)` deja de devolver `ckg: []` |
+| `match_expr(mode="any")` + OR cuando el AND da `<5` | `brief(text=…)` deja de devolver decisiones vacías |
 | Cuerpo del ADR indexado (8 KB, era 800 chars de cabecera) | q01 pasa de 0 a **rank 3**; q15 vuelve a rank 2 |
 | Autoridad antes que memoria de sesión (orden bm25 estable) | `decision-001` ("proceed") deja de ser top-1 de q06 |
 | Variantes morfológicas en la query (sólo `match_mode=any`) | `registry`→`registries`, `capas`→`capa`: q09 pasa de rank 10 a top-5 |

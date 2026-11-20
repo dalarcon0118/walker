@@ -27,7 +27,7 @@ FULL: frozenset[str] = frozenset()  # vacío = sin filtro
 #: Superficie de agente. Criterio: o el agente la usa para resolver la tarea, o
 #: no se expone. Fuera quedan:
 #:   - duplicados (`list`, `read_code`, `code_search` — nativas del agente),
-#:   - lectores de conocimiento solapados con `agent_context`,
+#:   - lectores de conocimiento solapados con `brief` (AE-INV-01: un lector),
 #:   - mantenimiento de índices (el watcher/git los corre, no el agente),
 #:   - telemetría (`trace_*`: la escribe el plugin, no el modelo).
 AGENT: frozenset[str] = frozenset({
@@ -37,16 +37,15 @@ AGENT: frozenset[str] = frozenset({
     "submit",
     "advance",
     "transition",
-    # contexto del proyecto (un lector, no cuatro)
-    "agent_context",
+    # contexto del proyecto: UN lector (AE-INV-01). `brief` compone lo que
+    # antes eran `agent_context` + `preflight`; las tools viejas siguen en
+    # `full`/`admin` por compatibilidad del CLI, pero el agente ya no elige
+    # entre tres lectores solapados.
+    "brief",
     # Los templates del workflow mandan a `search_memories` en los gates de
     # análisis y cierre; dejarla fuera hacía que el agente recibiera una
     # instrucción imposible ("Unknown tool"). Es la query federada real.
     "search_memories",
-    "preflight",
-    # punto A y su diff: el pre-flight del workflow
-    "snapshot",
-    "baseline_diff",
     # skills: descubrir y cargar bajo demanda
     "search_skills",
     "load_skill",

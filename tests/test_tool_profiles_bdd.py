@@ -39,7 +39,7 @@ def _surface_chars(tools: dict) -> int:
 def test_sin_var_de_entorno_no_se_recorta_nada(monkeypatch):
     tools = _tools(monkeypatch, None)
 
-    assert len(tools) == 46, "el default debe ser el contrato histórico"
+    assert len(tools) == 47, "el default debe ser el contrato histórico"
 
 
 def test_perfil_agent_expone_las_tools_del_perfil(monkeypatch):
@@ -70,7 +70,7 @@ def test_perfil_agent_conserva_el_ciclo_de_trabajo(monkeypatch):
     tools = _tools(monkeypatch, "agent")
 
     assert {"workflow_state", "submit", "advance", "transition", "status"} <= set(tools)
-    assert {"agent_context", "search_skills", "load_skill"} <= set(tools)
+    assert {"brief", "search_skills", "load_skill"} <= set(tools)
     assert {"run_tests", "verify_predicates", "capture"} <= set(tools)
 
 
@@ -107,7 +107,7 @@ def test_perfil_desconocido_cae_a_full(monkeypatch):
     monkeypatch.setenv("WALKER_MCP_PROFILE", "inexistente")
 
     assert tool_profiles.active_profile() == "full"
-    assert len(_tools(monkeypatch, "inexistente")) == 46
+    assert len(_tools(monkeypatch, "inexistente")) == 47
 
 
 def test_perfil_con_nombre_inexistente_avisa_pero_no_rompe(monkeypatch, caplog):
@@ -133,8 +133,7 @@ def test_toda_tool_con_contexto_declara_project_id(monkeypatch):
     """
     tools = _tools(monkeypatch, "agent")
 
-    for name in ("preflight", "snapshot", "baseline_diff", "agent_context",
-                 "search_memories", "search_skills", "load_skill"):
+    for name in ("brief", "search_memories", "search_skills", "load_skill"):
         props = (tools[name].inputSchema or {}).get("properties") or {}
         assert "project_id" in props, f"{name} no declara project_id"
 

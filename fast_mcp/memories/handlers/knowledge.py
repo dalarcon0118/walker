@@ -954,6 +954,141 @@ def handle_preflight(ctx: MemoryContext, **kwargs: Any) -> dict:
     return out
 
 
+def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
+    """Contexto de fase en UNA llamada: decisiones + impacto + gates.
+
+    AGENT-EFFICIENCY §2.1: reemplaza `agent_context` + `preflight` en el camino
+    del agente. `missing[]` y `degraded` son obligatorios — una respuesta
+    parcial nunca se presenta como completa (AE-INV-01/05).
+    """
+    body = kwargs.get("_payload", kwargs) or {}
+    file = str(body.get("file") or "")
+    files = [str(f) for f in (body.get("files") or []) if f]
+    task_id = str(body.get("task_id") or "")
+    text = str(body.get("text") or body.get("query") or "")
+    session_id = str(body.get("session_id") or "")
+
+    missing: list[str] = []
+    degraded = False
+    anchor, anchor_files, task_spec = _resolve_anchor(ctx, task_id, file, text)
+    if not file and anchor_files:
+        file = anchor_files[0]
+    targets = files[:5] or ([file] if file else [])
+
+    # 1. Decisiones: top-5, con razón y estado (no eventos agregados).
+    decisions: list[dict[str, Any]] = []
+    query = text or str((task_spec or {}).get("objective") or "")
+    if not query and targets:
+        # El path completo como texto recupera eventos de sesión, no ADRs.
+        # Los tokens del módulo ("orchestrator") son la señal del área.
+        from pathlib import PurePosixPath
+
+        query = " ".join(
+            PurePosixPath(f).stem.replace("_", " ") for f in targets[:3]
+        )
+    if not query:
+        missing.append("decisions: sin ancla (file/task/text)")
+        degraded = True
+    else:
+        try:
+            from returns.pipeline import is_successful
+
+            from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import (
+                CkgReadService,
+            )
+
+            result = CkgReadService.gather_context(ctx.chain_dir, query=query)
+            nodes = result.value_or([]) if is_successful(result) else []
+            for node in nodes:
+                node_id = str(node.get("id") or node.get("_id") or "")
+                # Un evento de sesión no es una decisión (van en `gates`/trace).
+                if node_id.startswith("session-"):
+                    continue
+                meta = node.get("metadata") or {}
+                decisions.append({
+                    "id": node_id,
+                    "title": str(node.get("statement") or node.get("label") or "")[:160],
+                    "state": str(meta.get("status") or ""),
+                    "why": str(node.get("rationale") or "")[:180],
+                    "supersedes": list(node.get("supersedes") or meta.get("supersedes") or []),
+                })
+                if len(decisions) == 5:
+                    break
+            if not decisions:
+                missing.append("decisions: sin ADR para el ancla")
+        except Exception as exc:  # noqa: BLE001 — se declara, no se traga
+            missing.append(f"decisions: {type(exc).__name__}: {exc}")
+            degraded = True
+
+    # 2. Impacto: reusa preflight (llamadores, tests, complejidad por archivo).
+    impact: dict[str, Any] = {"callers": 0, "tests": [], "risk": "", "files": []}
+    if not targets:
+        missing.append("impact: sin archivos declarados")
+    else:
+        try:
+            preflight = handle_preflight(ctx, _payload={"files": targets})
+            if preflight.get("error"):
+                missing.append(f"impact: {preflight['error']}")
+                degraded = True
+            else:
+                rows = preflight.get("files") or []
+                impact["callers"] = sum(int(r.get("callers") or 0) for r in rows)
+                impact["tests"] = [str(t) for t in (preflight.get("tests") or [])[:5]]
+                ranked = sorted(
+                    rows,
+                    key=lambda r: int(r.get("callers") or 0)
+                    * max(int(((r.get("heaviest") or [{}])[0] or {}).get("cyclo") or 1), 1),
+                    reverse=True,
+                )
+                impact["files"] = [
+                    {
+                        "file": r.get("file"),
+                        "callers": r.get("callers"),
+                        "heaviest": (r.get("heaviest") or [])[:1],
+                    }
+                    for r in ranked[:3]
+                ]
+                impact["risk"] = (
+                    "alto" if impact["callers"] > 50
+                    else "medio" if impact["callers"] > 10
+                    else "bajo"
+                )
+        except Exception as exc:  # noqa: BLE001
+            missing.append(f"impact: {type(exc).__name__}: {exc}")
+            degraded = True
+
+    # 3. Gates: sprint/tarea/scope del plan de vuelo de la sesión.
+    gates: dict[str, Any] = {"sprint": "", "task": "", "scope": [], "next": ""}
+    if not session_id:
+        missing.append("gates: sin session_id")
+    else:
+        try:
+            from fast_mcp.composition import build_sprint_service
+
+            service = build_sprint_service(ctx.chain_dir)
+            session = (service.get_session(session_id) or {}) if service else {}
+            plan = (service.get_session_plan(session_id) or {}) if service else {}
+            gates = {
+                "sprint": str(session.get("spring_id") or plan.get("spring_id") or ""),
+                "task": str(plan.get("task") or ""),
+                "scope": list(plan.get("scope") or []),
+                "next": str(plan.get("next") or ""),
+            }
+        except Exception as exc:  # noqa: BLE001
+            missing.append(f"gates: {type(exc).__name__}: {exc}")
+            degraded = True
+
+    return {
+        "type": "brief",
+        "anchor": anchor,
+        "decisions": decisions,
+        "impact": impact,
+        "gates": gates,
+        "missing": missing,
+        "degraded": degraded or bool(missing),
+    }
+
+
 def handle_index_repo(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Index an external repo as reference in CKG."""
     from returns.pipeline import is_successful

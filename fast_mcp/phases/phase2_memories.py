@@ -42,6 +42,7 @@ _FASE2_TOOLS = (
     "documenting_knowledge",
     "search_memories",
     "agent_context",
+    "brief",
     "session_context",
     "preflight",
     "search_skills",
@@ -206,6 +207,19 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "trace": {"type": "object", "description": "Filters on the trace index."},
         },
     },
+    "brief": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string"},
+            "file": {"type": "string", "description": "Ancla por archivo."},
+            "files": {"type": "array", "items": {"type": "string"},
+                      "description": "Archivos que se van a tocar (impacto)."},
+            "task_id": {"type": "string", "description": "Ancla por tarea del sprint."},
+            "text": {"type": "string", "description": "Ancla por pregunta en lenguaje natural."},
+            "session_id": {"type": "string", "description": "Sesión para leer el plan de vuelo."},
+            "mode": {"type": "string", "enum": ["brief", "full"]},
+        },
+    },
     "code_context": {
         "type": "object",
         "properties": {
@@ -266,6 +280,7 @@ _DESCRIPTIONS = {
     "documenting_knowledge": "Store knowledge in CKG (with supersedes lifecycle).",
     "search_memories": "Federated query across multiple indexes at once.",
     "agent_context": "Consolidated delta+ckg+cpg+trace query with cross-references.",
+    "brief": "One call: decisions + impact + gates; missing/degraded explicit.",
     "search_skills": "Search installed agent skills by intent (text/tags).",
     "load_skill": "Load an installed skill's content on demand.",
     "code_context": "Structured code context: symbols, calls, imports and relations by file or search.",

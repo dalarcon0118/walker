@@ -27,7 +27,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 _STATUS_RE = re.compile(r"\*\*\s*(?:status|estado)\s*:?\s*\*\*\s*(.+)", re.IGNORECASE)
 _DATE_RE = re.compile(r"\*\*\s*(?:fecha|date)\s*:?\s*\*\*\s*(.+)", re.IGNORECASE)
-_ADR_RE = re.compile(r"ADR-WALKER-(\d+)", re.IGNORECASE)
+_ADR_RE = re.compile(r"ADR-(?:WALKER-)?(\d+)", re.IGNORECASE)
+#: Línea que declara el reemplazo: `**Consolida:** … ADR-081 y ADR-082`.
+#: Es metadata del ADR, no prosa: se parsea sólo la línea, no el cuerpo.
+_SUPERSEDE_RE = re.compile(
+    r"^\s*[-*>\s]*\*\*\s*(?:supersede[s]?|reemplaza(?:\s+a)?|consolida)\s*:?\s*\*\*\s*:?\s*(.+)$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def _clean(value: str) -> str:
@@ -204,6 +210,11 @@ def parse_adr(path: Path) -> dict:
         "description": description[: SEARCH_BODY_LIMIT + 500],
         "type": "design-decision",
         "tags": sorted(tags),
+        # Códigos (ADR-081) resueltos a ids en `build_nodes`; el nodo solo
+        # conoce filenames, no la numeración de sus vecinos.
+        "_supersedes_codes": sorted(set(_ADR_RE.findall(
+            " ".join(m.group(1) for m in _SUPERSEDE_RE.finditer(text))
+        ))),
         "metadata": {
             "source": f"docs/{path.name}",
             "adr": adr_code,
@@ -214,7 +225,24 @@ def parse_adr(path: Path) -> dict:
 
 
 def build_nodes(docs_dir: Path) -> list[dict]:
-    return [parse_adr(p) for p in sorted(docs_dir.glob("ADR-*.md"))]
+    nodes = [parse_adr(p) for p in sorted(docs_dir.glob("ADR-*.md"))]
+    # M-03: `supersedes` no vacío cuando corresponde. `Consolida: … ADR-081`
+    # nombra por número; el id del nodo sale del filename, así que se resuelve
+    # en una segunda pasada (si el número no existe, se descarta y queda la
+    # traza del código suelto en `_supersedes_unresolved`).
+    by_code: dict[str, str] = {}
+    for node in nodes:
+        adr = str((node.get("metadata") or {}).get("adr") or "")
+        match = _ADR_RE.search(adr)
+        if match:
+            by_code[f"ADR-WALKER-{match.group(1)}"] = node["id"]
+    for node in nodes:
+        codes = node.pop("_supersedes_codes", []) or []
+        targets = [by_code[f"ADR-WALKER-{code}"] for code in codes
+                   if f"ADR-WALKER-{code}" in by_code and by_code[f"ADR-WALKER-{code}"] != node["id"]]
+        if targets:
+            node["supersedes"] = targets
+    return nodes
 
 
 def main() -> int:

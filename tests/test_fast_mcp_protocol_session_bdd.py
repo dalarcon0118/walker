@@ -66,7 +66,7 @@ def test_sesion_completa_protocolo_mcp():
         # trace_message (T-14) suma en F3: captura user/agent messages → TraceGraph.
         assert {"prepare", "list", "status"} <= set(names), names
         # 44 = 38 previas + 6 de continuidad, ciclo de vida y plan de vuelo
-        assert len(names) == 46, f"superficie inesperada ({len(names)}): {names}"
+        assert len(names) == 47, f"superficie inesperada ({len(names)}): {names}"
 
         # ── 4. tools/call list ──
         send({
