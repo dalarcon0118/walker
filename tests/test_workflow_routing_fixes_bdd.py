@@ -47,7 +47,7 @@ ROOT = "/Users/davidmartinez/develop/Active-projects/walker"
 
 # ── helpers ─────────────────────────────────────────────────────────────
 
-def _orch(graph, state):
+def _orch(graph, state, registry=None):
     """Orquestador con estado en memoria (sin tocar el estado vivo)."""
     store = {"state": state}
     orch = OrchestrationService(
@@ -57,6 +57,7 @@ def _orch(graph, state):
             tracer=None,
             side_effects=None,
             chain_dir="/tmp/x",
+            task_registry=registry,
         )
     )
     orch._load_graph = lambda: graph
@@ -624,13 +625,24 @@ def test_analyze_approve_cruza_analysis_approved():
 
 
 def test_project_init_project_ready_cruza_a_sprint():
+    from fast_mcp.features.tasks.domain.task_registry import TaskResult
+
+    class _NoopRegistry:
+        """El test prueba el RUTEO; la acción real se cubre en su propio BDD."""
+
+        def has(self, name):
+            return True
+
+        def execute(self, name, ctx, data):
+            return TaskResult.success(data={"ok": True, "action": name})
+
     graph = _canonical_graph()
     node = graph.get_node("PROJECT_INIT")
     index = node.sub_state_index("REVIEW")
     state = WorkflowState(
         current_node="PROJECT_INIT", current_sub_state="REVIEW", sub_state_index=index
     )
-    orch, store = _orch(graph, state)
+    orch, store = _orch(graph, state, registry=_NoopRegistry())
 
     result = orch.submit(ctx=None, fields={"intent": "project_ready"})
 

@@ -236,7 +236,43 @@ Los health checks existían pero ninguna decisión los consumía. `preflight` y
 - [ ] M-02 Performance: el health se cachea (TTL) y no se recalcula en cada
       `agent_context` — anti-patrón: cargar 8.8k nodos por llamada.
 
-## 8. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 8. P1.3 — Captura de conocimiento acoplada a las tools
+
+Medido en la traza real: 227 `kg_query` (lecturas) y 0 `capture_knowledge`
+(escrituras). La obligación existía, pero colgaba del sub-estado
+`KNOWLEDGE_UPDATE` del motor, que solo corre con `submit`; el agente trabaja con
+tools y nunca llega. El cable va donde el agente sí actúa.
+
+- [ ] `session_close`, `run_tests` verde y `spec_status` → `completed` capturan
+      el hecho de la sesión (idempotente por `session_id` + `task_id`).
+- [ ] La captura viaja en `data.knowledge`; una captura fallida NO convierte
+      una tool verde en roja (se reporta el error).
+- [ ] M-04 Eventos: la captura se dispara desde la tool, no desde un grafo que
+      el cliente puede no recorrer — anti-patrón: obligación en un camino
+      paralelo.
+- [ ] M-01 Integridad: el hecho se deriva de la spec/traza, no del texto del
+      agente — anti-patrón: pedirle al modelo que resuma.
+- [ ] M-06 Extensibilidad: un solo helper (`capture_session_fact`) para los tres
+      puntos — anti-patrón: tres copias del try/except.
+
+## 9. P1.4 — `project.json` desde evidencia
+
+`prepare` creaba el manifest con `design`/`coding`/`quality_preferences` vacíos y
+`build_project_config` no escribía ("no writes"): cada proyecto nacía sin
+constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
+
+- [ ] `build_project_config` propone `test_framework`/`formatter`/`linter` desde
+      `pyproject.toml`/`package.json` y devuelve `manifest_patch`.
+- [ ] `apply_project_config` completa solo campos vacíos, nunca pisa lo curado,
+      es idempotente y corre en REVIEW con `intent=project_ready`.
+- [ ] M-01 Integridad: `design`/`quality_preferences` no se inventan —
+      anti-patrón: defaults silenciosos.
+- [ ] M-06 Extensibilidad: la detección vive en un helper por lenguaje/adapter —
+      anti-patrón: ifs de lenguaje repartidos.
+- [ ] M-09 Fallback visible: sin evidencia no se propone nada (campo vacío), no
+      se escribe "unknown" — anti-patrón: rellenar con placeholders.
+
+## 10. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -250,7 +286,7 @@ Los health checks existían pero ninguna decisión los consumía. `preflight` y
 
 ---
 
-## 9. failure_scenarios
+## 11. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -263,13 +299,15 @@ Los health checks existían pero ninguna decisión los consumía. `preflight` y
   "El agente captura la salida de la verificación a /tmp (o usa 2>&1) y el detector de mutaciones lo cuenta como escritura → el verde recién obtenido se invalida y el cierre vuelve a nudgar (medido: `run_tests … > /tmp/out 2>&1`) → causa: el detector busca '>' sin mirar destino ni comillas → mitigación: shellMutation ignora /dev/null, fd dups, /tmp y `>` citados; sólo cuenta redirects dentro del proyecto → detección: harness mode=shelltmp (verde + redirect a /tmp ⇒ 0 nudges) y mode=shellmut (redirect al proyecto ⇒ mutación)",
   "Cada submit cambia state.updated_at y el gate de skills exige recargar el skill en cada paso → pasos artificiales y fricción (feedback 6/10) → causa: since=updated_at como única evidencia → mitigación: load_skill firma (task, node, sub_state) y el gate acepta la carga de la entrada actual; since queda como fallback legacy → detección: test_skill_token_bdd + harness con dos submits",
   "El CKG está vacío o contaminado y el plugin cita adr-999 como si fuera una decisión del proyecto → el agente decide sobre memoria falsa → causa: los health checks existían pero ninguna decisión los consumía → mitigación: memory_health.trusted en preflight/agent_context, exclusión por origin:test y borrado de seeds con revisión → detección: harness mode=degraded (no cita adr-, dice 'CKG degradado')",
-  "Un prompt envía un campo que su input_schema no declara → el contrato de accept cruza con campos fantasma y el drift sólo se ve en runtime → causa: prosa y schema versionados por separado → mitigación: check bloqueante prompt→schema y declaración de los campos (40 → 0) → detección: test_workflow_contract_bdd"
+  "Un prompt envía un campo que su input_schema no declara → el contrato de accept cruza con campos fantasma y el drift sólo se ve en runtime → causa: prosa y schema versionados por separado → mitigación: check bloqueante prompt→schema y declaración de los campos (40 → 0) → detección: test_workflow_contract_bdd",
+  "La obligación de capturar conocimiento vive en un sub-estado del motor que solo corre con submit; el agente trabaja con tools → 227 kg_query (lecturas) y 0 capture_knowledge (escrituras) → causa: el camino de tools no ejecuta acciones auto ni gates → mitigación: captura acoplada a session_close/run_tests verde/spec_status completed, visible en data.knowledge → detección: tests/test_capture_side_effects_bdd.py y CKG creciendo en una sesión real",
+  "project.json nace con design/coding/quality vacíos y build_project_config no escribe → cada proyecto sin constitución y el agente re-deriva convenciones de la prosa → causa: la propuesta existía pero nada la aplicaba → mitigación: propuesta desde evidencia + apply en REVIEW completando solo lo vacío → detección: tests/test_project_init_config_bdd.py"
 ]
 ```
 
 ---
 
-## 10. Criterios de aceptación
+## 12. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -289,10 +327,14 @@ Los health checks existían pero ninguna decisión los consumía. `preflight` y
    `trusted=false` el plugin no cita `adr-###` y `cyclo` se declara `partial`
    cuando el extractor no cubre el scope.
 9. P0.3b: cero campos de prompt sin declarar y el chequeo es bloqueante en CI.
+10. P1.3: cerrar la sesión, un `run_tests` verde o completar la spec deja el
+    hecho en el CKG (idempotente) y una captura fallida no rompe la tool.
+11. P1.4: el proyecto recién preparado tiene `test_framework`/`formatter`/`linter`
+    desde evidencia; volver a aplicar no cambia nada y no pisa lo curado.
 
 ---
 
-## 11. Riesgos y compatibilidad
+## 13. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -306,7 +348,7 @@ Los health checks existían pero ninguna decisión los consumía. `preflight` y
 
 ---
 
-## 12. Tests
+## 14. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -325,4 +367,8 @@ Los health checks existían pero ninguna decisión los consumía. `preflight` y
   `cyclo.partial`.
 - `gate.test.mjs` modo `degraded`: CKG vacío ⇒ no cita `adr-999`.
 - `tests/test_workflow_contract_bdd.py`: prompt→schema bloqueante (P0.3b).
+- `tests/test_skill_token_bdd.py` y `tests/test_capture_side_effects_bdd.py`:
+  token por entrada y captura acoplada a las tools (P1.1/P1.3).
+- `tests/test_project_init_config_bdd.py`: propuesta/apply de `project.json`
+  sin pisar lo curado (P1.4).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

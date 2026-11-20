@@ -246,6 +246,7 @@ class TestTaskRegistryCompleteness:
             "escalate_refine",
             "detect_project_context",
             "build_project_config",
+            "apply_project_config",
             "initialize_knowledge_base",
             "create_first_sprint",
             "add_tasks",

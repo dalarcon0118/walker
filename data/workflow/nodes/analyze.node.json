@@ -606,6 +606,34 @@
           },
           "task_id": {
             "type": "string"
+          },
+          "artefactos": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Artefactos generados: [{nombre, tipo (diagrama|doc|codigo), descripcion}]"
+          },
+          "reglas": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Reglas/convenciones: [{regla, scope, severidad (obligatoria|recomendada|informativa)}]"
+          },
+          "decisiones": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Decisiones de diseño: [{decision, alternativas[], razon}]"
+          },
+          "advertencias": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Riesgos: [{advertencia, impacto, mitigacion}]"
           }
         }
       },

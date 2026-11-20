@@ -371,7 +371,8 @@
         "project_ready": "project_ready",
         "revise_specs": "revise_specs",
         "back_to_start": "back_to_start"
-      }
+      },
+      "action": "apply_project_config"
     },
     {
       "key": "FIRST_SPRINT",

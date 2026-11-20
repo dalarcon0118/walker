@@ -91,10 +91,26 @@ def _collect_node_refs(obj) -> list[str]:
 
 # ── (a) NODE.<KEY>.output[.field] resolution ────────────────────────────────
 def test_node_refs_resolve_to_declared_fields():
-    submap = _load_nodes()
     violations: list[str] = []
+    # Un ref `NODE.<KEY>` puede apuntar a un sub-estado de OTRO nodo (verify
+    # referencia IMPLEMENT.REPORT_GATE). Se resuelve primero en el archivo y,
+    # si no está, en el índice global; si la clave existe en varios nodos, se
+    # acepta cuando el campo está declarado en alguno (el runtime resuelve por
+    # el historial de ejecuciones).
+    global_idx: dict[str, list[dict]] = {}
     for p in sorted(NODES_DIR.glob("*.json")):
         data = json.loads(p.read_text(encoding="utf-8"))
+        for ss in data.get("sub_states", []) or []:
+            key = str(ss.get("key") or "")
+            if key:
+                global_idx.setdefault(key, []).append(ss)
+
+    for p in sorted(NODES_DIR.glob("*.json")):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        local = {
+            str(ss.get("key")): ss for ss in (data.get("sub_states") or [])
+            if ss.get("key")
+        }
         for ss in data.get("sub_states", []) or []:
             for se in ss.get("side_effects", []) or []:
                 if not isinstance(se, dict):
@@ -107,21 +123,22 @@ def test_node_refs_resolve_to_declared_fields():
                     assert m is not None
                     key = m.group(1)
                     field = m.group(2)
-                    target = submap.get(key)
-                    if target is None:
+                    candidates = [local[key]] if key in local else global_idx.get(key, [])
+                    if not candidates:
                         violations.append(f"{ref}: no sub_state '{key}'")
                         continue
                     props: set[str] = set()
-                    for schema_name in ("input_schema", "output_schema"):
-                        schema = target.get(schema_name)
-                        if isinstance(schema, dict):
-                            ps = schema.get("properties")
-                            if isinstance(ps, dict):
-                                props.update(ps.keys())
+                    for target in candidates:
+                        for schema_name in ("input_schema", "output_schema"):
+                            schema = target.get(schema_name)
+                            if isinstance(schema, dict):
+                                ps = schema.get("properties")
+                                if isinstance(ps, dict):
+                                    props.update(ps.keys())
                     if field and field not in props:
                         violations.append(
-                            f"{ref}: field '{field}' not declared in "
-                            f"{target.get('key')} input/output schema"
+                            f"{ref}: field '{field}' not declared in any "
+                            f"'{key}' input/output schema"
                         )
     assert not violations, "undeclared NODE refs:\n" + "\n".join(violations)
 
@@ -180,10 +197,15 @@ def test_prompt_submit_keys_declared():
     """
     submap = _load_nodes()
     pid_to_ss: dict = {}
-    for key, ss in submap.items():
-        pid = ss.get("prompt_id")
-        if pid:
-            pid_to_ss[pid] = ss
+    # Por prompt_id, desde TODOS los sub-estados: `_load_nodes` colapsa claves
+    # homónimas (REVIEW existe en sprint y project_init) y dejaba prompts sin
+    # validar. Un prompt sin schema declarado no puede pasar desapercibido.
+    for p in sorted(NODES_DIR.glob("*.json")):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        for ss in data.get("sub_states", []) or []:
+            pid = ss.get("prompt_id")
+            if pid:
+                pid_to_ss[pid] = ss
 
     violations: list[str] = []
     for prompt_file in sorted(PROMPTS_DIR.rglob("*.prompt.json")):
@@ -195,12 +217,15 @@ def test_prompt_submit_keys_declared():
         ss = pid_to_ss.get(pid)
         if not ss:
             continue
-        schema = ss.get("input_schema")
+        # Un campo puede estar declarado como entrada del paso o como campo
+        # capturado en el output (el feedback de un gate es el caso típico).
         props: set[str] = set()
-        if isinstance(schema, dict):
-            ps = schema.get("properties")
-            if isinstance(ps, dict):
-                props = set(ps.keys())
+        for schema_name in ("input_schema", "output_schema"):
+            schema = ss.get(schema_name)
+            if isinstance(schema, dict):
+                ps = schema.get("properties")
+                if isinstance(ps, dict):
+                    props.update(ps.keys())
 
         template = data.get("template", "")
         for m in re.finditer(r"walker <project>/submit '([^']*)'", template):
