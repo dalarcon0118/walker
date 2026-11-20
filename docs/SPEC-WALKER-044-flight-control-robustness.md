@@ -441,7 +441,32 @@ reconstruir un `scope` de 55 entradas a mano.
 - [ ] M-06 Extensibilidad: `session_plan` es el único punto que cambia el plan
       (CLI y plugin usan el mismo), sin caminos paralelos.
 
-## 16. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 16. P1.11 — La verificación existe aunque el hook no la vea
+
+El plugin certifica con lo que observa de los comandos. Cuando la tool se
+invoca por fuera de su wrapper (Code Mode, shell del host, subagente), el
+`run_tests` verde no llega al hook y el gate sigue pidiendo verificación sin
+que haya cambiado una línea (medido: nudge con `git status` limpio).
+
+- [ ] `run_tests` y `verify_predicates` escriben un `session_state` en el trace
+      (`source=walker_task`, `recorded_by=task_tool`, `verified`, `verified_at`,
+      `verify_level`, `runner`, `returncode`).
+- [ ] Fail-closed: sin `session_id` real (`""`/`mcp`) no se escribe; una
+      verificación anónima marcaría como verde a cualquier sesión.
+- [ ] El plugin hidrata ese estado antes de nudgar (`force`) y adopta el verde
+      solo si `verified_at` es posterior a la última escritura conocida: no
+      resucita un verde viejo tras editar.
+- [ ] `session_plan` expone `add`/`remove` (y `path`) en el schema MCP: el
+      handler ya los soportaba y el schema validaba antes de llegar.
+- [ ] `scripts/flight_control_metrics.py` agrega el trace en métricas
+      comparables (denials por gate, auto-declaradas, scope ampliado, nudges,
+      verificaciones por tool, sugerencias) y excluye el harness.
+- [ ] M-09 Fallback visible: si el trace no responde, la tool sigue verde y el
+      cierre vuelve al comportamiento anterior (observación del hook).
+- [ ] M-04 Eventos: la verificación se registra en la MISMA tool que la ejecuta,
+      no en un job que puede no correr.
+
+## 17. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -455,7 +480,7 @@ reconstruir un `scope` de 55 entradas a mano.
 
 ---
 
-## 17. failure_scenarios
+## 18. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -478,13 +503,14 @@ reconstruir un `scope` de 55 entradas a mano.
   "El harness apunta a un proyecto fijo (game_reset) y el plugin resuelve otro desde el cwd → 7 de 29 modos fallan por el entorno y la suite depende de datos del usuario → causa: id y ruta absoluta hardcodeados → mitigación: fixture propio registrado con _/prepare + HARNESS_PROJECT, y rutas derivadas del layout → detección: suite.mjs sin argumentos (29/29) y test de dispatch de Fase 1 en el CLI",
   "run_tests y verify_engine buscan project.json en <repo>/data y caen a pytest → un proyecto con vitest ejecuta python3 -m pytest y nunca certifica (gate de cierre infinito) → causa: ruta del manifiesto desactualizada respecto del layout .cognitive + default silencioso → mitigación: resolver por ProjectService.resolve_paths, runner declarado y TestRunnerUnavailable sin declaración → detección: tests/test_run_tests_framework_bdd.py (vitest/go/pytest y sin declaración)",
   "El detector de imports solo entiende Python y coupling usa prefijos hardcodeados → en un repo JS los alias son alucinaciones falsas y Ca=0 aunque haya importadores; en Go/Rust el resultado es un cero que parece dato → causa: resolución de imports sin adapter por lenguaje → mitigación: lang_imports + status/not_checked y agregado que separa verificados de no verificados → detección: tests/test_language_imports_bdd.py (JS relativos/alias, Go/Rust not_checked, Ca por resolución)",
-  "El gate de intake repite el bloqueo aunque el plan ya declare la tarea, y el de scope bloquea cada intento hasta que el agente reescriba el scope completo → 7 + 20 bloqueos en una sesión, cada uno un turno perdido → causa: la declaración y la ampliación vivían solo del lado del agente → mitigación: auto-declare desde el plan y una negociación por archivo con session_plan mode=add, verificada contra workflow_state → detección: harness modes autodeclare y scope"
+  "El gate de intake repite el bloqueo aunque el plan ya declare la tarea, y el de scope bloquea cada intento hasta que el agente reescriba el scope completo → 7 + 20 bloqueos en una sesión, cada uno un turno perdido → causa: la declaración y la ampliación vivían solo del lado del agente → mitigación: auto-declare desde el plan y una negociación por archivo con session_plan mode=add, verificada contra workflow_state → detección: harness modes autodeclare y scope",
+  "La verificación corre por fuera del wrapper del plugin (Code Mode / shell del host / subagente) → el verde no llega al hook y el gate vuelve a nudgar sin cambios de código → causa: el plugin infiere la verificación del comando que ve, no del hecho persistido → mitigación: run_tests/verify_predicates escriben session_state en el trace y el plugin lo hidrata antes de nudgar (fail-closed sin session_id) → detección: harness mode extverify y tests/test_verification_trace_bdd.py"
 ]
 ```
 
 ---
 
-## 18. Criterios de aceptación
+## 19. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -529,10 +555,13 @@ reconstruir un `scope` de 55 entradas a mano.
 18. P1.10: una sesión con plan declara y escribe sin `implement_task`; una
     escritura fuera de alcance se agrega al plan en la misma llamada (una sola
     vez por archivo) y queda trazada.
+19. P1.11: un `run_tests` verde ejecutado por fuera del wrapper deja el cierre
+    sin nudge (el plugin hidrata el trace) y el reporte de métricas lo cuenta
+    como verificación de la tool; `session_plan` acepta `add`/`remove`.
 
 ---
 
-## 19. Riesgos y compatibilidad
+## 20. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -546,7 +575,7 @@ reconstruir un `scope` de 55 entradas a mano.
 
 ---
 
-## 20. Tests
+## 21. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -584,7 +613,12 @@ reconstruir un `scope` de 55 entradas a mano.
 - `tests/test_language_imports_bdd.py`: adapter local/externo por lenguaje,
   relativos/alias JS, agregado checked/not_checked y Ca por resolución (P1.9).
 - `gate.test.mjs` modos `autodeclare` (plan→tarea activa sin implement_task) y
-  `scope` (negociación por archivo + plan ampliado) (P1.10).
+  `scope` (negociación por archivo + plan ampliado) (P1.10); `extverify`
+  (verificación por tool fuera del wrapper ⇒ 0 nudges) (P1.11).
+- `tests/test_verification_trace_bdd.py`: evento de verificación, fail-closed
+  sin sesión y contrato de `flight_state` (P1.11).
+- `tests/test_flight_control_metrics_bdd.py`: agregado del reporte y exclusión
+  del harness (P1.11).
 - `tests/test_task_context_advance_bdd.py`: `session_plan` registra la tarea
   aunque no tenga spec (P1.10).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

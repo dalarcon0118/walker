@@ -188,3 +188,13 @@ def test_spec_start_deja_la_identidad_canonica(svc):
     assert spec["task_context"]["task_id"] == "SPEC-002"
     assert svc.session["flight_plan"]["task"] == "SPEC-002"
     assert svc.recorded == ["SPEC-002"]
+
+
+def test_el_schema_mcp_expone_add_y_remove():
+    """El handler soportaba add/remove y el schema solo get|set: la tool
+    validaba antes de llegar al handler (medido: "Expected get|set")."""
+    from fast_mcp.phases.phase3_tasks import _INPUT_SCHEMAS
+
+    props = _INPUT_SCHEMAS["session_plan"]["properties"]
+    assert props["mode"]["enum"] == ["get", "set", "add", "remove"]
+    assert "path" in props, "add/remove aceptan un archivo suelto"

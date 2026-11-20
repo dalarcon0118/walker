@@ -738,6 +738,20 @@ def _build_task_registry(sprint_service=None):
 
         tasks_di.configure_trace_reader(_session_events)
 
+        def _push_trace(chain_dir: str, event: dict) -> bool:
+            """Verificación registrada por la TOOL (P1.11).
+
+            El plugin hidrata `flight_state` desde el trace: si walker escribe
+            acá el verde, el cierre no depende de que el hook vea el comando.
+            """
+            service = build_trace_service(chain_dir)
+            if service is None:
+                return False
+            result = service.push_event(chain_dir, dict(event))
+            return bool(isinstance(result, dict) and result.get("ok"))
+
+        tasks_di.configure_trace_writer(_push_trace)
+
         from fast_mcp.features.delta_tracking.domain.spec_service import SpecValidator
 
         tasks_di.configure_spec_validator(

@@ -124,6 +124,20 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
                     },
                 })
 
+    # P1.11: la verificación queda en el TRACE; el plugin la hidrata aunque no
+    # haya visto el comando. Se registra después de `inspect_codebase` para que
+    # un hallazgo de alucinaciones cuente como rojo.
+    from fast_mcp.features.tasks.handlers.verification import record_verification
+
+    record_verification(
+        ctx,
+        session_id=str(data.get("session_id") or getattr(ctx, "session_id", "") or ""),
+        passed=bool(result_data.get("all_satisfied")),
+        level="predicates",
+        runner="verify_predicates",
+        task_id=str(data.get("task_id") or getattr(ctx, "task_id", "") or ""),
+    )
+
     return TaskResult.success(data=result_data)
 
 

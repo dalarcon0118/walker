@@ -14,6 +14,7 @@ _TASK_RECORDER: Callable[[str, str], bool] | None = None
 _WORKFLOW_RESET: Callable[[str], dict] | None = None
 _KNOWLEDGE_WRITER: Callable[..., Any] | None = None
 _KNOWLEDGE_READER: Callable[[str], list] | None = None
+_TRACE_WRITER: Callable[[str, dict], bool] | None = None
 _TRACE_READER: Callable[[str, str], list] | None = None
 _SPEC_VALIDATOR: Callable[[dict], list] | None = None
 
@@ -68,6 +69,26 @@ def configure_knowledge_reader(reader: Callable[[str], list] | None) -> None:
     """
     global _KNOWLEDGE_READER
     _KNOWLEDGE_READER = reader
+
+
+def configure_trace_writer(writer: Callable[[str, dict], bool] | None) -> None:
+    """Inyecta `(chain_dir, evento) -> ok` para registrar verificación (P1.11).
+
+    `tasks` no puede importar `event_tracing` (R1): el puente lo cablea el
+    composition root, igual que knowledge/trace readers.
+    """
+    global _TRACE_WRITER
+    _TRACE_WRITER = writer
+
+
+def push_trace(chain_dir: str, event: dict) -> bool:
+    """Escribe un evento de trace; False si no hay writer (no rompe la tool)."""
+    if _TRACE_WRITER is None or not chain_dir or not event:
+        return False
+    try:
+        return bool(_TRACE_WRITER(chain_dir, event))
+    except Exception:  # noqa: BLE001 — la verificación no depende del trace
+        return False
 
 
 def session_facts(chain_dir: str) -> list:

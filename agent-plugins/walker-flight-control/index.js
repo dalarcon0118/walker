@@ -318,23 +318,49 @@ async function runSetup(ctx) {
     // plugin no pierde `verified`/`wrote`. Se hace UNA vez por entry, en
     // cualquier camino (context o gate de cierre): si el plugin se recargó y
     // no hubo hook de contexto, el estado persistido igual llega al gate.
-    const hydrateFlight = (sid, entry) => {
-      if (!sid || !entry || entry.hydrated) return
+    const hydrateFlight = (sid, entry, opts = {}) => {
+      if (!sid || !entry || (entry.hydrated && !opts.force)) return
       entry.hydrated = true // fail-open: no reintentar en cada evento
       try {
         const res = run("session_context", { session_id: sid }, rt.projectId, HOOK_TIMEOUT_MS)
         const data = (res && (res.data || res)) || {}
         const fs = (data && data.flight_state) || (res && res.flight_state)
         if (!fs || typeof fs !== "object" || !Object.keys(fs).length) return
-        // Estado local más nuevo: no se pisa con el persistido.
-        if (entry.verified || entry.wrote || entry.writes) return
-        if (typeof fs.verified === "boolean") entry.verified = fs.verified
-        entry.verifiedAt = fs.verified_at || entry.verifiedAt || ""
-        entry.verifyLevel = fs.verify_level || entry.verifyLevel || ""
-        entry.dirtySince = fs.dirty_since || ""
-        entry.wrote = fs.wrote === undefined ? entry.wrote : Boolean(fs.wrote)
-        if (typeof fs.writes === "number") entry.writes = fs.writes
-        if (Array.isArray(fs.touched)) entry.touched = new Set(fs.touched)
+        // Sin `force` se conserva el contrato previo: el estado local manda.
+        if (!opts.force && (entry.verified || entry.wrote || entry.writes)) return
+        // P1.11: el verde puede venir de una TOOL que el plugin no vio
+        // (Code Mode, shell del host, subagente). Se adopta solo si el
+        // `verified_at` del trace es posterior a la última escritura conocida:
+        // así no se resucita un verde viejo después de editar.
+        const persistedAt = Date.parse(fs.verified_at || "") || 0
+        const dirtyAt = Date.parse(entry.dirtySince || "") || 0
+        const localAt = Date.parse(entry.verifiedAt || "") || 0
+        if (typeof fs.verified === "boolean") {
+          if (fs.verified === true) {
+            if (persistedAt > dirtyAt && persistedAt >= localAt) {
+              entry.verified = true
+              entry.verifyFailed = false
+              entry.verifiedAt = fs.verified_at || entry.verifiedAt || ""
+              entry.verifyLevel = fs.verify_level || entry.verifyLevel || ""
+              entry.dirtySince = ""
+            }
+          } else if (!entry.verified) {
+            entry.verifyFailed =
+              fs.verify_failed === undefined
+                ? entry.verifyFailed
+                : Boolean(fs.verify_failed)
+          }
+        }
+        if (entry.verified) entry.verifyLevel = entry.verifyLevel || fs.verify_level || ""
+        entry.verifiedAt = entry.verifiedAt || fs.verified_at || ""
+        if (!entry.wrote && fs.wrote !== undefined) entry.wrote = Boolean(fs.wrote)
+        if (!entry.writes && typeof fs.writes === "number") entry.writes = fs.writes
+        if (!entry.touched.size && Array.isArray(fs.touched)) {
+          entry.touched = new Set(fs.touched)
+        }
+        if (!entry.verified && !entry.dirtySince) {
+          entry.dirtySince = fs.dirty_since || ""
+        }
         entry.statePersisted = true
         // La sesión existía antes de la recarga: el gate de cierre debe
         // evaluarla (si no, una sesión sucia "desaparece" al recargar).
@@ -1047,6 +1073,18 @@ async function runSetup(ctx) {
           // ── Gate de CIERRE: hubo escritura y no hay verificación ──
           // No se puede impedir el fin de ejecución, así que se reinyecta un
           // mensaje sintético UNA vez (sin esto el ciclo sería infinito).
+          // Antes de nudgar se fuerza la hidratación: walker pudo registrar el
+          // verde desde la TOOL y el plugin no haber visto el comando.
+          if (
+            event.type === "session.execution.succeeded" &&
+            entry.opened &&
+            entry.wrote &&
+            (!entry.verified || entry.verifyFailed) &&
+            !entry.closeNudged &&
+            entry.sessionID
+          ) {
+            hydrateFlight(sid, entry, { force: true })
+          }
           if (
             event.type === "session.execution.succeeded" &&
             entry.opened &&

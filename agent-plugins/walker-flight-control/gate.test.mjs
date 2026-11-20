@@ -342,6 +342,7 @@ const closeMode =
   mode === "closeclimark" ||
   mode === "closeclimarkpipe" ||
   mode === "closeclipipefail" ||
+  mode === "extverify" ||
   mode === "gateoff"
 const ctx = {
   location: { directory: dir },
@@ -543,6 +544,21 @@ if (closeMode) {
     // Con acceptance declarada, el shell NO debe certificar: se espera nudge.
     await call("shell", { command: "echo pytest" })
   }
+  if (mode === "extverify") {
+    // P1.11: la verificación ocurre en la TOOL real, fuera del wrapper del
+    // plugin (como en Code Mode / shell del host). El plugin no la ve; antes
+    // de nudgar debe hidratarla del TRACE (`session_context.flight_state`).
+    writeFileSync(`${dir}/x.txt`, "x")
+    execFileSync(REAL_CLI, [
+      `${PROJECT}/verify_predicates`,
+      JSON.stringify({
+        session_id: SID,
+        task_id: "close-task",
+        project_root: dir,
+        predicates: [{ type: "file_exists", path: "x.txt" }],
+      }),
+    ], { encoding: "utf8" })
+  }
   if (
     mode === "closecli" ||
     mode === "closeclipipe" ||
@@ -577,6 +593,7 @@ if (closeMode) {
     "closeclipipe",
     "closeclimark",
     "closeclimarkpipe",
+    "extverify",
     "reloadverified",
   ])
   const expectedNudge = !certified.has(mode)

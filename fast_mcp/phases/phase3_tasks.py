@@ -210,24 +210,29 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "session_plan": {
         "type": "object",
         "properties": {
-            "session_id": {"type": "string", "description": "Session identifier"},
-            "mode": {"type": "string", "description": "get|set", "enum": ["get", "set"]},
-            "goal": {"type": "string", "description": "Destino de la sesión"},
+            "session_id": {"type": "string", "description": "Session"},
+            "mode": {
+                "type": "string",
+                "description": "get|set|add|remove",
+                "enum": ["get", "set", "add", "remove"],
+            },
+            "goal": {"type": "string", "description": "Objetivo"},
             "acceptance": {
                 "type": "array",
-                "description": "Criterios de aceptación verificables",
+                "description": "Criterios verificables",
                 "items": {"type": "string"},
             },
             "task": {"type": "string", "description": "Tarea actual"},
             "scope": {
                 "type": "array",
-                "description": "Archivos en alcance",
+                "description": "Alcance (add/remove: solo estos)",
                 "items": {"type": "string"},
             },
-            "next": {"type": "string", "description": "Próximo paso concreto"},
+            "path": {"type": "string", "description": "Un archivo (add/remove)"},
+            "next": {"type": "string", "description": "Próximo paso"},
             "project": {
                 "type": "string",
-                "description": "Proyecto de TRABAJO (puede diferir del cwd de la sesión)",
+                "description": "Proyecto de trabajo (≠ cwd)",
             },
         },
         "required": ["session_id"],

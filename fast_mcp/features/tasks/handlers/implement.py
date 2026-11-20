@@ -392,11 +392,22 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         resolve_test_framework,
     )
 
+    from fast_mcp.features.tasks.handlers.verification import record_verification
+
+    session_id = str(data.get("session_id") or ctx.session_id or "")
+    task_id = str(data.get("task_id") or ctx.task_id or "")
+    runner_str = ""
+
     project_root = _resolve_project_root(ctx.chain_dir or "")
     try:
         framework = resolve_test_framework(project_root)
         argv = build_test_command(project_root)
+        runner_str = " ".join(argv)
     except TestRunnerUnavailable as exc:
+        record_verification(
+            ctx, session_id=session_id, passed=False, level="tool",
+            runner="", task_id=task_id,
+        )
         return TaskResult.failure(f"run_tests: {exc}")
 
     try:
@@ -408,12 +419,24 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             timeout=300,
         )
     except subprocess.TimeoutExpired:
+        record_verification(
+            ctx, session_id=session_id, passed=False, level="tool",
+            runner=runner_str, task_id=task_id,
+        )
         return TaskResult.failure(
             f"run_tests: {' '.join(argv)} timed out (300s)"
         )
     except FileNotFoundError:
+        record_verification(
+            ctx, session_id=session_id, passed=False, level="tool",
+            runner=runner_str, task_id=task_id,
+        )
         return TaskResult.failure(f"run_tests: {argv[0]} not found")
     except Exception as exc:  # noqa: BLE001
+        record_verification(
+            ctx, session_id=session_id, passed=False, level="tool",
+            runner=runner_str, task_id=task_id,
+        )
         return TaskResult.failure(f"run_tests: {type(exc).__name__}: {exc}")
 
     out = (result.stdout or "") + "\n" + (result.stderr or "")
@@ -430,15 +453,29 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     total = passed_n + failed_n + errors_n
 
     if result.returncode != 0 or failed_n or errors_n:
+        record_verification(
+            ctx, session_id=session_id, passed=False, level="tool",
+            runner=runner_str, returncode=result.returncode, task_id=task_id,
+        )
         return TaskResult.failure(
             "run_tests: SUITE ROJA "
             f"({framework}: rc={result.returncode}, passed={passed_n}, "
             f"failed={failed_n}, errors={errors_n})"
         )
     if framework == "pytest" and total <= 0:
+        record_verification(
+            ctx, session_id=session_id, passed=False, level="tool",
+            runner=runner_str, returncode=result.returncode, task_id=task_id,
+        )
         return TaskResult.failure(
             "run_tests: 0 tests ejecutados — no se puede certificar QA"
         )
+    # P1.11: el verde queda en el TRACE. El plugin lo hidrata aunque no haya
+    # visto el comando (Code Mode / shell del host / subagente).
+    record_verification(
+        ctx, session_id=session_id, passed=True, level="tool",
+        runner=runner_str, returncode=result.returncode, task_id=task_id,
+    )
     payload = {
         "task_id": data.get("task_id", ctx.task_id),
         "passed": True,
@@ -446,7 +483,7 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         "failures": 0,
         "errors": 0,
         "returncode": result.returncode,
-        "runner": " ".join(argv),
+        "runner": runner_str,
         "test_framework": framework,
     }
     # P1.3: el verde es el momento en que el agente termina; capturar acá hace

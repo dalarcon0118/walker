@@ -83,6 +83,7 @@ const REAL_CLI = new Set([
   "closeclimark",
   "closeclimarkpipe",
   "closeclipipefail",
+  "extverify",
   "scope",
 ])
 
@@ -114,6 +115,7 @@ const MODES = [
   "closeclimark",
   "closeclimarkpipe",
   "closeclipipefail",
+  "extverify",
   "reloadverified",
   "reloadedit",
   "reloaddirty",
