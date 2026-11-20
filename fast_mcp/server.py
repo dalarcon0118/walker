@@ -25,6 +25,21 @@ logger = logging.getLogger(__name__)
 _SERVER_NAME = "walker"
 
 
+def _warm_imports() -> None:
+    """Importa en el boot los módulos que los handlers importan en caliente.
+
+    Medido 2026-11-20: la primera ráfaga concurrente (`status` +
+    `agent_context` + `workflow_state`) tiró
+    `deadlock detected by _ModuleLock('…check_cpg_health')`. El lock es del
+    importador, no del dominio: dos hilos entrando a la vez en un import
+    perezoso dentro de un handler. Importarlos antes de aceptar requests
+    elimina la carrera por construcción (no hay un lock de dominio que tomar).
+    """
+    import fast_mcp.features.code_analysis.application.use_cases.check_cpg_health  # noqa: F401
+    import fast_mcp.features.cognitive_knowledge.application.services.ckg_read  # noqa: F401
+    import fast_mcp.features.tasks.infrastructure.verify_engine  # noqa: F401
+
+
 def build_server() -> FastMCP:
     """Construye el FastMCP server autónomo y ensambla las fases activas.
 
@@ -39,6 +54,7 @@ def build_server() -> FastMCP:
     from fast_mcp.tool_profiles import apply_profile
 
     server = FastMCP(_SERVER_NAME)
+    _warm_imports()
     install_phases(server)
     # WALKER_MCP_PROFILE recorta la superficie ANTES de que el agente la vea
     # (`tools/list`). Cada tool extra se paga en tokens y en atención en TODOS
