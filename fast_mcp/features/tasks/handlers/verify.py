@@ -234,6 +234,13 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         task_id=str(data.get("task_id") or getattr(ctx, "task_id", "") or ""),
         touched=touched,
         weak=bool(dirty_rules),
+        # SPEC-021: el nodo de evidencia lleva los contadores reales (2/3), no
+        # sólo "verde/rojo".
+        counts={
+            "passed": int(result_data.get("passed_count") or 0),
+            "failed": int(result_data.get("failed_count") or 0),
+            "total": int(result_data.get("total") or 0),
+        },
     )
 
     return TaskResult.success(data=result_data)

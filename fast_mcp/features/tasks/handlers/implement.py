@@ -540,7 +540,9 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # escribió por un camino no observado no queda sin deuda de verificación.
     touched = changed_since_last_scan(project_root, session_id=session_id)
 
-    def _record(passed: bool, rc: int | None = None) -> None:
+    def _record(
+        passed: bool, rc: int | None = None, counts: dict[str, Any] | None = None
+    ) -> None:
         record_verification(
             ctx,
             session_id=session_id,
@@ -550,6 +552,7 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             returncode=rc,
             task_id=task_id,
             touched=touched,
+            counts=counts,
         )
 
     try:
@@ -595,7 +598,11 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     total = passed_n + failed_n + errors_n
 
     if result.returncode != 0 or failed_n or errors_n:
-        _record(False, result.returncode)
+        _record(
+            False,
+            result.returncode,
+            {"passed": passed_n, "failed": failed_n, "total": total},
+        )
         # SPEC-013: el rojo trae su evidencia (cola de la salida). Sin ella el
         # agente repite el comando a ciegas; el nudge de cierre la muestra.
         return TaskResult.failure(
@@ -626,7 +633,11 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
     # P1.11: el verde queda en el TRACE. El plugin lo hidrata aunque no haya
     # visto el comando (Code Mode / shell del host / subagente).
-    _record(True, result.returncode)
+    _record(
+        True,
+        result.returncode,
+        {"passed": passed_n, "failed": failed_n, "total": total},
+    )
     payload = {
         "task_id": data.get("task_id", ctx.task_id),
         "passed": True,

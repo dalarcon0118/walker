@@ -660,6 +660,57 @@ def merge_write_evidence(
     return flight
 
 
+def _closing_summary(out: dict[str, Any]) -> dict[str, Any]:
+    """Resumen de cierre de la sesión (SPEC-016).
+
+    Es el handoff que otro agente necesita: objetivo, archivos, evidencia de
+    tests, decisiones y próximo paso. Se arma con lo que `session_context` ya
+    leyó (plan, sprint, trace, CKG); lo que no existe queda vacío, no se
+    rellena con el goal de otra sesión.
+    """
+    session = out.get("session") or {}
+    plan = (session.get("flight_plan") if isinstance(session, dict) else {}) or {}
+    sprint = out.get("sprint") or {}
+    tasks = out.get("tasks") or []
+    flight = out.get("flight_state") or {}
+    nodes = (out.get("ckg") or {}).get("results") or []
+    evidence = [n for n in nodes if str(n.get("type") or "") == "verification"]
+    decisions = [
+        {
+            "id": n.get("id") or "",
+            "label": n.get("label") or n.get("name") or "",
+            "type": n.get("type") or "",
+        }
+        for n in nodes
+        if str(n.get("type") or "") != "verification"
+    ]
+    objective = (
+        str(plan.get("goal") or "")
+        or str(sprint.get("goal") or "")
+        or (str(tasks[0].get("objective") or "") if tasks else "")
+    )
+    stamp = out.get("stamp") or {}
+    tests: dict[str, Any] = {
+        "verified": bool(flight.get("verified")),
+        "level": str(flight.get("verify_level") or ""),
+        "kind": str(stamp.get("kind") or "none"),
+        "evidence": [n.get("id") or "" for n in evidence][:5],
+    }
+    if evidence:
+        meta = (evidence[0].get("metadata") or {})
+        tests["runner"] = str(meta.get("runner") or "")
+        for key in ("passed", "failed", "total"):
+            if meta.get(key) is not None:
+                tests[key] = meta[key]
+    return {
+        "objective": objective,
+        "files": list(out.get("files") or [])[:10],
+        "tests": tests,
+        "decisions": decisions[:5],
+        "next": str(plan.get("next") or ""),
+    }
+
+
 def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Todo lo que pasó en una sesión, unido por `session_id`.
 
@@ -863,6 +914,9 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
             ("cpg", len(cpg)),
         ) if not value
     ]
+    # 6. RESUMEN DE CIERRE (SPEC-016): handoff en una sola vista, armado con lo
+    # que ya se leyó arriba.
+    out["summary"] = _closing_summary(out)
     return out
 
 

@@ -376,3 +376,51 @@ def test_session_bind_fija_el_baseline(tmp_path, monkeypatch):
     assert out.ok, out.error
     (tmp_path / "b.py").write_text("y = 1\n")
     assert changed_since_last_scan(str(tmp_path), session_id="S-BIND") == ["b.py"]
+
+
+# ── Evidencia de verificación en el CKG (SPEC-021) ────────────────────────
+
+
+def test_la_verificacion_queda_como_nodo_del_ckg(tmp_path, monkeypatch):
+    captured: dict = {}
+
+    def _save(chain_dir, nodes, task_id="", session_id=""):
+        captured.update({"nodes": nodes, "task_id": task_id, "session_id": session_id})
+        return {"ok": True, "nodes_saved": 1}
+
+    _di.configure_knowledge_writer(_save)
+    try:
+        events = _spy(monkeypatch)
+        _pytest_project(tmp_path, monkeypatch)
+        monkeypatch.setattr(impl.subprocess, "run", lambda *a, **k: _Result(0, "3 passed"))
+
+        out = impl.run_tests(_ctx(str(tmp_path)), {"session_id": "S-1", "task_id": "T-1"})
+    finally:
+        _di.configure_knowledge_writer(None)
+
+    assert out.ok
+    node = captured["nodes"][0]
+    assert node["type"] == "verification"
+    assert node["metadata"]["verified"] is True
+    assert node["metadata"]["total"] == 3
+    # El join con la sesión es `metadata.session_id`; el writer lo inyecta.
+    assert captured["session_id"] == "S-1"
+    assert captured["task_id"] == "T-1"
+    # El trace declara el nodo para que la evidencia sea consultable.
+    assert events[-1]["data"]["evidence_node"] == node["id"]
+
+
+def test_si_el_ckg_no_guarda_el_nodo_el_trace_igual_queda(tmp_path, monkeypatch):
+    _di.configure_knowledge_writer(lambda *a, **k: {"ok": True, "nodes_saved": 0})
+    try:
+        events = _spy(monkeypatch)
+        _pytest_project(tmp_path, monkeypatch)
+        monkeypatch.setattr(impl.subprocess, "run", lambda *a, **k: _Result(0, "1 passed"))
+
+        out = impl.run_tests(_ctx(str(tmp_path)), {"session_id": "S-1", "task_id": "T-1"})
+    finally:
+        _di.configure_knowledge_writer(None)
+
+    assert out.ok, "la verificación no depende del CKG"
+    assert events[-1]["data"]["verified"] is True
+    assert events[-1]["data"]["evidence_node"] == ""

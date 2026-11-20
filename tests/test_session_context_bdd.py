@@ -57,6 +57,13 @@ def servicios(monkeypatch):
         def list_springs(self):
             return [{"spring_id": "SPR-1"}]
 
+        def get_session(self, sid):
+            return {
+                "session_id": sid,
+                "flight_plan": {"goal": "arreglar el login", "next": "correr la suite"},
+                "stamp": {"kind": "tests", "verified": True},
+            }
+
         def get_specs(self, sid):
             return [
                 {"spec_id": "SPEC-1", "objective": "x", "status": "in_progress",
@@ -337,3 +344,54 @@ def test_preflight_sin_archivos_falla_claro():
     out = k.handle_preflight(SimpleNamespace(chain_dir="/tmp/x"), files=[])
 
     assert "files requerido" in out["error"]
+
+
+# ── Resumen de cierre (SPEC-016) ─────────────────────────────────────────
+
+
+def test_resumen_de_cierre_trae_objetivo_archivos_tests_y_next(servicios):
+    out = knowledge.handle_session_context(_ctx(), session_id="ses-1")
+
+    summary = out["summary"]
+    assert summary["objective"] == "arreglar el login"
+    assert "d.py" in summary["files"]
+    assert summary["tests"]["kind"] == "tests"
+    assert summary["next"] == "correr la suite"
+
+
+def test_el_resumen_incluye_la_evidencia_de_verificacion(monkeypatch):
+    from fast_mcp.features.cognitive_knowledge.application.services import ckg_read
+
+    class _Ckg:
+        def query(self, q):
+            return [
+                {
+                    "_id": "verification:ses-1:tool",
+                    "type": "verification",
+                    "statement": "pytest verde · 12/12",
+                    "metadata": {
+                        "session_id": "ses-1",
+                        "runner": "pytest -q",
+                        "passed": 12,
+                        "failed": 0,
+                        "total": 12,
+                    },
+                },
+                {
+                    "_id": "adr-055",
+                    "type": "decision",
+                    "statement": "el prefijo se estabiliza",
+                    "metadata": {"session_id": "ses-1"},
+                },
+            ]
+
+    monkeypatch.setattr(ckg_read, "_resolve_ckg", lambda chain: (_Ckg(), None))
+
+    out = knowledge.handle_session_context(_ctx(), session_id="ses-1")
+    summary = out["summary"]
+
+    assert summary["tests"]["evidence"] == ["verification:ses-1:tool"]
+    assert summary["tests"]["runner"] == "pytest -q"
+    assert summary["tests"]["total"] == 12
+    # La verificación es evidencia, no una decisión: no se mezclan.
+    assert [d["id"] for d in summary["decisions"]] == ["adr-055"]

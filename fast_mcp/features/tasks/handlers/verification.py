@@ -27,6 +27,69 @@ __all__ = ["changed_since_last_scan", "record_verification"]
 _PLACEHOLDER_SESSIONS = {"", "mcp", "global"}
 
 
+def _persist_evidence_node(
+    chain_dir: str,
+    *,
+    session_id: str,
+    task_id: str,
+    passed: bool,
+    level: str,
+    runner: str,
+    returncode: int | None,
+    weak: bool,
+    counts: dict[str, Any] | None,
+    files: list[str],
+) -> str:
+    """Nodo de evidencia de verificación en el CKG (SPEC-021).
+
+    Un verde sin artefacto es una afirmación. El nodo queda ligado a la sesión
+    por `metadata.session_id`, que es el join que usa `session_context`.
+
+    Returns:
+        El id del nodo si se guardó; "" si el CKG no está disponible o el nodo
+        no entró. El trace ya testifica la verificación, así que el nodo es un
+        extra consultable: no se rompe la tool por no poder escribirlo.
+    """
+    extra = counts or {}
+    verdict = "verde" if passed else "rojo"
+    node_id = f"verification:{session_id}:{level}"
+    statement = f"{runner or level} {verdict}"
+    if returncode is not None:
+        statement += f" (rc={returncode})"
+    if extra.get("total"):
+        statement += f" · {extra.get('passed', 0)}/{extra['total']}"
+    node = {
+        "id": node_id,
+        "type": "verification",
+        "label": f"verificación {level}: {verdict}",
+        "statement": statement,
+        "metadata": {
+            "kind": "verification",
+            "runner": runner,
+            "level": level,
+            "verified": bool(passed),
+            "returncode": returncode,
+            "weak": bool(weak),
+            **{k: extra[k] for k in ("passed", "failed", "total") if k in extra},
+            "files": files[:20],
+        },
+    }
+    try:
+        # R1: `tasks` no importa `cognitive_knowledge`; el writer lo inyecta el
+        # composition root (`configure_knowledge_writer`). Si no está, el nodo
+        # no se escribe y se declara vacío.
+        saved = _di.save_knowledge(
+            chain_dir, [node], str(task_id or ""), session_id
+        )
+    except Exception:  # noqa: BLE001 — el trace es la evidencia primaria
+        return ""
+    if not isinstance(saved, dict):
+        return ""
+    if saved.get("ok") is False or saved.get("error"):
+        return ""
+    return node_id if saved.get("nodes_saved") else ""
+
+
 def record_verification(
     ctx: Any,
     *,
@@ -38,6 +101,7 @@ def record_verification(
     task_id: str = "",
     touched: list[str] | None = None,
     weak: bool = False,
+    counts: dict[str, Any] | None = None,
 ) -> bool:
     """Escribe un `session_state` con el resultado de la verificación.
 
@@ -87,6 +151,24 @@ def record_verification(
         data["writes"] = len(files)
         data["touched"] = files
         data["touched_source"] = "watcher"
+
+    # SPEC-021: la verificación es un ARTEFACTO, no sólo un evento del trace.
+    # Queda como nodo del CKG ligado por `metadata.session_id` (el mismo join
+    # que usa `session_context`), con el runner y los contadores. Si el CKG no
+    # está disponible, el nodo no se escribe y se declara: nunca se finge.
+    node_id = _persist_evidence_node(
+        chain_dir,
+        session_id=sid,
+        task_id=task_id,
+        passed=bool(passed),
+        level=level,
+        runner=runner,
+        returncode=returncode,
+        weak=weak,
+        counts=counts,
+        files=files,
+    )
+    data["evidence_node"] = node_id
 
     return _di.push_trace(
         chain_dir,
