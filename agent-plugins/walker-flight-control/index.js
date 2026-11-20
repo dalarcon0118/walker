@@ -20,6 +20,8 @@ import { execFileSync } from "node:child_process"
 import { appendFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 
+import { shellMutation as shellMutationImpl } from "./shell_mutation.mjs"
+
 const WALKER_ROOT = process.env.WALKER_ROOT || "/Users/davidmartinez/develop/Active-projects/walker"
 // Configurable para poder probar el camino "walker no está" sin renombrar el
 // binario real. Default: el CLI del repo.
@@ -371,36 +373,10 @@ async function runSetup(ctx) {
       }
     }
 
-    // ¿El comando de shell muta ARCHIVOS DEL PROYECTO? No alcanza con buscar
-    // ">": `2>&1`, `> /tmp/log` y los `>` dentro de comillas (mensajes de
-    // commit, JSON) no son mutaciones. Medido: `run_tests … > /tmp/out 2>&1`
-    // invalidaba el verde recién obtenido y el nudge volvía a aparecer.
-    const shellMutation = (cmd) => {
-      const raw = String(cmd || "")
-      // 1) fuera lo que está entre comillas: mensajes/JSON no escriben nada.
-      const unquoted = raw.replace(/'[^']*'|"[^"]*"/g, "''")
-      // 2) fuera duplicaciones de fd y /dev/null.
-      const cleaned = unquoted
-        .replace(/\d?>&\d/g, " ")
-        .replace(/&?>>?\s*\/dev\/null/g, " ")
-      const project = String(rt.projectDir || "")
-      // 3) redirects: sólo cuentan si el destino es del proyecto.
-      for (const m of cleaned.matchAll(/>>?\s*([^\s;&|]+)/g)) {
-        const target = m[1].replace(/^['"]|['"]$/g, "")
-        if (!target) continue
-        if (target.startsWith("/") && project && !target.startsWith(project)) continue
-        return { mutates: true, target }
-      }
-      // 4) mutadores en posición de comando (no dentro de un path).
-      if (
-        /(?:^|[;&|]\s*)(rm|mv|cp|tee|sed\s+-i|touch|mkdir|install|truncate|dd)\b/.test(
-          cleaned
-        )
-      ) {
-        return { mutates: true, target: "" }
-      }
-      return { mutates: false, target: "" }
-    }
+    // ¿El comando de shell muta ARCHIVOS DEL PROYECTO? La lógica vive en
+    // `shell_mutation.mjs` (testeable sin OpenCode). Acá sólo se le pasa el
+    // `projectDir` de la sesión.
+    const shellMutation = (cmd) => shellMutationImpl(cmd, rt.projectDir)
 
     // Costo/tokens de la sesión (el proveedor los reporta por mensaje). Si no
     // se puede leer, `cost` queda null: nunca se reporta 0 como si fuera gratis.
