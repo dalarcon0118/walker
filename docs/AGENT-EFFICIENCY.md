@@ -470,7 +470,7 @@ acá sigue abierto.
 | Perfil ≤8 tools (F3) | pendiente | hoy 23 tools / 10.314 chars. El recorte exige migrar 30 referencias a nombres de tool en prompts/workflow: sin eso se reproduce el escenario 3 de §4 (`Unknown tool`). No se hace a ciegas. |
 | Deadlock de import concurrente (AE-INV-07) | **abierto** | no se tocó en esta fase |
 
-Verificación: `python3 -m pytest -q` → **1.543 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.544 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
@@ -520,6 +520,7 @@ indexar lo que se pregunta.
 | `match_expr(mode="any")` + OR cuando el AND da `<5` | `agent_context(text=…)` deja de devolver `ckg: []` |
 | Cuerpo del ADR indexado (8 KB, era 800 chars de cabecera) | q01 pasa de 0 a **rank 3**; q15 vuelve a rank 2 |
 | Autoridad antes que memoria de sesión (orden bm25 estable) | `decision-001` ("proceed") deja de ser top-1 de q06 |
+| Variantes morfológicas en la query (sólo `match_mode=any`) | `registry`→`registries`, `capas`→`capa`: q09 pasa de rank 10 a top-5 |
 | `search_memories` sin `project_id` en el mapa | desaparece `Índice 'project_id' no registrado` |
 
 Quedan **2 fallos, conocidos y no parcheados a propósito**:

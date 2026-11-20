@@ -257,8 +257,31 @@ def match_expr(text: str, fields_scoped: list[str] | None = None,
     tokens = tokenize(str(text))
     if not tokens:
         return ""
-    terms = [f'"{t}"*' for t in tokens]
     any_mode = str(mode).lower() == "any"
+
+    def _term(token: str) -> str:
+        """Variantes morfológicas de un token (sólo en modo recall).
+
+        El corpus es bilingüe y flexiona: "registry"/"registries",
+        "tareas"/"tarea". El FTS no hace stemming, así que la variante se
+        agrega en la CONSULTA (el índice queda intacto). El token exacto
+        siempre está primero: esto suma recall, no lo reemplaza.
+        """
+        if not any_mode:
+            return f'"{token}"*'
+        variants = [token]
+        if len(token) > 4 and token.endswith("ies"):
+            variants.append(token[:-3] + "y")
+        elif len(token) > 4 and token.endswith("y"):
+            variants.append(token[:-1] + "ies")
+        elif len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
+            variants.append(token[:-1])
+        unique = list(dict.fromkeys(variants))
+        if len(unique) == 1:
+            return f'"{token}"*'
+        return "(" + " OR ".join(f'"{v}"*' for v in unique) + ")"
+
+    terms = [_term(t) for t in tokens]
     and_terms = " ".join(terms)
     inner = (" OR ".join(terms)) if any_mode else and_terms
     if len(terms) > 1 and any_mode:
@@ -579,15 +602,12 @@ def search_fts(
     marker = fts_marker(conn, index)
     cols = marker.get("fields", []) if marker else []
     fts_name = fts_table(index)
-    # El PRIMER campo del schema es el titular (statement/name/objective); el
-    # resto es cuerpo. bm25 pesa todos los campos igual, así que un ADR largo
-    # con la palabra repetida en el cuerpo le gana a uno cuyo TÍTULO es la
-    # respuesta (medido: ADR-047 caía a rank 6 por el cuerpo de ADR-074). Pesar
-    # el titular x3 recupera la señal sin tocar el corpus.
+    # Pesar el titular x3 (statement/name/objective) PARECÍA la corrección
+    # natural para ADR-047, pero medido contra el golden set bajó 18→17/20:
+    # el boost global reordena queries donde el cuerpo era la señal correcta.
+    # El ranking queda en bm25 plano; la precisión se arregla en el corpus
+    # (cuerpo indexado) y en el filtro de autoridad, no con pesos ad-hoc.
     rank_fn = f"bm25({fts_name})"
-    if len(cols) > 1:
-        weights = ", ".join(["3.0"] + ["1.0"] * (len(cols) - 1))
-        rank_fn = f"bm25({fts_name}, {weights})"
 
     def _query(expr: str) -> tuple[list[tuple[str, float]], int]:
         total = int(conn.execute(

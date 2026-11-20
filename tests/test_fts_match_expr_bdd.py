@@ -44,8 +44,24 @@ def test_multi_palabra_mantiene_and_estricto():
 def test_mode_any_une_los_prefijos_con_or():
     """Recall explícito para preguntas naturales (F2, 2026-11-20)."""
     assert match_expr("auth token", mode="any") == '("auth"* OR "token"*)'
-    # Un solo token es idéntico en ambos modos.
-    assert match_expr("bootstraps", mode="any") == '"bootstraps"*'
+    # Un token sin variantes morfológicas es idéntico en ambos modos.
+    assert match_expr("auth", mode="any") == '"auth"*'
+    # Un plural suma su singular (recall), conservando el token exacto.
+    assert match_expr("bootstraps", mode="any") == '("bootstraps"* OR "bootstrap"*)'
+
+
+def test_mode_any_suma_variantes_morfologicas():
+    """`registry`/`registries` y `capas`/`capa` son el mismo término.
+
+    Medido: ADR-047 ("registries ... capas") caía a rank 10 porque la consulta
+    decía "registry". El índice no hace stemming; la variante va en la query y
+    el token exacto se conserva.
+    """
+    expr = match_expr("registries capas", mode="any")
+    assert '"registry"*' in expr and '"registries"*' in expr
+    assert '"capa"*' in expr and '"capas"*' in expr
+    # El modo AND no se toca (contrato del índice).
+    assert match_expr("registries capas") == '"registries"* "capas"*'
 
 
 def test_fts_real_cae_a_or_cuando_el_and_no_encuentra(tmp_path):

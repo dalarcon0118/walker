@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-11-20T16:43:35.343027+00:00",
+  "generated_at": "2026-11-20T17:12:24.034906+00:00",
   "project": "walker",
   "set": "/Users/davidmartinez/develop/Active-projects/walker/data/golden/agent_queries.json",
   "total": 20,
   "hits": 18,
   "hit_rate": 0.9,
-  "mean_latency_ms": 2019,
+  "mean_latency_ms": 2111,
   "rows": [
     {
       "id": "q01",
@@ -14,10 +14,10 @@
         "adr-walker-063"
       ],
       "hit": true,
-      "hit_rank": 3,
-      "results": 20,
-      "first_adr": "ADR-WALKER-022",
-      "latency_ms": 1956,
+      "hit_rank": 2,
+      "results": 5,
+      "first_adr": "ADR-WALKER-018",
+      "latency_ms": 2743,
       "error": ""
     },
     {
@@ -28,9 +28,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-061",
-      "latency_ms": 1952,
+      "latency_ms": 2190,
       "error": ""
     },
     {
@@ -41,9 +41,9 @@
       ],
       "hit": true,
       "hit_rank": 2,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-062",
-      "latency_ms": 1948,
+      "latency_ms": 2119,
       "error": ""
     },
     {
@@ -54,9 +54,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-073",
-      "latency_ms": 1945,
+      "latency_ms": 2135,
       "error": ""
     },
     {
@@ -67,9 +67,9 @@
       ],
       "hit": false,
       "hit_rank": 0,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-045",
-      "latency_ms": 1957,
+      "latency_ms": 2104,
       "error": ""
     },
     {
@@ -80,9 +80,9 @@
       ],
       "hit": false,
       "hit_rank": 0,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-049",
-      "latency_ms": 1954,
+      "latency_ms": 2109,
       "error": ""
     },
     {
@@ -93,9 +93,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-057",
-      "latency_ms": 1951,
+      "latency_ms": 2072,
       "error": ""
     },
     {
@@ -106,9 +106,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-071",
-      "latency_ms": 1949,
+      "latency_ms": 2100,
       "error": ""
     },
     {
@@ -118,10 +118,10 @@
         "adr-walker-047"
       ],
       "hit": true,
-      "hit_rank": 1,
-      "results": 20,
+      "hit_rank": 2,
+      "results": 5,
       "first_adr": "ADR-WALKER-074",
-      "latency_ms": 1948,
+      "latency_ms": 2071,
       "error": ""
     },
     {
@@ -133,9 +133,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-072",
-      "latency_ms": 1954,
+      "latency_ms": 2017,
       "error": ""
     },
     {
@@ -146,9 +146,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-075",
-      "latency_ms": 1974,
+      "latency_ms": 2048,
       "error": ""
     },
     {
@@ -159,9 +159,9 @@
       ],
       "hit": true,
       "hit_rank": 2,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-056",
-      "latency_ms": 1977,
+      "latency_ms": 2123,
       "error": ""
     },
     {
@@ -172,9 +172,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-048",
-      "latency_ms": 1976,
+      "latency_ms": 2005,
       "error": ""
     },
     {
@@ -185,9 +185,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-074",
-      "latency_ms": 2099,
+      "latency_ms": 2083,
       "error": ""
     },
     {
@@ -198,9 +198,9 @@
       ],
       "hit": true,
       "hit_rank": 2,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-047",
-      "latency_ms": 2021,
+      "latency_ms": 2039,
       "error": ""
     },
     {
@@ -211,9 +211,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-062",
-      "latency_ms": 2026,
+      "latency_ms": 2021,
       "error": ""
     },
     {
@@ -223,10 +223,10 @@
         "adr-walker-060"
       ],
       "hit": true,
-      "hit_rank": 1,
-      "results": 20,
-      "first_adr": "ADR-WALKER-065",
-      "latency_ms": 1961,
+      "hit_rank": 2,
+      "results": 5,
+      "first_adr": "ADR-WALKER-069",
+      "latency_ms": 2110,
       "error": ""
     },
     {
@@ -237,9 +237,9 @@
       ],
       "hit": true,
       "hit_rank": 2,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-058",
-      "latency_ms": 2645,
+      "latency_ms": 2081,
       "error": ""
     },
     {
@@ -251,9 +251,9 @@
       ],
       "hit": true,
       "hit_rank": 3,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-081",
-      "latency_ms": 2090,
+      "latency_ms": 2045,
       "error": ""
     },
     {
@@ -264,9 +264,9 @@
       ],
       "hit": true,
       "hit_rank": 1,
-      "results": 20,
+      "results": 5,
       "first_adr": "ADR-WALKER-064",
-      "latency_ms": 2103,
+      "latency_ms": 2009,
       "error": ""
     }
   ]
