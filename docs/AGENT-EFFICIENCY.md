@@ -466,3 +466,34 @@ acá sigue abierto.
 Verificación: `python3 -m pytest -q` → **1.524 passed** (1.515 previos + 9
 nuevos), `python3 scripts/golden_queries.py`, `python3 scripts/agent_metrics.py`.
 
+### 7.1 Hallazgos nuevos durante la implementación (no corregidos)
+
+Salieron de operar el sistema, no de leerlo. Quedan acá para que no se pierdan:
+
+1. **El gate de alcance absorbió un path externo.** Al editar
+   `~/.config/opencode/opencode.json`, el plugin hizo `scope_expanded` y lo sumó
+   al plan. FC-INV-08 §2.4.2 dice que un path fuera del `projectDir` **se
+   bloquea** con el remedio del proyecto correcto, no se absorbe. La
+   verificación quedó con el path externo dentro del `scope`.
+2. **La telemetría ya mide el escenario 3 del §4.** En la primera corrida real
+   aparecieron `list` (5 llamadas) y `prepare` (2) con `outcome=invalid`
+   (`Unknown tool`): son tools que el perfil `agent` retira y que algún camino
+   todavía invoca. Antes era invisible; ahora está contado
+   (`data/metrics/tool_calls.jsonl`).
+3. **`spec_status` no acepta los artefactos donde el schema dice.** El handler
+   los lee como **parámetros de primer nivel** (`completed_at`, `commit_hash`,
+   `review_verdict`, `evidence`), pero el schema de la fase
+   (`fast_mcp/phases/phase3_tasks.py:276-290`) no los declara; un
+   `artifacts: {…}` anidado se ignora en silencio y el error sólo dice "missing
+   required artifacts". Viola AE-INV-03 (firma uniforme).
+4. **El plan y la spec divergen.** El `session_plan` tenía 4 criterios de
+   aceptación; `implement_task` creó `SPEC-001` con
+   `validation.errors: ["sin criterios de aceptación ni predicados
+   ejecutables"]`. El plan no se propaga a la spec que se cierra.
+5. **El cierre bloquea la documentación del cierre.** Al pasar el sprint a
+   cerrado, el gate de intake vuelve a negar `edit`/`write`/`shell` hasta un
+   `session_bind` nuevo: la sesión que acaba de cerrar no puede escribir su
+   propio reporte. Es AE-INV-02 en su forma más cara (una escritura de
+   documentación paga el peaje de un sprint nuevo).
+
+

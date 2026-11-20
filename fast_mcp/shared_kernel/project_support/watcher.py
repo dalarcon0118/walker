@@ -64,6 +64,13 @@ def _is_walker_state(rel_path: str) -> bool:
     # `cognitive.sqlite3-wal` no termina en `.sqlite3` y se colaba en `touched`.
     if parts[0] == "data" and re.match(r".*\.sqlite3(-wal|-shm)?$", name):
         return True
+    # Telemetría por tool (`data/metrics/*.jsonl`): la escribe el SERVER en cada
+    # llamada MCP, no el agente. Sin este filtro, la primera tool que se llama
+    # marca `wrote` y el gate de cierre nunca queda limpio aunque el agente no
+    # haya tocado nada (medido 2026-11-20: `run_tests` reportó
+    # `touched: ["data/metrics/tool_calls.jsonl"]`).
+    if len(parts) >= 3 and parts[0] == "data" and parts[1] == "metrics":
+        return True
     return False
 
 

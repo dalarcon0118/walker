@@ -162,6 +162,24 @@ def test_scan_detecta_cambios_desde_el_ultimo_scan(tmp_path, monkeypatch):
     assert "a.py" in changed and "b.py" in changed
 
 
+def test_scan_ignora_la_telemetria_del_server(tmp_path):
+    """`data/metrics/*.jsonl` lo escribe el server: no es escritura del agente.
+
+    Sin este filtro, la primera tool MCP marca `wrote` y el gate de cierre
+    nunca puede quedar verde aunque el agente no haya tocado un archivo.
+    """
+    from fast_mcp.shared_kernel.project_support.watcher import changed_since_last_scan
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    assert changed_since_last_scan(str(tmp_path)) == [], "baseline"
+
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "tool_calls.jsonl").write_text('{"tool": "status"}\n')
+
+    assert changed_since_last_scan(str(tmp_path)) == []
+
+
 def test_run_tests_registra_la_escritura_que_walker_ve(tmp_path, monkeypatch):
     events = _spy(monkeypatch)
     _pytest_project(tmp_path, monkeypatch)
