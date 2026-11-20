@@ -123,6 +123,22 @@ def test_perfil_con_nombre_inexistente_avisa_pero_no_rompe(monkeypatch, caplog):
     assert "no_existe_esta_tool" in caplog.text
 
 
+def test_toda_tool_con_contexto_declara_project_id(monkeypatch):
+    """AE-INV-03: si el wrapper exige `project_id`, el schema debe declararlo.
+
+    Medido 2026-11-20: `preflight({"project_id": ..., "files": [...]})` moría
+    en 29 ms con "No project context" porque el inputSchema sólo declaraba
+    `files`; el parámetro no llegaba al handler. Lo mismo con `snapshot`,
+    `baseline_diff` y `session_context`.
+    """
+    tools = _tools(monkeypatch, "agent")
+
+    for name in ("preflight", "snapshot", "baseline_diff", "agent_context",
+                 "search_memories", "search_skills", "load_skill"):
+        props = (tools[name].inputSchema or {}).get("properties") or {}
+        assert "project_id" in props, f"{name} no declara project_id"
+
+
 def test_ablation_inyecta_el_perfil(monkeypatch):
     from scripts import ablation
 

@@ -461,7 +461,7 @@ acá sigue abierto.
 | Telemetría por tool (F0) | **implementado** | `fast_mcp/shared_kernel/telemetry/` + `scripts/agent_metrics.py`; primera llamada medida: `status` 3 ms · 255 tok · `hit` |
 | Golden set (F0) | **congelado con baseline** | `data/golden/agent_queries.json` → `data/golden/baseline.json`: **0/20**, 1.981 ms de media |
 | Causa del retrieval vacío | **corregida en F2** | AND estricto (`fts.py:match_expr`); OR+bm25 para texto libre (`match_mode=any`) con fallback cuando el AND devuelve `<5`; **cuerpo del ADR indexado** (`ingest_adrs.py`, era 800 chars de cabecera); golden set **18/20** (`baseline-f2.json`) |
-| Firma uniforme de `search_memories` | **implementada** | `project_id`/paginación fuera del mapa de índices; `text`/`query` → `ckg.text`; error con ejemplo ejecutable (`tests/test_memory_signature_bdd.py`) |
+| Firma uniforme | **implementada** | `search_memories`: `project_id`/paginación fuera del mapa de índices, `text`/`query` → `ckg.text`, error con ejemplo (`tests/test_memory_signature_bdd.py`); `preflight`/`snapshot`/`baseline_diff`/`session_context` declaran `project_id` — antes morían con "No project context" (`test_tool_profiles_bdd.py`) |
 | Ranking por autoridad | **implementado** | ADR/`docs/` antes que memoria de sesión, con orden bm25 estable (`tests/test_ckg_retrieval_ranking_bdd.py`) |
 | Plan → spec | **corregido** | `implement_task` hereda `acceptance` del `session_plan`; `spec_status` acepta `artifacts` anidado |
 | `brief` compuesto (F2) | pendiente | — |
@@ -469,7 +469,7 @@ acá sigue abierto.
 | Perfil ≤8 tools (F3) | pendiente | hoy 23 tools / 10.314 chars. El recorte exige migrar 30 referencias a nombres de tool en prompts/workflow: sin eso se reproduce el escenario 3 de §4 (`Unknown tool`). No se hace a ciegas. |
 | Deadlock de import concurrente (AE-INV-07) | **abierto** | no se tocó en esta fase |
 
-Verificación: `python3 -m pytest -q` → **1.540 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.542 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)

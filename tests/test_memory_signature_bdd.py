@@ -48,13 +48,20 @@ def test_project_id_no_es_un_indice():
         {"project_id": "walker", "ckg": {"text": "gate de alcance"}}
     )
     assert "project_id" not in queries
-    assert queries == {"ckg": {"text": "gate de alcance"}}
+    assert queries["ckg"]["text"] == "gate de alcance"
+    assert queries["ckg"]["match_mode"] == "any"
     assert "error" not in out
 
 
 def test_text_de_primer_nivel_es_atajo_de_ckg():
     _, queries = _run({"project_id": "walker", "text": "engine puro"})
-    assert queries == {"ckg": {"text": "engine puro"}}
+    assert queries == {"ckg": {"text": "engine puro", "match_mode": "any"}}
+
+
+def test_filtro_estructurado_no_cambia_a_or():
+    """`type:decision` es filtro, no pregunta: conserva el contrato AND."""
+    _, queries = _run({"ckg": {"type": "decision"}})
+    assert queries == {"ckg": {"type": "decision"}}
 
 
 def test_paginacion_llega_a_cada_indice():

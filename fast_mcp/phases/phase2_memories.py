@@ -60,6 +60,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "preflight": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string"},
             "files": {"type": "array", "items": {"type": "string"},
                       "description": "Archivos que se van a tocar"},
         },
@@ -68,6 +69,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "session_context": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string"},
             "session_id": {"type": "string", "description": "id de sesión del agente"},
         },
         "required": ["session_id"],
@@ -75,6 +77,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "snapshot": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string"},
             "scope": {"type": "string", "description": "Prefijo de path (ej. 'promotion/')"},
             "label": {"type": "string", "description": "Nombre para persistir la foto"},
         },
@@ -82,6 +85,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
     "baseline_diff": {
         "type": "object",
         "properties": {
+            "project_id": {"type": "string"},
             "base": {"type": "string", "description": "Label del snapshot guardado"},
             "scope": {"type": "string", "description": "Prefijo de path (opcional)"},
         },
@@ -248,9 +252,9 @@ _INPUT_SCHEMAS: dict[str, dict] = {
 }
 
 _DESCRIPTIONS = {
-    "preflight": "Qué se toca, a quién afecta y qué lo verifica — antes de escribir.",
+    "preflight": "Impacto, tests y decisiones antes de escribir.",
     "session_context": "Todo lo que pasó en una sesión, unido por session_id: trace, tareas del delta, CKG y CPG.",
-    "snapshot": "Captura el estado del scope (punto A): estructura, relaciones, firmas, complejidad, archivos, convenciones y defectos.",
+    "snapshot": "Estado del scope (punto A): estructura, firmas, complejidad.",
     "baseline_diff": "Compara un snapshot guardado contra el estado actual (punto B).",
     "build_code_index": "Full CPG rebuild from scratch. Use for initial setup or when index is corrupted.",
     "index_repo": "Index an external repo as reference in CKG.",

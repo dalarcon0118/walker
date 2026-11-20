@@ -421,6 +421,13 @@ def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
             query.setdefault("match_mode", match_mode)
         if size:
             query.setdefault("size", size)
+        # Mismo contrato que `agent_context`: una pregunta natural usa OR +
+        # bm25. Sin esto, `search_memories` ejecutaba el AND crudo del índice
+        # (3 candidatos) mientras `agent_context` ya devolvía 20.
+        qtext = str(query.get("text") or "")
+        if qtext and "match_mode" not in query and ":" not in qtext:
+            if len(qtext.split()) > 1:
+                query["match_mode"] = "any"
 
     if not queries:
         return {
