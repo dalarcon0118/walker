@@ -69,14 +69,20 @@ class CkgReadService:
     # ── Direct queries ────────────────────────────────────────────────
 
     @staticmethod
-    def query_active(chain_dir: str, type_name: str = "") -> list[dict]:
-        """Search active (non-superseded) nodes in the CKG."""
+    def query_active(chain_dir: str, type_name: str = "", size: int = 0) -> list[dict]:
+        """Search active (non-superseded) nodes in the CKG.
+
+        `size` > 0 pide una página explícita (la retención necesita ver todos
+        los `session` activos, no los primeros 50 del default).
+        """
         ckg, _ = _resolve_ckg(chain_dir)
         if not ckg:
             return []
         query: dict = {"include_superseded": False}
         if type_name:
             query["type"] = type_name
+        if size > 0:
+            query["size"] = int(size)
         return [_normalize_node(n) for n in (ckg.query(query) or [])]
 
     @staticmethod
@@ -117,7 +123,15 @@ class CkgReadService:
             # P1.2: los nodos de prueba del harness no son decisiones del
             # proyecto. Citarlos (p. ej. `adr-999`) le da autoridad falsa a un
             # seed; se excluyen por tag/origen, no por lista negra de ids.
-            return [n for n in rows if not _is_test_seed(n)]
+            # P1.5: un nodo superseded tampoco es autoridad vigente (el
+            # contrato del puerto dice que las queries devuelven solo activos;
+            # `search` por texto no lo aplica, así que se filtra acá).
+            return [
+                n for n in rows
+                if not _is_test_seed(n)
+                and str((n.get("metadata") or {}).get("status", "") or "")
+                not in ("superseded", "deprecated")
+            ]
 
         result = _gather()
         return result if is_successful(result) else Success([])

@@ -713,6 +713,16 @@ def _build_task_registry(sprint_service=None):
 
         tasks_di.configure_knowledge_writer(_save_knowledge)
 
+        from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import (
+            CkgReadService,
+        )
+
+        def _session_facts(chain_dir: str) -> list:
+            """Nodos `session` activos para la retención de la captura (P1.5)."""
+            return CkgReadService.query_active(chain_dir, "session", size=1000)
+
+        tasks_di.configure_knowledge_reader(_session_facts)
+
         from fast_mcp.features.event_tracing.application.services.trace_factory import (
             build_trace_service,
         )

@@ -272,7 +272,27 @@ constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
 - [ ] M-09 Fallback visible: sin evidencia no se propone nada (campo vacío), no
       se escribe "unknown" — anti-patrón: rellenar con placeholders.
 
-## 10. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 10. P1.5 — Retención de nodos `session`
+
+Cada cierre agrega un nodo `type: session`; sin política, el CKG se llena de
+ruido de bajo valor y cita verdades viejas. El mecanismo ya existía
+(`supersedes` → `metadata.status=superseded`, y las queries excluyen
+superseded); nadie lo usaba para sesiones.
+
+- [ ] Misma tarea: el hecho nuevo supersede los viejos de esa tarea (una sola
+      verdad vigente); los viejos no se borran (historia).
+- [ ] Techo: se conservan los `MAX_SESSION_FACTS - 1` más recientes y se
+      supersede el resto.
+- [ ] `gather_context` no cita nodos superseded (el `search` por texto no
+      aplicaba el filtro del puerto).
+- [ ] M-01 Integridad: el supersede se resuelve con lectura del CKG, no con una
+      lista en memoria — anti-patrón: id hardcodeado.
+- [ ] M-06 Extensibilidad: una sola política (`_supersedes_for`) y el lector
+      inyectado por `_di` — anti-patrón: cada tool con su borrado.
+- [ ] M-09 Fallback visible: la captura reporta `superseded` en su resultado —
+      anti-patrón: retención silenciosa.
+
+## 11. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -286,7 +306,7 @@ constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
 
 ---
 
-## 11. failure_scenarios
+## 12. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -301,13 +321,14 @@ constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
   "El CKG está vacío o contaminado y el plugin cita adr-999 como si fuera una decisión del proyecto → el agente decide sobre memoria falsa → causa: los health checks existían pero ninguna decisión los consumía → mitigación: memory_health.trusted en preflight/agent_context, exclusión por origin:test y borrado de seeds con revisión → detección: harness mode=degraded (no cita adr-, dice 'CKG degradado')",
   "Un prompt envía un campo que su input_schema no declara → el contrato de accept cruza con campos fantasma y el drift sólo se ve en runtime → causa: prosa y schema versionados por separado → mitigación: check bloqueante prompt→schema y declaración de los campos (40 → 0) → detección: test_workflow_contract_bdd",
   "La obligación de capturar conocimiento vive en un sub-estado del motor que solo corre con submit; el agente trabaja con tools → 227 kg_query (lecturas) y 0 capture_knowledge (escrituras) → causa: el camino de tools no ejecuta acciones auto ni gates → mitigación: captura acoplada a session_close/run_tests verde/spec_status completed, visible en data.knowledge → detección: tests/test_capture_side_effects_bdd.py y CKG creciendo en una sesión real",
-  "project.json nace con design/coding/quality vacíos y build_project_config no escribe → cada proyecto sin constitución y el agente re-deriva convenciones de la prosa → causa: la propuesta existía pero nada la aplicaba → mitigación: propuesta desde evidencia + apply en REVIEW completando solo lo vacío → detección: tests/test_project_init_config_bdd.py"
+  "project.json nace con design/coding/quality vacíos y build_project_config no escribe → cada proyecto sin constitución y el agente re-deriva convenciones de la prosa → causa: la propuesta existía pero nada la aplicaba → mitigación: propuesta desde evidencia + apply en REVIEW completando solo lo vacío → detección: tests/test_project_init_config_bdd.py",
+  "Cada cierre agrega un nodo session y el CKG acumula verdades viejas de la misma tarea → el contexto cita historia como si fuera vigente y el índice crece sin cota → causa: el mecanismo de supersede existía pero nadie lo usaba → mitigación: supersede por tarea + techo de 25 + gather_context ignora superseded → detección: tests/test_session_retention_bdd.py"
 ]
 ```
 
 ---
 
-## 12. Criterios de aceptación
+## 13. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -331,10 +352,13 @@ constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
     hecho en el CKG (idempotente) y una captura fallida no rompe la tool.
 11. P1.4: el proyecto recién preparado tiene `test_framework`/`formatter`/`linter`
     desde evidencia; volver a aplicar no cambia nada y no pisa lo curado.
+12. P1.5: una tarea tiene un solo nodo `session` vigente y el CKG no supera el
+    techo; los viejos quedan como historia (`status=superseded`) y el contexto
+    no los cita.
 
 ---
 
-## 13. Riesgos y compatibilidad
+## 14. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -348,7 +372,7 @@ constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
 
 ---
 
-## 14. Tests
+## 15. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -371,4 +395,6 @@ constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
   token por entrada y captura acoplada a las tools (P1.1/P1.3).
 - `tests/test_project_init_config_bdd.py`: propuesta/apply de `project.json`
   sin pisar lo curado (P1.4).
+- `tests/test_session_retention_bdd.py`: supersede por tarea, techo y
+  `gather_context` sin superseded (P1.5).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

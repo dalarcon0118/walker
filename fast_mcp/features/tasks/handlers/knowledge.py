@@ -22,7 +22,11 @@ def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
     spec = _di.current_spec(ctx.chain_dir or "", task_id=task_id)
 
     if spec:
-        task_id = task_id or str((spec.get("task_context") or {}).get("task_id", "") or "")
+        # La spec es la SSOT del task_id: el caller puede pasar un rótulo
+        # arbitrario (o "mcp"), pero el nodo debe quedar identificado con la
+        # tarea real para que la retención (supersede por tarea) funcione.
+        spec_task = str((spec.get("task_context") or {}).get("task_id", "") or "")
+        task_id = spec_task or task_id
         session_id = session_id or str((spec.get("task_context") or {}).get("session_id", "") or "")
         objective = str(spec.get("objective", "") or "")
         files = [f for f in (spec.get("files") or []) if isinstance(f, str)]
@@ -50,6 +54,8 @@ def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
         statement = f"{statement} — " + "; ".join(detail)
 
     node_id = f"session-{(session_id or 'sin-id')[-12:]}-{(task_id or 'tarea')}"
+    from datetime import datetime, timezone
+
     return {
         "id": node_id,
         "type": "session",
@@ -63,9 +69,47 @@ def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
             "task_id": task_id,
             "files": files[:20],
             "events": len(events),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
             "source": f"session:{session_id}" if session_id else "session",
         },
     }
+
+
+#: Techo de nodos `session` activos por proyecto. La captura supersede los
+#: viejos (misma tarea, o por encima del techo) en vez de acumular ruido.
+MAX_SESSION_FACTS = 25
+
+
+def _supersedes_for(chain_dir: str, fact: dict, task_id: str) -> list[str]:
+    """Ids de nodos `session` que este hecho reemplaza.
+
+    Dos políticas, en este orden:
+      1. misma tarea: el hecho nuevo es la versión vigente; los viejos de esa
+         tarea se superseden (el CKG no guarda dos verdades de la misma tarea).
+      2. techo: se conservan los `MAX_SESSION_FACTS - 1` más recientes y se
+         supersede el resto (crecimiento acotado, sin borrar historia).
+    """
+    nodes = _di.session_facts(chain_dir)
+
+    def _id(n: dict) -> str:
+        return str(n.get("_id") or n.get("id") or "")
+
+    new_id = str(fact.get("id") or "")
+    others = [n for n in nodes if _id(n) and _id(n) != new_id]
+    same = [
+        n for n in others
+        if task_id and str((n.get("metadata") or {}).get("task_id") or "") == task_id
+    ]
+    same_ids = {_id(n) for n in same}
+    rest = [n for n in others if _id(n) not in same_ids]
+
+    def _ts(n: dict) -> str:
+        meta = n.get("metadata") or {}
+        return str(meta.get("captured_at") or n.get("updated_at") or n.get("created_at") or "")
+
+    rest.sort(key=_ts, reverse=True)  # más recientes primero
+    excess = rest[max(0, MAX_SESSION_FACTS - 1):]
+    return sorted({_id(n) for n in (same + excess) if _id(n)})
 
 
 def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -79,16 +123,27 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
             "capture_knowledge: no hay sesión ni tarea declarada que documentar"
         )
 
+    task_id = str((fact.get("metadata") or {}).get("task_id") or data.get("task_id", "") or "")
+    supersedes = _supersedes_for(ctx.chain_dir, fact, task_id)
+    if supersedes:
+        fact["supersedes"] = supersedes
+
     result = _di.save_knowledge(
         ctx.chain_dir,
         [fact],
-        str(data.get("task_id", "") or fact["metadata"]["task_id"]),
+        str(fact["metadata"]["task_id"]),
         str(data.get("session_id", "") or fact["metadata"]["session_id"]),
     )
     if result is None:
         return TaskResult.failure("capture_knowledge: writer del CKG no inyectado")
 
-    return TaskResult.success(data={"fact": fact["id"], "statement": fact["statement"][:200]})
+    return TaskResult.success(
+        data={
+            "fact": fact["id"],
+            "statement": fact["statement"][:200],
+            "superseded": len(supersedes),
+        }
+    )
 
 
 def capture_session_fact(

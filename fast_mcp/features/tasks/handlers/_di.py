@@ -13,6 +13,7 @@ _SPRINT_FACTORY: Callable[[str], Any] | None = None
 _TASK_RECORDER: Callable[[str, str], bool] | None = None
 _WORKFLOW_RESET: Callable[[str], dict] | None = None
 _KNOWLEDGE_WRITER: Callable[..., Any] | None = None
+_KNOWLEDGE_READER: Callable[[str], list] | None = None
 _TRACE_READER: Callable[[str, str], list] | None = None
 _SPEC_VALIDATOR: Callable[[dict], list] | None = None
 
@@ -56,6 +57,27 @@ def configure_knowledge_writer(writer: Callable[..., Any] | None) -> None:
     """Inyecta `(chain_dir, nodes, task_id, session_id) -> resultado` para el CKG."""
     global _KNOWLEDGE_WRITER
     _KNOWLEDGE_WRITER = writer
+
+
+def configure_knowledge_reader(reader: Callable[[str], list] | None) -> None:
+    """Inyecta `chain_dir -> [nodos session activos]` (retención, R1).
+
+    Lo usa `capture_knowledge` para superseder: la política de qué nodo viejo
+    reemplaza al nuevo se decide con LECTURA del CKG, y tasks no puede importar
+    cognitive_knowledge.
+    """
+    global _KNOWLEDGE_READER
+    _KNOWLEDGE_READER = reader
+
+
+def session_facts(chain_dir: str) -> list:
+    """Nodos `session` activos del CKG (vacío si no hay lector inyectado)."""
+    if _KNOWLEDGE_READER is None or not chain_dir:
+        return []
+    try:
+        return list(_KNOWLEDGE_READER(chain_dir) or [])
+    except Exception:  # noqa: BLE001 — la retención no puede romper la captura
+        return []
 
 
 def configure_spec_validator(validator: Callable[[dict], list] | None) -> None:
