@@ -155,9 +155,13 @@ def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
             session_id = str(tc.get("session_id") or "") or session_id
         objective = str(spec.get("objective", "") or "")
         files = [f for f in (spec.get("files") or []) if isinstance(f, str)]
+        spec_spring = str(spec.get("spring_id") or "") or spring_id
+        spec_ref = str(spec.get("spec_id") or "")
     else:
         objective = ""
         files = []
+        spec_spring = spring_id
+        spec_ref = ""
 
     events = _di.session_events(ctx.chain_dir or "", session_id) if session_id else []
 
@@ -192,6 +196,11 @@ def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
         "metadata": {
             "session_id": session_id,
             "task_id": task_id,
+            # Clave de retención con alcance: `SPEC-NNN` se repite en cada
+            # sprint, así que superseder por task_id cruzaba sprints (bug
+            # medido 2026-11-20 con SPEC-012).
+            "spring_id": spec_spring,
+            "spec_id": spec_ref,
             "files": files[:20],
             "events": len(events),
             "captured_at": datetime.now(timezone.utc).isoformat(),
@@ -209,8 +218,9 @@ def _supersedes_for(chain_dir: str, fact: dict, task_id: str) -> list[str]:
     """Ids de nodos `session` que este hecho reemplaza.
 
     Dos políticas, en este orden:
-      1. misma tarea: el hecho nuevo es la versión vigente; los viejos de esa
-         tarea se superseden (el CKG no guarda dos verdades de la misma tarea).
+      1. misma identidad: `(spring_id, spec_id)` si el hecho la conoce (los
+         `SPEC-NNN` se repiten por sprint; `task_id` solo cruzaba sprints);
+         si no, `task_id` como compatibilidad con hechos viejos.
       2. techo: se conservan los `MAX_SESSION_FACTS - 1` más recientes y se
          supersede el resto (crecimiento acotado, sin borrar historia).
     """
@@ -219,12 +229,25 @@ def _supersedes_for(chain_dir: str, fact: dict, task_id: str) -> list[str]:
     def _id(n: dict) -> str:
         return str(n.get("_id") or n.get("id") or "")
 
+    def _meta(n: dict) -> dict:
+        return n.get("metadata") or {}
+
     new_id = str(fact.get("id") or "")
     others = [n for n in nodes if _id(n) and _id(n) != new_id]
-    same = [
-        n for n in others
-        if task_id and str((n.get("metadata") or {}).get("task_id") or "") == task_id
-    ]
+    meta = fact.get("metadata") or {}
+    spring = str(meta.get("spring_id") or "")
+    spec_ref = str(meta.get("spec_id") or "")
+    if spring and spec_ref:
+        same = [
+            n for n in others
+            if str(_meta(n).get("spring_id") or "") == spring
+            and str(_meta(n).get("spec_id") or "") == spec_ref
+        ]
+    else:
+        same = [
+            n for n in others
+            if task_id and str(_meta(n).get("task_id") or "") == task_id
+        ]
     same_ids = {_id(n) for n in same}
     rest = [n for n in others if _id(n) not in same_ids]
 

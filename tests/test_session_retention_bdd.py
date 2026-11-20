@@ -421,3 +421,39 @@ def test_captura_supersede_en_ckg_real(project_dir, monkeypatch):
     old = [n for n in all_nodes if "S-1" in str(n.get("_id") or "")]
     assert old, "el nodo viejo no se borra: se supersede (historia)"
     assert (old[0].get("metadata") or {}).get("status") == "superseded"
+
+
+def test_supersede_no_cruza_sprints_con_el_mismo_spec_id(monkeypatch):
+    """SPEC-001 existe en todos los sprints: la retención va por (spring, spec)."""
+    old_a = {"_id": "session-a-SPEC-001",
+             "metadata": {"task_id": "SPEC-001", "spring_id": "S1",
+                          "spec_id": "SPEC-001", "captured_at": "2026-11-01"}}
+    old_b = {"_id": "session-b-SPEC-001",
+             "metadata": {"task_id": "SPEC-001", "spring_id": "S2",
+                          "spec_id": "SPEC-001", "captured_at": "2026-11-02"}}
+    monkeypatch.setattr(_di, "session_facts", lambda _c: [old_a, old_b])
+    fact = {"id": "session-c-SPEC-001",
+            "metadata": {"task_id": "SPEC-001", "spring_id": "S2",
+                         "spec_id": "SPEC-001"}}
+
+    superseded = knowledge._supersedes_for("x", fact, "SPEC-001")
+
+    assert superseded == ["session-b-SPEC-001"]
+
+
+def test_fact_for_guarda_spring_y_spec_en_la_metadata(project_dir, monkeypatch):
+    monkeypatch.setattr(_di, "session_spring", lambda *_a, **_k: "S2")
+    monkeypatch.setattr(
+        _di, "current_spec",
+        lambda *a, **k: {"spring_id": "S2", "spec_id": "SPEC-012",
+                         "objective": "x", "files": [],
+                         "task_context": {"session_id": "ses-1"}},
+    )
+    monkeypatch.setattr(_di, "session_events", lambda *a, **k: [])
+
+    fact = knowledge._fact_for(
+        _ctx(project_dir), {"task_id": "SPEC-012", "session_id": "ses-1"}
+    )
+
+    assert fact["metadata"]["spring_id"] == "S2"
+    assert fact["metadata"]["spec_id"] == "SPEC-012"
