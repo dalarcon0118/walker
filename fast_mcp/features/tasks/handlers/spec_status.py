@@ -19,7 +19,18 @@ from fast_mcp.features.tasks.handlers import _di
 
 logger = logging.getLogger(__name__)
 
-_ARTIFACT_FIELDS = ("completed_at", "commit_hash", "commit_url", "review_verdict", "evidence")
+_ARTIFACT_FIELDS = (
+    "completed_at",
+    "commit_hash",
+    "commit_url",
+    "review_verdict",
+    "evidence",
+    # Revisión independiente: el autor no firma su propio cierre. El cierre de
+    # sprint la exige; sin `reviewed_by` la spec queda completed pero el sprint
+    # no se puede cerrar.
+    "reviewed_by",
+    "review_findings",
+)
 
 
 def spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

@@ -450,7 +450,24 @@ tools.set("shell", {
 // sin correr pytest real.
 tools.set("run_tests", {
   name: "run_tests",
-  execute: async () => ({ ok: true, data: { passed: mode !== "closefail" } }),
+  execute: async () => {
+    if (mode === "closetool") {
+      // Rojo por la TOOL (no por verify_predicates): la evidencia viaja en
+      // `data.output_tail`, igual que en el camino real de `run_tests`.
+      return {
+        ok: false,
+        error: "run_tests: SUITE ROJA (pytest: rc=1, passed=2, failed=1, errors=0)",
+        data: {
+          passed: false,
+          returncode: 1,
+          total: 3,
+          failures: 1,
+          output_tail: "E   assert 3 == 4\nFAILED tests/test_suma.py::test_suma",
+        },
+      }
+    }
+    return { ok: true, data: { passed: mode !== "closefail" } }
+  },
 })
 // SPEC-013/014: `verify_predicates` devuelve el conteo (verde o rojo). En
 // `closetai` el rojo trae su `output_tail`, que el nudge debe mostrar.
@@ -516,6 +533,7 @@ const closeMode =
   mode === "closefail" ||
   mode === "closeshell" ||
   mode === "closerounds" ||
+  mode === "closetool" ||
   mode === "closetai" ||
   mode === "closecli" ||
   mode === "reloadverified" ||
@@ -1019,6 +1037,11 @@ if (closeMode) {
     // Con acceptance declarada, el shell NO debe certificar: se espera nudge.
     await call("shell", { command: "echo pytest" })
   }
+  if (mode === "closetool") {
+    // SPEC-013 por el camino de `run_tests`: el rojo de la tool también trae
+    // su cola y el nudge tiene que mostrarla.
+    await call("run_tests", {})
+  }
   if (mode === "closetai") {
     // SPEC-013: un rojo con salida. El nudge debe traer la cola del fallo y el
     // archivo tocado, y no certificar el cierre.
@@ -1109,6 +1132,23 @@ if (closeMode) {
     mode !== "closeclipipefail" ||
     (nudged > 0 && /pipe|WALKER_RESULT/i.test(nudges[0].text))
   const ok = (expectedNudge ? okText : nudged === 0) && okHint
+  if (mode === "closetool") {
+    const text = (nudges[0] && nudges[0].text) || ""
+    const checks = [
+      ["la cola del fallo de run_tests viaja en el nudge", /assert 3 == 4/.test(text)],
+      ["nombra el archivo tocado", /x\.txt/.test(text)],
+      ["el ultimo intento es run_tests", /run_tests/.test(text)],
+      ["rojo de la tool no certifica", ok && /No cierres/.test(text)],
+    ]
+    let failed = 0
+    for (const [name, pass] of checks) {
+      if (!pass) failed++
+      console.log(`${pass ? "ok  " : "FAIL"}  ${name}`)
+    }
+    if (failed) console.log(text.slice(0, 400))
+    if (typeof dispose === "function") dispose()
+    process.exit(failed ? 1 : 0)
+  }
   if (mode === "closetai") {
     const text = (nudges[0] && nudges[0].text) || ""
     const checks = [

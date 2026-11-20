@@ -66,6 +66,10 @@ class Spec:
     review_conventions: list[str] = field(default_factory=list)
     review_architecture: list[str] = field(default_factory=list)
     review_verdict: str = ""
+    # Revisión independiente (el autor no firma su propio cierre). El cierre de
+    # sprint exige `reviewed_by` distinto de la sesión que implementó.
+    reviewed_by: str = ""
+    review_findings: list[str] = field(default_factory=list)
 
     # completed fields
     commit_hash: str = ""
@@ -133,6 +137,8 @@ class Spec:
             "review_conventions": self.review_conventions or [],
             "review_architecture": self.review_architecture or [],
             "review_verdict": self.review_verdict,
+            "reviewed_by": self.reviewed_by,
+            "review_findings": self.review_findings or [],
             "commit_hash": self.commit_hash,
             "commit_url": self.commit_url,
             "completed_at": self.completed_at,
@@ -177,6 +183,8 @@ class Spec:
             review_conventions=data.get("review_conventions", []),
             review_architecture=data.get("review_architecture", []),
             review_verdict=data.get("review_verdict", ""),
+            reviewed_by=data.get("reviewed_by", ""),
+            review_findings=data.get("review_findings", []),
             commit_hash=data.get("commit_hash", ""),
             commit_url=data.get("commit_url", ""),
             completed_at=data.get("completed_at", ""),

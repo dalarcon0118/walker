@@ -42,6 +42,24 @@ SPEC_VERIFICATION_FIELDS = ["acceptance_criteria", "predicates"]
 TERMINAL_SPEC_STATUSES = frozenset({"completed", "rejected"})
 
 
+def review_missing(spec: dict) -> list[str]:
+    """Por qué una spec `completed` todavía no tiene revisión independiente.
+
+    El autor no firma su propio cierre: `reviewed_by` tiene que existir y ser
+    distinto de la sesión que implementó (`task_context.session_id`). Sin esta
+    regla, "completed" sólo dice que el autor corrió sus propios tests.
+    """
+    missing: list[str] = []
+    reviewer = str(spec.get("reviewed_by") or "").strip()
+    if not reviewer:
+        missing.append("reviewed_by (revisión independiente)")
+    else:
+        author = str((spec.get("task_context") or {}).get("session_id") or "").strip()
+        if author and reviewer == author:
+            missing.append("reviewed_by distinto del autor (la sesión implementó)")
+    return missing
+
+
 def _completion_missing(spec: dict) -> list[str]:
     """Campos que faltan para poder cerrar una spec como `completed`.
 

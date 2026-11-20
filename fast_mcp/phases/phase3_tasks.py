@@ -316,6 +316,18 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "completed_at": {"type": "string", "description": "ISO-8601 (REPORT_GATE)"},
             "commit_hash": {"type": "string"},
             "review_verdict": {"type": "string", "description": "Veredicto QA (VERIFY)"},
+            "reviewed_by": {
+                "type": "string",
+                "description": (
+                    "Quién revisó, distinto de la sesión que implementó. El cierre "
+                    "de sprint queda bloqueado si falta (autor ≠ revisor)."
+                ),
+            },
+            "review_findings": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Hallazgos de la revisión (fallos, dudas, deuda)",
+            },
             "evidence": {
                 "type": "array",
                 "items": {"type": "string"},

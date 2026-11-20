@@ -30,6 +30,10 @@ ARTIFACTS = {
     "commit_hash": "2a78e1e",
     "review_verdict": "approved",
     "evidence": ["pytest: 1339 passed"],
+    # Revisión independiente: `_spec` implementa con session_id="s1", así que
+    # el revisor tiene que ser otro. Sin esto el cierre queda bloqueado (que es
+    # lo que se prueba en los tests de la sección 5).
+    "reviewed_by": "reviewer-1",
 }
 
 
@@ -256,3 +260,62 @@ def test_archive_sprint_effect_cierra_sin_tareas_abiertas():
 
     assert result["ok"] is True and result["archived"] is True
     assert svc.get_spring("SPR-1")["status"] == "closed"
+
+
+# ── 6. revisión independiente: el autor no firma su propio cierre ──────
+
+
+def test_cierre_bloquea_si_una_completada_no_tiene_revision():
+    svc = _service([_spec(status="completed", **{**ARTIFACTS, "reviewed_by": ""})])
+
+    result = svc.close_spring("SPR-1")
+
+    assert result["ok"] is False
+    assert "revisión independiente" in result["error"]
+    assert [u["spec_id"] for u in result["unreviewed"]] == ["SPEC-001"]
+    assert svc.get_spring("SPR-1")["status"] == "active"
+
+
+def test_el_autor_no_puede_firmar_su_propio_cierre():
+    svc = _service(
+        [_spec(status="completed", **{**ARTIFACTS, "reviewed_by": "s1"})]
+    )
+
+    result = svc.close_spring("SPR-1")
+
+    assert result["ok"] is False
+    assert "distinto del autor" in result["unreviewed"][0]["missing"][0]
+
+
+def test_force_cierra_y_deja_la_deuda_de_revision_visible():
+    svc = _service([_spec(status="completed", **{**ARTIFACTS, "reviewed_by": ""})])
+
+    result = svc.close_spring("SPR-1", force=True, reason="entrega con deuda")
+
+    assert result["ok"] is True and result["forced"] is True
+    spring = svc.get_spring("SPR-1")
+    assert spring["status"] == "closed"
+    debt = (spring["context"] or {}).get("closed_without_review") or []
+    assert [d["spec_id"] for d in debt] == ["SPEC-001"]
+
+
+def test_spec_status_guarda_la_revision_y_habilita_el_cierre(sprint_service_ctx):
+    svc = _service([_spec(status="in_progress")])
+    _di.configure_sprint(lambda chain_dir: svc)
+
+    out = spec_status(
+        _ctx(),
+        {
+            "spec_id": "SPEC-001",
+            "status": "completed",
+            **ARTIFACTS,
+            "reviewed_by": "revisor-2",
+            "review_findings": ["faltaba cubrir el caso rojo"],
+        },
+    )
+
+    assert out.ok
+    spec = svc.get_spec("SPR-1", "SPEC-001")
+    assert spec["reviewed_by"] == "revisor-2"
+    assert spec["review_findings"] == ["faltaba cubrir el caso rojo"]
+    assert svc.close_spring("SPR-1")["ok"] is True

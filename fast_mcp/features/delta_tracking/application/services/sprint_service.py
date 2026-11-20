@@ -25,6 +25,7 @@ from fast_mcp.features.delta_tracking.domain.spec_service import (
     SprintStatusUpdater,
     SpecService,
     _completion_missing,
+    review_missing,
 )
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,23 @@ class SprintService:
             except ValueError:
                 continue  # sin artefactos: sigue abierta y se reporta abajo
 
+        # Revisión independiente: una spec `completed` sin `reviewed_by` (o con
+        # el autor como revisor) no habilita el cierre. El tablero puede decir
+        # "todas completas" y aun así no haber pasado por revisión.
+        unreviewed = [
+            {
+                "spec_id": str(spec.get("spec_id") or ""),
+                "task_id": str(
+                    (spec.get("task_context") or {}).get("task_id")
+                    or spec.get("spec_id")
+                    or ""
+                ),
+                "missing": review_missing(spec),
+            }
+            for spec in self.get_specs(spring_id)
+            if str(spec.get("status") or "") == "completed" and review_missing(spec)
+        ]
+
         open_specs = [
             {
                 "spec_id": str(spec.get("spec_id") or ""),
@@ -238,6 +256,22 @@ class SprintService:
                 "spring_id": spring_id,
                 "settled": settled,
                 "open": open_specs,
+                "unreviewed": unreviewed,
+            }
+        if unreviewed and not force:
+            return {
+                "ok": False,
+                "error": (
+                    f"No se puede cerrar {spring_id}: {len(unreviewed)} spec(s) "
+                    "completada(s) sin revisión independiente. Registrá la revisión "
+                    "con spec_status (status=completed, reviewed_by=<sesión o "
+                    "persona distinta del autor>) o cerra con force=true y un "
+                    "reason explícito."
+                ),
+                "spring_id": spring_id,
+                "settled": settled,
+                "open": open_specs,
+                "unreviewed": unreviewed,
             }
         if open_specs and not str(reason or "").strip():
             return {
@@ -261,10 +295,13 @@ class SprintService:
                 "open": open_specs,
             }
 
-        if open_specs:
+        if open_specs or unreviewed:
             spring = self._repo.get_spring(spring_id)
             context = dict(getattr(spring, "context", None) or {})
-            context["closed_with_open_tasks"] = open_specs
+            if open_specs:
+                context["closed_with_open_tasks"] = open_specs
+            if unreviewed:
+                context["closed_without_review"] = unreviewed
             context["close_reason"] = str(reason).strip()
             context["closed_at"] = _now_iso()
             self.update_spring(spring_id, {"context": context})
@@ -275,7 +312,8 @@ class SprintService:
             "status": "closed",
             "settled": settled,
             "open": open_specs,
-            "forced": bool(open_specs),
+            "unreviewed": unreviewed,
+            "forced": bool(open_specs or unreviewed),
         }
 
     def update_spring(self, spring_id: str, data: dict) -> None:
