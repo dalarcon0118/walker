@@ -466,7 +466,30 @@ que haya cambiado una línea (medido: nudge con `git status` limpio).
 - [ ] M-04 Eventos: la verificación se registra en la MISMA tool que la ejecuta,
       no en un job que puede no correr.
 
-## 17. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 17. P1.12 — La escritura que el hook no vio también cuenta
+
+Con P1.11 el plugin ya no depende de ver la VERIFICACIÓN. Quedaba el otro lado:
+si la escritura entra por un camino que el hook no clasifica (subagente, shell
+del host, `sed -i`, `git apply`), `wrote` queda en falso y el cierre pasa
+limpio sin deuda. Medido: el mismo entorno que disparó el nudge de verificación
+mostraba `wrote` solo por lo que el hook alcanzaba a ver.
+
+- [ ] `changed_since_last_scan` (shared_kernel) compara el árbol con el último
+      snapshot: evidencia de escritura sin depender de hooks.
+- [ ] `run_tests` y `verify_predicates` toman el diff ANTES de ejecutar (para no
+      contar `__pycache__`/caches) y lo adjuntan al `session_state`
+      (`wrote`, `writes`, `touched`, `touched_source=watcher`).
+- [ ] `session_context` completa `flight_state.wrote` desde ese diff SOLO si el
+      trace no lo trae y la sesión YA tiene estado de vuelo: lo observado por el
+      plugin es más preciso, y una sesión nueva no hereda cambios previos del
+      repo.
+- [ ] Sin cambios no se marca `wrote` (anti-patrón: inventar deuda/limpieza).
+- [ ] M-09 Fallback visible: `touched_source=watcher` distingue evidencia
+      indirecta de una observación del hook.
+- [ ] M-06 Extensibilidad: un solo helper (`changed_since_last_scan`) para las
+      tres superficies; no hay un scan por tool.
+
+## 18. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -480,7 +503,7 @@ que haya cambiado una línea (medido: nudge con `git status` limpio).
 
 ---
 
-## 18. failure_scenarios
+## 19. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -504,13 +527,14 @@ que haya cambiado una línea (medido: nudge con `git status` limpio).
   "run_tests y verify_engine buscan project.json en <repo>/data y caen a pytest → un proyecto con vitest ejecuta python3 -m pytest y nunca certifica (gate de cierre infinito) → causa: ruta del manifiesto desactualizada respecto del layout .cognitive + default silencioso → mitigación: resolver por ProjectService.resolve_paths, runner declarado y TestRunnerUnavailable sin declaración → detección: tests/test_run_tests_framework_bdd.py (vitest/go/pytest y sin declaración)",
   "El detector de imports solo entiende Python y coupling usa prefijos hardcodeados → en un repo JS los alias son alucinaciones falsas y Ca=0 aunque haya importadores; en Go/Rust el resultado es un cero que parece dato → causa: resolución de imports sin adapter por lenguaje → mitigación: lang_imports + status/not_checked y agregado que separa verificados de no verificados → detección: tests/test_language_imports_bdd.py (JS relativos/alias, Go/Rust not_checked, Ca por resolución)",
   "El gate de intake repite el bloqueo aunque el plan ya declare la tarea, y el de scope bloquea cada intento hasta que el agente reescriba el scope completo → 7 + 20 bloqueos en una sesión, cada uno un turno perdido → causa: la declaración y la ampliación vivían solo del lado del agente → mitigación: auto-declare desde el plan y una negociación por archivo con session_plan mode=add, verificada contra workflow_state → detección: harness modes autodeclare y scope",
-  "La verificación corre por fuera del wrapper del plugin (Code Mode / shell del host / subagente) → el verde no llega al hook y el gate vuelve a nudgar sin cambios de código → causa: el plugin infiere la verificación del comando que ve, no del hecho persistido → mitigación: run_tests/verify_predicates escriben session_state en el trace y el plugin lo hidrata antes de nudgar (fail-closed sin session_id) → detección: harness mode extverify y tests/test_verification_trace_bdd.py"
+  "La verificación corre por fuera del wrapper del plugin (Code Mode / shell del host / subagente) → el verde no llega al hook y el gate vuelve a nudgar sin cambios de código → causa: el plugin infiere la verificación del comando que ve, no del hecho persistido → mitigación: run_tests/verify_predicates escriben session_state en el trace y el plugin lo hidrata antes de nudgar (fail-closed sin session_id) → detección: harness mode extverify y tests/test_verification_trace_bdd.py",
+  "La escritura entra por un camino que el hook no clasifica (subagente, sed -i, git apply) → wrote queda en falso y el cierre pasa limpio sin verificación → causa: el estado de escritura dependía 100% de observar edit/write/shell → mitigación: diff del FileWatcher adjunto al session_state y completado en session_context solo si el trace no lo trae → detección: tests de changed_since_last_scan y merge_write_evidence"
 ]
 ```
 
 ---
 
-## 19. Criterios de aceptación
+## 20. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -558,10 +582,12 @@ que haya cambiado una línea (medido: nudge con `git status` limpio).
 19. P1.11: un `run_tests` verde ejecutado por fuera del wrapper deja el cierre
     sin nudge (el plugin hidrata el trace) y el reporte de métricas lo cuenta
     como verificación de la tool; `session_plan` acepta `add`/`remove`.
+20. P1.12: una escritura que el hook no vio deja `wrote=true` en el flight
+    state (con `touched_source=watcher`); sin cambios reales no se marca nada.
 
 ---
 
-## 20. Riesgos y compatibilidad
+## 21. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -575,7 +601,7 @@ que haya cambiado una línea (medido: nudge con `git status` limpio).
 
 ---
 
-## 21. Tests
+## 22. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -616,7 +642,8 @@ que haya cambiado una línea (medido: nudge con `git status` limpio).
   `scope` (negociación por archivo + plan ampliado) (P1.10); `extverify`
   (verificación por tool fuera del wrapper ⇒ 0 nudges) (P1.11).
 - `tests/test_verification_trace_bdd.py`: evento de verificación, fail-closed
-  sin sesión y contrato de `flight_state` (P1.11).
+  sin sesión, contrato de `flight_state`, diff de escritura y merge en
+  `session_context` (P1.11/P1.12).
 - `tests/test_flight_control_metrics_bdd.py`: agregado del reporte y exclusión
   del harness (P1.11).
 - `tests/test_task_context_advance_bdd.py`: `session_plan` registra la tarea

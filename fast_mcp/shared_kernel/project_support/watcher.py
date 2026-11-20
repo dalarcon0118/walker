@@ -25,6 +25,62 @@ CHANGE_FILE = "change_detected.json"
 MAX_CHANGED_FILES = 500
 
 
+#: Archivos que escribe WALKER (no el agente). Sin este filtro, el diff del
+#: scan marca `wrote` por el propio estado del motor: medido en el harness —
+#: `idem` y `shellmut` pasaron a "mutaciones" por `.workflow-state.json` y
+#: `data/cognitive.sqlite3`.
+_WALKER_STATE_NAMES = frozenset(
+    {
+        "change_detected.json",
+        ".file_snapshot.json",
+        ".workflow-state.json",
+        "cognitive.sqlite3",
+        "ckg.json.gz",
+        "delta.json.gz",
+        "trace.json.gz",
+        "cpg.json.gz",
+    }
+)
+
+
+def _is_walker_state(rel_path: str) -> bool:
+    parts = [p for p in str(rel_path).replace("\\", "/").split("/") if p]
+    if not parts:
+        return True
+    if parts[0] == ".cognitive":
+        return True
+    name = parts[-1]
+    if name in _WALKER_STATE_NAMES or name.endswith(".json.gz"):
+        return True
+    if parts[0] == "data" and name.endswith(".sqlite3"):
+        return True
+    return False
+
+
+def changed_since_last_scan(project_root: str) -> list[str]:
+    """Archivos cambiados desde el último scan del proyecto (evidencia).
+
+    `FileWatcher.scan()` compara el árbol con el snapshot previo. No sabe
+    quién escribió, pero permite que una escritura que el hook no observó
+    (subagente, shell del host, `sed -i`, `git apply`) no quede invisible:
+    la sesión queda con deuda de verificación en vez de cerrar limpia.
+
+    Fail-open: si el scan falla, devuelve [] y no se inventa evidencia.
+    """
+    root = str(project_root or "")
+    if not root:
+        return []
+    try:
+        data = FileWatcher(root).scan() or {}
+        return [
+            str(f)
+            for f in (data.get("new_changes") or [])
+            if f and not _is_walker_state(str(f))
+        ]
+    except Exception:  # noqa: BLE001 — la evidencia no rompe la tool
+        return []
+
+
 class IgnoreRules:
     """Parses .walkerignore patterns (like .gitignore)."""
 

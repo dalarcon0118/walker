@@ -93,3 +93,17 @@ def test_sugerencias_seguidas_salen_de_state_injected():
     out = metrics.summarize(events)
 
     assert out["suggestions"] == {"followed": 1, "ignored": 1}
+
+
+def test_evidencia_de_escritura_sin_hook():
+    events = [
+        _ev("session_state", recorded_by="task_tool", verified=True,
+            touched_source="watcher", touched=["a.py", "b.py"]),
+        _ev("session_state", recorded_by="task_tool", verified=True,
+            touched_source="watcher", touched=["b.py", "c.py"]),
+        _ev("session_state", recorded_by="agent_hook", wrote=True),
+    ]
+
+    out = metrics.summarize(events)
+
+    assert out["write_evidence"] == {"events": 2, "files": 3}

@@ -19,6 +19,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fast_mcp.features.tasks.handlers import _di
+from fast_mcp.shared_kernel.project_support.watcher import changed_since_last_scan
+
+__all__ = ["changed_since_last_scan", "record_verification"]
 
 #: `mcp` es el canal, no una sesión: un evento con ese id no es atribuible.
 _PLACEHOLDER_SESSIONS = {"", "mcp", "global"}
@@ -33,6 +36,7 @@ def record_verification(
     runner: str = "",
     returncode: int | None = None,
     task_id: str = "",
+    touched: list[str] | None = None,
 ) -> bool:
     """Escribe un `session_state` con el resultado de la verificación.
 
@@ -44,6 +48,8 @@ def record_verification(
         runner: comando ejecutado, para que la evidencia sea legible.
         returncode: exit code del runner (si aplica).
         task_id: tarea sobre la que se verificó.
+        touched: archivos que cambiaron desde el último scan; evidencia de
+            escritura para que el plugin no dependa de ver `edit`/`write`.
 
     Returns:
         True si el evento quedó escrito.
@@ -65,6 +71,15 @@ def record_verification(
     }
     if returncode is not None:
         data["returncode"] = int(returncode)
+
+    files = [str(f) for f in (touched or []) if f][:20]
+    if files:
+        # Solo si hay evidencia: sin cambios no se marca `wrote` (el plugin
+        # adoptaría una escritura que no ocurrió).
+        data["wrote"] = True
+        data["writes"] = len(files)
+        data["touched"] = files
+        data["touched_source"] = "watcher"
 
     return _di.push_trace(
         chain_dir,

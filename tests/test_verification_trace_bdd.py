@@ -144,3 +144,90 @@ def test_evento_cubre_lo_que_proyecta_session_context(monkeypatch):
 def test_push_trace_sin_writer_no_rompe(monkeypatch):
     monkeypatch.setattr(_di, "_TRACE_WRITER", None)
     assert _di.push_trace("/tmp", {"event_type": "session_state"}) is False
+
+
+# ── evidencia de escritura sin hook (P1.12) ────────────────────────
+
+
+def test_scan_detecta_cambios_desde_el_ultimo_scan(tmp_path, monkeypatch):
+    from fast_mcp.shared_kernel.project_support.watcher import changed_since_last_scan
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    assert changed_since_last_scan(str(tmp_path)) == [], "el primer scan es baseline"
+
+    (tmp_path / "a.py").write_text("x = 2\n")
+    (tmp_path / "b.py").write_text("y = 2\n")
+
+    changed = changed_since_last_scan(str(tmp_path))
+    assert "a.py" in changed and "b.py" in changed
+
+
+def test_run_tests_registra_la_escritura_que_walker_ve(tmp_path, monkeypatch):
+    events = _spy(monkeypatch)
+    _pytest_project(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "fast_mcp.features.tasks.handlers.verification.changed_since_last_scan",
+        lambda root: ["src/a.py", "src/b.py"],
+    )
+    monkeypatch.setattr(impl.subprocess, "run", lambda *a, **k: _Result(0, "2 passed"))
+
+    out = impl.run_tests(_ctx(str(tmp_path)), {"session_id": "S-1"})
+
+    assert out.ok
+    assert out.data["wrote"] is True and out.data["touched"] == ["src/a.py", "src/b.py"]
+    data = events[-1]["data"]
+    assert data["wrote"] is True and data["writes"] == 2
+    assert data["touched"] == ["src/a.py", "src/b.py"]
+    assert data["touched_source"] == "watcher"
+
+
+def test_sin_cambios_no_se_marca_wrote(tmp_path, monkeypatch):
+    events = _spy(monkeypatch)
+    _pytest_project(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "fast_mcp.features.tasks.handlers.verification.changed_since_last_scan",
+        lambda root: [],
+    )
+    monkeypatch.setattr(impl.subprocess, "run", lambda *a, **k: _Result(0, "1 passed"))
+
+    impl.run_tests(_ctx(str(tmp_path)), {"session_id": "S-1"})
+
+    assert "wrote" not in events[-1]["data"], "sin evidencia no se inventa escritura"
+
+
+def test_session_context_completa_wrote_desde_el_scan(monkeypatch):
+    from fast_mcp.memories.handlers.knowledge import merge_write_evidence
+
+    flight = merge_write_evidence(
+        {"verified": True}, "/proyecto", scanner=lambda root: ["x.py", "y.py"]
+    )
+    assert flight["wrote"] is True and flight["writes"] == 2
+    assert flight["touched"] == ["x.py", "y.py"]
+    assert flight["touched_source"] == "watcher"
+
+    # Lo observado por el plugin manda: no se pisa.
+    observed = {"wrote": True, "writes": 1, "touched": ["solo.py"]}
+    assert merge_write_evidence(observed, "/proyecto", scanner=lambda r: ["x.py"]) == observed
+
+    # Sin cambios (o scan roto) no se inventa nada.
+    assert merge_write_evidence({}, "/proyecto", scanner=lambda r: []) == {}
+
+
+def test_scan_ignora_el_estado_de_walker(tmp_path):
+    """El diff no debe contar el propio estado del motor como escritura.
+
+    Medido en el harness: `idem` y `shellmut` pasaron a "mutaciones" por
+    `.workflow-state.json` y `data/cognitive.sqlite3`.
+    """
+    from fast_mcp.shared_kernel.project_support.watcher import changed_since_last_scan
+
+    (tmp_path / "pyproject.toml").write_text("[project]\n")
+    assert changed_since_last_scan(str(tmp_path)) == []
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x = 1\n")
+    (tmp_path / ".workflow-state.json").write_text("{}")
+    (tmp_path / "data").mkdir(exist_ok=True)
+    (tmp_path / "data" / "cognitive.sqlite3").write_text("")
+
+    assert changed_since_last_scan(str(tmp_path)) == ["src/a.py"]

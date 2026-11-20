@@ -68,7 +68,7 @@
       "repo_path": "/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/walker-harness-fixture",
       "active": true,
       "registered_at": "2026-11-20T01:22:34.427639+00:00",
-      "last_accessed": "2026-11-20T11:00:41.241355+00:00"
+      "last_accessed": "2026-11-20T11:19:53.026538+00:00"
     },
     "walker-harness-fixture-bind": {
       "project_id": "walker-harness-fixture-bind",
@@ -76,7 +76,7 @@
       "repo_path": "/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/walker-harness-fixture-bind",
       "active": true,
       "registered_at": "2026-11-20T01:29:03.042126+00:00",
-      "last_accessed": "2026-11-20T11:02:03.729950+00:00"
+      "last_accessed": "2026-11-20T11:21:17.831079+00:00"
     },
     "walker-harness-fixture-autodeclare": {
       "project_id": "walker-harness-fixture-autodeclare",
@@ -84,8 +84,8 @@
       "repo_path": "/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/walker-harness-fixture-autodeclare",
       "active": true,
       "registered_at": "2026-11-20T10:48:30.282700+00:00",
-      "last_accessed": "2026-11-20T11:02:08.915712+00:00"
+      "last_accessed": "2026-11-20T11:21:22.719376+00:00"
     }
   },
-  "updated_at": "2026-11-20T11:02:08.915712+00:00"
+  "updated_at": "2026-11-20T11:21:22.719376+00:00"
 }

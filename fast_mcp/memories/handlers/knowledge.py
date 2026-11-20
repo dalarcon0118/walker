@@ -550,6 +550,34 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     return out
 
 
+def merge_write_evidence(flight: dict, chain_dir: str, scanner=None) -> dict:
+    """Completa `wrote/writes/touched` del flight state con el diff del repo.
+
+    Solo actúa si el trace NO trae `wrote`: lo observado por el plugin es más
+    preciso (sabe qué herramienta escribió). Esto cubre la escritura que el
+    hook no vio (subagente, shell del host, `sed -i`, `git apply`): el cierre
+    queda con deuda en vez de pasar limpio.
+    """
+    # Sin estado de vuelo no se escanea: el primer `session_context` de una
+    # sesión nueva vería cambios previos del repo y le inventaría deuda.
+    if not flight or flight.get("wrote") or not chain_dir:
+        return flight
+    try:
+        from fast_mcp.shared_kernel.project_support.watcher import (
+            changed_since_last_scan,
+        )
+
+        changed = (scanner or changed_since_last_scan)(chain_dir)
+    except Exception:  # noqa: BLE001 — el contexto no depende del scan
+        changed = []
+    if changed:
+        flight["wrote"] = True
+        flight["writes"] = max(int(flight.get("writes") or 0), len(changed))
+        flight["touched"] = list(changed)[:20]
+        flight["touched_source"] = "watcher"
+    return flight
+
+
 def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Todo lo que pasó en una sesión, unido por `session_id`.
 
@@ -691,6 +719,14 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
         out["flight_state"] = {k: _data[k] for k in _FLIGHT_KEYS if k in _data}
     else:
         out["flight_state"] = {}
+
+    # 3c. Evidencia de escritura SIN hook (P1.12): diff contra el último scan.
+    # Completa solo lo que el trace no trae: si el plugin ya observó `wrote`,
+    # ese dato es más preciso (sabe QUÉ herramienta escribió). Sin esto, una
+    # sesión que editó por un camino no observado cerraba limpia sin deuda.
+    out["flight_state"] = merge_write_evidence(
+        out.get("flight_state") or {}, ctx.chain_dir
+    )
 
     # 4. CKG: decisiones y hechos de la sesión
     try:

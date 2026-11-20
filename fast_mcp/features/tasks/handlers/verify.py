@@ -41,6 +41,12 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
             "verify_predicates: no project_root/chain_dir — cannot verify"
         )
 
+    # Evidencia de escritura para el flight state (P1.12): el diff contra el
+    # último scan, tomado ANTES de ejecutar predicados (que pueden escribir).
+    from fast_mcp.features.tasks.handlers.verification import changed_since_last_scan
+
+    touched = changed_since_last_scan(project_root)
+
     # Sin predicados del caller, se leen de la SPEC de la tarea en curso: el
     # workflow ya los derivó (`spec.predicates.items`) y nadie los estaba
     # usando. El gate era fail-loud con razón, pero el dato existía.
@@ -136,6 +142,7 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         level="predicates",
         runner="verify_predicates",
         task_id=str(data.get("task_id") or getattr(ctx, "task_id", "") or ""),
+        touched=touched,
     )
 
     return TaskResult.success(data=result_data)
