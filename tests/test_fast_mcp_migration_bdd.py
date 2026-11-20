@@ -215,6 +215,33 @@ def test_fase1_prepare_crea_y_registra(tmp_path):
     assert again["type"] == "already_exists"
 
 
+def test_prepare_usa_el_layout_configurado_y_no_lo_hardcodea(tmp_path, monkeypatch):
+    """Auditoría #7: `prepare` armaba `<repo>/.cognitive/projects/<pid>/data`
+    a mano. Con `project.cognitive_dir`/`project.data_dir` configurados, ese
+    join creaba un layout que `resolve_paths` después no encontraba."""
+    from fast_mcp import composition
+    from fast_mcp.shared_kernel import paths as kernel_paths
+    from fast_mcp.features.project.application import use_cases
+
+    monkeypatch.setattr(kernel_paths, "project_cognitive_dir", lambda: ".cog")
+    monkeypatch.setattr(kernel_paths, "project_data_dir", lambda: "mem")
+
+    repo = tmp_path / "demo-repo"
+    repo.mkdir()
+    fake_root = tmp_path / "walker-root"
+    (fake_root / "config").mkdir(parents=True)
+    (fake_root / "config" / "config.json").write_text("{}")
+    ctx = composition.build(root=fake_root).project
+
+    out = use_cases.prepare_use_case(ctx, project_path=str(repo))
+
+    expected = repo / ".cog" / "projects" / "demo-repo" / "mem" / "project.json"
+    assert str(out["project_json"]) == str(expected)
+    assert expected.is_file()
+    assert str(out["cognitive_dir"]) == str(repo / ".cog")
+    assert not (repo / ".cognitive").exists(), "no debe crear el layout hardcodeado"
+
+
 def test_fase1_status_resuelve_proyecto(tmp_path):
     """status resuelve project.json del registro y reporta health."""
     from fast_mcp import composition

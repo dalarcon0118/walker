@@ -45,7 +45,12 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     # último scan, tomado ANTES de ejecutar predicados (que pueden escribir).
     from fast_mcp.features.tasks.handlers.verification import changed_since_last_scan
 
-    touched = changed_since_last_scan(project_root)
+    touched = changed_since_last_scan(
+        project_root,
+        session_id=str(
+            data.get("session_id") or getattr(ctx, "session_id", "") or ""
+        ),
+    )
 
     # Sin predicados del caller, se leen de la SPEC de la tarea en curso: el
     # workflow ya los derivó (`spec.predicates.items`) y nadie los estaba

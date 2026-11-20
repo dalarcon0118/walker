@@ -16,6 +16,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -23,6 +24,11 @@ from typing import Any, Callable
 IGNORE_FILENAME = ".walkerignore"
 CHANGE_FILE = "change_detected.json"
 MAX_CHANGED_FILES = 500
+#: Snapshot por sesión (P1.13). El snapshot global es del PROYECTO: una sesión
+#: nueva que diffea contra él hereda las escrituras de la anterior. Este se
+#: establece en la primera lectura de la sesión.
+SESSION_SNAPSHOT_PREFIX = ".file_snapshot.session-"
+MAX_SESSION_SNAPSHOTS = 50
 
 
 #: Archivos que escribe WALKER (no el agente). Sin este filtro, el diff del
@@ -52,31 +58,39 @@ def _is_walker_state(rel_path: str) -> bool:
     name = parts[-1]
     if name in _WALKER_STATE_NAMES or name.endswith(".json.gz"):
         return True
+    if name.startswith(SESSION_SNAPSHOT_PREFIX):
+        return True
     if parts[0] == "data" and name.endswith(".sqlite3"):
         return True
     return False
 
 
-def changed_since_last_scan(project_root: str) -> list[str]:
-    """Archivos cambiados desde el último scan del proyecto (evidencia).
+def _session_key(session_id: str) -> str:
+    """Nombre de archivo seguro para un session_id (sin path traversal)."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(session_id or "")).strip(".")
+    return (safe or "anon")[:120]
+
+
+def changed_since_last_scan(project_root: str, *, session_id: str = "") -> list[str]:
+    """Archivos cambiados desde el último scan (evidencia de escritura).
 
     `FileWatcher.scan()` compara el árbol con el snapshot previo. No sabe
     quién escribió, pero permite que una escritura que el hook no observó
     (subagente, shell del host, `sed -i`, `git apply`) no quede invisible:
     la sesión queda con deuda de verificación en vez de cerrar limpia.
 
+    Con `session_id` el diff es contra el snapshot PROPIO de la sesión, no el
+    del proyecto. El global se comparte entre sesiones: usarlo para decidir si
+    ESTA sesión escribió le atribuye los cambios de la anterior. La primera
+    lectura de una sesión establece su baseline y devuelve `[]`.
+
     Fail-open: si el scan falla, devuelve [] y no se inventa evidencia.
     """
     root = str(project_root or "")
-    if not root:
+    if not root or not os.path.isdir(root):
         return []
     try:
-        data = FileWatcher(root).scan() or {}
-        return [
-            str(f)
-            for f in (data.get("new_changes") or [])
-            if f and not _is_walker_state(str(f))
-        ]
+        return FileWatcher(root).changes_since(session_id=session_id)
     except Exception:  # noqa: BLE001 — la evidencia no rompe la tool
         return []
 
@@ -290,6 +304,47 @@ class FileWatcher:
 
         return change_data
 
+    def changes_since(self, session_id: str = "") -> list[str]:
+        """Diff del árbol contra el snapshot de ESTA sesión (P1.13).
+
+        Read-only respecto al estado del watcher: NO toca `change_detected.json`
+        ni los índices del CPG. Sin `session_id` usa el snapshot global (igual
+        que `scan()`); con `session_id` usa `.file_snapshot.session-<sid>.json`,
+        que se establece en la primera lectura y sólo cuenta lo que cambió
+        después — una sesión nueva no hereda las escrituras de la anterior.
+
+        El footprint del motor (`.cognitive/`, `*json.gz`, snapshots, sqlite)
+        no cuenta: no lo escribió el agente.
+        """
+        path = (
+            self._session_snapshot_path(session_id)
+            if session_id
+            else self.snapshot_path
+        )
+        previous = self._load_snapshot(path)
+        current = self._compute_snapshot()
+
+        # Formato viejo (SHA256 de contenido) vs actual (size:mtime): comparar
+        # reportaría todo el árbol como cambiado.
+        if previous and current:
+            prev_sample = next(iter(previous.values()))
+            curr_sample = next(iter(current.values()))
+            if len(prev_sample) == 64 and ":" in curr_sample:
+                previous = {}
+
+        # Re-escribir 50KB por lectura sería churn: solo si cambió.
+        if not previous or current != previous:
+            self._save_snapshot(current, path)
+        if session_id:
+            self._prune_session_snapshots()
+        if not previous:
+            return []
+        return [
+            f
+            for f in sorted(self._diff(previous, current))
+            if not _is_walker_state(f) and not self._ignore.is_ignored(f)
+        ]
+
     def get_status(self) -> dict[str, Any]:
         """Read change_detected.json without re-scanning."""
         if self.change_path.exists():
@@ -387,19 +442,39 @@ class FileWatcher:
                         continue
         return snapshot
 
-    def _load_snapshot(self) -> dict[str, str]:
-        if self.snapshot_path.exists():
+    def _load_snapshot(self, path: Path | None = None) -> dict[str, str]:
+        target = path or self.snapshot_path
+        if target.exists():
             try:
-                with open(self.snapshot_path) as f:
+                with open(target) as f:
                     return json.load(f)
             except Exception:
                 pass
         return {}
 
-    def _save_snapshot(self, snapshot: dict[str, str]) -> None:
-        os.makedirs(self.data_dir, exist_ok=True)
-        with open(self.snapshot_path, "w") as f:
-            json.dump(snapshot, f, indent=2)
+    def _save_snapshot(
+        self, snapshot: dict[str, str], path: Path | None = None
+    ) -> None:
+        target = path or self.snapshot_path
+        os.makedirs(target.parent, exist_ok=True)
+        with open(target, "w") as f:
+            json.dump(snapshot, f, indent=2 if target == self.snapshot_path else None)
+
+    def _session_snapshot_path(self, session_id: str) -> Path:
+        return self.data_dir / f"{SESSION_SNAPSHOT_PREFIX}{_session_key(session_id)}.json"
+
+    def _prune_session_snapshots(self) -> None:
+        """Borra los snapshots de sesión más viejos (no crecen sin límite)."""
+        try:
+            files = sorted(
+                self.data_dir.glob(f"{SESSION_SNAPSHOT_PREFIX}*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for stale in files[MAX_SESSION_SNAPSHOTS:]:
+                stale.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @staticmethod
     def _diff(previous: dict, current: dict) -> list[str]:

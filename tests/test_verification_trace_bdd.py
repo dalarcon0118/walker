@@ -167,7 +167,7 @@ def test_run_tests_registra_la_escritura_que_walker_ve(tmp_path, monkeypatch):
     _pytest_project(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "fast_mcp.features.tasks.handlers.verification.changed_since_last_scan",
-        lambda root: ["src/a.py", "src/b.py"],
+        lambda root, session_id="": ["src/a.py", "src/b.py"],
     )
     monkeypatch.setattr(impl.subprocess, "run", lambda *a, **k: _Result(0, "2 passed"))
 
@@ -186,7 +186,7 @@ def test_sin_cambios_no_se_marca_wrote(tmp_path, monkeypatch):
     _pytest_project(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "fast_mcp.features.tasks.handlers.verification.changed_since_last_scan",
-        lambda root: [],
+        lambda root, session_id="": [],
     )
     monkeypatch.setattr(impl.subprocess, "run", lambda *a, **k: _Result(0, "1 passed"))
 
@@ -199,7 +199,9 @@ def test_session_context_completa_wrote_desde_el_scan(monkeypatch):
     from fast_mcp.memories.handlers.knowledge import merge_write_evidence
 
     flight = merge_write_evidence(
-        {"verified": True}, "/proyecto", scanner=lambda root: ["x.py", "y.py"]
+        {"verified": True},
+        "/proyecto",
+        scanner=lambda root, session_id="": ["x.py", "y.py"],
     )
     assert flight["wrote"] is True and flight["writes"] == 2
     assert flight["touched"] == ["x.py", "y.py"]
@@ -207,10 +209,17 @@ def test_session_context_completa_wrote_desde_el_scan(monkeypatch):
 
     # Lo observado por el plugin manda: no se pisa.
     observed = {"wrote": True, "writes": 1, "touched": ["solo.py"]}
-    assert merge_write_evidence(observed, "/proyecto", scanner=lambda r: ["x.py"]) == observed
+    assert (
+        merge_write_evidence(
+            observed, "/proyecto", scanner=lambda r, session_id="": ["x.py"]
+        )
+        == observed
+    )
 
     # Sin cambios (o scan roto) no se inventa nada.
-    assert merge_write_evidence({}, "/proyecto", scanner=lambda r: []) == {}
+    assert (
+        merge_write_evidence({}, "/proyecto", scanner=lambda r, session_id="": []) == {}
+    )
 
 
 def test_scan_ignora_el_estado_de_walker(tmp_path):
@@ -231,3 +240,51 @@ def test_scan_ignora_el_estado_de_walker(tmp_path):
     (tmp_path / "data" / "cognitive.sqlite3").write_text("")
 
     assert changed_since_last_scan(str(tmp_path)) == ["src/a.py"]
+
+
+def test_el_snapshot_es_por_sesion_no_del_proyecto(tmp_path):
+    """P1.13: el snapshot global arrastra escrituras de sesiones previas.
+
+    Medido: una sesión nueva veía `wrote` por los cambios de la anterior. El
+    baseline por sesión se establece en la primera lectura y sólo cuenta lo
+    que cambió DESPUÉS.
+    """
+    from fast_mcp.shared_kernel.project_support.watcher import changed_since_last_scan
+
+    (tmp_path / "pyproject.toml").write_text("[project]\n")
+    (tmp_path / "a.py").write_text("x = 1\n")
+
+    # Sesión A: establece baseline y escribe.
+    assert changed_since_last_scan(str(tmp_path), session_id="S-A") == []
+    (tmp_path / "b.py").write_text("y = 1\n")
+    assert changed_since_last_scan(str(tmp_path), session_id="S-A") == ["b.py"]
+
+    # Sesión B (nueva): no hereda b.py. Su baseline es AHORA.
+    assert changed_since_last_scan(str(tmp_path), session_id="S-B") == []
+    (tmp_path / "c.py").write_text("z = 1\n")
+    assert changed_since_last_scan(str(tmp_path), session_id="S-B") == ["c.py"]
+    # Límite conocido: el snapshot se refresca en cada lectura (igual que el
+    # global), así que una escritura POSTERIOR de otra sesión sí se ve. Lo que
+    # se corrige es heredar las escrituras ANTERIORES al arranque de la sesión.
+
+
+def test_session_context_sin_flight_state_igual_detecta_escritura(tmp_path, monkeypatch):
+    """El caso que quedaba: sesión sin estado de vuelo que sí escribió.
+
+    El baseline se establece en la primera lectura (hydrate del plugin) y la
+    segunda ya ve la escritura, sin inventar deuda en la primera.
+    """
+    from fast_mcp.memories.handlers.knowledge import merge_write_evidence
+
+    calls = []
+
+    def scanner(root, session_id=""):
+        calls.append(session_id)
+        return ["src/a.py"] if len(calls) > 1 else []
+
+    assert merge_write_evidence({}, str(tmp_path), session_id="S-1", scanner=scanner) == {}
+    out = merge_write_evidence({}, str(tmp_path), session_id="S-1", scanner=scanner)
+
+    assert out["wrote"] is True and out["touched"] == ["src/a.py"]
+    assert out["touched_source"] == "watcher"
+    assert calls == ["S-1", "S-1"], "la evidencia se pide por sesión, no global"

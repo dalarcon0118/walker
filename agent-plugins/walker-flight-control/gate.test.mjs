@@ -185,6 +185,30 @@ if (mode === "degraded") {
   ])
 }
 
+const SUGGEST_TRACE = `/tmp/wfc-suggest-${process.pid}.jsonl`
+
+if (mode === "injectsuggest") {
+  // P1.14: la sugerencia se "sigue" con una ACCIÓN, no sólo con
+  // submit/transition. Antes la métrica reportaba 63-81 ignoradas por mirar
+  // una única tool; este modo prueba que escribir deja `followed=true`.
+  const scopeFile = `${WALKER}/agent-plugins/walker-flight-control/index.js`
+  fake("/tmp/fake-walker-suggest", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_plan) echo '{"ok":true,"data":{"plan":{"goal":"Probar el seguimiento","task":"harness-task","next":"implementar y verificar","scope":["${scopeFile}"],"acceptance":["Debe registrar seguimiento"]}}}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"suggest_proj"}'; exit 0;;`,
+    `  */workflow_state) echo '{"ok":true,"current_position":"IMPLEMENT.WORK","execution_type":"llm_task","step_satisfied":true,"task_id":"harness-task","revision":1}'; exit 0;;`,
+    `  */preflight) echo '{"ok":true,"files":[],"tests":[]}'; exit 0;;`,
+    `  */agent_context) echo '{"ok":true}'; exit 0;;`,
+    `  */trace_push) printf '%s\\n' "$2" >> ${SUGGEST_TRACE}; echo '{"ok":true}'; exit 0;;`,
+    `  */session_open) echo '{"ok":true}'; exit 0;;`,
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-SUG","status":"active","goal":"suggest","tasks":[]}}}'; exit 0;;`,
+    `  */implement_task) echo '{"ok":true,"data":{"task_id":"harness-task"}}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+}
+
 const tapDir = `/tmp/wfc-tap-${process.pid}`
 const tapFile = `${tapDir}/trace.jsonl`
 
@@ -506,6 +530,50 @@ if (mode === "gateprompt") {
   console.log(text.split("\n").slice(-6).join(" | "))
   if (typeof dispose === "function") dispose()
   process.exit(okPos && okNoDecide && okOptions && okSubmit && stable ? 0 : 1)
+}
+
+if (mode === "injectsuggest") {
+  // Ejecución 1: el plan se inyecta y el agente ESCRIBE. Debe quedar
+  // `followed=true` por la acción, no por un submit que nunca hizo.
+  const event = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "arreglar el bug" }] }],
+  }
+  await captured.context(event)
+  const injectedText = (event.system || []).map((b) => b.text || "").join("\n")
+  const wrote = await call("edit", { path: "index.js" })
+  pushEvent({ type: "session.execution.succeeded", sessionID: SID })
+  await new Promise((r) => setTimeout(r, 1500))
+
+  let pushes = []
+  try {
+    pushes = readFileSync(SUGGEST_TRACE, "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
+  } catch {}
+  const injected = pushes.filter((e) => e.event_type === "workflow_state_injected")
+  const ignored = pushes.filter((e) => e.event_type === "workflow_suggestion_ignored")
+  const last = injected[injected.length - 1]
+
+  const checks = [
+    ["plan inyectado", /\[WALKER\] Plan:/.test(injectedText)],
+    ["escritura permitida", wrote === "PERMITE"],
+    ["seguimiento registrado", Boolean(last) && last.data.followed === true],
+    ["por acción (edit)", Boolean(last) && last.data.followedBy === "edit"],
+    ["sin 'ignorada'", ignored.length === 0],
+  ]
+  let failed = 0
+  for (const [name, ok] of checks) {
+    if (!ok) failed++
+    console.log(`${ok ? "ok  " : "FAIL"}  ${name}`)
+  }
+  if (last) console.log("injected:", JSON.stringify(last.data).slice(0, 260))
+  console.log(`mode=injectsuggest fail=${failed}`)
+  if (typeof dispose === "function") dispose()
+  process.exit(failed ? 1 : 0)
 }
 
 if (mode === "noproject") {

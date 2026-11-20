@@ -1206,6 +1206,9 @@ async function runSetup(ctx) {
                   injections: entry.injections,
                   position: entry.position,
                   followedBy: entry.followedBy || "",
+                  wrote: Boolean(entry.wrote),
+                  verified: Boolean(entry.verified),
+                  reason: "sin accion del agente en la ejecucion",
                 },
               })
             }
@@ -1400,6 +1403,12 @@ async function runSetup(ctx) {
               }
             } else if (/\b(pytest|run_tests|verify_predicates)\b/.test(cmd)) {
               const e = sessionOf(key)
+              // P1.14: verificar ES seguir la sugerencia (antes sólo contaba
+              // submit/transition y la métrica reportaba 63-81 "ignoradas").
+              if (!e.followed) {
+                e.followed = true
+                e.followedBy = "verify"
+              }
               const plan = planFor(key) || {}
               const hasAcceptance =
                 Array.isArray(plan.acceptance) && plan.acceptance.length > 0
@@ -1434,6 +1443,13 @@ async function runSetup(ctx) {
             if (/\b(session_plan|implement_task|session_bind)\b/.test(cmd)) {
               planCache.delete(key)
               rt.workProjectId = ""
+              // P1.14: declarar/vincular/ampliar el plan es una acción REAL
+              // sobre el protocolo. No es "ignorar la sugerencia".
+              const fe = sessionOf(key)
+              if (!fe.followed) {
+                fe.followed = true
+                fe.followedBy = "cli"
+              }
             }
 
             if (isCli && /\bsession_bind\b/.test(cmd)) {
@@ -1701,6 +1717,11 @@ async function runSetup(ctx) {
               // `printf > archivo` y el gate de cierre no se enteraba).
               if (name === "edit" || name === "write") {
                 const entryNow = sessionOf(sid)
+                // P1.14: escribir es seguir la sugerencia ("implementá").
+                if (!entryNow.followed) {
+                  entryNow.followed = true
+                  entryNow.followedBy = "edit"
+                }
                 const wasVerifiedMut = entryNow.verified === true
                 const wasWroteMut = entryNow.wrote === true
                 entryNow.wrote = true
@@ -1743,6 +1764,11 @@ async function runSetup(ctx) {
                 const mut = shellMutation(cmd)
                 if (mut.mutates) {
                   const entryNow = sessionOf(sid)
+                  // P1.14: también una mutación por shell es "hacer algo".
+                  if (!entryNow.followed) {
+                    entryNow.followed = true
+                    entryNow.followedBy = "shell"
+                  }
                   const wasVerifiedShellMut = entryNow.verified === true
                   const wasWroteShellMut = entryNow.wrote === true
                   entryNow.wrote = true
@@ -1945,6 +1971,11 @@ async function runSetup(ctx) {
             const original = draft.execute
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
+              const followTask = sessionOf(String(callCtx?.sessionID || rt.sessionId || "global"))
+              if (!followTask.followed) {
+                followTask.followed = true
+                followTask.followedBy = "task"
+              }
               rt.activeTask = {
                 taskId: String(input?.task_id || ""),
                 files: Array.isArray(input?.files) ? input.files.map(String) : [],
@@ -1966,6 +1997,12 @@ async function runSetup(ctx) {
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
               const entry = sessionOf(String(callCtx?.sessionID || rt.sessionId || "global"))
+              // P1.14: llamar la verificación es seguir la sugerencia, verde o
+              // rojo (el agente hizo lo que se le pidió).
+              if (!entry.followed) {
+                entry.followed = true
+                entry.followedBy = "verify"
+              }
               const payload = (result && result.data) || {}
               // `run_tests` ahora ejecuta pytest: passed=false es rojo aunque ok
               // no venga explícito. verify_predicates ya devuelve ok=failure.
@@ -2017,8 +2054,35 @@ async function runSetup(ctx) {
             draft.execute = async (input, callCtx) => {
               const result = await original(input, callCtx)
               const key = String(callCtx?.sessionID || rt.sessionId || "global")
+              const bindEntry = sessionOf(key)
+              if (!bindEntry.followed) {
+                bindEntry.followed = true
+                bindEntry.followedBy = "bind"
+              }
               boundCache.delete(key)
               bindFailures.delete(key)
+              return result
+            }
+          })
+        }
+        // P1.14: `session_plan` es la otra acción del protocolo. Además de
+        // contar como seguimiento, invalida la caché del plan (antes sólo se
+        // invalidaba si el agente lo llamaba por shell).
+        for (const name of ["session_plan", "walker_session_plan"]) {
+          const planTool = editor.get(name)
+          if (!planTool || typeof planTool.execute !== "function") continue
+          editor.update(name, (draft) => {
+            const original = draft.execute
+            draft.execute = async (input, callCtx) => {
+              const result = await original(input, callCtx)
+              const key = String(callCtx?.sessionID || rt.sessionId || "global")
+              planCache.delete(key)
+              state.fetchedAt = 0
+              const planEntry = sessionOf(key)
+              if (!planEntry.followed) {
+                planEntry.followed = true
+                planEntry.followedBy = "plan"
+              }
               return result
             }
           })

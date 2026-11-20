@@ -119,3 +119,64 @@ def test_route_to_target_invalido_falla(tmp_path):
     out = refine.route_to_target(_ctx(tmp_path), {"target": "nope"})
 
     assert out.ok is False
+
+
+# ── initialize_knowledge_base: fail-fast (auditoría #6) ────────────────
+
+
+def test_initialize_knowledge_base_falla_si_el_ckg_no_responde(tmp_path, monkeypatch):
+    """Antes devolvía `ok: True, skipped: True`: el workflow creía que la
+    memoria estaba sembrada y la falta aparecía (o no) mucho después."""
+    from fast_mcp import composition
+
+    def boom(name):
+        raise RuntimeError("ckg caido")
+
+    monkeypatch.setattr(composition, "memory_tool_runner", boom)
+
+    out = project_init.initialize_knowledge_base(_ctx(tmp_path), {})
+
+    assert out.ok is False
+    assert "ckg caido" in out.error
+
+
+def test_initialize_knowledge_base_falla_si_no_guardo_nada(tmp_path, monkeypatch):
+    from fast_mcp import composition
+
+    monkeypatch.setattr(
+        composition,
+        "memory_tool_runner",
+        lambda name: lambda **kw: {
+            "ok": True,
+            "saved": False,
+            "message": "no data to save",
+        },
+    )
+
+    out = project_init.initialize_knowledge_base(_ctx(tmp_path), {})
+
+    assert out.ok is False
+    assert "no guardó" in out.error
+
+
+def test_initialize_knowledge_base_reporta_lo_guardado(tmp_path, monkeypatch):
+    from fast_mcp import composition
+
+    seen = {}
+
+    def runner(name):
+        def call(**kw):
+            seen.update(name=name, **kw)
+            return {"ok": True, "nodes_saved": 1, "node_id": "n-1"}
+
+        return call
+
+    monkeypatch.setattr(composition, "memory_tool_runner", runner)
+
+    out = project_init.initialize_knowledge_base(
+        _ctx(tmp_path), {"statement": "constitución mínima"}
+    )
+
+    assert out.ok is True
+    assert out.data["nodes_saved"] == 1 and out.data["node_id"] == "n-1"
+    assert seen["statement"] == "constitución mínima" and seen["type"] == "project"

@@ -33,7 +33,9 @@ Thumbs.db
 # en cada escritura atómica.
 **/*.json.gz
 **/*.json.gz.lock
+**/sync.lock
 **/.file_snapshot.json
+**/.file_snapshot.session-*.json
 **/change_detected.json
 **/dfg_cache.json
 **/cfg_calls_cache.json

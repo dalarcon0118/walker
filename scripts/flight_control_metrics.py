@@ -63,7 +63,7 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
     close_blocked = 0
     verifications = {"green": 0, "red": 0}
     write_evidence = {"events": 0, "files": set()}
-    suggestions = {"followed": 0, "ignored": 0}
+    suggestions = {"followed": 0, "ignored": 0, "by": {}}
 
     for event in selected:
         sid = _session(event)
@@ -83,6 +83,9 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
             close_blocked += 1
         elif kind == "workflow_state_injected" and data.get("followed") is True:
             suggestions["followed"] += 1
+            # P1.14: con qué acción se siguió (edit/shell/verify/task/plan/cli).
+            by = str(data.get("followedBy") or "?")
+            suggestions["by"][by] = suggestions["by"].get(by, 0) + 1
         elif kind == "workflow_suggestion_ignored":
             suggestions["ignored"] += 1
         elif kind == "session_state" and data.get("recorded_by") == "task_tool":
@@ -164,7 +167,10 @@ def _print_table(summary: dict[str, Any]) -> None:
     w = summary["write_evidence"]
     print(f"escritura sin hook: {w['events']} evento(s), {w['files']} archivo(s)")
     s = summary["suggestions"]
-    print(f"sugerencias: seguidas={s['followed']} ignoradas={s['ignored']}")
+    by = ",".join(f"{k}={v}" for k, v in sorted(s["by"].items())) or "-"
+    print(
+        f"sugerencias: seguidas={s['followed']} ({by}) ignoradas={s['ignored']}"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

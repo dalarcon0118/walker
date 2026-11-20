@@ -92,6 +92,7 @@ const REAL_CLI = new Set([
 const MODES = [
   "normal",
   "inject",
+  "injectsuggest",
   "degraded",
   "badbind",
   "baddeclare",

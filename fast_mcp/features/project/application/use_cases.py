@@ -121,7 +121,12 @@ def prepare_use_case(
     name = args.get("name", pid)
 
     # 0. Idempotencia (mismo guard que el legacy).
-    project_json = Path(path) / ".cognitive" / "projects" / pid / "data" / "project.json"
+    # El layout sale del SSOT del kernel (`paths.compose_project_layout`), no
+    # de un join a mano: con `project.cognitive_dir`/`project.data_dir`
+    # configurables, hardcodear `.cognitive/.../data` creaba un segundo layout
+    # que `resolve_paths` después no encontraba.
+    data_dir = paths.compose_project_layout(path, pid)
+    project_json = data_dir / "project.json"
     if project_json.exists():
         # El guard de idempotencia NO debe dejar proyectos huérfanos: si el
         # layout existe pero el registro global no (prepare interrumpido, o
@@ -163,8 +168,7 @@ def prepare_use_case(
     if not args.get("framework") and framework == "unknown":
         setup_warnings.append("framework not detected (Fase 2: update_project lo fija)")
 
-    # 2. Estructura del layout cognitivo del proyecto.
-    data_dir = Path(path) / ".cognitive" / "projects" / pid / "data"
+    # 2. Estructura del layout cognitivo del proyecto (ya resuelto arriba).
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # 3. project.json (mismo schema que el legacy).
@@ -217,7 +221,7 @@ def prepare_use_case(
         "status_code": 200,
         "project_id": pid,
         "path": path,
-        "cognitive_dir": str(Path(path) / ".cognitive"),
+        "cognitive_dir": str(Path(path) / paths.project_cognitive_dir()),
         "project_json": str(data_dir / "project.json"),
         "registered_in": str(registered_in),
         "code_detected": code_detected,

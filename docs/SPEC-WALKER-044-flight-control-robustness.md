@@ -489,7 +489,82 @@ mostraba `wrote` solo por lo que el hook alcanzaba a ver.
 - [ ] M-06 Extensibilidad: un solo helper (`changed_since_last_scan`) para las
       tres superficies; no hay un scan por tool.
 
-## 18. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 18. P1.13 — El baseline de escritura es de la sesión, no del proyecto
+
+P1.12 hizo visible la escritura que el hook no ve, pero el diff se hacía contra
+el snapshot GLOBAL del proyecto: una sesión nueva heredaba las escrituras de la
+anterior y el cierre quedaba en deuda por trabajo ajeno. Medido: el primer
+`session_context` de una sesión recién abierta ya veía `wrote` sin que hubiera
+escrito nada.
+
+- [ ] `FileWatcher.changes_since(session_id=...)` diffea contra
+      `.file_snapshot.session-<sid>.json`: la primera lectura establece el
+      baseline de esa sesión y devuelve `[]`.
+- [ ] Sin `session_id` se mantiene el snapshot global (es el que alimenta el
+      estado del CPG/indexado; su semántica no cambia).
+- [ ] `session_context` completa `flight_state.wrote` aunque el trace no tenga
+      estado de vuelo (antes no escaneaba justamente para no heredar).
+- [ ] `run_tests` y `verify_predicates` piden la evidencia con su sesión.
+- [ ] Lecturas que no cambian nada no reescriben el snapshot (churn de ~50KB
+      por llamada), y los snapshots de sesión se podan a 50.
+- [ ] El footprint del motor (`.cognitive/`, `*.json.gz`, `.file_snapshot*`,
+      `data/*.sqlite3`) nunca cuenta como escritura del agente.
+- [ ] M-09 Fallback visible: `touched_source=watcher` marca la evidencia
+      indirecta — anti-patrón: presentarla como observación del hook.
+- [ ] M-02 SSOT de estrategias: un solo helper (`changed_since_last_scan`) para
+      las tres superficies — anti-patrón: un scan por tool con reglas propias.
+- [ ] M-05 Concurrencia: dos sesiones sobre el mismo repo no se atribuyen
+      escrituras anteriores al arranque de la otra — anti-patrón: last-write-wins
+      sobre un snapshot compartido. Límite conocido: una escritura POSTERIOR a
+      la última lectura de otra sesión sí se ve (el snapshot se refresca).
+
+## 19. P1.14 — "Siguió la sugerencia" es una acción, no una tool
+
+La métrica de adherencia sólo acreditaba `submit`/`transition`: el agente
+escribía, verificaba o cambiaba el plan y el trace lo contaba igual como
+`workflow_suggestion_ignored` (medido: 63-81 ignoradas por sesión, `followed`
+1/5). El número describía el instrumento, no al agente.
+
+- [ ] Escribir (`edit`/`write`) y mutar por `shell` marcan `followed` con
+      `followedBy=edit|shell` — sólo si el gate permitió la escritura.
+- [ ] `run_tests`/`verify_predicates` (tool o CLI) marcan `followedBy=verify`,
+      verde o rojo: llamar la verificación ES seguimiento.
+- [ ] `implement_task`, `session_bind` y `session_plan` (tool o CLI) marcan
+      `followedBy=task|bind|plan`; `submit`/`transition` mantienen `tool`.
+- [ ] `session_plan` por tool invalida la caché del plan (antes sólo por shell).
+- [ ] `workflow_suggestion_ignored` sólo se emite cuando la ejecución no tuvo
+      NINGUNA acción, y lleva `wrote`/`verified`/`reason` para leer el caso.
+- [ ] El reporte agrupa `seguidas` por `followedBy`.
+- [ ] M-04 Eventos como contrato: `followed`/`followedBy` son el contrato de la
+      métrica — anti-patrón: inferir adherencia desde el nombre de la tool.
+- [ ] M-03 Audit trail: el evento dice QUÉ acción siguió — anti-patrón: un
+      booleano sin procedencia.
+- [ ] M-06 Extensibilidad: una acción nueva se marca en el punto donde ocurre —
+      anti-patrón: una allowlist de tools en el agregador.
+
+## 20. P1.15 — Auditoría #6/#7: sin éxito falso ni layout a mano
+
+Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
+"hace algo por defecto" en vez de decidir o fallar):
+
+- [ ] `initialize_knowledge_base` es FAIL-FAST: sin CKG (`saved: false`), sin
+      nodo guardado, excepción o resultado no-dict → `TaskResult.failure` con el
+      motivo. Antes devolvía `ok: True, skipped: True` y el workflow creía tener
+      memoria sembrada.
+- [ ] Reporta lo que guardó (`nodes_saved`, `node_id`), no un `ok` vacío.
+- [ ] `prepare` compone el layout con `paths.compose_project_layout`
+      (`project.cognitive_dir`/`project.data_dir`) en vez de
+      `<repo>/.cognitive/projects/<pid>/data` a mano: con layout configurado,
+      el join hardcodeado creaba un segundo layout que `resolve_paths` no
+      encontraba.
+- [ ] M-01 Integridad de escritura: una acción que no pudo cumplir su contrato
+      no devuelve éxito — anti-patrón: `ok: true` con `error` adentro.
+- [ ] M-06 Configuración externa: una sola fuente para el layout (config) —
+      anti-patrón: `.cognitive`/`data` repetidos como literales.
+- [ ] M-09 Fallback visible: sin `skipped` silencioso; el fallo se ve en el
+      resultado de la task — anti-patrón: degradar a "no hizo nada" con ok.
+
+## 21. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -503,7 +578,7 @@ mostraba `wrote` solo por lo que el hook alcanzaba a ver.
 
 ---
 
-## 19. failure_scenarios
+## 22. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -528,13 +603,17 @@ mostraba `wrote` solo por lo que el hook alcanzaba a ver.
   "El detector de imports solo entiende Python y coupling usa prefijos hardcodeados → en un repo JS los alias son alucinaciones falsas y Ca=0 aunque haya importadores; en Go/Rust el resultado es un cero que parece dato → causa: resolución de imports sin adapter por lenguaje → mitigación: lang_imports + status/not_checked y agregado que separa verificados de no verificados → detección: tests/test_language_imports_bdd.py (JS relativos/alias, Go/Rust not_checked, Ca por resolución)",
   "El gate de intake repite el bloqueo aunque el plan ya declare la tarea, y el de scope bloquea cada intento hasta que el agente reescriba el scope completo → 7 + 20 bloqueos en una sesión, cada uno un turno perdido → causa: la declaración y la ampliación vivían solo del lado del agente → mitigación: auto-declare desde el plan y una negociación por archivo con session_plan mode=add, verificada contra workflow_state → detección: harness modes autodeclare y scope",
   "La verificación corre por fuera del wrapper del plugin (Code Mode / shell del host / subagente) → el verde no llega al hook y el gate vuelve a nudgar sin cambios de código → causa: el plugin infiere la verificación del comando que ve, no del hecho persistido → mitigación: run_tests/verify_predicates escriben session_state en el trace y el plugin lo hidrata antes de nudgar (fail-closed sin session_id) → detección: harness mode extverify y tests/test_verification_trace_bdd.py",
-  "La escritura entra por un camino que el hook no clasifica (subagente, sed -i, git apply) → wrote queda en falso y el cierre pasa limpio sin verificación → causa: el estado de escritura dependía 100% de observar edit/write/shell → mitigación: diff del FileWatcher adjunto al session_state y completado en session_context solo si el trace no lo trae → detección: tests de changed_since_last_scan y merge_write_evidence"
+  "La escritura entra por un camino que el hook no clasifica (subagente, sed -i, git apply) → wrote queda en falso y el cierre pasa limpio sin verificación → causa: el estado de escritura dependía 100% de observar edit/write/shell → mitigación: diff del FileWatcher adjunto al session_state y completado en session_context solo si el trace no lo trae → detección: tests de changed_since_last_scan y merge_write_evidence",
+  "El diff de escritura se hace contra el snapshot GLOBAL del proyecto → una sesión nueva hereda las escrituras de la anterior y el cierre queda en deuda por trabajo ajeno → causa: un único snapshot compartido entre sesiones → mitigación: snapshot por sesión (.file_snapshot.session-<sid>.json), baseline en la primera lectura y poda a 50 → detección: test_el_snapshot_es_por_sesion_no_del_proyecto y test_session_context_sin_flight_state_igual_detecta_escritura",
+  "La adherencia sólo acredita submit/transition → 63-81 sugerencias 'ignoradas' aunque el agente escribió, verificó o cambió el plan → causa: followed se marcaba en una única tool → mitigación: toda acción real (edit/write/shell/verify/task/plan/bind/cli) marca followed con su origen; ignored sólo cuando no hubo ninguna → detección: harness mode injectsuggest y tests/test_flight_control_metrics_bdd.py",
+  "initialize_knowledge_base devuelve ok:true con el error (o skipped) adentro → el workflow cree que la memoria está sembrada y la falta aparece en las consultas o nunca → causa: el bootstrap se declaró fail-open sin distinguir best-effort de contrato incumplido → mitigación: TaskResult.failure con el motivo (sin CKG, sin nodo, excepción) → detección: tests de initialize_knowledge_base (caído, sin guardar, éxito)",
+  "prepare arma <repo>/.cognitive/projects/<pid>/data a mano → con project.cognitive_dir/data_dir configurados crea un layout que resolve_paths no encuentra y el proyecto queda inaccesible por API → causa: literales en vez del SSOT de rutas → mitigación: paths.compose_project_layout → detección: test_prepare_usa_el_layout_configurado_y_no_lo_hardcodea"
 ]
 ```
 
 ---
 
-## 20. Criterios de aceptación
+## 23. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -584,10 +663,16 @@ mostraba `wrote` solo por lo que el hook alcanzaba a ver.
     como verificación de la tool; `session_plan` acepta `add`/`remove`.
 20. P1.12: una escritura que el hook no vio deja `wrote=true` en el flight
     state (con `touched_source=watcher`); sin cambios reales no se marca nada.
+21. P1.13: una sesión nueva no hereda escrituras previas (baseline propio) y una
+    escritura que el hook no vio en ESA sesión sí queda como deuda.
+22. P1.14: una ejecución con escritura/verificación/plan queda como seguimiento
+    (`followedBy`); `ignored` sólo cuando no hubo ninguna acción.
+23. P1.15: `initialize_knowledge_base` falla visible si el CKG no se sembró y
+    `prepare` usa el layout configurado (no un join hardcodeado).
 
 ---
 
-## 21. Riesgos y compatibilidad
+## 24. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -601,7 +686,7 @@ mostraba `wrote` solo por lo que el hook alcanzaba a ver.
 
 ---
 
-## 22. Tests
+## 25. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -644,8 +729,16 @@ mostraba `wrote` solo por lo que el hook alcanzaba a ver.
 - `tests/test_verification_trace_bdd.py`: evento de verificación, fail-closed
   sin sesión, contrato de `flight_state`, diff de escritura y merge en
   `session_context` (P1.11/P1.12).
-- `tests/test_flight_control_metrics_bdd.py`: agregado del reporte y exclusión
-  del harness (P1.11).
+- `tests/test_flight_control_metrics_bdd.py`: agregado del reporte, evidencia de
+  escritura sin hook, `followedBy` y exclusión del harness (P1.11/P1.14).
+- `tests/test_verification_trace_bdd.py`: snapshot por sesión y escritura sin
+  flight state (P1.13).
+- `tests/test_refine_project_init_actions_bdd.py`: `initialize_knowledge_base`
+  fail-fast — CKG caído, sin nodo guardado y éxito con lo guardado (P1.15).
+- `tests/test_fast_mcp_migration_bdd.py`: `prepare` con layout configurado
+  (P1.15).
+- `gate.test.mjs` modo `injectsuggest`: escribir deja `followed=true` por
+  `edit` y no emite `workflow_suggestion_ignored` (P1.14).
 - `tests/test_task_context_advance_bdd.py`: `session_plan` registra la tarea
   aunque no tenga spec (P1.10).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

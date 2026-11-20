@@ -406,7 +406,7 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # scan (antes de correr la suite, para no contar `__pycache__`/caches).
     # No reemplaza al hook (no sabe quién escribió), pero una sesión que
     # escribió por un camino no observado no queda sin deuda de verificación.
-    touched = changed_since_last_scan(project_root)
+    touched = changed_since_last_scan(project_root, session_id=session_id)
 
     def _record(passed: bool, rc: int | None = None) -> None:
         record_verification(

@@ -550,24 +550,32 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     return out
 
 
-def merge_write_evidence(flight: dict, chain_dir: str, scanner=None) -> dict:
+def merge_write_evidence(
+    flight: dict, chain_dir: str, session_id: str = "", scanner=None
+) -> dict:
     """Completa `wrote/writes/touched` del flight state con el diff del repo.
 
     Solo actúa si el trace NO trae `wrote`: lo observado por el plugin es más
     preciso (sabe qué herramienta escribió). Esto cubre la escritura que el
     hook no vio (subagente, shell del host, `sed -i`, `git apply`): el cierre
     queda con deuda en vez de pasar limpio.
+
+    El diff es contra el snapshot PROPIO de la sesión (P1.13): el global
+    arrastra las escrituras de sesiones previas y le inventaría deuda a una
+    sesión nueva. La primera lectura de la sesión establece su baseline y no
+    reporta nada; a partir de ahí sólo cuenta lo que cambió después.
     """
-    # Sin estado de vuelo no se escanea: el primer `session_context` de una
-    # sesión nueva vería cambios previos del repo y le inventaría deuda.
-    if not flight or flight.get("wrote") or not chain_dir:
+    if flight.get("wrote") or not chain_dir:
         return flight
     try:
-        from fast_mcp.shared_kernel.project_support.watcher import (
-            changed_since_last_scan,
-        )
+        if scanner is not None:
+            changed = scanner(chain_dir, session_id=session_id)
+        else:
+            from fast_mcp.shared_kernel.project_support.watcher import (
+                changed_since_last_scan,
+            )
 
-        changed = (scanner or changed_since_last_scan)(chain_dir)
+            changed = changed_since_last_scan(chain_dir, session_id=session_id)
     except Exception:  # noqa: BLE001 — el contexto no depende del scan
         changed = []
     if changed:
@@ -725,7 +733,7 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     # ese dato es más preciso (sabe QUÉ herramienta escribió). Sin esto, una
     # sesión que editó por un camino no observado cerraba limpia sin deuda.
     out["flight_state"] = merge_write_evidence(
-        out.get("flight_state") or {}, ctx.chain_dir
+        out.get("flight_state") or {}, ctx.chain_dir, session_id=sid
     )
 
     # 4. CKG: decisiones y hechos de la sesión

@@ -2,7 +2,9 @@
 
 Detecta el contexto del proyecto y propone la configuración inicial SIN
 escribir archivos del repo (la escritura es una decisión del usuario). El
-CKG y el primer sprint son idempotentes y fail-open.
+CKG y el primer sprint son idempotentes y FAIL-FAST: si no pueden cumplir su
+contrato, la acción falla con el motivo (antes `initialize_knowledge_base`
+devolvía `ok: True` con el error adentro y el workflow creía tener memoria).
 """
 from __future__ import annotations
 
@@ -200,6 +202,13 @@ def apply_project_config(ctx: ExecutionContext, data: dict[str, Any]) -> TaskRes
 
 
 def initialize_knowledge_base(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
+    """Siembra el CKG del proyecto (idempotente) — FAIL-FAST.
+
+    Antes devolvía `ok: True, skipped: True` con el error adentro: el workflow
+    seguía como si la memoria estuviera sembrada y la falta recién aparecía en
+    las consultas (o nunca). Una acción que no puede cumplir su contrato es un
+    fallo visible, no un éxito con una nota.
+    """
     try:
         from fast_mcp.composition import memory_tool_runner
 
@@ -209,16 +218,33 @@ def initialize_knowledge_base(ctx: ExecutionContext, data: dict[str, Any]) -> Ta
             type="project",
             session_id=str(getattr(ctx, "session_id", "") or ""),
         )
-        if isinstance(result, dict) and (result.get("ok") is False or result.get("error")):
-            return TaskResult.success(
-                data={"ok": True, "skipped": True, "error": result.get("error")}
-            )
-        node_id = result.get("node_id") if isinstance(result, dict) else ""
-        return TaskResult.success(data={"ok": True, "node_id": node_id or ""})
-    except Exception as exc:  # noqa: BLE001 — el bootstrap no debe romper
-        return TaskResult.success(
-            data={"ok": True, "skipped": True, "error": f"{type(exc).__name__}: {exc}"}
+    except Exception as exc:  # noqa: BLE001 — el error se reporta, no se traga
+        return TaskResult.failure(
+            f"initialize_knowledge_base: {type(exc).__name__}: {exc}"
         )
+
+    if not isinstance(result, dict):
+        return TaskResult.failure(
+            "initialize_knowledge_base: la tool no devolvió un resultado "
+            f"({type(result).__name__})"
+        )
+    if result.get("ok") is False or result.get("error"):
+        return TaskResult.failure(
+            f"initialize_knowledge_base: {result.get('error') or 'la tool falló'}"
+        )
+    saved = result.get("nodes_saved")
+    if result.get("saved") is False or not saved:
+        return TaskResult.failure(
+            "initialize_knowledge_base: el CKG no guardó el nodo inicial — "
+            f"{result.get('message') or 'sin memoria disponible'}"
+        )
+    return TaskResult.success(
+        data={
+            "ok": True,
+            "nodes_saved": int(saved),
+            "node_id": str(result.get("node_id") or ""),
+        }
+    )
 
 
 def create_first_sprint(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

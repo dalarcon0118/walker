@@ -84,15 +84,22 @@ def test_verificaciones_por_tool_separan_verde_y_rojo():
 
 
 def test_sugerencias_seguidas_salen_de_state_injected():
+    """P1.14: `ignored` sólo cuando el agente NO hizo nada. Una escritura,
+    una verificación o un cambio de plan también son seguimiento."""
     events = [
-        _ev("workflow_state_injected", followed=True, followedBy="cli"),
+        _ev("workflow_state_injected", followed=True, followedBy="edit"),
+        _ev("workflow_state_injected", followed=True, followedBy="verify"),
         _ev("workflow_state_injected", followed=False),
-        _ev("workflow_suggestion_ignored"),
+        _ev("workflow_suggestion_ignored", reason="sin accion del agente"),
     ]
 
     out = metrics.summarize(events)
 
-    assert out["suggestions"] == {"followed": 1, "ignored": 1}
+    assert out["suggestions"] == {
+        "followed": 2,
+        "ignored": 1,
+        "by": {"edit": 1, "verify": 1},
+    }
 
 
 def test_evidencia_de_escritura_sin_hook():
