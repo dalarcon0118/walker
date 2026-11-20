@@ -23,6 +23,17 @@ class _SprintService:
     def __init__(self):
         self.springs = [{"spring_id": "SPR-1", "status": "planning"}]
         self.specs: dict[str, list[dict]] = {"SPR-1": []}
+        self.plans: dict[str, dict] = {}
+
+    def get_session_plan(self, session_id):
+        return self.plans.get(session_id)
+
+    def update_session_plan(self, session_id, patch):
+        self.plans[session_id] = {**self.plans.get(session_id, {}), **(patch or {})}
+        return self.plans[session_id]
+
+    def get_session(self, session_id):
+        return {"session_id": session_id, "flight_plan": self.plans.get(session_id, {})}
 
     def get_active_spring(self):
         return None  # como en la realidad: planning no es "active"
@@ -169,3 +180,58 @@ def test_aceptacion_explicita_queda_en_la_spec(servicio):
     spec = servicio.specs["SPR-1"][0]
     assert spec["acceptance_criteria"] == ["el resultado es 4"]
     assert spec["task_context"]["derived"] == "explicit"
+
+
+# ── Aprobación del plan no trivial (SPEC-011) ────────────────────────────
+
+
+def test_plan_no_trivial_sin_aprobacion_no_se_implementa(servicio):
+    out = implement.implement_task(
+        _ctx(),
+        {
+            "task_id": "T-1",
+            "objective": "rehacer el motor",
+            "session_id": "ses-1",
+            "files": ["a.py", "b.py"],
+            "acceptance": ["el motor arranca", "los tests pasan"],
+        },
+    )
+
+    assert out.ok is False
+    assert "aprobación del usuario" in out.error
+    assert "approved_by_user" in out.error
+
+
+def test_plan_aprobado_por_el_usuario_se_implementa(servicio):
+    servicio.update_session_plan("ses-1", {"approved_by_user": True})
+
+    out = implement.implement_task(
+        _ctx(),
+        {
+            "task_id": "T-1",
+            "objective": "rehacer el motor",
+            "session_id": "ses-1",
+            "files": ["a.py", "b.py"],
+            "acceptance": ["el motor arranca", "los tests pasan"],
+        },
+    )
+
+    assert out.ok is True
+    assert out.data["spec"]["spec_id"] == "SPEC-001"
+
+
+def test_una_tarea_trivial_no_pide_aprobacion(servicio):
+    # Un archivo con dos criterios no es "no trivial": el gate no puede volver
+    # ceremonia cada cambio chico.
+    out = implement.implement_task(
+        _ctx(),
+        {
+            "task_id": "T-1",
+            "objective": "x",
+            "session_id": "ses-1",
+            "files": ["a.py"],
+            "acceptance": ["a", "b"],
+        },
+    )
+
+    assert out.ok is True

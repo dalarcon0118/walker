@@ -257,6 +257,13 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             },
             "path": {"type": "string", "description": "Un archivo (add/remove)"},
             "next": {"type": "string", "description": "Próximo paso"},
+            "approved_by_user": {
+                "type": "boolean",
+                "description": (
+                    "El USUARIO aprobó el plan (SPEC-011). Un plan no trivial "
+                    "(≥2 archivos y ≥2 criterios) no se implementa sin esto."
+                ),
+            },
             "project": {
                 "type": "string",
                 "description": "Proyecto de trabajo (≠ cwd)",

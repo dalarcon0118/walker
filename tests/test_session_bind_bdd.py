@@ -269,3 +269,42 @@ def test_new_con_spring_explicito_cerrado_falla(svc):
 
     assert out.ok is False
     assert "cerrado" in out.error
+
+
+# ── Handoff de reanudación (SPEC-006) ────────────────────────────────────
+
+
+def test_continue_muestra_tareas_abiertas_y_el_next_previo(svc):
+    svc.create_spring(
+        "SPR-OLD", goal="login roto", status="active", session_id="s0",
+        context={"session_ids": ["s0"]},
+    )
+    svc.specs["SPR-OLD"] = [
+        {"spec_id": "t1", "objective": "a", "status": "completed",
+         "task_context": {"task_id": "t1"}},
+        {"spec_id": "t2", "objective": "b", "status": "in_progress",
+         "task_context": {"task_id": "t2"}},
+        {"spec_id": "t3", "objective": "c", "status": "rejected",
+         "task_context": {"task_id": "t3"}},
+    ]
+    svc.update_session_plan("s0", {"next": "correr la suite de login",
+                                   "approved_by_user": True})
+
+    out = _data(session_bind(_ctx("s1"), {"session_id": "s1", "mode": "continue"}))
+
+    bound = out["bound"]
+    assert [t["task_id"] for t in bound["open_tasks"]] == ["t2"]
+    assert bound["open_tasks_count"] == 1
+    assert bound["next"] == "correr la suite de login"
+    assert bound["approved_by_user"] is True
+
+
+def test_handoff_sin_plan_no_inventa_next(svc):
+    svc.create_spring("SPR-OLD", goal="g", status="active", session_id="s0",
+                      context={"session_ids": ["s0"]})
+    out = _data(session_bind(_ctx("s1"), {"session_id": "s1", "mode": "continue"}))
+
+    bound = out["bound"]
+    assert bound["open_tasks"] == []
+    assert bound["next"] == ""
+    assert bound["approved_by_user"] is None

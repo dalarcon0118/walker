@@ -75,15 +75,43 @@ def _summary(service: Any, spring: dict) -> dict:
     spring_id = str(spring.get("spring_id") or spring.get("id") or "")
     tasks = _tasks_of(service, spring_id)
     ctx = spring.get("context") or {}
+    sessions = _owned_sessions(spring)
+    # T1.2 (SPEC-006): el handoff dice qué quedó ABIERTO y cuál era el próximo
+    # paso. Se lee del plan de la sesión más reciente (el plan es el SSOT del
+    # `next`); no se inventa desde el goal. Un sprint con todo cerrado muestra
+    # 0 abiertas, que es un dato, no un vacío.
+    open_tasks = [
+        task
+        for task in tasks
+        if str(task.get("status") or "") not in ("completed", "rejected")
+    ]
+    previous_next = ""
+    approved: bool | None = None
+    for sid in reversed(sessions):
+        plan = {}
+        try:
+            plan = service.get_session_plan(sid) or {}
+        except Exception:  # noqa: BLE001 — un plan ilegible no rompe el bind
+            plan = {}
+        if not previous_next and plan.get("next"):
+            previous_next = str(plan["next"])
+        if approved is None and plan.get("approved_by_user") is not None:
+            approved = bool(plan.get("approved_by_user"))
+        if previous_next and approved is not None:
+            break
     return {
         "spring_id": spring_id,
         "goal": spring.get("goal") or "",
         "status": spring.get("status") or "",
         "session_id": spring.get("session_id") or "",
-        "sessions": _owned_sessions(spring),
+        "sessions": sessions,
         "parent_session_id": ctx.get("parent_session_id") or "",
         "tasks": tasks,
         "tasks_count": len(tasks),
+        "open_tasks": open_tasks,
+        "open_tasks_count": len(open_tasks),
+        "next": previous_next,
+        "approved_by_user": approved,
     }
 
 
@@ -647,6 +675,10 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     for key in ("goal", "task", "next", "project"):
         if data.get(key) is not None:
             patch[key] = str(data[key])
+    # T3.3 (SPEC-011): la aprobación es del plan, no del mensaje del agente.
+    # `false` explícito también se guarda: quitar una aprobación es un acto.
+    if data.get("approved_by_user") is not None:
+        patch["approved_by_user"] = bool(data.get("approved_by_user"))
     if isinstance(data.get("acceptance"), list):
         patch["acceptance"] = [str(x) for x in data["acceptance"]]
     if isinstance(data.get("scope"), list):

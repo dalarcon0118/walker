@@ -116,6 +116,8 @@ const MODES = [
   "closerounds",
   "closetai",
   "verifycounts",
+  "handoff",
+  "approval",
   "closecli",
   "closeclipipe",
   "closeclimark",

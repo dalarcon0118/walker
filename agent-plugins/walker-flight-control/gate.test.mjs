@@ -85,15 +85,34 @@ if (mode === "baddeclare") {
 // mide otra cosa (seguimiento del plan) y tiene su propio fixture.
 const INJECT_MODES = new Set(["inject", "injectonce", "injectmessages"])
 
-if (INJECT_MODES.has(mode) || mode === "verifycounts") {
+if (INJECT_MODES.has(mode) || mode === "verifycounts" || mode === "approval") {
   // Fixture determinista: el modo NO depende del CKG/CPG real del proyecto
   // (que estaba vacío y hacía fallar baseline/ADR). El scope apunta a un
   // archivo real para que `existsSync` pase; el resto lo responde el fake.
   const scopeFile = `${WALKER}/agent-plugins/walker-flight-control/index.js`
+  const briefFile = `${WALKER}/agent-plugins/walker-flight-control/brief_block.mjs`
+  // SPEC-011: en `approval` el plan es no trivial (2 archivos y 2 criterios) y
+  // el usuario todavía no aprobó: el bloque tiene que decirlo.
+  const plan = mode === "approval"
+    ? {
+        goal: "Probar la aprobacion del plan",
+        task: "harness-task",
+        next: "pedir aprobacion al usuario",
+        scope: [scopeFile, briefFile],
+        acceptance: ["Debe mostrar el plan", "Sin romper los tests"],
+        approved_by_user: false,
+      }
+    : {
+        goal: "Probar la inyeccion del nodo",
+        task: "harness-task",
+        next: "implementar y verificar",
+        scope: [scopeFile],
+        acceptance: ["Debe mostrar el plan", "Sin romper los tests"],
+      }
   fake("/tmp/fake-walker-inject", [
     "#!/bin/sh",
     'case "$1" in',
-    `  */session_plan) echo '{"ok":true,"data":{"plan":{"goal":"Probar la inyeccion del nodo","task":"harness-task","next":"implementar y verificar","scope":["${scopeFile}"],"acceptance":["Debe mostrar el plan","Sin romper los tests"]}}}'; exit 0;;`,
+    `  */session_plan) echo '{"ok":true,"data":{"plan":${JSON.stringify(plan)}}}'; exit 0;;`,
     `  */project_for_path) echo '{"ok":true,"project_id":"testproj"}'; exit 0;;`,
     `  */workflow_state) echo '{"ok":true,"current_position":"IMPLEMENT.WORK","execution_type":"llm_task","step_satisfied":true,"task_id":"harness-task","revision":1}'; exit 0;;`,
     `  */preflight) echo '{"ok":true,"files":[{"file":"index.js","callers":5,"heaviest":[{"cyclo":7}]}],"tests":["t1.py","t2.py"]}'; exit 0;;`,
@@ -102,6 +121,22 @@ if (INJECT_MODES.has(mode) || mode === "verifycounts") {
     `  */session_open) echo '{"ok":true}'; exit 0;;`,
     `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-TEST","tasks":[]}}}'; exit 0;;`,
     `  */implement_task) echo '{"ok":true,"data":{"task_id":"harness-task"}}'; exit 0;;`,
+    `  *) echo '{"ok":true}'; exit 0;;`,
+    "esac",
+  ])
+}
+if (mode === "handoff") {
+  // SPEC-006: reanudar muestra goal, tareas ABIERTAS y el `next` previo. El
+  // plan viene vacío a propósito: sin plan no hay next que inventar.
+  fake("/tmp/fake-walker-handoff", [
+    "#!/bin/sh",
+    'case "$1" in',
+    `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-OLD","status":"active","goal":"login roto","tasks_count":3,"open_tasks_count":2,"open_tasks":[{"task_id":"T-1"},{"task_id":"T-2"}],"next":"correr la suite de login","sessions":["s0"]}}}'; exit 0;;`,
+    `  */session_plan) echo '{"ok":true,"data":{"plan":{}}}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"testproj"}'; exit 0;;`,
+    `  */workflow_state) echo '{"ok":true,"current_position":"START.SELECT","execution_type":"llm_task","step_satisfied":true,"revision":1}'; exit 0;;`,
+    `  */trace_push) echo '{"ok":true}'; exit 0;;`,
+    `  */session_open) echo '{"ok":true}'; exit 0;;`,
     `  *) echo '{"ok":true}'; exit 0;;`,
     "esac",
   ])
@@ -556,6 +591,46 @@ if (mode === "verifycounts") {
   if (!okCount) console.log(text.slice(0, 320))
   if (typeof dispose === "function") dispose()
   process.exit(okCount && okPlan ? 0 : 1)
+}
+
+if (mode === "handoff") {
+  // SPEC-006: continuidad = goal + abiertas + next, en el bloque, sin releer
+  // el repo.
+  const event = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "seguimos con el login" }] }],
+  }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+  const okOpen = /abiertas: 2 \(T-1, T-2\)/.test(text)
+  const okNext = /next previo: correr la suite de login/.test(text)
+  const okGoal = /goal: login roto/.test(text)
+  console.log(`${okOpen ? "ok  " : "FAIL"}  tareas abiertas en el handoff`)
+  console.log(`${okNext ? "ok  " : "FAIL"}  next previo en el handoff`)
+  console.log(`${okGoal ? "ok  " : "FAIL"}  goal en el handoff`)
+  if (!(okOpen && okNext && okGoal)) console.log(text.slice(0, 400))
+  if (typeof dispose === "function") dispose()
+  process.exit(okOpen && okNext && okGoal ? 0 : 1)
+}
+
+if (mode === "approval") {
+  // SPEC-011: un plan no trivial sin aprobación se muestra PENDIENTE.
+  await call("edit", { path: "x.txt" })
+  const event = {
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "empezamos" }] }],
+  }
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+  const okPending = /Aprobado: PENDIENTE/.test(text)
+  const okPlan = /\[WALKER\] Plan:/.test(text)
+  console.log(`${okPending ? "ok  " : "FAIL"}  el bloque muestra la aprobacion pendiente`)
+  console.log(`${okPlan ? "ok  " : "FAIL"}  el bloque sigue siendo el del plan`)
+  if (!okPending) console.log(text.slice(0, 400))
+  if (typeof dispose === "function") dispose()
+  process.exit(okPending && okPlan ? 0 : 1)
 }
 
 if (mode === "degraded") {

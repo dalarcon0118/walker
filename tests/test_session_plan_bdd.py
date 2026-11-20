@@ -109,3 +109,37 @@ def test_get_sin_plan_devuelve_vacio(svc):
     out = session_plan(_ctx(), {"session_id": "s1", "mode": "get"})
 
     assert out.ok and out.data["plan"] == {}
+
+
+# ── Aprobación del plan (SPEC-011) ───────────────────────────────────────
+
+
+def test_la_aprobacion_del_usuario_queda_en_el_plan(svc):
+    out = session_plan(
+        _ctx(),
+        {"session_id": "s1", "mode": "set", "approved_by_user": True},
+    )
+
+    assert out.ok
+    assert out.data["plan"]["approved_by_user"] is True
+    leido = session_plan(_ctx(), {"session_id": "s1", "mode": "get"})
+    assert leido.data["plan"]["approved_by_user"] is True
+
+
+def test_quitar_la_aprobacion_tambien_se_escribe(svc):
+    session_plan(_ctx(), {"session_id": "s1", "mode": "set", "approved_by_user": True})
+    out = session_plan(
+        _ctx(),
+        {"session_id": "s1", "mode": "set", "approved_by_user": False},
+    )
+
+    assert out.data["plan"]["approved_by_user"] is False
+
+
+def test_aprobacion_sola_basta_como_cambio(svc):
+    # `approved_by_user` es un cambio del plan, no un campo decorativo: el set
+    # no puede fallar con "nada para actualizar".
+    out = session_plan(
+        _ctx(), {"session_id": "s1", "mode": "set", "approved_by_user": True}
+    )
+    assert out.ok, out.error

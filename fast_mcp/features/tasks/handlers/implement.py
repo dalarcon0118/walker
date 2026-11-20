@@ -377,6 +377,27 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             '"mode":"set","acceptance":["<criterio>"]}}'
         )
 
+    # SPEC-011: un plan NO trivial (≥2 archivos y ≥2 criterios) no se implementa
+    # sin aprobación del usuario. El agente no se auto-aprueba: la aprobación es
+    # un acto del usuario que queda registrado en el plan y visible en el bloque.
+    if service is not None and session_override:
+        plan = {}
+        try:
+            if hasattr(service, "get_session_plan"):
+                plan = service.get_session_plan(session_override) or {}
+        except Exception:  # noqa: BLE001 — sin plan legible no hay nada que aprobar
+            plan = {}
+        non_trivial = len(files) >= 2 and len(effective) >= 2
+        if non_trivial and plan.get("approved_by_user") is not True:
+            return TaskResult.failure(
+                "implement_task: el plan no trivial "
+                f"({len(files)} archivos y {len(effective)} criterios) necesita la "
+                "aprobación del usuario; el agente no se auto-aprueba.\n"
+                "Mostrale el plan y, cuando confirme, registralo:\n"
+                f'  session_plan {{"session_id":"{session_override}",'
+                '"mode":"set","approved_by_user":true}'
+            )
+
 
     result: dict[str, Any] = {
         "task_id": task_id,

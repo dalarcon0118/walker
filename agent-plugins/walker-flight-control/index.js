@@ -643,7 +643,14 @@ async function runSetup(ctx) {
     // Bloque CORTO y estable: destino, tarea, próximo paso y desvío. Se emite
     // solo cuando cambia la firma del plan (no rompe el caché ni repite ruido).
     const planSigOf = (plan) =>
-      JSON.stringify([plan.goal, plan.task, plan.scope, plan.next, plan.acceptance])
+      JSON.stringify([
+        plan.goal,
+        plan.task,
+        plan.scope,
+        plan.next,
+        plan.acceptance,
+        plan.approved_by_user,
+      ])
 
     // Texto del plan SIN dedupe: en `stable` el request necesita los mismos
     // bytes otra vez, no "una vez y nunca más" (AE-INV-10).
@@ -667,9 +674,17 @@ async function runSetup(ctx) {
         counts && counts.total
           ? ` · Verif: ${counts.passed == null ? "?" : counts.passed}/${counts.total}`
           : ""
+      // SPEC-011: la aprobación del usuario se ve en el bloque, no sólo en la
+      // tool. Un plan no trivial sin aprobar se declara pendiente; nunca se
+      // asume aprobado por silencio.
+      const approved = plan.approved_by_user === true
+      const approval =
+        scope.length >= 2 && criteria >= 2
+          ? ` · Aprobado: ${approved ? "sí" : "PENDIENTE"}`
+          : ""
       const lines = [
         `[WALKER] Plan: ${goal}`,
-        `Tarea: ${plan.task || "(sin declarar)"} · Alcance: ${scope.length || "sin definir"} · Criterios: ${criteria}${verif}`,
+        `Tarea: ${plan.task || "(sin declarar)"} · Alcance: ${scope.length || "sin definir"} · Criterios: ${criteria}${approval}${verif}`,
       ]
       if (baseline) lines.push(baseline)
       lines.push(`Próximo: ${String(plan.next || "(definir)").slice(0, 70)}`)
@@ -770,10 +785,22 @@ async function runSetup(ctx) {
         ? `\nSprint: ${b.spring_id} (${b.status || "?"}) · goal: ${b.goal || "(sin goal)"} · ` +
           `tareas: ${b.tasks_count ?? 0} · sesiones: ${(b.sessions || []).join(", ") || "(sin registrar)"}`
         : ""
+      // SPEC-006: reanudar no es "hay un sprint": es saber qué quedó abierto y
+      // cuál era el próximo paso. Sin esto el agente relee el repo para
+      // reconstruir el estado que el plan ya tenía.
+      const open = Array.isArray(b.open_tasks) ? b.open_tasks : []
+      const openIds = open
+        .slice(0, 3)
+        .map((task) => String(task && (task.task_id || task) || ""))
+        .filter(Boolean)
+        .join(", ")
+      const handoff =
+        (open.length ? `\nabiertas: ${open.length}${openIds ? ` (${openIds})` : ""}` : "") +
+        (b.next ? `\nnext previo: ${String(b.next).replace(/\s+/g, " ").slice(0, 80)}` : "")
       return {
         decision: data.decision,
         text:
-          `${head}${meta}\n${data.suggestion || ""}\n` +
+          `${head}${meta}${handoff}\n${data.suggestion || ""}\n` +
           `Si el usuario confirma, ejecutá: ${CLI} ${rt.projectId}/session_bind ` +
           `'{"session_id":"${sid}","mode":"new|continue"}' y después implement_task.`,
       }
