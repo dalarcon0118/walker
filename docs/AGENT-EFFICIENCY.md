@@ -765,6 +765,7 @@ que la comparación no depende de acordarse de cambiar el env.
 | F5.4 · jerarquía y costo por subagente | **implementado** | El plugin pasa `parent_session_id` desde `Session.Info.parentID` y persiste `cost_usd`/`tokens` en la sesión al cerrar; `session_list` ya devuelve `children`, así que el costo por subagente es un join, no un escaneo de traza. |
 | P6 · drift instrumentado | **implementado** | `workflow_suggestion_ignored` lleva `suggested_next` (lo que pidió el motor) y `did` (lo que hizo el agente); `scripts/flight_control_metrics.py` imprime la tasa por semana ISO y los contadores por sugerencia/acción. Antes el evento traía `position` vacío: se contaba el desvío sin poder decir de qué. |
 | P7 · poda de ceremonia | **implementado** | `driveEvidence`: un `llm_task` de `IMPLEMENT.*`/`VERIFY.*` avanza solo con `wrote` + verificación verde; los `user_input` no se cruzan. Medido antes: 3 `advance` en 1016 llamadas — el agente no caminaba la ceremonia. |
+| P8 · paso visible y gate de decisión | **implementado** | El bloque contextual muestra `paso <posición> (<tipo>) · motor pide: <next_action>` (≤120, fuera del brief congelado) y una decisión abierta bloquea la escritura con `submit` (FC-INV-17). Antes el único paso visible era el del brief del intake, congelado; el `next_action` sólo iba a la traza. |
 | P4 · poda del encabezado | **propuesto** | 37.426 chars medidos; requiere ADR + diff por línea. |
 
 `WALKER_FLIGHT_CONTROL_INJECTION` (`stable`|`once`|`messages`) y

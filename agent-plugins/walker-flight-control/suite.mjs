@@ -119,6 +119,7 @@ const MODES = [
   "handoff",
   "approval",
   "evidenceadvance",
+  "stepgate",
   "closecli",
   "closeclipipe",
   "closeclimark",

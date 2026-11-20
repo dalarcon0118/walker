@@ -59,6 +59,10 @@ const SCOPE_GATE = process.env.WALKER_FLIGHT_CONTROL_SCOPE !== "0"
 // Gate de PASOS: además exige completar el sub-estado del workflow. Cuesta ~7x
 // en tareas triviales, así que queda opt-in.
 const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
+// FC-INV-17: con sprint y tarea declarados, una decisión ABIERTA bloquea la
+// escritura. ON por defecto (la estrategia "si hay sprint, seguí el workflow");
+// `WALKER_FLIGHT_CONTROL_STEP_GATE=0` es el escape explícito.
+const DENY_STEP = process.env.WALKER_FLIGHT_CONTROL_STEP_GATE !== "0"
 // `shell` incluido: sin él el agente escribe con `echo >> archivo` y el gate
 // de `edit`/`write` no contiene nada (medido: 1/1 bypass por shell).
 const MUTATING_TOOLS = ["edit", "write", "shell"]
@@ -1314,10 +1318,31 @@ async function runSetup(ctx) {
         }
         const briefText = INJECTION_MODE === "once" ? "" : entry.briefText || ""
 
+        // FC-INV-17 · El paso del motor está DELANTE. El brief con su `paso`
+        // se congela en el intake; el plan muestra el `next` que escribió el
+        // agente. El `next_action` del MOTOR nunca llegaba al modelo, así que
+        // seguirlo era opcional y por eso no se seguía. Línea corta (≤120),
+        // regenerada cuando cambia la firma (posición/revisión).
+        const stepSig = `${st?.position || ""}|${st?.revision ?? ""}|${st?.next?.tool || ""}`
+        let stepText = (() => {
+          if (!st || !st.position) return ""
+          if (!entry.planTask && !rt.bound) return ""
+          const next = st.next && st.next.tool ? ` · motor pide: ${st.next.tool}` : ""
+          const type = st.execType ? ` (${st.execType})` : ""
+          return `[WALKER] paso ${st.position}${type}${next}`.slice(0, 120)
+        })()
+        if (stepText && INJECTION_MODE === "once") {
+          // En `once` (el control del A/B) se manda una vez por firma, igual
+          // que el plan: repetirlo rompería la línea base que compara.
+          if (entry.stepSig === stepSig) stepText = ""
+          else entry.stepSig = stepSig
+        }
+        entry.position = st?.position || entry.position || ""
+
         if (INJECTION_MODE === "once") {
           // Camino previo (línea base del A/B): el plan se repite, gate/brief/
           // fallo se mandan una sola vez. No se toca: es el control.
-          const legacy = [block, gate, incomingBrief, failureText].filter(Boolean)
+          const legacy = [block, stepText, gate, incomingBrief, failureText].filter(Boolean)
           if (!legacy.length) return
           const res = applyInjection(event, legacy, "once")
           if (res.channel === "none") {
@@ -1344,7 +1369,7 @@ async function runSetup(ctx) {
             : "",
         ].join("|")
         const planned = planBlocks({
-          blocks: [block, gate, briefText].filter(Boolean),
+          blocks: [block, stepText, gate, briefText].filter(Boolean),
           sig,
           memo: entry.injectMemo,
         })
@@ -2272,6 +2297,55 @@ async function runSetup(ctx) {
                     }
                   }
                 }
+              }
+              // FC-INV-17: con sprint y tarea declarados, una DECISIÓN abierta
+              // no se saltea escribiendo. El runtime no puede ordenar el loop
+              // del modelo; sí puede negar la escritura en el único momento en
+              // que el agente querría pasar por encima del gate. Los hubs
+              // (`user_input` sin campos) no bloquean: ahí no hay nada abierto.
+              // El REMEDIO nunca se bloquea (FC-INV-05): los verbos del
+              // protocolo por CLI pasan aunque la decisión esté abierta. Se
+              // reconoce por estructura, igual que `isCli`; un redirect con la
+              // palabra "submit" adentro NO pasa.
+              const protocolCmd =
+                name === "shell" &&
+                /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s+\S+\/(submit|advance|transition|run_tests|verify_predicates|capture|session_bind|session_plan|spec_status|implement_task)\b/.test(
+                  String(input?.command || "")
+                )
+              if (
+                DENY_STEP &&
+                !protocolCmd &&
+                cur &&
+                rt.activeTask &&
+                cur.execType === "user_input" &&
+                (cur.required || []).length &&
+                !cur.satisfied
+              ) {
+                const decisionFields = (cur.required || [])
+                  .map((f) => `"${f}":"..."`)
+                  .join(",")
+                tracePush({
+                  event_type: "flight_control_denied",
+                  source: "agent_hook",
+                  session_id: String(callCtx?.sessionID || ""),
+                  data: {
+                    tool: name,
+                    gate: "decision",
+                    position: cur?.position,
+                    required: cur?.required,
+                    remedy: `submit {${decisionFields}}`,
+                  },
+                })
+                throw new Error(
+                  `[WALKER] El paso ${cur.position} espera una DECISIÓN; no se ` +
+                    `escribe por encima.\n` +
+                    `Falta: ${(cur.required || []).join(", ")}.\n` +
+                    `Mostrale las opciones al usuario y registrá su decisión:\n` +
+                    `  ${CLI} ${rt.projectId}/submit '{${decisionFields}}'` +
+                    ((cur.gates || []).length
+                      ? `\n  ${CLI} ${rt.projectId}/transition '{"gate":"${cur.gates[0]}"}'`
+                      : "")
+                )
               }
               if (!DENY || !cur || cur.execType !== "llm_task" || cur.satisfied || !rt.activeTask) {
                 return original(input, callCtx)

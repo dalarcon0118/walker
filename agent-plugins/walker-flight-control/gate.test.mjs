@@ -177,6 +177,41 @@ if (mode === "evidenceadvance") {
     'out({ ok: true })',
   ])
 }
+if (mode === "stepgate") {
+  // FC-INV-17: el paso del motor se ve en el bloque y una decisión abierta no
+  // se saltea escribiendo. `submit` la registra y la escritura vuelve a pasar.
+  const stateFile = `/tmp/fake-walker-step-${process.pid}.state`
+  const logFile = `${stateFile}.log`
+  const binDir = `/tmp/wfc-step-${process.pid}`
+  mkdirSync(binDir, { recursive: true })
+  writeFileSync(stateFile, "IMPLEMENT.DECIDE")
+  writeFileSync(logFile, "")
+  // El binario se llama `walker3` a propósito: el wrapper de shell reconoce el
+  // CLI por ese nombre y, en `submit`, invalida el estado cacheado.
+  fake(`${binDir}/walker3`, [
+    "#!/usr/bin/env node",
+    'const fs = require("node:fs")',
+    `const stateFile = ${JSON.stringify(stateFile)}`,
+    `const logFile = ${JSON.stringify(logFile)}`,
+    'const tool = String(process.argv[2] || "")',
+    'fs.appendFileSync(logFile, process.argv.slice(2).join(" ") + "\\n")',
+    'const pos = fs.readFileSync(stateFile, "utf8").trim()',
+    'const out = (o) => { console.log(JSON.stringify(o)); process.exit(0) }',
+    'if (tool.endsWith("/workflow_state")) {',
+    '  if (pos === "IMPLEMENT.DECIDE") out({ ok: true, current_position: "IMPLEMENT.DECIDE", execution_type: "user_input", step_satisfied: false, required_fields: ["decision"], available_gates: ["approve"], next_action: { tool: "transition", detail: "Elegí un gate" }, revision: 1 })',
+    '  out({ ok: true, current_position: "IMPLEMENT.DONE", execution_type: "llm_task", step_satisfied: true, next_action: { tool: "advance" }, revision: 2 })',
+    '}',
+    'if (tool.endsWith("/submit")) { fs.writeFileSync(stateFile, "IMPLEMENT.DONE"); out({ ok: true }) }',
+    'if (tool.endsWith("/transition")) { fs.writeFileSync(stateFile, "IMPLEMENT.DONE"); out({ ok: true }) }',
+    'if (tool.endsWith("/session_bind")) out({ ok: true, data: { decision: "bound", bound: { spring_id: "SPR-STEP", status: "active", goal: "gate", tasks: [] } } })',
+    'if (tool.endsWith("/implement_task")) out({ ok: true, data: { task_id: "step-task" } })',
+    'if (tool.endsWith("/project_for_path")) out({ ok: true, project_id: "step_probe" })',
+    'if (tool.endsWith("/session_plan")) out({ ok: true, data: { plan: { goal: "probar el paso visible", task: "step-task", next: "decidir", scope: ["x.txt"], acceptance: ["la decision se registra"] } } })',
+    'if (tool.endsWith("/agent_context")) out({ ok: true })',
+    'if (tool.endsWith("/preflight")) out({ ok: true, files: [], tests: [] })',
+    'out({ ok: true })',
+  ])
+}
 if (mode === "normal") {
   // Fixture PROPIO: `normal` no puede depender del `workflow_state` de
   // el proyecto. Ese `task_id` es del PROYECTO y otra corrida lo dejaba en un
@@ -518,7 +553,9 @@ const call = async (name, input) => {
 
 // `normal` corre contra su propio fake para no leer el estado del proyecto;
 // el resto usa el CLI real porque prueba la integración de punta a punta.
-const CLI_BIN = (mode === "normal" || mode.startsWith("reload")) ? process.env.WALKER_CLI || REAL_CLI : REAL_CLI
+const CLI_BIN = (mode === "normal" || mode.startsWith("reload") || mode === "stepgate")
+  ? process.env.WALKER_CLI || REAL_CLI
+  : REAL_CLI
 const cli = (task, payload) =>
   `cd ${WALKER} && ${CLI_BIN} ${PROJECT}/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
 
@@ -579,8 +616,15 @@ if (INJECT_MODES.has(mode)) {
     channelNote = `once: system=${again.length}/${again2.length} (esperado 0/0)`
   } else if (mode === "injectmessages") {
     const parts = event3.messages[0].content
+    // El contrato es "los bloques viajan en el último turno del usuario", no
+    // "en una sola parte": el plan y el paso son bloques separados a propósito
+    // (contrato de atención). Se exige que TODAS las partes anexadas sean
+    // WALKER y que el system quede vacío.
+    const injected = parts.slice(1)
     okChannel =
-      again2.length === 0 && parts.length === 2 && /\[WALKER\]/.test(parts[1].text)
+      again2.length === 0 &&
+      injected.length >= 1 &&
+      injected.every((p) => /\[WALKER\]/.test(p.text || ""))
     channelNote = `messages: system=${again2.length} partes=${parts.length}`
   } else {
     okChannel =
@@ -674,6 +718,58 @@ if (mode === "evidenceadvance") {
     console.log(`${ok ? "ok  " : "FAIL"}  ${name}`)
   }
   console.log(`estado=${sinEvidencia} -> ${conEvidencia} -> ${trasGate} · advances=${advances}`)
+  if (typeof dispose === "function") dispose()
+  process.exit(failed ? 1 : 0)
+}
+
+if (mode === "stepgate") {
+  const stateFile = `/tmp/fake-walker-step-${process.pid}.state`
+  const logFile = `${stateFile}.log`
+  const ev = (text) => ({
+    sessionID: SID,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text }] }],
+  })
+
+  await captured.context(ev("empezamos"))
+  await call("implement_task", {
+    task_id: "step-task",
+    objective: "x",
+    files: ["x.txt"],
+    acceptance: ["y"],
+  })
+  const event = ev("hay que decidir")
+  await captured.context(event)
+  const text = (event.system || []).map((b) => b.text || "").join("\n---\n")
+
+  const okStep =
+    /paso IMPLEMENT\.DECIDE \(user_input\)/.test(text) &&
+    /motor pide: transition/.test(text)
+  const denied = await call("edit", { path: "x.txt" })
+  const logDenied = readFileSync(logFile, "utf8")
+  const okDeny = denied === "BLOQUEA"
+  const okRemedy = /"gate":"decision"/.test(logDenied) && /submit/.test(logDenied)
+
+  await call("shell", {
+    command: cli("submit", { decision: "approve" }),
+  })
+  // Un turno después: el contexto relee el paso ya satisfecho.
+  await captured.context(ev("ya decidí"))
+  const allowed = await call("edit", { path: "x.txt" })
+  const okAfter = allowed === "PERMITE"
+
+  const checks = [
+    ["el bloque muestra el paso y lo que pide el motor", okStep],
+    ["una decisión abierta bloquea la escritura", okDeny],
+    ["el deny trae el remedio (submit) y se traza", okRemedy],
+    ["registrada la decisión, la escritura pasa", okAfter],
+  ]
+  let failed = 0
+  for (const [name, ok] of checks) {
+    if (!ok) failed++
+    console.log(`${ok ? "ok  " : "FAIL"}  ${name}`)
+  }
+  if (!okStep) console.log(text.slice(0, 300))
   if (typeof dispose === "function") dispose()
   process.exit(failed ? 1 : 0)
 }

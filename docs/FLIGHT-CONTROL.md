@@ -397,6 +397,16 @@ con otra regla cumplida.
   *Detección:* modo `evidenceadvance` (sin verificación no avanza; con
   verificación avanza el `llm_task` y se detiene en el `user_input`) y el
   evento `workflow_evidence_advance` en el trace.
+- **FC-INV-17 · El paso está delante.** Con sprint y tarea declarados, cada
+  request muestra `paso <posición> (<tipo>) · motor pide: <next_action>` en el
+  bloque contextual (≤120 chars, regenerado cuando cambia la firma; **no**
+  dentro del brief congelado del intake). Y una decisión ABIERTA
+  (`user_input` con campos requeridos) **bloquea la escritura** con el remedio
+  `submit`; el remedio mismo nunca se bloquea (FC-INV-05). Los hubs
+  (`user_input` sin campos) no bloquean. Escape explícito:
+  `WALKER_FLIGHT_CONTROL_STEP_GATE=0`.
+  *Detección:* modo `stepgate` (el bloque muestra el paso; el `edit` BLOQUEA
+  con `gate: decision` en el trace; tras `submit` PERMITE).
 
 ---
 
