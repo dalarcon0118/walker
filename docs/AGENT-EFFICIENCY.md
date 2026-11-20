@@ -477,7 +477,7 @@ acá sigue abierto.
 | `design_brief` (F3) | **implementado** | `DESIGN_ANALYZE` declara `x-artifact` y el contrato vive en código (`ARTIFACT_GATES`), así que no depende de `data/workflow`; valida forma (>=2 opciones, descarte con motivo, invariantes, verificación) y deniega con `missing[]`+`remedy` (`tests/test_design_brief_bdd.py`) |
 | Perfil `agent` | **8 tools / 1.470 chars** | loop: `brief`, `search_memories`, `submit`, `advance`, `transition`, `implement_task`, `run_tests`, `capture`. Medido en proceso nuevo: **8 tools, 1.470 chars de schema, 1.974 con nombre+descripción**; los schemas se compactan (sin descripciones por propiedad) y el resto vive en `full`/`admin`. Cumple §2.6 (≤8 / ≤2.500). |
 | Adopción medida | **N/D declarado, no estimado** | `scripts/agent_adoption.py` lee telemetría + trace + DB del harness. La DB de opencode escribe hasta **2026-09-04** (76,9 días): el `0,039` que se publicaba era de esa era. Ahora `read_harness` publica el conteo pero **`native_ratio: null`** con motivo si la última sesión supera 2 días (`tests/test_agent_adoption_bdd.py`). Telemetría de walker: 802 llamadas hoy, 992k tokens acumulados. |
-| Superficie en ejecución | **riesgo abierto** | Un `walker-mcp` arrancado antes del cambio sirve 23 tools sin `brief` (verificado 2026-11-20: PID 35258, 13:01, antes del commit de las 15:39). El código está verde y el proceso no: hace falta reiniciar el MCP y un chequeo que compare `list_tools()` vivo vs `.agent` (§7.1ter). |
+| Superficie en ejecución | **verificada tras reinicio** | Un `walker-mcp` arrancado antes del cambio sirve 23 tools sin `brief` (medido 2026-11-20: PID 35258, 13:01, antes del commit de las 15:39). **Reiniciado y verificado:** `list_tools()` = 8 exactos y `brief` responde con `missing: []`. Queda pendiente el chequeo automático (`walker doctor`) para que esto no dependa de acordarse de reiniciar. |
 | Sustrato (AE-INV-07) | **cerrado** | warm imports + caches por firma + **pool de 4 procesos** para lecturas (`fast_mcp/memories/read_pool.py`). `agent_context` caliente **169 ms**, 4 concurrentes **248 ms = 1,32×**; probe 100/100, **p50 110 / p95 219 ms**. Costo: la primera ráfaga paga el spawn de los workers (mitigado con warm en background) |
 
 Verificación: `python3 -m pytest -q` → **1.577 passed** (`scripts/golden_queries.py`
@@ -541,6 +541,12 @@ vez. No hay señal de "perfil viejo" en runtime. Remedio propuesto: `walker doct
 que compare `server.list_tools()` con `WALKER_MCP_PROFILE` y falle con el
 comando de reinicio; y que el plugin registre la superficie al iniciar sesión
 (evento `tool_surface`), para que la telemetría sepa qué tools existían.
+
+**Verificado tras reiniciar (2026-11-20):** `list_tools()` = 8 exactos
+(`advance`, `brief`, `capture`, `implement_task`, `run_tests`, `search_memories`,
+`submit`, `transition`) y `brief` responde en 3.563 chars con `missing: []`,
+`degraded: false`, `plan.spec_status: completed` y 5 decisiones. El riesgo sigue
+siendo sistémico: el chequeo automático está pendiente.
 
 
 ### 7.2 Resultado de F2 (retrieval + firma)
