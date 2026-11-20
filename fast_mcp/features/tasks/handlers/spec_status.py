@@ -112,7 +112,10 @@ def spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         from fast_mcp.features.tasks.handlers.knowledge import capture_session_fact
 
         payload["knowledge"] = capture_session_fact(
-            ctx, session_id=session_id, task_id=payload["task_id"]
+            ctx,
+            session_id=session_id,
+            task_id=payload["task_id"],
+            spring_id=spring_id,
         )
     return TaskResult.success(payload)
 

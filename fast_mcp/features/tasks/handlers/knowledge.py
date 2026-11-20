@@ -10,6 +10,7 @@ esa sesión) un hecho verificable y lo persiste con `session_id`, así el join
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
@@ -39,8 +40,13 @@ def _session_for_task(chain_dir: str, task_id: str) -> str:
 
 
 def _plan_task(chain_dir: str, session_id: str) -> str:
-    service = _di.sprint_service(chain_dir)
-    if service is None or not session_id or not hasattr(service, "get_session_plan"):
+    if not session_id:
+        return ""
+    try:
+        service = _di.sprint_service(chain_dir)
+    except Exception:  # noqa: BLE001 — sin proyecto no hay plan, no es fatal
+        return ""
+    if service is None or not hasattr(service, "get_session_plan"):
         return ""
     try:
         return str((service.get_session_plan(session_id) or {}).get("task") or "")
@@ -48,7 +54,9 @@ def _plan_task(chain_dir: str, session_id: str) -> str:
         return ""
 
 
-def _resolve_spec(chain_dir: str, session_id: str, task_id: str) -> dict | None:
+def _resolve_spec(
+    chain_dir: str, session_id: str, task_id: str, spring_id: str = ""
+) -> dict | None:
     """Spec de la tarea, sin heredar la identidad de otra (P1.6).
 
     Orden: id exacto que nombró el caller → tarea del plan (solo si el caller no
@@ -56,22 +64,82 @@ def _resolve_spec(chain_dir: str, session_id: str, task_id: str) -> dict | None:
     declarada). Antes, cualquier id desconocido caía en la última spec
     `in_progress` del sprint y el hecho se guardaba con la identidad de otra
     tarea (medido: `prepare-seeds-manifest` como `skill-token-memory-health`).
+
+    `spring_id` acota la búsqueda: los ids `SPEC-NNN` se repiten en cada sprint
+    y resolverlos sin alcance firmaba el hecho con la tarea de otro sprint
+    (medido 2026-11-20: SPEC-012 de SPR-INTEG capturó `no-mcp-v2`).
     """
+    def _lookup(tid: str) -> dict | None:
+        # `spring_id` sólo viaja cuando existe: los dobles de test que
+        # reemplazan `current_spec` conservan su firma histórica.
+        if spring_id:
+            return _di.current_spec(
+                chain_dir, task_id=tid, exact=True, spring_id=spring_id
+            )
+        return _di.current_spec(chain_dir, task_id=tid, exact=True)
+
     if task_id:
-        return _di.current_spec(chain_dir, task_id=task_id, exact=True)
+        return _lookup(task_id)
     plan_task = _plan_task(chain_dir, session_id)
     if plan_task:
-        return _di.current_spec(chain_dir, task_id=plan_task, exact=True)
+        return _lookup(plan_task)
+    if spring_id:
+        return _di.current_spec(chain_dir, spring_id=spring_id)
     return _di.current_spec(chain_dir)
+
+
+def _capture_scope_error(chain_dir: str, data: dict) -> str:
+    """Motivo por el que la captura no puede resolver la identidad, o ''.
+
+    Un `SPEC-NNN` es local a su sprint. Sin `spring_id` (ni sesión ligada) la
+    resolución sería ambiguua; se declara en vez de elegir el primero del
+    índice y firmar el hecho con otra tarea.
+    """
+    task_id = str(data.get("task_id") or "").strip()
+    if not task_id or str(data.get("spring_id") or "").strip():
+        return ""
+    session_id = str(data.get("session_id") or "").strip()
+    if session_id and _di.session_spring(chain_dir, session_id):
+        return ""
+    if re.fullmatch(r"SPEC-\d+", task_id):
+        return (
+            f"{task_id!r} es un id de spec local a un sprint (se repite en cada "
+            "sprint); pasá spring_id o session_id"
+        )
+    try:
+        service = _di.sprint_service(chain_dir)
+        all_springs = (service.list_springs() or []) if service is not None else []
+    except Exception:  # noqa: BLE001 — sin listado no se puede afirmar ambigüedad
+        return ""
+    springs: list[str] = []
+    for spring in all_springs:
+        sid = str(spring.get("spring_id") or spring.get("id") or "")
+        for spec in service.get_specs(sid) or []:
+            if (
+                str((spec.get("task_context") or {}).get("task_id") or "") == task_id
+                or str(spec.get("spec_id") or "") == task_id
+            ):
+                if sid not in springs:
+                    springs.append(sid)
+                break
+    if len(springs) > 1:
+        return (
+            f"{task_id!r} aparece en {len(springs)} sprints "
+            f"({', '.join(springs[:3])}); pasá spring_id o session_id"
+        )
+    return ""
 
 
 def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
     explicit_session = str(data.get("session_id", "") or "").strip()
     session_id = explicit_session
+    spring_id = str(data.get("spring_id", "") or "").strip()
     task_id = str(data.get("task_id", "") or "").strip()
+    if not spring_id and session_id:
+        spring_id = _di.session_spring(ctx.chain_dir or "", session_id)
     if not session_id and task_id:
         session_id = _session_for_task(ctx.chain_dir or "", task_id)
-    spec = _resolve_spec(ctx.chain_dir or "", session_id, task_id)
+    spec = _resolve_spec(ctx.chain_dir or "", session_id, task_id, spring_id)
 
     if spec:
         # La spec es la SSOT de la identidad: el caller puede pasar un rótulo
@@ -173,6 +241,9 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     """Deriva un hecho de la sesión y lo guarda en el CKG."""
     if not ctx.chain_dir:
         return TaskResult.failure("capture_knowledge: sin chain_dir")
+    scope_error = _capture_scope_error(ctx.chain_dir, data)
+    if scope_error:
+        return TaskResult.failure(f"capture_knowledge: {scope_error}")
 
     fact = _fact_for(ctx, data)
     if fact is None:
@@ -217,7 +288,7 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
 
 
 def capture_session_fact(
-    ctx: ExecutionContext, *, session_id: str = "", task_id: str = ""
+    ctx: ExecutionContext, *, session_id: str = "", task_id: str = "", spring_id: str = ""
 ) -> dict:
     """Captura el hecho de la sesión como EFECTO de una tool (P1.3).
 
@@ -234,9 +305,11 @@ def capture_session_fact(
         sid = str(session_id or "").strip()
         if sid == "mcp":
             sid = ""
-        result = capture_knowledge(
-            ctx, {"session_id": sid, "task_id": task_id or ""}
-        )
+        payload = {"session_id": sid, "task_id": task_id or ""}
+        if spring_id:
+            # Sólo viaja cuando existe: los dobles existentes conservan la firma.
+            payload["spring_id"] = str(spring_id)
+        result = capture_knowledge(ctx, payload)
     except Exception as exc:  # noqa: BLE001 — la tool no se cae por memoria
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     if result.ok:

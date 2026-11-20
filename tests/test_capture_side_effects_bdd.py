@@ -49,8 +49,10 @@ def _spy(monkeypatch, result=None):
     calls: list[dict] = []
     payload = result or {"ok": True, "fact": "session-x-T-1"}
 
-    def _fake(ctx, *, session_id="", task_id=""):
-        calls.append({"session_id": session_id, "task_id": task_id})
+    def _fake(ctx, *, session_id="", task_id="", spring_id=""):
+        calls.append(
+            {"session_id": session_id, "task_id": task_id, "spring_id": spring_id}
+        )
         return dict(payload)
 
     monkeypatch.setattr(knowledge, "capture_session_fact", _fake)
@@ -73,7 +75,7 @@ def test_run_tests_verde_captura(project_dir, monkeypatch):
 
     assert out.ok and out.data["passed"] is True
     assert out.data["knowledge"]["fact"] == "session-x-T-1"
-    assert calls == [{"session_id": "S-1", "task_id": "T-1"}]
+    assert calls == [{"session_id": "S-1", "task_id": "T-1", "spring_id": ""}]
 
 
 def test_run_tests_rojo_no_captura(project_dir, monkeypatch):
@@ -146,7 +148,7 @@ def test_spec_status_completed_captura(project_dir, monkeypatch):
 
     assert out.ok
     assert out.data["knowledge"]["fact"] == "session-x-T-1"
-    assert calls == [{"session_id": "S-1", "task_id": "T-1"}]
+    assert calls == [{"session_id": "S-1", "task_id": "T-1", "spring_id": "SPR-1"}]
 
 
 def test_spec_status_in_progress_no_captura(project_dir, monkeypatch):
@@ -161,3 +163,61 @@ def test_spec_status_in_progress_no_captura(project_dir, monkeypatch):
     assert out.ok
     assert "knowledge" not in out.data
     assert calls == []
+
+
+# ── Alcance de sprint en la resolución de identidad (bug 2026-11-20) ──
+
+
+def _two_springs():
+    class _Service:
+        def get_active_spring(self):
+            return {"spring_id": "S1"}
+
+        def list_springs(self):
+            return [{"spring_id": "S1"}, {"spring_id": "S2"}]
+
+        def get_specs(self, spring_id):
+            return [{"spec_id": "SPEC-012", "spring_id": spring_id,
+                     "task_context": {}, "status": "in_progress"}]
+
+    return _Service()
+
+
+def test_current_spec_no_elige_entre_dos_sprints(monkeypatch):
+    """`SPEC-012` existe en dos sprints: sin alcance no se elige el primero."""
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda _d: _two_springs())
+
+    assert _di.current_spec("x", task_id="SPEC-012", exact=True) is None
+    scoped = _di.current_spec("x", task_id="SPEC-012", exact=True, spring_id="S2")
+    assert scoped["spring_id"] == "S2"
+
+
+def test_captura_rechaza_un_spec_id_sin_alcance(project_dir, monkeypatch):
+    monkeypatch.setattr(_di, "session_spring", lambda *_a, **_k: "")
+
+    out = knowledge.capture_knowledge(
+        _ctx(project_dir), {"task_id": "SPEC-012", "session_id": ""}
+    )
+
+    assert not out.ok
+    assert "local a un sprint" in out.error
+
+
+def test_fact_for_pasa_el_sprint_a_la_resolucion(project_dir, monkeypatch):
+    seen: dict = {}
+
+    def _current(chain_dir, task_id="", prefer_status=("in_progress",),
+                 exact=False, spring_id=""):
+        seen.update(task_id=task_id, spring_id=spring_id)
+        return {"spec_id": "SPEC-012", "objective": "x", "files": [],
+                "task_context": {}}
+
+    monkeypatch.setattr(_di, "current_spec", _current)
+    monkeypatch.setattr(_di, "session_spring", lambda *_a, **_k: "S2")
+
+    fact = knowledge._fact_for(
+        _ctx(project_dir), {"task_id": "SPEC-012", "session_id": "s1"}
+    )
+
+    assert fact is not None
+    assert seen == {"task_id": "SPEC-012", "spring_id": "S2"}

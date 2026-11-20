@@ -156,11 +156,32 @@ def sprint_service(chain_dir: str):
     return _SPRINT_FACTORY(chain_dir)
 
 
+def session_spring(chain_dir: str, session_id: str) -> str:
+    """Sprint al que pertenece la sesión ('' si no está registrada).
+
+    La captura lo usa para acotar la resolución de una spec: los ids `SPEC-NNN`
+    se repiten en cada sprint y resolverlos sin alcance elige el primero del
+    índice (bug medido 2026-11-20: SPEC-012 de otro sprint).
+    """
+    try:
+        service = sprint_service(chain_dir)
+    except Exception:  # noqa: BLE001 — un chain_dir no resoluble no da alcance
+        return ""
+    if service is None or not session_id:
+        return ""
+    try:
+        record = service.get_session(session_id) or {}
+    except Exception:  # noqa: BLE001 — sin sesión no hay alcance, no es fatal
+        return ""
+    return str(record.get("spring_id") or "")
+
+
 def current_spec(
     chain_dir: str,
     task_id: str = "",
     prefer_status: tuple[str, ...] = ("in_progress",),
     exact: bool = False,
+    spring_id: str = "",
 ) -> dict | None:
     """Spec de la tarea en curso.
 
@@ -171,15 +192,22 @@ def current_spec(
     `exact=True` desactiva la heurística: solo devuelve la spec cuyo id
     coincide. La usa la captura para no heredar la identidad de otra spec
     `in_progress` cuando el caller nombra una tarea que no está en el sprint.
+
+    `spring_id` acota la búsqueda a ese sprint. Sin él, si el id aparece en más
+    de un sprint, devuelve `None` en vez de elegir el primero: un id de spec es
+    local a su sprint y elegir arbitrariamente firma el hecho con otra tarea.
     """
     service = sprint_service(chain_dir)
     if service is None:
         return None
     springs = []
-    active = service.get_active_spring()
-    if active:
-        springs.append(active)
-    springs.extend(service.list_springs() or [])
+    if spring_id:
+        springs.append({"spring_id": spring_id})
+    else:
+        active = service.get_active_spring()
+        if active:
+            springs.append(active)
+        springs.extend(service.list_springs() or [])
 
     seen: set[str] = set()
     candidates: list[dict] = []
@@ -192,11 +220,15 @@ def current_spec(
 
     # Id exacto primero: `implement_task` guarda el id real en task_context.
     if task_id:
-        for spec in candidates:
-            if str((spec.get("task_context") or {}).get("task_id", "")) == task_id:
-                return spec
-            if str(spec.get("spec_id", "")) == task_id:
-                return spec
+        matches = [
+            spec for spec in candidates
+            if str((spec.get("task_context") or {}).get("task_id", "")) == task_id
+            or str(spec.get("spec_id", "")) == task_id
+        ]
+        if len(matches) > 1:
+            return None  # ambiguo entre sprints: el caller debe pasar spring_id
+        if matches:
+            return matches[0]
         if exact:
             return None
 
