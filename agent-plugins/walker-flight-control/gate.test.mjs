@@ -4,8 +4,13 @@
 // El gate tiene DOS fases: (1) sesión ligada a un sprint (session_bind), y
 // (2) tarea declarada (implement_task). Cada modo falla una pieza distinta.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
-const dir = process.argv[2] || process.cwd()
+// Proyecto del harness: NUNCA un proyecto del usuario hardcodeado. `suite.mjs`
+// crea un fixture propio (o usa `--project <id>`) y lo pasa por entorno.
+const dir = process.argv[2] || process.env.HARNESS_PROJECT_DIR || process.cwd()
+const PROJECT = process.env.HARNESS_PROJECT || "fixture"
 const mode = process.argv[3] || "normal"
 const TAPPED = new Set(["persist", "shellmut", "idem", "evict"])
 const SID =
@@ -15,7 +20,9 @@ const SID =
     : TAPPED.has(mode)
       ? `harness-${mode}-${Date.now()}`
       : "harness-1")
-const WALKER = "/Users/davidmartinez/develop/Active-projects/walker"
+// El repo bajo prueba se deriva de la ubicación de este archivo
+// (agent-plugins/walker-flight-control/ → ../..), no de una ruta absoluta.
+const WALKER = process.env.WALKER_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
 const REAL_CLI = `${WALKER}/bin/walker3`
 
 const fake = (path, lines) => {
@@ -38,7 +45,7 @@ if (mode === "badbind") {
     'case "$1" in',
     `  */session_bind) echo '{"ok":true,"data":{"decision":"no_work"}}'; exit 0;;`,
     `  */workflow_state) echo '{"ok":true,"task_id":"auto-x","current_position":"START.SELECT","step_satisfied":true}'; exit 0;;`,
-    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"${PROJECT}"}'; exit 0;;`,
     `  *) echo '{"ok":false}'; exit 1;;`,
     "esac",
   ])
@@ -50,13 +57,13 @@ if (mode === "baddeclare") {
     'case "$1" in',
     `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-FAKE","tasks":[]}}}'; exit 0;;`,
     `  */workflow_state) echo '{"ok":true,"task_id":"auto-x","current_position":"START.SELECT","step_satisfied":true}'; exit 0;;`,
-    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"${PROJECT}"}'; exit 0;;`,
     `  *) echo '{"ok":false,"error":"boom"}'; exit 1;;`,
     "esac",
   ])
 }
 if (mode === "inject") {
-  // Fixture determinista: el modo NO depende del CKG/CPG real de game_reset
+  // Fixture determinista: el modo NO depende del CKG/CPG real del proyecto
   // (que estaba vacío y hacía fallar baseline/ADR). El scope apunta a un
   // archivo real para que `existsSync` pase; el resto lo responde el fake.
   const scopeFile = `${WALKER}/agent-plugins/walker-flight-control/index.js`
@@ -78,7 +85,7 @@ if (mode === "inject") {
 }
 if (mode === "normal") {
   // Fixture PROPIO: `normal` no puede depender del `workflow_state` de
-  // game_reset. Ese `task_id` es del PROYECTO y otra corrida lo dejaba en un
+  // el proyecto. Ese `task_id` es del PROYECTO y otra corrida lo dejaba en un
   // valor no-auto, con lo que el gate abría antes de declarar (medido: segunda
   // corrida consecutiva). El fake emula la transición real: arranca en `auto-x`
   // y solo `implement_task` lo cambia.
@@ -105,7 +112,7 @@ if (mode === "gateprompt") {
     'const args = process.argv.slice(2); const tool = String(args[0] || "")',
     'if (tool.endsWith("/session_bind")) { console.log(JSON.stringify({ ok: true, data: { decision: "bound", bound: { spring_id: "SPR-FAKE", status: "active", goal: "gate test", tasks: [] }, suggestion: "continuá" } })); process.exit(0) }',
     'if (tool.endsWith("/workflow_state")) { console.log(JSON.stringify({ ok: true, task_id: "SPEC-002", current_position: "IMPLEMENT.REPORT_GATE", execution_type: "user_input", required_fields: [], step_satisfied: true, revision: 7, prompt: { template_id: "implement/report-gate", template: "IMPLEMENT.REPORT_GATE - Report\\n\\nPresentá el reporte.\\n\\nOptions:\\n    . proceed -> accepted, continue\\n    . refine  -> needs refinement\\n    . cancel  -> cancel task\\n\\n  walker <p>/submit \'{\\"decision\\":\\"proceed\\"}\'" } })); process.exit(0) }',
-    'if (tool.endsWith("/project_for_path")) { console.log(JSON.stringify({ ok: true, project_id: "game_reset" })); process.exit(0) }',
+    `if (tool.endsWith("/project_for_path")) { console.log(JSON.stringify({ ok: true, project_id: "${PROJECT}" })); process.exit(0) }`,
     'console.log(JSON.stringify({ ok: true }))',
   ])
 }
@@ -126,7 +133,7 @@ if (mode === "reloadverified" || mode === "reloadedit" || mode === "reloaddirty"
     `  */session_bind) echo '{"ok":true,"data":{"decision":"bound","bound":{"spring_id":"SPR-RELOAD","status":"active","goal":"reload test","tasks":[]}}}'; exit 0;;`,
     `  */workflow_state) TID=$(cat "$STATE" 2>/dev/null || printf 'auto-x'); printf '{"ok":true,"task_id":"%s","current_position":"START.SELECT","execution_type":"","step_satisfied":true,"revision":1}\\n' "$TID"; exit 0;;`,
     `  */implement_task) TID=$(printf '%s' "$2" | sed -n 's/.*"task_id":"\\([^"]*\\)".*/\\1/p'); printf '%s' "\${TID:-close-task}" > "$STATE"; printf '{"ok":true,"data":{"task_id":"%s"}}\\n' "\${TID:-close-task}"; exit 0;;`,
-    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"${PROJECT}"}'; exit 0;;`,
     `  */session_plan) echo '{"ok":true,"data":{"plan":{}}}'; exit 0;;`,
     `  */trace_push) echo '{"ok":true}'; exit 0;;`,
     `  */session_open) echo '{"ok":true}'; exit 0;;`,
@@ -150,7 +157,7 @@ if (mode === "reloadclosedirty" || mode === "reloadcloseverified") {
     'case "$1" in',
     `  */session_context) echo '{"ok":true,"data":{"flight_state":${fs}}}'; exit 0;;`,
     `  */session_plan) echo '{"ok":true,"data":{"plan":{"goal":"reload close","task":"t","scope":[],"acceptance":["Debe cerrar con verde"]}}}'; exit 0;;`,
-    `  */project_for_path) echo '{"ok":true,"project_id":"game_reset"}'; exit 0;;`,
+    `  */project_for_path) echo '{"ok":true,"project_id":"${PROJECT}"}'; exit 0;;`,
     `  *) echo '{"ok":true}'; exit 0;;`,
     "esac",
   ])
@@ -204,12 +211,12 @@ process.stdout.write(out)
   process.env.WALKER_CLI = proxy
 }
 
-// Todos los modos que usan el CLI real o el proxy verifican contra el mismo
-// proyecto con el que invocan (`game_reset`). Sin esto, `normal`/`shellmut`/
-// `persist` dejaban `rt.projectId` vacío y el plugin chequeaba el cwd (walker):
-// `isBound` daba falso y bloqueaba escrituras legítimas.
+// Todos los modos que usan el CLI real o el proxy verifican contra el MISMO
+// proyecto con el que invocan (el del fixture o `--project`). Sin esto,
+// `normal`/`shellmut`/`persist` dejaban `rt.projectId` vacío y el plugin
+// chequeaba el cwd: `isBound` daba falso y bloqueaba escrituras legítimas.
 if (mode !== "missing" && !mode.startsWith("inject") && mode !== "bind" && mode !== "noproject") {
-  process.env.WALKER_PROJECT_ID = "game_reset"
+  process.env.WALKER_PROJECT_ID = PROJECT
 }
 
 if (mode === "gateoff") process.env.WALKER_FLIGHT_CONTROL_INTAKE = "0"
@@ -228,7 +235,7 @@ tools.set("shell", {
     const command = String(input.command)
     // `closecli` prueba la certificación por el RESULTADO del CLI. El comando
     // es el real; la salida se canjea por un verde determinista para no
-    // depender de que el proyecto game_reset tenga predicates ejecutables.
+    // depender de que el proyecto del harness tenga predicates ejecutables.
     if (mode === "closecli" && /verify_predicates/.test(command)) {
       return {
         ok: true,
@@ -363,7 +370,7 @@ const call = async (name, input) => {
 // el resto usa el CLI real porque prueba la integración de punta a punta.
 const CLI_BIN = (mode === "normal" || mode.startsWith("reload")) ? process.env.WALKER_CLI || REAL_CLI : REAL_CLI
 const cli = (task, payload) =>
-  `cd ${WALKER} && ${CLI_BIN} game_reset/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
+  `cd ${WALKER} && ${CLI_BIN} ${PROJECT}/${task} '${JSON.stringify({ session_id: SID, ...payload })}'`
 
 if (mode === "inject") {
   await call("edit", { path: "x.txt" }) // fuerza el estado de sesión
@@ -516,7 +523,7 @@ if (closeMode) {
         : ""
     await call("shell", {
       command:
-        `cd ${WALKER} && ./bin/walker3 game_reset/verify_predicates '${JSON.stringify({
+        `cd ${WALKER} && ./bin/walker3 ${PROJECT}/verify_predicates '${JSON.stringify({
           session_id: SID,
           task_id: "close-task",
         })}'` + pipe,

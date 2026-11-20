@@ -125,9 +125,16 @@ bin/walker3 walker/workflow_state '{}'
 node /tmp/plugin_smoke.mjs   # inyecta [WALKER] Workflow: … y traza los eventos
 
 # suite del harness (todos los modos, cada uno en un proceso limpio)
-node agent-plugins/walker-flight-control/suite.mjs ~/develop/Active-projects/game_reset
-node agent-plugins/walker-flight-control/suite.mjs ~/develop/Active-projects/game_reset --fast
+node agent-plugins/walker-flight-control/suite.mjs          # fixture propio
+node agent-plugins/walker-flight-control/suite.mjs --fast
+node agent-plugins/walker-flight-control/suite.mjs --project <id>  # ya registrado
 ```
+
+Sin `--project` el harness crea y registra su propio fixture
+(`tmp/walker-harness-fixture`) con `_/prepare`: no toca ningún proyecto del
+usuario ni depende del directorio desde el que se lo invoca. El plugin resuelve
+su proyecto desde `ctx.location.directory`, así que el harness le pasa el mismo
+`HARNESS_PROJECT_DIR` con el que arma los comandos.
 
 `--fast` omite los modos con CLI real (`scope`, `closecli*`). Esos son los que
 prueban integración de punta a punta y fueron los que expusieron la pérdida de

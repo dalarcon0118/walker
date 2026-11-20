@@ -340,7 +340,32 @@ la identidad de la tarea anterior del sprint.
 - [ ] M-09 Fallback visible: sin spec y sin traza la captura reporta el fallo en
       `data.knowledge` y la tool sigue verde — anti-patrón: fabricar un hecho.
 
-## 12. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 12. P1.7 — El harness no se ancla a un proyecto
+
+El harness tenía `game_reset` escrito en los comandos y una ruta absoluta al
+repo de walker. Correr la suite desde otro directorio hacía que el plugin
+resolviera un proyecto (walker) mientras los comandos apuntaban a otro
+(`game_reset`): 7 modos fallaban por el entorno, no por el código. Y dependía de
+un proyecto del usuario que el harness no controla.
+
+- [ ] `suite.mjs` crea su propio fixture (`tmp/walker-harness-fixture`), lo
+      registra con `_/prepare` y pasa `HARNESS_PROJECT`/`HARNESS_PROJECT_DIR`;
+      `--project <id>` reusa uno registrado y nada más.
+- [ ] El repo bajo prueba se deriva del layout del plugin (`../..`), no de una
+      ruta absoluta; `gate.test.mjs` reemplaza cada `game_reset` por el proyecto
+      del harness.
+- [ ] El CLI despacha las tools de la Fase 1 (`prepare`/`list`/`status`): el
+      plugin ya recomendaba `walker3 _/prepare …` y respondía "tool desconocida".
+- [ ] El fixture se borra antes de prepararse (estado limpio entre corridas) y
+      los modos que dependen de "no hay trabajo previo" (`bind`) reciben su
+      propio fixture aislado: el plugin decide con el estado del PROYECTO, así
+      que compartir fixture con modos que declaran tareas los contaminaba.
+- [ ] M-06 Extensibilidad: un solo origen para el proyecto (env) — anti-patrón:
+      un id por modo.
+- [ ] M-09 Fallback visible: sin `--project`, se ve en la primera línea cuál es
+      el proyecto del harness — anti-patrón: usar el del cwd en silencio.
+
+## 13. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -354,7 +379,7 @@ la identidad de la tarea anterior del sprint.
 
 ---
 
-## 13. failure_scenarios
+## 14. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -373,13 +398,14 @@ la identidad de la tarea anterior del sprint.
   "Cada cierre agrega un nodo session y el CKG acumula verdades viejas de la misma tarea → el contexto cita historia como si fuera vigente y el índice crece sin cota → causa: el mecanismo de supersede existía pero nadie lo usaba → mitigación: supersede por tarea + techo de 25 + gather_context ignora superseded → detección: tests/test_session_retention_bdd.py",
   "El plan de vuelo dice una tarea y la spec del sprint dice otra → la captura guarda el hecho con la identidad de la tarea anterior → causa: captura resolvía la spec por in_progress y no había puente plan→task_context → mitigación: session_plan/spec_status anclan task_context + captura exacta con fallback al plan → detección: tests/test_task_context_advance_bdd.py",
   "El supersede de nodos session recorre `query({})` (50 de 97 docs) → reporta `superseded: N` y no degrada ninguno; el contexto sigue citando historia como vigente → causa: resolver por página en vez de por id → mitigación: `get(\"ckg\", id)` + reportar aplicado/faltante → detección: test_supersede_atraviesa_la_pagina_default_del_ckg",
-  "Dos agentes/sesiones a la vez y la captura toma 'la única sesión activa' → 13 nodos con la sesión del harness y la tarea de acá → causa: adivinar la sesión cuando la tarea no la declara → mitigación: solo la sesión que declara la tarea en su plan o la de la spec; si no, captura fallida visible → detección: test_no_usa_una_sesion_que_no_declara_la_tarea"
+  "Dos agentes/sesiones a la vez y la captura toma 'la única sesión activa' → 13 nodos con la sesión del harness y la tarea de acá → causa: adivinar la sesión cuando la tarea no la declara → mitigación: solo la sesión que declara la tarea en su plan o la de la spec; si no, captura fallida visible → detección: test_no_usa_una_sesion_que_no_declara_la_tarea",
+  "El harness apunta a un proyecto fijo (game_reset) y el plugin resuelve otro desde el cwd → 7 de 29 modos fallan por el entorno y la suite depende de datos del usuario → causa: id y ruta absoluta hardcodeados → mitigación: fixture propio registrado con _/prepare + HARNESS_PROJECT, y rutas derivadas del layout → detección: suite.mjs sin argumentos (29/29) y test de dispatch de Fase 1 en el CLI"
 ]
 ```
 
 ---
 
-## 14. Criterios de aceptación
+## 15. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -412,10 +438,13 @@ la identidad de la tarea anterior del sprint.
 14. P1.5 (retención real): con más nodos que una página, el supersede degrada
     por id; `superseded` refleja lo aplicado y el CKG queda con una sola
     `session` activa por tarea.
+15. P1.7: `node suite.mjs` sin argumentos pasa los 29 modos contra su propio
+    fixture, sin tocar ningún proyecto del usuario; y `walker3 _/prepare`
+    responde (antes: "tool desconocida").
 
 ---
 
-## 15. Riesgos y compatibilidad
+## 16. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -429,7 +458,7 @@ la identidad de la tarea anterior del sprint.
 
 ---
 
-## 16. Tests
+## 17. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -456,4 +485,9 @@ la identidad de la tarea anterior del sprint.
   `gather_context` sin superseded (P1.5).
 - `tests/test_task_context_advance_bdd.py`: plan→spec, spec_status→plan, tarea
   inexistente visible y captura sin herencia (P1.6).
+- `tests/test_harness_no_hardcoded_project_bdd.py`: el harness no nombra
+  proyectos del usuario ni rutas absolutas; el proyecto entra por entorno
+  (P1.7).
+- `tests/test_cli_phase1_dispatch_bdd.py`: `prepare`/`list`/`status` se
+  resuelven por composition desde el CLI (P1.7).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

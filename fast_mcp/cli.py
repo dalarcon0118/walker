@@ -73,9 +73,15 @@ def _verification_marker(tool: str, result: Any) -> str:
 def _runner_for(tool: str) -> Callable[..., Any] | None:
     """Runner cableado por composition para la tool pedida."""
     from fast_mcp import composition
+    from fast_mcp.phases.phase1_prepare import _FASE1_TOOLS
     from fast_mcp.phases.phase2_memories import _FASE2_TOOLS
     from fast_mcp.phases.phase3_tasks import _FASE3_TOOLS, _build_runner
 
+    # Fase 1 (prepare/list/status) existe como superficie MCP y estaba fuera
+    # del CLI: el propio plugin le dice al usuario `walker3 _/prepare …` y el
+    # comando respondía "tool desconocida". El uso documentado tiene que existir.
+    if tool in _FASE1_TOOLS:
+        return composition.project_tool_runner(tool)
     if tool in _FASE2_TOOLS:
         return composition.memory_tool_runner(tool)
     if tool in _FASE3_TOOLS:
