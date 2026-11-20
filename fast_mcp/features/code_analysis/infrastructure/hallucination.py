@@ -25,7 +25,6 @@ import ast
 import importlib.util
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -565,85 +564,89 @@ def _find_node_modules(start: Path) -> Path | None:
     return None
 
 
-def _parse_ts_import(line: str) -> list[dict]:
-    """Extrae imports de módulo de una sola línea de TS/JS."""
-    imports = []
+def scan_ts_file(filepath: Path, project_root: str) -> list[dict]:
+    """Escanea TS/JS con el adapter de imports del lenguaje.
 
-    # import X from 'module'
-    m = re.search(
-        r'import\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+(?:,\s*\w+)?)\s+from\s+[\'"]([^\'"]+)[\'"]',
-        line,
+    Antes omitía TODO import relativo (un `./components/Foo` inexistente nunca
+    se detectaba) y trataba cualquier bare specifier como paquete npm: los
+    alias de paths (`@/components`) se reportaban como alucinación y una
+    dependencia declarada pero no instalada también. Ahora:
+
+      - relativo → debe resolver a un archivo real (si no, alucinación);
+      - alias (`@/`, `~/`, `#…`) → NOT_CHECKED (visible, no invento);
+      - bare → node_modules; si el proyecto lo declara, WARNING (falta instalar);
+      - si no está declarado ni instalado → HALLUCINATION.
+    """
+    from fast_mcp.features.code_analysis.infrastructure.lang_imports import (
+        declared_dependency,
+        detect_language,
+        extract_imports,
+        is_alias_import,
+        package_name,
+        resolve_relative,
     )
-    if m:
-        imports.append({"module": m.group(1), "type": "import"})
 
-    # import 'module'
-    m = re.search(r'import\s+[\'"]([^\'"]+)[\'"]', line)
-    if m:
-        imports.append({"module": m.group(1), "type": "import_side_effect"})
-
-    # require('module')
-    m = re.search(
-        r'(?:const|let|var)\s+\w+\s*=\s*require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', line
-    )
-    if m:
-        imports.append({"module": m.group(1), "type": "require"})
-
-    # import { X } from 'module'
-    m = re.search(r'import\s+\{([^}]+)\}\s+from\s+[\'"]([^\'"]+)[\'"]', line)
-    if m:
-        symbols = [s.strip() for s in m.group(1).split(",")]
-        imports.append(
-            {
-                "module": m.group(2),
-                "symbols": [s.split(" as ")[0].strip() for s in symbols],
-                "type": "named_import",
-            }
-        )
-
-    return imports
-
-
-def scan_ts_file(filepath: Path) -> list[dict]:
-    """Escanea un archivo TS/JS y verifica que los paquetes npm existan."""
+    language = detect_language(filepath) or "javascript"
     node_modules = _find_node_modules(filepath)
     issues: list[dict] = []
 
-    for line_num, line in enumerate(filepath.read_text().splitlines(), 1):
-        imports = _parse_ts_import(line)
-        for imp in imports:
-            module = imp.get("module", "")
+    for imp in extract_imports(filepath, language):
+        module = str(imp.get("module", ""))
+        line = int(imp.get("line", 0) or 0)
+        if not module:
+            continue
 
-            # Omitir imports relativos (./component, ../utils)
-            if module.startswith("."):
-                continue
+        if is_alias_import(module, project_root):
+            issues.append(
+                {
+                    "line": line,
+                    "type": "alias_import",
+                    "module": module,
+                    "status": "NOT_CHECKED",
+                    "error": f"alias '{module}' no es resoluble sin tsconfig/bundler",
+                }
+            )
+            continue
 
-            # Extraer nombre del paquete (maneja @scoped/packages y rutas)
-            pkg_name = module.split("/")[0]
-            if module.startswith("@"):
-                pkg_name = "/".join(module.split("/")[:2])
-
-            if node_modules is None:
+        if module.startswith("."):
+            if resolve_relative(module, filepath) is None:
                 issues.append(
                     {
-                        "line": line_num,
-                        "type": "npm_import",
+                        "line": line,
+                        "type": "local_import",
                         "module": module,
-                        "status": "WARNING",
-                        "error": "node_modules not found, cannot verify",
-                    }
-                )
-            elif not (node_modules / pkg_name).exists():
-                issues.append(
-                    {
-                        "line": line_num,
-                        "type": "npm_import",
-                        "module": module,
-                        "symbols": imp.get("symbols"),
                         "status": "HALLUCINATION",
-                        "error": f"npm package '{pkg_name}' not installed in node_modules",
+                        "error": f"local module '{module}' not found relative to {filepath.name}",
                     }
                 )
+            continue
+
+        if module.startswith("node:"):
+            continue
+
+        pkg = package_name(module)
+        if node_modules is not None and (node_modules / pkg).exists():
+            continue
+        if declared_dependency(module, project_root, language):
+            issues.append(
+                {
+                    "line": line,
+                    "type": "npm_import",
+                    "module": module,
+                    "status": "WARNING",
+                    "error": f"'{pkg}' está declarado en package.json pero no instalado (npm install)",
+                }
+            )
+            continue
+        issues.append(
+            {
+                "line": line,
+                "type": "npm_import",
+                "module": module,
+                "status": "HALLUCINATION",
+                "error": f"npm package '{pkg}' no está instalado ni declarado",
+            }
+        )
 
     return issues
 
@@ -654,30 +657,67 @@ def scan_ts_file(filepath: Path) -> list[dict]:
 
 
 def scan_file(filepath: Path, project_root: str) -> dict:
-    """Escanea un solo archivo en busca de imports alucinados."""
+    """Escanea un archivo y dice explícitamente si pudo verificarlo.
+
+    `status` es "checked" o "not_checked". Un lenguaje sin adapter NO se
+    reporta como "sin alucinaciones": se reporta como no verificado, para que
+    el agregado no convierta la ignorancia en un cero verde.
+    """
+    from fast_mcp.features.code_analysis.infrastructure.lang_imports import (
+        detect_language,
+        is_js,
+    )
+
     if not filepath.exists():
         return {"file": str(filepath), "error": "File not found"}
 
-    ext = filepath.suffix.lower()
+    language = detect_language(filepath)
+    if language is None:
+        return {
+            "file": str(filepath),
+            "status": "not_checked",
+            "checked": False,
+            "reason": (
+                f"sin adapter de imports para "
+                f"{filepath.suffix or '(sin extensión)'}"
+            ),
+            "issues": [],
+            "hallucinations": 0,
+            "warnings": 0,
+            "not_checked": 0,
+        }
 
-    if ext == ".py":
+    if language == "python":
         issues = scan_python_file(filepath, project_root)
-    elif ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
-        issues = scan_ts_file(filepath)
+    elif is_js(language):
+        issues = scan_ts_file(filepath, project_root)
     else:
         return {
             "file": str(filepath),
-            "skipped": True,
-            "reason": f"Unsupported language: {ext}",
+            "language": language,
+            "status": "not_checked",
+            "checked": False,
+            "reason": (
+                f"sin resolver de imports para '{language}' "
+                "(soportados: python, javascript, typescript)"
+            ),
+            "issues": [],
+            "hallucinations": 0,
+            "warnings": 0,
+            "not_checked": 0,
         }
 
-    hallucinations = [i for i in issues if i["status"] == "HALLUCINATION"]
-    warnings = [i for i in issues if i["status"] == "WARNING"]
+    hallucinations = [i for i in issues if i.get("status") == "HALLUCINATION"]
+    warnings = [i for i in issues if i.get("status") == "WARNING"]
+    not_checked = [i for i in issues if i.get("status") == "NOT_CHECKED"]
 
     return {
         "file": str(filepath),
-        "language": ext,
+        "language": language,
+        "status": "checked",
+        "checked": True,
         "issues": issues,
         "hallucinations": len(hallucinations),
         "warnings": len(warnings),
+        "not_checked": len(not_checked),
     }

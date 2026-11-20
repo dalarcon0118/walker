@@ -49,34 +49,7 @@ AST_GREP_AVAILABLE = _probe_binary(AST_GREP)
 
 
 # ── Language map: file extension → ast-grep language ────────
-_LANG_MAP: dict[str, str] = {
-    ".py": "python",
-    ".ts": "typescript",
-    ".tsx": "tsx",
-    ".js": "javascript",
-    ".jsx": "jsx",
-    ".rs": "rust",
-    ".go": "go",
-    ".java": "java",
-    ".rb": "ruby",
-    ".kt": "kotlin",
-    ".swift": "swift",
-    ".scala": "scala",
-    ".php": "php",
-    ".c": "c",
-    ".cpp": "cpp",
-    ".cs": "csharp",
-    ".dart": "dart",
-    ".hs": "haskell",
-    ".sh": "bash",
-    ".bash": "bash",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".json": "json",
-    ".css": "css",
-    ".html": "html",
-    ".md": "markdown",
-}
+from ..lang_map import LANG_MAP as _LANG_MAP
 
 
 def ast_grep_lang(filepath: Path) -> str | None:

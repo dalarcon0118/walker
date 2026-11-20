@@ -391,7 +391,32 @@ gate de cierre quedaba en nudge infinito.
 - [ ] M-06 Extensibilidad: una sola tabla (`_TEST_RUNNERS`) para los dos
       caminos de verificación — anti-patrón: otro `if language == "python"`.
 
-## 14. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 14. P1.9 — Imports y coupling por lenguaje, con `not_checked` visible
+
+`hallucination.py` resolvía imports solo como Python: omitía TODO import
+relativo de JS (un `./components/Foo` inexistente nunca se detectaba) y trataba
+cualquier bare specifier como paquete npm (los alias `@/…` eran alucinaciones).
+`coupling.py` tenía una lista de prefijos de proyecto hardcodeada
+(`cognitive_v2`, `mcp`, …) y su Ca solo miraba `*.py` con módulos punteados: en
+un repo JS, Ce contaba todo como externo y Ca devolvía 0 como si nadie
+importara el archivo.
+
+- [ ] Un adapter (`lang_imports`) decide "local vs externo" por lenguaje;
+      `None` = no sé (sin adapter/alias) → `not_checked`, nunca `False`.
+- [ ] JS/TS: relativos resuelven a archivo real (si no, alucinación); alias
+      (`@/`, `~/`, `#…`) → NOT_CHECKED; bare declarado sin instalar → WARNING;
+      ni declarado ni instalado → HALLUCINATION.
+- [ ] `scan_file` devuelve `status: checked|not_checked` y el adapter agrega
+      `checked_files`/`not_checked_files`/`not_checked_reasons`.
+- [ ] `coupling` sin listas de prefijos: Ce sale del adapter y Ca es por
+      lenguaje (`checked` para JS por resolución, `approximate` para Python/Go,
+      `not_checked` cuando no hay resolver).
+- [ ] M-06 Extensibilidad: una sola tabla extensión→lenguaje (`lang_map`), antes
+      duplicada en `codereview/config.py` y `ast_grep_adapter.py`.
+- [ ] M-09 Fallback visible: un lenguaje sin adapter no suma "0 alucinaciones";
+      se reporta como no verificado con el motivo — anti-patrón: cero verde.
+
+## 15. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -405,7 +430,7 @@ gate de cierre quedaba en nudge infinito.
 
 ---
 
-## 15. failure_scenarios
+## 16. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -426,13 +451,14 @@ gate de cierre quedaba en nudge infinito.
   "El supersede de nodos session recorre `query({})` (50 de 97 docs) → reporta `superseded: N` y no degrada ninguno; el contexto sigue citando historia como vigente → causa: resolver por página en vez de por id → mitigación: `get(\"ckg\", id)` + reportar aplicado/faltante → detección: test_supersede_atraviesa_la_pagina_default_del_ckg",
   "Dos agentes/sesiones a la vez y la captura toma 'la única sesión activa' → 13 nodos con la sesión del harness y la tarea de acá → causa: adivinar la sesión cuando la tarea no la declara → mitigación: solo la sesión que declara la tarea en su plan o la de la spec; si no, captura fallida visible → detección: test_no_usa_una_sesion_que_no_declara_la_tarea",
   "El harness apunta a un proyecto fijo (game_reset) y el plugin resuelve otro desde el cwd → 7 de 29 modos fallan por el entorno y la suite depende de datos del usuario → causa: id y ruta absoluta hardcodeados → mitigación: fixture propio registrado con _/prepare + HARNESS_PROJECT, y rutas derivadas del layout → detección: suite.mjs sin argumentos (29/29) y test de dispatch de Fase 1 en el CLI",
-  "run_tests y verify_engine buscan project.json en <repo>/data y caen a pytest → un proyecto con vitest ejecuta python3 -m pytest y nunca certifica (gate de cierre infinito) → causa: ruta del manifiesto desactualizada respecto del layout .cognitive + default silencioso → mitigación: resolver por ProjectService.resolve_paths, runner declarado y TestRunnerUnavailable sin declaración → detección: tests/test_run_tests_framework_bdd.py (vitest/go/pytest y sin declaración)"
+  "run_tests y verify_engine buscan project.json en <repo>/data y caen a pytest → un proyecto con vitest ejecuta python3 -m pytest y nunca certifica (gate de cierre infinito) → causa: ruta del manifiesto desactualizada respecto del layout .cognitive + default silencioso → mitigación: resolver por ProjectService.resolve_paths, runner declarado y TestRunnerUnavailable sin declaración → detección: tests/test_run_tests_framework_bdd.py (vitest/go/pytest y sin declaración)",
+  "El detector de imports solo entiende Python y coupling usa prefijos hardcodeados → en un repo JS los alias son alucinaciones falsas y Ca=0 aunque haya importadores; en Go/Rust el resultado es un cero que parece dato → causa: resolución de imports sin adapter por lenguaje → mitigación: lang_imports + status/not_checked y agregado que separa verificados de no verificados → detección: tests/test_language_imports_bdd.py (JS relativos/alias, Go/Rust not_checked, Ca por resolución)"
 ]
 ```
 
 ---
 
-## 16. Criterios de aceptación
+## 17. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -471,10 +497,13 @@ gate de cierre quedaba en nudge infinito.
 16. P1.8: un proyecto que declara `vitest`/`go`/`pytest` ejecuta SU runner;
     sin declaración, `run_tests` falla con un mensaje accionable y no ejecuta
     nada (no hay default a pytest).
+17. P1.9: un import relativo JS inexistente es alucinación y un alias es
+    `not_checked`; un lenguaje sin resolver nunca aparece como "0
+    alucinaciones", y `coupling` reporta `ca_status` en vez de un cero mudo.
 
 ---
 
-## 17. Riesgos y compatibilidad
+## 18. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -488,7 +517,7 @@ gate de cierre quedaba en nudge infinito.
 
 ---
 
-## 18. Tests
+## 19. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -523,4 +552,6 @@ gate de cierre quedaba en nudge infinito.
 - `tests/test_run_tests_framework_bdd.py` y `tests/test_run_tests_green_bdd.py`:
   runner declarado (vitest/go/pytest), sin declaración falla, 0 tests en pytest
   y `test_pass` con error accionable (P1.8).
+- `tests/test_language_imports_bdd.py`: adapter local/externo por lenguaje,
+  relativos/alias JS, agregado checked/not_checked y Ca por resolución (P1.9).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

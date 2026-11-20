@@ -59,17 +59,7 @@ IGNORED_DIRS = {
     ".env", "dist", "build", ".next", ".cognitive",
 }
 
-_LANG_MAP: dict[str, str] = {
-    ".py": "python", ".ts": "typescript", ".tsx": "tsx",
-    ".js": "javascript", ".jsx": "jsx", ".rs": "rust",
-    ".go": "go", ".java": "java", ".rb": "ruby",
-    ".kt": "kotlin", ".swift": "swift", ".scala": "scala",
-    ".php": "php", ".c": "c", ".cpp": "cpp", ".cs": "csharp",
-    ".dart": "dart", ".hs": "haskell", ".sh": "bash",
-    ".bash": "bash", ".yaml": "yaml", ".yml": "yaml",
-    ".json": "json", ".css": "css", ".html": "html",
-    ".md": "markdown",
-}
+from .lang_map import LANG_MAP as _LANG_MAP
 
 
 def _detect_lang(filepath: str) -> str | None:

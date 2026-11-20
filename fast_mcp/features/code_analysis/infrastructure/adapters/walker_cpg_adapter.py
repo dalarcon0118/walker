@@ -208,15 +208,34 @@ class WalkerCpgAnalysisAdapter(ICpgAnalysisPort):
 
         issues: list[dict] = []
         hallucinations = 0
+        warnings = 0
+        not_checked_imports = 0
+        checked_files = 0
+        unchecked: dict[str, int] = {}
         for file_path in files:
             result = scan_file(Path(file_path), root)
-            file_issues = result.get("issues", [])
-            issues.extend(file_issues)
+            issues.extend(result.get("issues", []))
             hallucinations += result.get("hallucinations", 0)
+            warnings += result.get("warnings", 0)
+            not_checked_imports += result.get("not_checked", 0)
+            if result.get("checked"):
+                checked_files += 1
+            else:
+                # Un lenguaje sin adapter NO es "0 alucinaciones": es no
+                # verificado. Se cuenta y se expone el motivo (M-09).
+                reason = str(
+                    result.get("reason") or result.get("error") or "no verificado"
+                )
+                unchecked[reason] = unchecked.get(reason, 0) + 1
 
         return {
             "files_scanned": len(files),
+            "checked_files": checked_files,
+            "not_checked_files": len(files) - checked_files,
+            "not_checked_reasons": unchecked,
             "hallucinations": hallucinations,
+            "warnings": warnings,
+            "not_checked_imports": not_checked_imports,
             "issues": issues[:50],
             "truncated": len(issues) > 50,
         }
