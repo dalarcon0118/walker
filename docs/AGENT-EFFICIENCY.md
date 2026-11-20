@@ -464,16 +464,18 @@ acá sigue abierto.
 | Ranking por autoridad | **implementado** | ADR/`docs/` antes que memoria de sesión, con orden bm25 estable (`tests/test_ckg_retrieval_ranking_bdd.py`) |
 | `run_tests` con entorno limpio | **implementado** | heredaba `WALKER_MCP_PROFILE=agent`: 14 tests del contrato `full` fallaban sólo desde la tool. `_suite_env()` los descarta (`tests/test_run_tests_env_bdd.py`) |
 | Clasificador de escritura | **implementado** | `shell_mutation.mjs`: el **destino** decide (`cp x /tmp/y` no muta; `cp x src/y` sí). 25 casos en `node --test shell_mutation.test.mjs`; `index.js` sólo pasa `projectDir` |
+| Registro de specs del sprint | **corregido** | `get_specs` pedía una página de 50: con 86 specs en el índice el sprint devolvía 0 aunque la spec existiera. Ahora `size=1000` (`tests/test_fast_mcp_delta_infrastructure_bdd.py`) |
+| Grafo reproducible | **implementado** | `workflow-src/` (13 archivos versionados) + `GraphRepository` lo siembra si falta + `scripts/sync_workflow.py --check` (`tests/test_workflow_src_bdd.py`) |
 | `supersedes` (M-03) | **implementado** | `ingest_adrs.py` parsea `**Consolida:** ADR-081 y ADR-082` y resuelve a ids en `build_nodes`; 081/082 quedan `superseded` en el CKG (`tests/test_ingest_adrs_bdd.py`) |
 | Plan → spec | **parcial** | `implement_task` ya no pisa `flight_plan.acceptance` (merge). La spec todavía no hereda: `_persist_spec` devuelve `None` sin error (§7.1-6). |
 | `brief` compuesto (F2) | **implementado** | una llamada: `decisions` (top-5 con `supersedes`), `impact` (reusa preflight), `gates`, **`step`** (absorbe `workflow_state`), **`skills`/`skill`** (absorbe `search_skills`/`load_skill`) y **`plan`** (absorbe `plan_diff`); `missing[]`/`degraded` obligatorios (`tests/test_brief_bdd.py`) |
 | `plan_diff` (F3/M-04) | **implementado** | compara flight_plan ↔ spec: criterios en uno y no en el otro, scope ampliado y criterios sin predicado (`tests/test_plan_diff_bdd.py`) |
 | `design_brief` (F3) | **implementado** | `DESIGN_ANALYZE` declara `x-artifact` y el contrato vive en código (`ARTIFACT_GATES`), así que no depende de `data/workflow`; valida forma (>=2 opciones, descarte con motivo, invariantes, verificación) y deniega con `missing[]`+`remedy` (`tests/test_design_brief_bdd.py`) |
 | Perfil `agent` | **8 tools / 1.901 chars** | loop: `brief`, `search_memories`, `submit`, `advance`, `transition`, `implement_task`, `run_tests`, `capture`. Los schemas del perfil se compactan (sin descripciones por propiedad); el resto vive en `full`/`admin` y se invoca por CLI. Cumple §2.6 (≤8 / ≤2.500). |
-| Adopción medida | **implementado** | `scripts/agent_adoption.py`: llamadas/tokens por tool, sesiones verificadas, 1er intento, writes y costo desde el trace. `native_ratio` y el intento por tarea se declaran N/D con motivo (AE-INV-08: no se inventan). |
+| Adopción medida | **implementado** | `scripts/agent_adoption.py`: telemetría por tool + trace + **DB del harness**. Medido: **485 Walker / 12.306 nativas = 0,039** en 16 sesiones de `walker`; 778 llamadas y 992k tokens de salida (`agent_adoption.py`). El intento por tarea sigue N/D (el trace no lo separa). |
 | Sustrato (AE-INV-07) | **cerrado** | warm imports + caches por firma + **pool de 4 procesos** para lecturas (`fast_mcp/memories/read_pool.py`). `agent_context` caliente **169 ms**, 4 concurrentes **248 ms = 1,32×**; probe 100/100, **p50 110 / p95 219 ms**. Costo: la primera ráfaga paga el spawn de los workers (mitigado con warm en background) |
 
-Verificación: `python3 -m pytest -q` → **1.569 passed** (`scripts/golden_queries.py`
+Verificación: `python3 -m pytest -q` → **1.576 passed** (`scripts/golden_queries.py`
 da 18/20; `scripts/agent_metrics.py` sigue disponible).
 
 ### 7.1 Hallazgos nuevos durante la implementación (no corregidos)

@@ -1,0 +1,939 @@
+{
+  "label": "Implementation phase",
+  "description": "Task implementation with mandatory user gates and automated quality gates.",
+  "provides": [
+    "project_id",
+    "sprint_id"
+  ],
+  "sub_states": [
+    {
+      "key": "OBSERVE",
+      "label": "Gollwitzer: gather repository evidence before acting",
+      "description": "OBSERVE phase (psicologia de la accion): pure information acquisition from the repository. No decisions are made here - only evidence for the mental state.",
+      "execution": "auto",
+      "action": "observe",
+      "input_schema": {},
+      "output_schema": {},
+      "on_success": "STATE_CONSTRUCTION",
+      "on_failure": "OBSERVE",
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "implement/observe",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    },
+    {
+      "key": "STATE_CONSTRUCTION",
+      "label": "Gollwitzer: build the mental state of the work",
+      "description": "STATE CONSTRUCTION phase: the LLM builds the mental state (interface, gaps, plan) BEFORE crossing into implementation commitment. The plan produced here is what MONITORING verifies against.",
+      "execution": "llm_task",
+      "action": "state_construction",
+      "needs": [
+        "project_id",
+        "sprint_id",
+        "task_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "interface": {
+            "type": "object",
+            "description": "Proposed interface contract"
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Known gaps in the mental state"
+          },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Implementation plan - commitment reference for MONITORING"
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "constructed"
+            ]
+          },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "on_success": "INFO_ACQUISITION",
+      "on_failure": "OBSERVE",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
+      "timeout_ms": 300000,
+      "prompt_id": "implement/state_construction",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "skill_intent": {
+        "needs": "criterio de diseño, calidad de código y arquitectura antes de comprometer el plan",
+        "tags": [
+          "design",
+          "clean-code",
+          "architecture"
+        ],
+        "policy": "advisory"
+      }
+    },
+    {
+      "key": "INFO_ACQUISITION",
+      "label": "Gollwitzer: fill gaps in the mental state before commitment",
+      "description": "INFO ACQUISITION phase (psicologia de la accion): targeted information gathering to close the gaps declared by STATE_CONSTRUCTION. Closes the deliberative loop (STATE_CONSTRUCTION -> INFO_ACQUISITION -> OBSERVE) before crossing the Rubicon at USER_GATE.",
+      "execution": "auto",
+      "action": "info_acquisition",
+      "needs": [
+        "project_id",
+        "sprint_id",
+        "task_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Targeted information queries to resolve the declared gaps"
+          },
+          "resolved_gaps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Gap ids closed by this acquisition round"
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "acquired"
+            ]
+          },
+          "resolved_gaps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "on_success": "USER_GATE",
+      "on_failure": "OBSERVE",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "implement/info_acquisition",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    },
+    {
+      "key": "USER_GATE",
+      "label": "User approval gate",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "proceed",
+              "refine",
+              "cancel"
+            ],
+            "description": "Decisión del usuario sobre el briefing de la tarea"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Motivo: aprobación, qué falta o por qué cancela"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "proceed",
+              "refine",
+              "cancel"
+            ],
+            "description": "User decision",
+            "examples": [
+              "proceed"
+            ]
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "User gate. proceed -> WORK. refine -> REFINE. cancel -> SPRINT.ACTIVE."
+      },
+      "on_success": "WORK",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "capture_decision",
+          "params": {}
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "in_progress"
+          },
+          "optional": false,
+          "description": "Transform Spec to in_progress"
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "implement/user-gate",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "presenting task {task_id} for user approval in sprint \"{sprint_goal}\"",
+          "constraints": [
+            "Read TASK layer to get full task specification and validation criteria",
+            "Read PROJECT layer to include conventions and architecture rules in briefing",
+            "Read STATE layer to include 6->3 analysis summary",
+            "Ask user to proceed, refine, or cancel"
+          ],
+          "context_priority": "project → task → state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      },
+      "decision_map": {
+        "refine": "needs_refine",
+        "cancel": "cancel"
+      }
+    },
+    {
+      "key": "WORK",
+      "label": "Implementation",
+      "execution": "llm_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loop_verification": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Comandos de verificación y su resultado ('<comando> => <resultado>')"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Implementation result: modified files, diff, metrics"
+          }
+        },
+        "description": "Implementation executed. Auto-transitions to CODE_REVIEW_SCAN."
+      },
+      "on_success": "CODE_REVIEW_SCAN",
+      "on_failure": "USER_GATE",
+      "required_tools": [
+        {
+          "id": "ckg",
+          "command_hint": "walker_recall_knowledge (layers: ckg) — convenciones y decisiones del scope antes de tocar código"
+        },
+        {
+          "id": "cpg",
+          "command_hint": "walker_analyze_code / walker_cpg_business — estructura y business layer del código a modificar"
+        }
+      ],
+      "side_effects": [
+        {
+          "type": "index_code",
+          "params": {},
+          "optional": true,
+          "compensation": {
+            "type": "restore_code_snapshot",
+            "description": "If code review fails, restore CPG to previous state"
+          }
+        },
+        {
+          "type": "update_knowledge_status",
+          "params": {
+            "event": "implementation_start"
+          },
+          "description": "Mark CKG as pending_update when implementation starts"
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "in_progress",
+            "fields": {}
+          },
+          "optional": false,
+          "description": "Transform Spec to in_progress with enriched task_context"
+        }
+      ],
+      "retry": {
+        "max_attempts": 1,
+        "backoff": "fixed",
+        "initial_delay_ms": 1000,
+        "on_error": {
+          "TaskTimeoutError": "retry_2x",
+          "TaskFailedError": "escalate"
+        }
+      },
+      "timeout_ms": 600000,
+      "prompt_id": "implement/work",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "sources": [
+          {
+            "provider": "business",
+            "config": {
+              "max_items": 15
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 15
+            }
+          }
+        ],
+        "focus": {
+          "role": "implementing task {task_id} in sprint \"{sprint_goal}\"",
+          "constraints": [
+            "GATE DE AUTO-CONSULTA: ANTES de tocar cualquier archivo, consulta las convenciones del CKG del scope afectado usando walker <project>/memory_schema y walker <project>/search_memories con ckg:{type:convention, scope:<dominio de la tarea>}",
+            "No modifiques codigo sin haber consultado primero las convenciones y decisiones del CKG relevantes a la tarea",
+            "Cross-reference with BUSINESS layer for pure functions and patterns to reuse",
+            "Implement the task and complete each file — no half-done work"
+          ],
+          "context_priority": "business → ckg → state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "required_fields": [
+        "loop_verification"
+      ]
+    },
+    {
+      "key": "CODE_REVIEW_SCAN",
+      "label": "Automatic code review",
+      "execution": "llm_task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths a revisar (None -> todos)"
+          },
+          "thresholds": {
+            "type": "object",
+            "description": "Umbrales de calidad opcionales"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "passed": {
+            "type": "boolean",
+            "description": "true if all quality gates passed, false if any failed"
+          },
+          "findings": {
+            "type": "array",
+            "description": "List of static analysis findings (errors, warnings, security issues)"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable code review result summary"
+          }
+        },
+        "description": "Code review completed. passed=true->KNOWLEDGE_UPDATE, passed=false (after 3 retries)->REFINE.DIAGNOSE."
+      },
+      "on_success": "CODE_REVIEW_RESULT",
+      "on_failure": "WORK",
+      "required_tools": [
+        {
+          "id": "ckg",
+          "command_hint": "walker_recall_knowledge (layers: ckg) — convenciones de calidad para validar el código"
+        },
+        {
+          "id": "cpg",
+          "command_hint": "walker_analyze_code — estructura del código implementado para detectar violaciones"
+        }
+      ],
+      "side_effects": [
+        {
+          "type": "index_code",
+          "params": {
+            "scope": "code_review"
+          },
+          "optional": true
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "in_review",
+            "fields": {
+              "review_metrics": "NODE.CODE_REVIEW_SCAN.output"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to in_review with review_metrics"
+        }
+      ],
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000,
+        "on_error": {
+          "SideEffectError": "compensate",
+          "ScriptError": "log+continue"
+        }
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "implement/code-review-scan",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "action": "review_code",
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    },
+    {
+      "key": "CODE_REVIEW_RESULT",
+      "label": "Code review results",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refine",
+              "analyze",
+              "cancel"
+            ],
+            "description": "Decisión sobre el resultado del code review"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Motivo de la decisión (comentario o qué corregir)"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refine",
+              "analyze",
+              "cancel"
+            ],
+            "description": "User decision on code review. approve->continue, refine->WORK, analyze->DIAGNOSE, cancel->SPRINT"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "User evidence or reason for the decision"
+          },
+          "review_conventions": {
+            "type": "array",
+            "description": "CKG conventions checked by the reviewer"
+          },
+          "review_architecture": {
+            "type": "array",
+            "description": "Architecture decisions checked by the reviewer"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Code review results reviewed. approve->MONITORING (Gollwitzer plan-vs-result check), refine->WORK, analyze->DIAGNOSE, cancel->SPRINT."
+      },
+      "on_success": "MONITORING",
+      "on_failure": "WORK",
+      "side_effects": [
+        {
+          "type": "capture_decision",
+          "params": {}
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "in_review",
+            "fields": {
+              "review_conventions": "NODE.CODE_REVIEW_RESULT.output.review_conventions",
+              "review_architecture": "NODE.CODE_REVIEW_RESULT.output.review_architecture",
+              "review_verdict": "NODE.CODE_REVIEW_RESULT.output.decision"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to in_review with review verdict and conventions"
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "implement/code-review-result",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "cpg",
+            "config": {}
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "convention"
+              },
+              "max_nodes": 10
+            }
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "reviewing code review results for task {task_id}",
+          "constraints": [
+            "Show code review findings from the scan results",
+            "Cross-reference with TASK layer for acceptance criteria",
+            "Cross-reference with CPG for impacted files and code structure",
+            "Cross-reference with CKG for quality conventions",
+            "Ask user to approve, refine, analyze, or cancel"
+          ],
+          "context_priority": "project → task → cpg → ckg → state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      },
+      "decision_map": {
+        "refine": "needs_refine",
+        "analyze": "needs_refine",
+        "cancel": "cancel"
+      }
+    },
+    {
+      "key": "MONITORING",
+      "label": "Gollwitzer: verify implementation against the committed plan",
+      "description": "MONITORING phase (psicologia de la accion): plan-vs-result verification after code review approval. Records deviations from the STATE_CONSTRUCTION plan and confirms non-occurrence of unwanted effects. Does not correct - only records.",
+      "execution": "auto",
+      "action": "monitoring",
+      "input_schema": {},
+      "output_schema": {},
+      "on_success": "KNOWLEDGE_UPDATE",
+      "on_failure": "WORK",
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "initial_delay_ms": 2000
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "implement/monitoring",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    },
+    {
+      "key": "KNOWLEDGE_UPDATE",
+      "label": "Update knowledge",
+      "execution": "auto",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "actualizaciones": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Cambios a conocimiento existente (array)"
+          },
+          "nuevas_reglas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Reglas nuevas (array)"
+          },
+          "nuevas_advertencias": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Riesgos o advertencias nuevas (array)"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "fact": {
+            "type": "string"
+          }
+        },
+        "description": "Hecho de la tarea escrito en el CKG"
+      },
+      "on_success": "REPORT_GATE",
+      "on_failure": "WORK",
+      "required_tools": [
+        {
+          "id": "ckg",
+          "command_hint": "walker_recall_knowledge (layers: ckg) — revisar conocimiento existente para no duplicar"
+        },
+        {
+          "id": "cpg",
+          "command_hint": "walker_analyze_code / walker_cpg_business — evidencia del código implementado"
+        }
+      ],
+      "side_effects": [
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "in_progress",
+            "fields": {
+              "task_context": "NODE.KNOWLEDGE_UPDATE.output"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to final task_context with knowledge update"
+        }
+      ],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
+      },
+      "timeout_ms": 60000,
+      "prompt_id": "implement/knowledge-update",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "ckg",
+            "config": {
+              "query": {
+                "type": "decision"
+              },
+              "max_nodes": 10
+            }
+          },
+          {
+            "provider": "cpg",
+            "config": {
+              "max_results": 15
+            }
+          }
+        ],
+        "focus": {
+          "role": "updating knowledge after implementation of task {task_id} in sprint \"{sprint_goal}\"",
+          "constraints": [
+            "Check CKG first to see what knowledge already exists — avoid duplicating",
+            "Use CPG to reference actual code changes as evidence",
+            "Register changes, new rules, and warnings discovered during implementation"
+          ],
+          "context_priority": "project → task → ckg → cpg → state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
+      },
+      "action": "capture_knowledge"
+    },
+    {
+      "key": "REPORT_GATE",
+      "label": "Post-implementation report",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "proceed",
+              "refine",
+              "cancel"
+            ],
+            "description": "Post-implementation decision"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Evidence or reason for the decision"
+          },
+          "commit_hash": {
+            "type": "string",
+            "description": "Hash del commit del tramo. El cierre (PO_ACCEPT) lo exige."
+          },
+          "commit_url": {
+            "type": "string",
+            "description": "URL del commit, si el repo la expone."
+          },
+          "completed_at": {
+            "type": "string",
+            "description": "Timestamp ISO de finalización. El cierre (PO_ACCEPT) lo exige."
+          }
+        },
+        "description": "Artefactos del reporte. `transform_spec` los escribe en la spec como `in_review` y el cierre (`SpecStatusUpdater`) NO completa sin `commit_hash` + `completed_at` (medido 2026-11-18)."
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "proceed",
+              "refine",
+              "cancel"
+            ],
+            "description": "Post-implementation decision",
+            "examples": [
+              "proceed"
+            ]
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Post-implementation report. proceed -> VERIFY. refine -> REFINE. cancel -> SPRINT."
+      },
+      "on_success": "",
+      "on_failure": "",
+      "side_effects": [
+        {
+          "type": "documenting_knowledge",
+          "params": {},
+          "description": "Persist knowledge updates after user approves report"
+        },
+        {
+          "type": "capture_decision",
+          "params": {}
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "in_review",
+            "fields": {
+              "commit_hash": "NODE.REPORT_GATE.output.commit_hash",
+              "commit_url": "NODE.REPORT_GATE.output.commit_url",
+              "completed_at": "NODE.REPORT_GATE.output.completed_at"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to in_review with commit information (completed happens at PO_ACCEPT)"
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "implement/report-gate",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "presenting post-implementation report for task {task_id}",
+          "constraints": [
+            "Show what was implemented, impacted files, and results",
+            "Cross-reference with TASK layer to verify all requirements were met",
+            "Show project conventions from PROJECT layer",
+            "Ask user to proceed to verification, refine, or cancel"
+          ],
+          "context_priority": "project → task → state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      },
+      "decision_map": {
+        "proceed": "implementation_done",
+        "refine": "needs_refine",
+        "cancel": "cancel"
+      }
+    }
+  ]
+}

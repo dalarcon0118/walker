@@ -10,8 +10,10 @@ Keeps: _resolve_imports + _build_graph (required by real workflow.json).
 from __future__ import annotations
 
 import json
+import shutil
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from ..domain.entities import (
@@ -28,6 +30,28 @@ logger = logging.getLogger(__name__)
 # Default de sub_state.timeout_ms cuando workflow.json no lo declara (ms).
 # Valor idéntico al default legacy — nombrado para eliminar el número mágico.
 DEFAULT_SUB_STATE_TIMEOUT_MS = 120_000
+
+
+def _seed_defaults(workflow_path: str, root: Path | None = None) -> None:
+    """Si el grafo runtime no existe, lo siembra desde `workflow-src/`.
+
+    `data/workflow/` está en `.gitignore`: en un checkout limpio el motor no
+    tenía workflow.json y no arrancaba. `workflow-src/` es la copia versionada
+    del grafo (nodos/edges); se copia sólo cuando falta, así una edición local
+    no se pisa. `scripts/sync_workflow.py --check` detecta el drift.
+    """
+    if os.path.exists(workflow_path):
+        return
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[4]
+    # Sólo el manifiesto CANÓNICO del motor se siembra. Un path arbitrario
+    # (tests, otro proyecto) debe fallar con FileNotFoundError: sembrarlo ahí
+    # ocultaría un error de resolución.
+    if os.path.abspath(os.path.dirname(workflow_path)) != str(root / "data" / "workflow"):
+        return
+    source = root / "workflow-src"
+    if not source.is_dir():
+        return
+    shutil.copytree(source, os.path.dirname(workflow_path), dirs_exist_ok=True)
 
 
 class GraphRepository:
@@ -54,6 +78,7 @@ class GraphRepository:
         4. Validate invariants
         5. Return WorkflowGraph
         """
+        _seed_defaults(self._workflow_path)
         with open(self._workflow_path) as f:
             raw = json.load(f)
 

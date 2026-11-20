@@ -99,6 +99,16 @@ class TestCognitiveDeltaRepository:
         assert loaded is not None
         assert loaded.objective == "Login screen"
 
+    def test_get_specs_no_se_corta_en_la_primera_pagina(self, repo):
+        """`search` pagina de a 50: con >50 specs el sprint pedido daba 0."""
+        from fast_mcp.features.delta_tracking.domain.entities import Spec
+
+        for i in range(60):
+            repo.save_spec(Spec(spring_id=f"otro-{i}", objective="x"))
+        repo.save_spec(Spec(spring_id="target", objective="y"))
+
+        assert [s.spring_id for s in repo.get_specs("target")] == ["target"]
+
     def test_get_specs(self, repo):
         from fast_mcp.features.delta_tracking.domain.entities import Spring, Spec
         repo.save_spring(Spring(spring_id="sprint-1", goal="Test"))

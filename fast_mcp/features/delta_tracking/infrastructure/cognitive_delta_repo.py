@@ -39,6 +39,11 @@ def _require_ok(result: Any, what: str) -> None:
         raise DeltaWriteError(f"{what}: {detail}")
 
 
+#: Tope de specs por consulta. Un sprint real no llega a 1k, pero el índice
+#: acumula specs de todas las sesiones: la página de 50 las cortaba.
+MAX_SPECS = 1000
+
+
 class CognitiveDeltaRepository(DeltaRepository):
     """DeltaRepository implementation using CognitiveGraph.
 
@@ -138,7 +143,11 @@ class CognitiveDeltaRepository(DeltaRepository):
     # ── Spec ──
 
     def get_specs(self, spring_id: str, status: str = "") -> list[Spec]:
-        all_specs = self._search({"type": TYPE_SPEC})
+        # `size` explícito: el default de search es 50 y con >50 specs el
+        # sprint pedido caía fuera de la primera página — `get_specs` devolvía
+        # 0 aunque la spec existiera (medido 2026-11-20: SPR-S65aa847d con 86
+        # specs en el índice). El filtro de spring va después, en Python.
+        all_specs = self._search({"type": TYPE_SPEC, "size": MAX_SPECS})
         specs = [
             h["_source"]
             for h in all_specs

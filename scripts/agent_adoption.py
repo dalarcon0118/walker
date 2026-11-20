@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -32,7 +34,57 @@ from fast_mcp.shared_kernel.telemetry import (  # noqa: E402
 )
 
 
-def summarize_adoption(records: list[dict], events: list[dict] | None = None) -> dict:
+HARNESS_DB = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
+_NATIVE = ("bash", "edit", "read", "grep", "write", "glob", "todowrite", "question")
+
+
+def read_harness(db_path: str | Path, project_path: str = "Active-projects/walker") -> dict | None:
+    """Llamadas Walker vs nativas por sesión, desde la DB del harness.
+
+    El trace de walker no ve las tools nativas; la DB de opencode sí. Se lee
+    read-only y se declara `None` si no está (fail-loud, sin inventar ratio).
+    """
+    path = Path(db_path)
+    if not path.is_file():
+        return None
+    placeholders = ",".join("?" for _ in _NATIVE)
+    query = f"""
+        select s.id,
+          sum(case when json_extract(p.data,'$.tool') like 'walker_%' then 1 else 0 end) w,
+          sum(case when json_extract(p.data,'$.tool') in ({placeholders}) then 1 else 0 end) n,
+          count(*) total
+        from session s join part p on p.session_id = s.id
+        where json_extract(p.data,'$.type')='tool' and s.directory like ?
+        group by s.id
+        having total > 0
+        order by total desc
+    """
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        rows = db.execute(query, (*_NATIVE, f"%{project_path}%")).fetchall()
+        db.close()
+    except sqlite3.Error:
+        return None
+    sessions = [
+        {"session_id": r[0], "walker": int(r[1] or 0), "native": int(r[2] or 0),
+         "total": int(r[3] or 0),
+         "ratio": round((r[1] or 0) / r[2], 3) if r[2] else None}
+        for r in rows
+    ]
+    walker = sum(r["walker"] for r in sessions)
+    native = sum(r["native"] for r in sessions)
+    return {
+        "db": str(path),
+        "sessions": len(sessions),
+        "walker_calls": walker,
+        "native_calls": native,
+        "native_ratio": round(walker / native, 3) if native else None,
+        "per_session": sessions,
+    }
+
+
+def summarize_adoption(records: list[dict], events: list[dict] | None = None,
+                       harness: dict | None = None) -> dict:
     """Agrega telemetría + eventos de sesión. Sin números inventados."""
     tools = summarize(records)
     sessions: dict[str, dict] = {}
@@ -54,6 +106,7 @@ def summarize_adoption(records: list[dict], events: list[dict] | None = None) ->
             row["verify_failed"] = bool(data.get("verify_failed"))
             row["writes"] = int(data.get("writes") or 0)
             row["cost_usd"] = float(data.get("cost_usd") or 0)
+            row["task"] = str(data.get("plan_task") or "")
         if etype in ("verification", "verify"):
             verifications += 1
             ok = bool(data.get("passed", data.get("ok", False)))
@@ -78,9 +131,9 @@ def summarize_adoption(records: list[dict], events: list[dict] | None = None) ->
         "failed_verifications": failed,
         "rework_rate": (failed / verifications) if verifications else None,
         "first_pass_tests": first_pass if sessions else None,
-        "native_ratio": None,
+        "native_ratio": (harness or {}).get("native_ratio"),
+        "harness": harness,
         "unavailable": {
-            "native_ratio": "el harness (opencode) no publica tool calls nativas en el trace",
             "first_pass_tests": "se cuenta por sesión (verified sin verify_failed); el intento por tarea no se separa",
             "per_session_tools": "la telemetría por tool no guarda session_id",
         },
@@ -122,6 +175,12 @@ def _table(summary: dict) -> str:
             f"{row['empty_rate']:>7.0%}{row['error_rate']:>8.0%}"
             f"{row['out_tokens_total']:>9}"
         )
+    harness = summary.get("harness") or {}
+    if harness:
+        lines.append(
+            f"harness: {harness['sessions']} sesiones · walker={harness['walker_calls']} "
+            f"nativas={harness['native_calls']} · ratio={harness['native_ratio']}"
+        )
     lines.append("")
     for key, reason in summary["unavailable"].items():
         lines.append(f"N/D {key}: {reason}")
@@ -133,11 +192,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--path", type=Path, default=None, help="JSONL de métricas")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--no-trace", action="store_true")
+    parser.add_argument("--harness-db", type=Path, default=HARNESS_DB)
     args = parser.parse_args(argv)
 
     records = read_records(args.path or metrics_path())
     events = [] if args.no_trace else _load_trace_events()
-    summary = summarize_adoption(records, events)
+    harness = read_harness(args.harness_db) if not args.no_trace else None
+    summary = summarize_adoption(records, events, harness)
 
     if args.json:
         print(json.dumps(summary, indent=2, ensure_ascii=False))

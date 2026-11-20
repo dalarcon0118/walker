@@ -7,7 +7,9 @@ así que el reporte los declara `null` con el motivo — no los estima.
 
 from __future__ import annotations
 
-from scripts.agent_adoption import summarize_adoption
+import sqlite3
+
+from scripts.agent_adoption import read_harness, summarize_adoption
 
 
 def _call(tool: str = "brief", outcome: str = "hit", tokens: int = 20) -> dict:
@@ -36,10 +38,30 @@ def test_agrega_tools_y_declara_lo_no_medible():
     assert summary["rework_rate"] == 0.5
     assert summary["native_ratio"] is None
     assert summary["first_pass_tests"] == 0, "la sesión no está verificada"
-    assert "native_ratio" in summary["unavailable"]
+    assert "first_pass_tests" in summary["unavailable"]
 
 
 def test_sin_verificaciones_el_rework_es_nulo():
     summary = summarize_adoption([_call()], [])
 
     assert summary["rework_rate"] is None, "no se divide por cero"
+
+
+def test_read_harness_calcula_el_ratio(tmp_path):
+    db = tmp_path / "harness.db"
+    con = sqlite3.connect(db)
+    con.execute("create table session (id text, directory text)")
+    con.execute("create table part (session_id text, data text)")
+    con.execute("insert into session values ('s1', '/x/Active-projects/walker')")
+    for tool in ("walker_brief", "read", "bash"):
+        con.execute(
+            "insert into part values (?, ?)",
+            ("s1", '{"type":"tool","tool":"%s"}' % tool),
+        )
+    con.commit(); con.close()
+
+    out = read_harness(db, project_path="Active-projects/walker")
+
+    assert out["walker_calls"] == 1
+    assert out["native_calls"] == 2
+    assert out["native_ratio"] == 0.5

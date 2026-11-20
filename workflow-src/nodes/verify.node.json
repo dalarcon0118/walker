@@ -1,0 +1,491 @@
+{
+  "label": "Verification phase",
+  "description": "QA and Product Owner acceptance before marking task as complete.",
+  "provides": [
+    "project_id",
+    "sprint_id"
+  ],
+  "sub_states": [
+    {
+      "key": "QA_RUN",
+      "label": "Run tests",
+      "execution": "auto",
+      "action": "run_tests",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "exit_code": {
+            "type": "integer",
+            "description": "0 if all tests passed, >0 if any failed"
+          },
+          "stdout": {
+            "type": "string",
+            "description": "Standard output of test execution"
+          },
+          "stderr": {
+            "type": "string",
+            "description": "Errors from test execution"
+          }
+        },
+        "description": "Tests executed. exit_code=0->QA, exit_code>0->IMPLEMENT.WORK."
+      },
+      "on_success": "PREDICATE_CHECK",
+      "on_failure": "QA_RUN",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "fixed",
+        "initial_delay_ms": 5000,
+        "on_error": {
+          "TaskTimeoutError": "retry_2x",
+          "TaskFailedError": "on_failure"
+        }
+      },
+      "timeout_ms": 120000,
+      "prompt_id": "verify/qa-run",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    },
+    {
+      "key": "PREDICATE_CHECK",
+      "label": "Automated predicate verification",
+      "execution": "auto",
+      "action": "verify_predicates",
+      "input_schema": {},
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "all_passed": {
+            "type": "boolean",
+            "description": "true if all predicates passed, false if any failed"
+          },
+          "results": {
+            "type": "array",
+            "description": "Per-predicate verification results: predicate + passed + evidence"
+          },
+          "failed_count": {
+            "type": "integer",
+            "description": "Number of failed predicates"
+          }
+        },
+        "required": [
+          "all_passed"
+        ],
+        "description": "Predicate verification completed. all_passed=true -> QA. all_passed=false -> IMPLEMENT.WORK."
+      },
+      "on_success": "BASELINE_DIFF",
+      "on_failure": "QA_RUN",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 1,
+        "backoff": "fixed",
+        "initial_delay_ms": 1000
+      },
+      "timeout_ms": 60000,
+      "prompt_id": "verify/predicate-check",
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "full"
+      },
+      "context": {
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      }
+    },
+    {
+      "key": "BASELINE_DIFF",
+      "label": "Diff contra el baseline (punto B)",
+      "execution": "auto",
+      "action": "diff_baseline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          }
+        },
+        "description": "Cambios respecto del punto A"
+      },
+      "on_success": "MONITOR",
+      "on_failure": "",
+      "timeout_ms": 180000,
+      "audit": {
+        "capture_stdout": true,
+        "capture_stderr": true,
+        "level": "normal"
+      }
+    },
+    {
+      "key": "MONITOR",
+      "label": "PHASE 12 Monitoring: plan vs result (non-occurrence)",
+      "execution": "llm_task",
+      "action": "monitoring",
+      "needs": [
+        "project_id",
+        "task_id",
+        "sprint_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "array",
+            "description": "What was committed in the implementation plan",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deviations": {
+            "type": "array",
+            "description": "Observed differences between plan and result",
+            "items": {
+              "type": "string"
+            }
+          },
+          "non_occurrence": {
+            "type": "array",
+            "description": "Things that should NOT have happened — and whether they did",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "monitored"
+            ],
+            "description": "Monitoring recorded"
+          },
+          "compliant": {
+            "type": "boolean",
+            "description": "True when no deviations were recorded"
+          }
+        },
+        "description": "Monitoring recorded. Transitions to QA (postactional evaluation)."
+      },
+      "on_success": "QA",
+      "on_failure": "PREDICATE_CHECK",
+      "side_effects": [],
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "exponential",
+        "initial_delay_ms": 3000
+      },
+      "timeout_ms": 180000,
+      "prompt_id": "verify/monitor",
+      "context": {
+        "sources": [
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "diff",
+            "config": {}
+          },
+          {
+            "provider": "test_results",
+            "config": {}
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 5
+            }
+          }
+        ],
+        "focus": {
+          "role": "monitoring implementation vs plan for task {task_id} (PHASE 12, non-occurrence effect)",
+          "constraints": [
+            "Record deviations explicitly — do not normalize them silently",
+            "Check what should NOT have happened (non-occurrence), not only what should"
+          ],
+          "context_priority": "state → diff → test_results → trace"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "level": "normal"
+      }
+    },
+    {
+      "key": "QA",
+      "label": "QA review",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "description": "QA result"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Evidence of results (logs, screenshots, reasons)"
+          }
+        },
+        "required": [
+          "decision",
+          "evidence"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "description": "QA result",
+            "examples": [
+              "approve"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Evidence of results (logs, screenshots, reasons)",
+            "examples": [
+              "All tests pass, code reviewed with no issues"
+            ]
+          }
+        },
+        "required": [
+          "decision",
+          "evidence"
+        ],
+        "description": "QA completed. approve -> PO_ACCEPT. reject -> IMPLEMENT.WORK. `evidence` es el artefacto que cierra la spec: sin él el PO_ACCEPT no puede marcar `completed`."
+      },
+      "on_success": "PO_ACCEPT",
+      "on_failure": "PREDICATE_CHECK",
+      "side_effects": [
+        {
+          "type": "capture_decision",
+          "params": {}
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "verify/qa",
+      "context": {
+        "sources": [
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "cpg",
+            "config": {}
+          },
+          {
+            "provider": "ckg",
+            "config": {}
+          }
+        ],
+        "focus": {
+          "role": "quality reviewer for task {task_id}",
+          "constraints": [
+            "Present test results, predicate check results, and quality assessment to user",
+            "Read TASK layer for validation predicates and acceptance criteria",
+            "Read CPG layer for code metrics of impacted files",
+            "Read CKG layer for quality conventions to validate against",
+            "Ask user to approve or reject"
+          ],
+          "context_priority": "task → cpg → ckg"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      },
+      "skill_intent": {
+        "needs": "revisión de código, testing y checklist de calidad para preparar la evidencia del gate",
+        "tags": [
+          "review",
+          "testing",
+          "quality"
+        ],
+        "policy": "required"
+      },
+      "decision_map": {
+        "reject": "needs_refine"
+      }
+    },
+    {
+      "key": "PO_ACCEPT",
+      "label": "PO acceptance",
+      "execution": "user_input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "reject"
+            ],
+            "description": "Product Owner decision"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "PO feedback on the completed task"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "reject"
+            ],
+            "description": "Product Owner decision",
+            "examples": [
+              "accept"
+            ]
+          },
+          "feedback": {
+            "type": "string",
+            "description": "PO feedback on the completed task",
+            "examples": [
+              "Functionality correct, tests passing, clean code"
+            ]
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "PO acceptance. accept -> task completed, return to SPRINT. reject -> IMPLEMENT.WORK."
+      },
+      "on_success": "",
+      "on_failure": "QA",
+      "side_effects": [
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "task_completed"
+          }
+        },
+        {
+          "type": "index_sprint_tasks",
+          "params": {},
+          "description": "Indexar tarea en DeltaGraph para busqueda federada"
+        },
+        {
+          "type": "capture_decision",
+          "params": {}
+        },
+        {
+          "type": "transform_spec",
+          "params": {
+            "status": "completed",
+            "fields": {
+              "review_verdict": "NODE.QA.output.decision",
+              "evidence": "NODE.QA.output.evidence",
+              "completed_at": "NODE.REPORT_GATE.output.completed_at",
+              "commit_hash": "NODE.REPORT_GATE.output.commit_hash"
+            }
+          },
+          "optional": false,
+          "description": "Transform Spec to completed after PO acceptance (evidence + QA verdict)"
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "verify/po-accept",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "task",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          }
+        ],
+        "focus": {
+          "role": "product owner reviewing completed task {task_id}",
+          "constraints": [
+            "Show completed task details from TASK layer (objective, acceptance criteria, impacted files)",
+            "Show verification results from STATE layer (test results, QA decision)",
+            "Show project conventions from PROJECT layer for context",
+            "Ask user to accept or reject"
+          ],
+          "context_priority": "project → task → state"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      },
+      "decision_map": {
+        "accept": "task_complete",
+        "reject": "needs_refine"
+      }
+    }
+  ]
+}
