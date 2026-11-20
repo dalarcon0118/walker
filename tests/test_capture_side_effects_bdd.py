@@ -89,6 +89,27 @@ def test_run_tests_rojo_no_captura(project_dir, monkeypatch):
     assert calls == [], "una suite roja no documenta un cierre"
 
 
+def test_helper_no_pasa_el_placeholder_mcp(tmp_path, monkeypatch):
+    """`mcp` es el canal, no la sesión: debe caer a la sesión de la spec."""
+    seen: dict = {}
+
+    def _fake(ctx, data):
+        seen.update(data)
+        from fast_mcp.features.tasks.domain.task_registry import TaskResult
+
+        return TaskResult.success(data={"fact": "x"})
+
+    monkeypatch.setattr(knowledge, "capture_knowledge", _fake)
+
+    knowledge.capture_session_fact(
+        ExecutionContext.create(chain_dir=str(tmp_path), task_id="T-1"),
+        session_id="mcp",
+        task_id="T-1",
+    )
+
+    assert seen["session_id"] == ""
+
+
 class _FakeService:
     def __init__(self, status="completed"):
         self.status = status

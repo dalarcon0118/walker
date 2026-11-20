@@ -103,8 +103,14 @@ def capture_session_fact(
     nunca silencioso).
     """
     try:
+        # "mcp" es el placeholder del canal, no una sesión: si se pasa tal cual,
+        # la captura crea un nodo con session_id="mcp" en vez de usar la sesión
+        # real de la spec (medido: dos nodos para la misma tarea).
+        sid = str(session_id or "").strip()
+        if sid == "mcp":
+            sid = ""
         result = capture_knowledge(
-            ctx, {"session_id": session_id or "", "task_id": task_id or ""}
+            ctx, {"session_id": sid, "task_id": task_id or ""}
         )
     except Exception as exc:  # noqa: BLE001 — la tool no se cae por memoria
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
