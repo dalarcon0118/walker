@@ -2,9 +2,10 @@
 
 - **Rol:** fuente única de la política del flight control (plugin ↔ workflow).
   Es una **instrucción de trabajo**, no un registro histórico.
-- **Vigencia:** v3 · 2026-11-20. Resuelve C1–C4 (alcance, read-only, evidencia
-  de cierre, caché). Reemplaza
-  como guía operativa a ADR-081, ADR-082 y ADR-083 (ver §1.6).
+- **Vigencia:** v4 · 2026-11-20. Resuelve C1–C4 (alcance, read-only, evidencia
+  de cierre, caché) y cierra la reconciliación documental (§2.8). Reemplaza como
+  guía operativa a ADR-081 y ADR-082; ADR-083 queda aceptado como registro del
+  porqué y delega acá el contrato (ver §1.5).
 - **Cómo leerlo:** §1 son hechos verificables (con archivo:línea o medición
   reproducible); §2 es la definición de terminado; §3 son invariantes.
   Si el código contradice §2 o §3, **el código es la deuda**.
@@ -93,11 +94,14 @@ Reproducible con `python3 scripts/flight_control_metrics.py walker --json`.
 
 ### 1.5 Documentos y memoria
 
-- ADR-081 (gate de alcance) y ADR-082 (contrato de atención) **fueron borrados
-  del árbol** (sin commit). ADR-083 los consolida, está **untracked** y en estado
-  `propuesto`; `SPEC-WALKER-044:6` y `index.js:51` ya lo citan.
-- CKG del proyecto: **1 nodo** cita `adr-082` y no tiene `superseded_by`;
-  ADR-083 no está indexado. `search_memories` no lo encuentra.
+- ADR-081 y ADR-082: `Estado: reemplazado por FLIGHT-CONTROL.md` (se conservan
+  con marca; no se borran). ADR-083: `aceptado`; registra el porqué y la
+  arquitectura y delega el contrato operativo a este documento.
+- CKG: nodo `adr-083` (`status=active`) con `supersedes: [adr-081, adr-082]`;
+  `adr-082` quedó `status=superseded` con `superseded_by`, así que no se cita
+  como activo. `adr-081` no existía como nodo (`supersede_missing`).
+  Verificado con `CkgReadService.query_all` (el superseded sale de la página) y
+  por id con `_fetch`.
 
 ### 1.6 Decisiones sobre las contradicciones (v2)
 
@@ -300,15 +304,16 @@ pasa al siguiente.
    - Verde: 0 escrituras sin tarea en corpus adversarial; LOC antes/después;
      32/32 modos; suite verde.
 
-### 2.8 Documentos y memoria
+### 2.8 Documentos y memoria (ejecutado)
 
 - Este documento es la **única** guía de trabajo del flight control.
-- ADR-081 y ADR-082 se retiran con `Estado: reemplazado por este documento`
-  (no se borran sin dejar la marca) o se archivan; ADR-083 se acepta citando acá
-  y deja de ser un documento paralelo.
-- En el CKG: nodo de esta decisión indexado y `supersedes` explícito de
-  `adr-081`/`adr-082`; 0 nodos activos que citen decisiones retiradas.
-- Una sola dirección de referencias: este documento puede citar ADRs, los ADRs
+- ADR-081 y ADR-082: `Estado: reemplazado por este documento`, conservados como
+  registro histórico (no borrados, no citables como política).
+- ADR-083: `aceptado`; delega explícitamente el contrato operativo acá y no lo
+  re-especifica.
+- CKG: `adr-083` activo con `supersedes: [adr-081, adr-082]`; `adr-082`
+  `status=superseded`; 0 nodos activos que citen decisiones retiradas.
+- Una sola dirección de referencias: este documento puede citar ADRs; los ADRs
   retirados no se citan desde código ni desde specs.
 
 ---

@@ -48,8 +48,9 @@ const MAX_AUTO_STEPS = 3
 // y la spec queda vacía (el auto-declare la rellenaba con el primer mensaje del
 // usuario, sin criterios). Escape hatch: WALKER_FLIGHT_CONTROL_INTAKE=0.
 const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE !== "0"
-// Gate de DESVÍO (ADR-WALKER-081): una escritura fuera del `scope` del plan se
-// rechaza con el comando exacto para ampliarlo. Escape: ..._SCOPE=0.
+// Gate de DESVÍO (FLIGHT-CONTROL §2.4): una escritura fuera del `scope` se
+// negocia (session_plan mode=add, una vez por archivo, trazado; nunca reescribe
+// el plan). Escape: ..._SCOPE=0.
 const SCOPE_GATE = process.env.WALKER_FLIGHT_CONTROL_SCOPE !== "0"
 // Gate de PASOS: además exige completar el sub-estado del workflow. Cuesta ~7x
 // en tareas triviales, así que queda opt-in.

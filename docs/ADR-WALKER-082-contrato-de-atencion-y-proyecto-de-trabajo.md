@@ -1,8 +1,11 @@
 # ADR-WALKER-082 — Contrato de atención del bloque de plan y proyecto de trabajo
 
-- **Estado:** aceptado
+- **Estado:** reemplazado por [FLIGHT-CONTROL.md](FLIGHT-CONTROL.md) (v4, 2026-11-20)
 - **Fecha:** 2026-11-18
 - **Relacionado:** ADR-WALKER-080 (plan de vuelo), ADR-WALKER-081 (alcance)
+
+> **Vigente:** la guía operativa del flight control es `docs/FLIGHT-CONTROL.md`.
+> Este ADR se conserva como registro histórico; no define la política vigente.
 
 ## Contexto
 
