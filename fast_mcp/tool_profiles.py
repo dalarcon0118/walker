@@ -75,6 +75,12 @@ ADMIN: frozenset[str] = AGENT | frozenset({
     "list_projects",
     "project_for_path",
     "knowledge_query",
+    # Lectores retirados del perfil `agent` (brief los compone), disponibles
+    # para administración/CLI: el recorte es del agente, no del contrato.
+    "agent_context",
+    "preflight",
+    "snapshot",
+    "baseline_diff",
     "documenting_knowledge",
     "index_repo",
     "build_code_index",
