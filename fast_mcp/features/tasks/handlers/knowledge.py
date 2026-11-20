@@ -17,16 +17,12 @@ from fast_mcp.features.tasks.handlers import _di
 
 
 def _session_for_task(chain_dir: str, task_id: str) -> str:
-    """Sesión activa del proyecto a la que pertenece esta tarea.
+    """Sesión activa cuyo plan de vuelo declara esta tarea.
 
-    Primero la que declara la tarea en su plan de vuelo. Si ninguna lo hace y
-    hay UNA sola sesión activa, no hay ambigüedad sobre de quién es la traza y
-    se usa. Con dos o más sesiones activas no se adivina: la captura se reporta
-    como fallida en vez de mezclar trabajo de otro agente.
-
-    El plugin llama `run_tests '{"task_id":"<id>"}'` sin sesión, y el canal de
-    tools usa `"mcp"` como placeholder; sin este puente la captura se quedaba
-    sin sesión (y sin traza).
+    Solo el plan. Adivinar "la única sesión activa" parecía razonable y mezcló
+    trazas ajenas (medido 2026-11-20: el harness y esta sesión corriendo a la
+    vez dejaron 13 nodos `session` con la tarea de acá y la sesión del harness).
+    Sin sesión declarada y sin spec, la captura se reporta como fallida.
     """
     service = _di.sprint_service(chain_dir)
     if service is None or not task_id or not hasattr(service, "list_sessions"):
@@ -39,8 +35,6 @@ def _session_for_task(chain_dir: str, task_id: str) -> str:
         plan = session.get("flight_plan") or {}
         if str(plan.get("task") or "") == task_id:
             return str(session.get("session_id") or "")
-    if len(sessions) == 1:
-        return str(sessions[0].get("session_id") or "")
     return ""
 
 
@@ -72,7 +66,8 @@ def _resolve_spec(chain_dir: str, session_id: str, task_id: str) -> dict | None:
 
 
 def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
-    session_id = str(data.get("session_id", "") or "").strip()
+    explicit_session = str(data.get("session_id", "") or "").strip()
+    session_id = explicit_session
     task_id = str(data.get("task_id", "") or "").strip()
     if not session_id and task_id:
         session_id = _session_for_task(ctx.chain_dir or "", task_id)
@@ -86,7 +81,10 @@ def _fact_for(ctx: ExecutionContext, data: dict[str, Any]) -> dict | None:
         spec_task = str(tc.get("task_id") or spec.get("spec_id") or "")
         if spec_task:
             task_id = spec_task
-        session_id = session_id or str(tc.get("session_id") or "")
+        # La spec sabe a qué sesión pertenece la tarea. Una sesión resuelta por
+        # el plan NO puede pisarla (medido: capturas con la sesión del harness).
+        if not explicit_session:
+            session_id = str(tc.get("session_id") or "") or session_id
         objective = str(spec.get("objective", "") or "")
         files = [f for f in (spec.get("files") or []) if isinstance(f, str)]
     else:
@@ -198,11 +196,22 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     if result is None:
         return TaskResult.failure("capture_knowledge: writer del CKG no inyectado")
 
+    saved = result if isinstance(result, dict) else {}
+    if saved.get("ok") is False:
+        return TaskResult.failure(
+            f"capture_knowledge: {saved.get('error') or 'writer del CKG falló'}"
+        )
+    # `superseded` es lo que el writer DEGRADÓ, no lo que se le pidió: el
+    # contrato anterior reportaba 13 y dejaba los 13 activos (la página default
+    # de `query` no los traía). Lo pedido y lo faltante quedan visibles.
+    applied = saved.get("degraded")
     return TaskResult.success(
         data={
             "fact": fact["id"],
             "statement": fact["statement"][:200],
-            "superseded": len(supersedes),
+            "supersede_requested": len(supersedes),
+            "superseded": len(applied) if isinstance(applied, list) else len(supersedes),
+            "supersede_missing": saved.get("supersede_missing") or [],
         }
     )
 

@@ -305,8 +305,16 @@ superseded); nadie lo usaba para sesiones.
       lista en memoria — anti-patrón: id hardcodeado.
 - [ ] M-06 Extensibilidad: una sola política (`_supersedes_for`) y el lector
       inyectado por `_di` — anti-patrón: cada tool con su borrado.
-- [ ] M-09 Fallback visible: la captura reporta `superseded` en su resultado —
-      anti-patrón: retención silenciosa.
+- [ ] M-09 Fallback visible: la captura reporta `superseded` (lo aplicado) y
+      `supersede_missing` (lo pedido que no existe) — anti-patrón: reportar lo
+      pedido como si se hubiera aplicado (medido: `superseded: 13` con los 13
+      nodos todavía activos, porque `query({})` devuelve 50 de 97).
+- [ ] El supersede se resuelve POR ID contra el índice (`get("ckg", id)`), no
+      recorriendo la página default de `query`.
+- [ ] La captura solo toma la sesión que DECLARA la tarea en su plan, o la de la
+      spec; nunca "la única sesión activa" — anti-patrón: adivinar la sesión
+      (medido: el harness y esta sesión a la vez dejaron 13 nodos con sesión
+      ajena).
 
 ## 11. P1.6 — La tarea activa viaja con su spec
 
@@ -363,7 +371,9 @@ la identidad de la tarea anterior del sprint.
   "La obligación de capturar conocimiento vive en un sub-estado del motor que solo corre con submit; el agente trabaja con tools → 227 kg_query (lecturas) y 0 capture_knowledge (escrituras) → causa: el camino de tools no ejecuta acciones auto ni gates → mitigación: captura acoplada a session_close/run_tests verde/spec_status completed, visible en data.knowledge → detección: tests/test_capture_side_effects_bdd.py y CKG creciendo en una sesión real",
   "project.json nace con design/coding/quality vacíos y build_project_config no escribe → cada proyecto sin constitución y el agente re-deriva convenciones de la prosa → causa: la propuesta existía pero nada la aplicaba → mitigación: propuesta desde evidencia + apply en REVIEW completando solo lo vacío → detección: tests/test_project_init_config_bdd.py",
   "Cada cierre agrega un nodo session y el CKG acumula verdades viejas de la misma tarea → el contexto cita historia como si fuera vigente y el índice crece sin cota → causa: el mecanismo de supersede existía pero nadie lo usaba → mitigación: supersede por tarea + techo de 25 + gather_context ignora superseded → detección: tests/test_session_retention_bdd.py",
-  "El plan de vuelo dice una tarea y la spec del sprint dice otra → la captura guarda el hecho con la identidad de la tarea anterior → causa: captura resolvía la spec por in_progress y no había puente plan→task_context → mitigación: session_plan/spec_status anclan task_context + captura exacta con fallback al plan → detección: tests/test_task_context_advance_bdd.py"
+  "El plan de vuelo dice una tarea y la spec del sprint dice otra → la captura guarda el hecho con la identidad de la tarea anterior → causa: captura resolvía la spec por in_progress y no había puente plan→task_context → mitigación: session_plan/spec_status anclan task_context + captura exacta con fallback al plan → detección: tests/test_task_context_advance_bdd.py",
+  "El supersede de nodos session recorre `query({})` (50 de 97 docs) → reporta `superseded: N` y no degrada ninguno; el contexto sigue citando historia como vigente → causa: resolver por página en vez de por id → mitigación: `get(\"ckg\", id)` + reportar aplicado/faltante → detección: test_supersede_atraviesa_la_pagina_default_del_ckg",
+  "Dos agentes/sesiones a la vez y la captura toma 'la única sesión activa' → 13 nodos con la sesión del harness y la tarea de acá → causa: adivinar la sesión cuando la tarea no la declara → mitigación: solo la sesión que declara la tarea en su plan o la de la spec; si no, captura fallida visible → detección: test_no_usa_una_sesion_que_no_declara_la_tarea"
 ]
 ```
 
@@ -399,6 +409,9 @@ la identidad de la tarea anterior del sprint.
 13. P1.6: cambiar la tarea en el plan (o iniciar una spec) deja el
     `task_context` y el estado del workflow en esa tarea; una tarea inexistente
     se reporta y la captura nunca hereda la identidad de otra spec.
+14. P1.5 (retención real): con más nodos que una página, el supersede degrada
+    por id; `superseded` refleja lo aplicado y el CKG queda con una sola
+    `session` activa por tarea.
 
 ---
 

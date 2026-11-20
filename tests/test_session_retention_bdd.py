@@ -249,16 +249,19 @@ def test_no_hereda_la_identidad_de_otra_spec_in_progress(project_dir, monkeypatc
     assert False not in calls, "nunca debe usar la heurística `in_progress`"
 
 
-def test_una_sola_sesion_activa_aporta_la_traza(project_dir, monkeypatch):
-    """Con una única sesión activa no hay ambigüedad: su traza es la evidencia."""
+def test_la_sesion_que_declara_la_tarea_aporta_la_traza(project_dir, monkeypatch):
+    """Solo el plan de vuelo puede declarar de quién es la tarea."""
     from types import SimpleNamespace
 
     class _Svc:
         def list_sessions(self, status=""):
-            return [{"session_id": "S-1", "flight_plan": {}}]
+            return [
+                {"session_id": "S-OTRA", "flight_plan": {"task": "Otra-Cosa"}},
+                {"session_id": "S-1", "flight_plan": {"task": "T-SUELTA"}},
+            ]
 
         def get_session_plan(self, session_id):
-            return {}
+            return {"task": "T-SUELTA"} if session_id == "S-1" else {}
 
     monkeypatch.setattr(_di, "current_spec", lambda chain_dir, task_id="", exact=False: None)
     monkeypatch.setattr(_di, "sprint_service", lambda chain_dir: _Svc())
@@ -277,38 +280,115 @@ def test_una_sola_sesion_activa_aporta_la_traza(project_dir, monkeypatch):
         ) or {"ok": True},
     )
 
-    out = knowledge.capture_knowledge(
-        _ctx(project_dir), {"task_id": "T-SUELTA"}
-    )
+    out = knowledge.capture_knowledge(_ctx(project_dir), {"task_id": "T-SUELTA"})
 
     assert out.ok
-    assert out.data["fact"].startswith("session-")
     assert saved["nodes"][0]["metadata"]["session_id"] == "S-1"
     assert saved["nodes"][0]["metadata"]["task_id"] == "T-SUELTA"
 
 
-def test_varias_sesiones_activas_no_adivina(project_dir, monkeypatch):
-    """Dos sesiones activas: no se mezcla la traza de otro agente."""
+def test_no_usa_una_sesion_que_no_declara_la_tarea(project_dir, monkeypatch):
+    """Una sesión activa con otra tarea no presta su traza.
+
+    Medido 2026-11-20: el harness y esta sesión corrían a la vez y la captura
+    tomó la "única sesión activa" — 13 nodos `session` con la sesión del harness
+    y la tarea de acá.
+    """
+    from types import SimpleNamespace
+
     class _Svc:
         def list_sessions(self, status=""):
-            return [
-                {"session_id": "S-1", "flight_plan": {}},
-                {"session_id": "S-2", "flight_plan": {}},
-            ]
+            return [{"session_id": "S-HARNESS", "flight_plan": {"task": "persist-task"}}]
 
     monkeypatch.setattr(_di, "current_spec", lambda chain_dir, task_id="", exact=False: None)
     monkeypatch.setattr(_di, "sprint_service", lambda chain_dir: _Svc())
     monkeypatch.setattr(
         _di, "session_events",
         lambda chain_dir, session_id: [
-            __import__("types").SimpleNamespace(event_type="write", files=[])
+            SimpleNamespace(event_type="write", files=["x.py"])
         ],
     )
 
-    out = knowledge.capture_knowledge(_ctx(project_dir), {"task_id": "T-SUELTA"})
+    out = knowledge.capture_knowledge(_ctx(project_dir), {"task_id": "T-OTRA"})
 
     assert out.ok is False
-    assert "T-SUELTA" in out.error
+    assert "T-OTRA" in out.error
+
+
+def test_la_spec_manda_la_sesion_sobre_una_resuelta_por_plan(project_dir, monkeypatch):
+    """La sesión de la spec no la pisa una resuelta por el plan."""
+    from types import SimpleNamespace
+
+    spec = {
+        "objective": "Debe usar la sesión de la spec.",
+        "files": ["a.py"],
+        "task_context": {"task_id": "T-1", "session_id": "S-SPEC"},
+    }
+
+    class _Svc:
+        def list_sessions(self, status=""):
+            return [{"session_id": "S-PLAN", "flight_plan": {"task": "T-1"}}]
+
+        def get_session_plan(self, session_id):
+            return {"task": "T-1"}
+
+    monkeypatch.setattr(
+        _di, "current_spec",
+        lambda chain_dir, task_id="", exact=False: spec if exact else None,
+    )
+    monkeypatch.setattr(_di, "sprint_service", lambda chain_dir: _Svc())
+    monkeypatch.setattr(
+        _di, "session_events",
+        lambda chain_dir, session_id: [SimpleNamespace(event_type="write", files=[])],
+    )
+    monkeypatch.setattr(_di, "session_facts", lambda chain_dir: [])
+    saved: dict = {}
+    monkeypatch.setattr(
+        _di, "save_knowledge",
+        lambda chain_dir, nodes, task_id="", session_id="": saved.update(
+            nodes=nodes, session_id=session_id
+        ) or {"ok": True},
+    )
+
+    out = knowledge.capture_knowledge(_ctx(project_dir), {"task_id": "T-1"})
+
+    assert out.ok
+    assert saved["nodes"][0]["metadata"]["session_id"] == "S-SPEC"
+
+
+def test_supersede_atraviesa_la_pagina_default_del_ckg(project_dir, monkeypatch):
+    """El CKG real tiene >50 docs: el supersede resuelve por id, no por página.
+
+    Bug medido: `query({})` devuelve 50; con 97 nodos los viejos quedaban fuera
+    y la captura reportaba `superseded: 13` sin degradar ninguno.
+    """
+    from fast_mcp.composition import _build_task_registry
+    from fast_mcp.features.cognitive_knowledge.application.services.ckg_read import (
+        CkgReadService,
+    )
+    from fast_mcp.features.cognitive_knowledge.application.services.ckg_write import (
+        CkgWriteService,
+    )
+
+    _build_task_registry()  # writer real
+    # 60 nodos de relleno: empujan las sesiones fuera de la primera página.
+    filler = [
+        {"label": f"filler {i}", "id": f"filler-{i}", "type": "node",
+         "statement": f"relleno {i}"}
+        for i in range(60)
+    ]
+    assert CkgWriteService.save_nodes(project_dir, filler).value_or({}).get("ok")
+
+    _fake_spec(monkeypatch)
+    ctx = _ctx(project_dir)
+    first = knowledge.capture_knowledge(ctx, {"session_id": "S-1", "task_id": "T-1"})
+    second = knowledge.capture_knowledge(ctx, {"session_id": "S-2", "task_id": "T-1"})
+
+    assert first.ok and second.ok
+    assert second.data["superseded"] == 1
+    assert second.data["supersede_missing"] == []
+    active = CkgReadService.query_active(project_dir, "session", size=1000)
+    assert [n["_id"] for n in active] == [second.data["fact"]]
 
 
 def test_captura_supersede_en_ckg_real(project_dir, monkeypatch):

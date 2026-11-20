@@ -90,9 +90,30 @@ class CognitiveCkgRepository(CkgRepository):
         for _index in ("ckg", "trace"):
             self._cg.register_index(_index, PRODUCTION_INDEX_SCHEMAS[_index])
 
+    def _fetch(self, doc_id: str) -> dict | None:
+        """Doc por id (índice), sin materializar la página default de `query`.
+
+        `query({})` devuelve 50 docs: con un CKG de 97 el supersede no
+        encontraba a los viejos y reportaba éxito sin degradar nada (medido:
+        13 nodos `session` de la misma tarea quedaron activos).
+        """
+        try:
+            doc = self._cg.get("ckg", str(doc_id))
+        except Exception:  # noqa: BLE001 — un id inexistente no rompe el batch
+            return None
+        if not doc:
+            return None
+        # `get` devuelve {"_id", "_index", "_source"}: el doc vive en _source.
+        payload = dict(doc.get("_source") or {})
+        if not payload:
+            return None
+        payload.setdefault("_id", str(doc_id))
+        return payload
+
     def save_nodes(self, nodes_data: list[dict]) -> dict:
         """Batch persist with full domain logic (supersedes, metadata)."""
         degraded = []
+        missing: list[str] = []
         new_docs: dict[str, dict] = {}
         degraded_docs: dict[str, dict] = {}
         existing = self.query({})
@@ -149,23 +170,33 @@ class CognitiveCkgRepository(CkgRepository):
             if supersedes:
                 new_docs[doc_id]["supersedes"] = supersedes
 
-            # Degrade decisions that this one replaces
+            # Degrade decisions that this one replaces. Se resuelven por ID
+            # contra el índice: la página default de `query` no los trae todos.
             if supersedes:
-                for old in existing:
-                    old_id = old.get("_id", old.get("id", ""))
-                    if old_id in supersedes and old_id != doc_id:
-                        old_meta = dict(old.get("metadata", {}) or {})
-                        old_meta["superseded_by"] = label
-                        old_meta["status"] = "superseded"
-                        old_meta["superseded_at"] = (
-                            datetime.now(timezone.utc).isoformat()
-                        )
-                        degraded_docs[old_id] = {
-                            **old,
-                            "status": "superseded",
-                            "metadata": old_meta,
-                        }
-                        degraded.append(old_id)
+                for old_id in list(supersedes):
+                    old_id = str(old_id)
+                    if not old_id or old_id == doc_id:
+                        continue
+                    old = self._fetch(old_id)
+                    if old is None:
+                        missing.append(old_id)
+                        continue
+                    old_meta = dict(old.get("metadata", {}) or {})
+                    if old_meta.get("status") == "superseded" and old_meta.get(
+                        "superseded_by"
+                    ):
+                        continue  # ya estaba superseded: idempotente
+                    old_meta["superseded_by"] = label
+                    old_meta["status"] = "superseded"
+                    old_meta["superseded_at"] = (
+                        datetime.now(timezone.utc).isoformat()
+                    )
+                    degraded_docs[old_id] = {
+                        **old,
+                        "status": "superseded",
+                        "metadata": old_meta,
+                    }
+                    degraded.append(old_id)
 
         all_docs = {**new_docs, **degraded_docs}
         if all_docs:
@@ -173,7 +204,8 @@ class CognitiveCkgRepository(CkgRepository):
             if not is_successful(store_result):
                 return {
                     "ok": False, "nodes_created": 0, "node_ids": [],
-                    "degraded": [], "error": str(store_result.failure()),
+                    "degraded": [], "supersede_missing": missing,
+                    "error": str(store_result.failure()),
                 }
 
         return {
@@ -181,6 +213,9 @@ class CognitiveCkgRepository(CkgRepository):
             "nodes_created": len(new_docs),
             "node_ids": list(new_docs.keys()),
             "degraded": degraded,
+            # Pedidos que no existen (borrados o ids mal formados): visible, no
+            # silencio. Un `superseded: 13` sin degradados era justo el bug.
+            "supersede_missing": missing,
         }
 
     def query(self, filters: dict | None = None) -> list[dict]:
