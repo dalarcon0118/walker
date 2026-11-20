@@ -272,6 +272,22 @@ constitución. Ahora BUILD_PROJECT propone desde evidencia y REVIEW aplica.
 - [ ] M-09 Fallback visible: sin evidencia no se propone nada (campo vacío), no
       se escribe "unknown" — anti-patrón: rellenar con placeholders.
 
+### P1.4b — `prepare` siembra la constitución
+
+La propuesta de BUILD_PROJECT llegaba tarde: un proyecto recién preparado
+quedaba con `coding` vacío hasta recorrer el workflow. La detección se movió a
+`shared_kernel/project_tooling.detect_tooling` (puro, stdlib) para que la usen
+`prepare` y la acción sin que una feature importe a la otra (R1).
+
+- [ ] `prepare` escribe `coding.test_framework/formatter/linter` desde evidencia
+      al crear `project.json`.
+- [ ] Sin evidencia, los campos quedan vacíos (no `"unknown"`) y `design` sigue
+      sin inventarse.
+- [ ] M-06 Extensibilidad: un solo helper compartido; `prepare` y
+      `build_project_config` no pueden divergir — anti-patrón: dos detectores.
+- [ ] M-01 Integridad: `prepare` no pisa lo curado (segunda corrida devuelve
+      `already_exists` y respeta el valor manual).
+
 ## 10. P1.5 — Retención de nodos `session`
 
 Cada cierre agrega un nodo `type: session`; sin política, el CKG se llena de

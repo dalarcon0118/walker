@@ -151,6 +151,11 @@ def prepare_use_case(
     detections = detect_project(path)
     language = args.get("language") or detections["language"]
     framework = args.get("framework") or detections["framework"]
+    # Tooling desde evidencia (P1.4): el proyecto nace con su constitución
+    # mínima en vez de un `coding` vacío que obliga a preguntarlo después.
+    from fast_mcp.shared_kernel.project_tooling import detect_tooling
+
+    tooling = detect_tooling(path, language)
 
     setup_warnings: list[str] = []
     if not args.get("language") and language == "unknown":
@@ -178,9 +183,9 @@ def prepare_use_case(
             "architecture": {"module_organization": ""},
             "coding": {
                 "naming_convention": "",
-                "formatter": "",
-                "linter": "",
-                "test_framework": "",
+                "formatter": tooling.get("formatter", ""),
+                "linter": tooling.get("linter", ""),
+                "test_framework": tooling.get("test_framework", ""),
             },
             "quality_preferences": {},
             "team": {"owners": []},

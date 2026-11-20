@@ -24,59 +24,15 @@ def _root(ctx: ExecutionContext, data: dict[str, Any]) -> Path:
     return Path(str(getattr(ctx, "chain_dir", "") or data.get("chain_dir") or ""))
 
 
-def _read(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-
-
 def _detect_tooling(root: Path, language: str) -> dict[str, str]:
-    """Test framework / formatter / linter desde evidencia, no desde supuestos.
+    """Test framework / formatter / linter desde evidencia (shared kernel).
 
-    Solo devuelve lo que encuentra: un campo vacío significa "no detectado",
-    nunca un default inventado. El llamador decide si lo propone o lo descarta.
+    La detección vive en `shared_kernel/project_tooling` para que `prepare`
+    (features/project) y esta acción la compartan sin acoplarse entre features.
     """
-    pyproject = _read(root / "pyproject.toml").lower()
-    pkg = _read(root / "package.json").lower()
-    reqs = " ".join(
-        _read(root / name).lower()
-        for name in ("requirements.txt", "requirements-dev.txt", "setup.cfg", "tox.ini")
-    )
-    blob = f"{pyproject} {reqs}"
-    out: dict[str, str] = {}
+    from fast_mcp.shared_kernel.project_tooling import detect_tooling
 
-    if language == "python":
-        if (
-            (root / "pytest.ini").exists()
-            or (root / "conftest.py").exists()
-            or (root / "tests").is_dir()
-            or "[tool.pytest" in pyproject
-            or "pytest" in blob
-        ):
-            out["test_framework"] = "pytest"
-        if "ruff" in blob or (root / "ruff.toml").exists():
-            out["linter"] = "ruff"
-            out["formatter"] = "ruff"
-        elif "black" in blob:
-            out["formatter"] = "black"
-        if "linter" not in out:
-            if "flake8" in blob or (root / ".flake8").exists():
-                out["linter"] = "flake8"
-            elif "pylint" in blob:
-                out["linter"] = "pylint"
-    elif language in ("javascript", "typescript"):
-        if "vitest" in pkg:
-            out["test_framework"] = "vitest"
-        elif "jest" in pkg:
-            out["test_framework"] = "jest"
-        elif "mocha" in pkg:
-            out["test_framework"] = "mocha"
-        if "prettier" in pkg or any((root / n).exists() for n in (".prettierrc", ".prettierrc.json")):
-            out["formatter"] = "prettier"
-        if "eslint" in pkg or any((root / n).exists() for n in (".eslintrc", ".eslintrc.json", ".eslintrc.js")):
-            out["linter"] = "eslint"
-    return out
+    return detect_tooling(root, language)
 
 
 def detect_project_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
