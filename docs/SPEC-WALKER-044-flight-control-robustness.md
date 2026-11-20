@@ -534,7 +534,15 @@ escribía, verificaba o cambiaba el plan y el trace lo contaba igual como
 - [ ] `session_plan` por tool invalida la caché del plan (antes sólo por shell).
 - [ ] `workflow_suggestion_ignored` sólo se emite cuando la ejecución no tuvo
       NINGUNA acción, y lleva `wrote`/`verified`/`reason` para leer el caso.
-- [ ] El reporte agrupa `seguidas` por `followedBy`.
+- [ ] El reporte agrupa `seguidas` por `followedBy` y lista las ignoradas con
+      su detalle; si una ignorada trae `wrote`/`verified`, el reporte la marca
+      como INCONSISTENTE (el agente actuó y la marca falló).
+- [ ] Medido en la primera ventana con el plugin recargado: de 3 ejecuciones
+      con sugerencia, la métrica vieja contaba **0/3** seguidas; la nueva
+      cuenta **2/3** (`edit`) y la restante es una ejecución de 2 s sin
+      ninguna acción. La primera ignorada que quedó en el trace es el caso
+      exacto del sesgo: en esa ejecución el agente escribió 4 archivos
+      (`writes` 190 → 194).
 - [ ] M-04 Eventos como contrato: `followed`/`followedBy` son el contrato de la
       métrica — anti-patrón: inferir adherencia desde el nombre de la tool.
 - [ ] M-03 Audit trail: el evento dice QUÉ acción siguió — anti-patrón: un
@@ -737,8 +745,9 @@ Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
   fail-fast — CKG caído, sin nodo guardado y éxito con lo guardado (P1.15).
 - `tests/test_fast_mcp_migration_bdd.py`: `prepare` con layout configurado
   (P1.15).
-- `gate.test.mjs` modo `injectsuggest`: escribir deja `followed=true` por
-  `edit` y no emite `workflow_suggestion_ignored` (P1.14).
+- `gate.test.mjs` modo `injectsuggest`: prueba las DOS direcciones — escribir
+  deja `followed=true` por `edit` y una sesión que sólo recibe el plan y no
+  actúa emite `workflow_suggestion_ignored` con `reason` (P1.14).
 - `tests/test_task_context_advance_bdd.py`: `session_plan` registra la tarea
   aunque no tenga spec (P1.10).
 - (P0.2) harness con re-`setup` del plugin y test de invalidación por escritura.

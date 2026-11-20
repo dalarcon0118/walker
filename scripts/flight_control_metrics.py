@@ -63,7 +63,7 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
     close_blocked = 0
     verifications = {"green": 0, "red": 0}
     write_evidence = {"events": 0, "files": set()}
-    suggestions = {"followed": 0, "ignored": 0, "by": {}}
+    suggestions = {"followed": 0, "ignored": 0, "by": {}, "ignored_detail": []}
 
     for event in selected:
         sid = _session(event)
@@ -88,6 +88,20 @@ def summarize(events: list[dict], include_harness: bool = False) -> dict[str, An
             suggestions["by"][by] = suggestions["by"].get(by, 0) + 1
         elif kind == "workflow_suggestion_ignored":
             suggestions["ignored"] += 1
+            # El detalle distingue "no hizo nada" de una inconsistencia: si el
+            # evento trae wrote/verified, el agente SÍ actuó y la marca de
+            # seguimiento falló (bug del instrumento, no del agente).
+            if len(suggestions["ignored_detail"]) < 10:
+                suggestions["ignored_detail"].append(
+                    {
+                        "session": sid,
+                        "position": str(data.get("position") or ""),
+                        "injections": int(data.get("injections") or 0),
+                        "wrote": data.get("wrote"),
+                        "verified": data.get("verified"),
+                        "reason": str(data.get("reason") or ""),
+                    }
+                )
         elif kind == "session_state" and data.get("recorded_by") == "task_tool":
             if data.get("verified"):
                 verifications["green"] += 1
@@ -171,6 +185,15 @@ def _print_table(summary: dict[str, Any]) -> None:
     print(
         f"sugerencias: seguidas={s['followed']} ({by}) ignoradas={s['ignored']}"
     )
+    inconsistent = [
+        d for d in s["ignored_detail"] if d.get("wrote") or d.get("verified")
+    ]
+    for d in s["ignored_detail"]:
+        if d.get("wrote") or d.get("verified"):
+            print(
+                f"  inconsistente: sesión {d['session'][:18]} escribió/verificó "
+                f"(wrote={d['wrote']} verified={d['verified']}) y quedó como ignorada"
+            )
 
 
 def main(argv: list[str] | None = None) -> int:

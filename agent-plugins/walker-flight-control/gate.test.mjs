@@ -190,7 +190,11 @@ const SUGGEST_TRACE = `/tmp/wfc-suggest-${process.pid}.jsonl`
 if (mode === "injectsuggest") {
   // P1.14: la sugerencia se "sigue" con una ACCIÓN, no sólo con
   // submit/transition. Antes la métrica reportaba 63-81 ignoradas por mirar
-  // una única tool; este modo prueba que escribir deja `followed=true`.
+  // una única tool. Este modo prueba las DOS direcciones: una escritura deja
+  // `followed=true` (por `edit`) y una sesión que sólo recibe el plan y no
+  // hace nada sigue emitiendo `workflow_suggestion_ignored` con `reason` — si
+  // no, la métrica sería vacua. La 2ª ejecución usa OTRA sesión: el estado
+  // del workflow se cachea 60s por plugin, no por sesión.
   const scopeFile = `${WALKER}/agent-plugins/walker-flight-control/index.js`
   fake("/tmp/fake-walker-suggest", [
     "#!/bin/sh",
@@ -533,8 +537,20 @@ if (mode === "gateprompt") {
 }
 
 if (mode === "injectsuggest") {
-  // Ejecución 1: el plan se inyecta y el agente ESCRIBE. Debe quedar
-  // `followed=true` por la acción, no por un submit que nunca hizo.
+  const SID2 = `${SID}-silent`
+  const read = () => {
+    try {
+      return readFileSync(SUGGEST_TRACE, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+    } catch {
+      return []
+    }
+  }
+
+  // Ejecución 1: el plan se inyecta y el agente ESCRIBE.
   const event = {
     sessionID: SID,
     system: [],
@@ -546,31 +562,42 @@ if (mode === "injectsuggest") {
   pushEvent({ type: "session.execution.succeeded", sessionID: SID })
   await new Promise((r) => setTimeout(r, 1500))
 
-  let pushes = []
-  try {
-    pushes = readFileSync(SUGGEST_TRACE, "utf8")
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l))
-  } catch {}
+  // Ejecución 2 (otra sesión): recibe el plan y NO hace nada.
+  const event2 = {
+    sessionID: SID2,
+    system: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "sólo mirá" }] }],
+  }
+  await captured.context(event2)
+  const silentText = (event2.system || []).map((b) => b.text || "").join("\n")
+  pushEvent({ type: "session.execution.succeeded", sessionID: SID2 })
+  await new Promise((r) => setTimeout(r, 1500))
+
+  const pushes = read()
   const injected = pushes.filter((e) => e.event_type === "workflow_state_injected")
+  const mine = injected.filter((e) => e.session_id === SID)
+  const silent = injected.filter((e) => e.session_id === SID2)
   const ignored = pushes.filter((e) => e.event_type === "workflow_suggestion_ignored")
-  const last = injected[injected.length - 1]
+  const ignoredMine = ignored.filter((e) => e.session_id === SID)
+  const ignoredSilent = ignored.filter((e) => e.session_id === SID2)
 
   const checks = [
     ["plan inyectado", /\[WALKER\] Plan:/.test(injectedText)],
     ["escritura permitida", wrote === "PERMITE"],
-    ["seguimiento registrado", Boolean(last) && last.data.followed === true],
-    ["por acción (edit)", Boolean(last) && last.data.followedBy === "edit"],
-    ["sin 'ignorada'", ignored.length === 0],
+    ["seguimiento registrado", mine.length === 1 && mine[0].data.followed === true],
+    ["por acción (edit)", mine[0]?.data.followedBy === "edit"],
+    ["sesión activa sin ignoradas", ignoredMine.length === 0],
+    ["2ª sesión recibió el plan", /\[WALKER\] Plan:/.test(silentText)],
+    ["sin acción queda en falso", silent.length === 1 && silent[0].data.followed === false],
+    ["ignorada con motivo", ignoredSilent.length === 1 && Boolean(ignoredSilent[0]?.data?.reason)],
   ]
   let failed = 0
   for (const [name, ok] of checks) {
     if (!ok) failed++
     console.log(`${ok ? "ok  " : "FAIL"}  ${name}`)
   }
-  if (last) console.log("injected:", JSON.stringify(last.data).slice(0, 260))
+  if (mine[0]) console.log("injected:", JSON.stringify(mine[0].data).slice(0, 220))
+  if (ignoredSilent[0]) console.log("ignored :", JSON.stringify(ignoredSilent[0].data).slice(0, 220))
   console.log(`mode=injectsuggest fail=${failed}`)
   if (typeof dispose === "function") dispose()
   process.exit(failed ? 1 : 0)

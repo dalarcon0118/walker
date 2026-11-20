@@ -95,11 +95,10 @@ def test_sugerencias_seguidas_salen_de_state_injected():
 
     out = metrics.summarize(events)
 
-    assert out["suggestions"] == {
-        "followed": 2,
-        "ignored": 1,
-        "by": {"edit": 1, "verify": 1},
-    }
+    sug = out["suggestions"]
+    assert (sug["followed"], sug["ignored"]) == (2, 1)
+    assert sug["by"] == {"edit": 1, "verify": 1}
+    assert len(sug["ignored_detail"]) == 1
 
 
 def test_evidencia_de_escritura_sin_hook():
@@ -114,3 +113,22 @@ def test_evidencia_de_escritura_sin_hook():
     out = metrics.summarize(events)
 
     assert out["write_evidence"] == {"events": 2, "files": 3}
+
+
+def test_el_detalle_marca_una_ignorada_inconsistente():
+    """Si el evento trae wrote/verified, el agente SÍ actuó: la marca de
+    seguimiento falló. El reporte lo lista en vez de contarlo como desinterés."""
+    events = [
+        _ev("workflow_suggestion_ignored", position="IMPLEMENT.WORK",
+            injections=2, wrote=True, verified=False),
+        _ev("workflow_suggestion_ignored", position="IMPLEMENT.WORK",
+            injections=1, wrote=False, verified=False,
+            reason="sin accion del agente en la ejecucion"),
+    ]
+
+    out = metrics.summarize(events)
+
+    detail = out["suggestions"]["ignored_detail"]
+    assert out["suggestions"]["ignored"] == 2
+    assert detail[0]["wrote"] is True and detail[0]["reason"] == ""
+    assert detail[1]["reason"].startswith("sin accion")
