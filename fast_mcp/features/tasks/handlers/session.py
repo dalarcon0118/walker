@@ -418,23 +418,13 @@ def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # `kg_query` (lecturas) y 0 `capture_knowledge` (escrituras) en la traza.
     # Este es el cable: el cierre de sesión —que el plugin SÍ llama— captura el
     # hecho antes de cerrar. No rompe el cierre si falla: lo reporta.
-    knowledge: dict[str, Any] = {}
-    try:
-        from fast_mcp.features.tasks.handlers.knowledge import capture_knowledge
+    from fast_mcp.features.tasks.handlers.knowledge import capture_session_fact
 
-        captured = capture_knowledge(
-            ctx,
-            {
-                "session_id": session_id,
-                "task_id": str(data.get("task_id") or ctx.task_id or ""),
-            },
-        )
-        knowledge = dict(captured.data or {}) if captured.ok else {
-            "ok": False,
-            "error": captured.error or "",
-        }
-    except Exception as exc:  # noqa: BLE001 — el cierre no se cae por memoria
-        knowledge = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    knowledge = capture_session_fact(
+        ctx,
+        session_id=session_id,
+        task_id=str(data.get("task_id") or ctx.task_id or ""),
+    )
 
     record = service.close_session(session_id, outcome=str(data.get("outcome") or ""))
     if record is None:

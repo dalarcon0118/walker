@@ -91,6 +91,28 @@ def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     return TaskResult.success(data={"fact": fact["id"], "statement": fact["statement"][:200]})
 
 
+def capture_session_fact(
+    ctx: ExecutionContext, *, session_id: str = "", task_id: str = ""
+) -> dict:
+    """Captura el hecho de la sesión como EFECTO de una tool (P1.3).
+
+    Las tools que el agente usa de verdad (`run_tests` verde, `spec_status`
+    completed, `session_close`) llaman acá. No propaga excepciones ni convierte
+    una tool exitosa en fallo: devuelve `{"ok": True, ...}` o
+    `{"ok": False, "error": ...}` para que el llamador lo reporte (visible,
+    nunca silencioso).
+    """
+    try:
+        result = capture_knowledge(
+            ctx, {"session_id": session_id or "", "task_id": task_id or ""}
+        )
+    except Exception as exc:  # noqa: BLE001 — la tool no se cae por memoria
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if result.ok:
+        return dict(result.data or {})
+    return {"ok": False, "error": result.error or ""}
+
+
 def register(registry) -> None:
     registry.register("capture_knowledge", capture_knowledge, metadata={
         "description": "KNOWLEDGE CAPTURE: cierra la sesión escribiendo un hecho en el CKG",

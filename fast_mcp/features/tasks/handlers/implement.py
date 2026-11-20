@@ -404,17 +404,26 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.failure(
             "run_tests: 0 tests ejecutados — no se puede certificar QA"
         )
-    return TaskResult.success(
-        data={
-            "task_id": data.get("task_id", ctx.task_id),
-            "passed": True,
-            "total": total,
-            "failures": 0,
-            "errors": 0,
-            "returncode": result.returncode,
-            "runner": "pytest -q",
-        }
+    payload = {
+        "task_id": data.get("task_id", ctx.task_id),
+        "passed": True,
+        "total": total,
+        "failures": 0,
+        "errors": 0,
+        "returncode": result.returncode,
+        "runner": "pytest -q",
+    }
+    # P1.3: el verde es el momento en que el agente termina; capturar acá hace
+    # que la obligación de memoria viaje con la tool que sí usa (no con un
+    # submit que nunca hace). Idempotente por (session, task).
+    from fast_mcp.features.tasks.handlers.knowledge import capture_session_fact
+
+    payload["knowledge"] = capture_session_fact(
+        ctx,
+        session_id=str(data.get("session_id") or ctx.session_id or ""),
+        task_id=str(data.get("task_id") or ctx.task_id or ""),
     )
+    return TaskResult.success(data=payload)
 
 
 def register(registry) -> None:

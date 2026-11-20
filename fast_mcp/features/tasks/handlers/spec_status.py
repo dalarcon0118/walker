@@ -69,16 +69,23 @@ def spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if updated is None:
         return TaskResult.failure(f"spec_status: no se pudo actualizar {spec_id}")
 
-    return TaskResult.success(
-        {
-            "ok": True,
-            "spring_id": spring_id,
-            "spec_id": spec_id,
-            "task_id": str((updated.get("task_context") or {}).get("task_id") or spec_id),
-            "status": updated.get("status") or status,
-            "spec": updated,
-        }
-    )
+    payload = {
+        "ok": True,
+        "spring_id": spring_id,
+        "spec_id": spec_id,
+        "task_id": str((updated.get("task_context") or {}).get("task_id") or spec_id),
+        "status": updated.get("status") or status,
+        "spec": updated,
+    }
+    # P1.3: completar la spec ES el cierre de la tarea. Capturar acá cierra el
+    # círculo sin depender de que el agente camine el grafo (submit).
+    if payload["status"] == "completed":
+        from fast_mcp.features.tasks.handlers.knowledge import capture_session_fact
+
+        payload["knowledge"] = capture_session_fact(
+            ctx, session_id=session_id, task_id=payload["task_id"]
+        )
+    return TaskResult.success(payload)
 
 
 def register(registry) -> None:
