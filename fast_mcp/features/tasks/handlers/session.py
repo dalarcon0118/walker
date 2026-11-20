@@ -114,6 +114,25 @@ def _suggestion(summary: dict, decision: str) -> str:
     )
 
 
+def _seed_write_baseline(ctx: ExecutionContext, session_id: str) -> bool:
+    """Fija el baseline de escritura de la sesión al abrir/vincular (P1.16).
+
+    El snapshot por sesión (P1.13) se creaba recién en el primer
+    `session_context`: una escritura anterior a esa lectura quedaba absorbida
+    por el baseline y no dejaba deuda. Abrir/vincular es el arranque REAL de la
+    sesión, así que el baseline se fija acá y no se refresca después.
+    """
+    try:
+        from fast_mcp.shared_kernel.project_support.watcher import (
+            seed_session_baseline,
+        )
+
+        return seed_session_baseline(ctx.chain_dir, session_id=session_id)
+    except Exception as exc:  # noqa: BLE001 — no rompe el protocolo de sesión
+        logger.debug("session: baseline de escritura no fijado (%s)", exc)
+        return False
+
+
 def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     session_id = str(data.get("session_id") or ctx.session_id or "").strip()
     if not session_id or session_id == "mcp":
@@ -131,6 +150,10 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     service = _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("session_bind: sprint service no disponible para este proyecto")
+
+    # P1.16: el bind es el arranque de la sesión; el baseline de escritura se
+    # fija acá (idempotente) y no en la primera lectura del trace.
+    _seed_write_baseline(ctx, session_id)
 
     springs = service.list_springs() or []
     # El registro de la sesión es la fuente O(1). `list_springs` tiene tope
@@ -401,7 +424,13 @@ def session_open(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         )
     except Exception as exc:  # noqa: BLE001
         return TaskResult.failure(f"session_open: {type(exc).__name__}: {exc}")
-    return TaskResult.success({"ok": True, "session": record})
+
+    # P1.16: baseline de escritura desde el arranque (no en el primer
+    # `session_context`, que perdía lo escrito antes).
+    baseline = _seed_write_baseline(ctx, session_id)
+    return TaskResult.success(
+        {"ok": True, "session": record, "write_baseline": baseline}
+    )
 
 
 def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:

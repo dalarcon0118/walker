@@ -58,8 +58,22 @@ def transform_spec(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dic
 
     sprint_service = _get_sprint_service(chain_dir, params, kwargs)
 
-    if sprint_service is None or not hasattr(sprint_service, "update_spec"):
-        return {"ok": True, "skipped": True}
+    # Wiring: sin servicio no hay forma de mover la spec. Antes devolvía
+    # `ok: True, skipped: True` sin motivo y la spec no se movía EN SILENCIO
+    # (medido 2026-11-18: el efecto se saltaba y nadie se enteraba).
+    if sprint_service is None:
+        return {
+            "ok": False,
+            "error": "transform_spec: sprint_service no resuelto (composición)",
+        }
+    if not hasattr(sprint_service, "update_spec"):
+        return {
+            "ok": False,
+            "error": (
+                "transform_spec: el servicio inyectado no expone update_spec "
+                f"({type(sprint_service).__name__})"
+            ),
+        }
 
     # El sprint es el de la SESIÓN, no el basename del directorio.
     # `get_spring_id` devuelve "walker", que no es `SPR-INTEG-20261118`: con eso
@@ -77,9 +91,19 @@ def transform_spec(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dic
 
     if not spring_id and hasattr(sprint_service, "get_spring_id"):
         try:
-            spring_id = sprint_service.get_spring_id(chain_dir)
+            candidate = sprint_service.get_spring_id(chain_dir)
         except Exception:
-            spring_id = ""
+            candidate = ""
+        # Misma regla que `_context.spring_id_of`: `get_spring_id` puede
+        # devolver el basename del directorio ("walker"), que NO es un sprint.
+        # El fallback solo se acepta si el sprint existe; si no, "sin sprint".
+        if candidate and hasattr(sprint_service, "get_spring"):
+            try:
+                if not sprint_service.get_spring(candidate):
+                    candidate = ""
+            except Exception:
+                candidate = ""
+        spring_id = candidate
 
     # Si el sprint resuelto no contiene la spec, buscarla entre los sprints.
     get_spec = getattr(sprint_service, "get_spec", None)
@@ -99,8 +123,22 @@ def transform_spec(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dic
             except Exception:
                 pass
 
-    if not spring_id or not spec_id:
-        return {"ok": True, "skipped": True}
+    if not spring_id:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "sin sprint resuelto para la sesión/estado",
+            "missing": "spring",
+            "spec_id": spec_id,
+        }
+    if not spec_id:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "sin spec_id en params/contexto",
+            "missing": "spec",
+            "spring_id": spring_id,
+        }
 
     updates = {"status": status, **campos}
     try:
@@ -110,7 +148,17 @@ def transform_spec(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dic
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     if result is None:
-        return {"ok": True, "skipped": True}
+        # Con sprint y spec resueltos, `None` significa que el repo no la
+        # encontró: la transición pedida NO ocurrió. Un skip acá era el bug.
+        return {
+            "ok": False,
+            "error": (
+                f"transform_spec: la spec {spec_id} no se movió a {status!r} "
+                f"en {spring_id} (no existe o el delta no está disponible)"
+            ),
+            "spring_id": spring_id,
+            "spec_id": spec_id,
+        }
     if isinstance(result, dict):
         if result.get("ok") is False:
             return {"ok": False, "error": result.get("error", "update_spec failed")}

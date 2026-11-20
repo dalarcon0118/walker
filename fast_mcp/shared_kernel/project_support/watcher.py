@@ -95,6 +95,27 @@ def changed_since_last_scan(project_root: str, *, session_id: str = "") -> list[
         return []
 
 
+def seed_session_baseline(project_root: str, *, session_id: str) -> bool:
+    """Fija el baseline de escritura de una sesión (no lo refresca).
+
+    Se llama al ABRIR/VINCULAR la sesión: si el baseline se creara recién en el
+    primer `session_context`, las escrituras hechas antes (subagente, shell del
+    host, `sed -i`) quedaban absorbidas por ese baseline y no dejaban deuda.
+    Idempotente: si el snapshot ya existe, no lo toca (no absorbe cambios).
+
+    Fail-open: devuelve False (sin baseline nuevo) si no se pudo escribir.
+    """
+    root = str(project_root or "")
+    sid = str(session_id or "").strip()
+    # "mcp" es el canal anónimo: un baseline compartido contaminaría sesiones.
+    if not root or not sid or sid == "mcp" or not os.path.isdir(root):
+        return False
+    try:
+        return FileWatcher(root).seed_session_baseline(sid)
+    except Exception:  # noqa: BLE001 — la evidencia no rompe session_open/bind
+        return False
+
+
 class IgnoreRules:
     """Parses .walkerignore patterns (like .gitignore)."""
 
@@ -462,6 +483,15 @@ class FileWatcher:
 
     def _session_snapshot_path(self, session_id: str) -> Path:
         return self.data_dir / f"{SESSION_SNAPSHOT_PREFIX}{_session_key(session_id)}.json"
+
+    def seed_session_baseline(self, session_id: str) -> bool:
+        """Crea el snapshot de la sesión si no existe; nunca lo refresca."""
+        path = self._session_snapshot_path(session_id)
+        if path.exists():
+            return False
+        self._save_snapshot(self._compute_snapshot(), path)
+        self._prune_session_snapshots()
+        return True
 
     def _prune_session_snapshots(self) -> None:
         """Borra los snapshots de sesión más viejos (no crecen sin límite)."""

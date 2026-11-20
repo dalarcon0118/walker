@@ -77,7 +77,10 @@ def sprint_status(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dict
 
     service = sprint_service(chain_dir, params, kwargs)
     if service is None:
-        return {"ok": True, "skipped": True, "reason": "sin sprint service"}
+        return {
+            "ok": False,
+            "error": "sin sprint service (composición): el efecto no puede aplicarse",
+        }
     spring_id = spring_id_of(service, chain_dir, params, kwargs)
     if not spring_id:
         return {"ok": True, "skipped": True, "reason": "sin sprint", "status": target}
@@ -101,7 +104,10 @@ def advance_sprint_task(chain_dir: str, params: dict[str, Any], **kwargs: Any) -
     params = params or {}
     service = sprint_service(chain_dir, params, kwargs)
     if service is None:
-        return {"ok": True, "skipped": True, "reason": "sin sprint service"}
+        return {
+            "ok": False,
+            "error": "sin sprint service (composición): el efecto no puede aplicarse",
+        }
     spring_id = spring_id_of(service, chain_dir, params, kwargs)
     if not spring_id:
         return {"ok": True, "skipped": True, "reason": "sin sprint"}
@@ -152,7 +158,10 @@ def archive_sprint(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dic
     params = params or {}
     service = sprint_service(chain_dir, params, kwargs)
     if service is None:
-        return {"ok": True, "skipped": True, "reason": "sin sprint service"}
+        return {
+            "ok": False,
+            "error": "sin sprint service (composición): el efecto no puede aplicarse",
+        }
     spring_id = spring_id_of(service, chain_dir, params, kwargs)
     if not spring_id:
         return {"ok": True, "skipped": True, "reason": "sin sprint"}
@@ -199,7 +208,10 @@ def index_sprint_tasks(chain_dir: str, params: dict[str, Any], **kwargs: Any) ->
     params = params or {}
     service = sprint_service(chain_dir, params, kwargs)
     if service is None:
-        return {"ok": True, "skipped": True, "reason": "sin sprint service"}
+        return {
+            "ok": False,
+            "error": "sin sprint service (composición): el efecto no puede aplicarse",
+        }
     spring_id = spring_id_of(service, chain_dir, params, kwargs)
     if not spring_id:
         return {"ok": True, "skipped": True, "reason": "sin sprint"}
@@ -219,7 +231,10 @@ def rebuild_sprint_index(chain_dir: str, params: dict[str, Any], **kwargs: Any) 
     params = params or {}
     service = sprint_service(chain_dir, params, kwargs)
     if service is None:
-        return {"ok": True, "skipped": True, "reason": "sin sprint service"}
+        return {
+            "ok": False,
+            "error": "sin sprint service (composición): el efecto no puede aplicarse",
+        }
     springs = []
     try:
         springs = [s for s in (service.list_springs() or []) if isinstance(s, dict)]
@@ -259,7 +274,10 @@ def create_adr(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dict[st
 
     service = sprint_service(chain_dir, params, kwargs)
     if service is None:
-        return {"ok": True, "skipped": True, "reason": "sin sprint service"}
+        return {
+            "ok": False,
+            "error": "sin sprint service (composición): el efecto no puede aplicarse",
+        }
     spring_id = spring_id_of(service, chain_dir, params, kwargs)
     spec_id = task_id_of(params, kwargs)
     if not spring_id or not spec_id:

@@ -572,7 +572,52 @@ Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
 - [ ] M-09 Fallback visible: sin `skipped` silencioso; el fallo se ve en el
       resultado de la task — anti-patrón: degradar a "no hizo nada" con ok.
 
-## 21. P0.3b — Contrato prompt ↔ schema (bloqueante)
+## 21. P1.16 — El baseline arranca con la sesión, no con la primera lectura
+
+P1.13 corrigió la herencia entre sesiones, pero el baseline se creaba en el
+primer `session_context`. Si el agente escribía ANTES (subagente, shell del
+host, `sed -i`, `git apply`), esa escritura caía dentro del baseline y no
+dejaba deuda: el cierre pasaba limpio.
+
+- [ ] `seed_session_baseline(root, session_id)` crea el snapshot si NO existe y
+      nunca lo refresca (refrescarlo absorbería las escrituras que debe ver).
+- [ ] `session_open` y `session_bind` lo fijan: son el arranque real de la
+      sesión (`write_baseline` en el payload de `session_open`).
+- [ ] Idempotente: abrir/vincular dos veces no crea ni pisa el baseline.
+- [ ] El canal anónimo (`session_id="mcp"`) no tiene baseline propio: un
+      snapshot compartido contaminaría todas las sesiones.
+- [ ] M-05 Concurrencia: el baseline se fija una vez por sesión y no se
+      re-escribe en cada lectura — anti-patrón: last-write-wins sobre el diff.
+- [ ] M-04 Eventos: `write_baseline` hace visible si el baseline se creó o ya
+      existía — anti-patrón: asumir que la evidencia está armada.
+
+## 22. P1.17 — Los side effects que no se aplican, se ven
+
+`transform_spec` devolvía `{"ok": True, "skipped": True}` **sin motivo** en
+cuatro caminos: servicio no resuelto, servicio sin `update_spec`, sin sprint,
+sin `spec_id`, y `update_spec -> None`. El resultado era exactamente el bug
+medido el 2026-11-18: la spec no se movía y el submit seguía como si nada.
+Los motivos tampoco llegaban al agente: `apply_side_effects.results` se
+descartaba cuando `ok` era verdadero.
+
+- [ ] Sin `sprint_service` o sin `update_spec` → `ok: False` (composición rota,
+      aborta el submit como cualquier efecto no opcional).
+- [ ] Sin sprint resuelto / sin `spec_id` → skip CON `reason` y `missing`.
+- [ ] `update_spec -> None` con sprint y spec resueltos → `ok: False`: la
+      transición pedida no ocurrió (antes: "skip" y estado viejo).
+- [ ] `sprint.py`: los seis `sin sprint service` dejan de ser éxito.
+- [ ] `emit_event`: el skip de tracing dice `persisted: False` + `reason`.
+- [ ] El submit devuelve `side_effects: [{type, skipped|error}]` cuando hay
+      efectos que no se aplicaron (máx 5); los idempotentes y los no
+      registrados no se reportan.
+- [ ] M-01 Integridad de escritura: un efecto que no cumplió su contrato no
+      devuelve éxito — anti-patrón: `ok: true` con `skipped` sin motivo.
+- [ ] M-09 Fallback visible: el motivo viaja al resultado del submit, no solo
+      al log — anti-patrón: degradar en silencio y esperar que nadie pregunte.
+- [ ] M-06 Extensibilidad: la clasificación vive en un helper
+      (`_side_effect_notes`) — anti-patrón: cada efecto inventa su forma.
+
+## 23. P0.3b — Contrato prompt ↔ schema (bloqueante)
 
 - [ ] Todo campo que un prompt manda en `submit` está declarado en el
       `input_schema` de su sub-estado (40 → 0 violaciones).
@@ -586,7 +631,7 @@ Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
 
 ---
 
-## 22. failure_scenarios
+## 24. failure_scenarios
 
 ```json
 "failure_scenarios": [
@@ -615,13 +660,15 @@ Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
   "El diff de escritura se hace contra el snapshot GLOBAL del proyecto → una sesión nueva hereda las escrituras de la anterior y el cierre queda en deuda por trabajo ajeno → causa: un único snapshot compartido entre sesiones → mitigación: snapshot por sesión (.file_snapshot.session-<sid>.json), baseline en la primera lectura y poda a 50 → detección: test_el_snapshot_es_por_sesion_no_del_proyecto y test_session_context_sin_flight_state_igual_detecta_escritura",
   "La adherencia sólo acredita submit/transition → 63-81 sugerencias 'ignoradas' aunque el agente escribió, verificó o cambió el plan → causa: followed se marcaba en una única tool → mitigación: toda acción real (edit/write/shell/verify/task/plan/bind/cli) marca followed con su origen; ignored sólo cuando no hubo ninguna → detección: harness mode injectsuggest y tests/test_flight_control_metrics_bdd.py",
   "initialize_knowledge_base devuelve ok:true con el error (o skipped) adentro → el workflow cree que la memoria está sembrada y la falta aparece en las consultas o nunca → causa: el bootstrap se declaró fail-open sin distinguir best-effort de contrato incumplido → mitigación: TaskResult.failure con el motivo (sin CKG, sin nodo, excepción) → detección: tests de initialize_knowledge_base (caído, sin guardar, éxito)",
-  "prepare arma <repo>/.cognitive/projects/<pid>/data a mano → con project.cognitive_dir/data_dir configurados crea un layout que resolve_paths no encuentra y el proyecto queda inaccesible por API → causa: literales en vez del SSOT de rutas → mitigación: paths.compose_project_layout → detección: test_prepare_usa_el_layout_configurado_y_no_lo_hardcodea"
+  "prepare arma <repo>/.cognitive/projects/<pid>/data a mano → con project.cognitive_dir/data_dir configurados crea un layout que resolve_paths no encuentra y el proyecto queda inaccesible por API → causa: literales en vez del SSOT de rutas → mitigación: paths.compose_project_layout → detección: test_prepare_usa_el_layout_configurado_y_no_lo_hardcodea",
+  "El baseline de escritura se crea en el primer session_context y no al abrir la sesión → lo escrito antes (subagente, sed -i, git apply) cae dentro del baseline y el cierre pasa limpio → causa: el arranque de la sesión no fijaba evidencia → mitigación: seed_session_baseline en session_open/session_bind, idempotente y sin refresco → detección: test_session_open_fija_el_baseline_antes_del_primer_context",
+  "transform_spec devuelve ok:true+skipped sin motivo (sin servicio, sin sprint, sin spec_id, update_spec→None) y results se descarta cuando ok es verdadero → la spec no se mueve y el submit sigue como si nada (medido 2026-11-18) → causa: skip indistinguible de 'nada que hacer' y motivo no propagado → mitigación: wiring como error, skips con reason/missing, update_spec→None como error y side_effects en el resultado del submit → detección: tests de transform_spec y del orquestador (_side_effect_notes)"
 ]
 ```
 
 ---
 
-## 23. Criterios de aceptación
+## 25. Criterios de aceptación
 
 1. Un comando de verificación con pipe y sin marcador **nunca** produce verde,
    aunque el `exitCode` sea 0.
@@ -677,10 +724,14 @@ Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
     (`followedBy`); `ignored` sólo cuando no hubo ninguna acción.
 23. P1.15: `initialize_knowledge_base` falla visible si el CKG no se sembró y
     `prepare` usa el layout configurado (no un join hardcodeado).
+24. P1.16: una escritura anterior al primer `session_context` deja deuda; abrir
+    o vincular la sesión fija el baseline y no lo refresca.
+25. P1.17: un side effect que no se aplicó (spec que no se movió, sprint sin
+    servicio) aparece en el resultado del submit con su motivo, o falla.
 
 ---
 
-## 24. Riesgos y compatibilidad
+## 26. Riesgos y compatibilidad
 
 - **Consumidores del CLI:** el marcador es una segunda línea de stdout. Los
   consumidores que parsean `json.loads(stdout)` completo deben leer la primera
@@ -694,7 +745,7 @@ Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
 
 ---
 
-## 25. Tests
+## 27. Tests
 
 - `agent-plugins/walker-flight-control/gate.test.mjs`: `closeclimark`,
   `closeclipipefail`, `closeclimarkpipe`.
@@ -745,6 +796,13 @@ Dos deudas de la auditoría, ambas baratas y de la misma familia (un camino que
   fail-fast — CKG caído, sin nodo guardado y éxito con lo guardado (P1.15).
 - `tests/test_fast_mcp_migration_bdd.py`: `prepare` con layout configurado
   (P1.15).
+- `tests/test_verification_trace_bdd.py`: baseline idempotente que no se
+  refresca, fijado por `session_open` y `session_bind` (P1.16).
+- `tests/test_transform_spec_bdd.py`: `transform_spec` sin servicio (error),
+  sin sprint (skip con motivo), sin `spec_id` (skip con motivo) y
+  `update_spec -> None` (error) (P1.17).
+- `tests/test_fast_mcp_workflow_application_bdd.py`: `side_effects` en el
+  resultado del submit y clasificación de `_side_effect_notes` (P1.17).
 - `gate.test.mjs` modo `injectsuggest`: prueba las DOS direcciones — escribir
   deja `followed=true` por `edit` y una sesión que sólo recibe el plan y no
   actúa emite `workflow_suggestion_ignored` con `reason` (P1.14).

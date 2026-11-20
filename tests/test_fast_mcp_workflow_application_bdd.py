@@ -204,6 +204,61 @@ class TestOrchestratorSubmit:
         assert result["sub_state"] == "INIT"
         assert len(store._saved_states) == 1
 
+    def test_submit_reporta_side_effects_que_no_se_aplicaron(self):
+        """Un efecto que no se aplicó tiene que llegar al AGENTE (P1.15).
+
+        Antes el submit devolvía ok y el motivo quedaba en el result interno de
+        `apply_side_effects` que nadie miraba: la spec no se movía en silencio.
+        """
+        from dataclasses import replace
+
+        g = _make_graph()
+        s = WorkflowState(current_node="START", current_sub_state="INIT")
+        bundle, store, _ = _make_bundle(graph=g, state=s)
+
+        class SkippingEffects:
+            def apply_side_effects(self, *a, **k):  # noqa: ARG002
+                return {
+                    "ok": True,
+                    "results": [
+                        {
+                            "ok": True,
+                            "type": "transform_spec",
+                            "skipped": True,
+                            "reason": "sin sprint resuelto",
+                        },
+                        # idempotente: no es una decisión del dominio
+                        {"ok": True, "type": "x", "skipped": True, "idempotent": True},
+                    ],
+                }
+
+        orch = OrchestrationService(bundle=replace(bundle, side_effects=SkippingEffects()))
+        out = orch.submit(_ctx())
+
+        assert out["ok"] is True
+        assert out["side_effects"] == [
+            {"type": "transform_spec", "skipped": "sin sprint resuelto"}
+        ]
+
+    def test_side_effect_notes_ignora_skips_sin_motivo(self):
+        from fast_mcp.features.workflow.application.orchestrator import _side_effect_notes
+
+        eff = {
+            "ok": True,
+            "results": [
+                {"ok": True, "type": "a", "skipped": True},  # no registrado
+                {"ok": True, "type": "b", "skipped": True, "reason": "sin sprint"},
+                {"ok": False, "type": "c", "error": "boom"},
+                {"ok": True, "type": "d"},
+            ],
+        }
+        assert _side_effect_notes(eff) == [
+            {"type": "b", "skipped": "sin sprint"},
+            {"type": "c", "error": "boom"},
+        ]
+        assert _side_effect_notes(None) == []
+        assert _side_effect_notes({"ok": True}) == []
+
     def test_submit_saves_state(self):
         """submit persists state via IWorkflowStore (revision bump is repository responsibility)."""
         g = _make_graph()

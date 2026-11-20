@@ -296,6 +296,33 @@ def merge_action_fields(state: WorkflowState, sub_key: str, fields: dict[str, An
     return {**stored_fields, **(fields or {})}
 
 
+def _side_effect_notes(eff: Any) -> list[dict[str, str]]:
+    """Skips CON MOTIVO (y errores) de los side effects, para el caller.
+
+    Un `{"ok": True, "skipped": True}` sin razón es indistinguible de "no había
+    nada que hacer": el efecto no ocurría y nadie se enteraba. Los idempotentes
+    y los no registrados no se reportan (no son una decisión del dominio).
+    """
+    if not isinstance(eff, dict):
+        return []
+    notes: list[dict[str, str]] = []
+    for entry in eff.get("results") or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("ok") is False:
+            notes.append(
+                {"type": str(entry.get("type") or ""), "error": str(entry.get("error") or "")}
+            )
+        elif entry.get("skipped") and entry.get("reason") and not entry.get("idempotent"):
+            notes.append(
+                {
+                    "type": str(entry.get("type") or ""),
+                    "skipped": str(entry.get("reason")),
+                }
+            )
+    return notes[:5]
+
+
 class OrchestrationService:
     """Unified entry point for workflow operations.
 
@@ -575,6 +602,7 @@ class OrchestrationService:
         # 6d. Side effects (contrato con SideEffectEngine). Defensivo: sin
         # `apply_side_effects` es no-op; nunca propaga; si falla un efecto no
         # opcional se devuelve failure sin guardar estado.
+        eff: Any = None
         try:
             engine = getattr(self._bundle, "side_effects", None)
             apply_fn = getattr(engine, "apply_side_effects", None)
@@ -588,6 +616,9 @@ class OrchestrationService:
                     }
         except Exception as e:  # noqa: BLE001 — fail-open
             logger.warning("side_effect failed (fail-open): %s", e)
+        effect_notes = _side_effect_notes(eff)
+        if effect_notes:
+            logger.warning("side effects sin efecto: %s", effect_notes)
 
         # 7. Save state (repository handles CAS + revision bump)
         if not self._save_state(state):
@@ -607,6 +638,10 @@ class OrchestrationService:
             # `workflow_state` extra para saberlo.
             "next_action": next_action_for(state, graph),
         }
+        if effect_notes:
+            # Visibilidad para el AGENTE: un efecto que no se aplicó (spec que
+            # no se movió, sprint sin servicio) no puede quedar en un log.
+            result["side_effects"] = effect_notes
 
         # 9b. Si la decisión mapea a un gate y el nodo terminó acá, se cruza en
         # la MISMA llamada. Antes eran tres (submit → advance → transition) y
@@ -827,6 +862,7 @@ class OrchestrationService:
         new_state = self._remember_task_id(new_state, task_result)
 
         # Side effects (contrato con SideEffectEngine) al completar el sub-estado.
+        eff: Any = None
         try:
             engine = getattr(self._bundle, "side_effects", None)
             apply_fn = getattr(engine, "apply_side_effects", None)
@@ -840,12 +876,15 @@ class OrchestrationService:
                     }
         except Exception as e:  # noqa: BLE001 — fail-open
             logger.warning("side_effect failed (fail-open): %s", e)
+        effect_notes = _side_effect_notes(eff)
+        if effect_notes:
+            logger.warning("side effects sin efecto: %s", effect_notes)
 
         if not self._save_state(new_state):
             return {"ok": False, "error": "Failed to persist state"}
         self._trace_submit(ctx, new_state, fields)
 
-        return {
+        result = {
             "ok": True,
             "node": new_state.current_node,
             "sub_state": new_state.current_sub_state,
@@ -856,6 +895,9 @@ class OrchestrationService:
             "action_result": task_result,
             "next_action": next_action_for(new_state, graph),
         }
+        if effect_notes:
+            result["side_effects"] = effect_notes
+        return result
 
     def _execute_action(
         self,

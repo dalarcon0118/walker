@@ -288,3 +288,70 @@ def test_session_context_sin_flight_state_igual_detecta_escritura(tmp_path, monk
     assert out["wrote"] is True and out["touched"] == ["src/a.py"]
     assert out["touched_source"] == "watcher"
     assert calls == ["S-1", "S-1"], "la evidencia se pide por sesión, no global"
+
+
+# ── baseline de escritura al abrir/vincular la sesión (P1.16) ────────
+
+
+def test_el_baseline_no_se_refresca_y_es_idempotente(tmp_path):
+    from fast_mcp.shared_kernel.project_support.watcher import (
+        changed_since_last_scan,
+        seed_session_baseline,
+    )
+
+    (tmp_path / "pyproject.toml").write_text("[project]\n")
+    (tmp_path / "a.py").write_text("x = 1\n")
+
+    assert seed_session_baseline(str(tmp_path), session_id="S") is True
+    (tmp_path / "b.py").write_text("y = 1\n")
+
+    # Ya existe: no se refresca (si se refrescara, b.py se absorbería).
+    assert seed_session_baseline(str(tmp_path), session_id="S") is False
+    assert changed_since_last_scan(str(tmp_path), session_id="S") == ["b.py"]
+
+    # El canal anónimo no tiene sesión propia: baseline compartido = contaminar.
+    assert seed_session_baseline(str(tmp_path), session_id="mcp") is False
+
+
+def test_session_open_fija_el_baseline_antes_del_primer_context(tmp_path, monkeypatch):
+    """La escritura previa al primer `session_context` también deja deuda."""
+    from fast_mcp.features.tasks.handlers import session as sessions
+    from fast_mcp.shared_kernel.project_support.watcher import changed_since_last_scan
+
+    class FakeService:
+        def open_session(self, sid, **kw):
+            return {"session_id": sid}
+
+    monkeypatch.setattr(sessions._di, "sprint_service", lambda chain_dir: FakeService())
+    (tmp_path / "pyproject.toml").write_text("[project]\n")
+
+    out = sessions.session_open(_ctx(str(tmp_path)), {"session_id": "S-BASE"})
+
+    assert out.ok and out.data["write_baseline"] is True
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x = 1\n")
+    assert changed_since_last_scan(str(tmp_path), session_id="S-BASE") == ["src/a.py"]
+
+
+def test_session_bind_fija_el_baseline(tmp_path, monkeypatch):
+    from fast_mcp.features.tasks.handlers import session as sessions
+    from fast_mcp.shared_kernel.project_support.watcher import changed_since_last_scan
+
+    class FakeService:
+        def list_springs(self):
+            return []
+
+        def get_session(self, sid):  # noqa: ARG002
+            return None
+
+        def get_spring(self, sid):  # noqa: ARG002
+            return None
+
+    monkeypatch.setattr(sessions._di, "sprint_service", lambda chain_dir: FakeService())
+    (tmp_path / "pyproject.toml").write_text("[project]\n")
+
+    out = sessions.session_bind(_ctx(str(tmp_path)), {"session_id": "S-BIND"})
+
+    assert out.ok, out.error
+    (tmp_path / "b.py").write_text("y = 1\n")
+    assert changed_since_last_scan(str(tmp_path), session_id="S-BIND") == ["b.py"]

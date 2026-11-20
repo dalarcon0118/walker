@@ -44,10 +44,24 @@ def emit_event(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dict[st
         )
     except Exception as exc:  # noqa: BLE001 — trazar es best-effort
         logger.warning("emit_event(%s) falló: %s: %s", event, type(exc).__name__, exc)
-        return {"ok": True, "skipped": True, "event": event, "error": str(exc)}
+        return {
+            "ok": True,
+            "skipped": True,
+            "persisted": False,
+            "event": event,
+            "reason": f"trace no disponible: {type(exc).__name__}: {exc}",
+            "error": str(exc),
+        }
 
     if isinstance(result, dict) and result.get("error"):
-        return {"ok": True, "skipped": True, "event": event, "error": str(result["error"])}
+        return {
+            "ok": True,
+            "skipped": True,
+            "persisted": False,
+            "event": event,
+            "reason": f"trace rechazó el evento: {result['error']}",
+            "error": str(result["error"]),
+        }
     return {"ok": True, "event": event, "emitted": True, "result": result}
 
 

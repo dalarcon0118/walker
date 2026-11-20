@@ -174,13 +174,17 @@ class TestTransformSpec:
         assert svc.calls[0][2]["status"] == "completed"
         assert svc.calls[0][2]["commit_hash"] == "abc123"
 
-    def test_without_spec_skipped(self):
+    def test_spec_inexistente_falla_visible(self):
+        """Con sprint y spec resueltos, `update_spec -> None` significa que la
+        transición NO ocurrió. Antes devolvía `skipped: True` y la spec se
+        quedaba en el estado viejo sin que nadie lo supiera (medido 2026-11-18)."""
         svc = FakeSprintService(spec_exists=False)
         params = {"status": "in_progress"}
         state = SimpleNamespace(context={"task_id": "SPEC-X"})
         out = transform_spec("/tmp/cd", params, state=state, sprint_service=svc)
-        assert out["ok"] is True
-        assert out["skipped"] is True
+        assert out["ok"] is False
+        assert "no se movió" in out["error"]
+        assert out["spec_id"] == "SPEC-X" and out["spring_id"] == "SPR-TEST"
 
     def test_error_ok_false(self):
         svc = FakeSprintService(raise_on=True)
@@ -189,11 +193,29 @@ class TestTransformSpec:
         out = transform_spec("/tmp/cd", params, state=state, sprint_service=svc)
         assert out["ok"] is False
 
-    def test_no_sprint_skipped(self):
+    def test_sin_servicio_es_error_de_composicion(self):
+        """Un `skipped: True` sin motivo era el bug: el efecto no se aplicaba y
+        el submit seguía como si nada. Sin servicio no hay efecto posible."""
         params = {"status": "in_progress"}
         out = transform_spec("/tmp/cd", params)
-        assert out["ok"] is True
-        assert out["skipped"] is True
+        assert out["ok"] is False
+        assert "sprint_service" in out["error"]
+
+    def test_sin_sprint_es_skip_con_motivo(self):
+        """Un skip legítimo dice POR QUÉ (el agente lo ve en `side_effects`)."""
+        class NoSpringService(FakeSprintService):
+            def get_spring_id(self, chain_dir):  # noqa: ARG002
+                return ""
+
+        out = transform_spec(
+            "/tmp/cd",
+            {"status": "in_progress"},
+            state=SimpleNamespace(context={"task_id": "SPEC-X"}),
+            sprint_service=NoSpringService(),
+        )
+        assert out["ok"] is True and out["skipped"] is True
+        assert out["missing"] == "spring" and out["reason"]
+        assert out["spec_id"] == "SPEC-X"
 
     def test_spring_id_from_params(self):
         svc = FakeSprintService()
@@ -203,11 +225,14 @@ class TestTransformSpec:
         assert svc.calls[0][0] == "SPR-PARAM"
         assert svc.calls[0][1] == "SPEC-P"
 
-    def test_update_spec_returns_none_skipped(self):
-        svc = FakeSprintService(spec_exists=False)
-        params = {"status": "in_progress", "spring_id": "SPR", "spec_id": "SPEC"}
-        out = transform_spec("/tmp/cd", params, sprint_service=svc)
+    def test_sin_spec_id_es_skip_con_motivo(self):
+        """Sin `spec_id` no hay nada que mover: skip explícito, no error."""
+        svc = FakeSprintService()
+        out = transform_spec(
+            "/tmp/cd", {"status": "in_progress", "spring_id": "SPR"}, sprint_service=svc
+        )
         assert out["skipped"] is True
+        assert out["missing"] == "spec" and out["spring_id"] == "SPR"
 
     def test_output_mergea_resultado_y_campos(self):
         """`NODE.X.output` debe traer la salida de la acción, no solo el input.
