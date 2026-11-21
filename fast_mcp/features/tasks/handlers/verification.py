@@ -90,6 +90,48 @@ def _persist_evidence_node(
     return node_id if saved.get("nodes_saved") else ""
 
 
+def _reseal_stamp(
+    chain_dir: str,
+    session_id: str,
+    *,
+    passed: bool,
+    level: str,
+    weak: bool,
+    when: str,
+) -> bool:
+    """Actualiza el sello de una sesión ACTIVA con la verificación recién hecha.
+
+    El sello se calcula al cerrar; si la sesión se reabre y verifica después, el
+    sello viejo dice `none` y el artefacto miente. Se actualiza por el puerto de
+    `_di` (tasks no importa delta_tracking, R1) y es fail-soft: el trace ya
+    testifica; si el sello no se puede reescribir, no se rompe la verificación.
+    """
+    try:
+        service = _di.sprint_service(chain_dir)
+    except Exception:  # noqa: BLE001
+        return False
+    if service is None or not hasattr(service, "stamp_session"):
+        return False
+    try:
+        record = service.get_session(session_id) or {}
+        plan = service.get_session_plan(session_id) or {}
+        previous = record.get("stamp") or {}
+        kind = "predicates" if level == "predicates" else "tests"
+        stamp = {
+            "kind": kind if passed else "none",
+            "verified": bool(passed),
+            "level": level,
+            "weak": bool(weak),
+            "criteria": len(plan.get("acceptance") or []),
+            "rounds": int(previous.get("rounds") or 0),
+            "source": "task_tool",
+            "at": when,
+        }
+        return bool(service.stamp_session(session_id, stamp))
+    except Exception:  # noqa: BLE001 — el sello es un extra del cierre
+        return False
+
+
 def record_verification(
     ctx: Any,
     *,
@@ -169,6 +211,15 @@ def record_verification(
         files=files,
     )
     data["evidence_node"] = node_id
+    # Re-sellado: la evidencia recién registrada es la que vale para el cierre.
+    _reseal_stamp(
+        chain_dir,
+        sid,
+        passed=bool(passed),
+        level=level,
+        weak=bool(weak),
+        when=now,
+    )
 
     return _di.push_trace(
         chain_dir,

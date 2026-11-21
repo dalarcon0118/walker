@@ -44,6 +44,8 @@ class _FakeSprintService:
         self.stamp = {}
         self.cost_usd = None
         self.tokens = None
+        self.active_spring = None
+        self.specs: list[dict] = []
 
     def close_session(self, session_id, outcome="", stamp=None, cost_usd=None, tokens=None):
         self.stamp = stamp or {}
@@ -56,6 +58,15 @@ class _FakeSprintService:
             "cost_usd": cost_usd,
             "tokens": tokens or {},
         }
+
+    def get_active_spring(self):
+        return self.active_spring
+
+    def list_springs(self):
+        return [self.active_spring] if self.active_spring else []
+
+    def get_specs(self, spring_id):
+        return self.specs
 
 
 @pytest.fixture()
@@ -150,6 +161,40 @@ def test_el_cierre_sin_sello_lo_declara(tmp_path, fake_service):
     assert out.ok
     assert fake_service.stamp["kind"] == "none"
     assert fake_service.stamp["source"] == "unstated"
+    # Sin specs colgadas, el cierre declara que el flujo se siguió.
+    assert out.data["flow"] == "workflow"
+    assert out.data["orphan_specs"] == []
+    assert fake_service.stamp.get("flow", "workflow") == "workflow"
+
+
+def test_cierre_con_spec_in_progress_marca_flow_tools(tmp_path, fake_service):
+    """La spec nace con implement_task y nunca entra a un nodo: es un dato."""
+    fake_service.active_spring = {"spring_id": "SPR-1", "status": "active"}
+    fake_service.specs = [
+        {
+            "spec_id": "SPEC-001",
+            "status": "in_progress",
+            "task_context": {"session_id": "S-1", "task_id": "T-1"},
+        },
+        {
+            "spec_id": "SPEC-002",
+            "status": "completed",
+            "task_context": {"session_id": "S-1", "task_id": "T-2"},
+        },
+        {
+            "spec_id": "SPEC-003",
+            "status": "in_progress",
+            "task_context": {"session_id": "OTRA", "task_id": "T-3"},
+        },
+    ]
+    fake_service.stamp = {}
+
+    out = session_handlers.session_close(_ctx(tmp_path), {"session_id": "S-1"})
+
+    assert out.ok
+    assert out.data["flow"] == "tools"
+    assert [s["spec_id"] for s in out.data["orphan_specs"]] == ["SPEC-001"]
+    assert fake_service.stamp["flow"] == "tools", "el sello declara cómo se ejecutó"
 
 
 # ── costo por sesión (F5.4) ──────────────────────────────────────────────
@@ -227,3 +272,124 @@ def test_sin_sello_el_registro_no_inventa_uno():
     record = service.close_session("S-9", outcome="failed")
 
     assert record["stamp"] == {}, "el dominio no fabrica un sello: lo normaliza el handler"
+
+
+# ── re-sellado: una verificación posterior al cierre actualiza el sello ──
+
+
+class _StampRepo:
+    def __init__(self, session):
+        self.session = session
+
+    def get_session(self, session_id):
+        return self.session if session_id == self.session.session_id else None
+
+    def save_session(self, session):
+        self.session = session
+
+
+def _session_entity(status="active", stamp=None):
+    from fast_mcp.features.delta_tracking.domain.entities import Session
+
+    return Session(session_id="S-1", spring_id="SPR-1", status=status, stamp=stamp)
+
+
+def test_stamp_session_actualiza_una_sesion_activa():
+    svc = SprintService(
+        repo=_StampRepo(_session_entity(stamp={"kind": "none", "at": "2026-11-20T00:00:00Z"}))
+    )
+
+    out = svc.stamp_session(
+        "S-1", {"kind": "tests", "verified": True, "at": "2026-11-20T01:00:00Z"}
+    )
+
+    assert out["stamp"]["kind"] == "tests"
+    assert out["stamp"]["verified"] is True
+
+
+def test_stamp_session_no_toca_una_sesion_cerrada():
+    svc = SprintService(repo=_StampRepo(_session_entity(status="closed")))
+
+    assert svc.stamp_session("S-1", {"kind": "tests", "at": "2026-11-20T01:00:00Z"}) is None
+
+
+def test_stamp_session_no_retrocede_en_el_tiempo():
+    svc = SprintService(
+        repo=_StampRepo(_session_entity(stamp={"kind": "tests", "at": "2026-11-20T02:00:00Z"}))
+    )
+
+    assert svc.stamp_session("S-1", {"kind": "none", "at": "2026-11-20T01:00:00Z"}) is None
+    assert svc._repo.session.stamp["kind"] == "tests"
+
+
+def test_record_verification_resella_la_sesion_activa(monkeypatch):
+    from fast_mcp.features.tasks.handlers import verification as verification_handlers
+
+    class _Svc:
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        def get_session(self, sid):
+            return {"session_id": sid, "stamp": {"rounds": 2, "kind": "none"}}
+
+        def get_session_plan(self, sid):
+            return {"acceptance": ["a", "b"]}
+
+        def stamp_session(self, session_id, stamp):
+            self.calls.append(stamp)
+            return {"session_id": session_id}
+
+    svc = _Svc()
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda chain_dir: svc)
+    monkeypatch.setattr(_di, "push_trace", lambda chain, ev: True)
+
+    verification_handlers.record_verification(
+        _ctx("/tmp/proj"),
+        session_id="S-1",
+        passed=True,
+        level="tool",
+        runner="pytest -q",
+        returncode=0,
+    )
+
+    assert svc.calls, "la verificación tiene que re-sellar la sesión"
+    stamp = svc.calls[0]
+    assert stamp["kind"] == "tests"
+    assert stamp["verified"] is True
+    assert stamp["source"] == "task_tool"
+    assert stamp["criteria"] == 2
+    assert stamp["rounds"] == 2
+
+
+def test_record_verification_rojo_resella_a_none(monkeypatch):
+    from fast_mcp.features.tasks.handlers import verification as verification_handlers
+
+    class _Svc:
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        def get_session(self, sid):
+            return {"session_id": sid, "stamp": {"rounds": 0}}
+
+        def get_session_plan(self, sid):
+            return {}
+
+        def stamp_session(self, session_id, stamp):
+            self.calls.append(stamp)
+            return {}
+
+    svc = _Svc()
+    monkeypatch.setattr(_di, "_SPRINT_FACTORY", lambda chain_dir: svc)
+    monkeypatch.setattr(_di, "push_trace", lambda chain, ev: True)
+
+    verification_handlers.record_verification(
+        _ctx("/tmp/proj"),
+        session_id="S-1",
+        passed=False,
+        level="tool",
+        runner="pytest -q",
+        returncode=1,
+    )
+
+    assert svc.calls[0]["kind"] == "none"
+    assert svc.calls[0]["verified"] is False

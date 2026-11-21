@@ -438,6 +438,32 @@ class SprintService:
         self._repo.save_session(session)
         return _session_to_dict(session)
 
+    def stamp_session(self, session_id: str, stamp: dict) -> dict | None:
+        """Re-sella una sesión ACTIVA con la última verificación observada.
+
+        El sello se escribe al cerrar, y una sesión puede reabrirse y volver a
+        verificar: sin re-sellado el artefacto queda congelado en el primer
+        cierre (`kind=none`) aunque después haya evidencia, y "cerrado sin
+        verificar" pasa a mentir. Sólo avanza en el tiempo (`at` posterior) y
+        nunca toca una sesión cerrada: ahí el sello es historia.
+        """
+        if not self._repo:
+            return None
+        session = self._repo.get_session(session_id)
+        if session is None:
+            return None
+        if str(getattr(session, "status", "")) != "active":
+            return None
+        current = dict(getattr(session, "stamp", None) or {})
+        new_at = str((stamp or {}).get("at") or "")
+        old_at = str(current.get("at") or "")
+        if old_at and new_at and new_at <= old_at:
+            return None
+        session.stamp = dict(stamp or {})
+        session.updated_at = _now_iso()
+        self._repo.save_session(session)
+        return _session_to_dict(session)
+
     def update_session_plan(self, session_id: str, patch: dict) -> dict | None:
         """Merge del plan de vuelo (goal/acceptance/task/scope/next)."""
         if not self._repo:
