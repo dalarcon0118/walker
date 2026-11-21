@@ -273,6 +273,10 @@ export function verificationStamp(entry, plan, now = new Date().toISOString()) {
     weak: level === "cli-pipe" || Boolean(entry && entry.verifyWeak),
     criteria,
     rounds: Number((entry && entry.closeRounds) || 0),
+    // Cuándo verificó el PLUGIN (si vio el verde). Sin este dato, un cierre
+    // con `none` no se puede distinguir de "no me enteré del verde" y pisaría
+    // evidencia guardada por la tool.
+    verified_at: String((entry && entry.verifiedAt) || ""),
     at: now,
   }
 }

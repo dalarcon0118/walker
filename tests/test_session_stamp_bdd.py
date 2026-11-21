@@ -128,6 +128,7 @@ def test_sello_completo_conserva_evidencia():
         "criteria": 3,
         "rounds": 2,
         "source": "plugin",
+        "verified_at": "",
         "at": "2026-11-20T00:00:00+00:00",
     }
 
@@ -393,3 +394,53 @@ def test_record_verification_rojo_resella_a_none(monkeypatch):
 
     assert svc.calls[0]["kind"] == "none"
     assert svc.calls[0]["verified"] is False
+
+
+# ── el cierre no borra evidencia: `none` no pisa un verde sin dato nuevo ──
+
+
+def test_el_cierre_no_pisa_un_verde_con_un_none_ciego():
+    svc = SprintService(
+        repo=_StampRepo(
+            _session_entity(
+                status="active",
+                stamp={"kind": "tests", "verified": True, "at": "2026-11-21T00:02:05"},
+            )
+        )
+    )
+
+    out = svc.close_session(
+        "S-1",
+        outcome="succeeded",
+        stamp={"kind": "none", "verified": False, "verified_at": "", "at": "2026-11-21T00:10:00"},
+    )
+
+    assert out["stamp"]["verified"] is True
+    assert out["stamp"]["kind"] == "tests"
+
+
+def test_el_cierre_acepta_el_none_cuando_hubo_verde_y_despues_escritura():
+    svc = SprintService(
+        repo=_StampRepo(
+            _session_entity(
+                status="active",
+                stamp={"kind": "tests", "verified": True, "at": "2026-11-21T00:02:05"},
+            )
+        )
+    )
+
+    out = svc.close_session(
+        "S-1",
+        outcome="succeeded",
+        stamp={
+            "kind": "none",
+            "verified": False,
+            # El plugin SÍ vio un verde (posterior al guardado) y aun así
+            # cierra en none: escribió después. El downgrade es correcto.
+            "verified_at": "2026-11-21T00:05:00",
+            "at": "2026-11-21T00:10:00",
+        },
+    )
+
+    assert out["stamp"]["verified"] is False
+    assert out["stamp"]["kind"] == "none"

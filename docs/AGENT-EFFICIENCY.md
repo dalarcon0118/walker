@@ -767,6 +767,7 @@ que la comparación no depende de acordarse de cambiar el env.
 | P7 · poda de ceremonia | **implementado** | `driveEvidence`: un `llm_task` de `IMPLEMENT.*`/`VERIFY.*` avanza solo con `wrote` + verificación verde; los `user_input` no se cruzan. Medido antes: 3 `advance` en 1016 llamadas — el agente no caminaba la ceremonia. |
 | P8 · paso visible y gate de decisión | **implementado** | El bloque contextual muestra `paso <posición> (<tipo>) · motor pide: <next_action>` (≤120, fuera del brief congelado) y una decisión abierta bloquea la escritura con `submit` (FC-INV-17). Antes el único paso visible era el del brief del intake, congelado; el `next_action` sólo iba a la traza. |
 | P9 · revisión independiente para cerrar | **implementado** | `spec_status` acepta `reviewed_by`/`review_findings`; `close_spring` rechaza el cierre si alguna spec `completed` no tiene revisor distinto de la sesión que implementó (o si el autor se firmó a sí mismo). `force=true` + `reason` lo permite y deja la deuda en `context.closed_without_review`. |
+| P10 · sello re-sellado y sin downgrade | **implementado** | `record_verification` re-sella una sesión activa (sólo hacia adelante; el rojo re-sella a `none`); `close_session` no pisa un verde guardado con un `none` que no trae `verified_at` (el plugin no vio ese verde). El sello deja de quedar congelado en el primer cierre. |
 | P4 · poda del encabezado | **propuesto** | 37.426 chars medidos; requiere ADR + diff por línea. |
 
 `WALKER_FLIGHT_CONTROL_INJECTION` (`stable`|`once`|`messages`) y

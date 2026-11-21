@@ -64,6 +64,34 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _stronger_stamp(current: dict, incoming: dict) -> dict:
+    """No perder evidencia al cerrar: un `none` no pisa un verde sin evidencia.
+
+    El cierre trae el sello que ve el PLUGIN. Si dice `none` pero ya había un
+    verde guardado por la tool (re-sellado), hay dos casos:
+
+      - el plugin no vio ningún verde (`verified_at` vacío) → es una ceguera,
+        no un downgrade: se conserva el verde;
+      - el plugin vio un verde (`verified_at`) anterior al guardado → el verde
+        guardado es más nuevo: se conserva;
+      - el plugin vio un verde y DESPUÉS se escribió (dirty) → `verified_at`
+        coincide con el guardado; el `none` es correcto y se acepta.
+    """
+    if incoming is None:
+        return current or {}
+    if not current:
+        return incoming
+    if not current.get("verified") or incoming.get("verified"):
+        return incoming
+    evidence_at = str(incoming.get("verified_at") or "")
+    if not evidence_at:
+        return current
+    current_at = str(current.get("at") or "")
+    if current_at and current_at > evidence_at:
+        return current
+    return incoming
+
+
 class SprintService:
     """Thin orchestrator: delegates to DeltaRepository.
 
@@ -428,7 +456,7 @@ class SprintService:
         if outcome:
             session.outcome = outcome
         if stamp:
-            session.stamp = dict(stamp)
+            session.stamp = _stronger_stamp(dict(getattr(session, "stamp", None) or {}), dict(stamp))
         # Costo por sesión: la jerarquía del delta lo publica tal cual, sin
         # recorrer la traza de cada hijo (F5.4).
         if isinstance(cost_usd, (int, float)):

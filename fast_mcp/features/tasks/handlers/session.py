@@ -505,6 +505,7 @@ def normalize_stamp(raw: Any) -> dict:
         "criteria": criteria,
         "rounds": rounds,
         "source": "plugin",
+        "verified_at": str(raw.get("verified_at") or ""),
         "at": str(raw.get("at") or now),
     }
 
@@ -538,9 +539,79 @@ def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         cost_usd=_number_or_none(data.get("cost_usd")),
         tokens=data.get("tokens") if isinstance(data.get("tokens"), dict) else None,
     )
+    # Un cierre sin specs cerradas es la señal de que la tarea se ejecutó por
+    # tools y nunca entró a un nodo. Antes eso quedaba invisible: el sello decía
+    # "verde" y la spec quedaba `in_progress` para siempre. Se marca en el
+    # sello (`flow`) y se traza, para que el dato exista sin bloquear nada.
+    orphan_specs = _orphan_specs(service, session_id)
+    flow = "tools" if orphan_specs else "workflow"
+    if record is not None and isinstance(record.get("stamp"), dict):
+        record["stamp"].setdefault("flow", flow)
+    if orphan_specs:
+        _di.push_trace(
+            ctx.chain_dir,
+            {
+                "event_type": "session_orphan_specs",
+                "source": "walker_task",
+                "session_id": session_id,
+                "task_id": str(data.get("task_id") or ctx.task_id or ""),
+                "data": {"flow": flow, "specs": orphan_specs},
+            },
+        )
     if record is None:
         return TaskResult.failure(f"session_close: sesión desconocida {session_id!r}")
-    return TaskResult.success({"ok": True, "session": record, "knowledge": knowledge})
+    return TaskResult.success(
+        {
+            "ok": True,
+            "session": record,
+            "knowledge": knowledge,
+            "flow": flow,
+            "orphan_specs": orphan_specs,
+        }
+    )
+
+
+def _orphan_specs(service, session_id: str) -> list[dict]:
+    """Specs `in_progress` de esta sesión al cerrar: trabajo fuera del flujo.
+
+    Si la tarea se ejecutó por tools, la spec nace con `implement_task` y nunca
+    pasa por un nodo, así que queda `in_progress` para siempre. Eso no es un
+    error del agente: es el dato de que el proceso no se usó. Se devuelve con
+    `flow="tools"` y se traza, sin bloquear el cierre (AE-INV-12 en `observe`).
+    """
+    if not session_id:
+        return []
+    try:
+        springs: list[dict] = []
+        active = service.get_active_spring()
+        if active:
+            springs.append(active)
+        springs.extend(service.list_springs() or [])
+        seen: set[str] = set()
+        out: list[dict] = []
+        for spring in springs:
+            spring_id = str(spring.get("spring_id") or spring.get("_id") or "")
+            if not spring_id or spring_id in seen:
+                continue
+            seen.add(spring_id)
+            for spec in service.get_specs(spring_id) or []:
+                if str(spec.get("status") or "") != "in_progress":
+                    continue
+                task_context = spec.get("task_context") or {}
+                if str(task_context.get("session_id") or "") != session_id:
+                    continue
+                out.append(
+                    {
+                        "spec_id": spec.get("spec_id"),
+                        "task_id": task_context.get("task_id") or "",
+                        "status": "in_progress",
+                    }
+                )
+                if len(out) >= 10:
+                    return out
+        return out
+    except Exception:  # noqa: BLE001 — un service mínimo (tests) no es error
+        return []
 
 
 def session_list(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
