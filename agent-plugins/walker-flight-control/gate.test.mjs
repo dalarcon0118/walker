@@ -212,6 +212,25 @@ if (mode === "stepgate") {
     'out({ ok: true })',
   ])
 }
+if (mode === "intakegoal") {
+  // El pedido del usuario tiene que llegar al registro (`session_open`) y al
+  // brief del intake. Antes se capturaba después de abrir la sesión y quedaba
+  // el placeholder `sesión <id>`: el engine nunca veía la request.
+  const logFile = `/tmp/fake-walker-goal-${process.pid}.log`
+  writeFileSync(logFile, "")
+  fake("/tmp/fake-walker-goal", [
+    "#!/usr/bin/env node",
+    'const fs = require("node:fs")',
+    `const log = ${JSON.stringify(logFile)}`,
+    'const tool = String(process.argv[2] || "")',
+    'fs.appendFileSync(log, process.argv.slice(2).join(" ") + "\\n")',
+    'const out = (o) => { console.log(JSON.stringify(o)); process.exit(0) }',
+    'if (tool.endsWith("/session_plan")) out({ ok: true, data: { plan: { goal: "arreglar el login", task: "goal-task", scope: [], acceptance: ["sin romper los tests"] } } })',
+    'if (tool.endsWith("/workflow_state")) out({ ok: true, current_position: "START.SELECT", execution_type: "llm_task", step_satisfied: true, revision: 1 })',
+    'if (tool.endsWith("/project_for_path")) out({ ok: true, project_id: "goal_probe" })',
+    'out({ ok: true })',
+  ])
+}
 if (mode === "normal") {
   // Fixture PROPIO: `normal` no puede depender del `workflow_state` de
   // el proyecto. Ese `task_id` es del PROYECTO y otra corrida lo dejaba en un
@@ -429,6 +448,11 @@ tools.set("shell", {
         exitCode: 0,
       }
     }
+    if (mode === "closecliredirect" && /verify_predicates/.test(command)) {
+      // El comando redirigió su salida a un archivo: para el wrapper el
+      // resultado es vacío, aunque el proceso haya salido 0. No es evidencia.
+      return { ok: true, output: "", exitCode: 0 }
+    }
     if (mode === "closeclipipefail" && /verify_predicates/.test(command)) {
       // Pipe con exit 0 (tail) y SIN marcador: no es certificable.
       return {
@@ -543,6 +567,7 @@ const closeMode =
   mode === "closeclimark" ||
   mode === "closeclimarkpipe" ||
   mode === "closeclipipefail" ||
+  mode === "closecliredirect" ||
   mode === "extverify" ||
   mode === "gateoff"
 const ctx = {
@@ -668,6 +693,30 @@ if (INJECT_MODES.has(mode)) {
       ? 0
       : 1
   )
+}
+
+if (mode === "intakegoal") {
+  const logFile = `/tmp/fake-walker-goal-${process.pid}.log`
+  const pedido = "arreglá el login sin romper los tests"
+  // Primer mensaje = bloque inyectado por el entorno: NO es el pedido. El
+  // plugin tiene que saltearlo y registrar el mensaje real.
+  const event = {
+    sessionID: SID,
+    system: [],
+    messages: [
+      { role: "user", content: [{ type: "text", text: "<conversation-checkpoint> resumen previo" }] },
+      { role: "user", content: [{ type: "text", text: pedido }] },
+    ],
+  }
+  await captured.context(event)
+  const log = readFileSync(logFile, "utf8")
+  const okOpen = new RegExp(`/session_open .*"goal":"${pedido}"`).test(log)
+  const okBrief = new RegExp(`/brief .*"text":"${pedido}"`).test(log)
+  console.log(`${okOpen ? "ok  " : "FAIL"}  el pedido llega al registro (session_open.goal)`)
+  console.log(`${okBrief ? "ok  " : "FAIL"}  el pedido llega al brief del intake`)
+  if (!(okOpen && okBrief)) console.log(log.slice(0, 600))
+  if (typeof dispose === "function") dispose()
+  process.exit(okOpen && okBrief ? 0 : 1)
 }
 
 if (mode === "verifycounts") {
@@ -1094,15 +1143,20 @@ if (closeMode) {
     mode === "closeclipipe" ||
     mode === "closeclimark" ||
     mode === "closeclimarkpipe" ||
-    mode === "closeclipipefail"
+    mode === "closeclipipefail" ||
+    mode === "closecliredirect"
   ) {
     // CLI real con `acceptance` declarada: el plugin debe certificar por el
     // RESULTADO (Code Mode invoca las tools por shell, no por el wrapper).
     // Los modos "pipe" agregan el pipe real: el exit code no es del CLI.
+    // `closecliredirect`: exit 0 pero la salida va a un archivo. El plugin no
+    // ve el resultado, así que no puede certificar (el nudge debe explicarlo).
     const pipe =
       mode === "closeclipipefail" || mode === "closeclimarkpipe"
         ? " | tail -c 400"
-        : ""
+        : mode === "closecliredirect"
+          ? " > /tmp/wfc-redirect.log"
+          : ""
     await call("shell", {
       command:
         `cd ${WALKER} && ./bin/walker3 ${PROJECT}/verify_predicates '${JSON.stringify({
@@ -1128,9 +1182,10 @@ if (closeMode) {
   ])
   const expectedNudge = !certified.has(mode)
   // Un verde no certificado por pipe debe explicar el motivo, no sólo nudgar.
+  const hintModes = ["closeclipipefail", "closecliredirect"]
   const okHint =
-    mode !== "closeclipipefail" ||
-    (nudged > 0 && /pipe|WALKER_RESULT/i.test(nudges[0].text))
+    !hintModes.includes(mode) ||
+    (nudged > 0 && /pipe|redirecci|WALKER_RESULT/i.test(nudges[0].text))
   const ok = (expectedNudge ? okText : nudged === 0) && okHint
   if (mode === "closetool") {
     const text = (nudges[0] && nudges[0].text) || ""
@@ -1167,6 +1222,9 @@ if (closeMode) {
   console.log(`${ok ? "ok  " : "FAIL"} nudges=${nudged} (esperado ${expectedNudge ? 1 : 0})`)
   if (mode === "closeclipipefail") {
     console.log(`${okHint ? "ok  " : "FAIL"}  hint de pipe en el nudge`)
+  }
+  if (mode === "closecliredirect") {
+    console.log(`${okHint ? "ok  " : "FAIL"}  hint de salida oculta en el nudge`)
   }
   if (nudged) console.log(nudges[0].text.split("\n")[0])
   if (typeof dispose === "function") dispose()

@@ -159,16 +159,26 @@ function relPath(file, rt) {
 
 function firstUserText(event) {
   // `event.messages` trae la conversación; el pedido original es el PRIMER
-  // mensaje de rol user (el último puede ser un seguimiento o un tool result).
+  // mensaje de rol user que NO sea un bloque inyectado por el entorno.
+  // Un `<conversation-checkpoint>` o un `<system-update>` no es el pedido y,
+  // tomado como goal, envenena la spec (medido 2026-11-21: overlap 0.0 entre
+  // el checkpoint y el objetivo declarado).
   const msgs = event?.messages || []
-  const user = msgs.find((m) => (m?.role || "") === "user")
-  const content = user?.content
-  const parts = Array.isArray(content) ? content : (content ? [content] : [])
-  const text = parts
-    .map((p) => (typeof p === "string" ? p : p?.type === "text" ? p.text : ""))
-    .filter(Boolean)
-    .join(" ")
-  return String(text).replace(/\s+/g, " ").trim().slice(0, 240)
+  for (const m of msgs) {
+    if ((m?.role || "") !== "user") continue
+    const content = m?.content
+    const parts = Array.isArray(content) ? content : content ? [content] : []
+    const text = parts
+      .map((p) => (typeof p === "string" ? p : p?.type === "text" ? p.text : ""))
+      .filter(Boolean)
+      .join(" ")
+    const clean = String(text).replace(/\s+/g, " ").trim()
+    if (!clean) continue
+    const low = clean.toLowerCase()
+    if (low.startsWith("<") || low.includes("<conversation-checkpoint")) continue
+    return clean.slice(0, 240)
+  }
+  return ""
 }
 
 function taskIdFor(sessionID) {
@@ -210,9 +220,10 @@ function closeBlock(rt, plan, entry, workProject) {
     : ""
   const failed =
     entry && entry.verifyFailed ? "\nLa última verificación FALLÓ: corregí antes de terminar." : ""
+  const hidden = entry && (entry.verifyHint === "pipe" || entry.verifyHint === "hidden")
   const pipe =
-    entry && entry.verifyHint === "pipe"
-      ? "\nLa última verificación usó un pipe: su exit code es el del último comando y el plugin no ve el resultado. Repetila SIN pipe y SIN redirección (`> archivo` también oculta la salida), o asegurate de que aparezca WALKER_RESULT."
+    hidden
+      ? "\nLa última verificación no mostró su resultado (pipe o redirección): el plugin sólo certifica lo que ve. Repetila SIN pipe y SIN redirección (`> archivo` también oculta la salida), o asegurate de que aparezca WALKER_RESULT."
       : ""
   // La captura de conocimiento resuelve la spec y la traza por (task, session).
   // Si el nudge manda `<id>` y sin sesión, el hecho no se puede anclar y se
@@ -1176,6 +1187,11 @@ async function runSetup(ctx) {
             degrade(null, "session.get falló", err)
           }
           entry.parentSessionId = parentId
+          // El pedido del usuario se captura ANTES de abrir la sesión: es el
+          // único ancla del intake. Antes se tomaba después y `session_open`
+          // quedaba con el placeholder `sesión <id>`; el engine nunca veía la
+          // request (medido 2026-11-21: 0 pares sesión↔spec).
+          if (!rt.sessionGoal) rt.sessionGoal = firstUserText(event)
           // Registro de continuidad: ciclo de vida + jerarquía. Fail-open: si
           // walker no responde, la sesión sigue igual.
           run(
@@ -1184,6 +1200,7 @@ async function runSetup(ctx) {
               session_id: sid,
               project_id: rt.projectId,
               agent: String(event.agent || ""),
+              ...(rt.sessionGoal ? { goal: rt.sessionGoal } : {}),
               ...(parentId ? { parent_session_id: parentId } : {}),
               ...(entry.model ? { model: entry.model } : {}),
             },
@@ -1191,7 +1208,6 @@ async function runSetup(ctx) {
             HOOK_TIMEOUT_MS
           )
         }
-        if (!rt.sessionGoal) rt.sessionGoal = firstUserText(event)
         // Primer turno con tarea declarada: UNA llamada a `brief` (absorbe
         // agent_context + preflight) y se INYECTA. Antes se calculaba y se
         // tiraba (`rt.pendingBaseline = null`): dos CLI de ~600 ms por nada.
@@ -1209,7 +1225,13 @@ async function runSetup(ctx) {
             const started = Date.now()
             const card = run(
               "brief",
-              { session_id: sid, task_id: String(declared) },
+              {
+                session_id: sid,
+                task_id: String(declared),
+                // El pedido original: el brief lo usa para recuperar decisiones
+                // y skills del área, no sólo el baseline del repo.
+                ...(rt.sessionGoal ? { text: String(rt.sessionGoal).slice(0, 1500) } : {}),
+              },
               workProjectFor(sid),
               HOOK_TIMEOUT_MS
             )
@@ -1836,6 +1858,12 @@ async function runSetup(ctx) {
                 // certifica. No se toca `verified`; el nudge explica el motivo.
                 e.verifyLevel = "cli-pipe"
                 e.verifyHint = "pipe"
+              } else if (!output.trim()) {
+                // Sin salida no hay evidencia: el resultado pudo irse a un
+                // archivo (`> log`) o la tool lo recortó. Antes esta rama no
+                // marcaba nada y el nudge quedaba mudo (medido 2026-11-21).
+                e.verifyLevel = "cli"
+                e.verifyHint = "hidden"
               } else {
                 // 2. Compatibilidad: parseo por contadores/exit code. El
                 // resultado puede venir recortado (preview de la tool): no

@@ -83,6 +83,7 @@ const REAL_CLI = new Set([
   "closeclimark",
   "closeclimarkpipe",
   "closeclipipefail",
+  "closecliredirect",
   "extverify",
   "scope",
 ])
@@ -117,6 +118,7 @@ const MODES = [
   "closetai",
   "closetool",
   "verifycounts",
+  "intakegoal",
   "handoff",
   "approval",
   "evidenceadvance",

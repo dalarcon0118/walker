@@ -368,8 +368,12 @@ con otra regla cumplida.
   *Detección:* `task_degraded`/`session_state` con `touched_source=watcher`;
   modo `extverify`; `test_scan_ignora_el_estado_de_walker`.
 - **FC-INV-12 · Cierre.** El cierre exige verificación verde; la certificación
-  por shell con pipe exige `WALKER_RESULT`. Sin marcador no hay verde.
-  *Detección:* modos `close*` y `closeclipipefail`.
+  por shell con pipe **o con la salida redirigida** exige `WALKER_RESULT`. La
+  evidencia es lo que el wrapper VE: `| tail` y `> archivo` ocultan el
+  resultado y no certifican aunque el exit sea 0. Sin marcador no hay verde, y
+  el nudge dice cuál de los dos casos fue (`verifyHint`).
+  *Detección:* modos `close*`, `closeclipipefail` (pipe) y `closecliredirect`
+  (salida a archivo con exit 0: exige nudge con hint).
 - **FC-INV-13 · Atención.** Bloque de plan ≤ 400 chars, baseline ≤ 140. La
   inyección es **estable por firma**: mientras la firma del nodo no cambie, se
   repiten los MISMOS bytes (AE-INV-10); cuando cambia, cuesta un miss y vuelve a
