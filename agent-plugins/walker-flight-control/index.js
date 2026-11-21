@@ -212,7 +212,7 @@ function closeBlock(rt, plan, entry, workProject) {
     entry && entry.verifyFailed ? "\nLa última verificación FALLÓ: corregí antes de terminar." : ""
   const pipe =
     entry && entry.verifyHint === "pipe"
-      ? "\nLa última verificación usó un pipe: su exit code es el del último comando. Repetila sin pipe o asegurate de que aparezca WALKER_RESULT."
+      ? "\nLa última verificación usó un pipe: su exit code es el del último comando y el plugin no ve el resultado. Repetila SIN pipe y SIN redirección (`> archivo` también oculta la salida), o asegurate de que aparezca WALKER_RESULT."
       : ""
   // La captura de conocimiento resuelve la spec y la traza por (task, session).
   // Si el nudge manda `<id>` y sin sesión, el hecho no se puede anclar y se
