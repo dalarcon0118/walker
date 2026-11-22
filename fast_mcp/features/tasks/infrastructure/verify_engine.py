@@ -54,6 +54,24 @@ except (FileNotFoundError, subprocess.TimeoutExpired):
 # CONSTANTES
 # ═══════════════════════════════════════════════════════════════════
 
+#: Timeout de un comando de verificación. El 30 s fijo medía mal: la suite de
+#: walker tarda ~35 s y el predicado `python3 -m pytest -q` salía ROJO por
+#: timeout aunque la suite pasara (medido 2026-11-21: 1.668 passed en 35,2 s).
+#: `run_tests` ya usa 300 s; la verificación tiene que poder cubrir la misma
+#: suite. Configurable para runners más lentos (ADR-084 F3b).
+DEFAULT_VERIFY_TIMEOUT_S = 300
+
+
+def verify_timeout_s() -> int:
+    """Timeout efectivo de `command_exit`/`test_pass`/`shell` (env o 300 s)."""
+    raw = os.environ.get("WALKER_VERIFY_TIMEOUT") or ""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_VERIFY_TIMEOUT_S
+    return value if value > 0 else DEFAULT_VERIFY_TIMEOUT_S
+
+
 _AST_LANG_MAP: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
@@ -909,7 +927,7 @@ def _verify_shell_string(text: str, project_root: str) -> tuple[bool, dict]:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=verify_timeout_s(),
             cwd=project_root,
         )
         passed = result.returncode == 0
@@ -925,7 +943,7 @@ def _verify_shell_string(text: str, project_root: str) -> tuple[bool, dict]:
         return False, {
             "method": "shell",
             "command": text[:80],
-            "error": "timeout (30s)",
+            "error": f"timeout ({verify_timeout_s()}s)",
             "label": text[:70],
         }
     except Exception as exc:
@@ -1025,7 +1043,7 @@ def _verify_command_exit(predicate: dict, project_root: str) -> tuple[bool, dict
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=verify_timeout_s(),
             cwd=project_root,
         )
         return result.returncode == 0, {
@@ -1038,7 +1056,7 @@ def _verify_command_exit(predicate: dict, project_root: str) -> tuple[bool, dict
         return False, {
             "method": "command_exit",
             "command": command[:80],
-            "error": "timeout (30s)",
+            "error": f"timeout ({verify_timeout_s()}s)",
             "label": command[:70],
         }
     except Exception as exc:
@@ -1066,7 +1084,7 @@ def _verify_command_output(predicate: dict, project_root: str) -> tuple[bool, di
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=verify_timeout_s(),
             cwd=project_root,
         )
         combined = (result.stdout or "") + (result.stderr or "")

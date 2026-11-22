@@ -20,7 +20,7 @@ import { execFileSync } from "node:child_process"
 import { appendFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 
-import { shellMutation as shellMutationImpl } from "./shell_mutation.mjs"
+import { shellEffect, shellMutation as shellMutationImpl } from "./shell_mutation.mjs"
 import { briefBlock, failureBriefBlock } from "./brief_block.mjs"
 import { applyInjection, describeMessages, normalizeMode, planBlocks } from "./injection.mjs"
 
@@ -708,6 +708,13 @@ async function runSetup(ctx) {
       if (baseline) lines.push(baseline)
       lines.push(`Próximo: ${String(plan.next || "(definir)").slice(0, 70)}`)
       if (outside.length) lines.push(`⚠ Fuera de alcance: ${outside.slice(0, 3).join(", ")}`)
+      // ADR-084 F0.2: el espejo del agente, en una línea. Se deriva del estado
+      // local del plugin (no requiere CLI extra); si no hubo escrituras, no se
+      // inyecta. ≤120 chars para no romper el presupuesto de atención.
+      const mirror = entry.writes
+        ? `Espejo: ${entry.writes} writes · ${entry.verified ? "verif ok" : "sin verif · " + (entry.closeRounds || 0) + " nudge(s)"}`.slice(0, 120)
+        : ""
+      if (mirror) lines.push(mirror)
       // Contrato de atención: el bloque entero <= 400 caracteres.
       const block = lines.join("\n")
       return block.length <= 400 ? block : block.slice(0, 397) + "…"
@@ -1250,6 +1257,9 @@ async function runSetup(ctx) {
                   decisions: (card?.decisions || []).length,
                   cached: Boolean(card?.impact?.cached),
                   degraded: Boolean(card?.degraded),
+                  gaps: (card?.self?.gaps || []).map((g) =>
+                    typeof g === "string" ? g : String(g?.code || "")
+                  ).filter(Boolean),
                 },
               })
             }
@@ -1331,6 +1341,9 @@ async function runSetup(ctx) {
                 chars: failureText.length,
                 ms: Date.now() - started,
                 decisions: (card?.decisions || []).length,
+                gaps: (card?.self?.gaps || []).map((g) =>
+                  typeof g === "string" ? g : String(g?.code || "")
+                ).filter(Boolean),
               },
             })
           }
@@ -2055,6 +2068,15 @@ async function runSetup(ctx) {
                 /^\s*(?:cd\s+[^\s;&|]+\s*&&\s*)?(?:\S*\/)?walker3\s+\S+(?:\s+'[^']*')?\s*$/.test(
                   String(input?.command || "")
                 )
+              // ADR-084 F3a (FC-INV-04): la decisión de intake es por EFECTO.
+              // `read` y `verify` no mutan: bloquearlos convertía observar en un
+              // peaje (medido: `grep`/`--help` bloqueados antes de ligar). El
+              // `unknown` NO se degrada a read (FC-INV-06).
+              const shellCmd = String(input?.command || "")
+              const effect =
+                name === "shell" ? shellEffect(shellCmd, rt.projectDir).effect : "write"
+              const isReadOrProtocol =
+                name === "shell" && ["read", "verify", "protocol"].includes(effect)
               // En algunos caminos (p. ej. server standalone) el tool no trae
               // sessionID: sin fallback la marca de `wrote` caía en "".
               const sid = String(callCtx?.sessionID || rt.sessionId || "")
@@ -2062,6 +2084,7 @@ async function runSetup(ctx) {
                 DENY_INTAKE &&
                 rt.projectId &&
                 !isWalkerCli &&
+                !isReadOrProtocol &&
                 !forceOpen.has(sid || "global")
               ) {
                 if (!isBound(sid)) {
@@ -2159,6 +2182,42 @@ async function runSetup(ctx) {
                   }
                 }
               }
+              // ── Gate de METACOGNICIÓN: sin plan declarado no se escribe ──
+              // El brief ya se inyecta al intake; lo que falta es el plan de
+              // una línea (tarea + alcance) que obliga a reconocer el problema
+              // y elegir estrategia. El protocolo CLI pasa para poder declararlo.
+              if (
+                !isWalkerCli &&
+                !isReadOrProtocol &&
+                !forceOpen.has(sid || "global") &&
+                rt.projectId &&
+                !isDeclared(sid)
+              ) {
+                const planNow = planFor(sid) || {}
+                const taskNow = String(planNow.task || "").trim()
+                const scopeNow = (planNow.scope || []).filter(Boolean)
+                if (!taskNow || !scopeNow.length) {
+                  tracePush({
+                    event_type: "flight_control_denied",
+                    source: "agent_hook",
+                    session_id: sid,
+                    data: { tool: name, gate: "metacog", plan: Boolean(taskNow), scope: scopeNow.length },
+                  })
+                  throw new Error(
+                    `[WALKER] Antes de escribir: declará el plan (tarea + alcance).\n` +
+                      `Esto activa la metacognición: qué vas a cambiar y por qué.\n` +
+                      `  ${CLI} ${rt.projectId}/session_plan '${JSON.stringify({
+                        session_id: sid,
+                        mode: "set",
+                        task: "<task_id o descripción>",
+                        scope: ["<archivo>"],
+                        acceptance: ["<criterio verificable>"],
+                      })}'\n` +
+                      `Después repetí exactamente la misma herramienta.`
+                  )
+                }
+              }
+
               // ── Gate de DESVÍO: escritura fuera del `scope` del plan ──
               if (SCOPE_GATE && (name === "edit" || name === "write")) {
                 const target = relPath(input?.path || input?.filePath || "", rt)
@@ -2512,6 +2571,9 @@ async function runSetup(ctx) {
                       ms: Date.now() - started,
                       decisions: (card?.decisions || []).length,
                       cached: Boolean(card?.impact?.cached),
+                      gaps: (card?.self?.gaps || []).map((g) =>
+                        typeof g === "string" ? g : String(g?.code || "")
+                      ).filter(Boolean),
                     },
                   })
                 }

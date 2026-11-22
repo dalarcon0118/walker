@@ -68,7 +68,7 @@
       "repo_path": "/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/walker-harness-fixture",
       "active": true,
       "registered_at": "2026-11-20T01:22:34.427639+00:00",
-      "last_accessed": "2026-11-20T12:34:41.660479+00:00"
+      "last_accessed": "2026-11-22T01:02:21.138818+00:00"
     },
     "walker-harness-fixture-bind": {
       "project_id": "walker-harness-fixture-bind",
@@ -76,7 +76,7 @@
       "repo_path": "/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/walker-harness-fixture-bind",
       "active": true,
       "registered_at": "2026-11-20T01:29:03.042126+00:00",
-      "last_accessed": "2026-11-20T12:35:55.183681+00:00"
+      "last_accessed": "2026-11-22T01:03:46.925777+00:00"
     },
     "walker-harness-fixture-autodeclare": {
       "project_id": "walker-harness-fixture-autodeclare",
@@ -84,8 +84,40 @@
       "repo_path": "/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/walker-harness-fixture-autodeclare",
       "active": true,
       "registered_at": "2026-11-20T10:48:30.282700+00:00",
-      "last_accessed": "2026-11-20T12:36:00.308890+00:00"
+      "last_accessed": "2026-11-22T01:03:52.046239+00:00"
+    },
+    "wfc-ro": {
+      "project_id": "wfc-ro",
+      "name": "wfc-ro",
+      "repo_path": "/tmp/wfc-ro",
+      "active": true,
+      "registered_at": "2026-11-22T00:57:11.443319+00:00",
+      "last_accessed": "2026-11-22T00:57:11.443319+00:00"
+    },
+    "wfc-inj": {
+      "project_id": "wfc-inj",
+      "name": "wfc-inj",
+      "repo_path": "/tmp/wfc-inj",
+      "active": true,
+      "registered_at": "2026-11-22T00:58:16.812455+00:00",
+      "last_accessed": "2026-11-22T00:58:16.812455+00:00"
+    },
+    "walker-harness-fixture-readonly": {
+      "project_id": "walker-harness-fixture-readonly",
+      "name": "walker-harness-fixture-readonly",
+      "repo_path": "/var/folders/q2/rh88tdyd3vsdf4x05wtznqd00000gn/T/walker-harness-fixture-readonly",
+      "active": true,
+      "registered_at": "2026-11-22T00:58:25.480239+00:00",
+      "last_accessed": "2026-11-22T01:02:21.731590+00:00"
+    },
+    "wfc-inj2": {
+      "project_id": "wfc-inj2",
+      "name": "wfc-inj2",
+      "repo_path": "/tmp/wfc-inj2",
+      "active": true,
+      "registered_at": "2026-11-22T13:20:30.037884+00:00",
+      "last_accessed": "2026-11-22T13:20:30.037884+00:00"
     }
   },
-  "updated_at": "2026-11-20T12:36:00.308890+00:00"
+  "updated_at": "2026-11-22T13:20:30.037884+00:00"
 }

@@ -84,3 +84,78 @@ def test_sin_indices_devuelve_ejemplo_ejecutable():
     out = handle_search_memories(_CtxFalso(ckg), _payload={"project_id": "walker"})
     assert "example" in out and "ckg" in out["example"]
     assert ckg.recibido is None, "sin índices no se llama al router"
+
+
+# ─── ADR-WALKER-084 F0: el payload natural no puede volcar el corpus ────────
+# Medido 2026-11-21: `{"ckg":{"query":"metacognición"}}` devolvía 138 docs
+# (todo el CKG) porque `query` es una clave META del backend y se descartaba.
+# Un filtro no resoluble caía al fallback eager y materializaba el índice.
+
+
+def test_query_dentro_de_un_indice_es_texto():
+    out, queries = _run({"ckg": {"query": "metacognición"}})
+    assert queries == {"ckg": {"text": "metacognición"}}, "query es alias de text"
+    assert "error" not in out
+
+
+def test_limit_es_size_y_no_un_filtro_ignorado():
+    _, queries = _run({"ckg": {"text": "x", "limit": 3}})
+    assert queries["ckg"]["size"] == 3
+    assert "limit" not in queries["ckg"]
+
+
+def test_filtro_desconocido_no_volca_el_indice():
+    ckg = _CkgFalso()
+    out = handle_search_memories(_CtxFalso(ckg), _payload={"ckg": {"symbol": "x"}})
+    assert ckg.recibido is None, "no se busca con un filtro que el schema no declara"
+    assert "error" in out
+    rejected = out["rejected"]["ckg"]
+    assert rejected["unknown"] == ["symbol"]
+    assert "text" in rejected["allowed"]
+    assert rejected["hits"]["total"] == 0
+    assert out["example"] == '{"ckg": {"text": "gate de alcance"}}'
+
+
+def test_rechazo_parcial_conserva_la_consulta_valida():
+    out, queries = _run({"ckg": {"text": "x"}, "trace": {"bogus": 1}})
+    assert queries == {"ckg": {"text": "x"}}
+    assert "trace" in out["error"]
+    assert out["responses"]["trace"]["hits"]["total"] == 0
+
+
+def test_payloads_de_los_templates_pasan_el_validador():
+    """Conformidad template↔handler: el workflow emite estas claves.
+
+    `task-spec.prompt.json` usa `{"trace":{"task":...}}`; los docs de ADR-018
+    usan `session_id`. Un validador que rechaza el payload del propio workflow
+    es una regresión, no una defensa.
+    """
+    payloads = [
+        {"ckg": {"type": "decision"}},
+        {"ckg": {"type": "convention", "scope": "harness"}},
+        {"cpg": {"file": "a.py"}},
+        {"cpg": {"type": "file", "file": "fast_mcp"}},
+        {"delta": {}},
+        {"trace": {"task": "SPEC-026"}},
+        {"trace": {"type": "TRANSITION"}},
+    ]
+    for payload in payloads:
+        ckg = _CkgFalso()
+        out = handle_search_memories(_CtxFalso(ckg), _payload=payload)
+        assert ckg.recibido is not None, f"el template quedó rechazado: {payload} → {out}"
+
+
+def test_trace_task_es_task_id():
+    _, queries = _run({"trace": {"task": "SPEC-026"}})
+    assert queries == {"trace": {"task_id": "SPEC-026"}}
+
+
+def test_trace_session_id_rechaza_con_remedio():
+    """El trace no indexa la sesión como columna: el error dice qué usar."""
+    ckg = _CkgFalso()
+    out = handle_search_memories(
+        _CtxFalso(ckg), _payload={"trace": {"session_id": "ses_x"}}
+    )
+    assert ckg.recibido is None
+    assert "session_context" in out["rejected"]["trace"]["hint"]
+

@@ -397,8 +397,19 @@ def test_ningun_template_usa_un_placeholder_que_nadie_provee():
         "source_node", "attempt", "max_attempts", "error_context", "failed_gates",
         "hint", "count", "project_name", "language", "framework", "cpg_nodes",
         "cpg_edges", "ckg_nodes",
+        # Provistos por `prompt_context.session_plan_context`: el plan de la
+        # SESIÓN entra al prompt del primer nodo. Se verifican abajo con el
+        # provider real, no por whitelist.
+        "existing_work", "existing_work_line",
     }
     import re
+
+    from fast_mcp.features.workflow.application.prompt_context import session_plan_context
+
+    # Un nombre en `provided` sin provider es la misma trampa que el test evita:
+    # se comprueba que el provider devuelve las dos claves.
+    sample = session_plan_context({"task": "t", "acceptance": ["Debe X"]})
+    assert {"existing_work", "existing_work_line"} <= set(sample), sample
 
     unknown: list[str] = []
     base = Path(ROOT, "fast_mcp/features/workflow/application/prompts/templates/nodes")

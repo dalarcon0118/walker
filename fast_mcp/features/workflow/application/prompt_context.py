@@ -472,6 +472,45 @@ def submitted_context(state: Any) -> dict[str, Any]:
     return out
 
 
+def session_plan_context(plan: dict[str, Any] | None) -> dict[str, Any]:
+    """Lo que la sesión YA declaró, para que el primer nodo no pregunte de cero.
+
+    `implement_task` escribe el vuelo (goal, acceptance, task, scope, next) antes
+    de que el agente toque un nodo. Si el workflow no lo lee, su primera pregunta
+    es "elegí un proyecto" mientras el trabajo ya tiene criterios de aceptación.
+    Devuelve `{}` cuando no hay plan: no se inventa contexto.
+    """
+    if not isinstance(plan, dict):
+        return {}
+    task = str(plan.get("task") or "").strip()
+    if not task:
+        return {}
+    acceptance = [str(a) for a in (plan.get("acceptance") or []) if str(a).strip()]
+    scope = [str(s) for s in (plan.get("scope") or []) if str(s).strip()]
+    out: dict[str, Any] = {
+        "task": task,
+        "goal": str(plan.get("goal") or ""),
+        "acceptance": acceptance[:5],
+        "scope": scope[:5],
+        "next": str(plan.get("next") or ""),
+    }
+    # Línea ya renderizada: los templates usan sustitución simple (`<< x >>`),
+    # así que un dict no se puede iterar. Se manda el texto listo y vacío cuando
+    # no hay nada que declarar (el template queda igual).
+    criteria = " · ".join(f"{i + 1}) {a[:60]}" for i, a in enumerate(out["acceptance"]))
+    parts = [f"Esta sesión YA declaró la tarea `{task}`."]
+    if criteria:
+        parts.append(f"Criterios: {criteria}.")
+    if out["next"]:
+        parts.append(f"Próximo: {out['next']}.")
+    parts.append(
+        "No vuelvas a preguntar lo que ya está declarado: si el usuario confirma, "
+        "respondé con intent=project_selected y project_id=<id>."
+    )
+    out["line"] = " ".join(parts)
+    return {"existing_work": out, "existing_work_line": out["line"], "task_id": task}
+
+
 def build_prompt_extra(state: Any, chain_dir: str, session_id: str) -> dict[str, Any]:
     """Todo el `extra_data` que los templates pueden usar, sin inventar nada."""
     extra: dict[str, Any] = {}
@@ -505,6 +544,20 @@ def build_prompt_extra(state: Any, chain_dir: str, session_id: str) -> dict[str,
                 or getattr(state, "task_id", "")
                 or ""
             )
+            # F5/P2: el primer nodo arranca desde lo que la sesión ya declaró.
+            # `existing_work` viaja al prompt y `task_id` prefiere el plan de la
+            # SESIÓN sobre el del proyecto: sin esto, START preguntaba "elegí un
+            # proyecto" y el prompt citaba la spec de otra tarea (medido:
+            # workflow_state devolvía SPEC-014 con la sesión trabajando en otra).
+            plan_ctx: dict[str, Any] = {}
+            if session_id:
+                try:
+                    plan_ctx = session_plan_context(service.get_session_plan(session_id))
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("prompt_context: plan de sesión no disponible (%s)", exc)
+            if plan_ctx:
+                extra.update(plan_ctx)
+                task_id = str(plan_ctx.get("task_id") or "") or task_id
             extra.update(sprint_extra(specs, spring, task_id))
     except Exception as exc:  # noqa: BLE001 — el prompt no depende del sprint
         logger.debug("prompt_context: sprint no disponible (%s)", exc)

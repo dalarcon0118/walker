@@ -95,6 +95,8 @@ class ReviewResult:
     issues: list[dict] = field(default_factory=list)
     files_scanned: list[str] = field(default_factory=list)
     summary: str = ""
+    dfg_total: int = 0
+    cfg_total: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -106,4 +108,6 @@ class ReviewResult:
             "issues": self.issues[:50],
             "files_scanned": self.files_scanned,
             "summary": self.summary,
+            "dfg_total": self.dfg_total,
+            "cfg_total": self.cfg_total,
         }

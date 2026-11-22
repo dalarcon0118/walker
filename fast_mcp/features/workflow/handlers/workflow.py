@@ -20,11 +20,20 @@ def _make_ctx(chain_dir: str, kwargs: dict) -> ExecutionContext:
 
 
 def _extract_fields(kwargs: dict) -> dict[str, Any]:
-    """Extract submit fields from kwargs (merge _payload into top-level)."""
+    """Extract submit fields from kwargs (merge _payload into top-level).
+
+    Alias `intent` → `decision`: el nodo START declara `intent` en su
+    `input_schema` y `decision` en el `output_schema`, y su template manda
+    `intent`. Sin el alias, el payload *documentado* no cruza el gate: medido,
+    `{"intent":"project_selected","project_id":...}` dejaba el workflow en
+    START.SELECT aunque el submit fuera ok.
+    """
     fields = dict(kwargs.get("_payload", {}))
     for k, v in kwargs.items():
         if not k.startswith("_") and k not in ("task_id", "session_id"):
             fields[k] = v
+    if not str(fields.get("decision") or "").strip() and str(fields.get("intent") or "").strip():
+        fields["decision"] = fields["intent"]
     return fields
 
 

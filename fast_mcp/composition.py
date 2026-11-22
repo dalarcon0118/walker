@@ -161,7 +161,48 @@ def project_tool_runner(name: str, root: Path | None = None):
         if name == "list":
             return use_cases.list_use_case(ctx, kwargs)
         if name == "status":
-            return use_cases.status_use_case(ctx, kwargs)
+            result = use_cases.status_use_case(ctx, kwargs)
+            # Resolver el sprint por sesión: con varios sprints activos,
+            # `get_active_spring()` es ambiguo y status devolvía `null`.
+            sid = str(kwargs.get("session_id") or "")
+            chain = root
+            if not chain:
+                try:
+                    pid = kwargs.get("project_id") or kwargs.get("_project_id") or ctx.store.resolve_from_cwd()
+                    chain = (ctx.store.resolve(pid) or {}).get("repo_path") if pid else ""
+                except Exception:  # noqa: BLE001
+                    chain = ""
+            if chain:
+                try:
+                    svc = build_sprint_service(chain)
+                    if sid:
+                        rec = svc.get_session(sid) if svc else None
+                        spring_id = str((rec or {}).get("spring_id") or "")
+                        spring = svc.get_spring(spring_id) if (svc and spring_id) else None
+                        if spring:
+                            result["sprint"] = {
+                                "sprint_id": spring_id,
+                                "goal": spring.get("goal") or "",
+                                "status": spring.get("status") or "",
+                                "session_id": sid,
+                                "specs_count": len(svc.get_specs(spring_id) or []),
+                            }
+                            result.pop("message", None)
+                    if not result.get("sprint"):
+                        active = svc.get_active_spring() if svc else None
+                        if active:
+                            aid = active.get("spring_id") or active.get("id") or ""
+                            result["sprint"] = {
+                                "sprint_id": aid,
+                                "goal": active.get("goal") or "",
+                                "status": active.get("status") or "",
+                                "session_id": "",
+                                "specs_count": len(svc.get_specs(aid) or []),
+                            }
+                            result.pop("message", None)
+                except Exception:  # noqa: BLE001 — status no rompe por enriquecimiento
+                    pass
+            return result
         raise ValueError(f"tool '{name}' sin use case en context project")
 
     return runner
@@ -305,6 +346,43 @@ def workflow_tool_runner(name: str, root: Path | None = None):
         chain_dir = _resolve_chain_dir(kwargs)
         if not chain_dir:
             return _no_project_context_error()
+
+        # ADR-084: submit/advance bloqueantes ante gaps no remediados.
+        if name in ("submit", "advance"):
+            session_id = str(kwargs.get("session_id") or kwargs.get("_session_id") or "")
+            if session_id and not kwargs.get("force"):
+                try:
+                    import importlib
+
+                    _mod = importlib.import_module(
+                        "fast_mcp.features.event_tracing.application.services.trace_factory"
+                    )
+                    build_trace_service = _mod.build_trace_service
+                    _kmod = importlib.import_module("fast_mcp.memories.handlers.knowledge")
+                    _project_flight_state = _kmod._project_flight_state
+
+                    service = build_trace_service(chain_dir)
+                    if service is not None:
+                        events = [
+                            e for e in service.load_traces(chain_dir)
+                            if str((getattr(e, "metadata", None) or {}).get("session_id", "")) == session_id
+                        ]
+                        flight = _project_flight_state(events, chain_dir, session_id)
+                        gaps = flight.get("gaps") or []
+                        if gaps:
+                            detail = "; ".join(
+                                str(g.get("detail", g) if isinstance(g, dict) else g)
+                                for g in gaps[:3]
+                            )
+                            return {
+                                "ok": False,
+                                "error": (
+                                    f"submit/advance bloqueado: hay gaps sin remediar: {detail}. "
+                                    "Corregí o pasá force=true."
+                                ),
+                            }
+                except Exception:  # noqa: BLE001
+                    pass
 
         # Inject the TaskRegistry (Sprint 5 — engine anémico). Cross-feature
         # wiring is legal ONLY here (composition root, R1/§3bis): the workflow
@@ -721,7 +799,10 @@ def _build_task_registry(sprint_service=None):
         # delta queda vacío y el ancla de tarea del contexto no existe.
         implement_handlers.configure(build_sprint_service)
 
+        # verify_predicates lee la spec del delta para recuperar predicates:
+        # sin esta factory, el gate no puede validar nada (bug medido).
         from fast_mcp.features.tasks.handlers import _di as tasks_di
+        tasks_di.configure_sprint(build_sprint_service)
         from fast_mcp.features.workflow.context import WorkflowContext
         from fast_mcp.features.workflow.domain.execution import ExecutionContext
 

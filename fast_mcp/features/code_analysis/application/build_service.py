@@ -1140,8 +1140,14 @@ class BuildGraphUseCase:
         """
         # 1. Resolver archivos de cualquier lenguaje (SSOT .walkerignore —
         #    sin esto el walk recorre node_modules completo y quema CPU horas)
+        from fast_mcp.features.code_analysis.infrastructure.ast_grep_adapter import _detect_lang
+
         raw_paths = scan_paths if scan_paths is not None else self.resolve_code_paths()
         all_files = _walk_code_files(raw_paths, self._ignore)
+
+        _CODE_LANGS = {"python", "javascript", "typescript", "rust", "go",
+                       "java", "ruby", "kotlin", "swift", "c", "cpp"}
+        all_files = [f for f in all_files if _detect_lang(f) in _CODE_LANGS]
 
         if not all_files:
             return {"dead_branches": [], "missing_returns": [], "infinite_loops": []}
@@ -1231,19 +1237,41 @@ class BuildGraphUseCase:
         cfg_cache.save()
         # Quality report tras CFG scan (CALLS edges disponibles para review)
         self._persist_quality_report(all_files)
-        result = data.get(
-            "analysis_results",
-            {
-                "dead_branches": [],
-                "missing_returns": [],
-                "infinite_loops": [],
-            },
+        # Patrones de control flow sobre el CST (ast-grep). Son aproximaciones
+        # estructurales, no análisis semántico real.
+        from fast_mcp.features.code_analysis.infrastructure.ast_grep_adapter import (
+            _detect_lang,
+            _run_ast_grep,
         )
+
+        dead_branches = []
+        missing_returns = []
+        infinite_loops = []
+        for fp in all_files:
+            lang = _detect_lang(fp)
+            if not lang:
+                continue
+            for m in _run_ast_grep("if False:", fp, lang):
+                dead_branches.append({"file": fp, "line": m["line"], "detail": "if False (rama muerta)"})
+            for m in _run_ast_grep("if 0:", fp, lang):
+                dead_branches.append({"file": fp, "line": m["line"], "detail": "if 0 (rama muerta)"})
+            for m in _run_ast_grep("while True:", fp, lang):
+                infinite_loops.append({"file": fp, "line": m["line"], "detail": "while True (posible loop infinito)"})
+
+        result = {
+            "dead_branches": dead_branches,
+            "missing_returns": missing_returns,
+            "infinite_loops": infinite_loops,
+            "cfg_cache": cfg_cache.stats,
+            "cfg_cache_hits": cache_hits,
+        }
         if isinstance(result, dict):
             result["cfg_cache"] = cfg_cache.stats
             result["cfg_cache_hits"] = cache_hits
         # F3b: proyección de analysis_results fuera del blob (bug_service la
         # consume con fallback on-demand)
+        data["analysis_results"] = result
+        self._repo.save(data)
         _write_projection(self.data_dir, "analysis_results.json", result)
         return result
 
@@ -1301,7 +1329,7 @@ class BuildGraphUseCase:
                 "data_gaps": [],
             }
             for pat in security_patterns:
-                matches = _run_ast_grep(pat["pattern"], fp, lang)
+                matches = _run_ast_grep(pat["pattern"], fp, pat.get("lang") or lang)
                 for m in matches:
                     entry = {
                         "file": fp,
@@ -1359,7 +1387,11 @@ class BuildGraphUseCase:
 
         # Limitar por performance, pero reportar el límite
         MAX_FILES = 200
-        scan_files = all_files[:MAX_FILES]
+        # Excluir lenguajes sin patrones de seguridad (p. ej. markdown):
+        # evita falsos positivos como `rule.md` con hardcoded_secret.
+        _CODE_LANGS = {"python", "javascript", "typescript", "rust", "go",
+                       "java", "ruby", "kotlin", "swift", "c", "cpp"}
+        scan_files = [f for f in all_files if _detect_lang(f) in _CODE_LANGS][:MAX_FILES]
         if len(all_files) > MAX_FILES and verbose:
             _eprint(
                 f"  ⚠️  DFG: {len(all_files)} archivos, analizando los {MAX_FILES} primeros"

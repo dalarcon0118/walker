@@ -1,0 +1,22 @@
+[
+  {"id": "q01", "question": "como separar el CLI del protocolo MCP", "expected": "adr-walker-016-cli-interface-protocol-bounded-context"},
+  {"id": "q02", "question": "las convenciones se derivan en build time no en runtime", "expected": "adr-walker-017-conventions-build-time-query-time"},
+  {"id": "q03", "question": "checklist obligatorio por tool y trace consolidado", "expected": "adr-walker-018-context-gates-and-trace"},
+  {"id": "q04", "question": "BDD para el modulo de analisis de codigo", "expected": "adr-walker-021-bdd-cpg-tests-first"},
+  {"id": "q05", "question": "el conocimiento se modela como entidad ODM con CRUD", "expected": "adr-walker-022-knowledgefact-entity-odm-conventions"},
+  {"id": "q06", "question": "las lecturas de memoria se exponen como casos de uso del flujo", "expected": "adr-walker-023-query-use-cases-hide-infrastructure"},
+  {"id": "q07", "question": "wait states timeouts y resolucion de bloques en el workflow", "expected": "adr-walker-042"},
+  {"id": "q08", "question": "contrato de tool como fuente unica de verdad entre agente y walker", "expected": "adr-walker-043-agent-walker-protocol-single-source-of-truth"},
+  {"id": "q09", "question": "eliminar fallbacks estaticos del protocolo MCP", "expected": "adr-walker-044-protocol-ssot-dynamic"},
+  {"id": "q10", "question": "composition root obligatorio para el engine", "expected": "adr-walker-045-composition-root-obligatorio"},
+  {"id": "q11", "question": "ciclo de vida explicito del composition root", "expected": "adr-walker-046-appcontainer-composition-lifetime"},
+  {"id": "q12", "question": "inventario de violaciones de capas y registries", "expected": "adr-walker-047-registry-conflation-layer-violations"},
+  {"id": "q13", "question": "contexto del agente se inyecta no se pide", "expected": "adr-walker-048-deterministic-retrieval-prompt-context"},
+  {"id": "q14", "question": "tasks y side effects como capa de binding entre engine y features", "expected": "adr-walker-049-side-effect-naming-semantico"},
+  {"id": "q15", "question": "refinamiento de features main boundaries", "expected": "adr-walker-050"},
+  {"id": "q16", "question": "cierre de gaps del refactor por responsabilidades", "expected": "adr-walker-051-gaps-refactor-responsabilidades"},
+  {"id": "q17", "question": "gate DAG de arranque y ciclos feature level", "expected": "adr-walker-052-dag-gate-boot-y-ciclos-feature"},
+  {"id": "q18", "question": "project context centralizado resolver una vez", "expected": "adr-walker-053-project-context-centralizado"},
+  {"id": "q19", "question": "almacenamiento cognitivo unificado chain_dir data_dir", "expected": "adr-walker-054-almacenamiento-cognitivo-unificado-chain-dir-data-dir"},
+  {"id": "q20", "question": "deuda tecnica estructural del analisis de codigo", "expected": "adr-walker-055-code-analysis-deuda-tecnica-estructural"}
+]

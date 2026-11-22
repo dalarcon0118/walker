@@ -1,0 +1,14 @@
+{
+  "baseline_gates": {
+    "PLAN_APPROVAL": 2,
+    "PO_ACCEPT": 2,
+    "REPORT_GATE": 2,
+    "USER_GATE": 2
+  },
+  "post_fusion_gates": {
+    "PLAN_APPROVAL": 2,
+    "REPORT_GATE": 2
+  },
+  "total_baseline": 8,
+  "total_post_fusion": 4
+}

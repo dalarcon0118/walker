@@ -67,7 +67,7 @@ const project = explicit ? byId(explicit) : fixture()
 // Modos que necesitan un proyecto SIN trabajo previo: el plugin decide con el
 // estado del proyecto (workflow_state/session_bind), no con la sesión. Si
 // comparten fixture con los modos que declaran tareas, ven el plan de otro.
-const ISOLATED = new Set(["bind", "autodeclare"])
+const ISOLATED = new Set(["bind", "autodeclare", "readonly"])
 const isolated = new Map()
 
 process.env.HARNESS_PROJECT = project.id
@@ -92,6 +92,7 @@ const REAL_CLI = new Set([
 // resultado no es pass/fail. Los demás modos salen 0/1.
 const MODES = [
   "normal",
+  "readonly",
   "inject",
   "injectonce",
   "injectmessages",

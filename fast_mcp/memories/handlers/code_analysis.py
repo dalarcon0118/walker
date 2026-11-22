@@ -133,13 +133,16 @@ def handle_build_code_index(ctx: MemoryContext, **kwargs: Any) -> dict:
 
 def handle_update_incremental_code(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Incremental CPG update via watcher: re-indexes only changed files."""
+    body = kwargs.get("_payload", kwargs) or {}
+    bug_proposals = bool(body.get("bug_proposals", True))
     cpg = ctx.cpg()
     if cpg is None:
         return {"updated": False, "error": "CPG not available"}
-    result = cpg.update()
+    result = cpg.update(bug_proposals=bug_proposals)
     # Fail-fast honesto: un update abortado NO se reporta como exitoso.
     updated = bool(result.get("ok", True)) if isinstance(result, dict) else True
-    return {"updated": updated, "project_root": ctx.project_root, "result": result}
+    return {"updated": updated, "project_root": ctx.project_root, "result": result,
+            "bug_proposals": bug_proposals}
 
 
 def handle_snapshot(ctx: MemoryContext, **kwargs: Any) -> dict:

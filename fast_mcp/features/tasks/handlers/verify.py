@@ -119,7 +119,20 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         try:
             from fast_mcp.features.tasks.handlers import _di
 
-            spec = _di.current_spec(ctx.chain_dir or "", task_id=str(data.get("task_id", "") or ""))
+            _sid = str(data.get("session_id") or getattr(ctx, "session_id", "") or "")
+            _spring = _di.session_spring(ctx.chain_dir or "", _sid) if _sid else ""
+            try:
+                spec = _di.current_spec(
+                    ctx.chain_dir or "",
+                    task_id=str(data.get("task_id", "") or ""),
+                    spring_id=_spring,
+                    exact=True,
+                )
+            except TypeError:
+                spec = _di.current_spec(
+                    ctx.chain_dir or "",
+                    task_id=str(data.get("task_id", "") or ""),
+                )
             if spec:
                 bundle = spec.get("predicates") or {}
                 predicates = [p for p in (bundle.get("items") or []) if isinstance(p, dict)]

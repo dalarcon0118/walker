@@ -386,6 +386,57 @@ _SEARCH_CONTROL = frozenset({
 #: Ejemplo ejecutable: un error de firma sin ejemplo obliga a adivinar.
 _SEARCH_EXAMPLE = '{"ckg": {"text": "gate de alcance"}}'
 
+#: Claves que `search()` consume como meta/paginación, no como filtro.
+_INDEX_META_KEYS: frozenset[str] = frozenset({
+    "text", "match_mode", "text_fields",
+    "size", "max_results", "max_events", "_from", "from",
+})
+
+#: Alias por índice. El agente escribe el nombre semántico y el schema declara
+#: la columna: `query`/`limit` son meta/paginación (se descartaban en silencio y
+#: volcaban el índice), `task` es `task_id` en trace y `symbol` es `function` en
+#: cpg. Medido 2026-11-21: `{"ckg":{"query":"metacognición"}}` → 138 docs.
+#: ADR-WALKER-084 (F3c): el payload natural no puede ser una trampa.
+_INDEX_ALIASES: dict[str, dict[str, str]] = {
+    "ckg": {"query": "text", "limit": "size"},
+    "cpg": {"query": "text", "limit": "size", "symbol": "function"},
+    "delta": {"query": "text", "limit": "size"},
+    "trace": {"query": "text", "limit": "size", "task": "task_id"},
+}
+
+
+def _allowed_index_keys(index: str) -> set[str]:
+    """Claves válidas de un índice = campos del schema + meta/paginación.
+
+    SSOT: `PRODUCTION_INDEX_SCHEMAS` (nunca una lista paralela). Si el índice no
+    existe, devuelve solo meta: el error lo da `search_many`.
+    """
+    from fast_mcp.shared_kernel.cognitive_graph.schemas import PRODUCTION_INDEX_SCHEMAS
+
+    schema = PRODUCTION_INDEX_SCHEMAS.get(index) or {}
+    return set(schema.get("fields") or {}) | set(_INDEX_META_KEYS)
+
+
+def _normalize_index_query(index: str, query: dict) -> tuple[dict, list[str]]:
+    """Traduce alias y separa los filtros que el schema no declara.
+
+    Un filtro desconocido NO se ignora: ignorarlo hacía que `search` materializara
+    el read model completo y devolviera todo el índice como si fuera una
+    respuesta. El caller recibe `allowed` y el ejemplo exacto.
+    """
+    allowed = _allowed_index_keys(index)
+    aliases = _INDEX_ALIASES.get(index, {})
+    clean: dict = {}
+    unknown: list[str] = []
+    for key, value in query.items():
+        target = aliases.get(str(key), str(key))
+        if target not in allowed:
+            unknown.append(str(key))
+            continue
+        # `query` es alias de `text`: un `text` explícito gana.
+        clean.setdefault(target, value)
+    return clean, unknown
+
 
 def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Federated query across multiple indexes at once.
@@ -413,12 +464,54 @@ def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
         elif key not in _SEARCH_CONTROL and not key.startswith("_"):
             unknown.append(str(key))
 
-    text = raw.get("text", raw.get("query", ""))
-    if text:
-        queries.setdefault("ckg", {})["text"] = str(text)
+    top_text = raw.get("text", raw.get("query", ""))
+    if top_text:
+        queries.setdefault("ckg", {})["text"] = str(top_text)
+
+    # ADR-WALKER-084 F0: validar ANTES de buscar. El fallback eager de
+    # `search` devolvía el corpus ante un filtro no resoluble, y una respuesta
+    # plausible-pero-errónea es peor que un error: el agente deja de confiar.
+    if not queries:
+        return {
+            "error": "Sin índices en el payload",
+            "indexes": list(_SEARCH_INDEXES),
+            "example": _SEARCH_EXAMPLE,
+        }
+    normalized: dict[str, dict] = {}
+    rejected: dict[str, dict] = {}
+    for index, query in queries.items():
+        clean, unknown_keys = _normalize_index_query(index, query)
+        if unknown_keys:
+            rejected[index] = {
+                "error": f"filtros no soportados en '{index}': {unknown_keys}",
+                "unknown": unknown_keys,
+                "allowed": sorted(_allowed_index_keys(index)),
+                "example": _SEARCH_EXAMPLE,
+                "hits": {"total": 0, "hits": []},
+            }
+            if index == "trace" and any(
+                k in ("session_id", "session") for k in unknown_keys
+            ):
+                # FC-INV-07: todo rechazo lleva el remedio ejecutable. El trace
+                # no indexa la sesión como columna; el caso de uso es otro.
+                rejected[index]["hint"] = (
+                    "trace se filtra por task_id/event_type; para una sesión "
+                    "usá session_context"
+                )
+            continue
+        normalized[index] = clean
+
+    if not normalized:
+        return {
+            "error": f"Todos los índices quedaron rechazados: {sorted(rejected)}",
+            "rejected": rejected,
+            "indexes": list(_SEARCH_INDEXES),
+            "example": _SEARCH_EXAMPLE,
+        }
+
     match_mode = raw.get("match_mode")
     size = raw.get("size", raw.get("max_results"))
-    for query in queries.values():
+    for query in normalized.values():
         if match_mode:
             query.setdefault("match_mode", match_mode)
         if size:
@@ -431,19 +524,18 @@ def handle_search_memories(ctx: MemoryContext, **kwargs: Any) -> dict:
             if len(qtext.split()) > 1:
                 query["match_mode"] = "any"
 
-    if not queries:
-        return {
-            "error": "Sin índices en el payload",
-            "indexes": list(_SEARCH_INDEXES),
-            "example": _SEARCH_EXAMPLE,
-        }
-
     try:
-        out = ckg.search_many(queries)
+        out = ckg.search_many(normalized)
     except Exception as e:  # noqa: BLE001 — el handler nunca tumba el server
         return {"error": str(e), "example": _SEARCH_EXAMPLE}
     if not isinstance(out, dict):
         return out
+    if rejected:
+        # Fallo ruidoso y parcial: los índices válidos se devuelven igual.
+        responses = out.setdefault("responses", {})
+        if isinstance(responses, dict):
+            responses.update(rejected)
+        out["error"] = f"Índices rechazados por filtros no soportados: {sorted(rejected)}"
     # Fallo ruidoso pero parcial: los índices válidos se devuelven igual.
     if unknown:
         out["error"] = f"Índices no registrados: {unknown}"
@@ -566,6 +658,10 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
         "task": task_spec,
         "file": target_file,
         "text": query,
+        # Deprecado: el agente debe usar `brief` (un lector, AE-INV-01).
+        # Se mantiene por compatibilidad, pero la superficie canónica es `brief`.
+        "deprecated": True,
+        "use_instead": "brief",
     }
     # P1.2: salud de la memoria como precondición de la decisión. `trusted`
     # es la señal que el plugin usa para no citar `adr-###` de un CKG vacío.
@@ -577,7 +673,8 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     # cuántas había para que pueda pedir más con search_memories.
     result = CkgReadService.gather_context(ctx.chain_dir, query=query or target_file)
     decisions = result.value_or([]) if is_successful(result) else []
-    limit = 10 if anchor.get("type") == "task" else 5
+    # Deprecado: se limita a 1 para empujar al agente hacia `brief`.
+    limit = 1
     out["ckg"] = {"results": decisions[:limit]}
     if len(decisions) > limit:
         out["ckg"]["total"] = len(decisions)
@@ -622,6 +719,42 @@ def handle_agent_context(ctx: MemoryContext, **kwargs: Any) -> dict:
         pass
 
     return out
+
+
+#: Claves que `session_context` y `brief.self` proyectan del trace. Un solo
+#: proyector (ADR-084 F0.2): antes `brief` reimplementaba la proyección y podía
+#: mentir verde (escritura no observada → writes:0, verified:true).
+_FLIGHT_KEYS = (
+    "verified", "verified_at", "verify_level", "dirty_since",
+    "wrote", "writes", "touched", "weak", "weak_reason",
+)
+
+
+def _project_flight_state(events, chain_dir: str, session_id: str) -> dict[str, Any]:
+    """Proyección compartida del último estado de vuelo de la sesión.
+
+    El TRACE es el SSOT; el último evento `session_state` (o, si no hay, el
+    último `session_metrics`) describe verified/verified_at/verify_level/
+    dirty_since/wrote/writes/touched. El watcher completa solo lo que el trace
+    no trae (escritura no observada por el hook). `verified` desconocido es
+    `None`, nunca `False`.
+    """
+    source = None
+    for event in events:
+        if getattr(event, "event_type", None) == "session_state":
+            source = event
+    if source is None:
+        for event in events:
+            if getattr(event, "event_type", None) == "session_metrics":
+                source = event
+    if source is not None:
+        data = getattr(source, "data", None) or {}
+        if not isinstance(data, dict):
+            data = {}
+        flight = {key: data[key] for key in _FLIGHT_KEYS if key in data}
+    else:
+        flight = {}
+    return merge_write_evidence(flight, chain_dir, session_id=session_id)
 
 
 def merge_write_evidence(
@@ -835,33 +968,9 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     # el último `session_metrics`) describe verified/verified_at/verify_level/
     # dirty_since/wrote/writes/touched. Se usa la lista completa de eventos,
     # no el slice de display.
-    _FLIGHT_KEYS = (
-        "verified", "verified_at", "verify_level", "dirty_since",
-        "wrote", "writes", "touched", "weak", "weak_reason",
-    )
-    _source = None
-    for _e in events:
-        if getattr(_e, "event_type", None) == "session_state":
-            _source = _e
-    if _source is None:
-        for _e in events:
-            if getattr(_e, "event_type", None) == "session_metrics":
-                _source = _e
-    if _source is not None:
-        _data = getattr(_source, "data", None) or {}
-        if not isinstance(_data, dict):
-            _data = {}
-        out["flight_state"] = {k: _data[k] for k in _FLIGHT_KEYS if k in _data}
-    else:
-        out["flight_state"] = {}
+    # 3b. FLIGHT STATE: proyección compartida (ADR-084 F0.2).
+    out["flight_state"] = _project_flight_state(events, ctx.chain_dir, sid)
 
-    # 3c. Evidencia de escritura SIN hook (P1.12): diff contra el último scan.
-    # Completa solo lo que el trace no trae: si el plugin ya observó `wrote`,
-    # ese dato es más preciso (sabe QUÉ herramienta escribió). Sin esto, una
-    # sesión que editó por un camino no observado cerraba limpia sin deuda.
-    out["flight_state"] = merge_write_evidence(
-        out.get("flight_state") or {}, ctx.chain_dir, session_id=sid
-    )
 
     # 4. CKG: decisiones y hechos de la sesión
     try:
@@ -1052,8 +1161,165 @@ def _impact_store(key: tuple, payload: dict[str, Any]) -> None:
     _IMPACT_CACHE[key] = (time.monotonic(), dict(payload))
 
 
+#: Caché del espejo (ADR-084 FS-3): `load_traces` recorre el read model y el
+#: flight card se pide varias veces por turno. Mismo orden que el plan (2 s).
+_SELF_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+_SELF_TTL_S = 2.0
+
+
+def _session_self(ctx: MemoryContext, session_id: str) -> tuple[dict[str, Any], list[str], bool]:
+    """Espejo de la conducta OBSERVADA de la sesión (ADR-WALKER-084 F0.2).
+
+    Proyección del TraceGraph vía el proyector compartido (un solo SSOT). `verified`
+    desconocido es `None`, nunca `False` (FS-2). Sin eventos de la sesión, la
+    sección está ausente (no un "todo bien").
+
+    Devuelve `(state, missing, degraded)`. Un trace roto se declara, no se traga.
+    """
+    key = (str(getattr(ctx, "chain_dir", "") or ""), session_id)
+    try:
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+        )
+
+        try:
+            service = build_trace_service(ctx.chain_dir)
+        except Exception as exc:  # noqa: BLE001
+            if "ProjectResolution" in type(exc).__name__ or "project" in str(exc).lower():
+                return {}, [], False
+            return {}, [f"self: {type(exc).__name__}: {exc}"], True
+        if service is None:
+            return {}, [], False
+        try:
+            events = [
+                e for e in service.load_traces(ctx.chain_dir)
+                if str((getattr(e, "metadata", None) or {}).get("session_id", "")) == session_id
+            ]
+        except Exception as exc:  # noqa: BLE001
+            return {}, [f"self: {type(exc).__name__}: {exc}"], True
+    except Exception as exc:  # noqa: BLE001
+        return {}, [f"self: {type(exc).__name__}: {exc}"], True
+
+    if not events:
+        return {}, [], False
+
+    # Caché por cantidad de eventos: se invalida apenas entra un evento nuevo.
+    # La TTL de 2 s servía un verde viejo justo después de una verificación.
+    cached = _SELF_CACHE.get(key)
+    if cached and cached[1] == len(events):
+        return dict(cached[2]), list(cached[3]), cached[4]
+
+    flight = _project_flight_state(events, ctx.chain_dir, session_id)
+    writes = int(flight.get("writes") or 0)
+    verified = flight.get("verified")
+    if verified is not None:
+        verified = bool(verified)
+
+    # Ventana: los denials/close_blocked posteriores al último verde. Un cierre
+    # que ya se verificó no arrastra los denials del arranque (FS-1).
+    last_verified_at = str(flight.get("verified_at") or "")
+    denied = 0
+    by_rule: dict[str, int] = {}
+    expanded = 0
+    close_blocked = 0
+    for event in events:
+        et = str(getattr(event, "event_type", "") or "")
+        data = getattr(event, "data", None) or {}
+        if not isinstance(data, dict):
+            data = {}
+        ts = str(getattr(event, "timestamp", "") or "")
+        if last_verified_at and ts and ts <= last_verified_at:
+            continue
+        if et == "flight_control_denied":
+            denied += 1
+            gate = str(data.get("gate") or data.get("rule_id") or "sin_gate")
+            by_rule[gate] = by_rule.get(gate, 0) + 1
+        elif et == "flight_control_scope_expanded":
+            expanded += 1
+        elif et == "close_blocked":
+            close_blocked += 1
+
+    # Gaps como objetos accionables (code/detail/remedy), no frases sueltas.
+    gaps: list[dict[str, str]] = []
+    if writes and verified is False:
+        gaps.append({
+            "code": "no_verify",
+            "detail": f"{writes} escrituras sin verificación verde",
+            "remedy": "correr run_tests y verificar",
+        })
+    elif writes and verified is None:
+        gaps.append({
+            "code": "no_evidence",
+            "detail": f"{writes} escrituras sin evidencia de verificación",
+            "remedy": "correr run_tests y verificar",
+        })
+    if close_blocked and verified is not True:
+        gaps.append({
+            "code": "close_blocked",
+            "detail": f"{close_blocked} intento(s) de cierre sin verde",
+            "remedy": "verificar antes de cerrar",
+        })
+    if denied:
+        gaps.append({
+            "code": "denials",
+            "detail": f"{denied} denial(es) de gate desde el último verde",
+            "remedy": "revisar el remedio del deny y repetir",
+        })
+    if expanded:
+        gaps.append({
+            "code": "scope_expanded",
+            "detail": f"{expanded} archivo(s) ampliado(s) fuera del plan original",
+            "remedy": "revisar el alcance declarado",
+        })
+
+    state = {
+        "writes": writes,
+        "verified": verified,
+        "verify_level": str(flight.get("verify_level") or ""),
+        "denials": {"total": denied, "by_rule": by_rule},
+        "scope_expanded": expanded,
+        "close_blocked": close_blocked,
+        "gaps": gaps,
+    }
+    _SELF_CACHE[key] = (time.monotonic(), len(events), dict(state), [], False)
+    return state, [], False
+
+
+def _norm_paths(paths: Any) -> list[str]:
+    """Normaliza una lista de archivos/dirs (`./x`, `x/` → `x`)."""
+    out: list[str] = []
+    for item in paths or []:
+        text = str(item or "").strip().lstrip("./").rstrip("/")
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def _applies_to_of(node: dict) -> list[str]:
+    """`applies_to` vive en el nodo o en `metadata` (string o lista)."""
+    raw = node.get("applies_to")
+    if raw is None:
+        meta = node.get("metadata") or {}
+        if isinstance(meta, dict):
+            raw = meta.get("applies_to")
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.replace(";", ",").split(",")]
+    return _norm_paths(raw)
+
+
+def _matches_applies_to(applies: list[str], targets: list[str]) -> bool:
+    """True si la decisión declara el archivo, su directorio o un ancestro."""
+    for declared in applies:
+        for target in targets:
+            if target == declared or target.endswith("/" + declared):
+                return True
+            if declared.endswith("/" + target) or target.startswith(declared + "/"):
+                return True
+    return False
+
+
 def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
-    """Contexto de fase en UNA llamada: decisiones + impacto + gates.
+    """Contexto de fase en UNA llamada: decisiones + impacto + gates + espejo.
 
     AGENT-EFFICIENCY §2.1: reemplaza `agent_context` + `preflight` en el camino
     del agente. `missing[]` y `degraded` son obligatorios — una respuesta
@@ -1132,9 +1398,22 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
                     "state": str(meta.get("status") or ""),
                     "why": str(node.get("rationale") or "")[:120],
                     "supersedes": list(node.get("supersedes") or meta.get("supersedes") or []),
+                    # ADR-084 F2a: la decisión declara a qué aplica. El ranking
+                    # usa el archivo que se está tocando, no solo el texto.
+                    "applies_to": _applies_to_of(node),
                 })
-                if len(decisions) == 5:
+                if len(decisions) == 20:
                     break
+            # Una decisión que declara el archivo va primero. Sin `applies_to`
+            # se conserva (es útil) pero se marca `matched: false`.
+            target_paths = _norm_paths(targets)
+            for decision in decisions:
+                decision["matched"] = bool(decision["applies_to"]) and _matches_applies_to(
+                    decision["applies_to"], target_paths
+                )
+            if any(decision["matched"] for decision in decisions):
+                decisions.sort(key=lambda d: 0 if d["matched"] else 1)
+            decisions = decisions[:5]
             if not decisions:
                 missing.append("decisions: sin ADR para el ancla")
         except Exception as exc:  # noqa: BLE001 — se declara, no se traga
@@ -1268,6 +1547,27 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
             }
             missing.extend(diff.get("missing") or [])
 
+    # 6b. ESPEJO: conducta observada de la sesión (ADR-WALKER-084 F0).
+    #     Es la pieza que faltaba: el harness ya sabe esto; ahora se lo dice al
+    #     agente. Sin eventos de la sesión la sección está ausente (nunca un
+    #     `verified: false` inventado).
+    self_state: dict[str, Any] = {}
+    if session_id:
+        raw_self, self_missing, self_degraded = _session_self(ctx, session_id)
+        if raw_self:
+            self_state = dict(raw_self)
+            self_state["gaps"] = list(raw_self.get("gaps") or [])
+            if plan.get("unverified"):
+                self_state["gaps"].append(
+                    {
+                        "code": "unverified_criteria",
+                        "detail": f"{len(plan['unverified'])} criterio(s) sin predicado verificable",
+                        "remedy": "definir predicados ejecutables",
+                    }
+                )
+        missing.extend(self_missing)
+        degraded = degraded or self_degraded
+
     # 7. Consistencia: el flight card no puede afirmar dos estados a la vez.
     consistency: dict[str, Any] = {"ok": True, "governs": "workflow"}
     position = str(step.get("position") or "")
@@ -1286,6 +1586,110 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
             ),
         }
 
+    # Estrategia: plan_diff en el mismo lector (sin llamada extra).
+    plan_diff_result: dict[str, Any] | None = None
+    if session_id:
+        try:
+            plan_diff_result = handle_plan_diff(ctx, _payload={"session_id": session_id, "task_id": task_id})
+        except Exception as exc:  # noqa: BLE001
+            missing.append(f"plan_diff: {type(exc).__name__}: {exc}")
+            degraded = True
+
+    # Reconocimiento: code_context compacto para los archivos del alcance.
+    code_context_result: dict[str, Any] | None = None
+    try:
+        svc_factory = getattr(ctx, "code_context_service", None)
+        service = svc_factory() if callable(svc_factory) else None
+        if service is not None and targets:
+            code_context_result = service.execute(target_file=targets[0], query="") if hasattr(service, "execute") else None
+    except Exception as exc:  # noqa: BLE001
+        missing.append(f"code_context: {type(exc).__name__}: {exc}")
+        degraded = True
+
+    # ADR-084: score de metacognición local (sesión). No reemplaza al
+    # `scripts/metacognition_score.py` global; es una señal barata para el
+    # agente dentro del mismo turno.
+    metacognition = {"score": 0, "components": {}}
+    if self_state:
+        gaps = self_state.get("gaps") or []
+        verified = self_state.get("verified")
+        denials = (self_state.get("denials") or {}).get("total", 0)
+        score = 0
+        if verified is True:
+            score += 40
+        if not gaps:
+            score += 40
+        score += max(0, 20 - min(20, int(denials) * 5))
+        metacognition = {
+            "score": max(0, min(100, score)),
+            "components": {
+                "verified": verified is True,
+                "gaps": len(gaps),
+                "denials": int(denials),
+            },
+        }
+
+    # ADR-084: el agente ve el CPG sin salir del lector consolidado. Se
+    # intenta; si el servicio no está o falla, se declara en `missing`.
+    review: dict[str, Any] | None = None
+    try:
+        svc_factory = getattr(ctx, "code_analysis_service", None)
+        service = svc_factory() if callable(svc_factory) else None
+        if service is not None and targets:
+            result = service.review_code(files=targets)
+            review = {
+                "passed": getattr(result, "passed", None),
+                "summary": getattr(result, "summary", "") or "",
+                "findings": len(getattr(result, "findings", []) or []),
+                "issues": len(getattr(result, "issues", []) or []),
+                "recommendations": (getattr(result, "recommendations", []) or [])[:3],
+            }
+    except Exception as exc:  # noqa: BLE001
+        missing.append(f"review: {type(exc).__name__}: {exc}")
+        degraded = True
+
+    # Metacognición explícita: conocimiento (self/task/strategies) + regulación
+    # (plan/monitor/evaluate). Reusa lo que ya se leyó, no duplica verdad.
+    if isinstance(metacognition, dict):
+        gaps_now = (self_state.get("gaps") or []) if self_state else []
+        strategies = []
+        if review is not None:
+            strategies.append("revisar CPG")
+        if targets:
+            strategies.append("preflight de impacto")
+        if gaps_now:
+            strategies.append("remediar gaps")
+        if not strategies:
+            strategies.append("consultar brief")
+        metacognition["knowledge"] = {
+            "self": {
+                "verified": (self_state or {}).get("verified"),
+                "gaps": len(gaps_now),
+                "denials": ((self_state or {}).get("denials") or {}).get("total", 0),
+            },
+            "task": {
+                "callers": (impact or {}).get("callers", 0),
+                "risk": (impact or {}).get("risk", ""),
+                "criteria": len((plan or {}).get("acceptance") or []),
+            },
+            "strategies": strategies,
+        }
+        metacognition["regulation"] = {
+            "plan": {
+                "strategy": strategies[0] if strategies else "",
+                "why": "impacto/decisiones del ancla",
+            },
+            "monitor": {
+                "gaps": len(gaps_now),
+                "next": (gaps_now[0].get("remedy") if gaps_now and isinstance(gaps_now[0], dict) else ""),
+            },
+            "evaluate": {
+                "tests": (self_state or {}).get("verified"),
+                "review": (review or {}).get("passed"),
+                "adjust": "definir predicados" if (plan or {}).get("unverified") else "",
+            },
+        }
+
     return {
         "type": "brief",
         "anchor": anchor,
@@ -1296,7 +1700,12 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
         "skills": skills,
         "skill": loaded_skill,
         "plan": plan,
+        "self": self_state,
+        "metacognition": metacognition,
         "consistency": consistency,
+        "review": review,
+        "plan_diff": plan_diff_result,
+        "code_context": code_context_result,
         "missing": missing,
         "degraded": degraded or bool(missing),
     }

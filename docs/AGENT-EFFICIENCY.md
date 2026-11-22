@@ -12,6 +12,9 @@
   con su detección; §4 son los escenarios de fallo; §5 es lo que **no** se sabe.
 - **Regla de oro:** ninguna afirmación se completa de memoria. Cada una se puede
   reproducir con el comando que se indica al lado.
+- **Relacionado:** [ADR-WALKER-084](ADR-WALKER-084-bucle-metacognitivo.md) — bucle
+  metacognitivo. F0 (2026-11-21): espejo `self` en `brief` + `search_memories`
+  estricto. Este documento sigue siendo la guía de la economía de la superficie.
 - **Caveat de medición:** §1.2 es **una muestra de una sesión**, no un benchmark.
   No hay p50/p95 por fase todavía (eso es F0). Se reportan los valores crudos y
   se marcan como tales.
@@ -81,6 +84,28 @@ Lectura de la tabla:
 4. **Una lectura paga peaje.** Sin sprint, `echo probe` queda bloqueado
    (`index.js:60`, `MUTATING_TOOLS` incluye `shell`; `index.js:1537-1541`, ancla
    `$`). El gate de intake cubre escrituras y también lecturas.
+
+### 1.10 El contrato de consulta ya no miente (F3c, 2026-11-21)
+
+`search_memories {"ckg": {"query": "metacognición bucle espejo"}}` pasó de
+devolver **138 documentos** (el corpus, porque `query` es clave meta y se
+descartaba) a **3 hits** por texto. La traducción es por índice
+(`trace.task→task_id`, `cpg.symbol→function`) y un filtro que el schema no
+declara devuelve `error` + `allowed` + `hint`, nunca un volcado silencioso. El
+caso `trace.session_id` (documentado en ADR-018) responde “usá session_context”:
+el trace no indexa la sesión como columna.
+
+**Regresión encontrada y reparada:** la primera versión del validador rechazaba
+`{"trace":{"task":…}}`, el payload que emite `task-spec.prompt.json`. El test de
+conformidad de templates ahora es parte del contrato.
+
+El espejo `self` existe en `brief`, pero **no tiene consumidor** (el plugin no lo
+inyecta) y puede discrepar de `session_context.flight_state` porque no usa el
+watcher. Por eso ADR-084 v2 lo mueve a F0.2, después de abaratar observación y
+verificación: un espejo sin remedio es un regaño.
+
+Lo que **no** está medido todavía: si leer el espejo cambia la acción siguiente
+(`mirror_acted_on`). Sin eso, es información, no metacognición.
 
 ### 1.3 La maquinaria se enciende tarde y se apaga en consultas
 
@@ -184,6 +209,14 @@ lentitud: es un deadlock del workflow. Y no requiere un caso raro — cualquier
 suite de más de 30 s lo dispara, es decir, **el camino de cierre está roto por
 construcción** en este repo: `python3 -m pytest -q` da **1.515 passed en
 37,14 s**, siempre por encima del timeout del cliente.
+
+> **Corrección (2026-11-21, ADR-084 F3b).** El cliente vivo ya no corta a los
+> 30 s (`~/.config/opencode/opencode.json` tiene `timeout: 420000`; la copia
+> `docs/opencode.json` era la que estaba en 30000 y quedó alineada). El 30 s
+> que seguía matando la verificación era **otro**: `verify_engine` tenía
+> `timeout=30` fijo para `command_exit`/`test_pass`/`shell`. Ahora es
+> `WALKER_VERIFY_TIMEOUT` (default 300 s) y el predicado
+> `python3 -m pytest -q` (35 s) da **verde**. `run_tests` conserva 300 s.
 
 ---
 

@@ -7,7 +7,7 @@
       "cwd": "/Users/davidmartinez/develop/Active-projects/walker",
       "enabled": true,
       "environment": {},
-      "timeout": 30000
+      "timeout": 420000
     }
   }
 }

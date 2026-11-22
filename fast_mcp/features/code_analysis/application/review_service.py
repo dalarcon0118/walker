@@ -235,6 +235,18 @@ class ReviewUseCase:
                 passed=(metrics.total_loc // max(metrics.total_files, 1))
                 <= thresholds.get("max_loc_per_file", 500),
             ),
+            QualityGate(
+                name="security",
+                actual=len(deep_findings),
+                threshold=thresholds.get("max_security", 0),
+                passed=len(deep_findings) <= thresholds.get("max_security", 0),
+            ),
+            QualityGate(
+                name="complexity",
+                actual=metrics.cyclo_max,
+                threshold=thresholds.get("max_cyclo", 200),
+                passed=metrics.cyclo_max <= thresholds.get("max_cyclo", 200),
+            ),
         ]
         passed = all(g.passed for g in gates)
 
@@ -245,6 +257,49 @@ class ReviewUseCase:
         if deep_findings:
             findings["security_deep"] = deep_findings[:20]
 
+        # CFG findings (dead branches, missing returns, infinite loops)
+        cfg_findings: dict[str, list[dict]] = {}
+        # DFG/CFG: contar hallazgos de las proyecciones (si existen). Fail-open.
+        dfg_total = 0
+        cfg_total = 0
+        try:
+            from fast_mcp.features.code_analysis.application.projection_helpers import (
+                load_projection,
+            )
+            from fast_mcp.shared_kernel.project_support import ProjectService
+
+            paths = ProjectService.resolve_paths(self.chain_dir)
+            data_dir = self._data_dir or (paths.data_dir if paths else None) or ""
+            if data_dir:
+                try:
+                    dfg = load_projection(str(data_dir), "dfg.json")
+                    for key in ("taint_paths", "hardcoded_secrets", "uninitialized_vars", "data_gaps"):
+                        if isinstance(dfg.get(key), list):
+                            dfg_total += len(dfg[key])
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    cfg = load_projection(str(data_dir), "analysis_results.json")
+                    for key in ("dead_branches", "missing_returns", "infinite_loops"):
+                        if isinstance(cfg.get(key), list):
+                            cfg_total += len(cfg[key])
+                            if cfg[key]:
+                                cfg_findings[key] = cfg[key][:20]
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Gate de CFG: cualquier hallazgo de control flow es bloqueante.
+        if cfg_total:
+            gates.append(QualityGate(
+                name="cfg_findings",
+                actual=cfg_total,
+                threshold=0,
+                passed=False,
+            ))
+            passed = False
+
         # 6. Summary + Recommendations
         parts = [f"{'✅ PASS' if passed else '❌ FAIL'}"]
         for g in gates:
@@ -254,6 +309,10 @@ class ReviewUseCase:
             parts.append(f"dead_code={len(dead_code_list)}")
         if deep_findings:
             parts.append(f"deep={len(deep_findings)}")
+        if dfg_total:
+            parts.append(f"dfg={dfg_total}")
+        if cfg_total:
+            parts.append(f"cfg={cfg_total}")
         if warnings:
             parts.append(f"warnings={len(warnings)}")
 
@@ -268,6 +327,8 @@ class ReviewUseCase:
             findings=findings,
             recommendations=recommendations,
             issues=deep_findings[:50],
+            dfg_total=dfg_total,
+            cfg_total=cfg_total,
             files_scanned=[f.file for f in metrics.files[:50]]
             or [os.path.basename(p) for p in scan_paths[:50]],
             summary=", ".join(parts),

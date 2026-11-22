@@ -622,6 +622,8 @@ if (INJECT_MODES.has(mode)) {
   const noTemplate = !/Sprint Monitoring|PHASE 12/.test(text)
   const okBaseline = /Baseline:/.test(text) && /llamadores/.test(text)
   const okDecision = /·\s*adr-\d+/.test(text)
+  // ADR-084 F0.2: el espejo del agente aparece tras la primera escritura.
+  const okMirror = /Espejo: \d+ writes/.test(text)
   // El tope de 400 es del bloque de PLAN (contrato de atención). El gate de
   // decisión es otro bloque, con su propio tope (1200): medir el total
   // confundía los dos contratos.
@@ -683,6 +685,7 @@ if (INJECT_MODES.has(mode)) {
   console.log(`sin template del nodo        -> ${noTemplate}`)
   console.log(`baseline desde walker        -> ${okBaseline}`)
   console.log(`decision del CKG (L3)        -> ${okDecision}`)
+  console.log(`espejo del agente (F0.2)     -> ${okMirror}`)
   console.log(`tope 400 del plan            -> ${okCap} (${planBlocks.map((t) => t.length).join(",")})`)
   console.log(`total plan+gate <= 1600      -> ${okTotal} (${text.length})`)
   console.log(`canal ${mode.padEnd(14)}     -> ${okChannel} (${channelNote})`)
@@ -1500,7 +1503,22 @@ const taskCmd = cli("implement_task", {
   files: ["x.txt"],
 })
 
-if (mode === "normal" || mode === "badbind" || mode === "baddeclare") {
+if (mode === "readonly") {
+  // ADR-084 F3a / FC-INV-04: sin sprint, observar no se bloquea. El protocolo
+  // (remedio) es alcanzable incluso con pipe. Escribir y lo no demostrable
+  // siguen bloqueados (FC-INV-06).
+  res["pwd"] = await call("shell", { command: "pwd" })
+  res["git version"] = await call("shell", { command: "git --version" })
+  res["ls"] = await call("shell", { command: "ls -la" })
+  res["help"] = await call("shell", { command: "walker3 --help" })
+  res["pipe"] = await call("shell", {
+    command: `walker3 ${PROJECT}/workflow_state '{}' | head -1`,
+  })
+  res["write"] = await call("shell", { command: "printf x > z.txt" })
+  res["unknown"] = await call("shell", {
+    command: "python3 -c 'print(1)'",
+  })
+} else if (mode === "normal" || mode === "badbind" || mode === "baddeclare") {
   res["edit sin nada"] = await call("edit", { path: "x.txt" })
   if (mode === "badbind") {
     res["bind intento 1"] = await call("shell", { command: bindCmd })
@@ -1529,6 +1547,7 @@ if (mode === "normal" || mode === "badbind" || mode === "baddeclare") {
 }
 
 const expected = {
+  readonly: { pwd: "PERMITE", "git version": "PERMITE", ls: "PERMITE", help: "PERMITE", pipe: "PERMITE", write: "BLOQUEA", unknown: "BLOQUEA" },
   normal: { "edit sin nada": "BLOQUEA", bind: "PERMITE", "edit sin tarea": "BLOQUEA", implement_task: "PERMITE", "edit final": "PERMITE" },
   badbind: { "edit sin nada": "BLOQUEA", "bind intento 1": "PERMITE", "edit tras bind 1": "BLOQUEA", "bind intento 2": "PERMITE", "edit tras bind 2": "PERMITE" },
   baddeclare: { "edit sin nada": "BLOQUEA", "bind intento 1": "PERMITE", "edit sin tarea": "BLOQUEA", "task intento 1": "PERMITE", "edit tras task 1": "BLOQUEA", "task intento 2": "PERMITE", "edit tras task 2": "PERMITE" },

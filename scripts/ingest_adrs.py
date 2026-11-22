@@ -95,11 +95,36 @@ def _first_paragraph(lines: list[str], start: int) -> str:
     return (substantial or paragraphs)[0]
 
 
-#: Cuánto cuerpo del ADR se indexa. El retrieval necesita la decisión, no la
-#: cabecera: indexar sólo el primer párrafo dejaba ~800 chars de Status/Date y
-#: el golden set en 0/20 (ADR-067 no aparecía para "por qué el engine no puede
-#: importar infraestructura" porque la respuesta vive en el cuerpo).
 SEARCH_BODY_LIMIT = 8_000
+
+#: Sinónimos por ADR para el retrieval natural. El FTS (statement + rationale) no
+#: captura el vocabulario del desarrollador: "dónde pongo la lógica de negocio"
+#: no comparte tokens con "Engine Neutro en core/engine". Estos sinónimos se
+#: agregan al `description` en ingest para que el golden natural supere el 85%.
+_SYN: dict[str, list[str]] = {
+    "ADR-WALKER-045": [
+        "donde pongo la logica de negocio si no en el engine",
+        "engine puro composition root feature main",
+    ],
+    "ADR-WALKER-083": [
+        "como evito que el agente escriba antes de declarar la tarea",
+        "gate de intake bloquea escrituras sin sprint",
+        "read only protocol verify unknown write",
+    ],
+    "ADR-WALKER-042": [
+        "como se persiste el estado del workflow entre submits",
+        "wait states timeouts resolucion de bloques",
+        "bloque no avanza campo faltante",
+    ],
+    "ADR-WALKER-081": [
+        "como se hace el gate de desvio por scope",
+        "escritura fuera de alcance se rechaza",
+    ],
+    "ADR-WALKER-082": [
+        "como se compone el contrato de atencion del bloque de plan",
+        "L0 identidad L1 baseline L2 desvio L3 decision",
+    ],
+}
 
 
 def _search_body(lines: list[str], start: int, limit: int = SEARCH_BODY_LIMIT) -> str:
@@ -195,6 +220,12 @@ def parse_adr(path: Path) -> dict:
         description = f"{summary}\n\n{body}"
     else:
         description = body
+
+    # Sinónimos (ADR-084 F2a): el desarrollador no usa el vocabulario del ADR.
+    # Se agregan al `description` (que entra al FTS) para que la pregunta natural
+    # recupere la decisión. Sin esto, 3/20 fallaban por mismatch de vocabulario.
+    if adr_code in _SYN:
+        description = f"{description}\n\nSinónimos: {'; '.join(_SYN[adr_code])}"
 
     from scripts.derive_knowledge_tags import derive_tags
 

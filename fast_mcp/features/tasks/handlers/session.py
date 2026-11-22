@@ -234,7 +234,11 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             previous = str(target.get("session_id") or "") or (sessions[0] if sessions else "")
             if previous and previous != session_id:
                 context["parent_session_id"] = previous
-        service.update_spring(spring_id, {"context": context})
+        # Atribuir el sprint a la sesión que se suma, si aún no tenía dueño.
+        updates = {"context": context}
+        if not str(target.get("session_id") or "").strip():
+            updates["session_id"] = session_id
+        service.update_spring(spring_id, updates)
         updated = service.get_spring(spring_id) or target
         summary = _summary(service, updated)
         service.open_session(
@@ -514,6 +518,46 @@ def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     session_id = str(data.get("session_id") or ctx.session_id or "").strip()
     if not session_id or session_id == "mcp":
         return TaskResult.failure("session_close: session_id requerido")
+
+    # ADR-084: el cierre no se permite si quedan gaps sin remediar. El plugin
+    # puede forzar con `force=true` (decisión explícita, trazable), pero por
+    # defecto se bloquea para que la metacognición sea consecuencia, no nudge.
+    if not data.get("force"):
+        try:
+            import importlib
+
+            _mod = importlib.import_module(
+                "fast_mcp.features.event_tracing.application.services.trace_factory"
+            )
+            build_trace_service = _mod.build_trace_service
+            _kmod = importlib.import_module("fast_mcp.memories.handlers.knowledge")
+            _project_flight_state = _kmod._project_flight_state
+
+            service_trace = build_trace_service(ctx.chain_dir)
+            if service_trace is not None:
+                events = [
+                    e for e in service_trace.load_traces(ctx.chain_dir)
+                    if str((getattr(e, "metadata", None) or {}).get("session_id", "")) == session_id
+                ]
+                flight = _project_flight_state(events, ctx.chain_dir, session_id)
+                gaps = flight.get("gaps") or []
+                if gaps:
+                    detail = "; ".join(
+                        str(g.get("detail", g) if isinstance(g, dict) else g)
+                        for g in gaps[:3]
+                    )
+                    remedy = "; ".join(
+                        str(g.get("remedy", "") if isinstance(g, dict) else "")
+                        for g in gaps[:3] if isinstance(g, dict) and g.get("remedy")
+                    )
+                    msg = f"session_close: hay gaps sin remediar: {detail}."
+                    if remedy:
+                        msg += f" Remedio: {remedy}."
+                    msg += " Corregí o pasá force=true."
+                    return TaskResult.failure(msg)
+        except Exception:  # noqa: BLE001 — sin trace no se bloquea
+            pass
+
     service = _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("session_close: sprint service no disponible")
@@ -531,6 +575,22 @@ def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         session_id=session_id,
         task_id=str(data.get("task_id") or ctx.task_id or ""),
     )
+
+    # ADR-084 F2: consolidación. Garantiza un `task_ledger` en el CKG ligado a
+    # la sesión y a la tarea, aunque el agente no haya llamado `capture`.
+    # Idempotente: si ya existe, se salta. No rompe el cierre si falla.
+    try:
+        from fast_mcp.features.tasks.side_effects.knowledge import session_reflect
+
+        reflection = session_reflect(
+            ctx.chain_dir,
+            {
+                "session_id": session_id,
+                "task_id": str(data.get("task_id") or ctx.task_id or ""),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        reflection = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     record = service.close_session(
         session_id,
@@ -565,6 +625,7 @@ def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             "ok": True,
             "session": record,
             "knowledge": knowledge,
+            "reflection": reflection,
             "flow": flow,
             "orphan_specs": orphan_specs,
         }

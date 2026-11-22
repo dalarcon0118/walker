@@ -47,6 +47,29 @@ export function briefBlock(payload, { max = 600 } = {}) {
   }
   const next = nextAction(payload)
   if (next) lines.push(`  próxima acción: ${next}`)
+  const gaps = (payload.self && Array.isArray(payload.self.gaps)) ? payload.self.gaps : []
+  if (gaps.length) {
+    const g = gaps[0] || {}
+    const detail = trim(g.detail || g.code || "gap", 90)
+    const remedy = g.remedy ? ` → ${trim(g.remedy, 90)}` : ""
+    lines.push(`  GAP: ${detail}${remedy}`)
+  }
+  const review = payload.review || {}
+  if (review.summary) lines.push(`  review: ${trim(review.summary, 120)}`)
+  const meta = payload.metacognition || {}
+  if (typeof meta.score === "number") lines.push(`  METACOG SCORE: ${meta.score}/100`)
+  const k = meta.knowledge || {}
+  if (k.task) {
+    lines.push(`  METACOG tarea: ${k.task.callers ?? "?"} callers · riesgo ${k.task.risk || "?"} · ${k.task.criteria ?? "?"} criterios`)
+  }
+  if (Array.isArray(k.strategies) && k.strategies.length) {
+    lines.push(`  METACOG estrategia: ${trim(k.strategies.join(" · "), 140)}`)
+  }
+  const r = meta.regulation || {}
+  if (r.plan && r.plan.strategy) lines.push(`  METACOG plan: ${trim(r.plan.strategy, 120)}`)
+  if (r.monitor && r.monitor.next) lines.push(`  METACOG monitor: ${trim(r.monitor.next, 120)}`)
+  if (r.evaluate && r.evaluate.adjust) lines.push(`  METACOG evaluar: ${trim(r.evaluate.adjust, 120)}`)
+  lines.push("  METACOG: 1) ¿qué decisión/convención gobierna este archivo? 2) ¿qué callers/tests se ven afectados? 3) ¿qué gap queda sin remediar? 4) ¿qué evidencia demuestra verde?")
   const decision = (payload.decisions || [])[0]
   if (decision) {
     lines.push(`  decisión: ${trim(`${decision.id || ""} ${decision.title || ""}`, 130)}`)
@@ -81,6 +104,29 @@ export function failureBriefBlock(payload, failure, { max = 480 } = {}) {
   if (step.position) lines.push(`  paso ${step.position}`)
   const next = nextAction(payload)
   if (next) lines.push(`  próxima acción: ${next}`)
+  const gaps = (payload.self && Array.isArray(payload.self.gaps)) ? payload.self.gaps : []
+  if (gaps.length) {
+    const g = gaps[0] || {}
+    const detail = trim(g.detail || g.code || "gap", 90)
+    const remedy = g.remedy ? ` → ${trim(g.remedy, 90)}` : ""
+    lines.push(`  GAP: ${detail}${remedy}`)
+  }
+  const review = payload.review || {}
+  if (review.summary) lines.push(`  review: ${trim(review.summary, 120)}`)
+  const meta = payload.metacognition || {}
+  if (typeof meta.score === "number") lines.push(`  METACOG SCORE: ${meta.score}/100`)
+  const k = meta.knowledge || {}
+  if (k.task) {
+    lines.push(`  METACOG tarea: ${k.task.callers ?? "?"} callers · riesgo ${k.task.risk || "?"} · ${k.task.criteria ?? "?"} criterios`)
+  }
+  if (Array.isArray(k.strategies) && k.strategies.length) {
+    lines.push(`  METACOG estrategia: ${trim(k.strategies.join(" · "), 140)}`)
+  }
+  const r = meta.regulation || {}
+  if (r.plan && r.plan.strategy) lines.push(`  METACOG plan: ${trim(r.plan.strategy, 120)}`)
+  if (r.monitor && r.monitor.next) lines.push(`  METACOG monitor: ${trim(r.monitor.next, 120)}`)
+  if (r.evaluate && r.evaluate.adjust) lines.push(`  METACOG evaluar: ${trim(r.evaluate.adjust, 120)}`)
+  lines.push("  METACOG: 1) ¿qué decisión/convención gobierna este archivo? 2) ¿qué callers/tests se ven afectados? 3) ¿qué gap queda sin remediar? 4) ¿qué evidencia demuestra verde?")
   const decision = (payload.decisions || [])[0]
   if (decision) {
     lines.push(`  decisión: ${trim(`${decision.id || ""} ${decision.title || ""}`, 120)}`)

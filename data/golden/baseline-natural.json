@@ -1,0 +1,287 @@
+{
+  "n": 20,
+  "hit_at_5": 20,
+  "hit_rate": 1.0,
+  "rows": [
+    {
+      "id": "n01",
+      "question": "donde pongo la logica de negocio si no en el engine",
+      "expected": "adr-walker-045-composition-root-obligatorio",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-049-side-effect-naming-semantico",
+        "adr-walker-045-composition-root-obligatorio",
+        "adr-walker-050",
+        "adr-walker-069-tasks-direccion-dip",
+        "adr-walker-023-query-use-cases-hide-infrastructure"
+      ],
+      "rank": 2
+    },
+    {
+      "id": "n02",
+      "question": "como evito que el agente escriba antes de declarar la tarea",
+      "expected": "adr-walker-083-gate-por-efecto-y-politica-en-el-dominio",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-083-gate-por-efecto-y-politica-en-el-dominio",
+        "adr-walker-079-tarea-en-sprint-pausado",
+        "adr-walker-081-gate-de-desvio-por-alcance",
+        "adr-walker-082-contrato-de-atencion-y-proyecto-de-trabajo",
+        "adr-walker-043-agent-walker-protocol-single-source-of-truth"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n03",
+      "question": "como se persiste el estado del workflow entre submits",
+      "expected": "adr-walker-042",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-072-modelo-delta-descomposicion-sprints",
+        "adr-walker-042",
+        "adr-walker-070-cli-local-mcp-server-separacion",
+        "adr-walker-064-pareto-10-estrategias-mejora",
+        "adr-walker-082-contrato-de-atencion-y-proyecto-de-trabajo"
+      ],
+      "rank": 2
+    },
+    {
+      "id": "n04",
+      "question": "que es el plan de vuelo y donde vive",
+      "expected": "adr-walker-080-plan-de-vuelo-por-sesion",
+      "hit_at_5": true,
+      "top5": [
+        "adr-051",
+        "adr-walker-080-plan-de-vuelo-por-sesion",
+        "adr-walker-083-gate-por-efecto-y-politica-en-el-dominio",
+        "adr-083",
+        "adr-walker-081-gate-de-desvio-por-alcance"
+      ],
+      "rank": 2
+    },
+    {
+      "id": "n05",
+      "question": "como se resuelve el sprint activo por sesion",
+      "expected": "adr-walker-077-sprint-activo-por-sesion",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-078-estado-paused-reversible",
+        "adr-walker-077-sprint-activo-por-sesion",
+        "adr-052",
+        "adr-walker-073-mcp-protocol-validation-strategy",
+        "adr-walker-053-project-context-centralizado"
+      ],
+      "rank": 2
+    },
+    {
+      "id": "n06",
+      "question": "como se reanuda una sesion pausada",
+      "expected": "adr-walker-078-estado-paused-reversible",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-079-tarea-en-sprint-pausado",
+        "adr-054",
+        "adr-walker-078-estado-paused-reversible",
+        "adr-walker-077-sprint-activo-por-sesion",
+        "adr-walker-080-plan-de-vuelo-por-sesion"
+      ],
+      "rank": 3
+    },
+    {
+      "id": "n07",
+      "question": "como se declaran las dependencias de un modulo",
+      "expected": "adr-walker-066-module-manifests-di-declarativa",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-066-module-manifests-di-declarativa",
+        "adr-walker-045-composition-root-obligatorio",
+        "adr-walker-059-di-migration-progress",
+        "adr-walker-067-engine-pure-architecture",
+        "adr-walker-068-app-module-responsabilidades-nestjs"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n08",
+      "question": "como se migra el engine a shared",
+      "expected": "adr-walker-056-engine-migration-shared-core",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-058-eliminacion-antipatrones-engine",
+        "adr-walker-056-engine-migration-shared-core",
+        "adr-walker-067-engine-pure-architecture",
+        "adr-walker-059-di-migration-progress",
+        "adr-walker-065-tasks-workflow-actions-protocolos-bus"
+      ],
+      "rank": 2
+    },
+    {
+      "id": "n09",
+      "question": "como se normaliza el storage sqlite",
+      "expected": "adr-walker-075-storage-normalizacion-sqlite-fts5-lazy-readmodel",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-075-storage-normalizacion-sqlite-fts5-lazy-readmodel",
+        "adr-walker-063-almacenamiento-cognitivo-log-append-read-model",
+        "adr-walker-061-storage-como-puerto-file-path-a-connection-config",
+        "adr-walker-064-pareto-10-estrategias-mejora",
+        "adr-walker-022-knowledgefact-entity-odm-conventions"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n10",
+      "question": "como se restaura el CPG como memoria consultable",
+      "expected": "adr-walker-076-cpg-restaurar-casos-uso",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-076-cpg-restaurar-casos-uso",
+        "adr-walker-058-eliminacion-antipatrones-engine",
+        "adr-walker-054-almacenamiento-cognitivo-unificado-chain-dir-data-dir",
+        "adr-walker-075-storage-normalizacion-sqlite-fts5-lazy-readmodel",
+        "adr-walker-048-deterministic-retrieval-prompt-context"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n11",
+      "question": "como se elimina la nomenclatura legacy kg",
+      "expected": "adr-walker-057-eliminacion-nomenclatura-legacy-kg",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-057-eliminacion-nomenclatura-legacy-kg",
+        "adr-walker-056-engine-migration-shared-core",
+        "adr-walker-048-deterministic-retrieval-prompt-context",
+        "adr-walker-018-event-tracing-bounded-context-trace",
+        "adr-walker-022-knowledgefact-entity-odm-conventions"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n12",
+      "question": "como se purifica el engine de conceptos de negocio",
+      "expected": "adr-walker-067-engine-pure-architecture",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-067-engine-pure-architecture",
+        "adr-walker-051-gaps-refactor-responsabilidades",
+        "adr-walker-069-tasks-direccion-dip",
+        "adr-walker-047-registry-conflation-layer-violations",
+        "adr-walker-049-side-effect-naming-semantico"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n13",
+      "question": "como se separa el CLI del MCP",
+      "expected": "adr-walker-070-cli-local-mcp-server-separacion",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-070-cli-local-mcp-server-separacion",
+        "adr-walker-056-engine-migration-shared-core",
+        "adr-walker-069-tasks-direccion-dip",
+        "adr-walker-071-migracion-cli-mcp-fastmcp",
+        "adr-walker-045-composition-root-obligatorio"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n14",
+      "question": "como se migra a FastMCP",
+      "expected": "adr-walker-071-migracion-cli-mcp-fastmcp",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-071-migracion-cli-mcp-fastmcp",
+        "adr-walker-058-eliminacion-antipatrones-engine",
+        "adr-walker-021-bdd-cpg-tests-first",
+        "adr-walker-075-storage-normalizacion-sqlite-fts5-lazy-readmodel",
+        "adr-walker-018-event-tracing-bounded-context-trace"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n15",
+      "question": "como se descompone el objetivo en sprints",
+      "expected": "adr-walker-072-modelo-delta-descomposicion-sprints",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-072-modelo-delta-descomposicion-sprints",
+        "adr-walker-078-estado-paused-reversible",
+        "adr-walker-077-sprint-activo-por-sesion",
+        "adr-052",
+        "adr-walker-073-mcp-protocol-validation-strategy"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n16",
+      "question": "como se valida el protocolo MCP",
+      "expected": "adr-walker-073-mcp-protocol-validation-strategy",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-044-protocol-ssot-dynamic",
+        "adr-walker-073-mcp-protocol-validation-strategy",
+        "adr-walker-043-agent-walker-protocol-single-source-of-truth",
+        "adr-walker-057-eliminacion-nomenclatura-legacy-kg",
+        "adr-walker-016-cli-interface-protocol-bounded-context"
+      ],
+      "rank": 2
+    },
+    {
+      "id": "n17",
+      "question": "como se separa ProjectService de PathManager",
+      "expected": "adr-walker-074-project-service-path-manager-bounded-context-project",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-074-project-service-path-manager-bounded-context-project",
+        "adr-walker-061-storage-como-puerto-file-path-a-connection-config",
+        "adr-walker-070-cli-local-mcp-server-separacion",
+        "adr-walker-062-mantenibilidad-monolith-puertos-di-ci",
+        "adr-walker-050"
+      ],
+      "rank": 1
+    },
+    {
+      "id": "n18",
+      "question": "como se modela el trace como bounded context",
+      "expected": "adr-walker-018-event-tracing-bounded-context-trace",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-016-cli-interface-protocol-bounded-context",
+        "adr-walker-068-app-module-responsabilidades-nestjs",
+        "adr-walker-074-project-service-path-manager-bounded-context-project",
+        "adr-walker-018-event-tracing-bounded-context-trace",
+        "adr-walker-065-tasks-workflow-actions-protocolos-bus"
+      ],
+      "rank": 4
+    },
+    {
+      "id": "n19",
+      "question": "como se hace el gate de desvio por scope",
+      "expected": "adr-055",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-081-gate-de-desvio-por-alcance",
+        "adr-055",
+        "adr-walker-083-gate-por-efecto-y-politica-en-el-dominio",
+        "adr-walker-064-pareto-10-estrategias-mejora",
+        "adr-walker-080-plan-de-vuelo-por-sesion"
+      ],
+      "rank": 2
+    },
+    {
+      "id": "n20",
+      "question": "como se compone el contrato de atencion del bloque de plan",
+      "expected": "adr-056",
+      "hit_at_5": true,
+      "top5": [
+        "adr-walker-082-contrato-de-atencion-y-proyecto-de-trabajo",
+        "adr-056",
+        "adr-walker-083-gate-por-efecto-y-politica-en-el-dominio",
+        "adr-083",
+        "adr-walker-080-plan-de-vuelo-por-sesion"
+      ],
+      "rank": 2
+    }
+  ]
+}

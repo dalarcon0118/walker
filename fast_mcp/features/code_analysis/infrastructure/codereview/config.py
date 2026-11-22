@@ -266,6 +266,30 @@ _DEEP_PATTERNS: dict[str, list[dict]] = {
             "severity": "high",
         },
         {
+            "id": "eval-used",
+            "pattern": "eval($X)",
+            "label": "eval() — ejecución dinámica de código",
+            "severity": "high",
+        },
+        {
+            "id": "exec-used",
+            "pattern": "exec($X)",
+            "label": "exec() — ejecución dinámica de código",
+            "severity": "high",
+        },
+        {
+            "id": "pickle-load",
+            "pattern": "pickle.load($X)",
+            "label": "pickle.load() — deserialización insegura",
+            "severity": "critical",
+        },
+        {
+            "id": "yaml-load",
+            "pattern": "yaml.load($X)",
+            "label": "yaml.load() sin Loader — deserialización insegura",
+            "severity": "high",
+        },
+        {
             "id": "except-pass",
             "pattern": "except:\n  pass",
             "label": "except vacío — traga errores",

@@ -1,0 +1,102 @@
+[
+  {
+    "id": "n01",
+    "question": "donde pongo la logica de negocio si no en el engine",
+    "expected": "adr-walker-045-composition-root-obligatorio"
+  },
+  {
+    "id": "n02",
+    "question": "como evito que el agente escriba antes de declarar la tarea",
+    "expected": "adr-walker-083-gate-por-efecto-y-politica-en-el-dominio"
+  },
+  {
+    "id": "n03",
+    "question": "como se persiste el estado del workflow entre submits",
+    "expected": "adr-walker-042"
+  },
+  {
+    "id": "n04",
+    "question": "que es el plan de vuelo y donde vive",
+    "expected": "adr-walker-080-plan-de-vuelo-por-sesion"
+  },
+  {
+    "id": "n05",
+    "question": "como se resuelve el sprint activo por sesion",
+    "expected": "adr-walker-077-sprint-activo-por-sesion"
+  },
+  {
+    "id": "n06",
+    "question": "como se reanuda una sesion pausada",
+    "expected": "adr-walker-078-estado-paused-reversible"
+  },
+  {
+    "id": "n07",
+    "question": "como se declaran las dependencias de un modulo",
+    "expected": "adr-walker-066-module-manifests-di-declarativa"
+  },
+  {
+    "id": "n08",
+    "question": "como se migra el engine a shared",
+    "expected": "adr-walker-056-engine-migration-shared-core"
+  },
+  {
+    "id": "n09",
+    "question": "como se normaliza el storage sqlite",
+    "expected": "adr-walker-075-storage-normalizacion-sqlite-fts5-lazy-readmodel"
+  },
+  {
+    "id": "n10",
+    "question": "como se restaura el CPG como memoria consultable",
+    "expected": "adr-walker-076-cpg-restaurar-casos-uso"
+  },
+  {
+    "id": "n11",
+    "question": "como se elimina la nomenclatura legacy kg",
+    "expected": "adr-walker-057-eliminacion-nomenclatura-legacy-kg"
+  },
+  {
+    "id": "n12",
+    "question": "como se purifica el engine de conceptos de negocio",
+    "expected": "adr-walker-067-engine-pure-architecture"
+  },
+  {
+    "id": "n13",
+    "question": "como se separa el CLI del MCP",
+    "expected": "adr-walker-070-cli-local-mcp-server-separacion"
+  },
+  {
+    "id": "n14",
+    "question": "como se migra a FastMCP",
+    "expected": "adr-walker-071-migracion-cli-mcp-fastmcp"
+  },
+  {
+    "id": "n15",
+    "question": "como se descompone el objetivo en sprints",
+    "expected": "adr-walker-072-modelo-delta-descomposicion-sprints"
+  },
+  {
+    "id": "n16",
+    "question": "como se valida el protocolo MCP",
+    "expected": "adr-walker-073-mcp-protocol-validation-strategy"
+  },
+  {
+    "id": "n17",
+    "question": "como se separa ProjectService de PathManager",
+    "expected": "adr-walker-074-project-service-path-manager-bounded-context-project"
+  },
+  {
+    "id": "n18",
+    "question": "como se modela el trace como bounded context",
+    "expected": "adr-walker-018-event-tracing-bounded-context-trace"
+  },
+  {
+    "id": "n19",
+    "question": "como se hace el gate de desvio por scope",
+    "expected": "adr-055"
+  },
+  {
+    "id": "n20",
+    "question": "como se compone el contrato de atencion del bloque de plan",
+    "expected": "adr-056"
+  }
+]

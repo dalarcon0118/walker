@@ -32,6 +32,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "properties": {
             "_project_id": {"type": "string"},
             "project_id": {"type": "string"},
+            "session_id": {"type": "string", "description": "Sesión para resolver el sprint activo."},
         },
     },
 }
