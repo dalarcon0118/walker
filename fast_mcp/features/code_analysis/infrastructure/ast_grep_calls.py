@@ -51,6 +51,7 @@ LANG_MAP: dict[str, str] = {
     ".cs": "csharp",
     ".dart": "dart",
     ".hs": "haskell",
+    ".purs": "purescript",
 }
 
 
@@ -70,11 +71,20 @@ def detect_calls(file_path: str, definitions: list[dict]) -> list[dict]:
     if not lang or not os.path.exists(file_path):
         return []
 
-    # Ejecutar ast-grep para encontrar TODAS las llamadas a funciones.
-    # _run_ast_grep_calls ya devuelve la lista extraida (wrapper con log).
-    calls = _run_ast_grep_calls(file_path, lang)
-    if not calls:
-        return []
+    # PureScript: las llamadas son aplicación por yuxtaposición (`f x`) y
+    # ast-grep no puede parsear el patrón `$FUNC($$$)` para este lenguaje
+    # (el `$` es operador y la aplicación no usa paréntesis). Se extraen
+    # con tree-sitter (tree_sitter_language_pack, que ya soporta purescript).
+    if lang == "purescript":
+        calls = _detect_calls_purescript(file_path)
+        if not calls:
+            return []
+    else:
+        # Ejecutar ast-grep para encontrar TODAS las llamadas a funciones.
+        # _run_ast_grep_calls ya devuelve la lista extraida (wrapper con log).
+        calls = _run_ast_grep_calls(file_path, lang)
+        if not calls:
+            return []
 
     # Para cada llamada, encontrar qué función la contiene
     # comparando el número de línea con los rangos de definiciones
@@ -208,6 +218,73 @@ def _find_enclosing_function(line: int, definitions: list[dict]) -> str | None:
 
 def _detect_lang(file_path: str) -> str | None:
     return LANG_MAP.get(Path(file_path).suffix.lower())
+
+
+def _detect_calls_purescript(file_path: str) -> list[dict]:
+    """Detecta llamadas a funciones en un archivo PureScript vía tree-sitter.
+
+    PureScript usa aplicación por yuxtaposición (`f x`, `f x y`) además de
+    `f(x)`. ast-grep no puede parsear el patrón genérico de llamadas para
+    este lenguaje, así que se recorre el CST con tree_sitter_language_pack
+    (que ya soporta purescript) buscando nodos `exp_apply` cuyo primer
+    operando sea un nombre de función.
+
+    Devuelve [{"name": ..., "line": N}, ...] (1-based), el mismo formato que
+    `_run_ast_grep_calls`. Si tree-sitter no está disponible, devuelve [].
+    """
+    try:
+        from tree_sitter_language_pack import get_parser
+    except ImportError:
+        logger.debug("tree_sitter_language_pack no disponible; sin CALLS PureScript")
+        return []
+
+    try:
+        parser = get_parser("purescript")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("no se pudo obtener parser purescript: %s", exc)
+        return []
+
+    try:
+        with open(file_path, "rb") as fh:
+            src = fh.read()
+    except OSError:
+        return []
+
+    try:
+        tree = parser.parse(src)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("parse purescript fallo en %s: %s", file_path, exc)
+        return []
+
+    results: list[dict] = []
+
+    def callee_name(node) -> str:
+        if not node.children:
+            return ""
+        first = node.children[0]
+        # exp_name -> variable | qualified_variable
+        if first.type == "exp_name":
+            for ch in first.children:
+                if ch.type in ("variable", "qualified_variable"):
+                    text = ch.text.decode("utf-8", "replace")
+                    return text.rsplit(".", 1)[-1]
+        if first.type == "variable":
+            return first.text.decode("utf-8", "replace")
+        if first.type == "qualified_variable":
+            text = first.text.decode("utf-8", "replace")
+            return text.rsplit(".", 1)[-1]
+        return ""
+
+    def walk(node) -> None:
+        if node.type == "exp_apply":
+            name = callee_name(node)
+            if name:
+                results.append({"name": name, "line": node.start_point[0] + 1})
+        for ch in node.children:
+            walk(ch)
+
+    walk(tree.root_node)
+    return results
 
 
 # ── Caché incremental de calls por archivo (mtime/size) ─────────

@@ -18,7 +18,12 @@ def detect_project(project_path: str) -> dict:
     language = "unknown"
     framework = "unknown"
 
-    if (p / "pyproject.toml").is_file() or (p / "requirements.txt").is_file():
+    # PureScript primero: un proyecto Spago suele tener también package.json
+    # (Metro/Expo), pero el 82% del código puede ser .purs. Medido 2026-11-22:
+    # client-chat quedó registrado como "javascript".
+    if (p / "spago.yaml").is_file() or (p / "spago.dhall").is_file():
+        language = "purescript"
+    elif (p / "pyproject.toml").is_file() or (p / "requirements.txt").is_file():
         language = "python"
     elif (p / "package.json").is_file():
         language = "javascript"

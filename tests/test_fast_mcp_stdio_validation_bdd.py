@@ -48,7 +48,7 @@ def test_stdio_handshake_y_tools_list():
     assert {"prepare", "list", "status"} <= names, f"faltan tools Fase 1: {names}"
     # Superficie total registrada (F1: 3 + F2: 14 + F3: 12 = 29 — trace_message
     # se suma a F3 desde T-14, captura de mensajes user/agent en TraceGraph).
-    assert len(names) == 52, f"superficie inesperada ({len(names)}): {sorted(names)}"
+    assert len(names) == 53, f"superficie inesperada ({len(names)}): {sorted(names)}"
     status = next(t for t in tools.tools if t.name == "status")
     assert status.inputSchema.get("type") == "object"
 

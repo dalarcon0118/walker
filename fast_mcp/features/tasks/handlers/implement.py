@@ -183,20 +183,26 @@ def _persist_spec(
         return None
 
     from fast_mcp.features.tasks.handlers.spec_derive import (
-        criteria_to_predicates,
+        build_predicate_bundle,
+        criterion_text,
         derive,
-        predicates_from_files,
     )
 
     derived = derive(objective or "")
     # Los criterios explícitos de la llamada ganan: son la fuente más concreta
-    # y no dependen de que el objetivo use una marca de obligación.
+    # y no dependen de que el objetivo use una marca de obligación. Cada
+    # criterio puede ser un string o `{criterion, predicate}`: el segundo es la
+    # única forma de declarar un predicado que la heurística no puede inferir.
+    criteria_source: list | None = None
     if criteria_override:
-        derived = {
-            **derived,
-            "acceptance_criteria": list(criteria_override),
-            "source": "explicit",
-        }
+        texts = [criterion_text(c) for c in criteria_override if criterion_text(c)]
+        if texts:
+            derived = {
+                **derived,
+                "acceptance_criteria": texts,
+                "source": "explicit",
+            }
+            criteria_source = list(criteria_override)
     # El plan de vuelo es la fuente de aceptación de la SESIÓN. Antes se
     # descartaba: el plan tenía 4 criterios y la spec se creaba con 0
     # (medido 2026-11-20: `validation.errors = "sin criterios de aceptación"`).
@@ -208,11 +214,12 @@ def _persist_spec(
                 "acceptance_criteria": plan_criteria,
                 "source": "session_plan",
             }
-    mapped = criteria_to_predicates(derived["acceptance_criteria"], ctx.chain_dir)
-    if not mapped["predicates"]:
-        # Sin criterios en el texto (títulos descriptivos), los ARCHIVOS dicen
-        # cómo verificar: correr los tests del área tocada.
-        mapped = predicates_from_files(files, ctx.chain_dir)
+    # Bundle único: predicados explícitos + heurística + fallback por archivos,
+    # conservando SIEMPRE los criterios que quedan sin predicado. Antes el
+    # fallback pisaba esa lista y el hueco se veía como un solo criterio.
+    mapped = build_predicate_bundle(
+        criteria_source or derived["acceptance_criteria"], files, ctx.chain_dir
+    )
     # Validación VISIBLE: no bloquea (una tarea sin criterios es un estado real),
     # pero queda registrada en la spec para que el hueco no sea silencioso.
     spec_errors = _di.validate_spec({
@@ -359,8 +366,16 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     raw_acceptance = data.get("acceptance") or []
     if isinstance(raw_acceptance, str):
         raw_acceptance = [raw_acceptance]
-    explicit = [str(a).strip() for a in raw_acceptance if str(a).strip()]
-    from fast_mcp.features.tasks.handlers.spec_derive import derive
+    from fast_mcp.features.tasks.handlers.spec_derive import criterion_text, derive
+
+    # Un criterio puede venir como string o como `{criterion, predicate}`.
+    # `str(dict)` guardaba el repr y el predicado explícito se perdía.
+    acceptance_items: list = []
+    for item in raw_acceptance:
+        text = criterion_text(item)
+        if text:
+            acceptance_items.append(item if isinstance(item, dict) else text)
+    explicit = [criterion_text(item) for item in acceptance_items]
 
     effective = explicit or derive(objective or "").get("acceptance_criteria") or []
     if not effective:
@@ -412,7 +427,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     try:
         spec = _persist_spec(
             ctx, task_id, objective, files, data, session_override, spring=chosen,
-            criteria_override=explicit or None,
+            criteria_override=acceptance_items or None,
         )
         if task_id:
             # Puente al workflow: a partir de acá toda acción recibe el id.

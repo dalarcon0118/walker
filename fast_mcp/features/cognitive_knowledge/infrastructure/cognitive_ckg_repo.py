@@ -263,11 +263,15 @@ class CognitiveCkgRepository(CkgRepository):
     def next_id(self, prefix: str = "node", offset: int = 0) -> str:
         """Return the next ID for a prefix, over the PERSISTED index.
 
-        `offset` allows generating unique IDs within the SAME batch.
+        `offset` allows generating unique IDs within the SAME batch. El
+        offset arranca en 1: con `offset=0` la fórmula devolvía el id máximo
+        EXISTENTE (max + 0), así que un `next_id("task-ledger")` suelto
+        reutilizaba la clave y sobreescribía el último nodo (medido
+        2026-11-22: el ledger migrado pisó `task-ledger-003`).
         """
         found = self._cg.max_key("ckg", prefix)
         max_num = found[1] if found else 0
-        return f"{prefix}-{max_num + offset:03d}"
+        return f"{prefix}-{max_num + max(1, offset):03d}"
 
 
 @safe

@@ -247,3 +247,65 @@ def test_vendorizados_no_cuentan(tmp_path):
     (tmp_path / "skills-src" / "test_runner.py").write_text("import pkg.runner\n")
 
     assert tests_for_files(["pkg/runner.py"], str(tmp_path)) == []
+
+
+# ── criterio con predicado explícito (bundle) ────────────────────────────
+
+
+def test_bundle_usa_predicado_explicito_y_no_lo_deja_unmapped(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import build_predicate_bundle
+
+    out = build_predicate_bundle(
+        [{
+            "criterion": "el mapa cita App.Composition",
+            "predicate": {"type": "command_exit", "command": "grep -q App.Composition project.md"},
+        }],
+        ["project.md"],
+        str(tmp_path),
+    )
+
+    assert out["predicates"][0]["command"] == "grep -q App.Composition project.md"
+    assert out["predicates"][0]["criterion"] == "el mapa cita App.Composition"
+    assert out["unmapped"] == []
+
+
+def test_bundle_conserva_los_criterios_sin_predicado_al_caer_a_archivos(tmp_path):
+    """El fallback por archivos NO puede pisar la lista de criterios: antes
+    el cockpit mostraba 1 hueco cuando había 2."""
+    from fast_mcp.features.tasks.handlers.spec_derive import build_predicate_bundle
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guia.md").write_text("# guía\n")
+
+    out = build_predicate_bundle(
+        ["la guía explica el flujo", "el enlace no se rompe"],
+        ["docs/guia.md"],
+        str(tmp_path),
+    )
+
+    assert out["predicates"] == []
+    criterios = {u["criterion"] for u in out["unmapped"]}
+    assert "la guía explica el flujo" in criterios
+    assert "el enlace no se rompe" in criterios
+
+
+def test_bundle_string_sigue_auto_mapeando_tests(tmp_path):
+    from fast_mcp.features.tasks.handlers.spec_derive import build_predicate_bundle
+
+    (tmp_path / "tests").mkdir()
+    out = build_predicate_bundle(["sin romper los tests"], ["a.py"], str(tmp_path))
+
+    assert out["predicates"][0]["command"] == "python -m pytest -q"
+    assert out["unmapped"] == []
+
+
+def test_test_command_usa_el_runner_declarado(tmp_path):
+    import json
+
+    from fast_mcp.features.tasks.handlers.spec_derive import _test_command
+
+    (tmp_path / "project.json").write_text(
+        json.dumps({"project": {"coding": {"test_framework": "spago"}}})
+    )
+
+    assert _test_command(str(tmp_path)) == "npx spago test"

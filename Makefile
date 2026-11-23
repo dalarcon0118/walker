@@ -33,6 +33,9 @@ install-deps:
 install-ast-grep:
 	@bash bin/install-deps.sh ast-grep
 
+install-purescript-parser:
+	@bash bin/install-deps.sh purescript
+
 # ── Paquete Python ────────────────────────────────────────────
 pip-install:
 	@echo "  → Instalando walker3 como paquete editable..."

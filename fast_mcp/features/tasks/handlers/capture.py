@@ -284,9 +284,13 @@ def capture(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         artifacts.append({"type": "inspect_codebase", "result": inspect_result})
 
     # F1b: prefill desde el trace si se pide.
+    # La sesión REAL es la del payload (el plugin la conoce); `ctx.session_id`
+    # en el path de tool es "mcp". Usarlo acá dejaba el task_ledger guardado
+    # como `task_ledger-mcp-<task>`: el artefacto no se podía unir con la
+    # sesión y `what_changed`/la consolidación no lo veían.
     raw_ledger = data.get("ledger")
     if raw_ledger == "auto" or data.get("prefill"):
-        skeleton = build_ledger_skeleton(ctx.chain_dir, ctx.session_id, task_id)
+        skeleton = build_ledger_skeleton(ctx.chain_dir, session_id, task_id)
         if isinstance(raw_ledger, dict):
             raw_ledger = _merge_ledger(skeleton, raw_ledger)
         else:
@@ -295,7 +299,7 @@ def capture(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     ledger = _normalize_ledger(raw_ledger)
     ledger_result: dict[str, Any] = {"saved": False}
     if ledger is not None:
-        ledger_result = _save_ledger(ctx.chain_dir, ledger, task_id, ctx.session_id)
+        ledger_result = _save_ledger(ctx.chain_dir, ledger, task_id, session_id)
 
     return TaskResult.success(data={
         "task_id": task_id,

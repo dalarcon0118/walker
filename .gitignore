@@ -89,3 +89,7 @@ data/metrics/
 
 # runtime del harness del plugin (no versionar)
 agent-plugins/walker-flight-control/data/
+
+# Generated parser binaries (built by bin/install-deps.sh)
+data/parsers/
+*.dylib.dSYM/

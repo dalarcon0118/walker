@@ -68,6 +68,47 @@ class RegistryStore:
         """Entrada del registro para un project_id ({} si no está)."""
         return self.read().get("projects", {}).get(pid, {})
 
+    def touch(self, pid: str, max_age_seconds: float = 3600.0) -> bool:
+        """Refresca `last_accessed` si el registro está viejo.
+
+        Antes nadie lo actualizaba: `client-chat` seguía con
+        `2026-11-01` tras semanas de uso (medido 2026-11-22). No se escribe
+        en cada resolución porque `data/projects.json` está trackeado y un
+        write por tool lo ensuciaría; con debounce (1 h por defecto) el
+        registro refleja el uso real sin convertir cada `resolve` en I/O.
+
+        Returns:
+            True si escribió, False si no hacía falta o no se pudo.
+        """
+        registry = self.read()
+        projects = registry.get("projects") or {}
+        entry = projects.get(pid)
+        if not entry:
+            return False
+
+        now = datetime.now(timezone.utc)
+        previous = str(entry.get("last_accessed") or "")
+        if previous:
+            try:
+                age = (now - datetime.fromisoformat(previous)).total_seconds()
+                if age < max_age_seconds:
+                    return False
+            except (ValueError, TypeError):
+                pass  # timestamp ilegible → se refresca
+
+        entry["last_accessed"] = now.isoformat()
+        projects[pid] = entry
+        registry["projects"] = projects
+        registry["updated_at"] = now.isoformat()
+        path = paths.registry_path(self._root)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(registry, f, indent=2, ensure_ascii=False)
+        except OSError:
+            return False
+        return True
+
     def resolve_from_cwd(self, start: str | None = None) -> str:
         """Git-like: project_id desde el CWD (o `start`).
 

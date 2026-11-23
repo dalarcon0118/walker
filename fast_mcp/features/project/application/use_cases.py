@@ -38,12 +38,72 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _walker_data_dir() -> Path:
+    """`<walker_root>/data` — fuente del parser/outline-rules custom.
+
+    Función aparte para poder inyectarla en tests sin depender de que el
+    repo tenga los binarios descargados.
+    """
+    return paths.walker_root() / "data"
+
+
+from fast_mcp.shared_kernel.sgconfig import (  # noqa: E402
+    seed_root_sgconfig as seed_root_sgconfig,
+    seed_sgconfig as seed_sgconfig,
+)
+
+
 def _read_json(path: Path) -> dict:
     try:
         with open(path) as f:
             return json.load(f)
     except Exception:  # noqa: BLE001 - fail-open
         return {}
+
+
+def refresh_manifest_identity(data_dir: Path, repo_path: str) -> dict:
+    """Refresca `identity.{language,framework}` si la detección cambió.
+
+    La idempotencia de `prepare` existe para no pisar lo curado, pero el
+    lenguaje detectado no es curación: `client-chat` quedó registrado como
+    `javascript` cuando el 82 % del código es PureScript, porque el detector
+    solo miraba `package.json` (medido 2026-11-22). El proyecto ya preparado
+    nunca se re-detectaba, así que el manifiesto envejecía en silencio.
+
+    Solo escribe si la detección es concreta (≠ `unknown`) y distinta. Nunca
+    toca otros campos del manifiesto.
+
+    Returns:
+        {campo: {"from": viejo, "to": nuevo}} — vacío si no hubo cambios.
+    """
+    manifest_path = data_dir / "project.json"
+    manifest = _read_json(manifest_path)
+    project = manifest.get("project") or {}
+    identity = project.get("identity") or {}
+    if not identity:
+        return {}
+
+    detected = detect_project(repo_path)
+    changed: dict[str, dict] = {}
+    for key in ("language", "framework"):
+        new = str(detected.get(key) or "")
+        old = str(identity.get(key) or "")
+        if new and new != "unknown" and new != old:
+            identity[key] = new
+            changed[key] = {"from": old, "to": new}
+    if not changed:
+        return {}
+
+    project["identity"] = identity
+    meta = project.get("meta") or {}
+    meta["updated_at"] = _now()
+    project["meta"] = meta
+    manifest["project"] = project
+    try:
+        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+    except OSError:
+        return {}
+    return changed
 
 
 # Nombre del archivo de estado del watcher (SSOT del stale, auto-contenido).
@@ -137,6 +197,14 @@ def prepare_use_case(
         registered_in = ""
         if not registered:
             registered_in = str(ctx.store.register(pid, name, path))
+        # Un proyecto creado antes de existir el soporte de lenguajes custom
+        # nunca recibía `sgconfig.yml`: el early return ocurría antes del paso
+        # 5b. Se siembra acá también — solo si falta, nunca pisa lo curado.
+        sgconfig_seeded = seed_sgconfig(data_dir)
+        root_sgconfig_seeded = seed_root_sgconfig(path)
+        # La detección de lenguaje no es curación: si el manifiesto dice
+        # `javascript` y el repo es Spago, se corrige (ver el helper).
+        identity_refreshed = refresh_manifest_identity(data_dir, path)
         return {
             "type": "already_exists",
             "status_code": 200,
@@ -144,10 +212,22 @@ def prepare_use_case(
             "path": path,
             "registered": not registered,
             "registered_in": registered_in,
+            "sgconfig_seeded": sgconfig_seeded,
+            "root_sgconfig_seeded": root_sgconfig_seeded,
+            "identity_refreshed": identity_refreshed,
             "message": (
                 f"Project '{pid}' is already prepared at {path}. "
                 "Initialization skipped — existing configuration was NOT overwritten."
                 + ("" if registered else " Global registry reconciled.")
+                + (" Custom-language sgconfig.yml seeded." if sgconfig_seeded else "")
+                + (
+                    " Identity refreshed: "
+                    + ", ".join(
+                        f"{k} {v['from'] or '∅'}→{v['to']}"
+                        for k, v in identity_refreshed.items()
+                    )
+                    if identity_refreshed else ""
+                )
             ),
             "next_steps": [f"walker {pid}/status"],
         }
@@ -213,6 +293,11 @@ def prepare_use_case(
         except OSError:
             pass
 
+    # 5b. sgconfig.yml para ast-grep (lenguajes custom como PureScript).
+    # Misma siembra que el path de idempotencia: una sola implementación.
+    sgconfig_copied = seed_sgconfig(data_dir)
+    root_sgconfig_copied = seed_root_sgconfig(path)
+
     # 6. Detección de código (sin CPG — Fase 2).
     code_detected = code_detected_walk(path)
 
@@ -229,6 +314,8 @@ def prepare_use_case(
         "cpg_pending": "Fase 2 (memorias) construye el CPG",
         "watcher_installed": False,
         "walkerignore_copied": copied,
+        "sgconfig_copied": sgconfig_copied,
+        "root_sgconfig_copied": root_sgconfig_copied,
         "detected": detections,
         "setup_warnings": setup_warnings,
         "next_steps": [f"walker {pid}/status"],

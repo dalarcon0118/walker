@@ -113,11 +113,28 @@ _NO_TOUCH_TESTS = ("no modifiques los tests", "no modificar los tests",
 
 
 def _test_command(project_root: str) -> str:
-    """Comando de tests del proyecto, o '' si no se puede inferir."""
+    """Comando de tests del proyecto, o '' si no se puede inferir.
+
+    Primero el runner DECLARADO por el manifiesto (`coding.test_framework`):
+    es la fuente de verdad y evita adivinar. Un proyecto PureScript corría
+    `npm test --silent` (que no existe) porque la heurística no miraba
+    `spago.yaml`. La heurística queda como respaldo para proyectos sin
+    manifiesto.
+    """
     import os
 
     if not project_root or not os.path.isdir(project_root):
         return ""
+    try:
+        from fast_mcp.features.tasks.infrastructure.verify_engine import (
+            build_test_command,
+        )
+
+        declared = build_test_command(project_root)
+        if declared:
+            return " ".join(declared)
+    except Exception:  # noqa: BLE001 — sin runner declarado se usa la heurística
+        pass
     if os.path.isfile(os.path.join(project_root, "manage.py")):
         return "python manage.py test --keepdb"
     if (
@@ -308,4 +325,143 @@ def predicates_from_files(files: list[str], project_root: str) -> dict:
             "chosen_because": "nombre del test menciona el módulo tocado",
         }],
         "unmapped": [],
+    }
+
+
+# ── Criterio con predicado explícito ─────────────────────────────────────
+#
+# La heurística cubre "correr los tests"; todo lo demás quedaba en `unmapped`
+# sin salida: no había forma de decir "este criterio se verifica con ESTE
+# comando". `verify_predicates` ya leía los predicados de la spec, pero nadie
+# podía declararlos. Este bundle acepta criterios como string o como
+# `{criterion, predicate}` y conserva SIEMPRE la lista de criterios sin
+# predicado (antes el fallback por archivos la pisaba y se perdía cuántos
+# criterios seguían sin verificación).
+
+_PREDICATE_TYPES = ("command_exit", "command_output", "test_pass",
+                    "file_exists", "shell")
+
+
+def criterion_text(item: object) -> str:
+    """Texto del criterio (string o `{criterion|text, ...}`)."""
+    if isinstance(item, dict):
+        return str(item.get("criterion") or item.get("text") or "").strip()
+    return str(item or "").strip()
+
+
+def normalize_predicate(value: object, criterion: str = "") -> dict | None:
+    """Normaliza un predicado explícito; None si no es ejecutable.
+
+    Acepta el dict del `verify_engine` (`{type, command|path, ...}`) o un
+    string, que se interpreta como comando con exit code 0 (el caso más común).
+    Un tipo desconocido se rechaza en vez de guardarse y fallar en el verify.
+    """
+    if isinstance(value, str):
+        value = {"type": "command_exit", "command": value.strip()}
+    if not isinstance(value, dict):
+        return None
+    kind = str(value.get("type") or "").strip()
+    if kind not in _PREDICATE_TYPES:
+        return None
+    if kind == "file_exists" and not value.get("path"):
+        return None
+    if kind in ("command_exit", "command_output", "test_pass", "shell") and not (
+        value.get("command") or value.get("target")
+    ):
+        return None
+    pred = dict(value)
+    if criterion:
+        pred["criterion"] = criterion
+        pred.setdefault("description", criterion)
+    return pred
+
+
+def _predicate_key(pred: dict) -> tuple:
+    return (
+        str(pred.get("type") or ""),
+        str(pred.get("command") or pred.get("target") or pred.get("path") or ""),
+    )
+
+
+def _norm(text: object) -> str:
+    """Minúsculas, sin acentos y sin espacios extra (comparación de criterios)."""
+    import unicodedata
+
+    folded = unicodedata.normalize("NFKD", str(text or ""))
+    plain = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return " ".join(plain.lower().split())
+
+
+def build_predicate_bundle(
+    criteria: list, files: list[str], project_root: str
+) -> dict:
+    """Predicados + criterios sin predicado, sin perder información.
+
+    - Los criterios string se auto-mapean con la heurística (`criteria_to_predicates`).
+    - Los `{criterion, predicate}` usan el predicado EXPLÍCITO (y no aparecen en
+      `unmapped`).
+    - Si no queda ningún predicado, se cae a los tests de los archivos, pero se
+      MERGEAN los `unmapped` en vez de reemplazarlos: el cockpit tiene que poder
+      decir cuántos criterios siguen sin verificación.
+    """
+    texts: list[str] = []
+    explicit: list[dict] = []
+    for item in criteria or []:
+        text = criterion_text(item)
+        if text:
+            texts.append(text)
+        if isinstance(item, dict):
+            pred = normalize_predicate(item.get("predicate"), text)
+            if pred is not None:
+                explicit.append(pred)
+
+    auto = criteria_to_predicates(texts, project_root)
+    covered = {_norm(p.get("criterion")) for p in explicit if p.get("criterion")}
+    unmapped = [
+        u for u in auto["unmapped"]
+        if _norm(u.get("criterion")) not in covered
+    ]
+    # Un criterio con predicado explícito no se auto-mapea dos veces.
+    auto_preds = [
+        p for p in auto["predicates"]
+        if _norm(p.get("description") or p.get("criterion")) not in covered
+    ]
+
+    predicates: list[dict] = []
+    seen: set[tuple] = set()
+    for pred in [*explicit, *auto_preds]:
+        key = _predicate_key(pred)
+        if key in seen:
+            continue
+        seen.add(key)
+        predicates.append(pred)
+
+    if not predicates:
+        fallback = predicates_from_files(files, project_root)
+        predicates = list(fallback.get("predicates") or [])
+        for item in fallback.get("unmapped") or []:
+            if not any(
+                _norm(u.get("criterion")) == _norm(item.get("criterion"))
+                for u in unmapped
+            ):
+                unmapped.append(item)
+        # Los criterios explícitos que no eran ejecutables también se declaran.
+        for item in criteria or []:
+            text = criterion_text(item)
+            if not text:
+                continue
+            if any(_norm(u.get("criterion")) == _norm(text) for u in unmapped):
+                continue
+            if _norm(text) in {_norm(p.get("criterion") or p.get("description")) for p in predicates}:
+                continue
+            unmapped.append({
+                "criterion": text,
+                "reason": "sin predicado ejecutable (queda para revisión manual)",
+            })
+
+    return {
+        "predicates": predicates,
+        "unmapped": unmapped,
+        "criteria": texts,
+        "test_command": auto.get("test_command", ""),
     }

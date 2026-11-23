@@ -20,6 +20,7 @@ for arg in "$@"; do
     case "$arg" in
         --quiet) QUIET=true ;;
         ast-grep) INSTALL_ALL=false; TARGET="ast-grep" ;;
+        purescript) INSTALL_ALL=false; TARGET="purescript" ;;
     esac
 done
 
@@ -68,6 +69,49 @@ install_ast_grep() {
     fi
 }
 
+# ── PureScript parser (ast-grep custom language) ──────────────
+install_purescript_parser() {
+    local walker_root
+    walker_root="$(cd "$(dirname "$0")/.." && pwd)"
+    local parser_dir="$walker_root/data/parsers"
+    local parser_lib="$parser_dir/purescript.dylib"
+    if [[ "$(uname)" != "Darwin" ]]; then
+        parser_lib="$parser_dir/purescript.so"
+    fi
+    if [[ -f "$parser_lib" ]]; then
+        success "PureScript parser already built ($parser_lib)"
+        return 0
+    fi
+    if ! command -v cc &>/dev/null && ! command -v gcc &>/dev/null; then
+        warn "No C compiler found; cannot build PureScript parser."
+        return 1
+    fi
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    log "Cloning tree-sitter-purescript..."
+    if ! git clone --depth 1 https://github.com/postsolar/tree-sitter-purescript.git "$tmpdir/tps" 2>&1 | tail -2; then
+        warn "Could not clone tree-sitter-purescript."
+        rm -rf "$tmpdir"
+        return 1
+    fi
+    mkdir -p "$parser_dir"
+    local cc_bin="cc"
+    command -v cc &>/dev/null || cc_bin="gcc"
+    log "Compiling PureScript parser..."
+    if [[ "$(uname)" == "Darwin" ]]; then
+        $cc_bin -shared -fPIC -fno-exceptions -g -I "$tmpdir/tps/src" -o "$parser_lib" -O2 "$tmpdir/tps/src/scanner.c" -xc "$tmpdir/tps/src/parser.c" 2>&1 | tail -5
+    else
+        $cc_bin -shared -fPIC -fno-exceptions -g -I "$tmpdir/tps/src" -o "$parser_lib" -O2 "$tmpdir/tps/src/scanner.c" -xc "$tmpdir/tps/src/parser.c" 2>&1 | tail -5
+    fi
+    rm -rf "$tmpdir"
+    if [[ -f "$parser_lib" ]]; then
+        success "PureScript parser built ($parser_lib)"
+    else
+        warn "PureScript parser build failed."
+        return 1
+    fi
+}
+
 # ── Main ──────────────────────────────────────────────────────
 echo ""
 echo "  ╔═══════════════════════════════════════════════╗"
@@ -79,6 +123,10 @@ FAILED=0
 
 if $INSTALL_ALL || [[ "$TARGET" == "ast-grep" ]]; then
     install_ast_grep || ((FAILED++))
+fi
+
+if $INSTALL_ALL || [[ "$TARGET" == "purescript" ]]; then
+    install_purescript_parser || ((FAILED++))
 fi
 
 echo ""

@@ -736,6 +736,17 @@ _TEST_RUNNERS: dict[str, list[str]] = {
     "dotnet": ["dotnet", "test"],
     "phpunit": ["./vendor/bin/phpunit"],
     "rspec": ["bundle", "exec", "rspec"],
+    # PureScript (Spago): el runner vive en node_modules/.bin, así que `npx`
+    # lo resuelve sin depender del PATH global. Sin esta entrada, un proyecto
+    # PureScript solo podía declarar un framework ajeno (mentira) o quedarse
+    # sin `run_tests` (medido 2026-11-22 en client-chat).
+    "spago": ["npx", "spago", "test"],
+}
+
+# Alias declarables → key canónica de runner. `purescript` es el LENGUAJE, no
+# el runner: mapearlo evita exigirle al manifiesto un nombre de herramienta.
+_TEST_FRAMEWORK_ALIASES: dict[str, str] = {
+    "purescript": "spago",
 }
 
 # Flag de filtro por nombre según runner (pytest -k, jest -t, go -run, ...).
@@ -749,6 +760,10 @@ _TEST_NAME_FLAG: dict[str, list[str]] = {
     "cargo": [],
     "gradle": ["--tests"],
     "dotnet": ["--filter"],
+    # `spago test` no tiene flag de filtro por nombre; el argumento posicional
+    # es un módulo, no un patrón. Vacío = se anexa tal cual (como cargo), nunca
+    # un `-k` heredado del default.
+    "spago": [],
 }
 
 
@@ -760,8 +775,19 @@ def _normalize_test_framework(framework: str) -> str:
     if not framework:
         return ""
     text = framework.strip().lower()
+
+    def _matches(name: str) -> bool:
+        # Palabra completa, no subcadena: `"go" in "spago"` devolvía el runner
+        # de Go para un proyecto PureScript (medido 2026-11-22).
+        return re.search(
+            rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])", text
+        ) is not None
+
+    for alias, key in _TEST_FRAMEWORK_ALIASES.items():
+        if _matches(alias):
+            return key
     for key in _TEST_RUNNERS:
-        if key in text:
+        if _matches(key):
             return key
     return ""
 

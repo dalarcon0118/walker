@@ -40,6 +40,12 @@ def detect_tooling(root: str | Path, language: str) -> dict[str, str]:
     blob = f"{pyproject} {reqs}"
     out: dict[str, str] = {}
 
+    # PureScript: `spago.yaml` (Spago 0.93+) es la evidencia del runner, sin
+    # importar el lenguaje detectado por package.json. Sin esto, un repo
+    # PureScript quedaba con `test_framework` vacío y `run_tests` no corría.
+    if (base / "spago.yaml").is_file() or (base / "spago.dhall").is_file():
+        out["test_framework"] = "spago"
+
     if language == "python":
         if (
             (base / "pytest.ini").exists()
@@ -60,12 +66,13 @@ def detect_tooling(root: str | Path, language: str) -> dict[str, str]:
             elif "pylint" in blob:
                 out["linter"] = "pylint"
     elif language in ("javascript", "typescript"):
-        if "vitest" in pkg:
-            out["test_framework"] = "vitest"
-        elif "jest" in pkg:
-            out["test_framework"] = "jest"
-        elif "mocha" in pkg:
-            out["test_framework"] = "mocha"
+        if "test_framework" not in out:
+            if "vitest" in pkg:
+                out["test_framework"] = "vitest"
+            elif "jest" in pkg:
+                out["test_framework"] = "jest"
+            elif "mocha" in pkg:
+                out["test_framework"] = "mocha"
         if "prettier" in pkg or any(
             (base / n).exists() for n in (".prettierrc", ".prettierrc.json")
         ):

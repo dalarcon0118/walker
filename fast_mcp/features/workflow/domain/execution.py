@@ -63,6 +63,10 @@ class ExecutionContext:
     channel: str = "mcp"
     started_at: str = ""
     cpg_adapter: Any = None
+    # El project_id de la spec (CLI) es el SSOT. Antes no llegaba al contexto
+    # ni a `data`, así que `session_bind`/`session_open` escribían
+    # `project_id: ""` en delta (medido 2026-11-22).
+    project_id: str = ""
 
     @classmethod
     def create(cls, chain_dir: str, **kw: Any) -> "ExecutionContext":

@@ -36,6 +36,7 @@ import json
 import re
 import sqlite3
 import time
+from typing import Any
 
 from .models import tokenize
 from .storage_errors import StorageStateError
@@ -183,14 +184,14 @@ def reconcile(
                 f"SELECT {', '.join(fields)} FROM {fts_src(index)} WHERE rowid=?",
                 (rowid,),
             ).fetchone()
-            tokens = tokenize(" ".join(str(v) for v in values if v))
-            if not tokens:
+            probe = _fts_probe(values)
+            if not probe:
                 continue  # doc sin tokens → sin postings por diseño
             checked += 1
             found = conn.execute(
                 f"SELECT 1 FROM {fts_name} "
                 f"WHERE {fts_name} MATCH ? AND rowid=?",
-                (match_expr(tokens[0]), rowid),
+                (_fts_probe_expr(probe), rowid),
             ).fetchone()
             if found is None:
                 missing.append(view_ids[rowid])
@@ -310,6 +311,35 @@ def match_expr(text: str, fields_scoped: list[str] | None = None,
 
 # ── Ciclo de vida: ensure / backfill / drop ────────────────────────────────
 
+#: Primer run alfanumérico con la MISMA granularidad que FTS5 (unicode61):
+#: corta en cualquier no-alfanumérico, pero NO parte camelCase.
+_FTS_TOKEN_RUN = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def _fts_probe(values: Any) -> str:
+    """Primer término de un doc tal como lo indexa FTS5 (unicode61).
+
+    `models.tokenize` parte camelCase y descarta stop-words: `isMap` → `is`
+    (o nada si es stop-word), mientras FTS5 guarda el token `ismap`. Usarlo
+    como sonda hacía que `MATCH 'is'` no encontrara el posting y el
+    verificador reportara *drift falso* — reproducido 2026-11-22 con
+    `cpg-506bc0a667cf` (`isMap` en `output/.../foreign.js`).
+
+    La sonda usa el primer run alfanumérico CRUDO del valor: es exactamente
+    lo que FTS5 indexa, sin transformaciones del tokenizador de Python.
+    """
+    for value in values:
+        found = _FTS_TOKEN_RUN.search(str(value or ""))
+        if found:
+            return found.group(0)
+    return ""
+
+
+def _fts_probe_expr(term: str) -> str:
+    """Expresión MATCH segura para un término literal (sin operadores)."""
+    return '"' + term.replace('"', '""') + '"'
+
+
 def _sample_verify(
     conn: sqlite3.Connection,
     index: str,
@@ -340,14 +370,14 @@ def _sample_verify(
             f"SELECT {', '.join(fields)} FROM {fts_src(index)} WHERE rowid=?",
             (rowid,),
         ).fetchone()
-        tokens = tokenize(" ".join(str(v) for v in values if v))
-        if not tokens:
+        probe = _fts_probe(values)
+        if not probe:
             continue  # doc sin tokens → sin postings por diseño
         checked += 1
         found = conn.execute(
             f"SELECT 1 FROM {fts_table(index)} "
             f"WHERE {fts_table(index)} MATCH ? AND rowid=?",
-            (match_expr(tokens[0]), rowid),
+            (_fts_probe_expr(probe), rowid),
         ).fetchone()
         if found is None:
             missing.append(doc_id)

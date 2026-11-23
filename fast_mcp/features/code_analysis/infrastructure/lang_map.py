@@ -31,6 +31,8 @@ LANG_MAP: dict[str, str] = {
     ".cs": "csharp",
     ".dart": "dart",
     ".hs": "haskell",
+    ".purs": "purescript",
+    ".purs": "purescript",
     ".sh": "bash",
     ".bash": "bash",
     ".yaml": "yaml",

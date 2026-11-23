@@ -14,6 +14,8 @@ dependencies = [
     "packaging",
     # Firmas ed25519 de paquetes de hooks (verificación de autoría).
     "cryptography",
+    # CALLS extraction para lenguajes sin patrón ast-grep (p. ej. PureScript).
+    "tree-sitter-language-pack",
 ]
 
 [project.optional-dependencies]

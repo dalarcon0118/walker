@@ -89,17 +89,22 @@ def compose_project_layout(repo_path: str, project_id: str) -> Path:
 
 
 def walker_root() -> Path:
-    """Raíz del proyecto walker: camina hacia arriba hasta config/config.json."""
-    this_dir = Path(os.path.dirname(os.path.abspath(__file__)))
-    candidate = this_dir
-    for _ in range(8):
-        if (candidate / "config" / "config.json").is_file():
-            return candidate.resolve()
-        parent = candidate.parent
-        if parent == candidate:
-            break
-        candidate = parent
-    return Path.cwd().resolve()
+    """Raíz del proyecto walker, independiente del CWD.
+
+    Antes subía buscando `config/config.json` y, al no existir ese archivo en
+    el repo (solo `config/hooks/`), caía a `Path.cwd()`. Eso hacía que el
+    registro (`data/projects.json`) se leyera/escribiera RELATIVO al directorio
+    desde donde se invocaba: `status` y `list_projects` devolvían vacío al
+    correr dentro de un proyecto. Medido 2026-11-22 desde client-chat.
+
+    Orden: `WALKER_REPO_ROOT` (override documentado) → marker real del paquete
+    (`fast_mcp/__init__.py`) → fail-fast. Nunca `cwd`: un fallback silencioso a
+    cwd es un resultado plausible y equivocado.
+    """
+    override = os.environ.get("WALKER_REPO_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return get_walker_root()
 
 
 def registry_path(root: Path | None = None) -> Path:

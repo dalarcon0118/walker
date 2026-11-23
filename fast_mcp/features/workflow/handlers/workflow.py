@@ -12,10 +12,21 @@ from ..domain.execution import ExecutionContext
 
 def _make_ctx(chain_dir: str, kwargs: dict) -> ExecutionContext:
     """Build ExecutionContext from chain_dir + kwargs."""
+    # El CLI quita project_id del payload (SSOT = project_id de la spec), así
+    # que se resuelve desde chain_dir (o kwargs si viene por MCP server).
+    project_id = kwargs.get("project_id") or kwargs.get("_project_id") or ""
+    if not project_id and chain_dir:
+        try:
+            from fast_mcp.shared_kernel.paths import resolve_project_id
+
+            project_id = resolve_project_id(chain_dir) or ""
+        except Exception:  # noqa: BLE001
+            project_id = ""
     return ExecutionContext.create(
         chain_dir=chain_dir,
         task_id=kwargs.get("task_id", ""),
         session_id=kwargs.get("session_id", ""),
+        project_id=project_id,
     )
 
 

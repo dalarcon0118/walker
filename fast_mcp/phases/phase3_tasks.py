@@ -58,6 +58,7 @@ _FASE3_TOOLS = (
     "session_plan",
     "spec_start",
     "spec_status",
+    "spec_predicates",
     "sprint_status",
     "run_tests",
     "verify_predicates",
@@ -286,6 +287,35 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         },
         "required": ["spec_id"],
     },
+    "spec_predicates": {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session identifier"},
+            "spring_id": {"type": "string", "description": "Sprint (o se resuelve por sesión)"},
+            "spec_id": {"type": "string", "description": "Spec (default: la tarea en curso)"},
+            "task_id": {"type": "string", "description": "Task id para resolver la spec"},
+            "mode": {
+                "type": "string",
+                "enum": ["add", "set"],
+                "description": "add (default) suma; set reemplaza el bundle",
+            },
+            "criteria": {
+                "type": "array",
+                "description": (
+                    "Criterios con predicado. Cada item: "
+                    '{"criterion": "...", "predicate": {"type": "command_exit", '
+                    '"command": "..."}} o un predicado del verify_engine con '
+                    "description/criterion."
+                ),
+                "items": {"type": "object"},
+            },
+            "predicates": {
+                "type": "array",
+                "description": "Alias de criteria (predicados sueltos).",
+                "items": {"type": "object"},
+            },
+        },
+    },
     "sprint_status": {
         "type": "object",
         "properties": {
@@ -428,6 +458,7 @@ _DESCRIPTIONS = {
     "session_plan": "Get/set the session flight plan (goal, acceptance, task, scope, next).",
     "spec_start": "Start an existing spec: status in_progress + session/task link + plan.",
     "spec_status": "Transition a spec; completed requires artifacts.",
+    "spec_predicates": "Attach executable predicates to spec criteria (feeds verify_predicates).",
     "sprint_status": "Transition a sprint status (paused is reversible: active<->paused).",
     "trace_push": "Push an event to the execution trace index.",
     "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
@@ -466,7 +497,7 @@ def _build_runner(name: str):
     _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
-    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "spec_status", "sprint_status", "run_tests", "verify_predicates", "capture"}
+    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "spec_status", "spec_predicates", "sprint_status", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner
         return session_tool_runner(name)

@@ -49,10 +49,19 @@ def execute_public_task(
         chain_dir=chain_dir,
         channel=channel,
         cpg_adapter=cpg_adapter,
+        project_id=project_id,
     )
 
     data = dict(task_data or {})
-    data.setdefault("_project_id", project_id)
+    if project_id:
+        # El project_id de la spec manda (el CLI lo quita del payload para que
+        # no se pueda apuntar a otro proyecto). Los handlers lo leen de
+        # `data["project_id"]` (session_bind, session_open), así que debe
+        # estar ahí además de en `_project_id`.
+        data["project_id"] = project_id
+        data["_project_id"] = project_id
+    else:
+        data.setdefault("_project_id", project_id)
 
     # Merge _payload into top-level data
     payload = data.get("_payload", {})

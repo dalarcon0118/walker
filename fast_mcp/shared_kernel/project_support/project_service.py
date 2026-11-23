@@ -300,9 +300,8 @@ class ProjectService:
             )
         # La búsqueda del entry DELEGA en RegistryStore (único lector del
         # registro dentro del bounded context Project).
-        entry = RegistryStore(Path(root) if root is not None else None).resolve(
-            project_id
-        )
+        store = RegistryStore(Path(root) if root is not None else None)
+        entry = store.resolve(project_id)
         repo = entry.get("repo_path", "")
         if not repo:
             raise ValueError(
@@ -315,6 +314,9 @@ class ProjectService:
                 f"El repo del projecto '{project_id}' no existe: '{abs_repo}'. "
                 "Verifica el repo_path en el registro global."
             )
+        # Toda resolución de project_id es un acceso real: el registro lo
+        # refleja (con debounce, para no escribir en cada tool).
+        store.touch(project_id)
         return abs_repo
 
     # ── Discovery ─────────────────────────────────────────────────────

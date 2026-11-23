@@ -201,6 +201,21 @@ def project_tool_runner(name: str, root: Path | None = None):
                             }
                             result.pop("message", None)
                 except Exception:  # noqa: BLE001 — status no rompe por enriquecimiento
+                    svc = None
+                # Última sesión del agente en walker (para que el agente pueda
+                # explorar de qué trataba). Solo si hay sprint_service.
+                try:
+                    if svc is not None:
+                        pid_for_session = kwargs.get("project_id") or kwargs.get("_project_id") or ctx.store.resolve_from_cwd()
+                        last = svc.last_session(pid_for_session) if pid_for_session else None
+                        if last:
+                            result["last_session"] = {
+                                "session_id": last.get("session_id", ""),
+                                "task_id": last.get("task_id", ""),
+                                "updated_at": last.get("updated_at", ""),
+                                "status": last.get("status", ""),
+                            }
+                except Exception:  # noqa: BLE001 — status no rompe por enriquecimiento
                     pass
             return result
         raise ValueError(f"tool '{name}' sin use case en context project")

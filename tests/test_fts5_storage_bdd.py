@@ -299,6 +299,41 @@ class TestF1FailFast:
         assert _hit_ids(res) == {"cpg:function:1"}
 
 
+class TestF1ProbeTokenizerParity:
+    """El verificador y FTS5 deben tokenizar IGUAL.
+
+    `models.tokenize` parte camelCase (`isMap` → `is`/`map`) y filtra
+    stop-words; FTS5 (unicode61) indexa `ismap`. Sondear con el token de
+    Python reportaba drift FALSO (reproducido 2026-11-22 con
+    `cpg-506bc0a667cf`).
+    """
+
+    def test_probe_usa_la_granularidad_de_fts5(self):
+        assert fts_mod._fts_probe(["isMap", "function"]) == "isMap"
+        assert fts_mod._fts_probe(["", 42, "  fn_login(x)"]) == "42"
+        assert fts_mod._fts_probe(["", "   "]) == ""
+
+    def test_sample_verify_no_reporta_drift_falso_por_camelcase(self, tmp_path):
+        backend = _make_backend(tmp_path)
+        docs = _seed_docs()
+        docs["cpg:function:9"] = {
+            "name": "isMap", "type": "function",
+            "path": "web/image.js", "line": 113,
+            "signature": "export function isMap(image) {", "kind": "function",
+        }
+        backend.store_many("cpg", docs)
+        backend._db.close()
+
+        c = sqlite3.connect(str(tmp_path / "cognitive.sqlite3"))
+        report = fts_mod._sample_verify(
+            c, "cpg", ["name", "path", "signature", "kind"], sample_size=100
+        )
+        c.close()
+
+        assert report["missing"] == []
+        assert report["checked"] >= 1
+
+
 class TestF1BootCheapVerify:
     """T-06 (M-08): boot en estado sano NO ejecuta full reconcile O(docs+terms).
 

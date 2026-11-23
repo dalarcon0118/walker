@@ -356,6 +356,7 @@ async function runSetup(ctx) {
       sessionGoal: "",
       pendingBaseline: null,
       baselineDone: false,
+      captured: false,
       degraded: new Set(),
       pendingDegrades: [],
     }
@@ -1865,6 +1866,33 @@ async function runSetup(ctx) {
                       },
                     })
                   }
+                  // Auto-capture proactivo (una vez por sesión).
+                  if (!rt.captured && rt.activeTask && e.wrote) {
+                    try {
+                      const sid = key
+                      const touched = Array.from(e.touched || []).slice(0, 50)
+                      run(
+                        "capture",
+                        {
+                          session_id: sid,
+                          task_id: String(rt.activeTask.taskId || ""),
+                          evidence: "auto: verificacion en verde",
+                          artifacts: touched,
+                        },
+                        rt.projectId,
+                        HOOK_TIMEOUT_MS
+                      )
+                      rt.captured = true
+                      tracePush({
+                        event_type: "auto_capture",
+                        source: "agent_hook",
+                        session_id: sid,
+                        data: { task_id: rt.activeTask.taskId, files: touched.length },
+                      })
+                    } catch (err) {
+                      degrade(rt, "auto-capture falló", err)
+                    }
+                  }
                 }
               } else if (hasPipe) {
                 // No hay marcador y el exit code no es confiable: no se
@@ -2686,6 +2714,35 @@ async function runSetup(ctx) {
                       touched: Array.from(entry.touched || []).slice(0, 20),
                     },
                   })
+                }
+                // Auto-capture proactivo: al verificar en verde, se guarda la
+                // evidencia (archivos tocados + resultado) sin esperar a que el
+                // agente lo pida. Una sola vez por sesión.
+                if (!rt.captured && rt.activeTask && entry.wrote) {
+                  try {
+                    const sid = String(callCtx?.sessionID || rt.sessionId || "global")
+                    const touched = Array.from(entry.touched || []).slice(0, 50)
+                    run(
+                      "capture",
+                      {
+                        session_id: sid,
+                        task_id: String(rt.activeTask.taskId || ""),
+                        evidence: "auto: verificacion en verde",
+                        artifacts: touched,
+                      },
+                      rt.projectId,
+                      HOOK_TIMEOUT_MS
+                    )
+                    rt.captured = true
+                    tracePush({
+                      event_type: "auto_capture",
+                      source: "agent_hook",
+                      session_id: sid,
+                      data: { task_id: rt.activeTask.taskId, files: touched.length },
+                    })
+                  } catch (err) {
+                    degrade(rt, "auto-capture falló", err)
+                  }
                 }
               } else {
                 entry.verifyFailed = true

@@ -66,6 +66,103 @@ def _detect_lang(filepath: str) -> str | None:
     return _LANG_MAP.get(Path(filepath).suffix.lower())
 
 
+def _purescript_let_binding_lines(file_path: str) -> set[int]:
+    try:
+        from tree_sitter_language_pack import get_parser
+    except ImportError:
+        return set()
+    try:
+        parser = get_parser("purescript")
+    except Exception:  # noqa: BLE001
+        return set()
+    try:
+        with open(file_path, "rb") as fh:
+            src = fh.read()
+    except OSError:
+        return set()
+    try:
+        tree = parser.parse(src)
+    except Exception:  # noqa: BLE001
+        return set()
+
+    lines: set[int] = set()
+
+    def walk(node) -> None:
+        if node.type in ("exp_let_in", "let"):
+            for ch in node.children:
+                if ch.type == "declarations":
+                    for decl in ch.children:
+                        if decl.type == "function" and decl.children:
+                            lines.add(decl.start_point[0] + 1)
+        for ch in node.children:
+            walk(ch)
+
+    walk(tree.root_node)
+    return lines
+
+
+def _purescript_instance_scopes(file_path: str) -> list[dict]:
+    """Rangos de las declaraciones `instance` de un archivo PureScript.
+
+    El outline no expone el scope: los siete `show` de un módulo salen con el
+    mismo `name` y sin instancia, así que el impacto elegía una arbitraria.
+    tree-sitter sí da el nodo `instance` y su `instance_head` (p. ej.
+    `Show Currency`), que es la identidad real del método.
+
+    Returns:
+        [{"start": 1-based, "end": 1-based, "head": "Show Currency"}, ...]
+    """
+    try:
+        from tree_sitter_language_pack import get_parser
+    except ImportError:
+        return []
+    try:
+        parser = get_parser("purescript")
+    except Exception:  # noqa: BLE001
+        return []
+    try:
+        with open(file_path, "rb") as fh:
+            src = fh.read()
+    except OSError:
+        return []
+    try:
+        tree = parser.parse(src)
+    except Exception:  # noqa: BLE001
+        return []
+
+    scopes: list[dict] = []
+
+    def walk(node) -> None:
+        # `class_instance` es el bloque completo (`instance … where …`); el
+        # nodo `instance` es solo la keyword y no contiene el head.
+        if node.type == "class_instance":
+            head = ""
+            for ch in node.children:
+                if ch.type == "instance_head":
+                    head = " ".join(
+                        src[ch.start_byte:ch.end_byte].decode("utf-8", "replace").split()
+                    )
+                    break
+            if head:
+                scopes.append({
+                    "start": node.start_point[0] + 1,
+                    "end": node.end_point[0] + 1,
+                    "head": head,
+                })
+        for ch in node.children:
+            walk(ch)
+
+    walk(tree.root_node)
+    return scopes
+
+
+def _instance_scope_for_line(line: int, scopes: list[dict]) -> str:
+    for scope in scopes:
+        if scope["start"] <= line <= scope["end"]:
+            return str(scope.get("head") or "")
+    return ""
+
+
 def run_outline(paths: list[str]) -> list[dict]:
     """Ejecuta ast-grep outline en paths y retorna JSON estructurado.
 
@@ -90,8 +187,13 @@ def run_outline(paths: list[str]) -> list[dict]:
 @safe
 def _run_outline_core(paths: list[str]) -> list[dict]:
     """Core puro de run_outline (puede lanzar)."""
+    sgconfig = _resolve_sgconfig()
+    if sgconfig:
+        cmd = [AST_GREP_BIN, "-c", sgconfig, "outline", "--json", "--items", "all"]
+    else:
+        cmd = [AST_GREP_BIN, "outline", "--json", "--items", "all"]
     r = subprocess.run(
-        [AST_GREP_BIN, "outline", "--json", "--items", "all"] + paths,
+        cmd + paths,
         capture_output=True, text=True, timeout=120,
     )
     if r.returncode != 0:
@@ -150,6 +252,49 @@ def _cyclo_by_line(path: str) -> dict[int, int]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             out[node.lineno] = measure(node)
+    return out
+
+
+def _dedupe_outline_items(items: list[dict]) -> list[dict]:
+    """Elimina la firma de tipo cuando la definición del mismo símbolo existe.
+
+    El outline de PureScript emite DOS items por símbolo anotado: la firma
+    (`astKind: signature`, patrón `_NAME :: _TYPE`) y la definición
+    (`astKind: function`). Cada uno creaba su propio nodo, con ids distintos
+    (`-2`), y las CALLS se partían entre ambos: medido 2026-11-22 en
+    client-chat, 455 pares (path, name) duplicados y `routeToPath` con 3
+    callers en un nodo y 0 en el otro.
+
+    Regla: si el grupo tiene al menos una definición, las firmas se descartan
+    (se conserva el orden de definición y, si hay varias, todas — un
+    redefinido real no se oculta). Si solo hay firmas, se conserva la primera
+    (dos firmas idénticas del mismo nombre no son dos símbolos).
+    """
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = (
+            str(item.get("name") or ""),
+            str(item.get("symbolType") or "").lower(),
+            bool(item.get("isImport", False)),
+        )
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(item)
+
+    out: list[dict] = []
+    for key in order:
+        group = groups[key]
+        is_signature = [
+            str(i.get("astKind") or "").lower() == "signature" for i in group
+        ]
+        if any(not sig for sig in is_signature):
+            out.extend(i for i, sig in zip(group, is_signature) if not sig)
+        else:
+            out.append(group[0])
     return out
 
 
@@ -217,14 +362,25 @@ def _parse_outline_core(results: list[dict]) -> Graph:
         if not items:
             continue
 
+        # Un símbolo = un nodo: la firma de tipo no es un segundo símbolo.
+        items = _dedupe_outline_items(items)
+
+        let_lines: set[int] = set()
+        instance_scopes: list[dict] = []
+        if file_path.endswith(".purs"):
+            let_lines = _purescript_let_binding_lines(file_path)
+            instance_scopes = _purescript_instance_scopes(file_path)
+
         for item in items:
             kind = item.get("symbolType", "unknown").lower()
             name = item.get("name", "")
+            start_line = item.get("range", {}).get("start", {}).get("line", 0) + 1
+            if let_lines and start_line in let_lines and kind == "function":
+                continue
             node_type = type_map.get(kind, kind)
             is_import = item.get("isImport", False)
             node_id = _nid()
 
-            start_line = item.get("range", {}).get("start", {}).get("line", 0) + 1
             node_data = {
                 "id": node_id,
                 "type": node_type,
@@ -235,6 +391,13 @@ def _parse_outline_core(results: list[dict]) -> Graph:
                 "signature": item.get("signature", ""),
                 "is_import": is_import,
             }
+            # Un método de instancia no es "una función más": su identidad es
+            # la instancia (`Show Currency`). Sin esto, los N `show` del módulo
+            # son indistinguibles y el impacto elige uno al azar.
+            method_scope = _instance_scope_for_line(start_line, instance_scopes)
+            if method_scope and not is_import:
+                node_data["scope"] = f"instance {method_scope}"
+                node_data["qualified_name"] = f"{method_scope}.{name}"
             if node_type in ("function", "method") and cyclo_map:
                 cyclo = cyclo_map.get(start_line)
                 if cyclo is not None:
@@ -422,8 +585,13 @@ def _run_ast_grep(pattern: str, filepath: str, lang: str | None = None) -> list[
 @safe
 def _run_ast_grep_core(pattern: str, filepath: str, lang: str) -> list[dict]:
     """Core puro de _run_ast_grep (puede lanzar)."""
+    sgconfig = _resolve_sgconfig()
+    if sgconfig:
+        cmd = [AST_GREP_BIN, "-c", sgconfig, "run", "--json", "-l", lang, "-p", pattern, filepath]
+    else:
+        cmd = [AST_GREP_BIN, "run", "--json", "-l", lang, "-p", pattern, filepath]
     r = subprocess.run(
-        [AST_GREP_BIN, "run", "--json", "-l", lang, "-p", pattern, filepath],
+        cmd,
         capture_output=True, text=True, timeout=30,
     )
     if r.returncode != 0:
@@ -437,3 +605,139 @@ def _run_ast_grep_core(pattern: str, filepath: str, lang: str) -> list[dict]:
         start = rng.get("start", {})
         results.append({"line": start.get("line", 0) + 1, "col": start.get("col", 0) + 1, "text": m.get("text", "").strip()})
     return results
+
+
+def _merge_sgconfig(candidate: str) -> str:
+    """Fusiona el sgconfig del proyecto con el global del walker."""
+    try:
+        from fast_mcp.shared_kernel.paths import walker_root
+        from fast_mcp.shared_kernel.sgconfig import seed_sgconfig
+
+        data_dir = walker_root() / "data"
+        seed_sgconfig(data_dir)
+        global_sg = data_dir / "sgconfig.yml"
+    except Exception:  # noqa: BLE001
+        return candidate
+    if not global_sg.is_file() or os.path.realpath(candidate) == os.path.realpath(str(global_sg)):
+        return candidate
+    try:
+        import yaml
+
+        base = yaml.safe_load(global_sg.read_text()) or {}
+        cand_data = yaml.safe_load(Path(candidate).read_text()) or {}
+    except Exception:  # noqa: BLE001
+        return candidate
+    base_cl = base.get("customLanguages") or {}
+    cand_cl = cand_data.get("customLanguages") or {}
+    merged_cl = dict(base_cl)
+    merged_cl.update(cand_cl)
+    if not merged_cl:
+        return candidate
+    merged = dict(cand_data)
+    merged["customLanguages"] = merged_cl
+    try:
+        import yaml as _y
+
+        merged_text = _y.safe_dump(merged, sort_keys=False, allow_unicode=True)
+    except Exception:  # noqa: BLE001
+        return candidate
+    merged_path = Path(candidate).with_name("sgconfig.merged.yml")
+    try:
+        if not merged_path.is_file() or merged_path.read_text() != merged_text:
+            merged_path.write_text(merged_text)
+    except OSError:
+        return candidate
+    return str(merged_path)
+
+
+def _resolve_sgconfig() -> str | None:
+    """Resuelve sgconfig.yml para lenguajes custom (ej. purescript).
+
+    Cascada (el proyecto puede declarar sus propios lenguajes sin modificar
+    walker):
+      1. env WALKER_SGCONFIG
+      2. sgconfig.yml en la raíz del proyecto (autoría del proyecto)
+      3. sgconfig.yml en el data dir cognitivo del proyecto activo
+      4. sgconfig.yml global del walker (data/sgconfig.yml)
+      5. sgconfig.yml en el cwd
+
+    El candidato se fusiona con el global del walker para no perder los
+    lenguajes que shippea walker (p. ej. purescript).
+    """
+    explicit = os.environ.get("WALKER_SGCONFIG")
+    if explicit and os.path.isfile(explicit):
+        return _merge_sgconfig(explicit)
+
+    # 0. Raíz del proyecto (autoría del proyecto)
+    try:
+        from fast_mcp.shared_kernel.paths import find_cognitive_root
+
+        cog = find_cognitive_root()
+        if cog is not None:
+            cand = cog.parent / "sgconfig.yml"
+            if cand.is_file():
+                return _merge_sgconfig(str(cand))
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Proyecto activo: sgconfig en el data dir del proyecto que contiene el CWD.
+    try:
+        from fast_mcp.shared_kernel.paths import find_cognitive_root
+        import json as _json
+        import os as _os
+
+        cog = find_cognitive_root()
+        if cog is not None:
+            projects_dir = cog / "projects"
+            if projects_dir.is_dir():
+                cwd = _os.getcwd()
+                candidates = [p for p in projects_dir.iterdir() if p.is_dir()]
+                for proj in candidates:
+                    manifest = proj / "data" / "project.json"
+                    if manifest.is_file():
+                        try:
+                            data = _json.loads(manifest.read_text())
+                            repo = (data.get("project") or {}).get("location", {}).get("repo_path", "")
+                            if repo and (cwd == repo or cwd.startswith(repo + _os.sep)):
+                                cand = proj / "data" / "sgconfig.yml"
+                                if cand.is_file():
+                                    return _merge_sgconfig(str(cand))
+                        except Exception:  # noqa: BLE001
+                            pass
+                if len(candidates) == 1:
+                    cand = candidates[0] / "data" / "sgconfig.yml"
+                    if cand.is_file():
+                        return _merge_sgconfig(str(cand))
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Global del walker
+    try:
+        from fast_mcp.shared_kernel.paths import walker_root
+        from fast_mcp.shared_kernel.sgconfig import seed_sgconfig
+
+        data_dir = walker_root() / "data"
+        # Regenerar si la config existente apunta a un parser inexistente
+        # (config vieja de otra máquina o walker movido).
+        cand = data_dir / "sgconfig.yml"
+        if cand.is_file():
+            try:
+                import yaml as _y
+
+                existing = _y.safe_load(cand.read_text()) or {}
+                pl = (existing.get("customLanguages") or {}).get("purescript", {}).get("libraryPath")
+                if pl and not Path(pl).is_file():
+                    cand.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+        seed_sgconfig(data_dir)
+        cand = data_dir / "sgconfig.yml"
+        if cand.is_file():
+            return str(cand)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # cwd
+    if os.path.isfile("sgconfig.yml"):
+        return _merge_sgconfig(os.path.abspath("sgconfig.yml"))
+    return None

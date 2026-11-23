@@ -43,6 +43,7 @@ _HANDLER_MODULES = [
     "session",
     "sprint_status",
     "spec_status",
+    "spec_predicates",
     "verify",
     "capture",
     "sprint_planning",

@@ -86,6 +86,30 @@ def test_capture_con_ledger_persiste_en_ckg(project_dir):
     assert meta.get("task_id") == "T-1"
 
 
+def test_ledger_usa_el_session_id_del_payload_no_el_de_ctx(project_dir):
+    """El path de tool trae `ctx.session_id == "mcp"`; la sesión real viene en
+    el payload. Guardar con ctx dejaba el nodo como `task_ledger-mcp-<task>` y
+    la consolidación no podía unirlo con la sesión (medido 2026-11-22)."""
+    ctx = _ctx(project_dir, task_id="T-9", session_id="mcp")
+
+    out = capture_handler.capture(
+        ctx,
+        {"ledger": _ledger(), "task_id": "T-9", "session_id": "S-real"},
+    )
+
+    assert out.ok is True
+    node_id = out.data["ledger"]["node_id"]
+    assert "S-real" in node_id
+    assert "mcp" not in node_id
+
+    ledgers = [
+        n for n in CkgReadService.query_all(project_dir)
+        if n.get("type") == "task-ledger"
+    ]
+    assert len(ledgers) == 1
+    assert (ledgers[0].get("metadata") or {}).get("session_id") == "S-real"
+
+
 def test_capture_sin_ledger_sigue_funcionando(project_dir):
     out = capture_handler.capture(_ctx(project_dir), {"evidence": "ok"})
 

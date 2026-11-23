@@ -50,6 +50,7 @@ class ExecutionContext:
     session_id: str = ""
     channel: str = "mcp"
     cpg_adapter: Any = None
+    project_id: str = ""
 
     @classmethod
     def create(
@@ -59,6 +60,7 @@ class ExecutionContext:
         session_id: str = "mcp",
         channel: str = "mcp",
         cpg_adapter: Any = None,
+        project_id: str = "",
     ) -> ExecutionContext:
         return cls(
             chain_dir=chain_dir,
@@ -66,6 +68,7 @@ class ExecutionContext:
             session_id=session_id,
             channel=channel,
             cpg_adapter=cpg_adapter,
+            project_id=project_id,
         )
 
 

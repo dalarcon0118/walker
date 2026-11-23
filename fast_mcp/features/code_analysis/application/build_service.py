@@ -87,6 +87,12 @@ def _stable_ids(
         path = str(node.get("path", ""))
         rel = os.path.relpath(path, base) if base and path.startswith(base) else path
         key = f"{rel}|{node.get('type', '')}|{node.get('name', '')}"
+        # El método de una instancia se identifica por su scope (`Show Currency`):
+        # sin esto los N `show` del módulo colisionan y se numeran por orden.
+        # Solo se agrega cuando existe para NO cambiar los ids ya estables.
+        scope = str(node.get("scope") or "")
+        if scope:
+            key += f"|{scope}"
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
         new_id = f"cpg-{digest}"
         count = seen.get(key, 0) + 1
@@ -415,8 +421,18 @@ def _collect_bug_proposals_core(data: dict) -> dict[str, list[dict]]:
     scanner = DeadCodeReferenceScanner(
         sorted({n.get("path", "") for n in nodes.values() if isinstance(n, dict)})
     )
+    # Los métodos de instancia (`show`, `eq`, …) se invocan por type class,
+    # no por nombre: sin CALLS resoluble no son código muerto. Incluirlos
+    # generaría "unused" falsos en cada instancia.
+    analyzable_nodes = {
+        nid: node for nid, node in nodes.items()
+        if not (
+            isinstance(node, dict)
+            and str(node.get("scope") or "").startswith("instance ")
+        )
+    }
     for f in find_unused_functions(
-        nodes, edges,
+        analyzable_nodes, edges,
         is_false_positive_dead_code=is_false_positive_dead_code,
         is_referenced=scanner.is_referenced,
         is_fixture=scanner.is_pytest_fixture,
@@ -452,6 +468,43 @@ def _collect_bug_proposals_core(data: dict) -> dict[str, list[dict]]:
             }
         )
     return proposals
+
+
+#: Familias de lenguaje que comparten runtime y pueden llamarse entre sí por
+#: nombre. Un FFI JS invoca funciones TS del mismo proyecto (`migrate` de
+#: `src/Data/db.ts`), así que js/jsx/ts/tsx son la misma familia. Comparar el
+#: lenguaje EXACTO borraba esas 15 aristas legítimas de client-chat.
+_LANG_FAMILIES = {
+    "javascript": "js",
+    "jsx": "js",
+    "typescript": "js",
+    "tsx": "js",
+}
+
+
+def _lang_family(lang: str) -> str:
+    return _LANG_FAMILIES.get(lang or "", lang or "")
+
+
+def _node_lang(node: dict) -> str:
+    from fast_mcp.features.code_analysis.infrastructure.ast_grep_adapter import (
+        _detect_lang,
+    )
+
+    return _detect_lang(str(node.get("path") or "")) or ""
+
+
+def _report_files_count(report: dict) -> int:
+    """Cantidad de archivos de un quality report.
+
+    `MetricsReport.to_dict()` es PLANO (`files` en la raíz), no anidado bajo
+    `metrics`. El guard de falso-PASS leía solo `metrics.files`, veía 0 y
+    marcaba `degraded` un reporte con 454 archivos reales.
+    """
+    nested = report.get("metrics") or {}
+    if isinstance(nested, dict) and "files" in nested:
+        return int(nested.get("files") or 0)
+    return int(report.get("files") or 0)
 
 
 class BuildGraphUseCase:
@@ -616,8 +669,7 @@ class BuildGraphUseCase:
                 }
 
             # Detectar falso PASS (métricas en 0 sin fuente de datos)
-            metrics = report.get("metrics", {}) or {}
-            if not report.get("degraded", False) and metrics.get("files", 0) == 0:
+            if not report.get("degraded", False) and _report_files_count(report) == 0:
                 report["degraded"] = True
                 report["error"] = (
                     "el CPG no produjo métricas — ejecuta build_code_index "
@@ -1105,20 +1157,93 @@ class BuildGraphUseCase:
         fp: str,
         call_line: int,
     ) -> str:
-        """Resuelve (o crea) el nodo del callee por nombre, cualquier archivo."""
-        callee_nid = None
-        cands = nodes_by_name.get(callee, [])
-        if cands:
-            callee_nid = cands[0]
-        else:
-            simple_name = callee.split(".")[-1] if "." in callee else callee
-            if simple_name != callee:
-                cands = nodes_by_name.get(simple_name, [])
-                if cands:
-                    callee_nid = cands[0]
+        """Resuelve (o crea) el nodo del callee, sin cruzar familias de lenguaje.
+
+        Un JS de animación llamando a `start()` NO es una llamada al `start`
+        de `Headless.purs`; `error` de un script no es `Log.error`. Esas 44
+        aristas eran falsos positivos (medido 2026-11-22 en client-chat) y
+        dejaban a `Log.info`, con 25 usos reales, marcado como huérfano.
+
+        La resolución:
+          1. mismo archivo (inequívoco),
+          2. misma familia de lenguaje (js/jsx/ts/tsx comparten runtime;
+             comparar el lenguaje exacto borraba los FFI JS→TS legítimos),
+             prefiriendo el mismo directorio y, a igualdad, la ruta menor,
+          3. sin candidato compatible → nodo sintético `external_call` en el
+             archivo del caller; nunca el símbolo de otro lenguaje.
+        """
+        import os
+
+        from fast_mcp.features.code_analysis.infrastructure.ast_grep_adapter import (
+            _detect_lang,
+        )
+
+        caller_lang = _detect_lang(fp)
+        family = _lang_family(caller_lang or "")
+        caller_dir = os.path.dirname(fp)
+
+        def _compatible(nid: str) -> bool:
+            if not caller_lang:
+                return True
+            node = cpg_nodes.get(nid) if isinstance(cpg_nodes, dict) else None
+            if not isinstance(node, dict):
+                return True
+            return _lang_family(_node_lang(node)) == family
+
+        def _rank(nid: str) -> tuple[int, int, str]:
+            path = str((cpg_nodes.get(nid) or {}).get("path") or "")
+            return (
+                0 if path == fp else 1,
+                0 if os.path.dirname(path) == caller_dir else 1,
+                path,
+            )
+
+        def _pick(cands: list[str]) -> str:
+            """Candidato inequívoco, o "" si el nombre es ambiguo."""
+            if not cands:
+                return ""
+            real = [
+                n for n in cands
+                if (cpg_nodes.get(n) or {}).get("kind") != "external_call"
+            ]
+            if not real:
+                # Un externo de OTRO archivo no resuelve esta llamada: se
+                # reutiliza solo el del archivo del caller (atribución real).
+                return ""
+            scoped = [n for n in real if (cpg_nodes.get(n) or {}).get("scope")]
+            if scoped:
+                same_file = [
+                    n for n in real
+                    if (cpg_nodes.get(n) or {}).get("path") == fp
+                ]
+                # Dos implementaciones del mismo nombre en el archivo (o
+                # varias instancias y ninguna local): sin tipos no se puede
+                # saber cuál se invoca. Elegir una arbitraria es peor que
+                # declarar la llamada sin resolver.
+                if len(same_file) > 1:
+                    return ""
+                if len(scoped) > 1 and not same_file:
+                    return ""
+            return sorted(real, key=_rank)[0]
+
+        cands = [n for n in nodes_by_name.get(callee, []) if _compatible(n)]
+        if not cands and "." in callee:
+            cands = [
+                n for n in nodes_by_name.get(callee.rsplit(".", 1)[-1], [])
+                if _compatible(n)
+            ]
+
+        callee_nid = _pick(cands)
         if not callee_nid:
+            # Los externos se reutilizan SOLO dentro del mismo archivo: uno
+            # compartido por directorio atribuía `pure` al primer archivo que
+            # lo llamó (medido: 122 aristas sobre test/Test/Support.purs).
+            for nid in nodes_by_name.get(callee, []):
+                node = cpg_nodes.get(nid) or {}
+                if node.get("kind") == "external_call" and node.get("path") == fp:
+                    return nid
             callee_nid = _cpg_nid(fp, callee)
-            cpg_nodes[callee_nid] = {
+            node = {
                 "id": callee_nid,
                 "type": "function",
                 "name": callee,
@@ -1126,6 +1251,19 @@ class BuildGraphUseCase:
                 "line": call_line,
                 "kind": "external_call",
             }
+            ambiguous = [
+                n for n in cands
+                if (cpg_nodes.get(n) or {}).get("scope")
+                and (cpg_nodes.get(n) or {}).get("kind") != "external_call"
+            ]
+            if len(ambiguous) > 1:
+                node["ambiguous"] = True
+                node["ambiguous_candidates"] = [
+                    str((cpg_nodes.get(n) or {}).get("qualified_name")
+                        or (cpg_nodes.get(n) or {}).get("name"))
+                    for n in ambiguous[:10]
+                ]
+            cpg_nodes[callee_nid] = node
             nodes_by_name.setdefault(callee, []).append(callee_nid)
         return callee_nid
 
@@ -1146,7 +1284,8 @@ class BuildGraphUseCase:
         all_files = _walk_code_files(raw_paths, self._ignore)
 
         _CODE_LANGS = {"python", "javascript", "typescript", "rust", "go",
-                       "java", "ruby", "kotlin", "swift", "c", "cpp"}
+                       "java", "ruby", "kotlin", "swift", "c", "cpp",
+                       "purescript"}
         all_files = [f for f in all_files if _detect_lang(f) in _CODE_LANGS]
 
         if not all_files:

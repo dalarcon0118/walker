@@ -1,0 +1,17 @@
+id: purs-signature
+language: purescript
+role: item
+symbolType: function
+rule:
+  pattern: "_NAME :: _TYPE"
+name: "$NAME"
+signature: "$NAME :: $TYPE"
+
+---
+id: purs-function
+language: purescript
+role: item
+symbolType: function
+rule:
+  pattern: "_NAME = _EXPR"
+name: "$NAME"

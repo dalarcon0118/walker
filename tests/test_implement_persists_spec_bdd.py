@@ -185,6 +185,32 @@ def test_aceptacion_explicita_queda_en_la_spec(servicio):
 # ── Aprobación del plan no trivial (SPEC-011) ────────────────────────────
 
 
+def test_criterio_con_predicado_explicito_no_queda_unmapped(servicio):
+    out = implement.implement_task(
+        _ctx(),
+        {
+            "task_id": "T-7",
+            "objective": "documentar el runtime",
+            "files": ["docs/a.md"],
+            "acceptance": [{
+                "criterion": "el mapa cita App.Composition",
+                "predicate": {
+                    "type": "command_exit",
+                    "command": "grep -q App.Composition project.md",
+                },
+            }],
+        },
+    )
+
+    assert out.ok
+    spec = servicio.specs["SPR-1"][0]
+    assert spec["acceptance_criteria"] == ["el mapa cita App.Composition"]
+    items = spec["predicates"]["items"]
+    assert [p["command"] for p in items] == ["grep -q App.Composition project.md"]
+    assert items[0]["criterion"] == "el mapa cita App.Composition"
+    assert spec["predicates"]["unmapped"] == []
+
+
 def test_plan_no_trivial_sin_aprobacion_no_se_implementa(servicio):
     out = implement.implement_task(
         _ctx(),
