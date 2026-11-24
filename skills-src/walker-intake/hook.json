@@ -1,0 +1,8 @@
+{
+  "id": "walker-intake",
+  "kind": "skill",
+  "version": "1.0.2",
+  "description": "Router de intake: proyecto y estado, memorias antes que codigo, clasificacion por impacto y decision entre fix directo o sprint con workflow.",
+  "walker": ">=3.0,<4",
+  "requires": []
+}

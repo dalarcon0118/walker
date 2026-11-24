@@ -45,3 +45,29 @@ reproducible, no como canon.
   candidato en `REFINE.DIAGNOSE` y aparece en `VERIFY.QA` por el tag `review`.
 - Tags agregados localmente al frontmatter para que el índice los encuentre
   (upstream no los trae).
+
+## walker-intake (router de sesión)
+
+No es candidato de gate: es el router que usa el agente **al empezar cada
+pedido**. Verifica proyecto y estado (`project_for_path`, `status`,
+`session_bind`), investiga con memorias antes que código (`brief`,
+`search_memories`), clasifica impacto y decide entre fix directo o sprint con
+workflow.
+
+```bash
+# OpenCode lo lee nativo (recomendado para este skill):
+cp -R skills-src/walker-intake ~/.config/opencode/skills/
+
+# Alternativa: instalador de walker (queda en ~/.walker/skills; OpenCode solo lo
+# ve si `~/.walker/skills` está en el array `skills` de opencode.json).
+python3 scripts/hooks_cli.py install skills-src/walker-intake
+```
+
+El índice de walker escanea `~/.config/opencode/skills` (scope `global`) y
+`~/.walker/skills` (scope `walker`), así que la copia nativa sirve a ambos. No
+mantengas las dos: si coexisten, la entrada de `skills` config gana en OpenCode y
+la copia nativa queda shadowed.
+
+`session-intake` cubre el subconjunto arranque/cierre; `walker-intake` lo
+reemplaza cuando el pedido exige decidir impacto y ruta.
+
