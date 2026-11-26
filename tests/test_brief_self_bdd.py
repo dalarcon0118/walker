@@ -193,3 +193,44 @@ def test_el_espejo_no_filtra_eventos_de_otra_sesion(monkeypatch):
 
     assert out["self"]["writes"] == 1
     assert out["self"]["verified"] is False
+
+
+def test_denial_de_bind_trae_un_remedio_ejecutable(monkeypatch):
+    """El gap no puede decir 'revisá el remedio': trae el comando exacto."""
+    _wire(monkeypatch, [
+        _event("flight_control_denied", {"gate": "bind", "tool": "shell"}),
+    ])
+
+    out = _brief()
+
+    gap = next(g for g in out["self"]["gaps"] if g["code"] == "denials")
+    assert "session_bind" in gap["remedy"]
+    assert '"session_id":"ses_x"' in gap["remedy"]
+    assert "revisar el remedio" not in gap["remedy"]
+
+
+def test_denial_de_scope_remedia_con_el_archivo_del_evento(monkeypatch):
+    _wire(monkeypatch, [
+        _event("flight_control_denied", {"gate": "scope", "file": "b.py"}),
+    ])
+
+    out = _brief()
+
+    gap = next(g for g in out["self"]["gaps"] if g["code"] == "denials")
+    assert "session_plan" in gap["remedy"]
+    assert "b.py" in gap["remedy"]
+
+
+def test_self_cuenta_las_lecturas_de_brief_con_gap(monkeypatch):
+    _wire(monkeypatch, [
+        _event("brief_injected", {"gaps": ["denials"], "self": {"gaps": [{"code": "denials"}]}}),
+        _event("workflow_suggestion_ignored", {}),
+        _event("session_orphan_specs", {"specs": ["SPEC-1", "SPEC-2"]}),
+    ])
+
+    out = _brief()
+
+    assert out["self"]["brief_reads"] == 1
+    assert out["self"]["brief_with_gaps"] == 1
+    assert out["self"]["workflow_ignored"] == 1
+    assert out["self"]["orphan_specs"] == 2
