@@ -220,7 +220,7 @@ def test_transition_limpia_la_data_del_nodo_destino():
         sub_state_data={
             "SPRINT.ACTIVE": SubStateData(fields={"status": "active"}),
             "GATHER": SubStateData(fields={"facts": ["viejo"]}),
-            "REVIEW": SubStateData(fields={"decision": "approve", "evidence": "de otra spec"}),
+            "REVIEW": SubStateData(fields={"decision": "approve", "evidence": "de otra spec", "_human": True}),
             "IMPLEMENT.WORK": SubStateData(fields={"loop_verification": True}),
         },
     )
@@ -342,7 +342,7 @@ def test_submit_cruza_el_gate_cuando_la_decision_mapea():
     orch._trace_submit = lambda *a, **k: None
     orch._trace_transition = lambda *a, **k: None
 
-    result = orch.submit(ctx=None, fields={"decision": "accept"})
+    result = orch.submit(ctx=None, fields={"decision": "accept", "_human": True})
 
     assert result["ok"] is True, result
     assert result.get("submitted") is True

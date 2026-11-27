@@ -42,6 +42,9 @@ class Spec:
 
     # specified fields
     problem_statement: str = ""
+    # Per-task workflow state (SPEC-014): posición detallada del workflow
+    # para esta spec (current_node, current_sub_state). Permite multi-agente.
+    workflow_position: dict = field(default_factory=dict)
     evidence: list[str] = field(default_factory=list)
     acceptance_criteria: list[str] = field(default_factory=list)
     quality_gates: list[str] = field(default_factory=list)
@@ -119,6 +122,7 @@ class Spec:
             "depends_on": self.depends_on or [],
             "updated_at": self.updated_at or _now(),
             "problem_statement": self.problem_statement,
+            "workflow_position": self.workflow_position or {},
             "evidence": self.evidence or [],
             "acceptance_criteria": self.acceptance_criteria or [],
             "quality_gates": self.quality_gates or [],
@@ -165,6 +169,7 @@ class Spec:
             depends_on=data.get("depends_on", []),
             updated_at=data.get("updated_at", ""),
             problem_statement=data.get("problem_statement", ""),
+            workflow_position=data.get("workflow_position") or {},
             evidence=data.get("evidence", []),
             acceptance_criteria=data.get("acceptance_criteria", []),
             quality_gates=data.get("quality_gates", []),

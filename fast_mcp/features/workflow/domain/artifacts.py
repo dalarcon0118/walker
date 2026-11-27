@@ -88,14 +88,62 @@ def validate_design_brief(brief: Any) -> dict | None:
     return {"error": "design_brief inválido", "missing": missing, "remedy": _REMEDY}
 
 
-_VALIDATORS = {"design_brief": validate_design_brief}
+_REUSE_REMEDY = (
+    "Enviá `reuse_decision` como objeto con `candidates` (>=1), cada uno con "
+    "`source` en ckg|delta|cpg, `ref` y `reason`. Si no reusás nada, igual "
+    "declará lo que buscaste y por qué no aplica."
+)
+
+
+def validate_reuse_decision(decision: Any) -> dict | None:
+    """Valida un `reuse_decision`: exige candidatos con source válido (F1a)."""
+    if not isinstance(decision, dict):
+        return {"error": "reuse_decision debe ser un objeto", "missing": ["reuse_decision"],
+                "remedy": _REUSE_REMEDY}
+    candidates = decision.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return {"error": "reuse_decision sin candidatos", "missing": ["candidates"],
+                "remedy": _REUSE_REMEDY}
+    valid = [
+        c for c in candidates
+        if isinstance(c, dict) and str(c.get("source") or "") in ("ckg", "delta", "cpg")
+    ]
+    if not valid:
+        return {"error": "candidatos sin source válido (ckg|delta|cpg)",
+                "missing": ["candidates[].source"], "remedy": _REUSE_REMEDY}
+    return None
+
+
+def validate_design_and_reuse(payload: dict) -> dict | None:
+    """Gate compuesto de DESIGN_ANALYZE: design_brief (obligatorio) + reuse advisory.
+
+    `reuse_decision` es OPCIONAL (modo advisory): si no viene, no bloquea; si
+    viene, no puede estar vacío (sin candidatos).
+    """
+    brief_error = validate_design_brief(payload.get("design_brief"))
+    if brief_error:
+        return brief_error
+    reuse = payload.get("reuse_decision")
+    if reuse is None:
+        return None
+    return validate_reuse_decision(reuse)
+
+
+_VALIDATORS = {
+    "design_brief": validate_design_brief,
+    "reuse_decision": validate_reuse_decision,
+}
+
+#: Validadores que reciben el payload COMPLETO (varios artefactos del mismo gate).
+_COMPOSITE = {"design_and_reuse": validate_design_and_reuse}
 
 #: Contrato versionado de artefactos por (nodo, sub-estado). El nodo puede
 #: declararlo con `x-artifact`, pero `data/workflow/` está gitignoreado: en un
 #: checkout limpio el nodo no lo trae y el gate quedaría inerte. Esta tabla es
 #: la fuente que SÍ viaja con el código (se consulta como fallback).
 ARTIFACT_GATES: dict[tuple[str, str], str] = {
-    ("DESIGN", "DESIGN_ANALYZE"): "design_brief",
+    # F1a: gate compuesto (design_brief obligatorio + reuse_decision advisory).
+    ("DESIGN", "DESIGN_ANALYZE"): "design_and_reuse",
 }
 
 
@@ -105,6 +153,8 @@ def artifact_for(node_id: str, sub_state_key: str) -> str:
 
 def validate_artifact(kind: str, payload: dict) -> dict | None:
     """Valida `payload[kind]` (o el payload si ya es el artefacto)."""
+    if kind in _COMPOSITE:
+        return _COMPOSITE[kind](payload if isinstance(payload, dict) else {})
     validator = _VALIDATORS.get(kind)
     if validator is None:
         return {"error": f"artefacto desconocido: '{kind}'", "remedy": "Revisar x-artifact."}

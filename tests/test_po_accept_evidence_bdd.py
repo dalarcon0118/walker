@@ -49,8 +49,8 @@ def _state_with_qa_evidence(evidence: str = QA_EVIDENCE) -> WorkflowState:
         current_sub_state="PO_ACCEPT",
         sub_state_index=node.sub_state_index("PO_ACCEPT"),
         sub_state_data={
-            "QA": SubStateData(fields={"decision": "approve", "evidence": evidence}),
-            "PO_ACCEPT": SubStateData(fields={"decision": "accept", "feedback": "ok"}),
+            "QA": SubStateData(fields={"decision": "approve", "evidence": evidence, "_human": True}),
+            "PO_ACCEPT": SubStateData(fields={"decision": "accept", "feedback": "ok", "_human": True}),
             "REPORT_GATE": SubStateData(
                 fields={
                     "commit_hash": "abc123",

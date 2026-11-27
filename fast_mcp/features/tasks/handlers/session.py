@@ -176,7 +176,7 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     # quedó en `spring_id`. Se aceptan los dos para no fallar por sinónimo.
     explicit_spring = str(data.get("spring_id") or data.get("sprint_id") or "").strip()
 
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("session_bind: sprint service no disponible para este proyecto")
 
@@ -241,10 +241,25 @@ def session_bind(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         service.update_spring(spring_id, updates)
         updated = service.get_spring(spring_id) or target
         summary = _summary(service, updated)
+        # La jerarquía de SESIONES y la pertenencia al SPRINT son ejes
+        # distintos. El `parent_session_id` del sprint es su dueño; no puede
+        # pisar el padre real de la sesión hija (medido 2026-11-26: una hija
+        # creada con parent=X terminó colgada del dueño del sprint).
+        current = {}
+        if hasattr(service, "get_session"):
+            try:
+                current = service.get_session(session_id) or {}
+            except Exception:  # noqa: BLE001 — la jerarquía no rompe el bind
+                current = {}
+        session_parent = (
+            parent
+            or str(current.get("parent_session_id") or "")
+            or str(context.get("parent_session_id") or "")
+        )
         service.open_session(
             session_id,
             project_id=project_id,
-            parent_session_id=context.get("parent_session_id") or "",
+            parent_session_id=session_parent,
             spring_id=spring_id,
             goal=summary.get("goal") or "",
             context={"bound_by": "session_bind/join"},
@@ -441,7 +456,7 @@ def session_open(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     session_id = str(data.get("session_id") or ctx.session_id or "").strip()
     if not session_id or session_id == "mcp":
         return TaskResult.failure("session_open: session_id requerido")
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("session_open: sprint service no disponible")
     try:
@@ -558,7 +573,7 @@ def session_close(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         except Exception:  # noqa: BLE001 — sin trace no se bloquea
             pass
 
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("session_close: sprint service no disponible")
 
@@ -676,7 +691,7 @@ def _orphan_specs(service, session_id: str) -> list[dict]:
 
 
 def session_list(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("session_list: sprint service no disponible")
     project_id = str(data.get("project_id") or "")
@@ -760,7 +775,7 @@ def session_plan(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     session_id = str(data.get("session_id") or ctx.session_id or "").strip()
     if not session_id or session_id == "mcp":
         return TaskResult.failure("session_plan: session_id requerido")
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("session_plan: sprint service no disponible")
 
@@ -857,7 +872,7 @@ def spec_start(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if not spec_id:
         return TaskResult.failure("spec_start: spec_id requerido (ej. SPEC-001)")
 
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("spec_start: sprint service no disponible")
 
@@ -873,6 +888,32 @@ def spec_start(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.failure(f"spec_start: {type(exc).__name__}: {exc}")
     if spec is None:
         return TaskResult.failure(f"spec_start: spec desconocida {spec_id!r} en {spring_id}")
+
+    # La spec debe estar escrita antes de "iniciarla". Sin esto `spec_start`
+    # convertía un `draft` vacío en `in_progress` y el agente entraba a diseñar
+    # sin objetivo, archivos ni criterios (medido 2026-11-24: 7 specs `draft` y
+    # el workflow ofrecía implementar). Los campos se completan con
+    # `spec_update` y el estado con `spec_status`.
+    spec_errors = _di.validate_spec(spec)
+    spec_status_value = str(spec.get("status") or "draft")
+    if spec_status_value in ("draft", "rejected") or spec_errors:
+        return TaskResult.failure(
+            f"spec_start: {spec_id} no está lista para iniciar "
+            f"(status={spec_status_value}). "
+            "Completá la spec con spec_update (objective, files, "
+            "acceptance_criteria o predicates) y pasala a 'specified' con "
+            "spec_status; después volvé a iniciarla.",
+            data={
+                "ok": False,
+                "spec_id": spec_id,
+                "status": spec_status_value,
+                "errors": spec_errors,
+                "remedy": {
+                    "fields": 'spec_update {"spec_id": "...", "fields": {...}}',
+                    "status": 'spec_status {"spec_id": "...", "status": "specified"}',
+                },
+            },
+        )
 
     # La spec ES la tarea: se ignora el `task_id` que inyecta el runner desde el
     # workflow (medido: `snapshot-diff` pisaba el id de la spec).

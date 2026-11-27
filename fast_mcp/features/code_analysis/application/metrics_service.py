@@ -62,6 +62,25 @@ def _normalize_scope(scope: str, repo_path: str) -> str:
     return scope.replace(os.sep, "/")
 
 
+def _normalize_files(files: list[str] | None, repo_path: str) -> set[str] | None:
+    """Paths de archivos → rutas relativas al repo (los nodos usan relativas).
+
+    `None` significa "sin filtro" (proyecto completo). Una lista vacía también:
+    el caller que no declaró archivos no pide un scope de 0 archivos, pide el
+    review por defecto.
+    """
+    wanted: set[str] = set()
+    for raw in files or []:
+        rel = _normalize_scope(str(raw), repo_path)
+        if not rel or rel.startswith("\0"):
+            continue
+        rel = os.path.normpath(rel).replace(os.sep, "/")
+        if not rel or rel.startswith("../"):
+            continue
+        wanted.add(rel)
+    return wanted or None
+
+
 def _count_loc(repo_path: str, scope_rel: str, file_paths: list[str]) -> tuple[int, int]:
     """(files, loc) a partir de los PROPIOS file-nodes del CPG.
 
@@ -105,13 +124,21 @@ def _count_loc(repo_path: str, scope_rel: str, file_paths: list[str]) -> tuple[i
 
 
 def compute_cpg_metrics(
-    repo_path: str, data_dir: str, scope: str = ""
+    repo_path: str,
+    data_dir: str,
+    scope: str = "",
+    files: list[str] | None = None,
 ) -> Result[MetricsReport, str]:
-    """Métricas agregadas desde el grafo ya construido (mismo build del CPG)."""
+    """Métricas agregadas desde el grafo ya construido (mismo build del CPG).
+
+    `files` acota las métricas a esos archivos (review de una tarea). Sin
+    `files` se mantiene el comportamiento project-wide de `scope`.
+    """
     if not repo_path:
         return Failure("repo_path vacío — sin contexto de proyecto")
 
     scope_rel = _normalize_scope(scope, repo_path)
+    files_rel = _normalize_files(files, repo_path)
 
     try:
         graph = Graph.from_dict(CognitiveCpgRepository(data_dir, "").load())
@@ -128,6 +155,8 @@ def compute_cpg_metrics(
     for node in getattr(graph, "nodes", {}).values():
         npath = (getattr(node, "path", "") or "").replace(os.sep, "/")
         if scope_rel and not npath.startswith(scope_rel):
+            continue
+        if files_rel is not None and npath not in files_rel:
             continue
         ntype = getattr(node, "type", "") or "unknown"
         by_type[ntype] = by_type.get(ntype, 0) + 1
@@ -149,6 +178,10 @@ def compute_cpg_metrics(
     scoped_files = [
         p for p in file_node_paths if not scope_rel or p.startswith(scope_rel)
     ]
+    if files_rel is not None:
+        # LOC de TODOS los archivos pedidos (aunque el CPG aún no tenga su
+        # file-node): el review no debe reportar 0 LOC de un archivo real.
+        scoped_files = sorted(files_rel)
     fs_files, loc = _count_loc(repo_path, scope_rel, scoped_files)
 
     total_functions = func_count

@@ -21,8 +21,6 @@ from __future__ import annotations
 import logging
 import sys
 
-from fast_mcp.server import build_server
-
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +30,8 @@ def run(transport: str = "stdio") -> int:
     Returns:
         int: código de salida del proceso (0 = ok).
     """
+    from fast_mcp.server import build_server
+
     server = build_server()
     server.run(transport=transport)
     return 0

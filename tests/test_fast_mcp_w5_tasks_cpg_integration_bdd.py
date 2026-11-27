@@ -221,6 +221,7 @@ class TestTaskRegistryCompleteness:
             # Cierre de tarea con artefactos (salida accionable de close_sprint)
             "spec_status",
             "spec_predicates",
+            "spec_update",
             "run_tests",
             "verify_predicates",
             "capture",

@@ -24,6 +24,32 @@ logger = logging.getLogger(__name__)
 # falso positivo heurístico, pero cualquier acumulación real lo rompe.
 MAX_DEAD_CODE_DEFAULT = 5
 
+
+def _repo_relative(path: str, repo_path: str) -> str:
+    """Path (absoluto o relativo) → ruta relativa al repo, normalizada.
+
+    Los nodos del CPG y los findings mezclan ambas formas según el indexador;
+    comparar strings crudos hacía que el scope por archivos no matcheara nada
+    (síntoma: review de una tarea reportaba métricas del proyecto completo).
+    """
+    raw = str(path or "").strip()
+    if not raw:
+        return ""
+    if os.path.isabs(raw):
+        try:
+            raw = os.path.relpath(raw, repo_path)
+        except ValueError:
+            return ""
+    raw = os.path.normpath(raw).replace(os.sep, "/")
+    if raw in (".", "") or raw.startswith("../"):
+        return ""
+    return raw
+
+
+def _entry_file(entry: dict) -> str:
+    return str(entry.get("file") or entry.get("path") or "")
+
+
 from fast_mcp.features.code_analysis.domain.graph import Graph
 from fast_mcp.features.code_analysis.domain.metrics import ReviewResult, ProjectMetrics, QualityGate
 from fast_mcp.features.code_analysis.infrastructure.cognitive_cpg_repo import CognitiveCpgRepository
@@ -184,14 +210,24 @@ class ReviewUseCase:
         thresholds = thresholds or {}
         repo_path, data_dir = self._resolve_repo_and_data_dir()
         scan_paths = files or self._scan_paths or self._resolve_default_paths()
+        # Scope real: los archivos pedidos se normalizan una vez y TODO el
+        # review (métricas, dead code, DFG/CFG) se filtra contra ese conjunto.
+        wanted = (
+            {rel for rel in (_repo_relative(f, repo_path) for f in files) if rel}
+            if files
+            else None
+        )
+        scan_paths = [
+            p if os.path.isabs(p) else os.path.join(repo_path, p) for p in scan_paths
+        ]
 
-        # 1. Métricas CPG-nativas (sin qlty)
+        # 1. Métricas CPG-nativas (sin qlty), acotadas a los archivos pedidos
         from fast_mcp.features.code_analysis.application.metrics_service import (
             compute_cpg_metrics,
         )
 
         outcome = compute_cpg_metrics(
-            repo_path=repo_path, data_dir=data_dir, scope=""
+            repo_path=repo_path, data_dir=data_dir, scope="", files=files
         )
         warnings: list[str] = []
         if is_successful(outcome):
@@ -216,6 +252,14 @@ class ReviewUseCase:
         dead_code_list = self._scan_dead_code(
             graph, scanner, is_false_positive_dead_code
         )
+        if wanted is not None:
+            # El detector necesita el grafo COMPLETO para saber quién llama a
+            # quién; el filtro se aplica al resultado, no al análisis.
+            dead_code_list = [
+                item
+                for item in dead_code_list
+                if _repo_relative(str(item.get("file") or ""), repo_path) in wanted
+            ]
 
         # 3. Deep analysis ast-grep (seguridad/producción)
         deep_findings = self._run_deep_analysis(scan_paths)
@@ -271,20 +315,29 @@ class ReviewUseCase:
             paths = ProjectService.resolve_paths(self.chain_dir)
             data_dir = self._data_dir or (paths.data_dir if paths else None) or ""
             if data_dir:
+                def _in_scope_entry(entry: Any) -> bool:
+                    if wanted is None:
+                        return True
+                    if not isinstance(entry, dict):
+                        return False
+                    return _repo_relative(_entry_file(entry), repo_path) in wanted
+
                 try:
                     dfg = load_projection(str(data_dir), "dfg.json")
                     for key in ("taint_paths", "hardcoded_secrets", "uninitialized_vars", "data_gaps"):
                         if isinstance(dfg.get(key), list):
-                            dfg_total += len(dfg[key])
+                            entries = [e for e in dfg[key] if _in_scope_entry(e)]
+                            dfg_total += len(entries)
                 except Exception:  # noqa: BLE001
                     pass
                 try:
                     cfg = load_projection(str(data_dir), "analysis_results.json")
                     for key in ("dead_branches", "missing_returns", "infinite_loops"):
                         if isinstance(cfg.get(key), list):
-                            cfg_total += len(cfg[key])
-                            if cfg[key]:
-                                cfg_findings[key] = cfg[key][:20]
+                            entries = [e for e in cfg[key] if _in_scope_entry(e)]
+                            cfg_total += len(entries)
+                            if entries:
+                                cfg_findings[key] = entries[:20]
                 except Exception:  # noqa: BLE001
                     pass
         except Exception:  # noqa: BLE001
@@ -329,8 +382,16 @@ class ReviewUseCase:
             issues=deep_findings[:50],
             dfg_total=dfg_total,
             cfg_total=cfg_total,
-            files_scanned=[f.file for f in metrics.files[:50]]
-            or [os.path.basename(p) for p in scan_paths[:50]],
+            # Truthful: con scope por archivos, `files_scanned` refleja lo que
+            # se analizó (deep/ast-grep), no la lista de métricas del proyecto
+            # (project-wide). Antes mostraba archivos del proyecto aunque el
+            # review fuera de la tarea → falso verde.
+            files_scanned=(
+                list(files)[:50]
+                if files
+                else ([f.file for f in metrics.files[:50]]
+                      or [os.path.basename(p) for p in scan_paths[:50]])
+            ),
             summary=", ".join(parts),
         )
 

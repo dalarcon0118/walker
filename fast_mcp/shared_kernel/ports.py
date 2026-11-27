@@ -102,8 +102,8 @@ class ISprintService(ABC):
     """
 
     @abstractmethod
-    def load_tasks(self, chain_dir: str) -> list[dict]:
-        """Load tasks from the sprint."""
+    def load_tasks(self, chain_dir: str, session_id: str = "") -> list[dict]:
+        """Load tasks from the current sprint (session > active > planning)."""
         ...
 
     @abstractmethod

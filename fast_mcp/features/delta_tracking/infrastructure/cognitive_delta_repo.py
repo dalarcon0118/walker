@@ -42,6 +42,7 @@ def _require_ok(result: Any, what: str) -> None:
 #: Tope de specs por consulta. Un sprint real no llega a 1k, pero el índice
 #: acumula specs de todas las sesiones: la página de 50 las cortaba.
 MAX_SPECS = 1000
+MAX_SESSIONS = 1000
 
 
 class CognitiveDeltaRepository(DeltaRepository):
@@ -125,15 +126,36 @@ class CognitiveDeltaRepository(DeltaRepository):
         # pertenece a una sesión distinta (delta-sprint). La anomalía real es la
         # falta de atribución: sin `session_id`, o con ids duplicados, no se
         # puede decidir a qué sesión pertenece cada sprint (sprint hijacking).
-        unattributed = [s for s in formal if not (s.session_id or "").strip()]
-        session_ids = [s.session_id for s in formal if (s.session_id or "").strip()]
+        #
+        # La atribución es `session_id` O `context.session_ids`: los sprints
+        # existentes pueden tener el campo primario vacío y aun así pertenecer
+        # a sesiones (medido 2026-11-24 en client-chat: SPR-Se542f712 tenía
+        # `session_id=""` pero `context.session_ids=[ses_...]`; el warning
+        # anterior era un falso positivo).
+        def _owned(s: Spring) -> list[str]:
+            ctx = s.context or {}
+            ids = [
+                str(x) for x in (ctx.get("session_ids") or [])
+                if str(x).strip()
+            ]
+            primary = (s.session_id or "").strip()
+            if primary and primary not in ids:
+                ids.insert(0, primary)
+            return ids
+
+        owned = [(s, _owned(s)) for s in formal]
+        unattributed = [s for s, ids in owned if not ids]
+        session_ids = [sid for _, ids in owned for sid in ids]
         duplicated = len(session_ids) != len(set(session_ids))
         if unattributed or duplicated:
             logger.warning(
                 "DeltaGraph: %d FORMAL active sprints sin atribución por sesión "
                 "(%s). Anomaly — cada activo debe pertenecer a una sesión distinta.",
                 len(formal),
-                ", ".join(f"{s.spring_id}:{s.session_id or '(sin sesión)'}" for s in formal),
+                ", ".join(
+                    f"{s.spring_id}:{','.join(ids) or '(sin sesión)'}"
+                    for s, ids in owned
+                ),
             )
 
         pool = formal or informal
@@ -202,7 +224,10 @@ class CognitiveDeltaRepository(DeltaRepository):
         )
 
     def list_sessions(self, status: str = "", project_id: str = "") -> list[Session]:
-        hits = self._search({"type": TYPE_SESSION})
+        # `size` explícito: el default de search es 50 y con >50 sesiones la
+        # sesión hija recién abierta caía fuera de la primera página —
+        # `session_list`/`children` la perdían aunque `get_session` la viera.
+        hits = self._search({"type": TYPE_SESSION, "size": MAX_SESSIONS})
         sessions = [Session.from_dict(h["_source"]) for h in hits]
         if status:
             sessions = [s for s in sessions if s.status == status]

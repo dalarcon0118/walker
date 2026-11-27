@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import logging
 
-from mcp.server.fastmcp import FastMCP
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # solo type hint: el modo CLI no debe requerir `mcp`
+    from mcp.server.fastmcp import FastMCP
 
 from fast_mcp import composition
 from fast_mcp.registration import register_domain_tool
@@ -193,6 +196,8 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "description": "Federated query across multiple indexes. Requires project_id.",
         "properties": {
             "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
+            "session_id": {"type": "string", "description": "Sesión que originó la consulta (correlación de telemetría)."},
+            "task_id": {"type": "string", "description": "Tarea/spec que originó la consulta (correlación de telemetría)."},
             "delta": {"type": "object", "description": "Delta index query."},
             "ckg": {"type": "object", "description": "CKG index query."},
             "cpg": {"type": "object", "description": "CPG index query."},
@@ -203,6 +208,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
+            "session_id": {"type": "string", "description": "Sesión que originó la consulta (correlación de telemetría)."},
             "file": {"type": "string", "description": "File/area to analyze (cross-layer by file)."},
             "task_id": {"type": "string", "description": "Spec/TASK of the sprint (delta×trace cross)."},
             "text": {"type": "string", "description": "Full-text fallback search in CKG."},
@@ -290,6 +296,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "properties": {
             "project_id": {"type": "string", "description": "Project ID (REQUIRED — fail-fast, no se infiere del CWD)."},
             "scope": {"type": "string", "description": "Path or scope to inspect."},
+            "files": {"type": "array", "items": {"type": "string"}, "description": "For action=review: archivos a revisar (sin esto el review es de todo el proyecto)."},
             "action": {"type": "string", "description": "Action: business, dead_code, bugs (CFG), security (DFG taint), review, metrics, dataflow, controlflow, query (DSL), conventions (CKG), health (CPG status), build, update."},
             "bug_type": {"type": "string", "description": "For action=bugs: dead_branches, missing_returns, infinite_loops, uninitialized_vars, taint_paths, data_gaps, unused_functions."},
             "vuln_type": {"type": "string", "description": "For action=security: sqli, command_injection, xss, code_injection, data_leak, weak_crypto, path_traversal, hardcoded_secrets, spoofing, all."},

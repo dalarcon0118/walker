@@ -355,3 +355,36 @@ class TestCognitiveTracer:
         # Use push_event to go through the normal path (avoids cache mismatch)
         tracer._service.push_event("chain-1", {"event_type": "kg_query", "task_id": "t-1"})
         assert tracer.has_kg_query("chain-1", task_id="t-1") is True
+
+    def test_has_kg_query_acepta_evento_sin_task_id(self):
+        """Las tools de memoria no conocen la tarea; el evento va sin task_id.
+
+        Medido 2026-11-26: el gate `required_tools` filtraba por task_id, así
+        que ninguna consulta hecha por MCP lo satisfacía y `submit` quedaba
+        bloqueado aunque el agente hubiera consultado CKG y CPG.
+        """
+        tracer, cg = self._make_tracer()
+        tracer._service.push_event("chain-1", {
+            "event_type": "kg_query",
+            "data": {"tool": "search_memories", "layers": ["ckg", "cpg"]},
+        })
+        assert tracer.has_kg_query("chain-1", task_id="SPEC-001", layers={"ckg"}) is True
+
+    def test_has_kg_query_respeta_la_capa_pedida(self):
+        """Una consulta al CKG no prueba que se miró el CPG."""
+        tracer, cg = self._make_tracer()
+        tracer._service.push_event("chain-1", {
+            "event_type": "kg_query",
+            "data": {"tool": "recall_knowledge", "layers": ["ckg"]},
+        })
+        assert tracer.has_kg_query("chain-1", task_id="SPEC-001", layers={"cpg"}) is False
+        assert tracer.has_kg_query("chain-1", task_id="SPEC-001", layers={"ckg"}) is True
+
+    def test_has_kg_query_ignora_evento_de_otra_tarea(self):
+        tracer, cg = self._make_tracer()
+        tracer._service.push_event("chain-1", {
+            "event_type": "kg_query",
+            "task_id": "t-2",
+            "data": {"layers": ["ckg", "cpg"]},
+        })
+        assert tracer.has_kg_query("chain-1", task_id="t-1", layers={"ckg"}) is False

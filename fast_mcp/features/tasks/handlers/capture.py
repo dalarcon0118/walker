@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
+from fast_mcp.features.tasks.handlers import _di
 from fast_mcp.features.tasks.handlers._inspect_codebase_helper import run_inspect_codebase
 
 
@@ -223,6 +224,48 @@ def _save_ledger(chain_dir: str, ledger: dict[str, Any], task_id: str, session_i
         return {"saved": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def _save_contract(
+    chain_dir: str, task_id: str, session_id: str, contract: dict[str, Any]
+) -> dict[str, Any]:
+    """Persiste el WorkContract validado en la spec, en UN solo save (F0b).
+
+    El contrato se guarda dentro de `task_context.work_contract` porque el
+    schema de `Spec` no tiene un campo dedicado y `task_context` round-trips
+    por `to_dict`/`from_dict` sin migración. La validación la hace el caller
+    ANTES de llegar acá: un contrato inválido nunca se persiste.
+    """
+    service = _di.sprint_service(chain_dir)
+    if service is None:
+        return {"saved": False, "error": "sprint service no disponible"}
+    spring_id = _di.session_spring(chain_dir, session_id)
+    if not spring_id:
+        try:
+            active = service.get_active_spring()
+            spring_id = (
+                (active.get("spring_id") or active.get("_id") or "") if active else ""
+            )
+        except Exception:  # noqa: BLE001 — sin activo se falla abajo
+            spring_id = ""
+    if not spring_id:
+        return {"saved": False, "error": "no se pudo resolver el sprint"}
+    spec = _di.current_spec(
+        chain_dir, task_id=task_id, exact=True, spring_id=spring_id
+    )
+    if spec is None:
+        return {"saved": False, "error": f"spec no encontrada para {task_id!r}"}
+    task_context = dict(spec.get("task_context") or {})
+    task_context["work_contract"] = contract
+    try:
+        updated = service.update_spec(
+            spring_id, spec.get("spec_id"), {"task_context": task_context}
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"saved": False, "error": f"{type(exc).__name__}: {exc}"}
+    if updated is None:
+        return {"saved": False, "error": "no se pudo guardar el contrato"}
+    return {"saved": True, "spring_id": spring_id, "spec_id": spec.get("spec_id")}
+
+
 def capture(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """Capture evidence/artifacts for a task.
 
@@ -301,6 +344,25 @@ def capture(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     if ledger is not None:
         ledger_result = _save_ledger(ctx.chain_dir, ledger, task_id, session_id)
 
+    # F0b (ADR-WALKER-086): el WorkContract se valida ANTES de persistir. Un
+    # contrato inválido no toca el estado y devuelve los errores accionables.
+    contract_result: dict[str, Any] = {"saved": False, "skipped": True}
+    contract = data.get("contract")
+    if contract is not None:
+        contract_errors = _di.validate_contract(contract)
+        if contract_errors:
+            return TaskResult.failure(
+                "capture: contrato inválido: " + "; ".join(contract_errors)
+            )
+        contract_result = _save_contract(
+            ctx.chain_dir, task_id, session_id, contract
+        )
+        if not contract_result.get("saved"):
+            return TaskResult.failure(
+                "capture: no se pudo persistir el contrato: "
+                + str(contract_result.get("error", ""))
+            )
+
     return TaskResult.success(data={
         "task_id": task_id,
         "captured": True,
@@ -308,6 +370,7 @@ def capture(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         "artifacts": artifacts,
         "chain_dir": ctx.chain_dir,
         "ledger": ledger_result,
+        "contract": contract_result,
         "skeleton": raw_ledger if raw_ledger and isinstance(raw_ledger, dict) else None,
     })
 

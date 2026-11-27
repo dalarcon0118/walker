@@ -75,10 +75,14 @@ def session_tool_runner(name: str, root: Path | None = None):
 def _handle_help(kwargs: dict) -> dict:
     """List available tools (no project context needed)."""
     tool_filter = kwargs.get("tool", "")
+    import os
+    import sys as _sys
+    _system_site = "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages"
+    if _system_site not in _sys.path and os.path.isdir(_system_site):
+        _sys.path.insert(0, _system_site)
     try:
         from fast_mcp.server import build_server
         server = build_server()
-        # Get tools from the FastMCP server's internal registry
         tools = []
         for tool_name in sorted(server._tool_manager._tools.keys()):
             if tool_filter and tool_filter != tool_name:
@@ -89,8 +93,15 @@ def _handle_help(kwargs: dict) -> dict:
                 "description": getattr(tool_obj, "description", ""),
             })
         return {"tools": tools, "count": len(tools)}
-    except Exception as e:
-        return {"error": f"Could not list tools: {e}"}
+    except Exception as e:  # noqa: BLE001
+        return {
+            "error": f"Could not list tools: {e}",
+            "hint": (
+                "El paquete 'mcp' no esta disponible en este entorno. "
+                "Usa el Python del sistema o instala 'mcp' en el venv: pip install mcp. "
+                "Alternativa: ./bin/walker3 walker/cockpit '{...}' no requiere build_server."
+            ),
+        }
 
 
 def _handle_project_for_path(kwargs: dict) -> dict:
@@ -162,6 +173,10 @@ def project_tool_runner(name: str, root: Path | None = None):
             return use_cases.list_use_case(ctx, kwargs)
         if name == "status":
             result = use_cases.status_use_case(ctx, kwargs)
+            # El DeltaGraph es el SSOT del sprint (INV-004): se descarta el
+            # fallback legacy de `data/spring/**` para que `status` no pueda
+            # mostrar un sprint que `cockpit`/`workflow_state` no ven.
+            result["sprint"] = None
             # Resolver el sprint por sesión: con varios sprints activos,
             # `get_active_spring()` es ambiguo y status devolvía `null`.
             sid = str(kwargs.get("session_id") or "")
@@ -175,31 +190,38 @@ def project_tool_runner(name: str, root: Path | None = None):
             if chain:
                 try:
                     svc = build_sprint_service(chain)
-                    if sid:
-                        rec = svc.get_session(sid) if svc else None
-                        spring_id = str((rec or {}).get("spring_id") or "")
-                        spring = svc.get_spring(spring_id) if (svc and spring_id) else None
-                        if spring:
-                            result["sprint"] = {
-                                "sprint_id": spring_id,
-                                "goal": spring.get("goal") or "",
-                                "status": spring.get("status") or "",
-                                "session_id": sid,
-                                "specs_count": len(svc.get_specs(spring_id) or []),
-                            }
-                            result.pop("message", None)
-                    if not result.get("sprint"):
-                        active = svc.get_active_spring() if svc else None
-                        if active:
-                            aid = active.get("spring_id") or active.get("id") or ""
-                            result["sprint"] = {
-                                "sprint_id": aid,
-                                "goal": active.get("goal") or "",
-                                "status": active.get("status") or "",
-                                "session_id": "",
-                                "specs_count": len(svc.get_specs(aid) or []),
-                            }
-                            result.pop("message", None)
+                    # Misma política que `brief`/`cockpit`/`workflow_state`
+                    # (ADR-WALKER-085). Antes `status` resolvía por su cuenta y
+                    # podía mostrar un sprint que otros lectores no veían.
+                    resolve = getattr(svc, "resolve_context", None)
+                    sctx = (
+                        resolve(chain, session_id=sid)
+                        if callable(resolve)
+                        else sprint_context_for(chain, session_id=sid)
+                    )
+                    # Si no hay sprint en delta, `status` dice "sin sprint"
+                    # igual que `cockpit`/`workflow_state` (ADR-WALKER-085).
+                    if sctx.found:
+                        result["sprint"] = {
+                            "sprint_id": sctx.spring_id,
+                            "goal": sctx.goal,
+                            "status": sctx.status,
+                            "session_id": sid,
+                            "specs_count": len(sctx.specs),
+                            "resolved_by": sctx.resolved_by,
+                            "session_linked": sctx.session_linked,
+                        }
+                        if sctx.diagnostics:
+                            result["sprint"]["diagnostics"] = list(sctx.diagnostics)
+                            result.setdefault("warnings", [])
+                            if "sprint_unattributed" in sctx.diagnostics:
+                                result["warnings"].append(
+                                    "sprint_unattributed: hay un sprint activo sin "
+                                    "sesión dueña (ADR-WALKER-077/085)"
+                                )
+                        result.pop("message", None)
+                    else:
+                        result["message"] = "Project — no active sprint (DeltaGraph)"
                 except Exception:  # noqa: BLE001 — status no rompe por enriquecimiento
                     svc = None
                 # Última sesión del agente en walker (para que el agente pueda
@@ -343,6 +365,179 @@ def memory_tool_runner(name: str, root: Path | None = None):
     return runner
 
 
+# ── Spec readiness: no se avanza con specs vacías ──────────────────────
+#
+# El grafo declara los campos obligatorios de TASK_SPEC, pero los gates
+# `all_done` (TASK_REVIEW→ACTIVE) y `start_task` (ACTIVE→DESIGN) no miraban el
+# Delta: el agente podía llegar a implementar con las specs en `draft`. Estos
+# guards viven en el composition root porque cruzan features (workflow↔delta);
+# el motor sigue sin importar Delta (R1).
+
+_INCOMPLETE_SPEC_STATUSES = frozenset({"draft", "rejected"})
+# `backlog` es una spec que NO se comprometió en este sprint: no bloquea
+# `all_done`, pero tampoco se puede iniciar sin especificarla primero.
+_NOT_READY_STATUSES = _INCOMPLETE_SPEC_STATUSES | {"backlog"}
+_SKIPPED_SPEC_STATUSES = frozenset({"backlog", "rejected"})
+
+
+def _spec_validator():
+    from fast_mcp.features.delta_tracking.domain.spec_service import SpecValidator
+
+    return SpecValidator
+
+
+def _sprint_and_specs(sprint_service, session_id: str) -> tuple[str, list[dict]]:
+    sprint_id = ""
+    if session_id and hasattr(sprint_service, "get_session"):
+        sprint_id = str((sprint_service.get_session(session_id) or {}).get("spring_id") or "")
+    if not sprint_id:
+        active = sprint_service.get_active_spring() or {}
+        sprint_id = str(active.get("spring_id") or "")
+    specs = sprint_service.get_specs(sprint_id) if sprint_id else []
+    return sprint_id, list(specs or [])
+
+
+def _spec_matches_task(spec: dict, task_id: str) -> bool:
+    return (
+        str(spec.get("spec_id") or "") == task_id
+        or str((spec.get("task_context") or {}).get("task_id") or "") == task_id
+    )
+
+
+def _spec_not_ready_payload(spec: dict, task_id: str, sprint_id: str) -> dict | None:
+    spec_id = str(spec.get("spec_id") or task_id)
+    status = str(spec.get("status") or "draft")
+    errors = _spec_validator().validate_spec(spec)
+    if status not in _NOT_READY_STATUSES and not errors:
+        return None
+    detail = "; ".join(errors) or f"status={status}"
+    return {
+        "ok": False,
+        "action": "spec_not_ready",
+        "spec_id": spec_id,
+        "status": status,
+        "errors": errors,
+        "error": (
+            f"No se puede iniciar {spec_id} ({sprint_id}): la spec no está "
+            f"completa — {detail}. Completala con spec_update "
+            "(objective, files, acceptance_criteria) y pasala a 'specified' "
+            "con spec_status."
+        ),
+        "remedy": {
+            "fields": f'spec_update {{"spec_id":"{spec_id}","fields":{{...}}}}',
+            "status": f'spec_status {{"spec_id":"{spec_id}","status":"specified"}}',
+        },
+    }
+
+
+def _start_task_spec_guard(
+    chain_dir: str, sprint_service: Any, session_id: str, fallback_task_id: str = ""
+) -> dict | None:
+    """`start_task` exige una spec completa para la tarea en curso."""
+    if sprint_service is None or not hasattr(sprint_service, "get_specs"):
+        return None
+    task_id = _workflow_task_id(chain_dir) or str(fallback_task_id or "")
+    if not task_id and session_id and hasattr(sprint_service, "get_session_plan"):
+        try:
+            plan = sprint_service.get_session_plan(session_id) or {}
+            task_id = str(plan.get("task") or "")
+        except Exception:  # noqa: BLE001 — sin plan se reporta abajo
+            task_id = ""
+    if not task_id:
+        return {
+            "ok": False,
+            "action": "task_not_selected",
+            "error": (
+                "start_task requiere una tarea en curso. Elegí la spec primero: "
+                'spec_start {"spec_id":"SPEC-NNN"} o session_plan {"task":"SPEC-NNN"}.'
+            ),
+        }
+    sprint_id, specs = _sprint_and_specs(sprint_service, session_id)
+    if not sprint_id:
+        return {
+            "ok": False,
+            "action": "sprint_not_resolved",
+            "error": "start_task: no se pudo resolver el sprint de la sesión.",
+        }
+    spec = next((s for s in specs if _spec_matches_task(s, task_id)), None)
+    if spec is None:
+        return {
+            "ok": False,
+            "action": "spec_not_found",
+            "error": (
+                f"start_task: la tarea {task_id} no tiene spec en {sprint_id}. "
+                "Especificala antes de implementar (spec_update/spec_status)."
+            ),
+            "spec_id": task_id,
+        }
+    return _spec_not_ready_payload(spec, task_id, sprint_id)
+
+
+def _all_done_specs_guard(sprint_service: Any, session_id: str) -> dict | None:
+    """`all_done` (TASK_REVIEW→ACTIVE) exige todas las specs comprometidas."""
+    if sprint_service is None or not hasattr(sprint_service, "get_specs"):
+        return None
+    sprint_id, specs = _sprint_and_specs(sprint_service, session_id)
+    if not sprint_id:
+        return None
+    pending: list[dict] = []
+    for spec in specs:
+        status = str(spec.get("status") or "draft")
+        if status in _SKIPPED_SPEC_STATUSES:
+            continue
+        errors = _spec_validator().validate_spec(spec)
+        if status in _INCOMPLETE_SPEC_STATUSES or errors:
+            pending.append({
+                "spec_id": str(spec.get("spec_id") or "?"),
+                "status": status,
+                "errors": errors,
+            })
+    if not pending:
+        return None
+    listed = ", ".join(
+        f"{p['spec_id']}({p['status']})" for p in pending[:8]
+    )
+    return {
+        "ok": False,
+        "action": "specs_pending",
+        "error": (
+            f"all_done bloqueado: {len(pending)} spec(s) sin especificar en "
+            f"{sprint_id}: {listed}. Completalas con spec_update/spec_status "
+            "antes de pasar el sprint a ACTIVE."
+        ),
+        "pending": pending,
+        "remedy": "spec_update + spec_status status=specified por cada spec",
+    }
+
+
+# ── Resumen del sprint para presentar al cerrar el plan ─────────────────
+#
+# El workflow no emitía el resumen al pasar a ACTIVE: la transición devolvía
+# solo gates y el prompt de ACTIVE truncaba los objetivos. Esta proyección
+# expone goal + todas las specs (estado, archivos, criterios) para que el
+# agente lo presente al usuario sin otra llamada.
+
+
+def _sprint_summary(sctx: Any) -> dict[str, Any]:
+    return {
+        "spring_id": sctx.spring_id,
+        "goal": sctx.goal,
+        "status": sctx.status,
+        "spec_count": len(sctx.specs),
+        "specs": [
+            {
+                "spec_id": s.get("spec_id"),
+                "objective": s.get("objective"),
+                "status": s.get("status"),
+                "files": list(s.get("files") or []),
+                "acceptance_criteria": list(s.get("acceptance_criteria") or []),
+                "depends_on": list(s.get("depends_on") or []),
+            }
+            for s in (sctx.specs or [])
+        ],
+    }
+
+
 # ── Workflow tool runners (Phase 3 — handler registry) ──────────────────
 
 def workflow_tool_runner(name: str, root: Path | None = None):
@@ -464,6 +659,34 @@ def workflow_tool_runner(name: str, root: Path | None = None):
         if ctx is None:
             return {"error": f"Could not resolve workflow for '{chain_dir}'"}
 
+        gate_name = str(kwargs.get("gate") or "")
+        session_id = str(kwargs.get("session_id") or kwargs.get("_session_id") or "")
+
+        # Los gates que cruzan hacia ejecución exigen specs escritas. El grafo
+        # declara los campos; sin este chequeo el agente podía saltarlos.
+        # `submit` en TASK_REVIEW puede traer `decision=all_done`, que el
+        # orquestador cruza por dentro (decision_map): el guard tiene que
+        # aplicarse ANTES de dispatch, no sólo en la tool `transition`.
+        submit_decision = str(
+            kwargs.get("decision")
+            or (kwargs.get("_payload") or {}).get("decision")
+            or ""
+        )
+        if name == "submit" and submit_decision == "all_done":
+            blocked = _all_done_specs_guard(sprint_service, session_id)
+            if blocked:
+                return blocked
+        if name == "transition" and gate_name == "all_done":
+            blocked = _all_done_specs_guard(sprint_service, session_id)
+            if blocked:
+                return blocked
+        if name == "transition" and gate_name == "start_task":
+            blocked = _start_task_spec_guard(
+                chain_dir, sprint_service, session_id, str(kwargs.get("task_id") or "")
+            )
+            if blocked:
+                return blocked
+
         # `back_to_active` NO reabre sprints: `closed` es terminal (ADR-078).
         # Desde SPRINT.CLOSE solo tiene sentido si hay un sprint VIVO al cual
         # volver; si no, el resultado sería un workflow ACTIVE con el sprint
@@ -487,7 +710,49 @@ def workflow_tool_runner(name: str, root: Path | None = None):
             if reason:
                 return {"ok": False, "action": "needs_sprint", "error": reason}
 
-        return dispatch(name, ctx, **kwargs)
+        result = dispatch(name, ctx, **kwargs)
+
+        # Proyección del sprint al cerrar el plan: cuando el flujo entra en
+        # ACTIVE (all_done), el agente necesita el resumen completo (goal +
+        # todas las specs) para presentarlo al usuario sin otra llamada.
+        if (
+            isinstance(result, dict)
+            and result.get("ok")
+            and result.get("to_sub_state") == "ACTIVE"
+        ):
+            try:
+                sid = session_id or str(kwargs.get("session_id") or "")
+                sctx = (
+                    sprint_service.resolve_context(chain_dir, session_id=sid)
+                    if sprint_service is not None and hasattr(sprint_service, "resolve_context")
+                    else sprint_context_for(chain_dir, session_id=sid)
+                )
+                result["sprint_summary"] = _sprint_summary(sctx)
+            except Exception as exc:  # noqa: BLE001 — el estado no se cae por la proyección
+                logger.debug("sprint_summary: no disponible (%s)", exc)
+
+        # El workflow y el DeltaGraph son dos stores: si no se publica el join,
+        # el agente ve `SPRINT.ACTIVE` con `Goal:` vacío y `0/0` mientras
+        # `status` muestra un sprint con specs. El bloque `sprint` sale del
+        # MISMO resolver que el prompt (ADR-WALKER-085).
+        if (
+            name in ("workflow_state", "help")
+            and isinstance(result, dict)
+            and result.get("ok")
+        ):
+            sid = str(kwargs.get("session_id") or "")
+            try:
+                sctx = (
+                    sprint_service.resolve_context(chain_dir, session_id=sid)
+                    if sprint_service is not None
+                    else sprint_context_for(chain_dir, session_id=sid)
+                )
+                result.setdefault("sprint", sctx.to_dict())
+                result["sprint_summary"] = _sprint_summary(sctx)
+            except Exception as exc:  # noqa: BLE001 — el estado no se cae por el join
+                logger.debug("workflow: sprint del estado no disponible (%s)", exc)
+
+        return result
 
     return runner
 
@@ -603,6 +868,17 @@ def _build_sprint_service(chain_dir: str):
     return SprintService(project_root=chain_dir, repo=_build_delta_repo(chain_dir))
 
 
+def _sprint_service_factory(chain_dir: str):
+    """Factory estable para la DI de tasks (no el wrapper monkeypatcheable).
+
+    `build_sprint_service` es API pública y los tests la reemplazan; si el
+    registro global de tasks capturara esa versión, el fake sobreviviría al
+    test y contaminaría los siguientes (medido: captura de knowledge con el
+    sprint de un test anterior).
+    """
+    return _build_sprint_service(chain_dir)
+
+
 def build_sprint_service(chain_dir: str):
     """API pública del composition root para leer el delta desde otra capa.
 
@@ -611,6 +887,41 @@ def build_sprint_service(chain_dir: str):
     servicio con su repo, igual que el runner de delta.
     """
     return _build_sprint_service(chain_dir)
+
+
+def sprint_context_for(
+    chain_dir: str,
+    *,
+    session_id: str = "",
+    spring_id: str = "",
+    allow_active_fallback: bool = True,
+):
+    """Sprint corriente resuelto con la política ÚNICA (ADR-WALKER-085).
+
+    Punto de entrada para toda superficie (workflow, status, brief, cockpit,
+    session_context). Evita que cada capa invente su propio orden de resolución
+    o derive el sprint del basename. El composition root es el único lugar que
+    conoce el DeltaGraph; las features reciben el `SprintContext` ya resuelto.
+    """
+    from fast_mcp.features.delta_tracking.application.services.sprint_context import (
+        SprintContext,
+        resolve_sprint_context,
+    )
+
+    try:
+        service = build_sprint_service(chain_dir)
+    except Exception as exc:  # noqa: BLE001 — lectura: se declara, no se oculta
+        return SprintContext(
+            session_id=session_id,
+            diagnostics=(f"sprint_service_error:{type(exc).__name__}",),
+        )
+    return resolve_sprint_context(
+        service,
+        chain_dir,
+        session_id=session_id,
+        spring_id=spring_id,
+        allow_active_fallback=allow_active_fallback,
+    )
 
 
 def ckg_for(chain_dir: str):
@@ -812,12 +1123,15 @@ def _build_task_registry(sprint_service=None):
         baseline_handlers.configure(lambda chain_dir: BaselineService(chain_dir))
         # `implement_task` persiste la spec en el delta: sin esta factory el
         # delta queda vacío y el ancla de tarea del contexto no existe.
-        implement_handlers.configure(build_sprint_service)
+        # Se inyecta la factory ESTABLE (no el wrapper público): un test que
+        # monkeypatchea `build_sprint_service` no debe quedar capturado en el
+        # registro global de tasks y contaminar tests posteriores.
+        implement_handlers.configure(_sprint_service_factory)
 
         # verify_predicates lee la spec del delta para recuperar predicates:
         # sin esta factory, el gate no puede validar nada (bug medido).
         from fast_mcp.features.tasks.handlers import _di as tasks_di
-        tasks_di.configure_sprint(build_sprint_service)
+        tasks_di.configure_sprint(_sprint_service_factory)
         from fast_mcp.features.workflow.context import WorkflowContext
         from fast_mcp.features.workflow.domain.execution import ExecutionContext
 
@@ -895,6 +1209,15 @@ def _build_task_registry(sprint_service=None):
         tasks_di.configure_spec_validator(
             lambda spec: SpecValidator.validate_spec(spec)
         )
+
+        # F0b (ADR-WALKER-086): el schema del WorkContract vive en
+        # delta_tracking/domain; tasks no puede importarlo (R1). Se inyecta acá
+        # el validador puro para que capture/spec_status lo usen.
+        from fast_mcp.features.delta_tracking.domain.work_contract import (
+            validate_work_contract,
+        )
+
+        tasks_di.configure_contract_validator(validate_work_contract)
     except Exception as exc:  # noqa: BLE001
         logger.warning("baseline handler no configurado (%s: %s)", type(exc).__name__, exc)
 
@@ -951,6 +1274,15 @@ def task_tool_runner(name: str, root: Path | None = None):
 
         # Build TaskRegistry (lazy, per call)
         sprint_service = _build_sprint_service(chain_dir)
+        # Configurar _di para que los handlers (verify_predicates, spec_predicates, etc.)
+        # que leen el sprint service via _di.sprint_service() lo encuentren en modo CLI.
+        # Sin esto, verify_predicates falla con "predicates vacíos" aunque la spec
+        # tenga predicados (bug de canal).
+        try:
+            import fast_mcp.features.tasks.handlers._di as _tasks_di
+            _tasks_di.configure_sprint(lambda _cd: sprint_service)
+        except Exception:  # noqa: BLE001
+            pass
         registry = _build_task_registry(sprint_service=sprint_service)
 
         project_id = kwargs.get("project_id", "") or kwargs.get("_project_id", "")
@@ -970,6 +1302,7 @@ def task_tool_runner(name: str, root: Path | None = None):
             chain_dir=chain_dir,
             task_data=task_data,
             registry=registry,
+            sprint_service=sprint_service,
         )
 
     return runner

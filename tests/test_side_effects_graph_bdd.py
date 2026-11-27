@@ -137,7 +137,7 @@ def test_sprint_status_respeta_la_decision_del_gate():
         {"status": "active", "decision": "approve"},
         sprint_service=svc,
         spring_id="SPR-T",
-        fields={"decision": "refine"},
+        fields={"decision": "refine", "_human": True},
     )
     assert out["ok"] is True and out["skipped"] is True
     assert svc.transitions == []
@@ -147,7 +147,7 @@ def test_sprint_status_respeta_la_decision_del_gate():
         {"status": "active", "decision": "approve"},
         sprint_service=svc,
         spring_id="SPR-T",
-        fields={"decision": "approve"},
+        fields={"decision": "approve", "_human": True},
     )
     assert out["ok"] is True
     assert svc.transitions == [("SPR-T", "active")]

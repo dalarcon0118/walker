@@ -44,6 +44,7 @@ _HANDLER_MODULES = [
     "sprint_status",
     "spec_status",
     "spec_predicates",
+    "spec_update",
     "verify",
     "capture",
     "sprint_planning",

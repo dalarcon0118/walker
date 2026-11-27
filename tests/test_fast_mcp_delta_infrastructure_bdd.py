@@ -73,6 +73,31 @@ class TestCognitiveDeltaRepository:
     def test_get_spring_not_found(self, repo):
         assert repo.get_spring("nonexistent") is None
 
+    def test_list_sessions_no_pierde_la_hija_con_mas_de_50(self, repo):
+        from fast_mcp.features.delta_tracking.domain.entities import Session
+
+        for i in range(55):
+            repo.save_session(
+                Session(
+                    session_id=f"ses_{i:02d}",
+                    project_id="p",
+                    started_at=f"2026-01-01T00:00:{i:02d}+00:00",
+                )
+            )
+        repo.save_session(
+            Session(
+                session_id="ses_child",
+                project_id="p",
+                parent_session_id="ses_54",
+                spring_id="SPR-X",
+                started_at="2026-12-01T00:00:00+00:00",
+            )
+        )
+
+        ids = {s.session_id for s in repo.list_sessions(project_id="p")}
+
+        assert "ses_child" in ids
+
     def test_list_springs(self, repo):
         from fast_mcp.features.delta_tracking.domain.entities import Spring
         repo.save_spring(Spring(spring_id="sprint-1", goal="A", status="active"))
@@ -187,6 +212,62 @@ class TestHandlers:
         assert result["ok"]
         assert result["spec_count"] == 1
         assert result["specs"][0]["objective"] == "Login screen"
+
+    def test_handle_sprint_planning_agrega_a_sprint_existente_sin_pisar_contexto(self, svc):
+        svc.create_spring(
+            "SPR-X",
+            goal="goal viejo",
+            status="active",
+            project_id="walker",
+            session_id="s0",
+            context={"session_ids": ["s0", "s1"], "parent_session_id": "s0"},
+        )
+        svc.add_spec("SPR-X", objective="ya existe")
+
+        result = handle_sprint_planning({
+            "project_id": "walker",
+            "spring_id": "SPR-X",
+            "goal": "goal nuevo",
+            "tasks": [
+                {"objective": "ya existe"},
+                {"objective": "tarea nueva", "files": ["a.py"]},
+            ],
+            "_sprint_service": svc,
+        })
+
+        assert result["ok"]
+        assert result["updated"] is True
+        assert result["skipped"] == 1
+        assert result["spec_count"] == 1
+        spring = svc.get_spring("SPR-X")
+        assert spring["goal"] == "goal nuevo"
+        assert spring["session_id"] == "s0"
+        assert spring["context"]["session_ids"] == ["s0", "s1"]
+        objectives = [s["objective"] for s in svc.get_specs("SPR-X")]
+        assert objectives.count("ya existe") == 1
+        assert "tarea nueva" in objectives
+
+    def test_handle_sprint_planning_dedupe_objetivo_truncado(self, svc):
+        svc.create_spring("SPR-X", goal="g", status="active", project_id="walker")
+        svc.add_spec("SPR-X", objective="Versionar data/workflow")
+
+        result = handle_sprint_planning({
+            "project_id": "walker",
+            "spring_id": "SPR-X",
+            "goal": "g2",
+            "tasks": [{
+                "objective": (
+                    "Versionar data/workflow o eliminar la dependencia JSON en "
+                    "runtime; mover a codigo como artifacts.py"
+                )
+            }],
+            "_sprint_service": svc,
+        })
+
+        assert result["ok"]
+        assert result["skipped"] == 1
+        assert result["duplicates"][0]["spec_id"] == "SPEC-001"
+        assert len(svc.get_specs("SPR-X")) == 1
 
     def test_handle_sprint_planning_without_injection_fails_fast(self):
         # INV-016: no anemic fallback — missing DI is a structured error,

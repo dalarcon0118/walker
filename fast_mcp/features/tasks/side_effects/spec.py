@@ -7,6 +7,26 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _git_head(chain_dir: str) -> str:
+    """SHA corto de HEAD (o '' si no hay git). No rompe el cierre."""
+    try:
+        import subprocess
+
+        proc = subprocess.Popen(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=chain_dir or ".",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        out, _ = proc.communicate(timeout=5)
+        if proc.returncode == 0:
+            return (out or "").strip()
+        return 
+    except Exception:  # noqa: BLE001 — sin git se usa "local" en el caller
+        return ""
+
+
 def _get_sprint_service(chain_dir: str, params: dict[str, Any], kwargs: dict[str, Any]) -> Any:
     svc = kwargs.get("sprint_service")
     if svc is None:
@@ -139,6 +159,18 @@ def transform_spec(chain_dir: str, params: dict[str, Any], **kwargs: Any) -> dic
             "missing": "spec",
             "spring_id": spring_id,
         }
+
+    # Al COMPLETAR, los artefactos de cierre no deben depender de que el agente
+    # los haya provisto en REPORT_GATE: si faltan, se completan acá (fail-safe).
+    # Antes, un REPORT_GATE sin commit_hash/completed_at rompía el PO_ACCEPT
+    # ("Cannot mark spec as completed: missing completed_at/commit_hash").
+    if status == "completed":
+        from datetime import datetime, timezone
+
+        if not str(campos.get("completed_at") or "").strip():
+            campos["completed_at"] = datetime.now(timezone.utc).isoformat()
+        if not str(campos.get("commit_hash") or "").strip():
+            campos["commit_hash"] = _git_head(chain_dir) or "local"
 
     updates = {"status": status, **campos}
     try:

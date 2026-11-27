@@ -1,0 +1,8 @@
+{
+  "id": "po-sprint-report",
+  "kind": "skill",
+  "version": "1.0.0",
+  "description": "Informe de sprint para el PO: resumen, metricas duras, riesgos y proximos pasos antes de la retro y el cierre.",
+  "walker": ">=3.0,<4",
+  "requires": []
+}

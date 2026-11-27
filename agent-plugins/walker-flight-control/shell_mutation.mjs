@@ -27,6 +27,56 @@ function stripQuotes(value) {
   return String(value || "").replace(/^['"]|['"]$/g, "")
 }
 
+// Divide por separadores de shell sin romper comillas ni escapes:
+// `grep "a\|b"` es UN comando de lectura; el `|` no es un pipe.
+// `pipesOnly` deja pasar `||` y `|&` (operadores compuestos, no un pipe simple).
+function splitTopLevel(raw, separators = ["&&", "||", "|&", "|", ";"], { pipesOnly = false } = {}) {
+  const text = String(raw || "")
+  const seps = separators.slice().sort((a, b) => b.length - a.length)
+  const parts = []
+  let buf = ""
+  let quote = ""
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (escaped) {
+      buf += ch
+      escaped = false
+      continue
+    }
+    if (ch === "\\" && quote !== "'") {
+      buf += ch
+      escaped = true
+      continue
+    }
+    if (quote) {
+      buf += ch
+      if (ch === quote) quote = ""
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      buf += ch
+      continue
+    }
+    if (pipesOnly && ch === "|" && (text[i + 1] === "|" || text[i + 1] === "&")) {
+      buf += ch + text[i + 1]
+      i += 1
+      continue
+    }
+    const sep = seps.find((s) => text.startsWith(s, i))
+    if (sep) {
+      parts.push(buf)
+      buf = ""
+      i += sep.length - 1
+      continue
+    }
+    buf += ch
+  }
+  parts.push(buf)
+  return parts.map((part) => part.trim()).filter(Boolean)
+}
+
 function insideProject(rawPath, projectDir) {
   const raw = stripQuotes(rawPath)
   if (!raw) return false
@@ -68,7 +118,7 @@ export function shellMutation(cmd, projectDir = "") {
   }
 
   // Comandos por segmento (`a && b; c | d`).
-  for (const segment of cleaned.split(/&&|\|\||[;|]/)) {
+  for (const segment of splitTopLevel(cleaned, ["&&", "||", "|&", "|", ";"])) {
     const words = segment.trim().split(/\s+/).filter(Boolean)
     if (!words.length) continue
     const command = words[0].replace(/^.*\//, "")
@@ -184,6 +234,7 @@ function segmentEffect(segment) {
     return ["run_tests", "verify_predicates"].includes(tool) ? "verify" : "protocol"
   }
   if (base === "pytest") return "verify"
+  if (base === "node" && args.includes("--test")) return "verify"
   if (["python", "python3"].includes(base) && args[0] === "-m" && args[1] === "pytest") {
     return "verify"
   }
@@ -211,17 +262,14 @@ export function shellEffect(cmd, projectDir = "") {
   const raw = String(cmd || "")
   // Un pipe sólo es read si el destino es un filtro read-only. `| sh`,
   // `| bash`, `| python`, `| xargs` ejecutan: unknown, nunca read.
-  const pipeParts = raw.split("|")
+  const pipeParts = splitTopLevel(raw, ["|"], { pipesOnly: true })
   for (let i = 1; i < pipeParts.length; i++) {
     const words = stripPrefixes(pipeParts[i].trim().split(/\s+/).filter(Boolean))
     const base = (words[0] || "").replace(/^.*\//, "")
     if (!PIPE_READ.has(base)) return { effect: "unknown", target: "" }
   }
 
-  const segments = raw
-    .split(/&&|\|\||;|\|/)
-    .map((s) => s.trim())
-    .filter(Boolean)
+  const segments = splitTopLevel(raw, ["&&", "||", "|&", "|", ";"])
   const effects = segments.map(segmentEffect)
   if (effects.includes("unknown")) return { effect: "unknown", target: "" }
   if (effects.includes("write")) return { effect: "write", target: "" }

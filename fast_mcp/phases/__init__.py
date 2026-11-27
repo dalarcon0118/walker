@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import importlib
 import logging
+from typing import TYPE_CHECKING
 
-from mcp.server.fastmcp import FastMCP
+if TYPE_CHECKING:  # solo type hint: el modo CLI no debe requerir `mcp`
+    from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
 

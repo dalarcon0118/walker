@@ -33,15 +33,43 @@ def _files(ctx: ExecutionContext, data: dict[str, Any], chain_dir: str) -> list[
     files = data.get("files")
     if isinstance(files, list) and files:
         return [str(f) for f in files]
+    task_id = str(getattr(ctx, "task_id", "") or data.get("task_id") or "")
     try:
         from fast_mcp.features.tasks.handlers import _di
 
+        # Un id `SPEC-NNN` es LOCAL a su sprint: sin acotar, el mismo id en el
+        # sprint activo y en uno pausado es ambiguo y `current_spec` devuelve
+        # None. Medido 2026-11-26: `review_code` revisó 0 archivos y aun así
+        # devolvió `passed: True`. Mismo criterio que `verify_predicates`
+        # (session → sprint activo), que ya tenía este fix.
+        session_id = str(getattr(ctx, "session_id", "") or data.get("session_id") or "")
+        spring_id = ""
+        if session_id:
+            try:
+                spring_id = str(_di.session_spring(chain_dir, session_id) or "")
+            except Exception:  # noqa: BLE001 — sin sesión se cae al activo
+                spring_id = ""
+        if not spring_id:
+            try:
+                active = _di.sprint_service(chain_dir).get_active_spring()
+                spring_id = str((active or {}).get("spring_id") or "")
+            except Exception:  # noqa: BLE001 — sin activo se prueba sin sprint
+                spring_id = ""
         spec = _di.current_spec(
             chain_dir,
-            task_id=str(getattr(ctx, "task_id", "") or data.get("task_id") or ""),
+            task_id=task_id,
+            spring_id=spring_id,
+            exact=bool(task_id),
         )
         if spec:
             return [str(f) for f in (spec.get("files") or [])]
+    except TypeError:  # _di sin `spring_id`/`exact`: compat
+        try:
+            spec = _di.current_spec(chain_dir, task_id=task_id)
+            if spec:
+                return [str(f) for f in (spec.get("files") or [])]
+        except Exception:  # noqa: BLE001
+            pass
     except Exception:  # noqa: BLE001 — sin spec se devuelve sin archivos
         pass
     return []
@@ -174,6 +202,28 @@ def _cpg_review(ctx: ExecutionContext, chain_dir: Path, files: list[str]) -> dic
 def review_code(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     chain_dir = Path(str(getattr(ctx, "chain_dir", "") or data.get("chain_dir") or ""))
     files = _files(ctx, data, str(chain_dir))
+
+    # Anti-falso-verde: revisar 0 archivos no certifica NADA. Antes el
+    # `passed = not findings` daba True por vacuidad (medido 2026-11-26:
+    # "0 archivos: sintaxis ok; CPG no disponible" con `passed: true`, que se
+    # leyó como revisión aprobada). Misma regla que SPEC-014 para tests:
+    # 0 evidencia no es verde.
+    if not files:
+        return TaskResult.success(
+            data={
+                "passed": False,
+                "findings": [],
+                "summary": (
+                    "0 archivos: la revisión no certifica nada "
+                    "(la tarea no declaró archivos o la spec no se pudo resolver)"
+                ),
+                "cpg": {
+                    "available": False,
+                    "error": "sin archivos de tarea para revisar",
+                },
+                "blocked_reason": "sin archivos de tarea: no se puede certificar la revisión",
+            }
+        )
 
     syntax = _syntax_findings(chain_dir, files)
     cpg = _cpg_review(ctx, chain_dir, files)

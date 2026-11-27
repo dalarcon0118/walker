@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
-from fast_mcp.features.tasks.handlers import _di
+from fast_mcp.features.tasks.handlers import _di, _trace
 
 
 def _norm(text: object) -> str:
@@ -84,7 +84,7 @@ def spec_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             '"command":"..."}}]}'
         )
 
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("spec_predicates: sprint service no disponible")
 
@@ -123,7 +123,14 @@ def spec_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             )
     real_spec_id = str(spec.get("spec_id") or "")
 
-    bundle = spec.get("predicates") or {}
+    raw_preds = spec.get("predicates")
+    if isinstance(raw_preds, list):
+        # Predicados legacy (lista de strings) -> convertir a bundle.
+        bundle = {"items": [], "unmapped": [{"criterion": str(p)} for p in raw_preds if p]}
+    elif isinstance(raw_preds, dict):
+        bundle = raw_preds
+    else:
+        bundle = {}
     items = [p for p in (bundle.get("items") or []) if isinstance(p, dict)]
     unmapped = [u for u in (bundle.get("unmapped") or []) if isinstance(u, dict)]
     if mode == "set":
@@ -173,12 +180,16 @@ def spec_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         c for c in mapped if not any(_norm(c) == _norm(a) for a in acceptance)
     ]
 
+    # Un criterio con predicado ES aceptación: si no estaba en la spec, se
+    # escribe en el MISMO save. Antes se reportaba `criteria_not_in_spec` y se
+    # descartaba, así que la spec seguía sin criterios y `spec_start` la veía
+    # incompleta aunque el predicado ya existiera.
+    updates: dict = {"predicates": {"items": items, "unmapped": remaining}}
+    if not_in_spec:
+        updates["acceptance_criteria"] = acceptance + not_in_spec
+
     try:
-        updated = service.update_spec(
-            spring_id,
-            real_spec_id,
-            {"predicates": {"items": items, "unmapped": remaining}},
-        )
+        updated = service.update_spec(spring_id, real_spec_id, updates)
     except Exception as exc:  # noqa: BLE001
         return TaskResult.failure(f"spec_predicates: {type(exc).__name__}: {exc}")
     if updated is None:
@@ -186,15 +197,44 @@ def spec_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             f"spec_predicates: no se pudo actualizar {real_spec_id} en {spring_id}"
         )
 
+    # F2 (ADR-WALKER-086): un criterio sin predicado es el disfraz más barato
+    # (se declara "hecho" sin nada ejecutable). Se emite al Trace para que el
+    # harness y el reporte lo puedan contar, en vez de quedar en un dict.
+    if remaining:
+        _trace.push(
+            ctx.chain_dir,
+            {
+                "event_type": "criteria_unmapped",
+                "source": "tasks",
+                "tool": "spec_predicates",
+                "task_id": real_spec_id,
+                "data": {
+                    "spec_id": real_spec_id,
+                    "spring_id": spring_id,
+                    "unmapped": [str((u or {}).get("criterion") or "") for u in remaining][:10],
+                    "count": len(remaining),
+                },
+            },
+        )
+
+    _tc = spec.get("task_context") or {}
+    _contract = _tc.get("work_contract") if isinstance(_tc, dict) else {}
+    _goal = str(
+        ((_contract or {}).get("goal") if isinstance(_contract, dict) else "")
+        or spec.get("objective")
+        or ""
+    )
     return TaskResult.success(data={
         "ok": True,
         "spring_id": spring_id,
         "spec_id": real_spec_id,
         "mode": mode,
+        "goal": _goal,
         "mapped": mapped,
         "predicates": items,
         "unmapped": remaining,
         "criteria_not_in_spec": not_in_spec,
+        "criteria_added": not_in_spec,
         "message": (
             f"{len(items)} predicado(s) en {real_spec_id}; "
             f"{len(remaining)} criterio(s) sin predicado"

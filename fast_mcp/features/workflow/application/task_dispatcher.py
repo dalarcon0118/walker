@@ -22,6 +22,7 @@ def execute_public_task(
     registry: Any = None,
     workflow_context: Any = None,
     cpg_adapter: Any = None,
+    sprint_service: Any = None,
 ) -> dict:
     """Execute a public task by name.
 
@@ -50,6 +51,7 @@ def execute_public_task(
         channel=channel,
         cpg_adapter=cpg_adapter,
         project_id=project_id,
+        sprint_service=sprint_service,
     )
 
     data = dict(task_data or {})

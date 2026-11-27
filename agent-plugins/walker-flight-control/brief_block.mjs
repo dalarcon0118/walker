@@ -51,7 +51,7 @@ export function briefBlock(payload, { max = 600 } = {}) {
   if (gaps.length) {
     const g = gaps[0] || {}
     const detail = trim(g.detail || g.code || "gap", 90)
-    const remedy = g.remedy ? ` → ${trim(g.remedy, 90)}` : ""
+    const remedy = g.remedy ? ` → ${trim(g.remedy, 200)}` : ""
     lines.push(`  GAP: ${detail}${remedy}`)
   }
   const review = payload.review || {}
@@ -69,7 +69,6 @@ export function briefBlock(payload, { max = 600 } = {}) {
   if (r.plan && r.plan.strategy) lines.push(`  METACOG plan: ${trim(r.plan.strategy, 120)}`)
   if (r.monitor && r.monitor.next) lines.push(`  METACOG monitor: ${trim(r.monitor.next, 120)}`)
   if (r.evaluate && r.evaluate.adjust) lines.push(`  METACOG evaluar: ${trim(r.evaluate.adjust, 120)}`)
-  lines.push("  METACOG: 1) ¿qué decisión/convención gobierna este archivo? 2) ¿qué callers/tests se ven afectados? 3) ¿qué gap queda sin remediar? 4) ¿qué evidencia demuestra verde?")
   const decision = (payload.decisions || [])[0]
   if (decision) {
     lines.push(`  decisión: ${trim(`${decision.id || ""} ${decision.title || ""}`, 130)}`)
@@ -108,7 +107,7 @@ export function failureBriefBlock(payload, failure, { max = 480 } = {}) {
   if (gaps.length) {
     const g = gaps[0] || {}
     const detail = trim(g.detail || g.code || "gap", 90)
-    const remedy = g.remedy ? ` → ${trim(g.remedy, 90)}` : ""
+    const remedy = g.remedy ? ` → ${trim(g.remedy, 200)}` : ""
     lines.push(`  GAP: ${detail}${remedy}`)
   }
   const review = payload.review || {}
@@ -126,7 +125,6 @@ export function failureBriefBlock(payload, failure, { max = 480 } = {}) {
   if (r.plan && r.plan.strategy) lines.push(`  METACOG plan: ${trim(r.plan.strategy, 120)}`)
   if (r.monitor && r.monitor.next) lines.push(`  METACOG monitor: ${trim(r.monitor.next, 120)}`)
   if (r.evaluate && r.evaluate.adjust) lines.push(`  METACOG evaluar: ${trim(r.evaluate.adjust, 120)}`)
-  lines.push("  METACOG: 1) ¿qué decisión/convención gobierna este archivo? 2) ¿qué callers/tests se ven afectados? 3) ¿qué gap queda sin remediar? 4) ¿qué evidencia demuestra verde?")
   const decision = (payload.decisions || [])[0]
   if (decision) {
     lines.push(`  decisión: ${trim(`${decision.id || ""} ${decision.title || ""}`, 120)}`)

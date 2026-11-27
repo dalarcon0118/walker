@@ -7,7 +7,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { shellMutation } from "./shell_mutation.mjs"
+import { shellEffect, shellMutation } from "./shell_mutation.mjs"
 
 const PROJECT = "/Users/davidmartinez/develop/Active-projects/walker"
 
@@ -55,4 +55,27 @@ test("sin proyecto resoluble es conservador", () => {
 
 test("duplicación de fd y /dev/null no cuentan", () => {
   assert.equal(shellMutation("pytest -q > /dev/null 2>&1", PROJECT).mutates, false)
+})
+
+test("grep con | escapado entre comillas es read, no un pipe", () => {
+  assert.equal(
+    shellEffect('grep -rl "mirror_acted_on\\|brief_injected" scripts', PROJECT).effect,
+    "read"
+  )
+})
+
+test("grep con alternancia dentro de comillas simples es read", () => {
+  assert.equal(shellEffect("grep -E 'a|b' scripts", PROJECT).effect, "read")
+})
+
+test("un pipe real a un filtro read-only sigue siendo read", () => {
+  assert.equal(shellEffect("cat x.py | head -5", PROJECT).effect, "read")
+})
+
+test("un pipe real a un shell sigue siendo unknown", () => {
+  assert.equal(shellEffect("cat x.py | sh", PROJECT).effect, "unknown")
+})
+
+test("|| no se confunde con un pipe a comando desconocido", () => {
+  assert.equal(shellEffect("git status || git diff", PROJECT).effect, "read")
 })

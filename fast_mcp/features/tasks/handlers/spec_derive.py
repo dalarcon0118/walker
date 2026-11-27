@@ -339,7 +339,8 @@ def predicates_from_files(files: list[str], project_root: str) -> dict:
 # criterios seguían sin verificación).
 
 _PREDICATE_TYPES = ("command_exit", "command_output", "test_pass",
-                    "file_exists", "shell")
+                    "file_exists", "shell", "grep", "manual",
+                    "symbol_exists", "symbol_not_exists")
 
 
 def criterion_text(item: object) -> str:
@@ -369,6 +370,10 @@ def normalize_predicate(value: object, criterion: str = "") -> dict | None:
         value.get("command") or value.get("target")
     ):
         return None
+    if kind == "grep" and not value.get("pattern"):
+        return None
+    if kind == "file_exists" and not value.get("path"):
+        return None
     pred = dict(value)
     if criterion:
         pred["criterion"] = criterion
@@ -390,6 +395,61 @@ def _norm(text: object) -> str:
     folded = unicodedata.normalize("NFKD", str(text or ""))
     plain = "".join(ch for ch in folded if not unicodedata.combining(ch))
     return " ".join(plain.lower().split())
+
+
+def goal_chain(spec: dict) -> dict:
+    """Cadena goal → spec → criterio → archivo (F1b, advisory).
+
+    El goal que justifica la spec viene del WorkContract (F0b,
+    `task_context.work_contract.goal`) o, en su defecto, del objective. Cada
+    criterio se marca `mapped` si tiene predicado y `unmapped` si no. Reusa los
+    predicados ya derivados (`spec.predicates.items`), sin recomputar.
+    """
+    spec = spec or {}
+    tc = spec.get("task_context") or {}
+    contract = tc.get("work_contract") if isinstance(tc, dict) else {}
+    contract = contract if isinstance(contract, dict) else {}
+    goal = str(contract.get("goal") or spec.get("objective") or "")
+
+    files = [str(f) for f in (spec.get("files") or []) if f]
+    bundle = spec.get("predicates") or {}
+    items = [p for p in (bundle.get("items") or []) if isinstance(p, dict)]
+    pred_by_crit: dict[str, dict] = {}
+    for pred in items:
+        crit = _norm(pred.get("criterion") or pred.get("description") or "")
+        if crit:
+            pred_by_crit[crit] = pred
+
+    chain: list[dict] = []
+    unmapped: list[dict] = []
+    seen_unmapped: set[str] = set()
+    for criterion in spec.get("acceptance_criteria") or []:
+        text = str(criterion)
+        pred = pred_by_crit.get(_norm(text))
+        chain.append({
+            "criterion": text,
+            "files": files,
+            "predicate": pred,
+            "status": "mapped" if pred else "unmapped",
+        })
+        if pred is None:
+            unmapped.append({"criterion": text, "reason": "sin predicado ejecutable"})
+            seen_unmapped.add(_norm(text))
+    # Criterios que el bundle ya declaró sin predicado (no se pierden).
+    for item in (bundle.get("unmapped") or []):
+        if not isinstance(item, dict):
+            continue
+        crit = _norm(item.get("criterion") or "")
+        if crit and crit not in seen_unmapped:
+            unmapped.append(dict(item))
+            seen_unmapped.add(crit)
+
+    return {
+        "goal": goal,
+        "spec_id": str(spec.get("spec_id") or ""),
+        "chain": chain,
+        "unmapped": unmapped,
+    }
 
 
 def build_predicate_bundle(

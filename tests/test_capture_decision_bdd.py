@@ -11,7 +11,7 @@ from fast_mcp.features.tasks.side_effects.decision import capture_decision
 def test_lee_decision_de_fields():
     state = SimpleNamespace(current_sub_state="PLAN_APPROVAL", context={"task_id": "SPEC-002"})
 
-    out = capture_decision("/tmp/p", {}, state=state, fields={"decision": "approve", "evidence": "ok"})
+    out = capture_decision("/tmp/p", {}, state=state, fields={"decision": "approve", "evidence": "ok", "_human": True})
 
     assert out["ok"] is True
     assert out["decision"] == "approve"
@@ -21,7 +21,7 @@ def test_lee_decision_de_fields():
 
 
 def test_params_ganan_sobre_fields():
-    out = capture_decision("/tmp/p", {"decision": "accept"}, fields={"decision": "approve"})
+    out = capture_decision("/tmp/p", {"decision": "accept"}, fields={"decision": "approve", "_human": True})
 
     assert out["ok"] is True
     assert out["decision"] == "accept"
@@ -48,7 +48,7 @@ def test_lee_la_decision_registrada_en_el_estado():
         current_sub_state="CKG_SAVE",
         sub_state_data={
             "DESIGN_REVIEW": SubStateData(
-                fields={"decision": "approve", "evidence": "ADR-lite ok"}
+                fields={"decision": "approve", "evidence": "ADR-lite ok", "_human": True}
             )
         },
         context={"task_id": "SPEC-002"},

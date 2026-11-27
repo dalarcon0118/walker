@@ -4,7 +4,8 @@
       "project_id": "walker",
       "name": "walker",
       "repo_path": "/Users/davidmartinez/develop/Active-projects/walker",
-      "active": true
+      "active": true,
+      "last_accessed": "2026-11-27T01:03:23.907312+00:00"
     },
     "my_app": {
       "project_id": "my_app",
@@ -20,7 +21,7 @@
       "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/backend-microservices",
       "active": true,
       "registered_at": "2026-07-30T00:43:04.454570+00:00",
-      "last_accessed": "2026-07-30T00:43:04.454570+00:00"
+      "last_accessed": "2026-11-27T00:51:12.677541+00:00"
     },
     "react-native-frontend": {
       "project_id": "react-native-frontend",
@@ -44,7 +45,7 @@
       "repo_path": "/Users/davidmartinez/develop/Active-projects/game_reset/projects/client-chat",
       "active": true,
       "registered_at": "2026-11-01T15:57:46.029156+00:00",
-      "last_accessed": "2026-11-01T15:57:46.029156+00:00"
+      "last_accessed": "2026-11-26T12:22:31.062093+00:00"
     },
     "game-reset-page": {
       "project_id": "game-reset-page",
@@ -119,5 +120,5 @@
       "last_accessed": "2026-11-22T13:20:30.037884+00:00"
     }
   },
-  "updated_at": "2026-11-22T13:20:30.037884+00:00"
+  "updated_at": "2026-11-27T01:03:23.907312+00:00"
 }

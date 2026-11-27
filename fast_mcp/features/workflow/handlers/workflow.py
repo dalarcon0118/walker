@@ -43,6 +43,13 @@ def _extract_fields(kwargs: dict) -> dict[str, Any]:
     for k, v in kwargs.items():
         if not k.startswith("_") and k not in ("task_id", "session_id"):
             fields[k] = v
+    # Propagar la señal de canal humano: `_human` es el único campo con
+    # prefijo `_` que debe llegar al orquestador (gate user_input). Sin esto,
+    # el CLI (que marca _human=True) nunca podría enviar `decision`.
+    if "_human" in kwargs:
+        fields["_human"] = bool(kwargs.get("_human"))
+    elif "_human" in (kwargs.get("_payload") or {}):
+        fields["_human"] = bool((kwargs.get("_payload") or {}).get("_human"))
     if not str(fields.get("decision") or "").strip() and str(fields.get("intent") or "").strip():
         fields["decision"] = fields["intent"]
     return fields

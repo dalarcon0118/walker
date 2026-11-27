@@ -307,7 +307,7 @@ class TestSpecValidator:
 
 class TestSpecStatusUpdater:
     def test_forward_transition(self):
-        spec = {"status": "draft"}
+        spec = {"status": "draft", "acceptance_criteria": ["criterio 1"]}
         updated = SpecStatusUpdater.update(spec, "specified")
         assert updated["status"] == "specified"
 
@@ -443,6 +443,7 @@ class TestSprintService:
         svc = SprintService(project_root="/tmp", repo=repo)
         svc.create_spring("sprint-1", goal="Test")
         svc.add_spec("sprint-1", objective="Test")
+        svc.update_spec("sprint-1", "SPEC-001", {"acceptance_criteria": ["criterio"]})
         updated = svc.update_spec_status("sprint-1", "SPEC-001", "specified")
         assert updated["status"] == "specified"
 

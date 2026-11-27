@@ -101,6 +101,16 @@ def _capture_scope_error(chain_dir: str, data: dict) -> str:
     session_id = str(data.get("session_id") or "").strip()
     if session_id and _di.session_spring(chain_dir, session_id):
         return ""
+    # Fallback: el sprint ACTIVO desambigua igual que en `verify_predicates`.
+    # El efecto secundario del workflow corre dentro de ese sprint; sin sesión en
+    # `data` (medido 2026-11-26, SPEC-002) el cierre fallaba aunque hubiera un
+    # único sprint activo.
+    try:
+        service = _di.sprint_service(chain_dir)
+        if service is not None and service.get_active_spring():
+            return ""
+    except Exception:  # noqa: BLE001 — sin activo se sigue al fail-loud
+        pass
     if re.fullmatch(r"SPEC-\d+", task_id):
         return (
             f"{task_id!r} es un id de spec local a un sprint (se repite en cada "
@@ -260,10 +270,26 @@ def _supersedes_for(chain_dir: str, fact: dict, task_id: str) -> list[str]:
     return sorted({_id(n) for n in (same + excess) if _id(n)})
 
 
+def _seed_session(data: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
+    """Completa `session_id` desde el ctx cuando el runner no lo puso en `data`.
+
+    El efecto secundario de KNOWLEDGE_UPDATE corre con el ctx de la sesión, pero
+    `data` puede no traer `session_id`; sin él un `SPEC-NNN` es ambiguo entre
+    sprints y la captura falla (medido 2026-11-26, SPEC-002).
+    """
+    if str(data.get("session_id") or "").strip():
+        return data
+    ctx_session = str(getattr(ctx, "session_id", "") or "").strip()
+    if not ctx_session or ctx_session == "mcp":
+        return data
+    return {**data, "session_id": ctx_session}
+
+
 def capture_knowledge(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """Deriva un hecho de la sesión y lo guarda en el CKG."""
     if not ctx.chain_dir:
         return TaskResult.failure("capture_knowledge: sin chain_dir")
+    data = _seed_session(data, ctx)
     scope_error = _capture_scope_error(ctx.chain_dir, data)
     if scope_error:
         return TaskResult.failure(f"capture_knowledge: {scope_error}")

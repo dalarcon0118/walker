@@ -63,6 +63,9 @@ class FakeSprintService:
         self.sessions[session_id].update({k: v for k, v in kw.items() if v})
         return self.sessions[session_id]
 
+    def get_session(self, session_id: str) -> dict | None:
+        return self.sessions.get(session_id)
+
     def last_session(self, project_id: str = "") -> dict | None:
         return None
 
@@ -132,6 +135,45 @@ def test_continue_suma_la_sesion_como_hija(svc):
     spring = svc.springs[0]
     assert spring["context"]["session_ids"] == ["s0", "s1"]
     assert spring["context"]["parent_session_id"] == "s0"
+
+
+def test_continue_preserva_el_parent_real_de_la_sesion(svc):
+    """El dueño del sprint no puede pisar el padre de la sesión hija."""
+    svc.create_spring(
+        "SPR-INTEG",
+        goal="roadmap",
+        status="active",
+        session_id="s0",
+        context={"session_ids": ["s0"], "parent_session_id": "s0"},
+    )
+    svc.open_session("s1", parent_session_id="padre-real")
+
+    _data(session_bind(_ctx(), {"session_id": "s1", "spring_id": "SPR-INTEG", "mode": "continue"}))
+
+    assert svc.sessions["s1"]["parent_session_id"] == "padre-real"
+    assert svc.get_spring("SPR-INTEG")["context"]["parent_session_id"] == "s0"
+
+
+def test_continue_usa_el_parent_explicito_del_payload(svc):
+    svc.create_spring(
+        "SPR-INTEG",
+        goal="roadmap",
+        status="active",
+        session_id="s0",
+        context={"session_ids": ["s0"], "parent_session_id": "s0"},
+    )
+
+    _data(session_bind(
+        _ctx(),
+        {
+            "session_id": "s1",
+            "spring_id": "SPR-INTEG",
+            "mode": "continue",
+            "parent_session_id": "padre-real",
+        },
+    ))
+
+    assert svc.sessions["s1"]["parent_session_id"] == "padre-real"
 
 
 def test_continue_sin_sprint_falla_con_indicacion(svc):

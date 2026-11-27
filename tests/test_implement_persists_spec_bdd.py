@@ -121,6 +121,31 @@ def test_no_duplica_la_spec_si_se_declara_dos_veces(servicio):
     assert servicio.specs["SPR-1"][0]["files"] == ["a.py", "b.py"]
 
 
+def test_objetivo_truncado_reutiliza_la_spec_no_duplica(servicio):
+    servicio.update_session_plan("ses-1", {"approved_by_user": True})
+    implement.implement_task(_ctx(), {
+        "task_id": "T-42",
+        "objective": "Versionar data/workflow",
+        "files": ["a.py"],
+        "acceptance": ["x"],
+    })
+
+    out = implement.implement_task(_ctx(), {
+        "task_id": "T-43",
+        "objective": (
+            "Versionar data/workflow o eliminar la dependencia JSON en runtime; "
+            "mover a codigo como artifacts.py"
+        ),
+        "files": ["a.py", "b.py"],
+        "acceptance": ["x", "y"],
+    })
+
+    assert out.ok
+    assert len(servicio.specs["SPR-1"]) == 1
+    assert out.data["spec"]["spec_id"] == "SPEC-001"
+    assert servicio.specs["SPR-1"][0]["files"] == ["a.py", "b.py"]
+
+
 def test_sin_factory_no_rompe_la_tool(monkeypatch):
     from fast_mcp.features.tasks.handlers import _di
 

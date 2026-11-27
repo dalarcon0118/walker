@@ -67,6 +67,21 @@ Resumen:
 
 ---
 
+## Gate de decisiones user_input (OBLIGATORIO)
+
+Los pasos con `execution: user_input` son decisiones del PO. El agente **NUNCA**
+envía `decision` en esos pasos: presenta la información y espera.
+
+Reglas:
+1. En pasos `user_input`, el agente solo puede enviar campos de observación
+   (facts, evidence, etc.), nunca `decision`.
+2. El walker bloquea mecánicamente cualquier `submit` con `decision` en un paso
+   `user_input` que no venga del canal humano (CLI con `_human=True`).
+3. El agente debe presentar la información del gate al usuario y esperar su
+   respuesta antes de enviar cualquier decisión.
+4. Si el walker devuelve `agent_decision_blocked`, el agente debe presentar el
+   gate y esperar, no reintentar con otra estrategia.
+
 ## Fail-fast, sin fallbacks implícitos (OBLIGATORIO)
 
 **Principio:** el código **funciona o genera un error**. No hay backends de

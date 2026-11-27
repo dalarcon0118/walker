@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from typing import Any, Callable
 
 
@@ -147,10 +148,46 @@ def run_task(argv: list[str]) -> int:
     payload.pop("project_id", None)
     payload.pop("_project_id", None)
 
+    # El CLI es el canal humano: marcar _human=True para que el walker permita
+    # enviar `decision` en pasos user_input (el agente vía MCP no puede).
+    payload["_human"] = True
+
+    # La telemetría por tool también cubre el CLI: el plugin llama `brief`,
+    # `run_tests`, `submit`, etc. por acá, no por el MCP. Sin esto el score no
+    # ve la sesión y "ToolInvoked" queda sin session_id (medido 2026-11-26).
+    telemetry_session = str(payload.get("session_id") or payload.get("_session_id") or "")
+    telemetry_task = str(payload.get("task_id") or payload.get("_task_id") or "")
+    started = time.perf_counter()
     try:
         result = runner(project_id=project_id, **payload)
     except Exception as exc:  # noqa: BLE001 — el CLI nunca deja un traceback crudo
+        try:
+            from fast_mcp.shared_kernel.telemetry.tool_metrics import record_exception
+
+            record_exception(
+                tool=tool,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                error=exc,
+                project_id=project_id,
+                session_id=telemetry_session,
+                task_id=telemetry_task,
+            )
+        except Exception:  # noqa: BLE001 — observabilidad, no el resultado
+            pass
         return _error(f"{type(exc).__name__}: {exc}", code=1)
+    try:
+        from fast_mcp.shared_kernel.telemetry.tool_metrics import record_call
+
+        record_call(
+            tool=tool,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            result=result,
+            project_id=project_id,
+            session_id=telemetry_session,
+            task_id=telemetry_task,
+        )
+    except Exception:  # noqa: BLE001 — observabilidad, no el resultado
+        pass
 
     print(json.dumps(result, ensure_ascii=False, default=str))
     marker = _verification_marker(tool, result)

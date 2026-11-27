@@ -34,6 +34,9 @@ class FakeSprintService:
         self.specs.append(spec)
         return spec
 
+    def get_specs(self, spring_id):
+        return list(self.specs)
+
     def get_session(self, session_id):
         return {"spring_id": "SPR-TEST"}
 
@@ -113,6 +116,34 @@ def test_add_tasks_agrega_y_no_duplica_con_lista_vacia(tmp_path, monkeypatch):
     assert len(svc.specs) == 2
     assert empty.data["added"] == 0
     assert len(svc.specs) == 2
+
+
+def test_add_tasks_dedupe_objetivo_truncado(tmp_path, monkeypatch):
+    svc = FakeSprintService()
+    svc.create_spring("SPR-TEST", goal="g")
+    monkeypatch.setattr("fast_mcp.composition.build_sprint_service", lambda root: svc)
+
+    first = add_tasks.add_tasks(
+        _ctx(tmp_path),
+        {"spring_id": "SPR-TEST", "tasks": [{"objective": "Versionar data/workflow"}]},
+    )
+    second = add_tasks.add_tasks(
+        _ctx(tmp_path),
+        {
+            "spring_id": "SPR-TEST",
+            "tasks": [{
+                "objective": (
+                    "Versionar data/workflow o eliminar la dependencia JSON en runtime"
+                )
+            }],
+        },
+    )
+
+    assert first.ok and first.data["added"] == 1
+    assert second.ok and second.data["added"] == 0
+    assert second.data["skipped"] == 1
+    assert second.data["duplicates"][0]["spec_id"] == "SPEC-001"
+    assert len(svc.specs) == 1
 
 
 def test_route_to_target_invalido_falla(tmp_path):

@@ -132,6 +132,41 @@ def test_plan_sprint_existing_preserves_context_and_status():
     assert len(svc.specs["SPR-1"]) == 1
 
 
+def test_plan_sprint_preserva_campos_de_specs_existentes_por_indice():
+    """Re-planear no borra predicados/depends_on/acceptance ya escritos.
+
+    El workflow ejecuta `plan_sprint` en el submit y otra vez en `advance`;
+    recrear la spec vacía hacía que el segundo paso perdiera los campos que
+    agregó `spec_predicates`/`spec_update` (medido 2026-11-24).
+    """
+    svc = FakeService()
+    svc.create_spring("SPR-1", goal="g", status="planning")
+    svc.specs["SPR-1"] = [{
+        "_id": "SPEC-001", "spec_id": "SPEC-001", "spring_id": "SPR-1",
+        "objective": "viejo", "status": "draft", "spec_index": 0,
+        "acceptance_criteria": ["ac"],
+        "predicates": {"items": [{"type": "command_exit", "command": "pytest"}]},
+        "task_context": {"k": "v"},
+        "depends_on": ["SPEC-000"],
+    }]
+
+    plan, *_ = _build_handlers(svc)
+    out = plan(_ctx(), {
+        "spring_id": "SPR-1",
+        "goal": "g",
+        "tasks": [{"objective": "nuevo", "type": "feature", "domain": "d"}],
+    })
+
+    assert out.ok is True
+    spec = svc.get_spec("SPR-1", "SPEC-001")
+    assert spec["objective"] == "nuevo"
+    assert spec["acceptance_criteria"] == ["ac"]
+    assert spec["predicates"]["items"]
+    assert spec["depends_on"] == ["SPEC-000"]
+    assert spec["task_context"] == {"k": "v"}
+    assert len(svc.specs["SPR-1"]) == 1
+
+
 def test_spec_task_refine_same_spec():
     svc = FakeService()
     svc.create_spring("SPR-1", goal="g", status="planning")
@@ -155,6 +190,54 @@ def test_spec_task_refine_same_spec():
     assert spec["task_context"] == {"k": "v"}
     assert spec["acceptance_criteria"] == ["ac1"]
     assert len(svc.specs["SPR-1"]) == 1
+
+
+def test_spec_task_refine_devuelve_la_spec_como_task_id():
+    """Especificar SPEC-002 debe mover el task_id del workflow a SPEC-002.
+
+    El `task_id` del `exec_data` es el de la tarea anterior; devolverlo hacía
+    que `transform_spec` escribiera siempre sobre la primera spec.
+    """
+    svc = FakeService()
+    svc.create_spring("SPR-1", goal="g", status="planning")
+    svc.specs["SPR-1"] = [{
+        "_id": "SPEC-002", "spec_id": "SPEC-002", "spring_id": "SPR-1",
+        "objective": "old", "status": "draft", "spec_index": 1,
+        "acceptance_criteria": [], "predicates": {}, "task_context": {},
+    }]
+
+    _, _, spec_task, _ = _build_handlers(svc)
+    result = spec_task(_ctx(), {
+        "spring_id": "SPR-1",
+        "spec_id": "SPEC-002",
+        "task_id": "SPEC-001",
+        "acceptance_criteria": ["ac"],
+    })
+
+    assert result.ok is True
+    assert result.data["task_id"] == "SPEC-002"
+
+
+def test_spec_task_ignora_el_status_pending_del_engine():
+    """`status=pending` lo siembra el motor al entrar al sub-estado."""
+    svc = FakeService()
+    svc.create_spring("SPR-1", goal="g", status="planning")
+    svc.specs["SPR-1"] = [{
+        "_id": "SPEC-002", "spec_id": "SPEC-002", "spring_id": "SPR-1",
+        "objective": "old", "status": "draft", "spec_index": 1,
+        "acceptance_criteria": [], "predicates": {}, "task_context": {},
+    }]
+
+    _, _, spec_task, _ = _build_handlers(svc)
+    result = spec_task(_ctx(), {
+        "spring_id": "SPR-1",
+        "spec_id": "SPEC-002",
+        "status": "pending",
+        "acceptance_criteria": ["ac"],
+    })
+
+    assert result.ok is True
+    assert svc.get_spec("SPR-1", "SPEC-002")["status"] == "draft"
 
 
 def test_spec_task_refine_nonexistent_fails():

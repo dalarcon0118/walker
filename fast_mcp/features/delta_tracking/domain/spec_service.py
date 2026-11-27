@@ -79,6 +79,68 @@ def _completion_missing(spec: dict) -> list[str]:
     return missing
 
 
+def verification_is_stale(
+    manifest: Any,
+    current_commit: Any = None,
+    current_revision: Any = None,
+) -> bool:
+    """Detecta una verificación stale (otro commit/revisión).
+
+    Puro, sin I/O. Si no hay manifest o no se puede comparar → stale.
+    """
+    if not isinstance(manifest, dict) or not manifest:
+        return True
+    m_commit = str(manifest.get("commit") or manifest.get("revision") or "").strip()
+    m_revision = str(manifest.get("revision") or manifest.get("commit") or "").strip()
+    if not m_commit:
+        return True
+
+    if isinstance(current_commit, dict):
+        current_commit = (
+            current_commit.get("commit")
+            or current_commit.get("revision")
+            or current_commit.get("current_commit")
+        )
+    if isinstance(current_revision, dict):
+        current_revision = (
+            current_revision.get("revision")
+            or current_revision.get("commit")
+            or current_revision.get("current_revision")
+        )
+
+    if current_commit is None and current_revision is None:
+        return True
+    if current_commit is not None:
+        cc = str(current_commit).strip()
+        if cc and cc != m_commit:
+            return True
+    if current_revision is not None:
+        cr = str(current_revision).strip()
+        if cr and cr != m_revision:
+            return True
+    return False
+
+
+def check_budget(budget, changed_files=0, changed_loc=0, new_files=0):
+    """Valida un presupuesto de spec contra el diff (F1d, advisory).
+
+    `budget`: dict con max_files/max_loc/max_new_files (opcionales).
+    Devuelve {"ok": bool, "violations": [str]}.
+    """
+    budget = budget or {}
+    violations: list[str] = []
+    max_files = budget.get("max_files")
+    max_loc = budget.get("max_loc")
+    max_new_files = budget.get("max_new_files")
+    if max_files is not None and changed_files > max_files:
+        violations.append(f"files {changed_files} > max_files {max_files}")
+    if max_loc is not None and changed_loc > max_loc:
+        violations.append(f"loc {changed_loc} > max_loc {max_loc}")
+    if max_new_files is not None and new_files > max_new_files:
+        violations.append(f"new_files {new_files} > max_new_files {max_new_files}")
+    return {"ok": not violations, "violations": violations}
+
+
 # ── SpecValidator ─────────────────────────────────────────────────────────
 
 class SpecValidator:
@@ -168,6 +230,14 @@ class SpecStatusUpdater:
         new_idx = SPEC_STATUS_FLOW.index(new_status)
         if new_idx < current_idx:
             raise ValueError(f"Cannot move status back from '{current}' to '{new_status}'")
+        # Invariante de especificación: `specified`/`approved` exigen criterios
+        # de aceptación o predicados (no se puede avanzar sin definir qué se
+        # verifica).
+        if new_status in ("specified", "approved"):
+            if not SpecValidator._has_verification(spec):
+                raise ValueError(
+                    "Cannot move spec to '{}': missing acceptance_criteria or predicates".format(new_status)
+                )
         # Invariante de cierre: `completed` exige artefactos.
         if new_status == "completed":
             missing = _completion_missing(spec)
@@ -175,6 +245,12 @@ class SpecStatusUpdater:
                 raise ValueError(
                     "Cannot mark spec as completed: missing required artifacts: "
                     + ", ".join(missing)
+                )
+            # reviewed_by distinto del autor
+            review_errors = review_missing(spec)
+            if review_errors:
+                raise ValueError(
+                    "Cannot mark spec as completed: " + "; ".join(review_errors)
                 )
         spec = dict(spec)
         spec["status"] = new_status
@@ -277,6 +353,14 @@ class SpecService:
 
     # Alias para compatibilidad con nombres esperados por callers.
     reopen_spec = reopen
+
+    @staticmethod
+    def verification_is_stale(manifest, current_commit=None, current_revision=None):
+        return verification_is_stale(manifest, current_commit, current_revision)
+
+    @staticmethod
+    def check_budget(budget, changed_files=0, changed_loc=0, new_files=0):
+        return check_budget(budget, changed_files, changed_loc, new_files)
 
     @staticmethod
     def refine(existing: Spec, data: dict) -> Spec:

@@ -159,3 +159,21 @@ def test_archivo_inexistente_falla(tmp_path):
 
     assert result.data["passed"] is False
     assert result.data["findings"][0]["error"] == "no existe"
+
+
+def test_sin_archivos_no_certifica_la_revision(tmp_path):
+    """0 archivos revisados no es un verde (medido 2026-11-26).
+
+    `passed = not findings` daba True por vacuidad cuando la spec no se podía
+    resolver (id de spec ambiguo entre dos sprints) o la tarea no declaraba
+    archivos. El resumen decía "CPG no disponible" pero `passed: true` se leía
+    como revisión aprobada.
+    """
+    cpg = _FakeCpg(_report())
+
+    result = review_code(_ctx(tmp_path, task_id="", cpg=cpg), {})
+
+    assert result.data["passed"] is False
+    assert "no certifica" in result.data["summary"]
+    assert result.data["blocked_reason"]
+    assert cpg.calls == []

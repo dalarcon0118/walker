@@ -1,19 +1,21 @@
-"""infrastructure/state_repository.py — WorkflowState persistence.
+"""infrastructure/state_repository.py — WorkflowState persistence (SQLite SSOT).
 
 SRP: single responsibility = load/save WorkflowState.
-SSOT: .workflow-state.json is the ONLY engine state file.
+SSOT: cognitive.sqlite3 `workflow_state` table is the ONLY engine state store
+      (ADR-WALKER-063: sqlite es el único backend runtime; JSON files eliminados).
 
 Features:
   - CAS (compare-and-swap): save checks revision match, increments on write
   - Reconciliation on load: sub_state_index ↔ current_sub_state consistency
-  - Atomic write: write to .tmp then os.replace() to prevent corruption
+  - Per-spec state: spec_id tracked via contextvars; '' = global state
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
-import tempfile
+import sqlite3
 from typing import Any
 
 from ..domain.entities import WorkflowState
@@ -21,11 +23,59 @@ from ..domain.errors import StateConflictError
 
 logger = logging.getLogger(__name__)
 
-STATE_FILE = ".workflow-state.json"
+# Contextvar for per-spec state (mirrors orchestrator's _current_spec_id)
+_current_spec_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "state_repo_spec_id", default=""
+)
+# Contextvar for per-session state (SPEC-023)
+_current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "state_repo_session_id", default=""
+)
+
+# Table name in the cognitive SQLite database
+_TABLE = "workflow_state"
+
+
+def _resolve_db_path(chain_dir: str, db_path: str | None = None) -> str:
+    """Resolve the path to cognitive.sqlite3.
+
+    Production: cognitive_data_dir(chain_dir) → .cognitive/projects/<id>/data/cognitive.sqlite3
+    Tests/temp: chain_dir/data/cognitive.sqlite3 (isolated per tmp_path)
+    """
+    if db_path:
+        return db_path
+
+    # Detect test/temp paths
+    is_temp = (
+        "pytest" in chain_dir
+        or "/tmp" in chain_dir
+        or "var/folders" in chain_dir
+        or "var\\folders" in chain_dir
+    )
+
+    if is_temp:
+        data_dir = os.path.join(chain_dir, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, "cognitive.sqlite3")
+
+    # Production: use cognitive_data_dir
+    try:
+        from fast_mcp.shared_kernel.paths import cognitive_data_dir
+        data_dir = cognitive_data_dir(chain_dir)
+        candidate = os.path.join(data_dir, "cognitive.sqlite3")
+        os.makedirs(data_dir, exist_ok=True)
+        return candidate
+    except Exception:
+        pass
+
+    # Fallback: chain_dir/data/cognitive.sqlite3
+    data_dir = os.path.join(chain_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "cognitive.sqlite3")
 
 
 class StateRepository:
-    """Load/save WorkflowState from .workflow-state.json.
+    """Load/save WorkflowState from SQLite (cognitive.sqlite3).
 
     CAS: save() checks state.revision matches stored revision.
     If mismatch → StateConflictError (lost update detected).
@@ -33,35 +83,80 @@ class StateRepository:
 
     Reconciliation: load() reconciles sub_state_index ↔ current_sub_state
     using the provided graph. State is always consistent after load.
+
+    Per-spec: spec_id tracked via contextvars _current_spec_id.
+    '' = global state (backward compat).
     """
 
-    def __init__(self, graph_repository: Any = None):
+    def __init__(self, graph_repository: Any = None, db_path: str | None = None):
         """Args:
             graph_repository: GraphRepository for reconciliation on load.
                               If None, reconciliation is skipped.
+            db_path: Path to cognitive.sqlite3. If None, resolved from chain_dir.
         """
         self._graph_repo = graph_repository
+        self._db_path_override = db_path
+
+    def _db_path(self, chain_dir: str) -> str:
+        return _resolve_db_path(chain_dir, self._db_path_override)
+
+    def _ensure_table(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.execute(
+            f"SELECT name FROM sqlite_master WHERE type='table' AND name='{_TABLE}'"
+        )
+        exists = cursor.fetchone() is not None
+
+        if exists:
+            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({_TABLE})").fetchall()]
+            if "session_id" not in cols:
+                # Old schema: drop and recreate (state is ephemeral, safe to lose)
+                conn.execute(f"DROP TABLE {_TABLE}")
+                conn.commit()
+                exists = False
+
+        if not exists:
+            conn.execute(
+                f"""CREATE TABLE IF NOT EXISTS {_TABLE} (
+                    spec_id TEXT NOT NULL DEFAULT '',
+                    session_id TEXT NOT NULL DEFAULT '',
+                    state_json TEXT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (spec_id, session_id)
+                )"""
+            )
+            conn.commit()
 
     def load(self, chain_dir: str) -> WorkflowState:
-        """Load WorkflowState from disk.
+        """Load WorkflowState from SQLite.
 
-        1. Read .workflow-state.json
+        1. Read from workflow_state table (spec_id from contextvars)
         2. Parse via WorkflowState.from_dict()
         3. Reconcile index if graph available
         4. Return consistent state
 
-        If file missing or corrupt, returns empty WorkflowState.
+        If no row found, returns empty WorkflowState.
         """
-        path = os.path.join(chain_dir, STATE_FILE)
-        if not os.path.exists(path):
-            return WorkflowState()
+        spec_id = _current_spec_id.get()
+        session_id = _current_session_id.get()
+        db_path = self._db_path(chain_dir)
 
         try:
-            with open(path) as f:
-                data = json.load(f)
+            conn = sqlite3.connect(db_path)
+            self._ensure_table(conn)
+            row = conn.execute(
+                f"SELECT state_json FROM {_TABLE} WHERE spec_id = ? AND session_id = ?",
+                (spec_id, session_id),
+            ).fetchone()
+            conn.close()
+
+            if not row:
+                return WorkflowState()
+
+            data = json.loads(row[0])
             state = WorkflowState.from_dict(data)
         except Exception as e:
-            logger.error("StateRepository: failed to load %s: %s", path, e)
+            logger.error("StateRepository: failed to load from %s: %s", db_path, e)
             return WorkflowState()
 
         # Reconcile sub_state_index ↔ current_sub_state (GAP-1)
@@ -77,29 +172,35 @@ class StateRepository:
         return state
 
     def save(self, chain_dir: str, state: WorkflowState) -> WorkflowState:
-        """Persist WorkflowState with CAS (optimistic concurrency).
+        """Persist WorkflowState to SQLite with CAS (optimistic concurrency).
 
-        1. Read stored revision from disk
+        1. Read stored revision from SQLite
         2. If state.revision != stored → StateConflictError
         3. Increment revision
-        4. Atomic write (tmp + replace)
+        4. Upsert into workflow_state table
         5. Return saved state (with new revision)
 
         Raises StateConflictError on concurrent modification.
         """
-        path = os.path.join(chain_dir, STATE_FILE)
+        spec_id = _current_spec_id.get()
+        session_id = _current_session_id.get()
+        db_path = self._db_path(chain_dir)
+
+        conn = sqlite3.connect(db_path)
+        self._ensure_table(conn)
 
         # Read stored revision
         stored_revision = 0
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    stored_revision = int((json.load(f).get("revision") or 0))
-            except Exception:
-                stored_revision = 0
+        row = conn.execute(
+            f"SELECT revision FROM {_TABLE} WHERE spec_id = ? AND session_id = ?",
+            (spec_id, session_id),
+        ).fetchone()
+        if row:
+            stored_revision = int(row[0] or 0)
 
         # CAS check
         if state.revision != stored_revision:
+            conn.close()
             raise StateConflictError(chain_dir, state.revision, stored_revision)
 
         # Increment revision
@@ -109,22 +210,19 @@ class StateRepository:
         state_dict = state.to_dict()
         state_dict["revision"] = new_revision
 
-        # Atomic write: tmp file + os.replace
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(
-            dir=os.path.dirname(path) or ".", suffix=".tmp"
+        # Upsert
+        conn.execute(
+            f"""INSERT INTO {_TABLE} (spec_id, session_id, state_json, revision, updated_at)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(spec_id, session_id) DO UPDATE SET
+                    state_json=excluded.state_json,
+                    revision=excluded.revision,
+                    updated_at=excluded.updated_at""",
+            (spec_id, session_id, json.dumps(state_dict, ensure_ascii=False), new_revision,
+             state_dict.get("updated_at", "")),
         )
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(state_dict, f, indent=2, ensure_ascii=False)
-            os.replace(tmp_path, path)
-        except Exception:
-            # Clean up tmp file on failure
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        conn.commit()
+        conn.close()
 
         # Return state with new revision
         from dataclasses import replace

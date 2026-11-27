@@ -31,8 +31,9 @@ class FakeSprintService:
             "flight_plan": {},
         }
         self.specs = [
-            {"spec_id": "SPEC-002", "status": "draft", "objective": "primera",
-             "files": ["a.py"], "task_context": {}},
+            {"spec_id": "SPEC-002", "status": "specified", "objective": "primera",
+             "files": ["a.py"], "acceptance_criteria": ["los tests pasan"],
+             "task_context": {}},
             {"spec_id": "SPEC-003", "status": "in_progress", "objective": "vieja",
              "files": ["b.py"], "task_context": {"task_id": "SPEC-003",
                                                  "session_id": "S-0"}},

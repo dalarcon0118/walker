@@ -24,6 +24,23 @@ from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskR
 
 logger = logging.getLogger(__name__)
 
+# Campos válidos del Spec que spec_task puede persistir (refinement y create).
+# Antes solo se persistía un subconjunto y se perdían preconditions,
+# quality_gates, task_description (no es campo del Spec), etc.
+_SPEC_FIELDS = {
+    "objective", "domain", "spec_type", "result_state", "files",
+    "description", "predicates", "depends_on", "problem_statement",
+    "evidence", "acceptance_criteria", "quality_gates",
+    "impacted_artifacts", "task_context", "risks", "preconditions",
+    "decision", "architecture", "implementation", "invariants",
+    "project_snapshot", "loop_verification", "loop_acceptance",
+    "review_metrics", "review_conventions", "review_architecture",
+    "review_verdict", "reviewed_by", "review_findings",
+    "commit_hash", "commit_url", "completed_at", "generated_from",
+    "generates_specs", "related_decisions", "transformation_map",
+    "created_at", "updated_at",
+}
+
 
 def _short_hash(text: str) -> str:
     return hashlib.sha1((text or "session").encode("utf-8")).hexdigest()[:8]
@@ -82,9 +99,15 @@ def _build_handlers(sprint_service: Any):
             return TaskResult.failure("plan_sprint: goal es requerido")
 
         session_id = str(data.get("session_id") or "").strip()
-        spring_id = data.get("spring_id") or (
-            f"SPR-S{_short_hash(session_id)}" if session_id else f"sprint-{project_id or 'workflow'}"
-        )
+        # El sprint de la SESIÓN manda (ADR-077/085). Antes esto sólo miraba
+        # `data["spring_id"]` y caía a `sprint-<project>`: el `advance` del
+        # workflow creaba un sprint PARALELO "sprint-walker" y dejaba el de la
+        # sesión intacto (medido 2026-11-24).
+        spring_id, _resolved_by = _resolve_spring_id(data)
+        if not spring_id:
+            spring_id = data.get("spring_id") or (
+                f"SPR-S{_short_hash(session_id)}" if session_id else f"sprint-{project_id or 'workflow'}"
+            )
 
         # Detect existing sprint (create-or-update, never overwrite).
         existing = None
@@ -151,17 +174,51 @@ def _build_handlers(sprint_service: Any):
             return TaskResult.failure(f"plan_sprint: {type(exc).__name__}: {exc}")
 
         specs = []
+        existing_specs = (
+            sprint_service.get_specs(spring_id)
+            if hasattr(sprint_service, "get_specs")
+            else []
+        )
+        by_index = {
+            int(s.get("spec_index", -1)): s
+            for s in (existing_specs or [])
+            if s.get("spec_index") is not None
+        }
         for i, task in enumerate(tasks):
             try:
-                spec = sprint_service.add_spec(
-                    spring_id=spring_id,
-                    objective=task.get("objective", task.get("title", "")),
-                    domain=task.get("domain", ""),
-                    spec_type=task.get("type", "feature"),
-                    spec_index=i,
-                    result_state=task.get("result_state", ""),
-                    files=task.get("files", []),
-                )
+                # Idempotencia por ÍNDICE: re-planear no debe borrar lo que la
+                # spec ya tenía (predicados, depends_on, acceptance, task_context).
+                # Antes `add_spec` recreaba la spec vacía y el segundo `advance`
+                # del workflow la pisaba (medido 2026-11-24).
+                existing = by_index.get(i)
+                if existing and hasattr(sprint_service, "update_spec"):
+                    updates: dict[str, Any] = {}
+                    objective = task.get("objective", task.get("title", ""))
+                    if objective:
+                        updates["objective"] = objective
+                    if "domain" in task:
+                        updates["domain"] = task.get("domain", "")
+                    if "type" in task:
+                        updates["spec_type"] = task.get("type", "feature")
+                    if "result_state" in task:
+                        updates["result_state"] = task.get("result_state", "")
+                    if "files" in task:
+                        updates["files"] = task.get("files", [])
+                    if "depends_on" in task:
+                        updates["depends_on"] = task.get("depends_on", [])
+                    spec = sprint_service.update_spec(
+                        spring_id, str(existing.get("spec_id") or ""), updates
+                    ) or existing
+                else:
+                    spec = sprint_service.add_spec(
+                        spring_id=spring_id,
+                        objective=task.get("objective", task.get("title", "")),
+                        domain=task.get("domain", ""),
+                        spec_type=task.get("type", "feature"),
+                        spec_index=i,
+                        result_state=task.get("result_state", ""),
+                        files=task.get("files", []),
+                    )
                 specs.append(spec)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("plan_sprint: spec %d falló (%s)", i, exc)
@@ -251,24 +308,31 @@ def _build_handlers(sprint_service: Any):
                     f"spec_task: spec inexistente: {spec_id}"
                 )
 
-            # Solo claves provistas.
+            # Solo claves provistas. Se persisten TODOS los campos válidos del
+            # Spec (no solo un subconjunto): antes se perdían preconditions,
+            # quality_gates, etc. (bug de canal).
             updates: dict[str, Any] = {}
-            if "objective" in data:
-                updates["objective"] = data.get("objective")
             if "title" in data and "objective" not in data:
                 updates["objective"] = data.get("title")
-            if "domain" in data:
-                updates["domain"] = data.get("domain")
-            if "files" in data:
-                updates["files"] = data.get("files")
-            if "acceptance_criteria" in data:
-                updates["acceptance_criteria"] = data.get("acceptance_criteria")
-            if "predicates" in data:
-                updates["predicates"] = data.get("predicates")
-            if "status" in data:
-                updates["status"] = data.get("status")
-            if "result_state" in data:
-                updates["result_state"] = data.get("result_state")
+            # Alias del input_schema del workflow.
+            if "task_description" in data:
+                updates["problem_statement"] = data.get("task_description")
+            for key, value in (data or {}).items():
+                if key in ("title", "spring_id", "spec_id", "session_id",
+                           "project_id", "task_id", "_human", "action",
+                           "chain_dir", "task_description"):
+                    continue
+                # Alias del input_schema del workflow: `type` -> `spec_type`.
+                if key == "type":
+                    updates["spec_type"] = value
+                    continue
+                if key in _SPEC_FIELDS:
+                    updates[key] = value
+            # `status="pending"` es el marcador interno del sub-estado destino
+            # que siembra el motor al entrar (TransitionService), no un estado
+            # de spec. Reenviarlo rompía `advance` con "Invalid spec status".
+            if "status" in updates and updates.get("status") in (None, "", "pending"):
+                updates.pop("status", None)
 
             # Remove None values to avoid merge overwriting? Requirement: solo claves provistas.
             # Keep provided empty lists if explicitly given; but drop None.
@@ -288,7 +352,11 @@ def _build_handlers(sprint_service: Any):
                 "valid": True,
                 "objective": updated_spec.get("objective", objective),
                 "status": updated_spec.get("status", "draft"),
-                "task_id": data.get("task_id") or spec_id,
+                # La spec especificada ES la tarea: si el caller nombró
+                # SPEC-002, el workflow debe recordar SPEC-002 (no el task_id
+                # anterior). Sin esto, el ciclo siguiente de TASK_SPEC seguía
+                # escribiendo sobre la spec vieja (medido 2026-11-24).
+                "task_id": spec_id,
                 "updated": True,
             })
 
@@ -313,13 +381,29 @@ def _build_handlers(sprint_service: Any):
             return TaskResult.failure(f"spec_task: {type(exc).__name__}: {exc}")
 
         spec_id = (spec.get("spec_id") if isinstance(spec, dict) else "") or (spec.get("_id", "") if isinstance(spec, dict) else "")
-        # Apply acceptance_criteria/predicates afterwards (add_spec doesn't accept them).
-        if spec_id and (data.get("acceptance_criteria") is not None or data.get("predicates") is not None):
+        # Apply the remaining valid Spec fields afterwards (add_spec solo acepta
+        # un subconjunto). Antes solo se aplicaban acceptance_criteria y
+        # predicates: se perdían preconditions, quality_gates, etc.
+        _already = {"objective", "domain", "spec_type", "result_state", "files",
+                    "status", "description", "depends_on", "spring_id", "spec_index"}
+        if spec_id:
             updates = {}
-            if "acceptance_criteria" in data:
-                updates["acceptance_criteria"] = data.get("acceptance_criteria")
-            if "predicates" in data:
-                updates["predicates"] = data.get("predicates")
+            if "task_description" in data:
+                updates["problem_statement"] = data.get("task_description")
+            for key, value in (data or {}).items():
+                if key in ("title", "spring_id", "spec_id", "session_id",
+                           "project_id", "task_id", "_human", "action",
+                           "chain_dir", "status", "spec_index",
+                           "task_description"):
+                    continue
+                if key == "type":
+                    if "spec_type" not in _already:
+                        updates["spec_type"] = value
+                    continue
+                if key in _SPEC_FIELDS and key not in _already:
+                    updates[key] = value
+            if "title" in data and "objective" not in data:
+                updates["objective"] = data.get("title")
             updates = {k: v for k, v in updates.items() if v is not None}
             if updates and hasattr(sprint_service, "update_spec"):
                 try:

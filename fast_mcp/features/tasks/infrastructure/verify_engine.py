@@ -35,6 +35,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import time
 from string import Template
@@ -806,13 +807,16 @@ def _unavailable(declared: str) -> TestRunnerUnavailable:
 
 
 def resolve_test_framework(project_root: str) -> str:
-    """Key canónica del runner declarado (pytest, jest, go, ...).
+    """Key canónica del runner declarado (pytest, jest, go, custom, ...).
 
     Raises:
         TestRunnerUnavailable: sin declaración o con un framework desconocido.
             Es fail-fast a propósito: inventar pytest convertía el contexto
             ausente en una suite que no corresponde al proyecto.
     """
+    if _read_declared_test_command(project_root):
+        # El proyecto declara SU gate completo; no hace falta adivinar runner.
+        return "custom"
     declared = _read_declared_framework(project_root)
     key = _normalize_test_framework(declared)
     if not key:
@@ -822,6 +826,9 @@ def resolve_test_framework(project_root: str) -> str:
 
 def _resolve_test_command(project_root: str) -> list[str]:
     """Comando base de tests del framework DECLARADO por el proyecto."""
+    command = _read_declared_test_command(project_root)
+    if command:
+        return shlex.split(command)
     return list(_TEST_RUNNERS[resolve_test_framework(project_root)])
 
 
@@ -833,9 +840,13 @@ def build_test_command(
 ) -> list[str]:
     """Construye un comando de test con el framework del proyecto.
 
+    - `coding.test_command` declarado: se usa literal (sin filtros ajenos).
     - target: path de archivo/dir → se anexa al runner (pytest tests/test_x.py).
     - name  : nombre de test → se aplica la flag de filtro (pytest -k test_x).
     """
+    declared_command = _read_declared_test_command(project_root)
+    if declared_command:
+        return shlex.split(declared_command)
     runner = _resolve_test_command(project_root)
     key = _normalize_test_framework(
         _read_declared_framework(project_root)
@@ -860,23 +871,8 @@ def _read_declared_framework(project_root: str) -> str:
     caía al default pytest. Medido: un proyecto con `vitest` declarado
     ejecutaba `python3 -m pytest -k ...`.
     """
-    candidates: list[str] = []
-    try:
-        from fast_mcp.shared_kernel.project_support import ProjectService
-
-        paths = ProjectService.resolve_paths(project_root)
-        data_dir = str(getattr(paths, "data_dir", "") or "")
-        if data_dir:
-            candidates.append(os.path.join(data_dir, "project.json"))
-    except Exception:  # noqa: BLE001 — sin registro se prueba el legacy
-        pass
-    # Legacy: manifiesto en la raíz del repo (proyectos sin layout v2) y en
-    # `<root>/data/project.json` (layout anterior a `.cognitive/`).
-    candidates.append(os.path.join(project_root, "project.json"))
-    candidates.append(os.path.join(project_root, "data", "project.json"))
-
     declared = ""
-    for path in candidates:
+    for path in _manifest_candidates(project_root):
         if not os.path.isfile(path):
             continue
         try:
@@ -891,6 +887,47 @@ def _read_declared_framework(project_root: str) -> str:
         declared = str(coding.get("test_framework") or "").strip()
         break
     return declared
+
+
+def _read_declared_test_command(project_root: str) -> str:
+    """`coding.test_command` del manifiesto: el gate del proyecto, literal.
+
+    Hay proyectos cuyo runner no está en `_TEST_RUNNERS` (Django `manage.py
+    test`, un script propio, un Makefile target). Sin esta vía solo quedaban
+    dos salidas: mentir declarando un framework ajeno o no poder certificar.
+    El comando se ejecuta con `shlex.split`, tal cual lo declaró el proyecto.
+    """
+    for path in _manifest_candidates(project_root):
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path) as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        project = manifest.get("project", manifest)
+        coding = project.get("coding", {}) or {}
+        return str(coding.get("test_command") or "").strip()
+    return ""
+
+
+def _manifest_candidates(project_root: str) -> list[str]:
+    """Rutas del manifiesto en orden de precedencia (layout v2 y legacy)."""
+    candidates: list[str] = []
+    try:
+        from fast_mcp.shared_kernel.project_support import ProjectService
+
+        paths = ProjectService.resolve_paths(project_root)
+        data_dir = str(getattr(paths, "data_dir", "") or "")
+        if data_dir:
+            candidates.append(os.path.join(data_dir, "project.json"))
+    except Exception:  # noqa: BLE001 — sin registro se prueba el legacy
+        pass
+    # Legacy: manifiesto en la raíz del repo (proyectos sin layout v2) y en
+    # `<root>/data/project.json` (layout anterior a `.cognitive/`).
+    candidates.append(os.path.join(project_root, "project.json"))
+    candidates.append(os.path.join(project_root, "data", "project.json"))
+    return candidates
 
 
 def _looks_like_test_target(command: str) -> str | None:
@@ -1515,3 +1552,23 @@ def verify_predicates_batch(
                 results[idx] = verify_predicate(p, project_root)
 
     return [results[i] for i in range(len(predicates))]
+
+
+def current_revision(project_root: str = "") -> str:
+    """SHA corto de HEAD (o '' si no hay git) — para manifests/stale."""
+    try:
+        import subprocess
+
+        proc = subprocess.Popen(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=project_root or ".",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        out, _ = proc.communicate(timeout=5)
+        if proc.returncode == 0:
+            return (out or "").strip()
+        return 
+    except Exception:  # noqa: BLE001
+        return ""

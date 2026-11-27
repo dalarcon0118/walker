@@ -108,7 +108,7 @@ def mode_side_effect_failed():
     )
     state = WorkflowState(current_node="N", current_sub_state="S", sub_state_index=0)
     orch = _orchestrator([sub], state, side_effects=FakeEffects())
-    return orch.submit(ctx=None, fields={"decision": "accept"})
+    return orch.submit(ctx=None, fields={"decision": "accept", "_human": True})
 
 
 def mode_gate_blocked(monkeypatch):
@@ -125,7 +125,7 @@ def mode_gate_blocked(monkeypatch):
         "_skill_candidates_scored",
         lambda ctx, intent: [("code-review-checklist", MIN_SKILL_SCORE_REQUIRED)],
     )
-    return orch.submit(ctx=None, fields={"decision": "approve"})
+    return orch.submit(ctx=None, fields={"decision": "approve", "_human": True})
 
 
 def mode_missing_artifacts():

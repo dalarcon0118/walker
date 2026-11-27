@@ -35,6 +35,83 @@ def _session_id(ctx: ExecutionContext, data: dict[str, Any]) -> str:
     return str(getattr(ctx, "session_id", "") or data.get("session_id") or "")
 
 
+def _spring_id(ctx: ExecutionContext, data: dict[str, Any], svc: Any) -> str:
+    session_id = _session_id(ctx, data)
+    try:
+        if session_id and hasattr(svc, "get_session"):
+            rec = svc.get_session(session_id) or {}
+            sid = str(rec.get("spring_id") or "")
+            if sid:
+                return sid
+        active = svc.get_active_spring()
+        return str((active or {}).get("spring_id") or (active or {}).get("_id") or "")
+    except Exception:  # noqa: BLE001 — sin sprint no hay candidatos delta
+        return ""
+
+
+def reuse_candidates(ctx: ExecutionContext, data: dict[str, Any]) -> dict[str, Any]:
+    """Candidatos de reuse desde CKG, Delta y CPG (F1a, advisory).
+
+    R1: tasks no importa otras features. CKG/CPG se leen por el lector de
+    memorias (`agent_context`); Delta por `build_sprint_service` del composition
+    root. Cada fuente es fail-open y su fallo se declara en `unmapped`.
+    """
+    chain_dir = _chain_dir(ctx, data)
+    task_id = _task_id(ctx, data)
+    query = str(data.get("query") or task_id or "")
+    out: dict[str, Any] = {"ckg": [], "delta": [], "cpg": [], "unmapped": []}
+
+    # CKG + CPG vía el lector consolidado de memorias.
+    try:
+        res = _memory_runner("agent_context")(
+            chain_dir=chain_dir, _payload={"task_id": task_id, "text": query}
+        )
+        if isinstance(res, dict) and not res.get("error"):
+            ckg = res.get("ckg") or {}
+            for d in (ckg.get("decisions") or [])[:10]:
+                if isinstance(d, dict):
+                    out["ckg"].append({
+                        "source": "ckg",
+                        "ref": str(d.get("id") or d.get("_id") or ""),
+                        "reason": str(d.get("statement") or d.get("label") or "")[:100],
+                    })
+            cpg = res.get("cpg") or {}
+            for s in (cpg.get("symbols") or [])[:10]:
+                name = s.get("name") if isinstance(s, dict) else s
+                out["cpg"].append({
+                    "source": "cpg",
+                    "ref": str(name or ""),
+                    "reason": "símbolo/archivo similar en el CPG",
+                })
+        else:
+            out["unmapped"].append({"source": "ckg/cpg", "reason": "agent_context sin respuesta"})
+    except Exception as exc:  # noqa: BLE001
+        out["unmapped"].append({"source": "ckg/cpg", "reason": f"{type(exc).__name__}: {exc}"})
+
+    # Delta vía sprint service (composition root).
+    try:
+        from fast_mcp.composition import build_sprint_service
+
+        svc = build_sprint_service(chain_dir)
+        if svc is not None:
+            spring = _spring_id(ctx, data, svc)
+            for spec in (svc.get_specs(spring) or [])[:10]:
+                sid = str(spec.get("spec_id") or "")
+                if not sid or sid == task_id:
+                    continue
+                out["delta"].append({
+                    "source": "delta",
+                    "ref": sid,
+                    "reason": str(spec.get("objective") or "")[:100],
+                })
+        else:
+            out["unmapped"].append({"source": "delta", "reason": "sin sprint service"})
+    except Exception as exc:  # noqa: BLE001
+        out["unmapped"].append({"source": "delta", "reason": f"{type(exc).__name__}: {exc}"})
+
+    return out
+
+
 def gather_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """Recolecta code/knowledge/spring context para DESIGN_OBSERVE.
 
@@ -63,25 +140,21 @@ def gather_context(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
 
     spring_context: dict[str, Any] = {}
     try:
-        from fast_mcp.composition import build_sprint_service
+        from fast_mcp.composition import sprint_context_for
 
-        service = build_sprint_service(chain_dir)
-        if service is not None:
-            spring_id = ""
-            if session_id:
-                record = service.get_session(session_id) or {}
-                spring_id = str(record.get("spring_id") or "")
-            if not spring_id:
-                spring_id = service.get_spring_id(chain_dir)
-            spring = service.get_spring(spring_id) if spring_id else None
-            if spring:
-                specs = service.get_specs(spring_id) or []
-                spring_context = {
-                    "spring_id": spring_id,
-                    "goal": spring.get("goal", ""),
-                    "status": spring.get("status", ""),
-                    "specs": len(specs),
-                }
+        # Resolver único (ADR-WALKER-085): si la sesión tiene sprint, ese;
+        # si no, el activo; nunca el basename del chain_dir.
+        sctx = sprint_context_for(chain_dir, session_id=session_id)
+        if sctx.found:
+            spring_context = {
+                "spring_id": sctx.spring_id,
+                "goal": sctx.goal,
+                "status": sctx.status,
+                "specs": len(sctx.specs),
+                "resolved_by": sctx.resolved_by,
+            }
+            if sctx.diagnostics:
+                warnings.extend(f"sprint: {d}" for d in sctx.diagnostics)
     except Exception as exc:  # noqa: BLE001 — fail-open
         warnings.append(f"spring_context: {type(exc).__name__}: {exc}")
 

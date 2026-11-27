@@ -15,7 +15,9 @@ class FakeService:
             "SPEC-001": {
                 "spec_id": "SPEC-001",
                 "status": "specified",
+                "objective": "ligar una spec existente a la sesión",
                 "files": ["agent-plugins/x.js"],
+                "acceptance_criteria": ["la spec queda in_progress"],
                 "task_context": {},
             }
         }

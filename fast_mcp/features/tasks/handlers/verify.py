@@ -121,6 +121,22 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
 
             _sid = str(data.get("session_id") or getattr(ctx, "session_id", "") or "")
             _spring = _di.session_spring(ctx.chain_dir or "", _sid) if _sid else ""
+            # El engine ejecuta la acción con session_id="mcp"/vacío. Sin
+            # sprint, un `SPEC-NNN` es ambiguo entre sprints (existe uno en
+            # cada uno) y `current_spec` devuelve None → predicates vacíos →
+            # verify falla → on_failure=QA_RUN → loop infinito (medido
+            # 2026-11-24). Se cae al sprint ACTIVO antes de rendirse.
+            if not _spring:
+                try:
+                    _svc = _di.sprint_service(ctx.chain_dir or "")
+                    _active = _svc.get_active_spring() if _svc else None
+                    _spring = str(
+                        (_active or {}).get("spring_id")
+                        or (_active or {}).get("_id")
+                        or ""
+                    )
+                except Exception:  # noqa: BLE001 — sin activo se sigue al fail-loud
+                    _spring = ""
             try:
                 spec = _di.current_spec(
                     ctx.chain_dir or "",
@@ -236,8 +252,29 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
     # P1.11: la verificación queda en el TRACE; el plugin la hidrata aunque no
     # haya visto el comando. Se registra después de `inspect_codebase` para que
     # un hallazgo de alucinaciones cuente como rojo.
-    from fast_mcp.features.tasks.handlers.verification import record_verification
+    from fast_mcp.features.tasks.handlers.verification import (
+        build_manifest,
+        record_verification,
+        _git_head,
+    )
 
+    _commit = _git_head(project_root)
+    _manifest = build_manifest(
+        passed=bool(result_data.get("all_satisfied")),
+        level="predicates",
+        runner="verify_predicates",
+        task_id=str(data.get("task_id") or getattr(ctx, "task_id", "") or ""),
+        touched=touched,
+        weak=bool(dirty_rules),
+        counts={
+            "passed": int(result_data.get("passed_count") or 0),
+            "failed": int(result_data.get("failed_count") or 0),
+            "total": int(result_data.get("total") or 0),
+        },
+        results=detailed,
+        commit=_commit,
+        revision=_commit,
+    )
     record_verification(
         ctx,
         session_id=str(data.get("session_id") or getattr(ctx, "session_id", "") or ""),
@@ -247,14 +284,17 @@ def verify_predicates(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult
         task_id=str(data.get("task_id") or getattr(ctx, "task_id", "") or ""),
         touched=touched,
         weak=bool(dirty_rules),
-        # SPEC-021: el nodo de evidencia lleva los contadores reales (2/3), no
-        # sólo "verde/rojo".
         counts={
             "passed": int(result_data.get("passed_count") or 0),
             "failed": int(result_data.get("failed_count") or 0),
             "total": int(result_data.get("total") or 0),
         },
+        commit=_commit,
+        revision=_commit,
+        results=detailed,
+        manifest=_manifest,
     )
+    result_data["manifest"] = _manifest
 
     return TaskResult.success(data=result_data)
 

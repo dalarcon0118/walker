@@ -17,6 +17,7 @@ _KNOWLEDGE_READER: Callable[[str], list] | None = None
 _TRACE_WRITER: Callable[[str, dict], bool] | None = None
 _TRACE_READER: Callable[[str, str], list] | None = None
 _SPEC_VALIDATOR: Callable[[dict], list] | None = None
+_CONTRACT_VALIDATOR: Callable[[dict], list] | None = None
 
 
 def configure_sprint(factory: Callable[[str], Any] | None) -> None:
@@ -112,6 +113,31 @@ def validate_spec(spec: dict) -> list[str]:
         return []
     try:
         return list(_SPEC_VALIDATOR(spec) or [])
+    except Exception as exc:  # noqa: BLE001
+        return [f"validador falló: {type(exc).__name__}: {exc}"]
+
+
+def configure_contract_validator(validator: Callable[[dict], list] | None) -> None:
+    """Inyecta `contract -> [errores]` (R1: tasks no importa delta_tracking).
+
+    El schema/validador del WorkContract vive en `delta_tracking/domain`
+    (F0a). El composition root lo cablea acá para que capture/spec_status lo
+    usen sin violar la regla de dependencias (ADR-WALKER-086).
+    """
+    global _CONTRACT_VALIDATOR
+    _CONTRACT_VALIDATOR = validator
+
+
+def validate_contract(contract: dict) -> list[str]:
+    """Valida un WorkContract con el validador inyectado (vacío = válido).
+
+    Fail-fast: si no hay validador inyectado se reporta como error; un contrato
+    que no se puede validar NO debe persistirse.
+    """
+    if _CONTRACT_VALIDATOR is None:
+        return ["validador de contrato no configurado (composición rota)"]
+    try:
+        return list(_CONTRACT_VALIDATOR(contract) or [])
     except Exception as exc:  # noqa: BLE001
         return [f"validador falló: {type(exc).__name__}: {exc}"]
 
@@ -220,15 +246,37 @@ def current_spec(
 
     # Id exacto primero: `implement_task` guarda el id real en task_context.
     if task_id:
-        matches = [
+        # Priorizar coincidencia exacta por spec_id (más específico que
+        # task_context.task_id, que puede estar duplicado por implement_task).
+        spec_id_matches = [
+            spec for spec in candidates
+            if str(spec.get("spec_id", "")) == task_id
+        ]
+        # Si hay spring_id, acotar a ese sprint (evita ambigüedad entre sprints).
+        # Solo filtrar si la spec declara spring_id; las specs legacy (tests/fakes)
+        # no lo llevan y no deben descartarse.
+        if spring_id:
+            scoped = [s for s in spec_id_matches if str(s.get("spring_id", "")) == spring_id]
+            if scoped:
+                spec_id_matches = scoped
+        if len(spec_id_matches) == 1:
+            return spec_id_matches[0]
+        if len(spec_id_matches) > 1 and not spring_id:
+            return None  # ambiguo entre sprints: el caller debe pasar spring_id
+        if spec_id_matches:
+            return spec_id_matches[0]
+        tc_matches = [
             spec for spec in candidates
             if str((spec.get("task_context") or {}).get("task_id", "")) == task_id
-            or str(spec.get("spec_id", "")) == task_id
         ]
-        if len(matches) > 1:
-            return None  # ambiguo entre sprints: el caller debe pasar spring_id
-        if matches:
-            return matches[0]
+        if spring_id:
+            scoped_tc = [s for s in tc_matches if str(s.get("spring_id", "")) == spring_id]
+            if scoped_tc:
+                tc_matches = scoped_tc
+        if len(tc_matches) == 1:
+            return tc_matches[0]
+        if tc_matches and not exact:
+            return tc_matches[0]
         if exact:
             return None
 

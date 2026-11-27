@@ -64,3 +64,13 @@ test("el bloque de fallo nombra el comando y el exit", () => {
   assert.match(text, /próxima acción/)
   assert.ok(text.length <= 480)
 })
+
+test("el remedio es un comando completo, no un texto cortado", () => {
+  const remedy = `./bin/walker3 walker/session_bind '{"session_id":"ses_de763fd2fffeeVXKQfZKqY728f","mode":"auto"}'`
+  const text = briefBlock({
+    ...payload,
+    self: { gaps: [{ code: "denials", detail: "1 denial de bind", remedy }] },
+  })
+  assert.ok(text.includes(remedy), text)
+  assert.doesNotMatch(text, /METACOG: 1\)/)
+})

@@ -9,7 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from fast_mcp.features.delta_tracking.application.services.sprint_context import (
+    resolve_sprint_context,
+)
 from fast_mcp.features.delta_tracking.application.services.sprint_service import SprintService
+from fast_mcp.shared_kernel.objectives import objectives_match
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +63,62 @@ def handle_sprint_planning(args: dict) -> dict[str, Any]:
     status = str(args.get("status") or "active")
     if not is_valid_spring_status(status):
         return {"ok": False, "error": f"invalid sprint status: {status}"}
-    spring = svc.create_spring(
+
+    # Agregar tareas a un sprint existente NO puede recrearlo: `create_spring`
+    # es un save del doc completo y borraría `context.session_ids`, el dueño y
+    # las fechas. Si ya existe, se actualiza el goal y se agregan specs.
+    existing = svc.get_spring(spring_id)
+    if existing is not None:
+        updates: dict[str, Any] = {"goal": goal}
+        if args.get("status"):
+            updates["status"] = status
+        svc.update_spring(spring_id, updates)
+        existing_specs = list(svc.get_specs(spring_id) or [])
+        specs = []
+        duplicates: list[dict[str, str]] = []
+        for task in tasks:
+            objective = str(task.get("objective", task.get("title", "")) or "")
+            match = next(
+                (
+                    spec
+                    for spec in existing_specs
+                    if objectives_match(str(spec.get("objective") or ""), objective)
+                ),
+                None,
+            )
+            if match is not None:
+                duplicates.append(
+                    {
+                        "objective": objective,
+                        "spec_id": str(match.get("spec_id") or ""),
+                    }
+                )
+                continue
+            spec = svc.add_spec(
+                spring_id=spring_id,
+                objective=objective,
+                domain=task.get("domain", ""),
+                spec_type=task.get("type", "feature"),
+                spec_index=None,
+                result_state=task.get("result_state", ""),
+                files=task.get("files", []),
+                depends_on=task.get("depends_on", []),
+            )
+            specs.append(spec)
+            existing_specs.append(spec)
+        return {
+            "ok": True,
+            "spring_id": spring_id,
+            "goal": goal,
+            "created": False,
+            "updated": True,
+            "skipped": len(duplicates),
+            "duplicates": duplicates,
+            "spec_count": len(specs),
+            "specs": specs,
+        }
+
+    svc.create_spring(
         spring_id=spring_id,
         goal=goal,
         status=status,
@@ -77,6 +136,7 @@ def handle_sprint_planning(args: dict) -> dict[str, Any]:
             spec_index=i,
             result_state=task.get("result_state", ""),
             files=task.get("files", []),
+            depends_on=task.get("depends_on", []),
         )
         specs.append(spec)
 
@@ -84,6 +144,8 @@ def handle_sprint_planning(args: dict) -> dict[str, Any]:
         "ok": True,
         "spring_id": spring_id,
         "goal": goal,
+        "created": True,
+        "updated": False,
         "spec_count": len(specs),
         "specs": specs,
     }
@@ -112,83 +174,38 @@ def handle_resolve_project_sprint(args: dict) -> dict[str, Any]:
     if svc is None:
         return {"ok": False, "error": f"Cannot resolve sprint service for project {project_id}"}
 
-    resolved_by = None
-    spring = None
+    # Política ÚNICA (ADR-WALKER-085): sesión > activo > planning. Este handler
+    # tenía su propia copia de esa cadena; ahora delega para que no vuelva a
+    # divergir de `status`, `brief` o `workflow_state`.
+    sctx = resolve_sprint_context(
+        svc,
+        chain_dir or "",
+        session_id=session_id,
+    )
 
-    # 1. Sprint de la sesión (si hay session_id y existe).
-    if session_id:
-        get_session = getattr(svc, "get_session", None)
-        get_spring = getattr(svc, "get_spring", None)
-        if callable(get_session) and callable(get_spring):
-            try:
-                sess = get_session(session_id)
-                sid = (sess or {}).get("spring_id") if isinstance(sess, dict) else None
-                if sid:
-                    sp = get_spring(sid)
-                    if sp is not None:
-                        spring = sp
-                        resolved_by = "session"
-            except Exception:  # noqa: BLE001 — defensivo
-                spring = None
-                resolved_by = None
-
-    # 2. Sprint activo del proyecto.
-    if spring is None:
-        get_active = getattr(svc, "get_active_spring", None)
-        if callable(get_active):
-            try:
-                active = get_active()
-                if active is not None:
-                    spring = active
-                    resolved_by = "active"
-            except Exception:  # noqa: BLE001
-                spring = None
-                resolved_by = None
-
-    # 3. Planning determinista (updated_at desc, fallback spring_id).
-    if spring is None:
-        list_springs = getattr(svc, "list_springs", None)
-        if callable(list_springs):
-            try:
-                plannings = list_springs(status="planning") or []
-                if plannings:
-                    ordered = sorted(
-                        plannings,
-                        key=lambda s: (
-                            (s.get("updated_at") if isinstance(s, dict) else getattr(s, "updated_at", "")) or "",
-                            (s.get("spring_id") if isinstance(s, dict) else getattr(s, "spring_id", "")) or "",
-                        ),
-                        reverse=True,
-                    )
-                    spring = ordered[0]
-                    resolved_by = "planning"
-            except Exception:  # noqa: BLE001
-                spring = None
-                resolved_by = None
-
-    if not spring:
+    if not sctx.found:
         return {
             "ok": True,
             "found": False,
             "message": "No active sprint found",
             "spring_id": "",
             "specs": [],
+            "resolved_by": sctx.resolved_by,
+            "diagnostics": list(sctx.diagnostics),
         }
-
-    spring_id = spring["spring_id"] if isinstance(spring, dict) else spring.spring_id
-    specs = svc.get_specs(spring_id)
 
     payload = {
         "ok": True,
         "found": True,
-        "spring_id": spring_id,
-        "goal": spring.get("goal", "") if isinstance(spring, dict) else getattr(spring, "goal", ""),
-        "status": spring.get("status", "") if isinstance(spring, dict) else getattr(spring, "status", ""),
-        "spec_count": len(specs),
-        "specs": specs,
+        "spring_id": sctx.spring_id,
+        "goal": sctx.goal,
+        "status": sctx.status,
+        "spec_count": len(sctx.specs),
+        "specs": list(sctx.specs),
+        "resolved_by": sctx.resolved_by,
     }
-    if resolved_by is not None:
-        payload["resolved_by"] = resolved_by
+    if sctx.diagnostics:
+        payload["diagnostics"] = list(sctx.diagnostics)
     return payload
 
 

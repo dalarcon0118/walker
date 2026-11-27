@@ -266,3 +266,38 @@ def test_spec_status_sin_sesion_reporta_la_captura_no_ligada(project_dir, monkey
     assert out.ok, "la spec se completa igual"
     assert out.data["knowledge"]["ok"] is False
     assert "sesión" in out.data["knowledge"]["error"]
+
+
+def test_seed_session_desde_el_ctx():
+    ctx = ExecutionContext.create(chain_dir="/tmp/x", session_id="ses-1")
+    assert knowledge._seed_session({"task_id": "SPEC-002"}, ctx)["session_id"] == "ses-1"
+
+    # `mcp` no es una sesión real: no se siembra.
+    ctx_mcp = ExecutionContext.create(chain_dir="/tmp/x", session_id="mcp")
+    assert "session_id" not in knowledge._seed_session({"task_id": "SPEC-002"}, ctx_mcp)
+
+    # Un session_id explícito gana.
+    assert knowledge._seed_session({"session_id": "ses-2"}, ctx)["session_id"] == "ses-2"
+
+
+def test_capture_scope_acepta_el_sprint_activo_sin_sesion(monkeypatch):
+    class _Svc:
+        def get_active_spring(self):
+            return {"spring_id": "SPR-1"}
+
+    monkeypatch.setattr(knowledge._di, "session_spring", lambda cd, sid: "")
+    monkeypatch.setattr(knowledge._di, "sprint_service", lambda cd: _Svc())
+
+    assert knowledge._capture_scope_error("/tmp/x", {"task_id": "SPEC-002"}) == ""
+
+
+def test_capture_scope_sigue_fallando_sin_sesion_ni_activo(monkeypatch):
+    class _Svc:
+        def get_active_spring(self):
+            return None
+
+    monkeypatch.setattr(knowledge._di, "session_spring", lambda cd, sid: "")
+    monkeypatch.setattr(knowledge._di, "sprint_service", lambda cd: _Svc())
+
+    error = knowledge._capture_scope_error("/tmp/x", {"task_id": "SPEC-002"})
+    assert "local a un sprint" in error

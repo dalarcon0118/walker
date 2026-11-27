@@ -67,6 +67,8 @@ class ExecutionContext:
     # ni a `data`, así que `session_bind`/`session_open` escribían
     # `project_id: ""` en delta (medido 2026-11-22).
     project_id: str = ""
+    # SPEC-002: inyectar sprint_service via ctx en vez de _di global.
+    sprint_service: Any = None
 
     @classmethod
     def create(cls, chain_dir: str, **kw: Any) -> "ExecutionContext":

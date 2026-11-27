@@ -92,7 +92,9 @@ def test_design_analyze_declara_el_artefacto():
 
 def test_el_contrato_del_gate_vive_en_codigo():
     """`data/workflow` no se versiona: el gate no puede depender del nodo."""
-    assert artifact_for("DESIGN", "DESIGN_ANALYZE") == "design_brief"
+    # F1a: el gate de DESIGN_ANALYZE pasó a compuesto (design_brief obligatorio
+    # + reuse_decision advisory). El contrato vive en código, no en el nodo.
+    assert artifact_for("DESIGN", "DESIGN_ANALYZE") == "design_and_reuse"
     assert artifact_for("DESIGN", "DESIGN_OBSERVE") == ""
 
 

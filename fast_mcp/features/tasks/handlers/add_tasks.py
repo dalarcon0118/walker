@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskResult
+from fast_mcp.shared_kernel.objectives import objectives_match
 
 
 def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
@@ -32,25 +33,44 @@ def add_tasks(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         tasks = data.get("tasks") or []
         if not isinstance(tasks, list):
             tasks = []
+        existing = list(service.get_specs(spring_id) or [])
         spec_ids: list[str] = []
+        duplicates: list[dict[str, str]] = []
         for task in tasks:
             if not isinstance(task, dict):
                 continue
+            objective = str(task.get("objective") or task.get("title") or "")
+            match = next(
+                (
+                    spec
+                    for spec in existing
+                    if objectives_match(str(spec.get("objective") or ""), objective)
+                ),
+                None,
+            )
+            if match is not None:
+                duplicates.append(
+                    {"objective": objective, "spec_id": str(match.get("spec_id") or "")}
+                )
+                continue
             spec = service.add_spec(
                 spring_id=spring_id,
-                objective=str(task.get("objective") or task.get("title") or ""),
+                objective=objective,
                 domain=str(task.get("domain") or ""),
                 spec_type=str(task.get("type") or "task"),
                 files=list(task.get("files") or []),
                 status="specified",
             )
             spec_ids.append(str(spec.get("spec_id") or ""))
+            existing.append(spec)
         return TaskResult.success(
             data={
                 "ok": True,
                 "spring_id": spring_id,
                 "added": len(spec_ids),
                 "spec_ids": spec_ids,
+                "skipped": len(duplicates),
+                "duplicates": duplicates,
             }
         )
     except Exception as exc:  # noqa: BLE001

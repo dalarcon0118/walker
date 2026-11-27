@@ -15,10 +15,7 @@ from typing import Any, Callable
 
 from fast_mcp.features.delta_tracking.application.ports.delta_repository import DeltaRepository
 from fast_mcp.features.delta_tracking.domain.entities import Session, Spring, Spec
-from fast_mcp.features.delta_tracking.domain.values import (
-    spec_id_from_index,
-    spring_id_from_chain_dir,
-)
+from fast_mcp.features.delta_tracking.domain.values import spec_id_from_index
 from fast_mcp.features.delta_tracking.domain.spec_service import (
     SpecValidator,
     SpecStatusUpdater,
@@ -26,6 +23,10 @@ from fast_mcp.features.delta_tracking.domain.spec_service import (
     SpecService,
     _completion_missing,
     review_missing,
+)
+from fast_mcp.features.delta_tracking.application.services.sprint_context import (
+    SprintContext,
+    resolve_sprint_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,9 +171,37 @@ class SprintService:
             return []
         return [_spring_to_dict(s) for s in self._repo.list_springs(status)]
 
-    def get_spring_id(self, chain_dir: str) -> str:
-        """Derive spring_id from chain_dir."""
-        return spring_id_from_chain_dir(chain_dir)
+    def resolve_context(
+        self,
+        chain_dir: str = "",
+        *,
+        session_id: str = "",
+        spring_id: str = "",
+        allow_active_fallback: bool = True,
+    ) -> SprintContext:
+        """Resuelve el sprint corriente con la política ÚNICA (ADR-WALKER-085).
+
+        Toda superficie (workflow, status, brief, cockpit, session_context,
+        resolve_project_sprint, tasks) debe pasar por acá. El `chain_dir` es
+        contexto, no identidad: el id del sprint NUNCA sale del basename.
+        """
+        return resolve_sprint_context(
+            self,
+            chain_dir,
+            session_id=session_id,
+            spring_id=spring_id,
+            allow_active_fallback=allow_active_fallback,
+        )
+
+    def get_spring_id(self, chain_dir: str, session_id: str = "") -> str:
+        """ID del sprint corriente (compatibilidad).
+
+        Antes devolvía `basename(chain_dir)` ("client-chat"), que no es un
+        sprint: el prompt del workflow buscaba ese id, no lo encontraba y
+        pintaba `Goal:` vacío con `0/0` tareas. Ahora delega en el resolver
+        canónico; si no hay sprint devuelve `""` (ausencia explícita).
+        """
+        return self.resolve_context(chain_dir, session_id=session_id).spring_id
 
     def transition_spring(self, spring_id: str, status: str) -> dict:
         """Transición explícita con motivo (ADR-WALKER-078: `paused` reversible).
@@ -577,6 +606,7 @@ class SprintService:
         files: list[str] | None = None,
         status: str = "draft",
         description: str = "",
+        depends_on: list[str] | None = None,
     ) -> dict:
         """Add a spec to a spring."""
         # Auto-assign spec_index if not provided.
@@ -602,6 +632,7 @@ class SprintService:
             files=files or [],
             status=status,
             description=description,
+            depends_on=depends_on or [],
         )
         if self._repo:
             self._repo.save_spec(spec)
@@ -687,16 +718,18 @@ class SprintService:
 
     # ── Engine integration ──
 
-    def load_tasks(self, chain_dir: str) -> list[dict]:
-        """Load tasks from the sprint (for workflow engine).
+    def load_tasks(self, chain_dir: str, session_id: str = "") -> list[dict]:
+        """Load tasks from the CURRENT sprint (for workflow engine).
 
-        Returns specs as task dicts (task_id, objective, status, etc.).
+        Usa el resolver canónico: antes derivaba el sprint del basename del
+        `chain_dir`, encontraba un sprint inexistente y el motor veía 0 tareas
+        aunque el DeltaGraph tuviera specs (drift `0/0` en `workflow_state`).
         """
         if not chain_dir or not self._repo:
             return []
-        spring_id = spring_id_from_chain_dir(chain_dir)
-        specs = self._repo.get_specs(spring_id)
-        return [_spec_to_dict(s) for s in specs]
+        return list(
+            self.resolve_context(chain_dir, session_id=session_id).specs
+        )
 
     def get_sprint_progress(self, spring_id: str) -> dict:
         """Get sprint progress summary."""

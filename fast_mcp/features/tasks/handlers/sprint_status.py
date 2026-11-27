@@ -19,7 +19,7 @@ def sprint_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         return TaskResult.failure("sprint_status: status requerido (planning|active|paused|reviewing|closed)")
     spring_id = str(data.get("spring_id") or "").strip()
     session_id = str(data.get("session_id") or "").strip()
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("sprint_status: sprint service no disponible")
     if not spring_id and session_id:

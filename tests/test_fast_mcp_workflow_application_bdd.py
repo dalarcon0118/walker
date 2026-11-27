@@ -199,7 +199,7 @@ class TestOrchestratorSubmit:
         bundle, store, tracer = _make_bundle(graph=g, state=s)
         orch = OrchestrationService(bundle=bundle)
 
-        result = orch.submit(_ctx(), fields={"decision": "approve"})
+        result = orch.submit(_ctx(), fields={"decision": "approve", "_human": True})
 
         assert result["ok"] is True
         assert result["node"] == "START"
@@ -424,7 +424,7 @@ class TestActionExecution:
         )
         orch = OrchestrationService(bundle=bundle)
 
-        result = orch.submit(_ctx(), fields={"decision": "approve"})
+        result = orch.submit(_ctx(), fields={"decision": "approve", "_human": True})
 
         assert result["ok"] is True
         # The recorded NodeExecution must carry the real task_ok + action result.
@@ -451,7 +451,7 @@ class TestActionExecution:
         )
         orch = OrchestrationService(bundle=bundle)
 
-        result = orch.submit(_ctx(), fields={"decision": "approve"})
+        result = orch.submit(_ctx(), fields={"decision": "approve", "_human": True})
 
         # Fail-loud: action returned ok=False → submit must NOT succeed.
         assert result["ok"] is False
@@ -486,7 +486,7 @@ class TestActionExecution:
         bundle, store, _ = _make_bundle(graph=g, state=s)  # no task_registry
         orch = OrchestrationService(bundle=bundle)
 
-        result = orch.submit(_ctx(), fields={"decision": "approve"})
+        result = orch.submit(_ctx(), fields={"decision": "approve", "_human": True})
 
         assert result["ok"] is True
         assert store._saved_states[-1][-1].node_executions[-1].task_ok is True

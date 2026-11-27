@@ -15,7 +15,8 @@ from fast_mcp.features.tasks.domain.task_registry import ExecutionContext, TaskR
 
 # R1: tasks no importa delta_tracking. El composition root inyecta la factory
 # en `handlers._di` (la comparten implement y verify).
-from fast_mcp.features.tasks.handlers import _di
+from fast_mcp.features.tasks.handlers import _di, _trace
+from fast_mcp.shared_kernel.objectives import objectives_match
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ def _session_plan_acceptance(ctx: ExecutionContext, session_id: str) -> list[str
     if not session_id:
         return []
     try:
-        service = _di.sprint_service(ctx.chain_dir)
+        service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
         if service is None or not hasattr(service, "get_session"):
             return []
         record = service.get_session(session_id) or {}
@@ -173,7 +174,7 @@ def _persist_spec(
     """Crea o actualiza la spec de la tarea en el delta."""
     if not ctx.chain_dir:
         return None
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return None
 
@@ -252,7 +253,10 @@ def _persist_spec(
     # Si ya existe una spec de esta tarea, se actualiza (no se duplica).
     for spec in service.get_specs(spring_id) or []:
         ctx_data = spec.get("task_context") or {}
-        if task_id and (ctx_data.get("task_id") == task_id or spec.get("objective") == objective):
+        if task_id and (
+            ctx_data.get("task_id") == task_id
+            or objectives_match(str(spec.get("objective") or ""), objective)
+        ):
             updated = service.update_spec(spring_id, str(spec.get("spec_id")), base)
             return updated or spec
 
@@ -304,6 +308,84 @@ def _attach_task_context(
     return specs[-1] if specs else None
 
 
+def _diff_snapshot(chain_dir: str) -> dict[str, Any]:
+    """Snapshot del diff actual (files/loc/new_files) para budget control (F1d).
+
+    Fail-open: sin git o sin diff, devuelve snapshot vacío declarado.
+    """
+    try:
+        import subprocess
+        from datetime import datetime, timezone
+
+        out = subprocess.check_output(
+            ["git", "diff", "--numstat"],
+            cwd=chain_dir or ".",
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+        )
+        files = 0
+        loc = 0
+        for line in (out or "").splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
+                loc += int(parts[0]) + int(parts[1])
+                files += 1
+        untracked = subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=chain_dir or ".",
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+        )
+        new_files = len([l for l in (untracked or "").splitlines() if l.strip()])
+        return {
+            "files": files,
+            "loc": loc,
+            "new_files": new_files,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:  # noqa: BLE001
+        return {"files": 0, "loc": 0, "new_files": 0, "error": "sin git o diff no disponible"}
+
+
+#: Cota de líneas y archivos nuevos del contrato derivado (F2, ADR-086).
+_DEFAULT_MAX_LOC = 200
+_DEFAULT_NEW_FILES = 1
+
+
+def _derive_contract(
+    objective: str, files: list[str], criteria: list[str], spec_id: str
+) -> dict[str, Any]:
+    """WorkContract mínimo derivado de la tarea ya declarada (F2, ADR-WALKER-086).
+
+    Puro: no lee ni persiste. Hace obligatorio el contrato sin pedirle al agente
+    otro JSON: objetivo, alcance y criterios ya existen en la declaración. El
+    budget queda explícito en el contrato (no es un default silencioso): el
+    harness lo aplica y lo publica.
+    """
+    declared = [str(f) for f in (files or []) if str(f).strip()]
+    texts = [str(c) for c in (criteria or []) if str(c).strip()]
+    return {
+        "version": "1",
+        "goal": str(objective or "").strip() or (texts[0] if texts else ""),
+        "scope": declared,
+        "criteria": texts,
+        # `verification` no puede ir vacío en el schema: cada criterio nace
+        # con su verificación PENDIENTE (no se certifica nada al derivar).
+        "verification": [
+            {"criterion": c, "check": "pending"} for c in (texts or [objective or "criterio"])
+        ],
+        "budget": {
+            "max_files": max(3, len(declared) + 1),
+            "max_loc": _DEFAULT_MAX_LOC,
+            "max_new_files": _DEFAULT_NEW_FILES,
+        },
+        "recurrence": {"source": "derived"},
+        "task": {"spec_id": str(spec_id or "")},
+    }
+
+
 def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     """Prepare task implementation — records objective and files.
 
@@ -327,7 +409,7 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     chosen = None
     service = None
     try:
-        service = _di.sprint_service(ctx.chain_dir)
+        service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
         if service is not None:
             chosen = _select_spring(service, session_override)
             # Hay springs pero todos cerrados → no se escribe en un sprint muerto.
@@ -436,6 +518,67 @@ def implement_task(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
             result["spec"] = {"spec_id": spec.get("spec_id"), "status": spec.get("status")}
     except Exception as exc:  # noqa: BLE001 — fail-loud en el dato, no en la tool
         result["spec_error"] = f"{type(exc).__name__}: {exc}"
+
+    # F1d: snapshot del diff al iniciar la implementación (budget control).
+    # Fail-open: sin git se declara snapshot vacío, no se rompe la tool.
+    snapshot = _diff_snapshot(ctx.chain_dir)
+    if spec is not None:
+        try:
+            tc = dict(spec.get("task_context") or {})
+            dirty = False
+            if snapshot:
+                tc["budget_snapshot"] = snapshot
+                dirty = True
+            # F2 (ADR-WALKER-086): el contrato es obligatorio pero DERIVABLE.
+            # Se deriva de lo que la tarea ya declaró (objetivo, alcance,
+            # criterios) y se persiste en el MISMO save. Sin contrato no hay
+            # budget que medir ni proyección 4D en el harness.
+            if not isinstance(tc.get("work_contract"), dict) or not tc["work_contract"]:
+                derived = _derive_contract(
+                    objective=objective,
+                    files=files,
+                    criteria=effective,
+                    spec_id=str(spec.get("spec_id") or ""),
+                )
+                errors = _di.validate_contract(derived)
+                if errors:
+                    result["contract_error"] = "; ".join(errors[:3])
+                else:
+                    tc["work_contract"] = derived
+                    dirty = True
+                    result["contract"] = {
+                        "derived": True,
+                        "goal": derived["goal"],
+                        "budget": derived["budget"],
+                        "criteria": len(derived["criteria"]),
+                    }
+                    _trace.push(
+                        ctx.chain_dir,
+                        {
+                            "event_type": "contract_derived",
+                            "source": "tasks",
+                            "tool": "implement_task",
+                            "task_id": task_id,
+                            "data": {
+                                "spec_id": str(spec.get("spec_id") or ""),
+                                "max_files": derived["budget"]["max_files"],
+                                "max_loc": derived["budget"]["max_loc"],
+                                "criteria": len(derived["criteria"]),
+                            },
+                        },
+                    )
+            spring = str(spec.get("spring_id") or "")
+            if not spring and service is not None:
+                try:
+                    active = service.get_active_spring()
+                    spring = str((active or {}).get("spring_id") or (active or {}).get("_id") or "")
+                except Exception:  # noqa: BLE001
+                    spring = ""
+            if dirty and spring:
+                service.update_spec(spring, spec.get("spec_id"), {"task_context": tc})
+        except Exception as exc:  # noqa: BLE001 — el snapshot no puede romper la tool
+            result["budget_snapshot_error"] = f"{type(exc).__name__}: {exc}"
+    result["budget_snapshot"] = snapshot
 
     # Plan de vuelo: la tarea y el alcance declarados son lo que el agente
     # debe mantener a la vista (ADR-WALKER-080).
@@ -611,6 +754,14 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     failed_n = _count("failed")
     errors_n = _count("error")
     total = passed_n + failed_n + errors_n
+    # `manage.py test`/unittest no imprimen "N passed": dicen "Ran N tests".
+    # Sin esto, un runner declarado (`custom`) quedaba con total=0 y el guard
+    # de 0 tests no lo cubría (solo miraba pytest).
+    if total <= 0:
+        ran = re.search(r"Ran\s+(\d+)\s+tests?", out)
+        if ran:
+            total = int(ran.group(1))
+            passed_n = total
 
     if result.returncode != 0 or failed_n or errors_n:
         _record(
@@ -634,7 +785,7 @@ def run_tests(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                 "output_tail": out[-1500:],
             },
         )
-    if framework == "pytest" and total <= 0:
+    if framework in ("pytest", "unittest", "custom") and total <= 0:
         _record(False, result.returncode)
         return TaskResult.failure(
             "run_tests: 0 tests ejecutados — no se puede certificar QA",

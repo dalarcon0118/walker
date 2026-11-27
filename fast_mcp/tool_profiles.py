@@ -31,10 +31,12 @@ FULL: frozenset[str] = frozenset()  # vacío = sin filtro
 #:   - mantenimiento de índices (el watcher/git los corre, no el agente),
 #:   - telemetría (`trace_*`: la escribe el plugin, no el modelo).
 AGENT: frozenset[str] = frozenset({
-    # Loop del agente (8). Todo lo demás vive en `full`/`admin` y se invoca
-    # por CLI (session_*, spec_*, status, skills sueltos, plan_diff).
-    "brief",          # contexto + step + skills + plan (absorbe 5 tools)
-    "search_memories",# query federada que los templates piden 20 veces
+    # Loop del agente (10). Todo lo demás vive en `full`/`admin` y se invoca
+    # por CLI (session_*, spec_*, skills sueltos, plan_diff).
+    "brief",            # contexto + step + skills + plan (absorbe 5 tools)
+    "workflow_state",   # SPEC-001: posicion, gates, required_fields, step_schema
+    "status",           # SPEC-001: health del proyecto + sprint + watcher
+    "search_memories",  # query federada que los templates piden 20 veces
     "submit",
     "advance",
     "transition",

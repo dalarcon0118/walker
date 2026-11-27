@@ -22,6 +22,7 @@ import { join } from "node:path"
 
 import { shellEffect, shellMutation as shellMutationImpl } from "./shell_mutation.mjs"
 import { briefBlock, failureBriefBlock } from "./brief_block.mjs"
+import { budgetDeny, budgetUsage, contractBlock } from "./contract.mjs"
 import { applyInjection, describeMessages, normalizeMode, planBlocks } from "./injection.mjs"
 
 const WALKER_ROOT = process.env.WALKER_ROOT || "/Users/davidmartinez/develop/Active-projects/walker"
@@ -56,6 +57,11 @@ const DENY_INTAKE = process.env.WALKER_FLIGHT_CONTROL_INTAKE !== "0"
 // negocia (session_plan mode=add, una vez por archivo, trazado; nunca reescribe
 // el plan). Escape: ..._SCOPE=0.
 const SCOPE_GATE = process.env.WALKER_FLIGHT_CONTROL_SCOPE !== "0"
+// Gate de DILUVIO (F2, ADR-WALKER-086): con un WorkContract que declara
+// `budget.max_files`, no se agrega un archivo nuevo por encima de la cota. Sin
+// contrato no hay cota y el gate no se activa (no inventa presupuesto).
+// Escape: WALKER_FLIGHT_CONTROL_BUDGET=0.
+const BUDGET_GATE = process.env.WALKER_FLIGHT_CONTROL_BUDGET !== "0"
 // Gate de PASOS: además exige completar el sub-estado del workflow. Cuesta ~7x
 // en tareas triviales, así que queda opt-in.
 const DENY = process.env.WALKER_FLIGHT_CONTROL_DENY === "1"
@@ -353,6 +359,8 @@ async function runSetup(ctx) {
       projectDir: ctx?.location?.directory || ctx?.directory || "",
       sessionId: "",
       activeTask: null,
+      boundBySession: {},
+      activeTaskBySession: {},
       sessionGoal: "",
       pendingBaseline: null,
       baselineDone: false,
@@ -362,6 +370,21 @@ async function runSetup(ctx) {
     }
     const run = (tool, payload = {}, project = rt.projectId, timeoutMs) =>
       runTool(tool, payload, project, timeoutMs)
+
+    // Per-session accessors (SPEC-023)
+    const getSessionId = () => rt.sessionId || ""
+    const getBound = () => rt.boundBySession[getSessionId()] || null
+    const setBound = (v) => { rt.boundBySession[getSessionId()] = v }
+    const getActiveTask = () => rt.activeTaskBySession[getSessionId()] || null
+    const setActiveTask = (v) => { rt.activeTaskBySession[getSessionId()] = v }
+    Object.defineProperty(rt, "bound", {
+      get() { return getBound() },
+      set(v) { setBound(v) },
+    })
+    Object.defineProperty(rt, "activeTask", {
+      get() { return getActiveTask() },
+      set(v) { setActiveTask(v) },
+    })
 
     // Protocolo de continuidad (delta-sprint): antes de que el agente escriba,
     // se le dice qué sprint existe, cuál era su goal y cuántas tareas tiene,
@@ -391,6 +414,9 @@ async function runSetup(ctx) {
       try {
         const res = run("session_context", { session_id: sid }, rt.projectId, HOOK_TIMEOUT_MS)
         const data = (res && (res.data || res)) || {}
+        // F2 (ADR-WALKER-086): el contrato 4D viaja en la MISMA lectura. Se
+        // cachea aunque no haya flight_state: el budget no depende del vuelo.
+        if (data && data.contract_4d) entry.contract4d = contractBlock(data.contract_4d)
         const fs = (data && data.flight_state) || (res && res.flight_state)
         if (!fs || typeof fs !== "object" || !Object.keys(fs).length) return
         // Sin `force` se conserva el contrato previo: el estado local manda.
@@ -1597,6 +1623,18 @@ async function runSetup(ctx) {
               session_id: entry.sessionID,
               data: {
                 writes: entry.writes || 0,
+                // F2 (ADR-WALKER-086): la métrica 4D viaja con la sesión. Es
+                // lo que faltaba para poder decir "esta spec usó 2/3 archivos"
+                // o "esta sesión trabajó sin contrato".
+                contract: entry.contract4d
+                  ? {
+                      present: entry.contract4d.present,
+                      spec_id: entry.contract4d.spec_id,
+                      goal: entry.contract4d.goal,
+                      criteria: entry.contract4d.criteria,
+                    }
+                  : { present: false, spec_id: "", goal: "", criteria: { mapped: 0, unmapped: 0 } },
+                budget: budgetUsage(entry.contract4d, Array.from(entry.touched || [])),
                 touched_count: entry.touched.size,
                 touched: Array.from(entry.touched).slice(0, 20),
                 scope_denials: Array.from(entry.scopeDenied || []).slice(0, 10),
@@ -2243,6 +2281,39 @@ async function runSetup(ctx) {
                       })}'\n` +
                       `Después repetí exactamente la misma herramienta.`
                   )
+                }
+              }
+
+              // ── Gate de DILUVIO: budget del WorkContract (F2, ADR-086) ──
+              // La unidad de revisión es la SPEC: si el contrato declara
+              // `budget.max_files` y ya se tocaron esos archivos, agregar uno
+              // nuevo exige ampliar el budget o dividir la spec. El deny trae
+              // el comando exacto; sin contrato el gate no aplica.
+              if (BUDGET_GATE && (name === "edit" || name === "write")) {
+                const entryNow = sessionOf(sid)
+                const target = relPath(input?.path || input?.filePath || "", rt)
+                const denyBudget = budgetDeny(
+                  entryNow.contract4d,
+                  Array.from(entryNow.touched || []),
+                  target,
+                  { cli: CLI, project: rt.projectId }
+                )
+                if (denyBudget) {
+                  tracePush({
+                    event_type: "budget_exceeded",
+                    source: "agent_hook",
+                    session_id: sid,
+                    data: {
+                      tool: name,
+                      file: target,
+                      spec_id: entryNow.contract4d?.spec_id || "",
+                      budget: budgetUsage(
+                        entryNow.contract4d,
+                        Array.from(entryNow.touched || [])
+                      ),
+                    },
+                  })
+                  throw new Error(denyBudget)
                 }
               }
 

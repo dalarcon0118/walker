@@ -19,12 +19,10 @@ agente, y el despacho recibe los kwargs reales.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pydantic import ConfigDict, create_model
-
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase
+if TYPE_CHECKING:  # solo type hint: el modo CLI no debe requerir `mcp`
+    from mcp.server.fastmcp import FastMCP
 
 
 def _build_open_arg_model() -> type:
@@ -35,6 +33,13 @@ def _build_open_arg_model() -> type:
       solo vuelca los campos declarados; las claves extra viven en
       `__pydantic_extra__`).
     """
+
+    # Imports perezosos: `pydantic` y `mcp` NO deben exigirse para el modo CLI
+    # (el plugin usa `bin/walker3` en entornos sin esas deps). Se importan solo
+    # al construir el modelo, al registrar tools en el server MCP.
+    from pydantic import ConfigDict
+
+    from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase
 
     class _OpenArgs(ArgModelBase):
         model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -48,7 +53,15 @@ def _build_open_arg_model() -> type:
     return _OpenArgs
 
 
-_OPEN_ARG_MODEL = _build_open_arg_model()
+_OPEN_ARG_MODEL = None
+
+
+def _open_arg_model() -> type:
+    """ArgModel cacheado, construido la primera vez que se registra una tool."""
+    global _OPEN_ARG_MODEL
+    if _OPEN_ARG_MODEL is None:
+        _OPEN_ARG_MODEL = _build_open_arg_model()
+    return _OPEN_ARG_MODEL
 
 
 def register_domain_tool(
@@ -91,4 +104,4 @@ def register_domain_tool(
         # SSOT: el schema que ve el agente es el declarativo, no el inferido.
         tool.parameters = input_schema
         # Runtime: aceptar los kwargs top-level tal como los envía el agente.
-        tool.fn_metadata.arg_model = _OPEN_ARG_MODEL
+        tool.fn_metadata.arg_model = _open_arg_model()

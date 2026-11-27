@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import logging
 
-from mcp.server.fastmcp import FastMCP
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # solo type hint: el modo CLI no debe requerir `mcp`
+    from mcp.server.fastmcp import FastMCP
 
 from fast_mcp import composition
 from fast_mcp.registration import register_domain_tool

@@ -55,7 +55,7 @@ def spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
                 data[key] = nested.get(key)
         data.pop("artifacts", None)
 
-    service = _di.sprint_service(ctx.chain_dir)
+    service = getattr(ctx, 'sprint_service', None) or _di.sprint_service(ctx.chain_dir)
     if service is None:
         return TaskResult.failure("spec_status: sprint service no disponible")
 
@@ -85,6 +85,22 @@ def spec_status(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
         for key in _ARTIFACT_FIELDS
         if data.get(key) not in (None, "", [])
     }
+
+    # F0b (ADR-WALKER-086): el WorkContract se valida ANTES de persistir y se
+    # guarda en el MISMO save que el status. Un contrato inválido no toca el
+    # estado: se devuelven los errores accionables del validador (F0a).
+    contract = data.get("contract")
+    if contract is None and isinstance(data.get("artifacts"), dict):
+        contract = data["artifacts"].get("contract")
+    if contract is not None:
+        contract_errors = _di.validate_contract(contract)
+        if contract_errors:
+            return TaskResult.failure(
+                "spec_status: contrato inválido: " + "; ".join(contract_errors)
+            )
+        task_context = dict(spec.get("task_context") or {})
+        task_context["work_contract"] = contract
+        artifacts["task_context"] = task_context
     try:
         updated = service.update_spec_status(spring_id, spec_id, status, artifacts=artifacts)
     except ValueError as exc:

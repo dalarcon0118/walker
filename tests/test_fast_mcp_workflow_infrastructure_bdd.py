@@ -250,7 +250,7 @@ class TestStateRepository:
         deep_dir = str(tmp_path / "a" / "b" / "c")
         state = WorkflowState(current_node="X")
         repo.save(deep_dir, state)
-        assert os.path.exists(os.path.join(deep_dir, ".workflow-state.json"))
+        assert os.path.exists(os.path.join(deep_dir, "data", "cognitive.sqlite3"))
 
     def test_reconcile_on_load(self, tmp_path):
         """Reconcile sub_state_index when graph is available."""
