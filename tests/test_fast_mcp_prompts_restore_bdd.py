@@ -420,16 +420,20 @@ class TestCollector:
         assert tasks == []
 
     def test_collect_available_tasks_with_registry(self):
+        """Con el registry REAL: antes se probaba con un fake que implementaba
+        un método que `TaskRegistry` no tenía, así que el bug (lista siempre
+        vacía) era invisible para la suite."""
+        from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
         from fast_mcp.features.workflow.application.prompts.collector import collect_available_tasks
 
-        @dataclass
-        class FakeRegistry:
-            def list_tasks_with_meta(self):
-                return [{"name": "run_tests", "description": "Run tests", "usage": "walker test"}]
+        registry = TaskRegistry()
+        registry.register("run_tests", lambda ctx, data: None, {"description": "Run tests"})
 
-        tasks = collect_available_tasks("/tmp/test-project", task_registry=FakeRegistry())
+        tasks = collect_available_tasks("/tmp/test-project", task_registry=registry)
+
         assert len(tasks) == 1
         assert tasks[0]["name"] == "run_tests"
+        assert tasks[0]["description"] == "Run tests"
 
     def test_collect_state_no_store(self):
         from fast_mcp.features.workflow.application.prompts.collector import collect_state
@@ -446,22 +450,6 @@ class TestCollector:
         assert state["node"] == "WORK"
         assert state["sub_state"] == "EXEC"
 
-    def test_collect_all_degrades_gracefully(self):
-        from fast_mcp.features.workflow.application.prompts.collector import collect_all
-
-        data = collect_all(
-            "/tmp/test-project",
-            task_registry=None,
-            workflow_store=None,
-            ckg_searcher=None,
-            sprint_state_loader=None,
-        )
-        assert "activity" in data
-        assert "project" in data
-        assert "knowledge" in data
-        assert "state" in data
-        assert data["chain_dir"] == "/tmp/test-project"
-
     def test_collect_activity_with_mock_ckg(self):
         from fast_mcp.features.workflow.application.prompts.collector import collect_activity
 
@@ -472,36 +460,6 @@ class TestCollector:
 
         activity = collect_activity("/tmp/test-project", "ARCHITECTURE", ckg_searcher=FakeSearcher())
         assert activity["description"] == "Architecture is clean"
-
-    def test_collect_all_wires_everything(self):
-        from fast_mcp.features.workflow.application.prompts.collector import collect_all
-
-        store = MockWorkflowStore(_state=WorkflowState(current_node="ANALYZE", current_sub_state="GATHER"))
-
-        @dataclass
-        class FakeRegistry:
-            def list_tasks_with_meta(self):
-                return [{"name": "test", "description": "t", "usage": "u"}]
-
-        @dataclass
-        class FakeCkg:
-            def search(self, index, query):
-                return {"hits": {"total": 0, "hits": []}}
-
-        def fake_sprint_loader(chain_dir):
-            return ("SPRINT-1", "active", "SPEC-1")
-
-        data = collect_all(
-            "/tmp/test-project",
-            task_registry=FakeRegistry(),
-            workflow_store=store,
-            ckg_searcher=FakeCkg(),
-            sprint_state_loader=fake_sprint_loader,
-        )
-        assert data["node"] == "ANALYZE"
-        assert data["sprint_id"] == "SPRINT-1"
-        assert data["status"] == "active"
-        assert len(data["tasks"]) == 1
 
 
 # ── Protocol Builder (protocol_builder.py) ────────────────────────────────

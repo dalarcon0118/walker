@@ -22,6 +22,28 @@ from pathlib import Path
 from typing import Any, Callable
 
 IGNORE_FILENAME = ".walkerignore"
+
+#: Estado que walker escribe en cada operación. Si entra al fingerprint del
+#: código, la foto cambia sin que cambie una línea y el CPG se reporta `stale`
+#: para siempre (medido 2026-11-26: 784 archivos en el fingerprint, 28 de
+#: estado, y `data/metrics/tool_calls.jsonl` cambia en CADA llamada a tool).
+_STATE_FILENAMES = frozenset({
+    ".file_snapshot.json",
+    "change_detected.json",
+    "human_turns_report.json",
+})
+_STATE_SUFFIXES = (".sqlite3", ".sqlite3-wal", ".sqlite3-shm", ".jsonl")
+
+
+def is_walker_state(rel_path: str) -> bool:
+    """True si el path es estado del propio walker (nunca es código indexable)."""
+    rel = str(rel_path).replace(os.sep, "/")
+    name = rel.rsplit("/", 1)[-1]
+    if name.startswith(".workflow-state"):
+        return True
+    if name in _STATE_FILENAMES:
+        return True
+    return rel.endswith(_STATE_SUFFIXES)
 CHANGE_FILE = "change_detected.json"
 MAX_CHANGED_FILES = 500
 #: Snapshot por sesión (P1.13). El snapshot global es del PROYECTO: una sesión
@@ -463,7 +485,12 @@ class FileWatcher:
                 for fname in files:
                     fpath = os.path.join(root, fname)
                     rel = os.path.relpath(fpath, self.project_root)
-                    if self._ignore.is_ignored(rel):
+                    if self._ignore.is_ignored(rel) or is_walker_state(rel):
+                        continue
+                    # El data_dir canónico (o el legacy <repo>/data) es estado,
+                    # no fuente: si entra al fingerprint, se auto-invalida en
+                    # cada scan (ver _watcher_fingerprint_core).
+                    if self._is_data_path(fpath):
                         continue
                     try:
                         stat = os.stat(fpath)
@@ -471,6 +498,15 @@ class FileWatcher:
                     except (OSError, PermissionError):
                         continue
         return snapshot
+
+    def _is_data_path(self, fpath: str) -> bool:
+        """True si el archivo vive bajo el data_dir del watcher (estado)."""
+        try:
+            data_root = os.path.abspath(str(self.data_dir))
+        except Exception:  # noqa: BLE001 — sin data_dir no hay nada que excluir
+            return False
+        target = os.path.abspath(fpath)
+        return target == data_root or target.startswith(data_root + os.sep)
 
     def _load_snapshot(self, path: Path | None = None) -> dict[str, str]:
         target = path or self.snapshot_path

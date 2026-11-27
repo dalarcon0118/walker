@@ -136,7 +136,14 @@ def test_live_walk_start_to_analyze_with_gollwitzer_phases(project):
     # `design_approved` exige CKG_SAVE: este walk salta la captura para
     # concentrarse en ANALYZE, así que se reposiciona. La captura y el contrato
     # se cubren en test_workflow_graph_ordering_bdd.
+    # CKG_SAVE declara `documenting_knowledge`: un gate de avance no puede
+    # salir de un paso con su acción sin ejecutar. Se registra la ejecución
+    # (el flujo real la corre con `advance`).
     state = orch._load_state().with_node("DESIGN", "CKG_SAVE", 4)
+    state = state.record_node_execution(
+        node="DESIGN", sub_state="CKG_SAVE", action="documenting_knowledge",
+        task_ok=True,
+    )
     assert orch._save_state(state)
 
     result = orch.transition(xctx, "design_approved")
@@ -216,15 +223,18 @@ def test_live_walk_goal_invalidation_then_replan_keeps_state_coherent(project):
     xctx = _exec(project)
 
     orch.submit(xctx, fields={})
+    _host_advance(project)  # START.LIST -> START.SELECT (origen de project_selected)
     orch.transition(xctx, "project_selected")
     result = orch.transition(xctx, "goal_invalidation")
-    assert result["ok"]
+    assert result["ok"], result
 
     status = orch.status(xctx)
     assert (status["node"], status["sub_state"]) == ("SPRINT", "PLANNING")
     # Desde PLANNING el ciclo deliberativo continúa por `advance` hasta
     # PLAN_APPROVAL, no por un gate directo. Lo que NO puede es saltar a
-    # DESIGN: `start_task` exige source_sub_state=ACTIVE.
+    # DESIGN (`start_task` exige ACTIVE) ni saltarse PLAN_APPROVAL/TASK_SPEC
+    # por `back_to_active` (medido 2026-11-24: el agente implementaba con las
+    # specs en `draft`).
     gate_names = [g["name"] for g in status["available_gates"]]
     assert "start_task" not in gate_names
-    assert "back_to_active" in gate_names
+    assert "back_to_active" not in gate_names

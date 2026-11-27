@@ -148,6 +148,10 @@ class Gate:
     # Sub-estados desde los que el gate es válido. Vacío = legacy (cualquiera).
     available_from: list[str] = field(default_factory=list)
     description: str = ""
+    #: `advance` = mueve el flujo principal (no puede salir con una acción del
+    #: paso actual sin ejecutar); `abandon` = salida legítima que deja trabajo
+    #: pendiente (refine, cancel, back_to_*). Declarado en el manifiesto.
+    intent: str = "advance"
     gate_validation_script: str | None = None
     gate_valid_exit_codes: list[int] = field(default_factory=lambda: [0])
     contract: dict | None = None

@@ -592,6 +592,27 @@ class BuildGraphUseCase:
             base = self.code_root
         return [base]
 
+    def _refresh_source_fingerprint(self) -> None:
+        """Guarda el fingerprint actual del árbol sin re-indexar nada.
+
+        Reindexar es caro; cuando el único desvío es la firma (el código no
+        cambió), basta con persistirla para que `mark_indexed` pueda limpiar
+        el `stale`. Fail-open: si el repo no responde, el update sigue.
+        """
+        try:
+            data = self._repo.load(self.project_id)
+            if not isinstance(data, dict) or not data:
+                return
+            fingerprint = self._watcher_fingerprint()
+            if data.get("source_fingerprint") != fingerprint:
+                data["source_fingerprint"] = fingerprint
+                self._repo.save(data)
+        except Exception as exc:  # noqa: BLE001 — no romper un update vacío
+            logger.warning(
+                "no se pudo refrescar source_fingerprint (%s: %s)",
+                type(exc).__name__, exc,
+            )
+
     def _watcher_fingerprint(self) -> str:
         """Computa fingerprint del código usando el watcher (mismo algoritmo).
 
@@ -936,6 +957,17 @@ class BuildGraphUseCase:
                 len(changed), MAX_CHANGED_FILES,
             )
         if not changed and status.get("cpg_status") == "up_to_date":
+            return self._repo.load(self.project_id)
+        if not changed:
+            # Sin archivos que indexar, pero el status dice `stale`: el
+            # fingerprint guardado es de otra foto (p. ej. contaba estado que
+            # walker escribe en cada llamada). Se refresca y se marca, en vez
+            # de quedar stale para siempre sin trabajo pendiente real.
+            self._refresh_source_fingerprint()
+            try:
+                watcher.mark_indexed("cpg")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("mark_indexed fallo (%s: %s)", type(e).__name__, e)
             return self._repo.load(self.project_id)
 
         result = self.index_task_files(changed, bug_proposals=bug_proposals)

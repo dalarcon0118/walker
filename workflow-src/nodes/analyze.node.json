@@ -132,22 +132,20 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "observed"
-            ],
-            "description": "Observation captured"
-          },
           "phase": {
             "type": "string",
             "enum": [
               "observe"
             ],
             "description": "Gollwitzer phase recorded by the action"
+          },
+          "observed": {
+            "type": "boolean",
+            "description": "true cuando el paso registró observe"
           }
         },
-        "description": "Observation recorded (facts/inferences/assumptions/contradictions). Transitions to INFO_GATE."
+        "description": "Observation recorded (facts/inferences/assumptions/contradictions). Transitions to INFO_GATE.",
+        "required": []
       },
       "on_success": "INFO_GATE",
       "on_failure": "GATHER",
@@ -265,22 +263,20 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "gated"
-            ],
-            "description": "Information gate evaluated"
-          },
           "phase": {
             "type": "string",
             "enum": [
               "info_acquisition"
             ],
             "description": "Gollwitzer phase recorded by the action"
+          },
+          "acquired": {
+            "type": "boolean",
+            "description": "true cuando el paso registró info_gate"
           }
         },
-        "description": "Decision-value gate passed. Transitions to ANALYZE (deliberation)."
+        "description": "Decision-value gate passed. Transitions to ANALYZE (deliberation).",
+        "required": []
       },
       "on_success": "ANALYZE",
       "on_failure": "GATHER",

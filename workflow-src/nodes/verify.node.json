@@ -15,20 +15,24 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "exit_code": {
+          "returncode": {
             "type": "integer",
-            "description": "0 if all tests passed, >0 if any failed"
+            "description": "Exit code of the test runner (0 = verde)"
           },
-          "stdout": {
-            "type": "string",
-            "description": "Standard output of test execution"
+          "passed": {
+            "type": "integer",
+            "description": "Tests passed"
           },
-          "stderr": {
-            "type": "string",
-            "description": "Errors from test execution"
+          "total": {
+            "type": "integer",
+            "description": "Tests executed"
+          },
+          "failures": {
+            "type": "integer",
+            "description": "Tests failed"
           }
         },
-        "description": "Tests executed. exit_code=0->QA, exit_code>0->IMPLEMENT.WORK."
+        "description": "Tests executed. returncode=0 -> QA; !=0 falla el paso y el sub-estado reintenta QA_RUN (on_failure)."
       },
       "on_success": "PREDICATE_CHECK",
       "on_failure": "QA_RUN",
@@ -66,10 +70,6 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "all_passed": {
-            "type": "boolean",
-            "description": "true if all predicates passed, false if any failed"
-          },
           "results": {
             "type": "array",
             "description": "Per-predicate verification results: predicate + passed + evidence"
@@ -77,12 +77,16 @@
           "failed_count": {
             "type": "integer",
             "description": "Number of failed predicates"
+          },
+          "all_satisfied": {
+            "type": "boolean",
+            "description": "true if all predicates passed, false if any failed"
           }
         },
         "required": [
-          "all_passed"
+          "all_satisfied"
         ],
-        "description": "Predicate verification completed. all_passed=true -> QA. all_passed=false -> IMPLEMENT.WORK."
+        "description": "Predicate verification completed. all_satisfied=true -> QA."
       },
       "on_success": "BASELINE_DIFF",
       "on_failure": "QA_RUN",
@@ -180,19 +184,33 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "monitored"
-            ],
-            "description": "Monitoring recorded"
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Plan declarado"
+          },
+          "deviations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Desvíos plan-vs-resultado"
           },
           "compliant": {
             "type": "boolean",
-            "description": "True when no deviations were recorded"
+            "description": "true si no hay desvíos"
+          },
+          "non_occurrence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Efectos que no ocurrieron"
           }
         },
-        "description": "Monitoring recorded. Transitions to QA (postactional evaluation)."
+        "description": "Monitoreo plan-vs-resultado: compliant = sin desvíos (lo que devuelve monitoring)."
       },
       "on_success": "QA",
       "on_failure": "PREDICATE_CHECK",

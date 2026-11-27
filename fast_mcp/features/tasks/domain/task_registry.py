@@ -51,6 +51,8 @@ class ExecutionContext:
     channel: str = "mcp"
     cpg_adapter: Any = None
     project_id: str = ""
+    # SPEC-002: inyectar sprint_service via ctx en vez de _di global.
+    sprint_service: Any = None
 
     @classmethod
     def create(
@@ -61,6 +63,7 @@ class ExecutionContext:
         channel: str = "mcp",
         cpg_adapter: Any = None,
         project_id: str = "",
+        sprint_service: Any = None,
     ) -> ExecutionContext:
         return cls(
             chain_dir=chain_dir,
@@ -69,6 +72,7 @@ class ExecutionContext:
             channel=channel,
             cpg_adapter=cpg_adapter,
             project_id=project_id,
+            sprint_service=sprint_service,
         )
 
 
@@ -136,6 +140,26 @@ class TaskRegistry:
 
     def has(self, name: str) -> bool:
         return name in self._handlers
+
+    def list_tasks_with_meta(self) -> list[dict[str, Any]]:
+        """Tareas registradas en el shape que consumen los prompts.
+
+        `list_tasks()` devuelve el dict interno; los consumidores
+        (`collect_available_tasks`, `workflow_state`) esperan una lista de
+        dicts con `name`. El contrato existía sólo en un docstring y en un
+        `FakeRegistry` de test: el registry real nunca lo cumplió y
+        `collect_available_tasks` devolvía `[]` siempre (AttributeError
+        tragado por un except genérico).
+        """
+        return [
+            {
+                "name": name,
+                "description": meta.description,
+                "tags": list(meta.tags),
+                "scope": meta.scope,
+            }
+            for name, meta in sorted(self._meta.items())
+        ]
 
     def list_tasks(self) -> dict[str, TaskMeta]:
         return dict(self._meta)

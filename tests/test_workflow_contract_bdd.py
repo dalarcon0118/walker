@@ -242,3 +242,113 @@ def test_prompt_submit_keys_declared():
     assert not violations, (
         "prompts que envían campos no declarados:\n  " + "\n  ".join(violations)
     )
+
+
+# ── node_tasks: el registro de tasks llega al paso (SPEC-003) ─────────────
+
+class TestNodeTasks:
+    """Cada nodo declara qué tareas ejecuta; eso tiene que ser visible.
+
+    Antes el registro existía (39 handlers) y ninguna superficie lo mostraba:
+    `workflow_state` no listaba tareas y `collect_available_tasks` devolvía []
+    porque llamaba a un método inexistente.
+    """
+
+    @staticmethod
+    def _graph():
+        from fast_mcp.features.workflow.infrastructure.graph_repository import (
+            GraphRepository,
+        )
+
+        return GraphRepository(str(ROOT / "data" / "workflow" / "workflow.json")).load()
+
+    @staticmethod
+    def _registry():
+        from fast_mcp.features.tasks.domain.task_registry import TaskRegistry
+
+        registry = TaskRegistry()
+        registry.register("run_tests", lambda ctx, data: None, {"description": "Run tests"})
+        return registry
+
+    def test_verify_declara_sus_tareas(self):
+        from fast_mcp.features.workflow.application.orchestrator import node_tasks
+
+        tasks = node_tasks(self._graph().get_node("VERIFY"), self._registry())
+
+        actions = {t["action"] for t in tasks}
+        assert actions == {"run_tests", "verify_predicates", "diff_baseline", "monitoring"}
+
+    def test_analyze_expone_la_actualizacion_del_cpg(self):
+        from fast_mcp.features.workflow.application.orchestrator import node_tasks
+
+        tasks = node_tasks(self._graph().get_node("ANALYZE"), self._registry())
+
+        assert "sync_code_index" in {t["action"] for t in tasks}
+
+    def test_una_accion_sin_handler_se_ve_antes_de_fallar(self):
+        from fast_mcp.features.workflow.application.orchestrator import node_tasks
+
+        tasks = node_tasks(self._graph().get_node("VERIFY"), self._registry())
+        by_action = {t["action"]: t for t in tasks}
+
+        assert by_action["run_tests"]["registered"] is True
+        assert by_action["run_tests"]["description"] == "Run tests"
+        assert by_action["verify_predicates"]["registered"] is False
+
+    def test_sin_nodo_no_inventa_tareas(self):
+        from fast_mcp.features.workflow.application.orchestrator import node_tasks
+
+        assert node_tasks(None, self._registry()) == []
+
+
+def test_los_edges_no_prometen_trabajo_que_el_motor_no_ejecuta():
+    """`transform` y `context_updates` de los edges se parsean y nadie los corre.
+
+    El motor sólo ejecuta `sub_state.action` (submit/advance). Medido
+    2026-11-26: los 4 transforms apuntaban a acciones y salidas que nadie
+    consume — 3 de esas acciones no existían ni en el registro
+    (`prepare_analysis_context`, `build_task_briefing`,
+    `build_verification_context`) — y `IMPLEMENT.context.briefing`,
+    `ANALYZE.context.design` y `VERIFY.context` no tenían lector. Se borraron
+    del manifiesto: un edge no puede declarar trabajo que el motor no hace.
+    """
+    edges = json.loads((ROOT / "data" / "workflow" / "edges.json").read_text())
+
+    promesas = [
+        f"{edge.get('from')}->{edge.get('to')}: {sorted(set(edge) & {'transform', 'context_updates'})}"
+        for edge in edges
+        if "transform" in edge or "context_updates" in edge
+    ]
+
+    assert not promesas, (
+        "edges declaran trabajo que el motor no ejecuta (no hay call site):\n  "
+        + "\n  ".join(promesas)
+    )
+
+
+#: Gates que pueden salir del nodo dejando acciones sin ejecutar. Es una
+#: decisión de producto, no una heurística por nombre: si cambia, se cambia acá
+#: y el manifiesto a la vez (test de drift).
+_ABANDON_GATES = {
+    "back_to_active", "back_to_start", "cancel", "close_cancelled",
+    "design_needs_refine", "edit_plan", "escalation", "goal_invalidation",
+    "needs_refine", "plan_approval_revised", "refine_task", "refresh",
+    "reroute_analyze", "reroute_design", "reroute_implement", "reroute_sprint",
+    "reroute_verify", "review_needs_work", "revise_specs",
+    "spec_review_needs_work",
+}
+
+
+def test_cada_gate_declara_si_avanza_o_abandona():
+    """Sin `intent` el motor no puede saber si salir con trabajo pendiente es
+    legal. Default implícito = advance: un gate sin clasificar bloquea."""
+    edges = json.loads((ROOT / "data" / "workflow" / "edges.json").read_text())
+
+    sin_intencion = [e.get("gate") for e in edges if e.get("intent") not in ("advance", "abandon")]
+    assert not sin_intencion, f"gates sin intent: {sin_intencion}"
+
+    abandon = {e["gate"] for e in edges if e["intent"] == "abandon"}
+    assert abandon == _ABANDON_GATES, (
+        f"drift en gates de abandono: sobran={sorted(abandon - _ABANDON_GATES)} "
+        f"faltan={sorted(_ABANDON_GATES - abandon)}"
+    )

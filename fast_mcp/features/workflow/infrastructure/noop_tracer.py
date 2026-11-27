@@ -48,6 +48,7 @@ class NoopTracer(ITracer):
         from_node: str,
         to_node: str,
         task_id: str | None = None,
+        skipped: list | None = None,
     ) -> None:
         pass
 

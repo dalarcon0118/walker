@@ -30,7 +30,10 @@ from __future__ import annotations
 
 import logging
 
-from mcp.server.fastmcp import FastMCP
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # solo type hint: el modo CLI no debe requerir `mcp`
+    from mcp.server.fastmcp import FastMCP
 
 from fast_mcp.registration import register_domain_tool
 
@@ -59,6 +62,7 @@ _FASE3_TOOLS = (
     "spec_start",
     "spec_status",
     "spec_predicates",
+    "spec_update",
     "sprint_status",
     "run_tests",
     "verify_predicates",
@@ -66,6 +70,10 @@ _FASE3_TOOLS = (
 )
 
 # inputSchema SSOT (R-03bis)
+
+#: Props compartidas por las tools de tarea que ya ejecutan el CPG en su
+#: handler (`_inspect_codebase_helper`). Declararlas es lo que hace alcanzable
+#: la consulta: sin schema el agente no sabe que el parámetro existe.
 _INPUT_SCHEMAS: dict[str, dict] = {
     "submit": {
         "type": "object",
@@ -316,6 +324,37 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "spec_update": {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session identifier"},
+            "spring_id": {"type": "string", "description": "Sprint (o se resuelve por sesión)"},
+            "spec_id": {"type": "string", "description": "Spec (default: la tarea en curso)"},
+            "task_id": {"type": "string", "description": "Task id para resolver la spec"},
+            "fields": {
+                "type": "object",
+                "description": (
+                    "Campos de la spec: objective, files, result_state, "
+                    "problem_statement, acceptance_criteria, preconditions, "
+                    "quality_gates, task_context, evidence, risks, "
+                    "impacted_artifacts, depends_on. status y predicates NO "
+                    "van acá (spec_status / spec_predicates)."
+                ),
+            },
+            "objective": {"type": "string"},
+            "files": {"type": "array", "items": {"type": "string"}},
+            "result_state": {"type": "string"},
+            "problem_statement": {"type": "string"},
+            "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+            "preconditions": {"type": "array", "items": {"type": "string"}},
+            "quality_gates": {"type": "array", "items": {"type": "string"}},
+            "task_context": {"type": "object"},
+            "evidence": {"type": "array", "items": {"type": "string"}},
+            "risks": {"type": "object"},
+            "impacted_artifacts": {"type": "object"},
+            "depends_on": {"type": "array", "items": {"type": "string"}},
+        },
+    },
     "sprint_status": {
         "type": "object",
         "properties": {
@@ -393,6 +432,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "task_id": {"type": "string", "description": "Task identifier"},
+            "session_id": {"type": "string", "description": "Sesión que originó la verificación (correlación de telemetría)."},
             "project_id": {"type": "string", "description": "Project identifier"},
         },
     },
@@ -405,6 +445,7 @@ _INPUT_SCHEMAS: dict[str, dict] = {
                 "items": {"type": "object"},
             },
             "task_id": {"type": "string", "description": "Task identifier"},
+            "session_id": {"type": "string", "description": "Sesión que originó la verificación (correlación de telemetría)."},
             "project_id": {"type": "string", "description": "Project identifier"},
             "strict": {
                 "type": "boolean",
@@ -425,6 +466,13 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "project_id": {"type": "string", "description": "Project identifier"},
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Sesión que consulta: resuelve SU sprint (ADR-077/085). Sin "
+                    "este campo el prompt cae al sprint activo del proyecto."
+                ),
+            },
             "view": {
                 "type": "string",
                 "enum": ["light", "full"],
@@ -459,6 +507,7 @@ _DESCRIPTIONS = {
     "spec_start": "Start an existing spec: status in_progress + session/task link + plan.",
     "spec_status": "Transition a spec; completed requires artifacts.",
     "spec_predicates": "Attach executable predicates to spec criteria (feeds verify_predicates).",
+    "spec_update": "Complete spec fields before starting it (status/predicates have their own tools).",
     "sprint_status": "Transition a sprint status (paused is reversible: active<->paused).",
     "trace_push": "Push an event to the execution trace index.",
     "trace_message": "Record a user or agent message in the execution trace (role: user|agent).",
@@ -497,7 +546,7 @@ def _build_runner(name: str):
     _SESSION_TOOLS = {"help", "list_projects", "project_for_path"}
     _DELTA_TOOLS = {"sprint_planning", "resolve_project_sprint"}
     _TRACE_TOOLS = {"trace_push", "trace_message"}
-    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "spec_status", "spec_predicates", "sprint_status", "run_tests", "verify_predicates", "capture"}
+    _TASK_TOOLS = {"implement_task", "session_bind", "session_open", "session_close", "session_list", "session_plan", "spec_start", "spec_status", "spec_predicates", "spec_update", "sprint_status", "run_tests", "verify_predicates", "capture"}
     if name in _SESSION_TOOLS:
         from fast_mcp.composition import session_tool_runner
         return session_tool_runner(name)

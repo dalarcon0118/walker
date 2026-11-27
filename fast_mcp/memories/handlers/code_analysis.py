@@ -85,6 +85,25 @@ def handle_code_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     return service.execute(target_file=target_file, query=query)
 
 
+def _review_targets(project_root: str, kwargs: dict[str, Any]) -> list[str] | None:
+    """Archivos a revisar: `files` explícito o `scope` cuando apunta a un archivo.
+
+    El branch `review` ignoraba ambos y corría el review sobre TODO el repo:
+    las reglas del CPG nunca se ejecutaban sobre los archivos de la tarea.
+    """
+    files = kwargs.get("files")
+    if isinstance(files, list):
+        clean = [str(f) for f in files if str(f).strip()]
+        if clean:
+            return clean
+    scope = str(kwargs.get("scope") or kwargs.get("area") or "").strip()
+    if scope:
+        candidate = scope if os.path.isabs(scope) else os.path.join(project_root, scope)
+        if os.path.isfile(candidate):
+            return [scope]
+    return None
+
+
 def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Inspect codebase: architecture, dead code, security, metrics."""
     service = ctx.code_analysis_service()
@@ -94,7 +113,7 @@ def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
     dispatch_map = {
         "business": lambda: service.business_layer(focus=scope),
         "dead_code": lambda: service.detect_unused_functions(file_filter=scope),
-        "review": lambda: service.review_code(),
+        "review": lambda: service.review_code(files=_review_targets(ctx.project_root, kwargs)),
         "metrics": lambda: service.project_metrics(file_filter=scope),
         # CFG/DFG como ciudadanos de primera (antes: solo via DSL code_search;
         # action=security estaba documentada en el schema y devolvía Unknown).
@@ -117,7 +136,12 @@ def handle_inspect_codebase(ctx: MemoryContext, **kwargs: Any) -> dict:
 
     result_fn = dispatch_map.get(action)
     if result_fn is None:
-        return {"scope": scope, "action": action, "error": f"Unknown action: {action}"}
+        return {
+            "scope": scope,
+            "action": action,
+            "error": f"Unknown action: {action}",
+            "actions": sorted(dispatch_map),
+        }
 
     return {"scope": scope, "action": action, "result": result_fn()}
 

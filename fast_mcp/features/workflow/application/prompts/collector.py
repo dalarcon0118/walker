@@ -324,58 +324,6 @@ def collect_state(
     }
 
 
-def collect_all(
-    chain_dir: str,
-    node_id: str | None = None,
-    context: dict | None = None,
-    task_registry: Any = None,
-    workflow_store: Any = None,
-    ckg_searcher: Any = None,
-    sprint_state_loader: Callable[[str], tuple[str, str, str]] | None = None,
-) -> dict:
-    """Recolecta todo el contexto enriquecido para inyectar en templates.
-
-    Todas las dependencias externas se inyectan (R1 CLEAN):
-      - task_registry: ITaskRegistry → list_tasks_with_meta()
-      - workflow_store: IWorkflowStore → load_state(chain_dir)
-      - ckg_searcher: CognitiveGraphSearcher → search("ckg", query)
-      - sprint_state_loader: callable(chain_dir) → (sprint_id, status, task_id)
-
-    El composition root (WorkflowContext o un factory) las cablea antes de
-    llamar a collect_all.
-    """
-    ctx = context or {}
-    state = collect_state(
-        chain_dir,
-        workflow_store=workflow_store,
-        sprint_state_loader=sprint_state_loader,
-    )
-    activity = collect_activity(chain_dir, node_id, ckg_searcher=ckg_searcher)
-    data = {
-        "activity": activity,
-        "project": collect_project_info(chain_dir, ckg_searcher=ckg_searcher),
-        "tasks": collect_available_tasks(chain_dir, node_id, task_registry=task_registry),
-        "knowledge": collect_knowledge(
-            chain_dir, context, ckg_searcher=ckg_searcher
-        ),
-        "state": state,
-        "task_id": state.get("task_id", ctx.get("task_id", "")),
-        "project_id": ctx.get("project_id", state.get("sprint_id", "")),
-        "sprint_id": state.get("sprint_id", ""),
-        "sprint_goal": ctx.get("sprint_goal", ""),
-        "node": state.get("node", ""),
-        "sub_state": state.get("sub_state", ""),
-        "status": state.get("status", ""),
-        "history": state.get("history", []),
-        "session_id": ctx.get("session_id", ""),
-        "chain_dir": chain_dir,
-    }
-    return data
-
-
-# ── Cores @safe (Result pattern, convention-001) ─────────────────
-
-
 @safe
 def _load_workflow_state_core(workflow_store: Any, chain_dir: str) -> Any | None:
     """Core puro: carga el estado del workflow vía el store inyectado."""

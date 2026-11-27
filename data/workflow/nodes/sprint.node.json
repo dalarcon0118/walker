@@ -74,22 +74,27 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {
+          "spring_id": {
             "type": "string",
-            "enum": [
-              "planned"
-            ]
-          },
-          "sprint_id": {
-            "type": "string"
+            "description": "Sprint creado (spring_id, no sprint_id)"
           },
           "goal": {
-            "type": "string"
+            "type": "string",
+            "description": "Goal del sprint"
           },
-          "task_count": {
-            "type": "integer"
+          "spec_count": {
+            "type": "integer",
+            "description": "Specs creadas"
+          },
+          "specs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Specs del plan"
           }
-        }
+        },
+        "description": "Plan creado: spring_id + goal + spec_count + specs (lo que devuelve plan_sprint)."
       },
       "on_success": "PLAN_APPROVAL",
       "side_effects": [
@@ -538,6 +543,10 @@
             "status": "specified",
             "fields": {
               "problem_statement": "NODE.TASK_SPEC.output.task_description",
+              "result_state": "NODE.TASK_SPEC.output.result_state",
+              "files": "NODE.TASK_SPEC.output.files",
+              "acceptance_criteria": "NODE.TASK_SPEC.output.acceptance_criteria",
+              "preconditions": "NODE.TASK_SPEC.output.preconditions",
               "evidence": "NODE.TASK_SPEC.output.evidence",
               "predicates": "NODE.TASK_SPEC.output.predicates",
               "impacted_artifacts": "NODE.TASK_SPEC.output.impacted_artifacts",
@@ -723,6 +732,106 @@
       }
     },
     {
+      "key": "SPEC_REVIEW",
+      "label": "Spec review (mandatory after all specs specified)",
+      "execution": "user_input",
+      "action": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "needs_work"
+            ],
+            "description": "Decision del PO sobre el conjunto de specs"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "Comentario o qué falta en las specs"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "needs_work"
+            ],
+            "description": "Decision on the sprint specs"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "PO feedback on specs"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "Spec review completed. accept -> ACTIVE. needs_work -> TASK_SPEC."
+      },
+      "on_success": "ACTIVE",
+      "on_failure": "TASK_SPEC",
+      "side_effects": [
+        {
+          "type": "emit_event",
+          "params": {
+            "event": "spec_reviewed"
+          }
+        }
+      ],
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/spec-review",
+      "decision_map": {
+        "accept": "spec_review_accepted",
+        "needs_work": "spec_review_needs_work"
+      },
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {
+              "max_results": 10
+            }
+          }
+        ],
+        "focus": {
+          "role": "reviewing sprint specs \"{sprint_goal}\"",
+          "constraints": [
+            "Present the full spec set (objective, acceptance, predicates, files) from STATE layer",
+            "Critique: find gaps, missing criteria, risky assumptions, improvements",
+            "Present a report to the user (PO) before proceeding",
+            "Ask user to accept or mark as needs_work"
+          ],
+          "context_priority": "state -> delta -> project"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
+      }
+    },
+    {
       "key": "ACTIVE",
       "label": "Sprint active / dashboard",
       "execution": "user_input",
@@ -893,6 +1002,126 @@
       "decision_map": {
         "accept": "review_accepted",
         "needs_work": "review_needs_work"
+      }
+    },
+    {
+      "key": "REPORT",
+      "label": "Sprint report (PO)",
+      "execution": "llm_task",
+      "action": "",
+      "skill_intent": {
+        "needs": "informe de sprint para el PO con resumen, metricas, riesgos y proximos pasos",
+        "tags": [
+          "sprint",
+          "report",
+          "metrics",
+          "po",
+          "summary"
+        ],
+        "policy": "required"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 40,
+            "description": "Que se entrego y por que importa, en 3-6 lineas"
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Specs completed/total, commits, tests antes/despues, predicates, hallazgos"
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Deuda o riesgo declarado, con su estado"
+          },
+          "next": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Proximos pasos concretos"
+          }
+        },
+        "required": [
+          "summary",
+          "metrics",
+          "risks",
+          "next"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "reported"
+            ],
+            "description": "Informe presentado al PO"
+          },
+          "items_count": {
+            "type": "integer",
+            "description": "Cantidad de riesgos + proximos pasos"
+          }
+        },
+        "description": "Informe del sprint presentado al PO antes del cierre."
+      },
+      "on_success": "RETRO",
+      "on_failure": "",
+      "timeout_ms": 600000,
+      "prompt_id": "sprint/report",
+      "context": {
+        "sources": [
+          {
+            "provider": "project",
+            "config": {}
+          },
+          {
+            "provider": "state",
+            "config": {
+              "query": {}
+            }
+          },
+          {
+            "provider": "delta",
+            "config": {
+              "max_results": 10
+            }
+          },
+          {
+            "provider": "trace",
+            "config": {
+              "max_events": 20
+            }
+          }
+        ],
+        "focus": {
+          "role": "presenting the sprint report to the PO",
+          "constraints": [
+            "Resumir que se entrego y por que importa, sin jerga interna",
+            "Mostrar metricas duras: specs completed/total, commits, tests antes/despues, predicates",
+            "Declarar riesgos y deuda con su estado; no ocultar nada",
+            "Cerrar con proximos pasos concretos",
+            "El informe se presenta ANTES de la retro y del cierre"
+          ],
+          "context_priority": "state → delta → trace → project"
+        },
+        "budget": {
+          "max_tokens": 80000,
+          "reserve_for_response": 10000,
+          "strategy": "truncate"
+        }
+      },
+      "audit": {
+        "capture_decision": true,
+        "capture_evidence": true,
+        "level": "full"
       }
     },
     {

@@ -81,6 +81,11 @@ _META_QUERY_KEYS = (*_PAGE_SIZE_KEYS, "_index", "query", *_PAGE_FROM_KEYS, "text
 #: remediación la dicta el propio error — refrescar el cache y reintentar.
 _GENERATION_CONFLICT = "cambió bajo el cache"
 
+#: Presupuesto de reintentos ante conflicto de generación. 1 no cubre
+#: watcher + sesiones concurrentes: el conflicto se reintenta con backoff.
+_GENERATION_RETRIES = max(1, int(os.environ.get("WALKER_INDEX_GENERATION_RETRIES", "3")))
+_GENERATION_BACKOFF_S = 0.05
+
 #: PRAGMA integrity_check verificado por (path, mtime, size). Es O(BD) y
 #: corría en CADA `SqliteIndex.__init__` (medido 2026-11-20: 320 ms de un
 #: `agent_context` de 787 ms). La BD es inmutable mientras no cambie su
@@ -231,27 +236,37 @@ class SqliteIndex(Index):
         self._ensure_light()
 
     def _with_generation_retry(self, keep: set[str], op: Callable[[], dict]) -> dict:
-        """Reintenta UNA vez con cache fresca ante conflicto de generación.
+        """Reintenta con cache fresca ante conflicto de generación.
 
         El CAS existe para que un proceso stale no sobrescriba ciego; su
         remediación es refrescar y reintentar. Descartar el `ok: False` (lo que
         hacían los repos) convertía un conflicto real en una escritura perdida
         silenciosa (medido: `implement_task` devolvía ok sin plan).
+
+        Presupuesto: UN reintento no alcanza con watcher + otras sesiones
+        escribiendo (medido 2026-11-26: 6 `index_code` fallidos en el workflow
+        y el CPG quedó `stale`). Se reintenta hasta `_GENERATION_RETRIES` veces
+        con espera creciente, y si el conflicto persiste se devuelve `ok: False`
+        con el error — nunca se escribe a ciegas ni se finge éxito.
         """
         result = op()
-        if result.get("ok") is not False:
-            return result
-        if _GENERATION_CONFLICT not in str(result.get("error", "")):
-            return result
-        self._generation_retries += 1
-        logger.warning(
-            "SqliteIndex['%s']: conflicto de generación (otro proceso escribió) "
-            "— se refresca el cache y se reintenta una vez (reintento %d).",
-            self.name,
-            self._generation_retries,
-        )
-        self._reload_light_state(keep)
-        return op()
+        for attempt in range(1, _GENERATION_RETRIES + 1):
+            if result.get("ok") is not False:
+                return result
+            if _GENERATION_CONFLICT not in str(result.get("error", "")):
+                return result
+            self._generation_retries += 1
+            logger.warning(
+                "SqliteIndex['%s']: conflicto de generación (otro proceso "
+                "escribió) — se refresca el cache y se reintenta (%d/%d).",
+                self.name,
+                attempt,
+                _GENERATION_RETRIES,
+            )
+            time.sleep(min(_GENERATION_BACKOFF_S * attempt, 0.5))
+            self._reload_light_state(keep)
+            result = op()
+        return result
 
     def store(self, doc_id: str, data: dict) -> dict:
         return self._with_generation_retry(

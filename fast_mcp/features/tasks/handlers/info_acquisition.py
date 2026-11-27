@@ -21,14 +21,25 @@ def info_acquisition(ctx: ExecutionContext, data: dict[str, Any]) -> TaskResult:
     resolved_gaps = data.get("resolved_gaps", [])
     task_id = data.get("task_id") or ctx.task_id
 
-    return TaskResult.success(data={
+    # `acquired` no puede ser constante: una ronda sin consultas y sin gaps
+    # cerrados no certifica adquisición (misma regla que SPEC-014 para tests y
+    # que review_code con 0 archivos). Antes devolvía True siempre y el paso
+    # automático pasaba por vacío.
+    acquired = bool(queries or resolved_gaps)
+    payload: dict[str, Any] = {
         "task_id": task_id,
         "phase": "info_acquisition",
         "queries": queries,
         "resolved_gaps": resolved_gaps,
         "chain_dir": ctx.chain_dir,
-        "acquired": True,
-    })
+        "acquired": acquired,
+    }
+    if not acquired:
+        payload["reason"] = (
+            "ronda sin queries ni gaps cerrados: no certifica adquisición de "
+            "información (declará queries o resolved_gaps)"
+        )
+    return TaskResult.success(data=payload)
 
 
 def register(registry) -> None:

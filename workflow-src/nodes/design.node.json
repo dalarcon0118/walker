@@ -150,22 +150,20 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "observed"
-            ],
-            "description": "Observation captured"
-          },
           "phase": {
             "type": "string",
             "enum": [
               "observe"
             ],
             "description": "Gollwitzer phase recorded by the action"
+          },
+          "observed": {
+            "type": "boolean",
+            "description": "true cuando el paso registró observe"
           }
         },
-        "description": "Architectural observation recorded. Transitions to DESIGN_ANALYZE."
+        "description": "Architectural observation recorded. Transitions to DESIGN_ANALYZE.",
+        "required": []
       },
       "on_success": "DESIGN_ANALYZE",
       "on_failure": "DESIGN_GATHER",
@@ -368,6 +366,24 @@
               "invariants_touched",
               "verification"
             ]
+          },
+          "reuse_decision": {
+            "type": "object",
+            "description": "F1a advisory: candidates con source ckg|delta|cpg, ref y reason. Opcional, pero si viene no puede estar vacio.",
+            "properties": {
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "reused": {
+                "type": "boolean"
+              },
+              "decision": {
+                "type": "string"
+              }
+            }
           }
         },
         "required": [
@@ -580,16 +596,9 @@
       "input_schema": {},
       "output_schema": {
         "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "saved"
-            ],
-            "description": "Knowledge saved to CKG"
-          }
-        },
-        "description": "Design saved to knowledge graph. Transitions to next node per edges."
+        "properties": {},
+        "description": "Design saved to knowledge graph. Transitions to next node per edges.",
+        "required": []
       },
       "on_success": "",
       "on_failure": "DESIGN_REVIEW",

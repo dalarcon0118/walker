@@ -5,6 +5,7 @@ and returns a dict. Consistent error handling via the dispatch() wrapper.
 """
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any
@@ -563,6 +564,7 @@ def _resolve_anchor(
                 {k: spec.get(k) for k in (
                     "spec_id", "objective", "status", "description",
                     "acceptance_criteria", "preconditions", "predicates",
+                    "task_context",
                 )},
             )
         reason = "task_id no está en el delta (sin sprint/spec con ese id)"
@@ -899,6 +901,7 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
 
     # 2. DELTA: qué tareas se hicieron
     tasks: list[dict] = []
+    session_specs: list[dict] = []
     try:
         from fast_mcp.composition import build_sprint_service
 
@@ -914,6 +917,7 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
                 seen.add(spring_id)
                 for spec in service.get_specs(spring_id) or []:
                     if str((spec.get("task_context") or {}).get("session_id", "")) == sid:
+                        session_specs.append(spec)
                         tasks.append({
                             "spec_id": spec.get("spec_id"),
                             "objective": spec.get("objective"),
@@ -925,23 +929,41 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
 
     out["tasks"] = tasks
 
+    # 2c. PROYECCIÓN 4D (F2, ADR-WALKER-086): el harness lee el contrato de la
+    # tarea de la sesión desde acá. Sin contrato se publica `present:false`, sin
+    # inventar budget; con contrato se publica el budget y su consumo medido.
+    out["contract_4d"] = _contract_4d(
+        session_specs[-1] if session_specs else None, out.get("files") or []
+    )
+
     # 2b. SPRINT DE LA SESIÓN (no el default del proyecto) + jerarquía.
     # `get_active_spring()` devuelve el sprint más reciente del PROYECTO, que
     # puede ser de otra sesión; acá se ancla en el sprint que la sesión posee.
     try:
-        from fast_mcp.composition import build_sprint_service
+        from fast_mcp.composition import build_sprint_service, sprint_context_for
 
         record = out.get("session") or {}
-        spring_id = str(record.get("spring_id") or "")
         project_id = str(record.get("project_id") or "")
         svc = build_sprint_service(ctx.chain_dir)
-        if spring_id and svc is not None:
-            spring = svc.get_spring(spring_id) or {}
+        # Mismo resolver que `status`/`brief`/`workflow_state`. Si la sesión no
+        # declara sprint, se usa el activo del proyecto y se publica cómo se
+        # resolvió; nunca se muestra "(sin sprint)" mientras otro lector ve uno.
+        resolve = getattr(svc, "resolve_context", None)
+        sctx = (
+            resolve(ctx.chain_dir, session_id=sid)
+            if callable(resolve)
+            else sprint_context_for(ctx.chain_dir, session_id=sid)
+        )
+        if sctx.found:
             out["sprint"] = {
-                "spring_id": spring_id,
-                "goal": spring.get("goal") or record.get("goal") or "",
-                "status": spring.get("status") or "",
+                "spring_id": sctx.spring_id,
+                "goal": sctx.goal or record.get("goal") or "",
+                "status": sctx.status,
+                "resolved_by": sctx.resolved_by,
+                "session_linked": sctx.session_linked,
             }
+            if sctx.diagnostics:
+                out["sprint"]["diagnostics"] = list(sctx.diagnostics)
         if project_id and svc is not None:
             out["children"] = [
                 s.get("session_id")
@@ -1029,6 +1051,146 @@ def handle_session_context(ctx: MemoryContext, **kwargs: Any) -> dict:
     return out
 
 
+# F0c (ADR-WALKER-086): sink de Trace inyectable para testear la emisión del
+# evento sin depender de sqlite. En producción es None y se usa el trace service.
+_CONTRACT_TRACE_SINK = None
+
+_CONTROL_KEYS = ("reuse", "goal", "verification", "budget", "recurrence")
+
+
+def _contract_projection(spec: dict | None) -> dict[str, Any]:
+    """Proyecta el WorkContract (F0b) y los controles 4D desde la spec.
+
+    El contrato vive en `spec.task_context.work_contract`. Devuelve un bloque
+    con `present`, el contrato crudo y los controles presentes. Nunca inventa:
+    si no hay contrato, `present` es False y `controls` queda vacío.
+    """
+    contract = {}
+    if isinstance(spec, dict):
+        contract = dict((spec.get("task_context") or {}).get("work_contract") or {})
+    controls = {
+        key: contract[key]
+        for key in _CONTROL_KEYS
+        if contract.get(key) not in (None, "", [], {})
+    }
+    return {"present": bool(contract), "contract": contract, "controls": controls}
+
+
+def _budget_state(
+    contract: dict, snapshot: dict | None, touched: list[str] | None = None
+) -> dict[str, Any]:
+    """Budget declarado vs consumido (F2, ADR-WALKER-086).
+
+    Con `touched` (archivos de la SESIÓN) el consumo es el del lote real: es la
+    única medida honesta por sesión. El `budget_snapshot` de `implement_task`
+    mide el árbol sucio completo (incluye cambios ajenos), así que se publica
+    aparte y no se usa para certificar. Sin medida se dice `measured:false`; no
+    se inventa un verde de presupuesto.
+    """
+    budget = contract.get("budget") if isinstance(contract.get("budget"), dict) else {}
+    snap = snapshot if isinstance(snapshot, dict) else {}
+    max_files = budget.get("max_files")
+    max_loc = budget.get("max_loc")
+    if touched is not None:
+        used_files = len({str(f) for f in touched if str(f).strip()})
+        measured = True
+        used_loc = None
+    else:
+        used_files = int(snap.get("files") or 0)
+        used_loc = int(snap.get("loc") or 0)
+        measured = bool(snap) and not snap.get("error")
+    exceeded: list[str] = []
+    if measured and isinstance(max_files, int) and used_files > max_files:
+        exceeded.append(f"files {used_files} > max_files {max_files}")
+    if isinstance(used_loc, int) and isinstance(max_loc, int) and used_loc > max_loc:
+        exceeded.append(f"loc {used_loc} > max_loc {max_loc}")
+    return {
+        "max_files": max_files,
+        "max_loc": max_loc,
+        "used_files": used_files,
+        "used_loc": used_loc,
+        "measured": measured,
+        "exceeded": exceeded,
+        "snapshot": snap or {},
+    }
+
+
+def _contract_4d(spec: dict | None, touched: list[str] | None = None) -> dict[str, Any]:
+    """Proyección 4D del contrato para el harness (F2, ADR-WALKER-086).
+
+    Un solo lector (`session_context`) y una sola fuente
+    (`spec.task_context.work_contract`). Sin contrato: `present:false` y sin
+    budget inventado.
+    """
+    proj = _contract_projection(spec)
+    contract = proj["contract"]
+    task_context = (spec or {}).get("task_context") or {}
+    predicates = (spec or {}).get("predicates") or {}
+    items = predicates.get("items") if isinstance(predicates, dict) else predicates
+    unmapped = predicates.get("unmapped") if isinstance(predicates, dict) else []
+    return {
+        "present": proj["present"],
+        "spec_id": str((spec or {}).get("spec_id") or ""),
+        "goal": contract.get("goal") or "",
+        "budget": _budget_state(
+            contract, task_context.get("budget_snapshot"), touched
+        ),
+        "reuse": contract.get("reuse") or {},
+        "criteria": {
+            "mapped": len(items or []),
+            "unmapped": len(unmapped or []),
+        },
+        "verification": contract.get("verification") or [],
+        "recurrence": contract.get("recurrence") or {},
+    }
+
+
+def _trace_contract(chain_dir: str, task_id: str, spec_id: str, present: bool) -> None:
+    """Emite un evento `work_contract_read` al leer/proyectar el contrato (F0c).
+
+    Fail-open: sin trace service el `brief`/`preflight` no se rompen. Se puede
+    inyectar `_CONTRACT_TRACE_SINK` en tests para verificar la emisión.
+    """
+    event = {
+        "event_type": "work_contract_read",
+        "source": "memories",
+        "tool": "brief",
+        "task_id": task_id or "",
+        "data": {"spec_id": spec_id or "", "present": bool(present)},
+    }
+    if _CONTRACT_TRACE_SINK is not None:
+        try:
+            _CONTRACT_TRACE_SINK(chain_dir, event)
+        except Exception:  # noqa: BLE001 — el trace no rompe la lectura
+            pass
+        return
+    try:
+        from fast_mcp.features.event_tracing.application.services.trace_factory import (
+            build_trace_service,
+        )
+
+        service = build_trace_service(chain_dir)
+        if service is not None:
+            service.push_event(chain_dir, event)
+    except Exception:  # noqa: BLE001 — fail-open
+        pass
+
+
+def _names(items: Any) -> list[str]:
+    """Nombres de una relación del CPG, tolerante a shapes raros.
+
+    `relations.imports` puede venir como dicts o como valores sueltos según el
+    builder; un `.get` sobre un int mataba el impacto entero y el archivo se
+    reportaba con `error` (falso "no tiene relaciones").
+    """
+    out: list[str] = []
+    for item in (items or [])[:5]:
+        name = item.get("name") if isinstance(item, dict) else item
+        if name:
+            out.append(str(name))
+    return out
+
+
 def handle_preflight(ctx: MemoryContext, **kwargs: Any) -> dict:
     """Preflight real: qué se toca, a quién afecta y qué lo verifica.
 
@@ -1045,6 +1207,24 @@ def handle_preflight(ctx: MemoryContext, **kwargs: Any) -> dict:
     out: dict[str, Any] = {"type": "preflight", "files": [], "unmapped": []}
     out["memory_health"] = _memory_health(ctx.chain_dir)
 
+    # F0c: proyectar el WorkContract y los cuatro controles 4D. Si no hay
+    # contrato para la tarea, se declara en `unmapped` (no se inventa).
+    _task_id = str(
+        body.get("task_id") or kwargs.get("task_id")
+        or getattr(ctx, "task_id", "") or ""
+    )
+    _spec = _find_task_spec(ctx.chain_dir, _task_id) if _task_id else None
+    out["contract"] = _contract_projection(_spec)
+    if not out["contract"]["present"]:
+        out["unmapped"].append({
+            "criterion": "contrato de trabajo (WorkContract)",
+            "reason": "sin WorkContract para la tarea (task_context.work_contract)",
+        })
+    _trace_contract(
+        ctx.chain_dir, _task_id, str((_spec or {}).get("spec_id", "")),
+        out["contract"]["present"],
+    )
+
     # 1. Impacto por archivo
     for f in files[:10]:
         entry: dict[str, Any] = {"file": f}
@@ -1053,13 +1233,17 @@ def handle_preflight(ctx: MemoryContext, **kwargs: Any) -> dict:
             rel = code.get("relations") or {}
             syms = [s for s in (code.get("symbols") or []) if s.get("cyclo")]
             syms.sort(key=lambda s: -(s.get("cyclo") or 0))
+            # El grafo ES la evidencia: los conteos se derivan con len() de
+            # estas listas. Sin duplicar el dato en dos formas.
             entry.update({
-                "symbols": len(code.get("symbols") or []),
                 "callers": rel.get("called_by_total", len(rel.get("called_by") or [])),
-                "calls": rel.get("calls_total", len(rel.get("calls") or [])),
-                "imports": len(rel.get("imports") or []),
-                "heaviest": [{"name": s.get("name"), "cyclo": s.get("cyclo")} for s in syms[:3]],
-                "top_callers": [c.get("name") for c in (rel.get("called_by") or [])[:5]],
+                "symbols": [
+                    {"name": s.get("name"), "cyclo": s.get("cyclo"), "line": s.get("line")}
+                    for s in syms[:5]
+                ],
+                "called_by": _names(rel.get("called_by")),
+                "calls": _names(rel.get("calls")),
+                "imports": _names(rel.get("imports")),
             })
         except Exception as exc:  # noqa: BLE001
             entry["error"] = f"{type(exc).__name__}: {exc}"
@@ -1132,7 +1316,12 @@ _IMPACT_CACHE_MAX = 64
 
 
 def _impact_key(ctx: MemoryContext, targets: list[str]) -> tuple:
-    """Firma de los archivos: cambia si el contenido pudo cambiar."""
+    """Firma de los archivos: cambia si el contenido pudo cambiar.
+
+    `v3`: el payload pasa el entry de preflight tal cual (listas, sin conteos). Una
+    entrada v1 en caché se vería como "sin relaciones" — el mismo falso
+    negativo que este cambio corrige.
+    """
     signature: list[tuple[str, int, int]] = []
     for name in targets:
         try:
@@ -1140,7 +1329,7 @@ def _impact_key(ctx: MemoryContext, targets: list[str]) -> tuple:
             signature.append((name, st.st_mtime_ns, st.st_size))
         except OSError:
             signature.append((name, 0, 0))
-    return (str(ctx.chain_dir), tuple(signature))
+    return (str(ctx.chain_dir), "v3", tuple(signature))
 
 
 def _impact_cached(key: tuple) -> dict[str, Any] | None:
@@ -1165,6 +1354,37 @@ def _impact_store(key: tuple, payload: dict[str, Any]) -> None:
 #: flight card se pide varias veces por turno. Mismo orden que el plan (2 s).
 _SELF_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _SELF_TTL_S = 2.0
+
+
+def _walker_cli(ctx: MemoryContext) -> str:
+    """Ruta del CLI para un remedio ejecutable (relativa si no existe)."""
+    candidate = os.path.join(str(getattr(ctx, "chain_dir", "") or ""), "bin", "walker3")
+    return candidate if os.path.isfile(candidate) else "./bin/walker3"
+
+
+def _denial_remedy(ctx: MemoryContext, session_id: str, denial: dict[str, Any]) -> str:
+    """Comando concreto para el último denial; nunca una frase circular.
+
+    El agente necesita el siguiente paso, no "revisá el remedio". Para `bind`
+    el comando es completo; para `scope` usa el archivo del evento; para
+    `decision` deja el comando que ejecuta el humano (el agente no decide).
+    """
+    project = str(getattr(ctx, "project_id", "") or "")
+    cli = _walker_cli(ctx)
+    gate = str(denial.get("gate") or denial.get("rule_id") or "bind")
+    file = str(denial.get("file") or denial.get("target") or "")
+    compact = {"separators": (",", ":")}
+    if gate == "scope":
+        payload = {"session_id": session_id, "mode": "add", "path": file or "<archivo>"}
+        return f"{cli} {project}/session_plan '{json.dumps(payload, **compact)}'"
+    if gate == "decision":
+        payload = {"decision": "<approve|reject|refine>", "evidence": "<motivo>"}
+        return f"{cli} {project}/submit '{json.dumps(payload, **compact)}'"
+    if gate in ("task", "intake"):
+        payload = {"objective": "<objetivo>", "files": [file] if file else []}
+        return f"{cli} {project}/implement_task '{json.dumps(payload, **compact)}'"
+    payload = {"session_id": session_id, "mode": "auto"}
+    return f"{cli} {project}/session_bind '{json.dumps(payload, **compact)}'"
 
 
 def _session_self(ctx: MemoryContext, session_id: str) -> tuple[dict[str, Any], list[str], bool]:
@@ -1220,8 +1440,13 @@ def _session_self(ctx: MemoryContext, session_id: str) -> tuple[dict[str, Any], 
     last_verified_at = str(flight.get("verified_at") or "")
     denied = 0
     by_rule: dict[str, int] = {}
+    last_by_rule: dict[str, dict[str, Any]] = {}
     expanded = 0
     close_blocked = 0
+    brief_reads = 0
+    brief_with_gaps = 0
+    orphan_specs = 0
+    workflow_ignored = 0
     for event in events:
         et = str(getattr(event, "event_type", "") or "")
         data = getattr(event, "data", None) or {}
@@ -1234,10 +1459,22 @@ def _session_self(ctx: MemoryContext, session_id: str) -> tuple[dict[str, Any], 
             denied += 1
             gate = str(data.get("gate") or data.get("rule_id") or "sin_gate")
             by_rule[gate] = by_rule.get(gate, 0) + 1
+            last = dict(data)
+            last["gate"] = gate
+            last_by_rule[gate] = last
         elif et == "flight_control_scope_expanded":
             expanded += 1
         elif et == "close_blocked":
             close_blocked += 1
+        elif et == "brief_injected":
+            brief_reads += 1
+            gaps_event = (data.get("self") or {}).get("gaps") or data.get("gaps") or []
+            if gaps_event:
+                brief_with_gaps += 1
+        elif et == "session_orphan_specs":
+            orphan_specs += len(data.get("specs") or [])
+        elif et == "workflow_suggestion_ignored":
+            workflow_ignored += 1
 
     # Gaps como objetos accionables (code/detail/remedy), no frases sueltas.
     gaps: list[dict[str, str]] = []
@@ -1260,17 +1497,32 @@ def _session_self(ctx: MemoryContext, session_id: str) -> tuple[dict[str, Any], 
             "remedy": "verificar antes de cerrar",
         })
     if denied:
-        gaps.append({
-            "code": "denials",
-            "detail": f"{denied} denial(es) de gate desde el último verde",
-            "remedy": "revisar el remedio del deny y repetir",
-        })
+        # Un gap por regla: el remedio de `bind` no es el de `scope` ni el de
+        # una decisión humana. Un solo comando para todos es otra frase vacía.
+        for gate, count in by_rule.items():
+            gaps.append({
+                "code": "denials",
+                "detail": f"{count} denial(es) de {gate} desde el último verde",
+                "remedy": _denial_remedy(ctx, session_id, last_by_rule.get(gate, {"gate": gate})),
+            })
     if expanded:
         gaps.append({
             "code": "scope_expanded",
             "detail": f"{expanded} archivo(s) ampliado(s) fuera del plan original",
             "remedy": "revisar el alcance declarado",
         })
+
+    # Remedio observado: ¿la lectura del espejo cambió la acción siguiente?
+    # Sin lecturas con gap es `None` (sin datos), no 0.
+    try:
+        from fast_mcp.features.event_tracing.application.services.metacognition import (
+            load_tool_records,
+            mirror_acted_on,
+        )
+
+        mirror = mirror_acted_on(events, load_tool_records(), session_id)
+    except Exception:  # noqa: BLE001 — el espejo no depende de la telemetría
+        mirror = {"brief_reads_with_gaps": brief_with_gaps, "acted": 0, "rate": None}
 
     state = {
         "writes": writes,
@@ -1279,6 +1531,11 @@ def _session_self(ctx: MemoryContext, session_id: str) -> tuple[dict[str, Any], 
         "denials": {"total": denied, "by_rule": by_rule},
         "scope_expanded": expanded,
         "close_blocked": close_blocked,
+        "brief_reads": brief_reads,
+        "brief_with_gaps": brief_with_gaps,
+        "orphan_specs": orphan_specs,
+        "workflow_ignored": workflow_ignored,
+        "mirror_acted": int(mirror.get("acted") or 0),
         "gaps": gaps,
     }
     _SELF_CACHE[key] = (time.monotonic(), len(events), dict(state), [], False)
@@ -1432,7 +1689,7 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
             impact = {**cached, "cached": True}
         else:
             try:
-                preflight = handle_preflight(ctx, _payload={"files": targets})
+                preflight = handle_preflight(ctx, _payload={"files": targets, "task_id": task_id})
                 if preflight.get("error"):
                     missing.append(f"impact: {preflight['error']}")
                     degraded = True
@@ -1440,20 +1697,14 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
                     rows = preflight.get("files") or []
                     impact["callers"] = sum(int(r.get("callers") or 0) for r in rows)
                     impact["tests"] = [str(t) for t in (preflight.get("tests") or [])[:5]]
-                    ranked = sorted(
-                        rows,
-                        key=lambda r: int(r.get("callers") or 0)
-                        * max(int(((r.get("heaviest") or [{}])[0] or {}).get("cyclo") or 1), 1),
-                        reverse=True,
-                    )
-                    impact["files"] = [
-                        {
-                            "file": r.get("file"),
-                            "callers": r.get("callers"),
-                            "heaviest": (r.get("heaviest") or [])[:1],
-                        }
-                        for r in ranked[:3]
-                    ]
+                    # El CPG que no respondió para un archivo se declara: un cero
+                    # silencioso se lee como "no tiene llamadores".
+                    broken = [str(r.get("file")) for r in rows if r.get("error")]
+                    if broken:
+                        missing.append("impact: CPG sin respuesta en " + ", ".join(broken[:3]))
+                        degraded = True
+                    # Lo que el CPG ya trajo, tal cual: acá no se proyecta.
+                    impact["files"] = (preflight.get("files") or [])[:3]
                     impact["risk"] = (
                         "alto" if impact["callers"] > 50
                         else "medio" if impact["callers"] > 10
@@ -1469,24 +1720,43 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
     gates: dict[str, Any] = {"sprint": "", "task": "", "scope": [], "next": ""}
     if not session_id:
         missing.append("gates: sin session_id")
-    else:
-        try:
-            from fast_mcp.composition import build_sprint_service
+    try:
+        from fast_mcp.composition import build_sprint_service, sprint_context_for
 
-            service = build_sprint_service(ctx.chain_dir)
-            session = (service.get_session(session_id) or {}) if service else {}
-            plan = (service.get_session_plan(session_id) or {}) if service else {}
-            scope = list(plan.get("scope") or [])
-            gates = {
-                "sprint": str(session.get("spring_id") or plan.get("spring_id") or ""),
-                "task": str(plan.get("task") or ""),
-                "scope": scope[:8],
-                "scope_total": len(scope),
-                "next": str(plan.get("next") or "")[:120],
-            }
-        except Exception as exc:  # noqa: BLE001
-            missing.append(f"gates: {type(exc).__name__}: {exc}")
-            degraded = True
+        session: dict[str, Any] = {}
+        plan: dict[str, Any] = {}
+        service = build_sprint_service(ctx.chain_dir) if session_id else None
+        if service is not None:
+            session = service.get_session(session_id) or {}
+            plan = service.get_session_plan(session_id) or {}
+        scope = list(plan.get("scope") or [])
+        # El sprint del gate es el MISMO que ve `status`/`workflow_state`
+        # (ADR-WALKER-085). Antes `brief` solo miraba la sesión: sin
+        # `session_id` imprimía "(sin sprint)" mientras `status` mostraba uno.
+        resolve = getattr(service, "resolve_context", None)
+        sctx = (
+            resolve(ctx.chain_dir, session_id=session_id)
+            if callable(resolve)
+            else sprint_context_for(ctx.chain_dir, session_id=session_id)
+        )
+        gates = {
+            "sprint": sctx.spring_id
+            or str(session.get("spring_id") or plan.get("spring_id") or ""),
+            "task": str(plan.get("task") or ""),
+            "scope": scope[:8],
+            "scope_total": len(scope),
+            "next": str(plan.get("next") or "")[:120],
+            "resolved_by": sctx.resolved_by,
+        }
+        if sctx.diagnostics:
+            gates["diagnostics"] = list(sctx.diagnostics)
+            # Sin sesión no hay "drift de atribución" que reportar: el único
+            # gate faltante es el propio session_id.
+            if session_id:
+                missing.extend(f"sprint: {d}" for d in sctx.diagnostics)
+    except Exception as exc:  # noqa: BLE001
+        missing.append(f"gates: {type(exc).__name__}: {exc}")
+        degraded = True
 
     # 4. Step del workflow: reemplaza `workflow_state` en el perfil del agente.
     step: dict[str, Any] = {}
@@ -1494,13 +1764,16 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
         from fast_mcp.composition import workflow_tool_runner
 
         state = workflow_tool_runner("workflow_state")(
-            project_id=ctx.project_id, view="light"
+            project_id=ctx.project_id, session_id=session_id, view="light"
         )
         if isinstance(state, dict) and not state.get("error"):
             step = {
                 "position": str(state.get("current_position") or ""),
                 "execution": str(state.get("execution_type") or ""),
                 "required_fields": list(state.get("required_fields") or []),
+                "expected_payload": state.get("expected_payload") or {},
+                "step_schema": state.get("step_schema") or {},
+                "decision_options": state.get("decision_options") or [],
                 "next_action": state.get("next_action") or {},
                 "gates": list(state.get("available_gates") or []),
             }
@@ -1606,29 +1879,6 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
         missing.append(f"code_context: {type(exc).__name__}: {exc}")
         degraded = True
 
-    # ADR-084: score de metacognición local (sesión). No reemplaza al
-    # `scripts/metacognition_score.py` global; es una señal barata para el
-    # agente dentro del mismo turno.
-    metacognition = {"score": 0, "components": {}}
-    if self_state:
-        gaps = self_state.get("gaps") or []
-        verified = self_state.get("verified")
-        denials = (self_state.get("denials") or {}).get("total", 0)
-        score = 0
-        if verified is True:
-            score += 40
-        if not gaps:
-            score += 40
-        score += max(0, 20 - min(20, int(denials) * 5))
-        metacognition = {
-            "score": max(0, min(100, score)),
-            "components": {
-                "verified": verified is True,
-                "gaps": len(gaps),
-                "denials": int(denials),
-            },
-        }
-
     # ADR-084: el agente ve el CPG sin salir del lector consolidado. Se
     # intenta; si el servicio no está o falla, se declara en `missing`.
     review: dict[str, Any] | None = None
@@ -1648,51 +1898,51 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
         missing.append(f"review: {type(exc).__name__}: {exc}")
         degraded = True
 
-    # Metacognición explícita: conocimiento (self/task/strategies) + regulación
-    # (plan/monitor/evaluate). Reusa lo que ya se leyó, no duplica verdad.
-    if isinstance(metacognition, dict):
-        gaps_now = (self_state.get("gaps") or []) if self_state else []
-        strategies = []
-        if review is not None:
-            strategies.append("revisar CPG")
-        if targets:
-            strategies.append("preflight de impacto")
-        if gaps_now:
-            strategies.append("remediar gaps")
-        if not strategies:
-            strategies.append("consultar brief")
-        metacognition["knowledge"] = {
-            "self": {
-                "verified": (self_state or {}).get("verified"),
-                "gaps": len(gaps_now),
-                "denials": ((self_state or {}).get("denials") or {}).get("total", 0),
-            },
-            "task": {
-                "callers": (impact or {}).get("callers", 0),
-                "risk": (impact or {}).get("risk", ""),
-                "criteria": len((plan or {}).get("acceptance") or []),
-            },
-            "strategies": strategies,
-        }
-        metacognition["regulation"] = {
-            "plan": {
-                "strategy": strategies[0] if strategies else "",
-                "why": "impacto/decisiones del ancla",
-            },
-            "monitor": {
-                "gaps": len(gaps_now),
-                "next": (gaps_now[0].get("remedy") if gaps_now and isinstance(gaps_now[0], dict) else ""),
-            },
-            "evaluate": {
-                "tests": (self_state or {}).get("verified"),
-                "review": (review or {}).get("passed"),
-                "adjust": "definir predicados" if (plan or {}).get("unverified") else "",
-            },
-        }
+    # Una sola fórmula (ADR-084): `brief` y `scripts/metacognition_score.py`
+    # consumen el mismo `compute_metacognition`. Sin datos el score es `None`.
+    from fast_mcp.features.event_tracing.application.services.metacognition import (
+        compute_metacognition,
+    )
+
+    metacognition = compute_metacognition(
+        self_state,
+        session_id=session_id,
+        task_id=task_id,
+        impact=impact,
+        plan=plan,
+        review=review,
+    )
+
+    # F0c: proyectar el WorkContract y los cuatro controles 4D desde la spec
+    # del ancla. Es el "contrato" que el agente debe respetar en la fase.
+    contract_proj = _contract_projection(task_spec)
+    _trace_contract(
+        ctx.chain_dir, task_id, str((task_spec or {}).get("spec_id", "")),
+        contract_proj["present"],
+    )
+
+    # F1d: checkpoint de review con budget + what_changed + plan_diff.
+    budget_checkpoint: dict[str, Any] = {
+        "budget": (contract_proj.get("contract") or {}).get("budget", {}),
+        "plan_diff": plan_diff_result,
+        "what_changed": None,
+    }
+    if session_id:
+        try:
+            from fast_mcp.memories.handlers.cockpit import handle_what_changed
+
+            budget_checkpoint["what_changed"] = handle_what_changed(
+                ctx, _payload={"session_id": session_id, "task_id": task_id}
+            )
+        except Exception as exc:  # noqa: BLE001
+            missing.append(f"budget_checkpoint: {type(exc).__name__}: {exc}")
+            degraded = True
 
     return {
         "type": "brief",
         "anchor": anchor,
+        "contract": contract_proj,
+        "budget_checkpoint": budget_checkpoint,
         "decisions": decisions,
         "impact": impact,
         "gates": gates,
@@ -1704,6 +1954,7 @@ def handle_brief(ctx: MemoryContext, **kwargs: Any) -> dict:
         "metacognition": metacognition,
         "consistency": consistency,
         "review": review,
+        "review_markdown": state.get("review_markdown") if isinstance(state, dict) else None,
         "plan_diff": plan_diff_result,
         "code_context": code_context_result,
         "missing": missing,

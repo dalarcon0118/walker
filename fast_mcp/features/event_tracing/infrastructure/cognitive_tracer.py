@@ -138,12 +138,18 @@ class CognitiveTracer(ITracer):
         from_node: str,
         to_node: str,
         task_id: str | None = None,
+        skipped: list | None = None,
     ) -> None:
+        data: dict = {"gate": gate, "from": from_node, "to": to_node}
+        if skipped:
+            # Acciones del nodo que el gate dejó sin ejecutar: sin esto la
+            # traza muestra un salto limpio y el trabajo perdido es invisible.
+            data["skipped_actions"] = skipped
         self._service.push_event(chain_dir, {
             "event_type": "TRANSITION",
             "source": "workflow",
             "task_id": task_id or "",
-            "data": {"gate": gate, "from": from_node, "to": to_node},
+            "data": data,
         })
 
     def trace_error(
@@ -167,11 +173,31 @@ class CognitiveTracer(ITracer):
         session_id: str = "",
         layers: set[str] | list[str] | None = None,
     ) -> bool:
-        """Check if a kg_query event exists in the trace."""
+        """Check if a kg_query event exists in the trace.
+
+        Un evento SIN `task_id` es evidencia válida: las tools de memoria
+        (`recall_knowledge`, `search_memories`, `code_search`) no conocen la
+        tarea en curso, así que emitían el evento sin atribución y un gate
+        acotado por tarea era insatisfacible (medido 2026-11-26: `submit` en
+        IMPLEMENT.WORK quedaba bloqueado aunque el agente hubiera consultado
+        CKG y CPG; hubo que empujar el evento a mano). Un evento atribuido a
+        OTRA tarea no cuenta.
+
+        `layers` sí se respeta: una consulta al CKG no prueba que se miró el
+        CPG. Antes se aceptaba cualquier `kg_query` para cualquier capa.
+        """
+        required = {str(layer) for layer in (layers or []) if layer}
         events = self._service.load_traces(chain_dir)
         for ev in events:
-            if ev.event_type == "kg_query":
-                if task_id and ev.task_id != task_id:
+            if ev.event_type != "kg_query":
+                continue
+            if task_id and ev.task_id and ev.task_id != task_id:
+                continue
+            if required:
+                event_layers = {
+                    str(layer) for layer in ((ev.data or {}).get("layers") or [])
+                }
+                if not (event_layers & required):
                     continue
-                return True
+            return True
         return False

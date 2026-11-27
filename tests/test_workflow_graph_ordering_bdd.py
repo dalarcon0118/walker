@@ -20,20 +20,33 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _ctx_at(tmp_path: Path, node: str, sub: str, idx: int) -> WorkflowContext:
-    (tmp_path / ".workflow-state.json").write_text(
-        json.dumps(
-            {
-                "current_node": node,
-                "current_sub_state": sub,
-                "sub_state_index": idx,
-                "sub_state_data": {},
-                "history": [],
-                "context": {},
-                "revision": 0,
-            }
-        ),
-        encoding="utf-8",
+    import sqlite3, os
+    db_path = os.path.join(str(tmp_path), "data", "cognitive.sqlite3")
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute("""CREATE TABLE IF NOT EXISTS workflow_state (
+        spec_id TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL DEFAULT '',
+        state_json TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (spec_id, session_id)
+    )""")
+    state = {
+        "current_node": node,
+        "current_sub_state": sub,
+        "sub_state_index": idx,
+        "sub_state_data": {},
+        "history": [],
+        "context": {},
+        "revision": 0,
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO workflow_state (spec_id, session_id, state_json, revision, updated_at) VALUES (?,?,?,?,?)",
+        ("", "", json.dumps(state), 0, ""),
     )
+    conn.commit()
+    conn.close()
     ctx = WorkflowContext.resolve(str(tmp_path))
     assert ctx is not None
     return ctx
@@ -80,7 +93,9 @@ def test_task_review_expone_las_salidas_de_revision(tmp_path):
 def test_active_expone_el_flujo_principal(tmp_path):
     ctx = _ctx_at(tmp_path, "SPRINT", "ACTIVE", 4)
 
-    assert {"start_task", "edit_plan", "start_review", "close_sprint"} <= _gates(ctx)
+    assert {"start_task", "edit_plan", "start_review"} <= _gates(ctx)
+    # Sin atajo de cierre: el sprint se cierra solo tras review + informe + retro.
+    assert "close_sprint" not in _gates(ctx)
 
 
 def test_report_gate_deja_la_spec_en_review():
@@ -154,8 +169,14 @@ def test_design_approved_solo_despues_de_ckg_save(tmp_path):
 
 def test_design_approved_lee_la_decision_de_design_review(tmp_path):
     ctx = _ctx_at(tmp_path, "DESIGN", "CKG_SAVE", 4)
+    # CKG_SAVE declara `documenting_knowledge`: un gate de avance no puede
+    # salir de un paso con su acción sin ejecutar. Se registra la ejecución
+    # (el flujo real la corre con `advance`) para probar sólo la decisión.
     state = ctx.orchestrator._load_state().record_submit(
         "DESIGN_REVIEW", {"decision": "approve"}
+    ).record_node_execution(
+        node="DESIGN", sub_state="CKG_SAVE", action="documenting_knowledge",
+        task_ok=True,
     )
     assert ctx.orchestrator._save_state(state)
 

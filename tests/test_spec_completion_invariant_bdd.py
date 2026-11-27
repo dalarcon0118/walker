@@ -68,6 +68,9 @@ def _artifacts():
         "commit_hash": "abc123",
         "review_verdict": "approved",
         "evidence": ["test passed"],
+        # Invariante de cierre: el autor no firma su propio cierre, hace falta
+        # una revisión independiente (`review_missing` en spec_service.py).
+        "reviewed_by": "revisor-independiente",
     }
 
 

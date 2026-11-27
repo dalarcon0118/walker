@@ -165,6 +165,21 @@ def quality_context(state: Any) -> dict[str, Any]:
     return {}
 
 
+def predicate_verdict(state: Any) -> str:
+    """Veredicto de predicados del último PREDICATE_CHECK: "true"|"false"|"sin verificar".
+
+    El gate del PO necesita este dato y no estaba en ningún `step_quality_*`
+    (PREDICATE_CHECK reporta `all_satisfied`, no `passed`/`findings`). Devuelve
+    "sin verificar" en vez de omitir: un placeholder sin proveedor rompe el
+    contrato de los templates, y un silencio se lee como verde.
+    """
+    for execution in reversed(_executions(state)):
+        data = _execution_data(execution)
+        if "all_satisfied" in data:
+            return "true" if data.get("all_satisfied") else "false"
+    return "sin verificar"
+
+
 def spec_context(spec: dict[str, Any] | None) -> dict[str, Any]:
     """Datos de la tarea para `task_table` / `risk_table` / `predicates`."""
     if not spec:
@@ -203,6 +218,17 @@ def spec_context(spec: dict[str, Any] | None) -> dict[str, Any]:
     items = _predicate_items(spec.get("predicates"))
     if items:
         out["predicates"] = "\n".join(f"  - {p}" for p in items[:_LIST_LIMIT])
+
+    # F1a: inyectar el bloque reuse declarado en el WorkContract (advisory).
+    tc = spec.get("task_context") or {}
+    if isinstance(tc, dict):
+        contract = tc.get("work_contract") or {}
+        if isinstance(contract, dict):
+            reuse = contract.get("reuse")
+            if reuse:
+                out["reuse"] = (
+                    reuse if isinstance(reuse, str) else "Reuse declarado: " + str(reuse)
+                )
     return out
 
 
@@ -292,6 +318,24 @@ def reflection_context(
     }
 
 
+def _sprint_summary_item(spec: dict) -> str:
+    """Bloque multilínea de una spec para el resumen del sprint."""
+    spec_id = str(spec.get("spec_id") or "?")
+    status = str(spec.get("status") or "")
+    objective = str(spec.get("objective") or "")
+    files = [str(f) for f in (spec.get("files") or [])]
+    criteria = [str(c) for c in (spec.get("acceptance_criteria") or [])]
+    depends = [str(d) for d in (spec.get("depends_on") or [])]
+    lines = [f"- {spec_id} [{status}]: {objective}"]
+    if files:
+        lines.append("    archivos: " + ", ".join(files))
+    if criteria:
+        lines.append("    criterios: " + "; ".join(criteria))
+    if depends:
+        lines.append("    depende de: " + ", ".join(depends))
+    return "\n".join(lines)
+
+
 def sprint_extra(specs: list[dict], spring: dict, task_id: str) -> dict[str, Any]:
     """Datos del sprint y de la spec para los templates de SPRINT/IMPLEMENT."""
     in_flow = ("specified", "approved")
@@ -312,6 +356,14 @@ def sprint_extra(specs: list[dict], spring: dict, task_id: str) -> dict[str, Any
             for s in blocked[:_LIST_LIMIT]
         )
         or "(ninguna)",
+        # Resumen del sprint COMPLETO al cerrar el plan: todas las specs, su
+        # goal (objective), estado, archivos y criterios. Antes ACTIVE solo
+        # mostraba objetivos truncados a 70 chars y el usuario no veía el plan
+        # aprobado (medido 2026-11-24).
+        "sprint_summary_list": "\n".join(
+            _sprint_summary_item(s) for s in specs[:_LIST_LIMIT]
+        )
+        or "(sin specs)",
         "task_id": task_id,
     }
     spec = next((s for s in specs if str(s.get("spec_id")) == task_id), None)
@@ -511,54 +563,115 @@ def session_plan_context(plan: dict[str, Any] | None) -> dict[str, Any]:
     return {"existing_work": out, "existing_work_line": out["line"], "task_id": task}
 
 
+def sprint_deliverable_context(state: Any) -> dict[str, Any]:
+    """Informe y retro REGISTRADOS (SPRINT.REPORT/RETRO) como texto para el prompt.
+
+    Sin esto, CLOSE_CONFIRM pedía "mostrá el resumen" pero no tenía el informe
+    que el PO acababa de aprobar: el agente lo repetía de memoria o directamente
+    no lo mostraba (medido 2026-11-27). El informe viaja tal cual se registró.
+    """
+    raw = getattr(state, "sub_state_data", None)
+    if raw is None and isinstance(state, dict):
+        raw = state.get("sub_state_data")
+    data = raw if isinstance(raw, dict) else {}
+
+    def _fields(key: str) -> dict:
+        block = _as_dict(data.get(key))
+        return _as_dict(block.get("fields") or block)
+
+    report = _fields("REPORT")
+    retro = _fields("RETRO")
+    if not report and not retro:
+        return {}
+
+    lines: list[str] = []
+    summary = str(report.get("summary") or "").strip()
+    if summary:
+        lines.append(summary)
+    metrics = report.get("metrics")
+    if isinstance(metrics, dict) and metrics:
+        lines.extend(["", "MÉTRICAS"])
+        for key, value in metrics.items():
+            if isinstance(value, (list, tuple)):
+                value = ", ".join(str(v) for v in value)
+            lines.append(f"- {key}: {value}")
+    for label, key in (("RIESGOS / DEUDA", "risks"), ("PRÓXIMOS PASOS", "next")):
+        items = report.get(key)
+        if isinstance(items, (list, tuple)) and items:
+            lines.extend(["", label])
+            lines.extend(f"- {item}" for item in items)
+    lessons = retro.get("lecciones")
+    if isinstance(lessons, (list, tuple)) and lessons:
+        lines.extend(["", "RETRO — LECCIONES"])
+        for item in lessons:
+            text = item.get("leccion") if isinstance(item, dict) else item
+            if text:
+                lines.append(f"- {text}")
+    return {"sprint_report": "\n".join(lines).strip()}
+
+
 def build_prompt_extra(state: Any, chain_dir: str, session_id: str) -> dict[str, Any]:
     """Todo el `extra_data` que los templates pueden usar, sin inventar nada."""
     extra: dict[str, Any] = {}
     extra.update(quality_context(state))
+    extra.update(sprint_deliverable_context(state))
     extra.update(project_briefing_context(state, chain_dir))
+    extra["step_predicates"] = predicate_verdict(state)
     happened = last_step_summary(state)
     if happened:
         extra["what_happened"] = happened
 
     task_id = ""
     try:
-        from fast_mcp.composition import build_sprint_service
+        from fast_mcp.composition import build_sprint_service, sprint_context_for
 
-        service = build_sprint_service(chain_dir)
-        if service is not None:
-            spring_id = ""
-            if session_id:
-                record = service.get_session(session_id) or {}
-                spring_id = str(record.get("spring_id") or "")
-            if not spring_id:
-                spring_id = service.get_spring_id(chain_dir)
-            spring = (service.get_spring(spring_id) if spring_id else None) or {}
-            specs = (
-                [s for s in (service.get_specs(spring_id) or []) if isinstance(s, dict)]
-                if spring_id
-                else []
+        ctx_data = getattr(state, "context", {}) or {}
+        context = ctx_data if isinstance(ctx_data, dict) else {}
+        task_id = str(
+            context.get("task_id")
+            or getattr(state, "task_id", "")
+            or ""
+        )
+
+        # Un solo SprintService por prompt (brief ya es caro, AE-INV-05).
+        try:
+            service = build_sprint_service(chain_dir)
+        except Exception:  # noqa: BLE001 — el prompt no depende del delta
+            service = None
+
+        # Política ÚNICA (ADR-WALKER-085): sesión > activo > planning. Antes el
+        # prompt caía a `get_spring_id(chain_dir)` = basename del proyecto, que
+        # no es un sprint: pintaba `Goal:` vacío y `0/0` aunque el DeltaGraph
+        # tuviera el sprint y sus specs.
+        resolve = getattr(service, "resolve_context", None)
+        requested = str(context.get("spring_id") or context.get("sprint_id") or "")
+        if callable(resolve):
+            sctx = resolve(chain_dir, session_id=session_id, spring_id=requested)
+        else:
+            sctx = sprint_context_for(
+                chain_dir, session_id=session_id, spring_id=requested
             )
-            ctx_data = getattr(state, "context", {}) or {}
-            task_id = str(
-                (ctx_data.get("task_id") if isinstance(ctx_data, dict) else "")
-                or getattr(state, "task_id", "")
-                or ""
-            )
-            # F5/P2: el primer nodo arranca desde lo que la sesión ya declaró.
-            # `existing_work` viaja al prompt y `task_id` prefiere el plan de la
-            # SESIÓN sobre el del proyecto: sin esto, START preguntaba "elegí un
-            # proyecto" y el prompt citaba la spec de otra tarea (medido:
-            # workflow_state devolvía SPEC-014 con la sesión trabajando en otra).
-            plan_ctx: dict[str, Any] = {}
-            if session_id:
-                try:
-                    plan_ctx = session_plan_context(service.get_session_plan(session_id))
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("prompt_context: plan de sesión no disponible (%s)", exc)
-            if plan_ctx:
-                extra.update(plan_ctx)
-                task_id = str(plan_ctx.get("task_id") or "") or task_id
-            extra.update(sprint_extra(specs, spring, task_id))
+        if sctx.found:
+            extra.update(sprint_extra(list(sctx.specs), sctx.spring, task_id))
+            extra["sprint_id"] = sctx.spring_id
+            extra["sprint_resolved_by"] = sctx.resolved_by
+            if sctx.diagnostics:
+                extra["sprint_diagnostics"] = list(sctx.diagnostics)
+
+        # F5/P2: el primer nodo arranca desde lo que la sesión ya declaró.
+        # `existing_work` viaja al prompt y `task_id` prefiere el plan de la
+        # SESIÓN sobre el del proyecto: sin esto, START preguntaba "elegí un
+        # proyecto" y el prompt citaba la spec de otra tarea (medido:
+        # workflow_state devolvía SPEC-014 con la sesión trabajando en otra).
+        plan_ctx: dict[str, Any] = {}
+        if session_id and service is not None:
+            try:
+                plan_ctx = session_plan_context(service.get_session_plan(session_id))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("prompt_context: plan de sesión no disponible (%s)", exc)
+        if plan_ctx:
+            extra.update(plan_ctx)
+            task_id = str(plan_ctx.get("task_id") or "") or task_id
     except Exception as exc:  # noqa: BLE001 — el prompt no depende del sprint
         logger.debug("prompt_context: sprint no disponible (%s)", exc)
 

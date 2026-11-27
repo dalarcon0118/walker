@@ -308,7 +308,7 @@ def test_preflight_devuelve_impacto_tests_y_baseline(monkeypatch):
             return SimpleNamespace(execute=lambda target_file, query: {
                 "symbols": [{"name": "f", "cyclo": 9}, {"name": "g", "cyclo": 2}],
                 "relations": {"calls": [{"name": "x"}], "called_by": [{"name": "user"}],
-                              "called_by_total": 26, "calls_total": 42, "imports": [1]},
+                              "called_by_total": 26, "calls_total": 42, "imports": [{"name": "x"}]},
             })
 
     monkeypatch.setattr(k, "tests_for_files", lambda files, root: ["tests/test_f.py"], raising=False)
@@ -333,7 +333,7 @@ def test_preflight_devuelve_impacto_tests_y_baseline(monkeypatch):
 
     assert out["answerable"] is True
     assert out["files"][0]["callers"] == 26
-    assert out["files"][0]["heaviest"][0]["name"] == "f"
+    assert out["files"][0]["symbols"][0]["name"] == "f"
     assert out["tests"] == ["tests/test_f.py"]
     assert out["baseline"]["structure"] == {"nodes": 10}
 

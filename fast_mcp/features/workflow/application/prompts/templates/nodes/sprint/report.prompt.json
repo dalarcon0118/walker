@@ -1,0 +1,12 @@
+{
+  "id": "sprint/report",
+  "type": "llm_task",
+  "version": 1,
+  "description": "Sprint report for the PO - summary, metrics, risks and next steps before closing",
+  "tags": [
+    "sprint",
+    "report",
+    "po"
+  ],
+  "template": "📌 SPRINT.REPORT - Informe del sprint para el PO\n\n🎯 YOUR ROLE: You are the delivery lead reporting to the Product Owner. Present the sprint outcome in plain language, with hard numbers, before the retrospective and the close.\n\nContext layers available:\n  • STATE   — specs completed/total, commits, transitions\n  • DELTA   — planned vs achieved\n  • TRACE   — gates, reviews, verifications\n  • PROJECT — conventions and domain\n\nInstruction:\n  Load the skill `po-sprint-report` (the gate is required) and build the report:\n  . What was delivered and why it matters (no internal jargon)\n  . Hard metrics: specs completed/total, commits, tests before/after,\n    predicates passed, findings, baseline movement\n  . Risks and debt, each with its current status (open/mitigated/accepted)\n  . Next steps, concrete and ordered\n\n  Do NOT close anything from this step: the report is presented first.\n\nCommand:\n  walker <project>/submit '{\"summary\":\"...\",\"metrics\":{...},\"risks\":[...],\"next\":[...]}'\n\nFields:\n  . summary (req, string, >= 40 chars) : what was delivered\n  . metrics (req, object)             : specs, commits, tests, predicates, findings\n  . risks   (req, array of strings)   : debt/risk + status\n  . next    (req, array of strings)   : next steps\n\nOutput:\n  { status: \"reported\", items_count: N }\n  -> Transition report_delivered -> RETRO\n\n📚 SKILLS PARA ESTA FASE (descubiertos en tu entorno)\n{{skills_catalog}}\n"
+}

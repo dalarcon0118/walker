@@ -1,3 +1,55 @@
+from __future__ import annotations
+def _compute_workflow_checksum(workflow_path: str) -> str:
+    """SHA256 del manifest + archivos importados (nodes + edges)."""
+    import hashlib, json, os
+    h = hashlib.sha256()
+    with open(workflow_path, "rb") as f:
+        h.update(f.read())
+    try:
+        raw = json.load(open(workflow_path))
+        imp = raw.get("import", {}) if isinstance(raw, dict) else {}
+        base = os.path.dirname(workflow_path)
+        for node_path in (imp.get("nodes") or []):
+            full = os.path.join(base, node_path)
+            if os.path.exists(full):
+                with open(full, "rb") as f:
+                    h.update(f.read())
+        edges_path = imp.get("edges")
+        if edges_path:
+            full = os.path.join(base, edges_path)
+            if os.path.exists(full):
+                with open(full, "rb") as f:
+                    h.update(f.read())
+    except Exception:  # noqa: BLE001
+        pass
+    return h.hexdigest()
+
+
+def _verify_workflow_checksum(workflow_path: str) -> None:
+    """Verifica el checksum si existe `.workflow-checksum`; fail-fast si no coincide."""
+    import os
+    base = os.path.dirname(workflow_path)
+    checksum_path = os.path.join(base, ".workflow-checksum")
+    if not os.path.exists(checksum_path):
+        # Primera ejecucion: escribir el checksum canónico.
+        try:
+            with open(checksum_path, "w") as f:
+                f.write(_compute_workflow_checksum(workflow_path))
+        except Exception:  # noqa: BLE001
+            pass
+        return
+    try:
+        stored = open(checksum_path).read().strip()
+    except Exception:  # noqa: BLE001
+        return
+    current = _compute_workflow_checksum(workflow_path)
+    if stored and stored != current:
+        raise ValueError(
+            f"workflow checksum mismatch: stored={stored} current={current}. "
+            "El workflow JSON fue modificado sin actualizar .workflow-checksum."
+        )
+
+
 """infrastructure/graph_repository.py — WorkflowGraph repository.
 
 Loads workflow.json (with modular import resolution) and constructs
@@ -7,7 +59,6 @@ Original: ~200 LOC in repositories.py.
 Simplified: ~150 LOC. No ContextResolver, no ValidationService.verify_graph.
 Keeps: _resolve_imports + _build_graph (required by real workflow.json).
 """
-from __future__ import annotations
 
 import json
 import shutil
@@ -77,8 +128,14 @@ class GraphRepository:
         3. Build entities (SubState, Gate, WorkflowNode)
         4. Validate invariants
         5. Return WorkflowGraph
+
+        Versionado (SPEC-004): se calcula un checksum SHA256 del manifest y
+        de los archivos importados. Si existe `.workflow-checksum` y no
+        coincide, se lanza ValueError (fail-fast, no degradacion silenciosa).
         """
         _seed_defaults(self._workflow_path)
+        # Verificacion de integridad (versionado ligero, sin mover a codigo).
+        _verify_workflow_checksum(self._workflow_path)
         with open(self._workflow_path) as f:
             raw = json.load(f)
 
@@ -168,6 +225,7 @@ class GraphRepository:
                 ),
                 available_from=list(e_raw.get("available_from") or []),
                 description=e_raw.get("description", ""),
+                intent=str(e_raw.get("intent") or "advance"),
                 contract=e_raw.get("contract"),
                 transform=dict(transform_raw) if transform_raw else None,
                 context_updates=e_raw.get("context_updates"),

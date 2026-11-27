@@ -76,19 +76,14 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "constructed"
-            ]
-          },
           "plan": {
             "type": "array",
             "items": {
               "type": "string"
             }
           }
-        }
+        },
+        "required": []
       },
       "on_success": "INFO_ACQUISITION",
       "on_failure": "OBSERVE",
@@ -158,19 +153,22 @@
       "output_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "acquired"
-            ]
+          "acquired": {
+            "type": "boolean",
+            "description": "true sólo si hubo queries o gaps cerrados"
           },
           "resolved_gaps": {
             "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Por qué no certifica adquisición"
           }
-        }
+        },
+        "description": "Ronda registrada. acquired=false cuando no hubo queries ni gaps: no certifica adquisición."
       },
       "on_success": "USER_GATE",
       "on_failure": "OBSERVE",
@@ -330,11 +328,11 @@
       "required_tools": [
         {
           "id": "ckg",
-          "command_hint": "walker_recall_knowledge (layers: ckg) — convenciones y decisiones del scope antes de tocar código"
+          "command_hint": "search_memories {\"ckg\":{\"text\":\"<tema>\"}} — convenciones y decisiones del CKG"
         },
         {
           "id": "cpg",
-          "command_hint": "walker_analyze_code / walker_cpg_business — estructura y business layer del código a modificar"
+          "command_hint": "brief {\"file\":\"<archivo>\"} o inspect_codebase action=query — estructura real del código"
         }
       ],
       "side_effects": [
@@ -461,11 +459,11 @@
       "required_tools": [
         {
           "id": "ckg",
-          "command_hint": "walker_recall_knowledge (layers: ckg) — convenciones de calidad para validar el código"
+          "command_hint": "search_memories {\"ckg\":{\"text\":\"<tema>\"}} — convenciones y decisiones del CKG"
         },
         {
           "id": "cpg",
-          "command_hint": "walker_analyze_code — estructura del código implementado para detectar violaciones"
+          "command_hint": "brief {\"file\":\"<archivo>\"} o inspect_codebase action=query — estructura real del código"
         }
       ],
       "side_effects": [
@@ -728,11 +726,11 @@
       "required_tools": [
         {
           "id": "ckg",
-          "command_hint": "walker_recall_knowledge (layers: ckg) — revisar conocimiento existente para no duplicar"
+          "command_hint": "search_memories {\"ckg\":{\"text\":\"<tema>\"}} — convenciones y decisiones del CKG"
         },
         {
           "id": "cpg",
-          "command_hint": "walker_analyze_code / walker_cpg_business — evidencia del código implementado"
+          "command_hint": "brief {\"file\":\"<archivo>\"} o inspect_codebase action=query — estructura real del código"
         }
       ],
       "side_effects": [

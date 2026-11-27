@@ -114,7 +114,7 @@ def test_submit_cruza_gate_aunque_no_sea_el_ultimo_subestado():
     state = WorkflowState(current_node="N", current_sub_state="S", sub_state_index=0)
     orch, store = _orch(graph, state)
 
-    result = orch.submit(ctx=None, fields={"decision": "approve"})
+    result = orch.submit(ctx=None, fields={"decision": "approve", "_human": True})
 
     assert result["ok"] is True, result
     assert store["state"].current_node == "T"
@@ -142,7 +142,7 @@ def test_submit_usa_decision_field_no_el_literal_decision():
     state = WorkflowState(current_node="N", current_sub_state="S", sub_state_index=0)
     orch, store = _orch(graph, state)
 
-    result = orch.submit(ctx=None, fields={"intent": "project_ready"})
+    result = orch.submit(ctx=None, fields={"intent": "project_ready", "_human": True})
 
     assert result["ok"] is True, result
     assert store["state"].current_node == "T"
@@ -387,8 +387,15 @@ def test_ningun_template_usa_un_placeholder_que_nadie_provee():
         "knowledge_relevant", "knowledge_global", "knowledge_architecture",
         "project_patterns", "project_architecture", "project_quality_gates",
         "step_quality_passed", "step_quality_summary", "step_failed_gates", "step_recommend",
+        # quality_context lo devuelve SIEMPRE ("sin verificar" si no hay dato);
+        # se verifica abajo con el provider real.
+        "step_predicates",
+        # `sprint_deliverable_context` (REPORT+RETRO) lo provee y
+        # build_prompt_extra lo cablea; se verifica abajo.
+        "sprint_report",
         "what_happened", "sprint_goal", "goal_display", "task_count", "completed_count",
         "ready_tasks", "blocked_tasks", "task_id", "task_title", "task_description",
+        "sprint_summary_list",
         "task_type", "task_domain", "task_status", "result_state", "depends_on",
         "acceptance_criteria_list", "files_list", "preconditions_list",
         "quality_gates_list", "predicates_list", "predicates", "task_table",
@@ -410,6 +417,11 @@ def test_ningun_template_usa_un_placeholder_que_nadie_provee():
     # se comprueba que el provider devuelve las dos claves.
     sample = session_plan_context({"task": "t", "acceptance": ["Debe X"]})
     assert {"existing_work", "existing_work_line"} <= set(sample), sample
+
+    from types import SimpleNamespace
+    from fast_mcp.features.workflow.application.prompt_context import predicate_verdict
+
+    assert predicate_verdict(SimpleNamespace(node_executions=[])) == "sin verificar"
 
     unknown: list[str] = []
     base = Path(ROOT, "fast_mcp/features/workflow/application/prompts/templates/nodes")
@@ -561,7 +573,7 @@ def test_submit_en_task_review_cruza_refine_task():
     )
     orch, store = _orch(graph, state)
 
-    result = orch.submit(ctx=None, fields={"decision": "refine"})
+    result = orch.submit(ctx=None, fields={"decision": "refine", "_human": True})
 
     assert result["ok"] is True, result
     assert store["state"].current_node == "SPRINT"
@@ -572,8 +584,8 @@ def test_submit_en_task_review_cruza_refine_task():
     "sub_state,decision,target_sub",
     [
         ("PLAN_APPROVAL", "revise", "PLANNING"),
-        ("TASK_REVIEW", "all_done", "ACTIVE"),
-        ("REVIEW", "accept", "RETRO"),
+        ("TASK_REVIEW", "all_done", "SPEC_REVIEW"),
+        ("REVIEW", "accept", "REPORT"),
         ("REVIEW", "needs_work", "ACTIVE"),
         ("CLOSE_CONFIRM", "close", "CLOSE"),
         ("CLOSE_CONFIRM", "cancel", "ACTIVE"),
@@ -588,7 +600,7 @@ def test_los_gates_del_sprint_cruzan_a_su_target(sub_state, decision, target_sub
     )
     orch, store = _orch(graph, state)
 
-    result = orch.submit(ctx=None, fields={"decision": decision})
+    result = orch.submit(ctx=None, fields={"decision": decision, "_human": True})
 
     assert result["ok"] is True, result
     assert store["state"].current_node == "SPRINT"
@@ -604,7 +616,7 @@ def test_design_approve_queda_registrado_y_avanza_a_ckg_save():
     )
     orch, store = _orch(graph, state)
 
-    result = orch.submit(ctx=None, fields={"decision": "approve"})
+    result = orch.submit(ctx=None, fields={"decision": "approve", "_human": True})
 
     assert result["ok"] is True, result
     # El gate `design_approved` vive en CKG_SAVE: no se cruza todavía.
@@ -628,7 +640,7 @@ def test_analyze_approve_cruza_analysis_approved():
     )
     orch, store = _orch(graph, state)
 
-    result = orch.submit(ctx=None, fields={"decision": "approve"})
+    result = orch.submit(ctx=None, fields={"decision": "approve", "_human": True})
 
     assert result["ok"] is True, result
     assert store["state"].current_node == "IMPLEMENT"
@@ -655,8 +667,32 @@ def test_project_init_project_ready_cruza_a_sprint():
     )
     orch, store = _orch(graph, state, registry=_NoopRegistry())
 
-    result = orch.submit(ctx=None, fields={"intent": "project_ready"})
+    result = orch.submit(ctx=None, fields={"intent": "project_ready", "_human": True})
 
     assert result["ok"] is True, result
     assert store["state"].current_node == "SPRINT"
     assert store["state"].current_sub_state == "ACTIVE"
+
+
+def test_advance_no_saltea_el_informe_de_un_llm_task():
+    """`advance` no puede cruzar un llm_task con required en el input_schema.
+
+    Medido 2026-11-26: SPRINT.REPORT (summary/metrics/risks/next) se salteó con
+    `advance` y el sprint pasó a RETRO sin informe. El `required` de un
+    llm_task también es un gate, no una sugerencia.
+    """
+    graph = _canonical_graph()
+    node = graph.get_node("SPRINT")
+    state = WorkflowState(
+        current_node="SPRINT",
+        current_sub_state="REPORT",
+        sub_state_index=node.sub_state_index("REPORT"),
+    )
+    orch, store = _orch(graph, state)
+
+    result = orch.advance(ctx=None, fields={})
+
+    assert result["ok"] is False, result
+    assert result.get("error_code") == "missing_required_fields", result
+    assert any("summary" in e for e in result.get("errors") or []), result
+    assert store["state"].current_sub_state == "REPORT"

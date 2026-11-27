@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+import pytest
 from returns.result import Success
 
 import fast_mcp.composition as composition
@@ -46,13 +47,22 @@ def _nodes(n: int = 7) -> list[dict]:
 def _preflight(files: list[str]) -> dict:
     return {
         "files": [
-            {"file": f, "callers": 20, "heaviest": [{"name": "f", "cyclo": 9}],
-             "symbols": 3}
+            {"file": f, "callers": 20,
+             "symbols": [{"name": "f", "cyclo": 9, "line": 10}],
+             "called_by": ["g"], "calls": ["h"], "imports": ["os"]}
             for f in files
         ],
         "tests": ["tests/test_x.py"],
         "unmapped": [],
     }
+
+
+@pytest.fixture(autouse=True)
+def _sin_cache_de_impacto():
+    """El impacto se cachea por firma de archivo y los tests comparten rutas."""
+    knowledge._IMPACT_CACHE.clear()
+    yield
+    knowledge._IMPACT_CACHE.clear()
 
 
 def _service():
@@ -233,3 +243,46 @@ def test_brief_declara_el_conflicto_entre_step_y_plan(monkeypatch):
     assert out["consistency"]["ok"] is False
     assert out["consistency"]["governs"] == "plan"
     assert "SPEC-001" in out["consistency"]["reason"]
+
+
+def _brief_con_preflight(monkeypatch, preflight: dict) -> dict:
+    monkeypatch.setattr(knowledge, "_resolve_anchor",
+                        lambda *_: ({"type": "file", "value": "a.py", "resolved": True},
+                                    ["a.py"], None))
+    monkeypatch.setattr(knowledge, "handle_preflight", lambda _ctx, **_: preflight)
+    monkeypatch.setattr(CkgReadService, "gather_context",
+                        staticmethod(lambda *_a, **_k: Success(_nodes())))
+    monkeypatch.setattr(composition, "build_sprint_service", lambda _d: _service())
+    return handle_brief(_Ctx(), _payload={"file": "a.py", "session_id": "ses_x"})
+
+
+def test_brief_compone_el_grafo_del_cpg(monkeypatch):
+    """T-CPG-ADOPTION: el impacto no es solo conteos, es estructura consultable.
+
+    Sin esto el agente paga `read` para descubrir qué símbolos y relaciones
+    tiene el archivo que `preflight` ya resolvió.
+    """
+    out = _brief_con_preflight(monkeypatch, _preflight(["a.py"]))
+
+    entry = out["impact"]["files"][0]
+    assert entry["symbols"] == [{"name": "f", "cyclo": 9, "line": 10}]
+    assert entry["called_by"] == ["g"]
+    assert entry["calls"] == ["h"]
+    assert entry["imports"] == ["os"]
+    assert out["degraded"] is False
+
+
+def test_brief_declara_el_cpg_mudo(monkeypatch):
+    """Un archivo sin respuesta del CPG no puede salir con relaciones vacías."""
+    preflight = {
+        "files": [{"file": "a.py", "error": "CPGError: índice ilegible"}],
+        "tests": [],
+        "unmapped": [],
+    }
+
+    out = _brief_con_preflight(monkeypatch, preflight)
+
+    assert out["degraded"] is True
+    assert any("CPG sin respuesta" in m for m in out["missing"])
+    # La sección sigue presente: se declara el hueco, no se borra.
+    assert out["impact"]["files"][0]["file"] == "a.py"

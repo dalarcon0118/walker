@@ -13,7 +13,11 @@ Composition root OBLIGATORIO: all dependencies injected via constructor.
 No resolve_port(), no service locator, no lazy imports.
 """
 from __future__ import annotations
+import contextvars
+import os
+import tempfile
 
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -69,6 +73,112 @@ def declared_required_fields(sub_state: Any) -> list[str]:
         required = list(schema.get("required") or [])
         if required:
             return required
+    return []
+
+
+def skipped_actions(state: Any, node: Any) -> list[dict[str, str]]:
+    """Acciones del nodo que quedaron sin ejecutar al salir del paso actual.
+
+    El motor sólo ejecuta `sub_state.action` en `submit` y `advance`; un gate
+    saca del nodo sin pasar por ahí. Medido 2026-11-26 sobre 1240 ejecuciones:
+    `DESIGN.CKG_SAVE` (documenting_knowledge) y `IMPLEMENT.STATE_CONSTRUCTION`
+    nunca corrieron aunque sus nodos sí se usaron — y nadie lo reportaba.
+    Sólo mira los sub-estados hasta la posición actual: los que están más
+    adelante no se "saltearon", todavía no llegaron.
+    """
+    if state is None or node is None:
+        return []
+    executed = {
+        str(getattr(execution, "sub_state", ""))
+        for execution in (getattr(state, "node_executions", None) or [])
+        if str(getattr(execution, "node", "")) == str(getattr(state, "current_node", ""))
+        and getattr(execution, "action", "")
+    }
+    out: list[dict[str, str]] = []
+    for index, sub in enumerate(getattr(node, "sub_states", None) or []):
+        if index > int(getattr(state, "sub_state_index", 0) or 0):
+            break
+        action = str(getattr(sub, "action", "") or "")
+        key = str(getattr(sub, "key", "") or "")
+        if action and key not in executed:
+            out.append({"sub_state": key, "action": action})
+    return out
+
+
+def blocked_by_pending(state: Any, node: Any, gate: Any) -> list[dict[str, str]]:
+    """Acción del paso ACTUAL sin ejecutar que impide un gate de avance.
+
+    Sólo el paso actual: bloquear por acciones anteriores no tendría forma de
+    ejecutarse desde ahí y dejaría la sesión sin salida. Los gates de abandono
+    (`intent: abandon` en el manifiesto) no se bloquean: `refine`, `cancel` y
+    `back_to_*` salen del nodo dejando trabajo atrás a propósito.
+    """
+    intent = str(getattr(gate, "intent", "advance") or "advance")
+    if intent == "abandon":
+        return []
+    current = str(getattr(state, "current_sub_state", ""))
+    return [
+        item for item in skipped_actions(state, node)
+        if item["sub_state"] == current
+    ]
+
+
+def node_tasks(node: Any, task_registry: Any = None) -> list[dict[str, Any]]:
+    """Tareas que ESTE nodo ejecuta, derivadas del grafo (no de tags ni listas).
+
+    El sub-estado declara `action` y el motor la corre en `auto`. Sin esto el
+    agente no sabía que ANALYZE actualiza el CPG (`sync_code_index`) ni que
+    VERIFY corre la suite: el registro existía y ninguna superficie lo
+    mostraba. `registered: false` avisa de una acción declarada sin handler
+    antes de que el motor falle al ejecutarla.
+    """
+    if node is None:
+        return []
+    metas: dict[str, dict[str, Any]] = {}
+    try:
+        if task_registry is not None:
+            metas = {t["name"]: t for t in task_registry.list_tasks_with_meta()}
+    except Exception:  # noqa: BLE001 — la vista del paso no depende del registro
+        metas = {}
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for sub in getattr(node, "sub_states", None) or []:
+        action = str(getattr(sub, "action", "") or "")
+        if not action or action in seen:
+            continue
+        seen.add(action)
+        execution = getattr(sub, "execution", "")
+        out.append(
+            {
+                "action": action,
+                "sub_state": str(getattr(sub, "key", "") or ""),
+                "execution": str(getattr(execution, "value", execution) or ""),
+                "registered": action in metas,
+                "description": str((metas.get(action) or {}).get("description", "") or ""),
+            }
+        )
+    return out
+
+
+def decision_options(sub_state: Any) -> list[str]:
+    """Opciones válidas del campo `decision` para un paso user_input.
+
+    El agente no debe adivinar qué valores acepta `decision`: el motor los
+    expone. Fuente: input_schema.properties.decision.enum, o las claves del
+    decision_map del sub-estado.
+    """
+    if sub_state is None:
+        return []
+    schema = getattr(sub_state, "input_schema", None) or {}
+    props = schema.get("properties") or {} if isinstance(schema, dict) else {}
+    dec = props.get("decision") if isinstance(props, dict) else None
+    if isinstance(dec, dict):
+        enum = dec.get("enum")
+        if isinstance(enum, list) and enum:
+            return [str(x) for x in enum]
+    dm = getattr(sub_state, "decision_map", None)
+    if isinstance(dm, dict) and dm:
+        return [str(k) for k in dm.keys()]
     return []
 
 
@@ -169,6 +279,19 @@ def next_action_for(state: WorkflowState, graph: WorkflowGraph) -> dict[str, Any
             "detail": "La decisión quedó registrada; avanzá al siguiente sub-estado.",
         }
 
+    # Un paso de trabajo (no auto, no decisión del usuario) que NO es el último
+    # del nodo avanza al siguiente sub-estado. Antes, con cualquier gate
+    # disponible, el router pedía `transition`: en SPRINT.PLANNING ofrecía
+    # `back_to_active`, que salteaba PLAN_APPROVAL y TASK_SPEC (medido
+    # 2026-11-24: el agente llegaba a implementar con las specs en `draft`).
+    exec_type = getattr(sub_state, "execution", None)
+    exec_value = getattr(exec_type, "value", exec_type) or ""
+    if exec_value != ExecutionType.USER_INPUT.value and not last and gate_names:
+        return {
+            "tool": "advance",
+            "detail": "Paso completado: avanzá al siguiente sub-estado del nodo.",
+        }
+
     if gate_names:
         return {
             "tool": "transition",
@@ -231,6 +354,142 @@ def decision_map_for(
                 out.setdefault(token, name)
                 break
     return out
+
+
+def _compact_action_data(data: Any) -> dict:
+    """Resumen de un `task_result.data` para el informe del gate.
+
+    Extrae lo que el PO necesita para validar un review: métricas del CPG,
+    gates, archivos escaneados y conteo de hallazgos. No incluye el detalle
+    completo (per_file) para no inflar el informe.
+    """
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, Any] = {}
+    if "summary" in data:
+        out["summary"] = data.get("summary")
+    if "passed" in data:
+        out["passed"] = data.get("passed")
+    cpg = data.get("cpg") if isinstance(data.get("cpg"), dict) else None
+    if cpg:
+        metrics = cpg.get("metrics") if isinstance(cpg.get("metrics"), dict) else {}
+        out["review"] = {
+            "available": cpg.get("available"),
+            "metrics": {
+                k: metrics.get(k)
+                for k in ("files", "loc", "functions", "classes", "imports",
+                          "cyclo_avg", "cyclo_max", "dead_code", "security")
+                if k in metrics
+            },
+            "gates": cpg.get("gates"),
+            "files_scanned": cpg.get("files_scanned"),
+            "findings": {k: len(v) for k, v in (cpg.get("findings") or {}).items()},
+            "issues": len(cpg.get("issues") or []),
+        }
+    return out
+
+
+def build_review_artifact(state: Any, node: Any, sub_state_def: Any) -> dict | None:
+    """Artefacto que el PO debe ver en un gate `user_input`.
+
+    Devuelve None si el sub-estado no es una decisión humana. Si lo es, junta
+    los campos ya registrados en los sub-estados del nodo actual (facts,
+    preconditions, decisiones...) más `state.context` y las ejecuciones del
+    nodo, para que el informe NO dependa de que el agente lo redacte.
+    """
+    exec_type = getattr(sub_state_def, "execution", None)
+    value = getattr(exec_type, "value", exec_type) or ""
+    if value != ExecutionType.USER_INPUT.value:
+        return None
+    steps: dict[str, dict] = {}
+    if node:
+        for ss in node.sub_states:
+            data = state.get_sub_state_data(ss.key)
+            fields = dict(getattr(data, "fields", None) or {})
+            fields.pop("project_id", None)
+            if fields:
+                steps[ss.key] = fields
+            if ss.key == state.current_sub_state:
+                break
+    executions = []
+    for ne in state.node_executions:
+        if ne.node != state.current_node:
+            continue
+        entry = {
+            "sub_state": ne.sub_state,
+            "action": ne.action,
+            "task_ok": ne.task_ok,
+            "error": ne.error,
+        }
+        tr = getattr(ne, "task_result", None)
+        data = (tr or {}).get("data") if isinstance(tr, dict) else None
+        compact = _compact_action_data(data) if data else {}
+        if compact:
+            entry["data"] = compact
+        executions.append(entry)
+    context = {k: v for k, v in (state.context or {}).items() if k != "task_id"}
+    return {
+        "position": f"{state.current_node}.{state.current_sub_state}",
+        "steps": steps,
+        "context": context,
+        "executions": executions[-8:],
+    }
+
+
+def render_review_markdown(artifact: dict | None) -> str:
+    """Markdown listo para presentar al PO (lo entrega el sistema, no el agente)."""
+    if not artifact:
+        return ""
+    lines = [f"## Informe del gate — {artifact['position']}", ""]
+    for step, fields in (artifact.get("steps") or {}).items():
+        lines.append(f"### {step}")
+        for key, val in fields.items():
+            if key in ("predicates", "skeleton"):
+                continue
+            text = val if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
+            lines.append(f"- **{key}:** {text}")
+        lines.append("")
+    ctx = artifact.get("context") or {}
+    if ctx:
+        lines.append("### Contexto")
+        for key, val in ctx.items():
+            text = val if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
+            lines.append(f"- **{key}:** {text}")
+        lines.append("")
+    execs = artifact.get("executions") or []
+    if execs:
+        lines.append("### Ejecuciones del nodo")
+        for ex in execs:
+            lines.append(
+                f"- {ex['sub_state']} · action={ex['action']} · ok={ex['task_ok']}"
+                + (f" · error={ex['error']}" if ex.get("error") else "")
+            )
+            rev = (ex.get("data") or {}).get("review")
+            if isinstance(rev, dict):
+                lines.append(f"  - review.available: {rev.get('available')}")
+                lines.append(
+                    "  - review.metrics: "
+                    + json.dumps(rev.get("metrics"), ensure_ascii=False)
+                )
+                lines.append(
+                    "  - review.files_scanned: "
+                    + json.dumps(rev.get("files_scanned"), ensure_ascii=False)
+                )
+                lines.append(
+                    "  - review.findings: "
+                    + json.dumps(rev.get("findings"), ensure_ascii=False)
+                    + f" · issues: {rev.get('issues')}"
+                )
+                gates = rev.get("gates") or []
+                if gates:
+                    rendered = "; ".join(
+                        f"{g.get('name')}={g.get('actual')}/{g.get('threshold')}"
+                        f"{'✓' if g.get('passed') else '✗'}"
+                        for g in gates
+                        if isinstance(g, dict)
+                    )
+                    lines.append("  - review.gates: " + rendered)
+    return "\n".join(lines)
 
 
 def extract_user_message(template: str, position: str) -> dict[str, Any] | None:
@@ -364,6 +623,35 @@ def _side_effect_notes(eff: Any) -> list[dict[str, str]]:
     return notes[:5]
 
 
+# ── Per-task (SPEC-015) contextvars ─────────────────────────────────────
+_current_spec_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_spec_id", default=""
+)
+_current_spring_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_spring_id", default=""
+)
+
+
+def _compact_workflow_position(state_dict: dict) -> dict:
+    """Posición detallada y COMPACTA de una tarea (SPEC-014).
+
+    No se guarda el estado entero: `workflow_position` viaja dentro de la spec
+    del Delta (SQLite) y meterle historia/node_executions la infla y multiplica
+    los conflictos de escritura. El detalle que importa para retomar es nodo,
+    sub-estado, índice, revisión y sesión.
+    """
+    context = state_dict.get("context") or {}
+    return {
+        "node": str(state_dict.get("current_node") or ""),
+        "sub_state": str(state_dict.get("current_sub_state") or ""),
+        "sub_state_index": int(state_dict.get("sub_state_index") or 0),
+        "revision": int(state_dict.get("revision") or 0),
+        "updated_at": str(state_dict.get("updated_at") or ""),
+        "task_id": str(context.get("task_id") or ""),
+        "session_id": str(context.get("session_id") or ""),
+    }
+
+
 class OrchestrationService:
     """Unified entry point for workflow operations.
 
@@ -390,9 +678,21 @@ class OrchestrationService:
         except Exception:
             return None
 
-    def _load_state(self) -> WorkflowState | None:
-        """Load state from store. Returns None on error."""
+    def _load_state(self, ctx: Any = None) -> WorkflowState | None:
+        """Load state from store (SQLite SSOT). Returns None on error.
+
+        spec_id tracked via contextvars _current_spec_id. `ctx` es opcional: se
+        usa sólo para atribuir la lectura a la sesión; los callers sin contexto
+        (composition, tests) siguen funcionando.
+        """
         try:
+            # Sync contextvar to StateRepository's contextvar
+            from fast_mcp.features.workflow.infrastructure.state_repository import (
+                _current_spec_id as _repo_spec_id,
+                _current_session_id as _repo_session_id,
+            )
+            _repo_spec_id.set(_current_spec_id.get())
+            _repo_session_id.set((getattr(ctx, "session_id", "") or "") if ctx else "")
             return self._bundle.workflow_store.load_state(self._bundle.chain_dir)
         except Exception:
             return None
@@ -405,9 +705,106 @@ class OrchestrationService:
         """
         return self._load_state()
 
-    def _save_state(self, state: WorkflowState) -> bool:
-        """Persist state. Returns True on success."""
+    # ── SPEC-014/015: alcance por tarea y sincronización de la posición ──
+
+    def _task_scope(
+        self, ctx: ExecutionContext, fields: dict[str, Any] | None = None
+    ) -> tuple[str, str]:
+        """(spec_id, spring_id) de la tarea en curso.
+
+        Prioridad: `spec_id` explícito → `ctx.task_id` → `task_id` recordado en
+        el estado. Sin el último, la primera llamada sin `task_id` volvía al
+        estado GLOBAL: el archivo per-spec nunca se creaba y la posición por
+        tarea no existía (medido 2026-11-26).
+        """
+        fields = fields or {}
+        raw = str(fields.get("spec_id") or getattr(ctx, "task_id", "") or "").strip()
+        if not raw:
+            try:
+                current = self._bundle.workflow_store.load_state(self._bundle.chain_dir)
+                raw = str(((current.context or {}) if current else {}).get("task_id", "") or "").strip()
+            except Exception:  # noqa: BLE001 — sin estado no hay alcance
+                raw = ""
+        spec_id = raw if raw.upper().startswith("SPEC") else ""
+        spring_id = ""
         try:
+            from fast_mcp.composition import _build_sprint_service
+
+            service = _build_sprint_service(self._bundle.chain_dir)
+            if service is not None:
+                session_id = getattr(ctx, "session_id", "") or ""
+                if session_id:
+                    try:
+                        record = service.get_session(session_id)
+                        if isinstance(record, dict):
+                            spring_id = str(record.get("spring_id") or "")
+                    except Exception:  # noqa: BLE001 — sin sesión se usa el activo
+                        pass
+                if not spring_id:
+                    try:
+                        active = service.get_active_spring()
+                        if isinstance(active, dict):
+                            spring_id = str(active.get("spring_id") or active.get("_id") or "")
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception:  # noqa: BLE001 — el scope no puede romper el paso
+            pass
+        return spec_id, spring_id
+
+    def _sync_position(self, spec_id: str, state_dict: dict, spring_id: str = "") -> bool:
+        """Persiste la posición COMPACTA en `spec.workflow_position` (SPEC-014).
+
+        Best-effort: la sincronización no puede tumbar el save del workflow. Si
+        no hay sprint resoluble se devuelve False y el estado per-spec sigue
+        siendo la fuente hasta el próximo save.
+        """
+        if not spec_id:
+            return False
+        try:
+            from fast_mcp.composition import _build_sprint_service
+
+            service = _build_sprint_service(self._bundle.chain_dir)
+            if service is None:
+                return False
+            if not spring_id:
+                context = state_dict.get("context") or {}
+                session_id = str(context.get("session_id") or "")
+                if session_id:
+                    try:
+                        record = service.get_session(session_id)
+                        if isinstance(record, dict):
+                            spring_id = str(record.get("spring_id") or "")
+                    except Exception:  # noqa: BLE001
+                        pass
+            if not spring_id:
+                try:
+                    active = service.get_active_spring()
+                    if isinstance(active, dict):
+                        spring_id = str(active.get("spring_id") or active.get("_id") or "")
+                except Exception:  # noqa: BLE001
+                    pass
+            if not spring_id:
+                return False
+            updated = service.update_spec(
+                spring_id, spec_id, {"workflow_position": _compact_workflow_position(state_dict)}
+            )
+            return updated is not None
+        except Exception:  # noqa: BLE001 — best-effort, no rompe el workflow
+            return False
+
+    def _save_state(self, state: WorkflowState, ctx: Any = None) -> bool:
+        """Persist state to SQLite (SSOT). Returns True on success.
+
+        spec_id tracked via contextvars _current_spec_id. `ctx` es opcional por
+        la misma razón que en `_load_state`.
+        """
+        try:
+            from fast_mcp.features.workflow.infrastructure.state_repository import (
+                _current_spec_id as _repo_spec_id,
+                _current_session_id as _repo_session_id,
+            )
+            _repo_spec_id.set(_current_spec_id.get())
+            _repo_session_id.set((getattr(ctx, "session_id", "") or "") if ctx else "")
             self._bundle.workflow_store.save_state(self._bundle.chain_dir, state)
             return True
         except Exception:
@@ -439,7 +836,24 @@ class OrchestrationService:
         gate: str,
         from_node: str,
         to_node: str,
+        skipped: list | None = None,
     ) -> None:
+        # `skipped` viaja sólo cuando hay algo que reportar: los tracers
+        # inyectados por terceros (tests, adapters viejos) no declaran ese
+        # kwarg y una traza nunca puede tumbar el paso.
+        try:
+            if skipped:
+                self._bundle.tracer.trace_transition(
+                    self._bundle.chain_dir,
+                    gate,
+                    from_node,
+                    to_node,
+                    task_id=ctx.task_id,
+                    skipped=skipped,
+                )
+                return
+        except TypeError:  # noqa: BLE001 — tracer sin el kwarg opcional
+            logger.debug("tracer sin soporte de skipped; se traza la transición sola")
         self._bundle.tracer.trace_transition(
             self._bundle.chain_dir,
             gate,
@@ -532,10 +946,44 @@ class OrchestrationService:
     def _submit_impl(
         self, ctx: ExecutionContext, fields: dict[str, Any]
     ) -> dict:
+        # SPEC-015: resolve per-task context
+        _raw_id = str((fields or {}).get("spec_id") or getattr(ctx, "task_id", "") or "").strip()
+        # Only treat as per-task (spec) mode when the id looks like a spec.
+        # Generic task ids (T1, etc.) keep the global state file.
+        _spec_id = _raw_id if _raw_id.upper().startswith("SPEC") else ""
+        _spring_id = ""
+        try:
+            from fast_mcp.composition import _build_sprint_service
+            _svc = _build_sprint_service(self._bundle.chain_dir)
+            if _svc is not None:
+                _sid = getattr(ctx, "session_id", "") or ""
+                if _sid:
+                    try:
+                        _sess = _svc.get_session(_sid)
+                        if isinstance(_sess, dict):
+                            _spring_id = str(_sess.get("spring_id") or "")
+                    except Exception:
+                        pass
+                if not _spring_id:
+                    try:
+                        _active = _svc.get_active_spring()
+                        if isinstance(_active, dict):
+                            _spring_id = str(_active.get("spring_id") or _active.get("_id") or "")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        _current_spec_id.set(_spec_id)
+        _current_spring_id.set(_spring_id)
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
-            return {"ok": False, "error": "Failed to load workflow state"}
+            return {
+                "ok": False,
+                "error_code": "workflow_state_unavailable",
+                "error": "Failed to load workflow state",
+                "hint": "Verificá chain_dir/project_id y que el workflow esté inicializado (init_project).",
+            }
 
         # Auto-initialize: if state has no current_node, set to graph's initial_state
         if not state.current_node and graph.initial_state:
@@ -565,6 +1013,32 @@ class OrchestrationService:
                 "error": f"Sub-state '{state.current_sub_state}' not in node '{state.current_node}'",
             }
 
+        # 2b. Gate mecánico contra auto-decisión del agente en pasos user_input.
+        # El agente NO puede enviar `decision` en un paso user_input: ese campo
+        # es del PO. Si intenta, se bloquea y se le pide que presente la info
+        # y espere. Solo el canal humano (CLI con _human=True) puede enviarlo.
+        exec_type = getattr(sub_state, "execution", None)
+        exec_value = getattr(exec_type, "value", exec_type) or ""
+        if exec_value == ExecutionType.USER_INPUT.value:
+            decision_field = str(getattr(sub_state, "decision_field", "") or "decision")
+            has_decision = bool(str((fields or {}).get(decision_field) or "").strip())
+            is_human = bool((fields or {}).get("_human"))
+            if has_decision and not is_human:
+                return {
+                    "ok": False,
+                    "action": "agent_decision_blocked",
+                    "error_code": "agent_decision_blocked",
+                    "error": (
+                        f"{state.current_node}.{state.current_sub_state} es una decisión "
+                        "del usuario (user_input). El agente no puede enviar `decision`. "
+                        "Presentá la información al usuario y esperá su respuesta; "
+                        "el usuario envía la decisión por CLI (walker/submit)."
+                    ),
+                    "hint": "Presentá la información al usuario y esperá; la decisión la envía el canal humano (CLI con _human=True).",
+                    "required": [decision_field],
+                    "missing": [decision_field],
+                }
+
         # 3. Check required_tools gate
         if sub_state.required_tools:
             gate_check = self._check_required_tools_gate(ctx, sub_state)
@@ -591,8 +1065,10 @@ class OrchestrationService:
             return {
                 "ok": False,
                 "error": "Missing required fields",
+                "error_code": "missing_required_fields",
                 "errors": errors,
                 "action": "validation_failed",
+                "hint": "Completá los campos listados en 'errors'/'missing' y reenviá.",
             }
         # 5b. Gate por FORMA del artefacto de fase (AE-INV-06): el nodo declara
         # `x-artifact` en su input_schema; el validator exige la forma y da
@@ -779,10 +1255,44 @@ class OrchestrationService:
             return {"ok": False, "error": str(e), "action": "advance_error"}
 
     def _advance_impl(self, ctx: ExecutionContext, fields: dict[str, Any]) -> dict:
+        # SPEC-015: resolve per-task context
+        _raw_id = str((fields or {}).get("spec_id") or getattr(ctx, "task_id", "") or "").strip()
+        # Only treat as per-task (spec) mode when the id looks like a spec.
+        # Generic task ids (T1, etc.) keep the global state file.
+        _spec_id = _raw_id if _raw_id.upper().startswith("SPEC") else ""
+        _spring_id = ""
+        try:
+            from fast_mcp.composition import _build_sprint_service
+            _svc = _build_sprint_service(self._bundle.chain_dir)
+            if _svc is not None:
+                _sid = getattr(ctx, "session_id", "") or ""
+                if _sid:
+                    try:
+                        _sess = _svc.get_session(_sid)
+                        if isinstance(_sess, dict):
+                            _spring_id = str(_sess.get("spring_id") or "")
+                    except Exception:
+                        pass
+                if not _spring_id:
+                    try:
+                        _active = _svc.get_active_spring()
+                        if isinstance(_active, dict):
+                            _spring_id = str(_active.get("spring_id") or _active.get("_id") or "")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        _current_spec_id.set(_spec_id)
+        _current_spring_id.set(_spring_id)
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
-            return {"ok": False, "error": "Failed to load workflow state"}
+            return {
+                "ok": False,
+                "error_code": "workflow_state_unavailable",
+                "error": "Failed to load workflow state",
+                "hint": "Verificá chain_dir/project_id y que el workflow esté inicializado (init_project).",
+            }
 
         # Auto-init igual que `submit`: un proyecto sin estado arranca en el
         # sub-estado inicial del grafo.
@@ -814,8 +1324,10 @@ class OrchestrationService:
             return {
                 "ok": False,
                 "error": "Missing required fields",
+                "error_code": "missing_required_fields",
                 "errors": errors,
                 "action": "validation_failed",
+                "hint": "Completá los campos listados en 'errors'/'missing' y reenviá.",
             }
 
         # 1b. `advance` NO puede cruzar una decisión del usuario. Sin esto,
@@ -847,6 +1359,24 @@ class OrchestrationService:
                     "required": required,
                     "missing": missing,
                 }
+
+        # 1c. Gate por FORMA del artefacto de fase (AE-INV-06): igual que en
+        # `submit`, `advance` NO puede saltarse el artefacto requerido. Antes
+        # advance corría la acción sin validar `design_brief` y el agente
+        # pasaba a DESIGN_REVIEW sin haber presentado el informe. (bug de canal)
+        artifact_kind = str((sub_state.input_schema or {}).get("x-artifact") or "")
+        if not artifact_kind:
+            from fast_mcp.features.workflow.domain.artifacts import artifact_for
+
+            artifact_kind = artifact_for(state.current_node, sub_state.key)
+        if artifact_kind:
+            from fast_mcp.features.workflow.domain.artifacts import validate_artifact
+
+            # Validar contra los campos registrados (candidate), no solo los nuevos.
+            merged_for_artifact = merge_action_fields(state, state.current_sub_state, fields or {})
+            artifact_error = validate_artifact(artifact_kind, merged_for_artifact)
+            if artifact_error:
+                return {"ok": False, "action": "artifact_invalid", **artifact_error}
 
         # 2. Ejecutar la acción del sub-estado (los `auto` corren sin el modelo).
         #    Un `llm_task` produce su salida DESDE los campos enviados. Si
@@ -912,6 +1442,22 @@ class OrchestrationService:
                 }
             next_sub = node.sub_states[next_index]
             routed = candidate.with_node(state.current_node, next_sub.key, next_index)
+
+        # 3b. Al entrar a un sub-estado DISTINTO, su data vieja no aplica. Sin
+        # esto, TASK_REVIEW reusaba el `approve` de la tarea anterior y el
+        # router ofrecía cruzar `next_task` sin una decisión nueva (medido
+        # 2026-11-24). Los campos del sub-estado que se abandona se conservan.
+        if routed.current_sub_state != state.current_sub_state:
+            from dataclasses import replace as _replace
+
+            target_key = routed.current_sub_state
+            cleaned = {
+                key: value
+                for key, value in (routed.sub_state_data or {}).items()
+                if str(key) not in (target_key, f"{state.current_node}.{target_key}")
+            }
+            if len(cleaned) != len(routed.sub_state_data or {}):
+                routed = _replace(routed, sub_state_data=cleaned)
 
         new_state = routed.record_node_execution(
             node=state.current_node,
@@ -1030,6 +1576,7 @@ class OrchestrationService:
         )
         exec_data = {
             "task_id": task_id,
+            "session_id": (ctx.session_id if ctx else "") or "mcp",
             "action": action,
             "chain_dir": self._bundle.chain_dir,
             **fields,
@@ -1243,10 +1790,42 @@ class OrchestrationService:
         reason: str,
         skip_preconditions: bool,
     ) -> dict:
+        # SPEC-015: resolve per-task context
+        _raw_id = str(getattr(ctx, "task_id", "") or "").strip()
+        _spec_id = _raw_id if _raw_id.upper().startswith("SPEC") else ""
+        _spring_id = ""
+        try:
+            from fast_mcp.composition import _build_sprint_service
+            _svc = _build_sprint_service(self._bundle.chain_dir)
+            if _svc is not None:
+                _sid = getattr(ctx, "session_id", "") or ""
+                if _sid:
+                    try:
+                        _sess = _svc.get_session(_sid)
+                        if isinstance(_sess, dict):
+                            _spring_id = str(_sess.get("spring_id") or "")
+                    except Exception:
+                        pass
+                if not _spring_id:
+                    try:
+                        _active = _svc.get_active_spring()
+                        if isinstance(_active, dict):
+                            _spring_id = str(_active.get("spring_id") or _active.get("_id") or "")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        _current_spec_id.set(_spec_id)
+        _current_spring_id.set(_spring_id)
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
-            return {"ok": False, "error": "Failed to load workflow state"}
+            return {
+                "ok": False,
+                "error_code": "workflow_state_unavailable",
+                "error": "Failed to load workflow state",
+                "hint": "Verificá chain_dir/project_id y que el workflow esté inicializado (init_project).",
+            }
 
         # 1. Check if blocked — resolve with "force" strategy
         if BlockResolver.is_blocked(state):
@@ -1262,7 +1841,9 @@ class OrchestrationService:
             return {
                 "ok": False,
                 "error": f"Gate '{gate}' not found for node '{state.current_node}'",
+                "error_code": "gate_not_found",
                 "action": "gate_not_found",
+                "hint": "Consultá available_gates en workflow_state para los gates válidos desde el paso actual.",
             }
 
         # 3. Validate source node
@@ -1292,6 +1873,24 @@ class OrchestrationService:
                     f"'{state.current_node}.{state.current_sub_state}'"
                 ),
                 "action": "invalid_source_sub_state",
+            }
+
+        # 3b-bis. `available_from` es el contrato de ORIGEN del gate. Antes se
+        # usaba solo para LISTAR gates (`get_available_gates`) y `transition`
+        # lo ignoraba: `back_to_active` desde PLANNING pasaba y salteaba
+        # PLAN_APPROVAL/TASK_SPEC (medido 2026-11-24: el agente implementaba con
+        # las specs en `draft`). Si el gate declara orígenes, se exigen.
+        available_from = list(getattr(gate_obj, "available_from", None) or [])
+        if available_from and state.current_sub_state not in available_from:
+            return {
+                "ok": False,
+                "action": "invalid_source_sub_state",
+                "error": (
+                    f"Gate '{gate}' no está disponible desde "
+                    f"'{state.current_node}.{state.current_sub_state}'. "
+                    f"Disponible desde: {', '.join(available_from)}."
+                ),
+                "available_from": available_from,
             }
 
         # 3c. Contract.pre: `ckg_has_decision('X')` se evalúa contra la decisión
@@ -1340,11 +1939,13 @@ class OrchestrationService:
                     return {
                         "ok": False,
                         "action": "contract_precondition_failed",
+                        "error_code": "contract_precondition_failed",
                         "error": (
                             f"Gate '{gate}' requires decision '{expected}' at "
                             f"{state.current_node}.{source_sub}; "
                             f"found '{found or '(none)'}'"
                         ),
+                        "hint": f"Registrá la decisión '{expected}' en el sub-estado {state.current_node}.{source_sub} (submit con decision='{expected}') antes de transicionar.",
                         "expected": expected,
                         "found": found,
                     }
@@ -1440,6 +2041,34 @@ class OrchestrationService:
             except Exception:  # noqa: BLE001 — fail-open, nunca romper
                 logger.debug("resolve sprint sub-state failed (fail-open)")
 
+        # 5b. Qué acciones del nodo quedan sin ejecutar al salir (visible, no
+        # silencioso: el motor no las va a correr nunca).
+        skipped = skipped_actions(state, graph.get_node(state.current_node))
+
+        # 5c. Una salida por el flujo principal no puede dejar sin ejecutar la
+        # acción del paso en el que está parado: `advance`/`submit` la corren y
+        # es recuperable. Las salidas de abandono declaradas en el manifiesto
+        # (`refine`, `cancel`, `back_to_*`) sí pueden. Se mira sólo el paso
+        # ACTUAL a propósito: bloquear por acciones anteriores ya no tendría
+        # forma de ejecutarse desde acá y dejaría la sesión sin salida.
+        blocked_by = blocked_by_pending(state, graph.get_node(state.current_node), gate_obj)
+        if blocked_by:
+            return {
+                "ok": False,
+                "action": "pending_action",
+                "error": (
+                    f"'{state.current_node}.{state.current_sub_state}' declara "
+                    f"la acción '{blocked_by[0]['action']}' y no está ejecutada. "
+                    "Corré el paso (advance o submit) antes de transicionar, o "
+                    "usá un gate de abandono."
+                ),
+                "pending_actions": blocked_by,
+                "available_gates": [
+                    g.name for g in ValidationService.get_available_gates(state, graph)
+                    if getattr(g, "intent", "advance") == "abandon"
+                ],
+            }
+
         # 6. Apply transition
         try:
             state = TransitionService.apply(
@@ -1490,13 +2119,30 @@ class OrchestrationService:
 
                     state = _replace(state, sub_state_data=cleaned)
 
+        # 7c. `next_task` es una tarea NUEVA: la data de TASK_SPEC de la
+        # anterior no aplica. El 7b solo limpia entre nodos distintos; este
+        # gate reentra al MISMO nodo y el router veía los campos viejos como
+        # completos (medido 2026-11-24: `next_action` pedía `advance` y el
+        # `spec_task` siguiente actualizaba la spec anterior).
+        if gate == "next_task":
+            from dataclasses import replace as _replace
+
+            target = state.current_sub_state
+            cleaned = {
+                key: value
+                for key, value in (state.sub_state_data or {}).items()
+                if str(key) not in (target, f"{state.current_node}.{target}")
+            }
+            if len(cleaned) != len(state.sub_state_data or {}):
+                state = _replace(state, sub_state_data=cleaned)
+
         # 8. Save state (repository handles CAS + revision bump)
         if not self._save_state(state):
             return {"ok": False, "error": "Failed to persist state"}
 
         # 10. Trace transition
         to_node = f"{state.current_node}.{state.current_sub_state}"
-        self._trace_transition(ctx, gate, from_node, to_node)
+        self._trace_transition(ctx, gate, from_node, to_node, skipped=skipped)
 
         return {
             "ok": True,
@@ -1507,22 +2153,43 @@ class OrchestrationService:
             "gate": gate,
             "revision": state.revision,
             "next_action": next_action_for(state, graph),
+            **({"skipped_actions": skipped} if skipped else {}),
         }
 
     # ── status ──────────────────────────────────────────────────────────
 
     def status(self, ctx: ExecutionContext, view: str = "light") -> dict:
-        """Read-only snapshot of the current workflow state.
-
-        INV-S2-06: never mutates state. `view=light` (default) omite
-        `prompt.data`, `node_executions` y `history`: el agente no los usa para
-        decidir el próximo paso y son el mayor costo fijo por llamada.
-        """
+        """Read-only snapshot of the current workflow state."""
+        # SPEC-015: resolve per-task context
+        _raw_id = str(getattr(ctx, "task_id", "") or "").strip()
+        _spec_id = _raw_id if _raw_id.upper().startswith("SPEC") else ""
+        _spring_id = ""
+        try:
+            from fast_mcp.composition import _build_sprint_service
+            _svc = _build_sprint_service(self._bundle.chain_dir)
+            if _svc is not None:
+                _sid = getattr(ctx, "session_id", "") or ""
+                if _sid:
+                    try:
+                        _sess = _svc.get_session(_sid)
+                        if isinstance(_sess, dict):
+                            _spring_id = str(_sess.get("spring_id") or "")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        _current_spec_id.set(_spec_id)
+        _current_spring_id.set(_spring_id)
         full = str(view or "").lower() == "full"
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
-            return {"ok": False, "error": "Failed to load workflow state"}
+            return {
+                "ok": False,
+                "error_code": "workflow_state_unavailable",
+                "error": "Failed to load workflow state",
+                "hint": "Verificá chain_dir/project_id y que el workflow esté inicializado (init_project).",
+            }
 
         # Auto-init: un proyecto sin `.workflow-state.json` está en el estado
         # inicial del grafo, no en ".". Sin esto el plugin recibía
@@ -1547,12 +2214,17 @@ class OrchestrationService:
         if node:
             gates = ValidationService.get_available_gates(state, graph)
             for g in gates:
+                _contract = getattr(g, "contract", None) or {}
+                _pre = _contract.get("pre", "") if isinstance(_contract, dict) else ""
                 available_gates.append({
                     "name": g.name,
                     "target": f"{g.target_node}.{g.target_sub_state or '*'}"
                     if g.target_sub_state
                     else g.target_node,
                     "description": g.description,
+                    # Precondición del gate: el agente no debe adivinar por qué
+                    # un gate no está habilitado; el motor lo dice (canal unificado).
+                    "precondition": _pre or None,
                 })
 
         # Last 10 executions
@@ -1577,6 +2249,7 @@ class OrchestrationService:
             None if auto_step else self._resolve_current_prompt(state, graph, ctx)
         )
         gates_now = ValidationService.get_available_gates(state, graph) if node else []
+        review = build_review_artifact(state, node, sub_state_def)
         return {
             "ok": True,
             "node": state.current_node,
@@ -1592,8 +2265,15 @@ class OrchestrationService:
             if auto_step
             else (declared_required_fields(sub_state_def) if sub_state_def else []),
             "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
+            "decision_options": decision_options(sub_state_def),
+            # Esquema auto-descriptivo del paso: el agente no debe leer
+            # data/workflow/*.json; el motor expone propiedades, tipos y
+            # descripciones del sub-estado actual (canal unificado, ADR pendiente).
+            "step_schema": (getattr(sub_state_def, "input_schema", None) or {}) if sub_state_def else {},
             "next_action": next_action_for(state, graph),
             "decision_map": decision_map_for(gates_now, sub_state_def),
+            "review": review,
+            "review_markdown": render_review_markdown(review),
             "user_message": extract_user_message(
                 (prompt or {}).get("template") or "",
                 f"{state.current_node}.{state.current_sub_state}",
@@ -1615,19 +2295,19 @@ class OrchestrationService:
     # ── help ────────────────────────────────────────────────────────────
 
     def help(self, ctx: ExecutionContext, view: str = "light") -> dict:
-        """Current state summary + available operations.
-
-        Read-only: INV-S2-06 (el auto-init no persiste nada).
-
-        `view`: `light` (default) devuelve lo que el agente necesita para
-        decidir el próximo paso; `full` agrega `prompt.data`, `gates_detail` e
-        historial. El default bajó el payload de 3,79× el template a ~1×.
-        """
         full = str(view or "").lower() == "full"
+        _raw_id = str(getattr(ctx, "task_id", "") or "").strip()
+        _spec_id = _raw_id if _raw_id.upper().startswith("SPEC") else ""
+        _current_spec_id.set(_spec_id)
         graph = self._load_graph()
         state = self._load_state()
         if graph is None or state is None:
-            return {"ok": False, "error": "Failed to load workflow state"}
+            return {
+                "ok": False,
+                "error_code": "workflow_state_unavailable",
+                "error": "Failed to load workflow state",
+                "hint": "Verificá chain_dir/project_id y que el workflow esté inicializado (init_project).",
+            }
 
         # Auto-init: el plugin lee por acá. Un proyecto sin estado está en el
         # sub-estado inicial del grafo, no en ".". Sin esto recibía
@@ -1651,10 +2331,13 @@ class OrchestrationService:
         if node:
             gates = ValidationService.get_available_gates(state, graph)
             for g in gates:
+                _contract = getattr(g, "contract", None) or {}
+                _pre = _contract.get("pre", "") if isinstance(_contract, dict) else ""
                 available_gates.append({
                     "name": g.name,
                     "target": g.target_node,
                     "description": g.description,
+                    "precondition": _pre or None,
                 })
 
         # Required fields for current sub-state: una sola fuente derivada
@@ -1686,14 +2369,23 @@ class OrchestrationService:
         prompt = (
             None if auto_step else self._resolve_current_prompt(state, graph, ctx)
         )
+        review = build_review_artifact(state, node, sub_state_def)
         return {
             "ok": True,
             "current_position": f"{state.current_node}.{state.current_sub_state}",
+            "review": review,
+            "review_markdown": render_review_markdown(review),
             "execution_type": exec_type,
             "required_fields": required_fields,
             "expected_payload": expected_payload(sub_state_def) if sub_state_def else {},
+            "decision_options": decision_options(sub_state_def),
+            "step_schema": (getattr(sub_state_def, "input_schema", None) or {}) if sub_state_def else {},
             "next_action": next_action_for(state, graph),
             "decision_map": decision_map_for(gates, sub_state_def),
+            "node_tasks": node_tasks(node, getattr(self._bundle, "task_registry", None)),
+            # Acciones del nodo ya pasadas que van a quedar sin ejecutar si se
+            # sale ahora: el agente lo ve en el paso, no después del gate.
+            "pending_actions": skipped_actions(state, node),
             "user_message": extract_user_message(
                 (prompt or {}).get("template") or "",
                 f"{state.current_node}.{state.current_sub_state}",

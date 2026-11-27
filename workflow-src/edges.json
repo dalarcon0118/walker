@@ -5,19 +5,7 @@
   "gate": "project_selected",
   "sub_state_gate": "ACTIVE",
   "description": "Existing project selected. Transform resolves ACTIVE or PLANNING based on active sprint.",
-  "context_updates": [
-   {
-    "from": "START.SELECT.project_id",
-    "to": "context.project_id"
-   }
-  ],
-  "transform": {
-   "action": "resolve_project_sprint",
-   "input": [
-    "SELECT.fields"
-   ],
-   "output": "context.sprint_resolution"
-  },
+  "intent": "advance",
   "available_from": [
    "SELECT"
   ]
@@ -28,6 +16,7 @@
   "gate": "create_project",
   "sub_state_gate": "DETECT",
   "description": "Create new project. Delegates to PROJECT_INIT (sibling node).",
+  "intent": "advance",
   "available_from": [
    "SELECT"
   ]
@@ -38,6 +27,7 @@
   "gate": "refresh",
   "sub_state_gate": "LIST",
   "description": "Refresh project list.",
+  "intent": "abandon",
   "available_from": [
    "SELECT"
   ]
@@ -48,6 +38,7 @@
   "gate": "back_to_start",
   "sub_state_gate": "LIST",
   "description": "Return to start to switch projects.",
+  "intent": "abandon",
   "available_from": [
    "PLANNING",
    "PLAN_APPROVAL",
@@ -56,7 +47,8 @@
    "REVIEW",
    "RETRO",
    "CLOSE_CONFIRM",
-   "CLOSE"
+   "CLOSE",
+   "SPEC_REVIEW"
   ]
  },
  {
@@ -65,6 +57,7 @@
   "gate": "back_to_start",
   "sub_state_gate": "LIST",
   "description": "Return to start from PROJECT_INIT (cancel creation).",
+  "intent": "abandon",
   "available_from": [
    "REVIEW",
    "FIRST_SPRINT"
@@ -80,7 +73,8 @@
   "contract": {
    "pre": "ckg_has_decision('approve')",
    "post": "SPRINT.TASK_SPEC.status == 'pending'"
-  }
+  },
+  "intent": "advance"
  },
  {
   "from": "SPRINT",
@@ -91,7 +85,8 @@
   "description": "Sprint plan needs revision. Return to planning.",
   "contract": {
    "pre": "ckg_has_decision('revise')"
-  }
+  },
+  "intent": "abandon"
  },
  {
   "from": "SPRINT",
@@ -99,7 +94,8 @@
   "gate": "refine_task",
   "source_sub_state": "TASK_REVIEW",
   "sub_state_gate": "TASK_SPEC",
-  "description": "Re-specify current task (from TASK_REVIEW)."
+  "description": "Re-specify current task (from TASK_REVIEW).",
+  "intent": "abandon"
  },
  {
   "from": "SPRINT",
@@ -107,15 +103,41 @@
   "gate": "next_task",
   "source_sub_state": "TASK_REVIEW",
   "sub_state_gate": "TASK_SPEC",
-  "description": "Next task specification (from TASK_REVIEW)."
+  "description": "Next task specification (from TASK_REVIEW).",
+  "intent": "advance"
  },
  {
   "from": "SPRINT",
   "to": "SPRINT",
   "gate": "all_done",
   "source_sub_state": "TASK_REVIEW",
+  "sub_state_gate": "SPEC_REVIEW",
+  "description": "All tasks specified; mandatory spec review before implementation.",
+  "intent": "advance"
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "spec_review_accepted",
+  "source_sub_state": "SPEC_REVIEW",
   "sub_state_gate": "ACTIVE",
-  "description": "All tasks specified, go to sprint dashboard."
+  "description": "Spec review accepted by PO. Proceed to implementation.",
+  "contract": {
+   "pre": "ckg_has_decision('accept')"
+  },
+  "intent": "advance"
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "spec_review_needs_work",
+  "source_sub_state": "SPEC_REVIEW",
+  "sub_state_gate": "TASK_SPEC",
+  "description": "Spec review needs work. Return to task spec.",
+  "contract": {
+   "pre": "ckg_has_decision('needs_work')"
+  },
+  "intent": "abandon"
  },
  {
   "from": "SPRINT",
@@ -123,7 +145,8 @@
   "gate": "start_task",
   "source_sub_state": "ACTIVE",
   "sub_state_gate": "DESIGN_GATHER",
-  "description": "Start task: design phase first (from ACTIVE)."
+  "description": "Start task: design phase first (from ACTIVE).",
+  "intent": "advance"
  },
  {
   "from": "SPRINT",
@@ -131,7 +154,8 @@
   "gate": "edit_plan",
   "source_sub_state": "ACTIVE",
   "sub_state_gate": "PLANNING",
-  "description": "Return to sprint planning to adjust backlog (from ACTIVE)."
+  "description": "Return to sprint planning to adjust backlog (from ACTIVE).",
+  "intent": "abandon"
  },
  {
   "from": "SPRINT",
@@ -139,7 +163,8 @@
   "gate": "goal_invalidation",
   "source_sub_state": "ACTIVE",
   "sub_state_gate": "PLANNING",
-  "description": "PHASE 12 MONITORING (Gollwitzer): invalidation condition detected on the committed sprint goal - re-deliberate the plan (back to PLANNING). Register WHAT invalidated the goal in the transition reason."
+  "description": "PHASE 12 MONITORING (Gollwitzer): invalidation condition detected on the committed sprint goal - re-deliberate the plan (back to PLANNING). Register WHAT invalidated the goal in the transition reason.",
+  "intent": "abandon"
  },
  {
   "from": "SPRINT",
@@ -147,7 +172,8 @@
   "gate": "start_review",
   "source_sub_state": "ACTIVE",
   "sub_state_gate": "REVIEW",
-  "description": "Start sprint review (from ACTIVE)."
+  "description": "Start sprint review (from ACTIVE).",
+  "intent": "advance"
  },
  {
   "from": "SPRINT",
@@ -155,24 +181,14 @@
   "gate": "back_to_active",
   "sub_state_gate": "ACTIVE",
   "description": "Return to sprint dashboard.",
+  "intent": "abandon",
   "available_from": [
-   "PLANNING",
-   "PLAN_APPROVAL",
-   "TASK_REVIEW",
    "ACTIVE",
    "REVIEW",
    "RETRO",
    "CLOSE_CONFIRM",
    "CLOSE"
   ]
- },
- {
-  "from": "SPRINT",
-  "to": "SPRINT",
-  "gate": "close_sprint",
-  "source_sub_state": "ACTIVE",
-  "sub_state_gate": "CLOSE",
-  "description": "Close sprint directly (from ACTIVE)."
  },
  {
   "from": "DESIGN",
@@ -185,13 +201,7 @@
    "pre": "ckg_has_decision('approve')",
    "post": "ANALYZE.GATHER.status == 'pending'"
   },
-  "transform": {
-   "action": "prepare_analysis_context",
-   "input": [
-    "DESIGN.CKG_SAVE.status"
-   ],
-   "output": "ANALYZE.context.design"
-  }
+  "intent": "advance"
  },
  {
   "from": "DESIGN",
@@ -202,6 +212,7 @@
   "contract": {
    "pre": "ckg_has_decision('refine')"
   },
+  "intent": "abandon",
   "available_from": [
    "DESIGN_REVIEW",
    "CKG_SAVE"
@@ -220,28 +231,7 @@
     "No pending tasks in ANALYZE phase"
    ]
   },
-  "context_updates": [
-   {
-    "from": "ANALYZE.ANALYZE.summary",
-    "to": "context.analysis"
-   },
-   {
-    "from": "ANALYZE.ANALYZE.q1",
-    "to": "context.analysis_q1"
-   },
-   {
-    "from": "ANALYZE.ANALYZE.summary",
-    "to": "context.analysis_summary"
-   }
-  ],
-  "transform": {
-   "action": "build_task_briefing",
-   "input": [
-    "ANALYZE.ANALYZE.summary",
-    "ANALYZE.KNOWLEDGE_CAPTURE.*"
-   ],
-   "output": "IMPLEMENT.context.briefing"
-  },
+  "intent": "advance",
   "available_from": [
    "REVIEW",
    "KNOWLEDGE_CAPTURE"
@@ -253,6 +243,7 @@
   "gate": "needs_refine",
   "sub_state_gate": "DIAGNOSE",
   "description": "Analysis needs refinement.",
+  "intent": "abandon",
   "available_from": [
    "REVIEW"
   ]
@@ -270,14 +261,7 @@
     "CODE_REVIEW_SCAN.passed == true"
    ]
   },
-  "transform": {
-   "action": "build_verification_context",
-   "input": [
-    "IMPLEMENT.WORK.result",
-    "IMPLEMENT.CODE_REVIEW_SCAN.findings"
-   ],
-   "output": "VERIFY.context"
-  },
+  "intent": "advance",
   "available_from": [
    "USER_GATE",
    "REPORT_GATE"
@@ -289,6 +273,7 @@
   "gate": "needs_refine",
   "sub_state_gate": "DIAGNOSE",
   "description": "Implementation needs refinement.",
+  "intent": "abandon",
   "available_from": [
    "USER_GATE",
    "CODE_REVIEW_RESULT",
@@ -301,6 +286,7 @@
   "gate": "cancel",
   "sub_state_gate": "ACTIVE",
   "description": "Task cancelled. Return to sprint dashboard.",
+  "intent": "abandon",
   "available_from": [
    "USER_GATE",
    "CODE_REVIEW_RESULT",
@@ -321,6 +307,7 @@
     "CKG.status == up_to_date"
    ]
   },
+  "intent": "advance",
   "available_from": [
    "PO_ACCEPT"
   ]
@@ -331,6 +318,7 @@
   "gate": "needs_refine",
   "sub_state_gate": "DIAGNOSE",
   "description": "Verification needs refinement.",
+  "intent": "abandon",
   "available_from": [
    "QA",
    "PO_ACCEPT"
@@ -342,6 +330,7 @@
   "gate": "reroute_design",
   "sub_state_gate": "DESIGN_GATHER",
   "description": "Refine from design phase.",
+  "intent": "abandon",
   "available_from": [
    "CONFIRM_GATE",
    "ESCALATION"
@@ -353,6 +342,7 @@
   "gate": "reroute_analyze",
   "sub_state_gate": "GATHER",
   "description": "Refine from analysis phase.",
+  "intent": "abandon",
   "available_from": [
    "CONFIRM_GATE",
    "ESCALATION"
@@ -364,6 +354,7 @@
   "gate": "reroute_implement",
   "sub_state_gate": "WORK",
   "description": "Refine from implementation phase.",
+  "intent": "abandon",
   "available_from": [
    "CONFIRM_GATE",
    "ESCALATION"
@@ -375,6 +366,7 @@
   "gate": "reroute_verify",
   "sub_state_gate": "QA_RUN",
   "description": "Refine from verification phase.",
+  "intent": "abandon",
   "available_from": [
    "CONFIRM_GATE",
    "ESCALATION"
@@ -386,6 +378,7 @@
   "gate": "reroute_sprint",
   "sub_state_gate": "ACTIVE",
   "description": "Return to sprint (task not refinable).",
+  "intent": "abandon",
   "available_from": [
    "CONFIRM_GATE",
    "ESCALATION"
@@ -397,6 +390,7 @@
   "gate": "escalation",
   "sub_state_gate": "ACTIVE",
   "description": "Refinement limit reached (3 attempts). Escalate to sprint for manual review.",
+  "intent": "abandon",
   "available_from": [
    "CONFIRM_GATE",
    "ESCALATION"
@@ -408,7 +402,8 @@
   "gate": "init_project",
   "source_sub_state": "ACTIVE",
   "sub_state_gate": "DETECT",
-  "description": "Initialize a new project from scratch (from ACTIVE)."
+  "description": "Initialize a new project from scratch (from ACTIVE).",
+  "intent": "advance"
  },
  {
   "from": "PROJECT_INIT",
@@ -416,6 +411,7 @@
   "gate": "project_ready",
   "sub_state_gate": "ACTIVE",
   "description": "Project initialized, return to sprint dashboard.",
+  "intent": "advance",
   "available_from": [
    "REVIEW",
    "FIRST_SPRINT"
@@ -427,6 +423,7 @@
   "gate": "revise_specs",
   "sub_state_gate": "GATHER_SPECS",
   "description": "Revise project specifications.",
+  "intent": "abandon",
   "available_from": [
    "REVIEW"
   ]
@@ -436,8 +433,18 @@
   "to": "SPRINT",
   "gate": "review_accepted",
   "source_sub_state": "REVIEW",
+  "sub_state_gate": "REPORT",
+  "description": "Sprint review accepted: present the PO report before the retrospective.",
+  "intent": "advance"
+ },
+ {
+  "from": "SPRINT",
+  "to": "SPRINT",
+  "gate": "report_delivered",
+  "source_sub_state": "REPORT",
   "sub_state_gate": "RETRO",
-  "description": "Sprint review accepted: continue to retrospective."
+  "description": "PO report delivered (summary + metrics + risks + next): continue to retrospective.",
+  "intent": "advance"
  },
  {
   "from": "SPRINT",
@@ -445,7 +452,8 @@
   "gate": "review_needs_work",
   "source_sub_state": "REVIEW",
   "sub_state_gate": "ACTIVE",
-  "description": "Sprint review needs work: return to dashboard."
+  "description": "Sprint review needs work: return to dashboard.",
+  "intent": "abandon"
  },
  {
   "from": "SPRINT",
@@ -453,7 +461,8 @@
   "gate": "close_confirmed",
   "source_sub_state": "CLOSE_CONFIRM",
   "sub_state_gate": "CLOSE",
-  "description": "PO confirmed sprint close: run CLOSE."
+  "description": "PO confirmed sprint close: run CLOSE.",
+  "intent": "advance"
  },
  {
   "from": "SPRINT",
@@ -461,6 +470,7 @@
   "gate": "close_cancelled",
   "source_sub_state": "CLOSE_CONFIRM",
   "sub_state_gate": "ACTIVE",
-  "description": "PO cancelled sprint close: return to dashboard."
+  "description": "PO cancelled sprint close: return to dashboard.",
+  "intent": "abandon"
  }
 ]
